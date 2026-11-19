@@ -5,9 +5,11 @@ import datetime as dt
 import pytest
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
 from posthog.models.event.sql import EVENTS_JSON_CLEANER, EVENTS_PROPERTIES_JSON_TYPE
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
+from products.batch_exports.backend.temporal.destinations.http_batch_export import http_default_fields
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.sql.events import (
     _NATIVE_EVENTS_FIELD_EXPRESSIONS,
@@ -54,8 +56,12 @@ def test_native_events_export_query_matches_legacy_json_text(setting: str) -> No
             {"$browser": "Firefox", "$feature/checkout": True},
             {"$browser": "Firefox", "$feature_flags": {"checkout": "true"}},
         ),
+        (
+            {"plan": "pro", "$set": {"email": "a@example.com"}},
+            {"plan": "pro", "$set": {"email": "a@example.com"}},
+        ),
     ],
-    ids=["no-flags-or-built-in-properties", "flags-and-built-in-properties"],
+    ids=["no-flags-or-built-in-properties", "flags-and-built-in-properties", "temporary-properties"],
 )
 @pytest.mark.django_db
 def test_native_events_export_sends_properties_without_storage_defaults(
@@ -64,7 +70,8 @@ def test_native_events_export_sends_properties_without_storage_defaults(
     """The exported document puts back what the ingestion cleaner stores as text, and leaves out its defaults."""
     result = sync_execute(
         f"SELECT {_NATIVE_EVENTS_FIELD_EXPRESSIONS['properties']} FROM ("
-        f"SELECT CAST(cleaned.properties, '{EVENTS_PROPERTIES_JSON_TYPE()}') AS properties "
+        f"SELECT CAST(cleaned.properties, '{EVENTS_PROPERTIES_JSON_TYPE()}') AS properties, "
+        f"CAST(cleaned.temporary_properties, '{TEMPORARY_PROPERTIES_JSON_TYPE}') AS temporary_properties "
         f"FROM (SELECT {EVENTS_JSON_CLEANER}(%(properties)s, '{{}}') AS cleaned)"
         ") AS events",
         {"properties": json.dumps(sent_properties)},
@@ -73,24 +80,20 @@ def test_native_events_export_sends_properties_without_storage_defaults(
     assert json.loads(result[0][0]) == expected
 
 
-@pytest.mark.parametrize(
-    "filters,expected_events",
-    [
-        ([], {"with-flag", "without-flag"}),
-        ([{"key": "$feature/checkout", "type": "event", "operator": "exact", "value": ["true"]}], {"with-flag"}),
-        ([{"key": "$os", "type": "event", "operator": "is_not_set"}], {"with-flag"}),
-    ],
-    ids=["no-filters", "flag-filter", "declared-property-not-set"],
-)
-@pytest.mark.django_db
-def test_native_recent_events_export_sends_stored_documents_and_filters_them_like_events_json(
-    team, filters: list[dict], expected_events: set[str]
-) -> None:
+_STORED_RECENT_EVENTS = {
+    "with-flag": (
+        '{"$browser":"Chrome","$feature_flags":{"checkout":"true"},"page":"/a/b","$set":{"email":"a@example.com"}}',
+        '{"$set":{"email":"a@example.com"}}',
+    ),
+    "without-flag": ('{"$browser":"Firefox","$os":"Mac OS X"}', "{}"),
+    "$feature_flag_called": ('{"$feature_flag":"checkout","$feature_flag_response":"true"}', "{}"),
+}
+
+
+def _export_recent_events(
+    team_id: int, fields: list, filters: list[dict], *, includes_feature_flag_called: bool
+) -> list[tuple]:
     now = dt.datetime.now(tz=dt.UTC)
-    stored_properties = {
-        "with-flag": '{"$browser":"Chrome","$feature_flags":{"checkout":"true"},"page":"/a/b"}',
-        "without-flag": '{"$browser":"Firefox","$os":"Mac OS X"}',
-    }
     sync_execute(
         """
         INSERT INTO sharded_events_json_recent
@@ -98,29 +101,24 @@ def test_native_recent_events_export_sends_stored_documents_and_filters_them_lik
         VALUES
         """,
         [
-            (uuid.uuid4(), event, properties, '{"email":"a@example.com"}', "{}", team.pk, "d1", now, now)
-            for event, properties in stored_properties.items()
+            (uuid.uuid4(), event, properties, '{"email":"a@example.com"}', temporary, team_id, "d1", now, now)
+            for event, (properties, temporary) in _STORED_RECENT_EVENTS.items()
         ],
     )
     filters_str, filter_values = (
-        compose_filters_clause(filters, team_id=team.pk, use_new_events_schema=True) if filters else ("", {})
+        compose_filters_clause(filters, team_id=team_id, use_new_events_schema=True) if filters else ("", {})
     )
     query = native_recent_events_export_query(
-        [
-            {"expression": "event", "alias": "event"},
-            {"expression": "properties", "alias": "properties"},
-            {"expression": "person_properties", "alias": "person_properties"},
-            {"expression": "set", "alias": "set"},
-        ],
+        fields,
         filters_str,
         is_5_min_batch_export=True,
+        includes_feature_flag_called=includes_feature_flag_called,
     ).replace("FORMAT ArrowStream", "")
-
-    rows = sync_execute(
+    return sync_execute(
         query,
         {
             **filter_values,
-            "team_id": team.pk,
+            "team_id": team_id,
             "interval_start": now - dt.timedelta(hours=1),
             "interval_end": now + dt.timedelta(hours=1),
             "include_events": [],
@@ -128,8 +126,46 @@ def test_native_recent_events_export_sends_stored_documents_and_filters_them_lik
         },
     )
 
+
+@pytest.mark.parametrize(
+    "filters,includes_feature_flag_called,expected_events",
+    [
+        ([], False, {"with-flag", "without-flag"}),
+        ([], True, {"with-flag", "without-flag", "$feature_flag_called"}),
+        ([{"key": "$feature/checkout", "type": "event", "operator": "exact", "value": ["true"]}], False, {"with-flag"}),
+        ([{"key": "$os", "type": "event", "operator": "is_not_set"}], False, {"with-flag"}),
+    ],
+    ids=["no-filters", "feature-flag-called-allowed", "flag-filter", "declared-property-not-set"],
+)
+@pytest.mark.django_db
+def test_native_recent_events_export_sends_stored_documents_and_filters_them_like_events_json(
+    team, filters: list[dict], includes_feature_flag_called: bool, expected_events: set[str]
+) -> None:
+    rows = _export_recent_events(
+        team.pk,
+        [
+            {"expression": "event", "alias": "event"},
+            {"expression": "properties", "alias": "properties"},
+            {"expression": "person_properties", "alias": "person_properties"},
+            {"expression": "set", "alias": "set"},
+        ],
+        filters,
+        includes_feature_flag_called=includes_feature_flag_called,
+    )
+
     assert {row[0] for row in rows} == expected_events
     for event, properties, person_properties, set_field in rows:
-        assert properties == stored_properties[event]
+        assert properties == _STORED_RECENT_EVENTS[event][0]
         assert person_properties == '{"email":"a@example.com"}'
         assert set_field is None
+
+
+@pytest.mark.django_db
+def test_native_recent_events_export_rebuilds_whole_documents_without_repeating_temporary_properties(team) -> None:
+    fields = http_default_fields(reads_native_events=True)
+    rows = _export_recent_events(team.pk, fields, [], includes_feature_flag_called=False)
+
+    aliases = [field["alias"] for field in fields]
+    properties_by_event = {row[aliases.index("event")]: row[aliases.index("properties")] for row in rows}
+    members = json.loads(properties_by_event["with-flag"], object_pairs_hook=lambda pairs: pairs)
+    assert [key for key, _ in members].count("$set") == 1

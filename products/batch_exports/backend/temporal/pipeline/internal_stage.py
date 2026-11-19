@@ -64,6 +64,7 @@ from products.batch_exports.backend.temporal.errors import MissingRequiredInputs
 from products.batch_exports.backend.temporal.filters import InvalidFilterError, compose_filters_clause
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.pipeline.query_ranges import (
+    exports_feature_flag_called_events,
     is_5_min_batch_export,
     is_covered_by_events_json_recent,
     use_distributed_events_recent_table,
@@ -701,6 +702,7 @@ async def _get_query(
                 fields,
                 filters_str,
                 is_5_min_batch_export=query_template is EXPORT_TO_S3_FROM_EVENTS_RECENT,
+                includes_feature_flag_called=exports_feature_flag_called_events(team_id),
                 s3_function=s3_function,
             )
         elif native_source:

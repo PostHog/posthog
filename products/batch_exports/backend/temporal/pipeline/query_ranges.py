@@ -55,6 +55,11 @@ def is_covered_by_events_json_recent(range_start: dt.datetime | None) -> bool:
     return range_start >= covered_since
 
 
+def exports_feature_flag_called_events(team_id: int) -> bool:
+    """Whether an export of `events_json_recent` for `team_id` includes `$feature_flag_called` events."""
+    return str(team_id) in settings.BATCH_EXPORTS_FEATURE_FLAG_CALLED_TEAM_IDS
+
+
 async def wait_for_delta_past_data_interval_end(
     data_interval_end: dt.datetime, delta: dt.timedelta = dt.timedelta(seconds=30)
 ) -> None:

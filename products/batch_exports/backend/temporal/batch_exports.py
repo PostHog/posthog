@@ -42,6 +42,7 @@ from products.batch_exports.backend.service import (
 )
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
 from products.batch_exports.backend.temporal.pipeline.query_ranges import (
+    exports_feature_flag_called_events,
     is_covered_by_events_json_recent,
     use_distributed_events_recent_table,
 )
@@ -356,6 +357,7 @@ def iter_records(
             select_fields,
             filters_str or "",
             is_5_min_batch_export=query is SELECT_FROM_EVENTS_VIEW_RECENT,
+            includes_feature_flag_called=exports_feature_flag_called_events(team_id),
             order="ORDER BY _inserted_at, event",
         )
     else:
