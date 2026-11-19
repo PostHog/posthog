@@ -107,6 +107,12 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                 integration_field: zod.string().optional(),
                 requiredScopes: zod.string().optional(),
                 templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
+                auth: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                    ),
             })
         )
         .optional()
@@ -221,6 +227,12 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                             integration_field: zod.string().optional(),
                             requiredScopes: zod.string().optional(),
                             templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
+                            auth: zod
+                                .boolean()
+                                .optional()
+                                .describe(
+                                    "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                                ),
                         })
                     )
                     .optional(),
@@ -389,6 +401,12 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                 integration_field: zod.string().optional(),
                 requiredScopes: zod.string().optional(),
                 templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
+                auth: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                    ),
             })
         )
         .optional()
@@ -503,6 +521,12 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                             integration_field: zod.string().optional(),
                             requiredScopes: zod.string().optional(),
                             templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
+                            auth: zod
+                                .boolean()
+                                .optional()
+                                .describe(
+                                    "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                                ),
                         })
                     )
                     .optional(),
@@ -671,6 +695,12 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 integration_field: zod.string().optional(),
                 requiredScopes: zod.string().optional(),
                 templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
+                auth: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                    ),
             })
         )
         .optional()
@@ -785,6 +815,12 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             integration_field: zod.string().optional(),
                             requiredScopes: zod.string().optional(),
                             templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
+                            auth: zod
+                                .boolean()
+                                .optional()
+                                .describe(
+                                    "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                                ),
                         })
                     )
                     .optional(),
@@ -957,6 +993,12 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                 integration_field: zod.string().optional(),
                 requiredScopes: zod.string().optional(),
                 templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
+                auth: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                    ),
             })
         )
         .optional()
@@ -1077,6 +1119,12 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                             integration_field: zod.string().optional(),
                             requiredScopes: zod.string().optional(),
                             templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
+                            auth: zod
+                                .boolean()
+                                .optional()
+                                .describe(
+                                    "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                                ),
                         })
                     )
                     .optional(),
@@ -1321,6 +1369,12 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         integration_field: zod.string().optional(),
                         requiredScopes: zod.string().optional(),
                         templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
+                        auth: zod
+                            .boolean()
+                            .optional()
+                            .describe(
+                                "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                            ),
                     })
                 )
                 .optional()
@@ -1450,6 +1504,12 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     integration_field: zod.string().optional(),
                                     requiredScopes: zod.string().optional(),
                                     templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
+                                    auth: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                                        ),
                                 })
                             )
                             .optional(),

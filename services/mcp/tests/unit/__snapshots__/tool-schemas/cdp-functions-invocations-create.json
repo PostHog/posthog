@@ -285,6 +285,10 @@
                     "description": "Schema defining the configurable input parameters for this function.",
                     "items": {
                         "properties": {
+                            "auth": {
+                                "description": "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind.",
+                                "type": "boolean"
+                            },
                             "choices": {
                                 "items": {
                                     "additionalProperties": {},
@@ -486,6 +490,10 @@
                                     "inputs_schema": {
                                         "items": {
                                             "properties": {
+                                                "auth": {
+                                                    "description": "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind.",
+                                                    "type": "boolean"
+                                                },
                                                 "choices": {
                                                     "items": {
                                                         "additionalProperties": {},
