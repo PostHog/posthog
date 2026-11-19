@@ -10,6 +10,7 @@ from functools import wraps
 from time import sleep
 from typing import TYPE_CHECKING, Optional
 
+import structlog
 from celery import current_task
 from prometheus_client import Counter
 
@@ -55,6 +56,8 @@ CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER = Counter(
 # Restricting it to known product values keeps the Prometheus series count bounded — an arbitrary
 # tag can never mint a new series.
 _KNOWN_PRODUCT_LABELS: frozenset[str] = frozenset(p.value for p in Product) | frozenset(p.value for p in ProductKey)
+
+logger = structlog.get_logger(__name__)
 
 CONCURRENT_QUERY_QUEUE_WAIT_COUNTER = Counter(
     "posthog_clickhouse_query_concurrency_queue_wait",
@@ -111,7 +114,7 @@ class ConcurrencySlot:
     task_id: str
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class QueueWait:
     """Lets a caller wait for a slot on a full limiter instead of failing at once.
 
@@ -319,7 +322,11 @@ class RateLimit:
                     admitted = True
                     break
         finally:
-            self.redis_client.zrem(waiters_key, task_id)
+            try:
+                self.redis_client.zrem(waiters_key, task_id)
+            except Exception:
+                # The waiter entry expires on its own; failing here would leak a slot already taken.
+                logger.warning("concurrency_queue_waiter_cleanup_failed", exc_info=True)
             queue_wait.waited += self.get_time() - start
             tag_queries(queue_wait_ms=int(1000 * queue_wait.waited))
 

@@ -178,6 +178,7 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
 )
 from posthog.clickhouse.query_tagging import (
+    AccessMethod,
     add_fallback_query_tags,
     get_query_tag_value,
     get_query_tags,
@@ -2540,7 +2541,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def _dashboard_queue_wait(self, dashboard_id: Optional[int], *, is_api_key_access: bool) -> Optional[QueueWait]:
         """On `dashboard-v2`, a dashboard tile that finds the analytics slots full waits briefly for one instead of failing."""
-        if dashboard_id is None or is_api_key_access or not self._team_flag_enabled_locally(DASHBOARD_V2_FLAG):
+        # Shared-link viewers are anonymous, so they fail fast rather than hold a web worker while they wait.
+        if (
+            dashboard_id is None
+            or is_api_key_access
+            or get_query_tag_value("access_method") == AccessMethod.SHARING_TOKEN
+            or not self._team_flag_enabled_locally(DASHBOARD_V2_FLAG)
+        ):
             return None
         return QueueWait()
 
