@@ -4835,6 +4835,12 @@ def _int_or_none(value: Any) -> Optional[int]:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def _step_counts_or_none(value: Any) -> Optional[dict[str, int]]:
+    if not isinstance(value, dict) or any(_int_or_none(count) is None for count in value.values()):
+        return None
+    return value
+
+
 class HogFlowPublishResponseSerializer(serializers.Serializer):
     published = serializers.BooleanField(help_text="Whether the draft was applied to the live workflow.")
     in_flight_runs = serializers.IntegerField(
@@ -6531,7 +6537,7 @@ class HogFlowViewSet(
                 # The preview goes through its serializer, so a malformed count degrades instead of failing it.
                 return {
                     "count": _int_or_none(body.get("count")),
-                    "by_action": body.get("by_action") if isinstance(body.get("by_action"), dict) else None,
+                    "by_action": _step_counts_or_none(body.get("by_action")),
                     "position_unknown": _int_or_none(body.get("position_unknown")),
                 }
             logger.warning(

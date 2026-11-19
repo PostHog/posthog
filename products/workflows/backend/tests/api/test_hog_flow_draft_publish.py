@@ -559,6 +559,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
         [
             ("service_down", Exception("node service down"), None),
             ("malformed_counts", None, {"count": "unknown", "by_action": [], "position_unknown": "unknown"}),
+            ("malformed_step_count", None, {"count": 7, "by_action": {"action_1": "unknown"}, "position_unknown": 0}),
         ]
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count")
@@ -567,14 +568,27 @@ class TestHogFlowDraftPublish(APIBaseTest):
             mock_count.side_effect = error
         else:
             mock_count.return_value = MagicMock(status_code=200, json=lambda: body)
-        flow_id = self._create_active_flow()
-        self._stage_draft(flow_id)
+        flow_id = self._create_active_three_step_flow()
+        stage = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "remove_action", "id": "action_1"}]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert stage.status_code == 200, stage.json()
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {})
         assert response.status_code == 200, response.json()
-        assert response.json()["in_flight_runs"] is None
+        assert response.json()["confirm_token"]
         # Graph-derived impact still renders; only the counts degrade
-        assert response.json()["impact"]["position_unknown"] is None
+        assert response.json()["impact"]["deleted_steps"] == [
+            {
+                "action_id": "action_1",
+                "name": "action_1",
+                "runs": None,
+                "moves_to": {"action_id": "action_2", "name": "action_2"},
+                "exits": False,
+            }
+        ]
 
     @patch("products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count")
     def test_publish_preview_reports_deleted_step_moves(self, mock_count):
