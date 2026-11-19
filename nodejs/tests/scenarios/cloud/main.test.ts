@@ -192,27 +192,43 @@ describe('cloud controller', () => {
         ['the production setting when the profile names none', {}, 60],
         ['the interval the profile names', { profile: (p) => ({ ...p, readerMonitoringIntervalSeconds: 5 }) }, 5],
     ])('monitors the reader at %s and the writer every second', async (_, setup, readerInterval) => {
-        const { controller } = prepare(setup)
-        let intervals: Promise<[string, number][]> = Promise.resolve([])
-        cloud.beforeCall('send-command', () => {
-            intervals = Promise.all(
-                cloud.resources
-                    .filter(({ type, state }) => type === 'AWS::RDS::DBInstance' && state === 'available')
-                    .map(async ({ logicalId, id }) => {
-                        const { DBInstances } = (await cloud.call([
-                            'rds',
-                            'describe-db-instances',
-                            '--db-instance-identifier',
-                            id,
-                        ])) as { DBInstances: { MonitoringInterval: number }[] }
-                        return [logicalId, DBInstances[0].MonitoringInterval]
-                    })
+        const { controller } = prepare({ ...setup, env: api.credentials })
+        const intervalsOf = async (stackName: string): Promise<Record<string, number>> => {
+            const { StackResources } = (await cloud.call([
+                'cloudformation',
+                'describe-stack-resources',
+                '--stack-name',
+                stackName,
+            ])) as { StackResources: { LogicalResourceId: string; ResourceType: string; PhysicalResourceId: string }[] }
+            const instances = StackResources.filter(({ ResourceType }) => ResourceType === 'AWS::RDS::DBInstance')
+            const described = await Promise.all(
+                instances.map(async ({ LogicalResourceId, PhysicalResourceId }) => {
+                    const { DBInstances } = (await cloud.call([
+                        'rds',
+                        'describe-db-instances',
+                        '--db-instance-identifier',
+                        PhysicalResourceId,
+                    ])) as { DBInstances: { MonitoringInterval: number }[] }
+                    return [LogicalResourceId, DBInstances[0].MonitoringInterval] as const
+                })
             )
+            return Object.fromEntries(described)
+        }
+        let readerAdded = false
+        let atCardStart: Promise<Record<string, number>> | undefined
+        cloud.beforeCall('update-stack', () => {
+            readerAdded = true
+        })
+        cloud.beforeCall('send-command', () => {
+            if (readerAdded) {
+                atCardStart ??= intervalsOf(`scn-${leasedRunId()}`)
+            }
         })
 
         await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
 
-        expect(Object.fromEntries(await intervals)).toEqual({ Writer: 1, Reader: readerInterval })
+        expect(await atCardStart).toEqual({ Writer: 1, Reader: readerInterval })
+        expect(published()).toMatchObject({ reader_monitoring_interval_seconds: readerInterval })
     })
 
     it('runs the card it is given on the host and judges a card without a failover on its own verdict', async () => {

@@ -941,7 +941,10 @@ export class FakeCloud implements Aws {
                 )
                 return {
                     DBInstances: [
-                        { DBInstanceStatus: instance.state, MonitoringInterval: Number(instance.monitoringInterval) },
+                        {
+                            DBInstanceStatus: instance.state,
+                            MonitoringInterval: Number(instance.monitoringInterval ?? 0),
+                        },
                     ],
                 }
             }
