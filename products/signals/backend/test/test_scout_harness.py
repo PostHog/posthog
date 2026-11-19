@@ -1291,7 +1291,7 @@ class TestWriteAccessPromptSection(SimpleTestCase):
 
 class TestReportActionsPromptSection(SimpleTestCase):
     def test_section_renders_only_for_a_run_that_holds_an_action(self) -> None:
-        def _prompt(**kwargs: list[str]) -> str:
+        def _prompt(report_actions: list[str] | None = None) -> str:
             return build_run_prompt(
                 LoadedSkill(
                     name="signals-scout-orchestrator",
@@ -1307,7 +1307,7 @@ class TestReportActionsPromptSection(SimpleTestCase):
                 run_id="00000000-0000-0000-0000-000000000abc",
                 team_id=1,
                 started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
-                **kwargs,
+                report_actions=report_actions,
             )
 
         # Every kind a person can grant has to reach the prompt, or a granted scout learns of it only by trial.
