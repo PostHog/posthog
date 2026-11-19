@@ -1,36 +1,14 @@
-/* eslint-disable react/forbid-dom-props -- positions along the time axis are data, not a design-scale value */
 import clsx from 'clsx'
 
 import { IconChevronRight } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
-
 import type { SignalReportListApi } from 'products/signals/frontend/generated/api.schemas'
 
-import {
-    axisPercent,
-    type MonitoringBarTone,
-    monitoringBarTone,
-    monitoringRowStatus,
-    monitoringSpan,
-} from '../../utils/monitoringTimeline'
+import { monitoringRowStatus } from '../../utils/monitoringTimeline'
 import { displayConventionalCommitTitle } from '../../utils/reportPresentation'
 import { MonitoringRowDetail } from './MonitoringRowDetail'
-
-const BAR_TONE: Record<MonitoringBarTone, string> = {
-    success: 'bg-success',
-    warning: 'bg-warning',
-    strong: 'bg-border-bold',
-    faint: 'bg-border-bold opacity-50',
-}
-
-const OUTCOME_MARK: Record<string, string> = {
-    resolved: 'bg-success',
-    resolved_by_assessment: 'bg-success',
-    resolved_manually: 'bg-border-bold',
-    closed: 'bg-warning',
-}
+import { MonitoringTimelineBar } from './MonitoringTimelineBar'
 
 export function MonitoringTimelineRow({
     report,
@@ -48,11 +26,6 @@ export function MonitoringTimelineRow({
     onToggle: () => void
 }): JSX.Element {
     const status = monitoringRowStatus(report, now)
-    const span = monitoringSpan(report)
-    const outcome = report.monitoring_outcome
-    const left = span ? axisPercent(span.start, axisStart, axisEnd) : 0
-    const right = span?.end != null ? axisPercent(span.end, axisStart, axisEnd) : null
-    const readings = report.monitoring_summary?.lead_check?.readings ?? []
     // Covers the Now line where the row's labels sit, in the row's own background.
     const labelBackground = expanded ? 'bg-surface-secondary' : 'bg-surface-primary'
 
@@ -97,45 +70,13 @@ export function MonitoringTimelineRow({
                     </Tooltip>
                 </div>
                 <div className="relative h-5 basis-full @2xl:flex-1 @2xl:basis-auto">
-                    {span && right != null ? (
-                        <>
-                            <div
-                                className={clsx(
-                                    'absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full',
-                                    BAR_TONE[monitoringBarTone(report, now)],
-                                    span.start < axisStart && 'rounded-l-none'
-                                )}
-                                style={{ left: `${left}%`, width: `${Math.max(right - left, 0.8)}%` }}
-                            />
-                            {readings.map((reading) => (
-                                <span
-                                    key={reading.measured_at}
-                                    className={clsx(
-                                        'absolute top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary',
-                                        reading.matches === false ? 'bg-warning' : 'bg-surface-primary'
-                                    )}
-                                    style={{
-                                        left: `${axisPercent(Date.parse(reading.measured_at), axisStart, axisEnd)}%`,
-                                    }}
-                                />
-                            ))}
-                            <Tooltip
-                                title={
-                                    outcome
-                                        ? `${status.label}, ${dayjs(outcome.ended_at).format('MMM D')}`
-                                        : `Verdict due ${dayjs(span.end).format('MMM D, h:mm A')}`
-                                }
-                            >
-                                <span
-                                    className={clsx(
-                                        'absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rotate-45 border border-primary',
-                                        outcome ? OUTCOME_MARK[outcome.kind] : 'bg-surface-primary'
-                                    )}
-                                    style={{ left: `${right}%` }}
-                                />
-                            </Tooltip>
-                        </>
-                    ) : null}
+                    <MonitoringTimelineBar
+                        report={report}
+                        now={now}
+                        axisStart={axisStart}
+                        axisEnd={axisEnd}
+                        statusLabel={status.label}
+                    />
                 </div>
             </button>
             {expanded ? (
