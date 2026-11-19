@@ -207,7 +207,7 @@ class WorkflowReplayTarget:
     status: str
     # Templates of the workflow's function steps, so template filters can match a workflow.
     template_ids: tuple[str, ...]
-    # The rerun worker skips runs of these workflows, because their message data was not stored.
+    # The rerun worker skips runs of these workflows, because their message data was not stored. Push counts too.
     sends_sensitive_email: bool
 
 

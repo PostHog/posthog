@@ -597,7 +597,7 @@ def get_workflow_replay_targets(team_ids: list[int], workflow_ids: list[str]) ->
                 status=flow.status,
                 template_ids=tuple(sorted({c["template_id"] for c in configs if c.get("template_id")})),
                 sends_sensitive_email=any(
-                    action.get("type") == "function_email" and config.get("sensitive") is True
+                    action.get("type") in ("function_email", "function_push") and config.get("sensitive") is True
                     for action, config in zip(actions, configs)
                 ),
             )
