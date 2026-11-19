@@ -48,6 +48,8 @@ def compose_filters_clause(
     filters: list[dict[str, str | bool | float | list[str | bool | float] | None]],
     team_id: int,
     values: dict[str, str] | None = None,
+    *,
+    use_new_events_schema: bool = False,
 ) -> tuple[str, dict[str, str]]:
     """Compose a clause of matching filters for a batch exports query.
 
@@ -58,6 +60,9 @@ def compose_filters_clause(
         filters: A list of serialized HogQL filters.
         team_id: Team we are running for.
         values: HogQL placeholder values already in use.
+        use_new_events_schema: Print the clause for the new events schema, so it reads `properties` and
+            `person_properties` as typed JSON columns. Without it, the clause reads them as JSON text, the way
+            the legacy tables store them.
 
     Returns:
         A printed string with the ClickHouse SQL clause, and a dictionary
@@ -70,10 +75,9 @@ def compose_filters_clause(
         enable_select_queries=False,
         limit_top_select=False,
         within_non_hogql_query=False,
-        # Export SQL reads the legacy String-properties tables/views (events, events_recent,
-        # events_batch_export), so filter fragments must stay on the legacy schema. Remove this pin
-        # only together with porting those views and field lists to events_json.
-        use_new_events_schema=False,
+        # Set by the caller rather than resolved for the team, because the export query, not the team,
+        # decides which table the clause runs against.
+        use_new_events_schema=use_new_events_schema,
         values=values or {},
         modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
     )

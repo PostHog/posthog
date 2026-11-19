@@ -1,6 +1,7 @@
 import json
 import contextlib
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Any
 
 import redis
@@ -81,3 +82,30 @@ def append_jsonl_object(
         object_storage.write(object_storage_key, content)
 
         return not existing_content
+
+
+@dataclass(frozen=True, slots=True)
+class TaskRunLog:
+    key: str
+
+
+def read_run_log(log: TaskRunLog) -> str:
+    return object_storage.read(log.key, missing_ok=True) or ""
+
+
+def read_run_log_bytes(log: TaskRunLog) -> bytes:
+    return object_storage.read_bytes(log.key, missing_ok=True) or b""
+
+
+def read_run_log_size(log: TaskRunLog, *, strict: bool) -> int:
+    if strict:
+        head = object_storage.head_object_strict(log.key)
+    else:
+        head = object_storage.head_object(log.key)
+    if not head:
+        return 0
+    return int(head.get("ContentLength") or 0)
+
+
+def copy_run_log(log: TaskRunLog, target_key: str) -> None:
+    object_storage.copy(log.key, target_key)

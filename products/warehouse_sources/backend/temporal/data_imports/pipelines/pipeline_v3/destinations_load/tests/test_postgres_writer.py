@@ -1,5 +1,5 @@
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 
 import pytest
 from unittest import mock
@@ -848,3 +848,66 @@ class TestMergeConstraints:
             assert len(self._unique_indexes(dsn, table_name)) == 1
         finally:
             _drop(dsn, table_name)
+
+
+@pytest.fixture
+def limited_login(dsn: str) -> Iterator[tuple[str, str, str]]:
+    """A login without CREATE on the database, with USAGE on a schema of its own."""
+    suffix = uuid.uuid4().hex[:10]
+    role, schema = f"dest_writer_{suffix}", f"dest_priv_{suffix}"
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        conn.execute(f"CREATE ROLE {role} LOGIN PASSWORD 'writer'")
+    try:
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(f"CREATE SCHEMA {schema}")
+            conn.execute(f"GRANT USAGE ON SCHEMA {schema} TO {role}")
+        yield role, psycopg.conninfo.make_conninfo(dsn, user=role, password="writer"), schema
+    finally:
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+            conn.execute(f"DROP OWNED BY {role}")
+            conn.execute(f"DROP ROLE {role}")
+
+
+def _read_from(dsn: str, schema: str, table: str) -> list[tuple]:
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        return conn.execute(f'SELECT id, name FROM "{schema}"."{table}" ORDER BY id').fetchall()
+
+
+class TestLeastPrivilegeLogin:
+    @pytest.mark.parametrize(
+        "sync_type, primary_keys",
+        [("full_refresh", ()), ("incremental", ("id",)), ("incremental", ())],
+        ids=["full_refresh", "incremental_merge", "incremental_append"],
+    )
+    async def test_create_on_an_existing_schema_is_enough(
+        self, dsn, limited_login, sync_type: str, primary_keys: tuple[str, ...]
+    ) -> None:
+        role, login, schema = limited_login
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(f"GRANT CREATE ON SCHEMA {schema} TO {role}")
+        ctx = _ctx("orders", sync_type, primary_keys=primary_keys, schema=schema)
+        writer = LocalPostgresWriter(ctx, login)
+
+        await writer.write_batch(
+            _batches(_rows(["a"], [1])), DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=True)
+        )
+        await writer.finalize_run(ctx)
+
+        assert _read_from(dsn, schema, "orders") == [(1, "a")]
+
+    async def test_write_access_to_an_existing_table_is_enough_to_append(self, dsn, limited_login) -> None:
+        role, login, schema = limited_login
+        first = _ctx("orders", "incremental", schema=schema)
+        await LocalPostgresWriter(first, dsn).write_batch(
+            _batches(_rows(["a"], [1])), DestinationBatchContext(run=first, batch_index=0, is_final_batch=True)
+        )
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(f'GRANT SELECT, INSERT ON "{schema}"."orders" TO {role}')
+
+        second = _ctx("orders", "incremental", schema=schema)
+        await LocalPostgresWriter(second, login).write_batch(
+            _batches(_rows(["b"], [2])), DestinationBatchContext(run=second, batch_index=0, is_final_batch=True)
+        )
+
+        assert _read_from(dsn, schema, "orders") == [(1, "a"), (2, "b")]

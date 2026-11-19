@@ -21,6 +21,24 @@ def _customer_page(count: int, start_id: int = 1) -> list[dict[str, Any]]:
     return [{"customer": {"id": start_id + i, "created_at": "2024-01-01T00:00:00Z"}} for i in range(count)]
 
 
+def _site_components(*rows: tuple[int, int, str]) -> dict[str, Any]:
+    return {
+        "subscriptions_components": [
+            {"id": component_id, "subscription_id": subscription_id, "component_id": component_id, "kind": kind}
+            for subscription_id, component_id, kind in rows
+        ]
+    }
+
+
+MIXED_KIND_COMPONENTS = _site_components(
+    (1, 10, "metered_component"),
+    (1, 11, "quantity_based_component"),
+    (2, 12, "on_off_component"),
+    (3, 13, "prepaid_usage_component"),
+    (4, 14, "event_based_component"),
+)
+
+
 def _resource(endpoint_name: str, should_use_incremental_field: bool) -> dict[str, Any]:
     # get_resource returns an EndpointResource TypedDict whose nested values are unions;
     # cast to a plain dict so the structural assertions below stay readable.
@@ -130,17 +148,145 @@ class TestMaxioSourceDrive:
         assert result.requests[0].param("sort") == "updated_at"
         assert result.requests[0].param("direction") == "asc"
 
-    def test_incremental_events_run_sends_since_id(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "body", "expected_change_status_flag"),
+        [
+            ("events", [{"event": {"id": 101, "key": "signup_success"}}], None),
+            ("invoice_events", {"events": [{"id": 101, "event_type": "apply_payment"}], "page": 1}, "true"),
+        ],
+    )
+    def test_incremental_events_run_sends_since_id(
+        self, endpoint: str, body: Any, expected_change_status_flag: str | None
+    ) -> None:
         result = self._driver().run(
-            "events",
-            [ScriptedResponse(json=[{"event": {"id": 101, "key": "signup_success"}}])],
+            endpoint,
+            [ScriptedResponse(json=body)],
             incremental_field="id",
             db_incremental_field_last_value=100,
         )
 
         assert result.raised is None
         assert result.requests[0].param("since_id") == "100"
+        assert result.requests[0].param("with_change_invoice_status") == expected_change_status_flag
         assert result.items[0][0]["id"] == 101
+
+
+class TestMaxioFanoutDrive:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(MaxioSource(), MaxioSourceConfig(subdomain="acme", api_key="test-key", region="us"))
+
+    @pytest.mark.parametrize(
+        ("endpoint", "child_key", "expected_pairs", "expected_per_page"),
+        [
+            ("subscription_component_usages", "usage", [(1, 10), (3, 13)], str(PAGE_SIZE)),
+            (
+                "subscription_component_allocations",
+                "allocation",
+                [(1, 11), (2, 12), (3, 13)],
+                None,
+            ),
+        ],
+    )
+    def test_fans_out_only_over_supported_component_kinds(
+        self, endpoint: str, child_key: str, expected_pairs: list[tuple[int, int]], expected_per_page: str | None
+    ) -> None:
+        child_suffix = endpoint.rsplit("_", 1)[-1]
+        first_row = {child_key: {"quantity": 3, "timestamp": "2024-02-28T09:31:05Z"}}
+        result = self._driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json=MIXED_KIND_COMPONENTS),
+                ScriptedResponse(json=[first_row]),
+                *[ScriptedResponse(json=[]) for _ in expected_pairs[1:]],
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/subscriptions_components.json",
+            *[f"/subscriptions/{sub}/components/{comp}/{child_suffix}.json" for sub, comp in expected_pairs],
+        ]
+        assert result.params("per_page")[1:] == [expected_per_page] * len(expected_pairs)
+        # The child row omitted its ids, so it takes them from the parent row, with no parent-prefixed keys left.
+        sub, comp = expected_pairs[0]
+        assert result.rows == [
+            {"quantity": 3, "timestamp": "2024-02-28T09:31:05Z", "subscription_id": sub, "component_id": comp}
+        ]
+
+    def test_child_rows_keep_their_own_ids(self) -> None:
+        result = self._driver().run(
+            "subscription_component_usages",
+            [
+                ScriptedResponse(json=_site_components((1, 10, "metered_component"))),
+                ScriptedResponse(json=[{"usage": {"id": 5, "subscription_id": 99, "component_id": 98}}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": 5, "subscription_id": 99, "component_id": 98}]
+
+    def test_deleted_subscription_404_does_not_stop_the_fan_out(self) -> None:
+        result = self._driver().run(
+            "subscription_component_usages",
+            [
+                ScriptedResponse(json=_site_components((1, 10, "metered_component"), (2, 10, "metered_component"))),
+                ScriptedResponse(status=404, json={"errors": ["Not Found"]}),
+                ScriptedResponse(json=[{"usage": {"id": 7, "subscription_id": 2, "component_id": 10}}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [7]
+
+    @pytest.mark.parametrize(
+        ("incremental_inputs", "expected_since_date"),
+        [
+            ({}, None),
+            (
+                {
+                    "incremental_field": "created_at",
+                    "db_incremental_field_last_value": datetime(2024, 5, 1, 23, 30, 0, tzinfo=UTC),
+                },
+                "2024-05-01",
+            ),
+        ],
+    )
+    def test_usages_window_only_the_child_requests(
+        self, incremental_inputs: dict[str, Any], expected_since_date: str | None
+    ) -> None:
+        result = self._driver().run(
+            "subscription_component_usages",
+            [
+                ScriptedResponse(json=_site_components((1, 10, "metered_component"))),
+                ScriptedResponse(json=[{"usage": {"id": 5, "created_at": "2024-05-02T00:00:00Z"}}]),
+            ],
+            **incremental_inputs,
+        )
+
+        assert result.raised is None
+        # The parent listing must stay complete, or the fan-out would skip pairs with new usages.
+        parent, child = result.requests
+        assert parent.param("start_datetime") is None
+        assert parent.param("since_date") is None
+        assert child.param("since_date") == expected_since_date
+
+    def test_resume_continues_the_parent_listing_from_the_saved_page(self) -> None:
+        result = self._driver().run(
+            "subscription_component_usages",
+            [
+                ScriptedResponse(json=_site_components((5, 10, "metered_component"))),
+                ScriptedResponse(json=[]),
+            ],
+            resume_state=MaxioResumeConfig(
+                endpoint="subscription_component_usages",
+                fanout_state={"completed": [], "current": None, "child_state": None, "parent": {"page": 3}},
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths[0] == "/subscriptions_components.json"
+        assert result.params("page")[0] == "3"
 
 
 class TestValidateCredentials:

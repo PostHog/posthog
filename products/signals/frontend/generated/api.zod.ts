@@ -10,6 +10,36 @@
 import * as zod from 'zod'
 
 /**
+ * Read-only anomaly rates of the saved trends insights that anomaly scoring checks.
+ * @summary Get the chart points of anomaly series
+ */
+export const signalsAnomaliesPointsCreateBodySeriesItemSeriesKeyMax = 64
+
+export const signalsAnomaliesPointsCreateBodySeriesMax = 100
+
+export const SignalsAnomaliesPointsCreateBody = /* @__PURE__ */ zod.object({
+    series: zod
+        .array(
+            zod.object({
+                insight_id: zod.number().describe('The numeric id of the insight, from an anomaly search row.'),
+                series_key: zod
+                    .string()
+                    .max(signalsAnomaliesPointsCreateBodySeriesItemSeriesKeyMax)
+                    .describe('The `series_key` of an anomaly search row.'),
+                interval: zod
+                    .enum(['hour', 'day', 'week', 'month'])
+                    .describe('\* `hour` - Hour\n\* `day` - Day\n\* `week` - Week\n\* `month` - Month')
+                    .describe(
+                        'The `interval` of the anomaly search row. It sets the length of the chart window.\n\n\* `hour` - Hour\n\* `day` - Day\n\* `week` - Week\n\* `month` - Month'
+                    ),
+            })
+        )
+        .min(1)
+        .max(signalsAnomaliesPointsCreateBodySeriesMax)
+        .describe('The series to read points for, usually one page of anomaly search rows. At most 100.'),
+})
+
+/**
  * Partial update of the per-project singleton. Omitted fields keep their value.
  * @summary Update the project's signals config
  */
@@ -1210,7 +1240,26 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. `implement` starts the run the inbox's Implement button starts: it claims the report, and the pull request it opens is attached to the report. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
+ * Set whether the report can be acted on now, and whether its issue is already addressed. Appends an attributed actionability_judgment artefact, so the work log keeps the previous judgment, and later agent runs keep the person's values. A new actionability moves a Ready or Needs input report: `requires_human_input` to Needs input, `immediately_actionable` or `not_actionable` to Ready. A report in any other status keeps it. The change does not start an implementation. Setting the current values again changes nothing.
+ * @summary Change a report's actionability or already addressed
+ */
+export const SignalsReportsActionabilityUpdateBody = /* @__PURE__ */ zod.object({
+    actionability: zod
+        .string()
+        .optional()
+        .describe(
+            '`immediately_actionable`, `requires_human_input`, or `not_actionable`. Omit to keep the current value. Required when the report has no actionability yet.'
+        ),
+    already_addressed: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the issue is already fixed, or has a fix in flight that someone else is working on. Omit to keep the current value.'
+        ),
+})
+
+/**
+ * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. `implement` starts the run the inbox's Implement button starts: it claims the report, and the pull request it opens is attached to the report. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision. A task sandbox cannot start an action, except a scout run that a person granted the action in the scout's settings.
  * @summary Start a report action as a background agent run
  */
 export const signalsReportsActionsRunCreateBodySuggestedPromptIndexMin = 0
@@ -1442,6 +1491,22 @@ export const SignalsReportsRefundCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Optional free-form context for the refund; stored on the refund and echoed in the report's dismissal artefact. Capped at 4000 characters."
+        ),
+})
+
+/**
+ * Set the repository the report's work targets. Appends an attributed repo_selection artefact, so the report's work log keeps the previous selection and records who changed it. Later implementation runs use the new repository. A run that already started keeps its repository. Setting the current repository again changes nothing.
+ * @summary Change a report's repository
+ */
+export const signalsReportsRepositoryUpdateBodyRepositoryMax = 140
+
+export const SignalsReportsRepositoryUpdateBody = /* @__PURE__ */ zod.object({
+    repository: zod
+        .string()
+        .min(1)
+        .max(signalsReportsRepositoryUpdateBodyRepositoryMax)
+        .describe(
+            "Repository the report's work targets, in 'owner\/repo' format (case-insensitive). It must be a repository the project's GitHub integration can reach. Later implementation runs use it."
         ),
 })
 
@@ -2154,6 +2219,11 @@ export const signalsScoutCreateBodyConfigOneRepositoriesMax = 10
 
 export const signalsScoutCreateBodyConfigOneWriteScopesMax = 16
 
+export const signalsScoutCreateBodyConfigOneReportActionsMax = 1
+
+export const signalsScoutCreateBodyConfigOneMaxReportActionsPerDayMin = 0
+export const signalsScoutCreateBodyConfigOneMaxReportActionsPerDayMax = 20
+
 export const signalsScoutCreateBodyConfigOnePrecheckQueryMax = 10000
 
 export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMin = 30
@@ -2265,6 +2335,21 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         "Write access granted to this one scout, as scope strings. The grantable set is `account_note:write`, `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. `account_note:write` lets the scout write and retag notes on Customer analytics accounts. Its notes are always tagged `scout` and with its skill name, and the account notes API refuses its deletes. Account notes are also notebooks, so `notebook:write` can still edit or trash one. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+                    ),
+                report_actions: zod
+                    .array(zod.string())
+                    .max(signalsScoutCreateBodyConfigOneReportActionsMax)
+                    .optional()
+                    .describe(
+                        "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+                    ),
+                max_report_actions_per_day: zod
+                    .number()
+                    .min(signalsScoutCreateBodyConfigOneMaxReportActionsPerDayMin)
+                    .max(signalsScoutCreateBodyConfigOneMaxReportActionsPerDayMax)
+                    .optional()
+                    .describe(
+                        "Report actions this scout may start per rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it."
                     ),
                 lifecycle_locked: zod
                     .boolean()
@@ -2467,6 +2552,11 @@ export const signalsScoutConfigCreateBodyRepositoriesMax = 10
 
 export const signalsScoutConfigCreateBodyWriteScopesMax = 16
 
+export const signalsScoutConfigCreateBodyReportActionsMax = 1
+
+export const signalsScoutConfigCreateBodyMaxReportActionsPerDayMin = 0
+export const signalsScoutConfigCreateBodyMaxReportActionsPerDayMax = 20
+
 export const signalsScoutConfigCreateBodyPrecheckQueryMax = 10000
 
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
@@ -2536,6 +2626,21 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Write access granted to this one scout, as scope strings. The grantable set is `account_note:write`, `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. `account_note:write` lets the scout write and retag notes on Customer analytics accounts. Its notes are always tagged `scout` and with its skill name, and the account notes API refuses its deletes. Account notes are also notebooks, so `notebook:write` can still edit or trash one. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+            ),
+        report_actions: zod
+            .array(zod.string())
+            .max(signalsScoutConfigCreateBodyReportActionsMax)
+            .optional()
+            .describe(
+                "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+            ),
+        max_report_actions_per_day: zod
+            .number()
+            .min(signalsScoutConfigCreateBodyMaxReportActionsPerDayMin)
+            .max(signalsScoutConfigCreateBodyMaxReportActionsPerDayMax)
+            .optional()
+            .describe(
+                "Report actions this scout may start per rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it."
             ),
         lifecycle_locked: zod
             .boolean()
@@ -2714,6 +2819,11 @@ export const signalsScoutConfigUpdateBodyRepositoriesMax = 10
 
 export const signalsScoutConfigUpdateBodyWriteScopesMax = 16
 
+export const signalsScoutConfigUpdateBodyReportActionsMax = 1
+
+export const signalsScoutConfigUpdateBodyMaxReportActionsPerDayMin = 0
+export const signalsScoutConfigUpdateBodyMaxReportActionsPerDayMax = 20
+
 export const signalsScoutConfigUpdateBodyPrecheckQueryMax = 10000
 
 export const signalsScoutConfigUpdateBodySuggestionIdMax = 64
@@ -2881,6 +2991,21 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Write access granted to this one scout, as scope strings. The grantable set is `account_note:write`, `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. `account_note:write` lets the scout write and retag notes on Customer analytics accounts. Its notes are always tagged `scout` and with its skill name, and the account notes API refuses its deletes. Account notes are also notebooks, so `notebook:write` can still edit or trash one. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+            ),
+        report_actions: zod
+            .array(zod.string())
+            .max(signalsScoutConfigUpdateBodyReportActionsMax)
+            .optional()
+            .describe(
+                "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+            ),
+        max_report_actions_per_day: zod
+            .number()
+            .min(signalsScoutConfigUpdateBodyMaxReportActionsPerDayMin)
+            .max(signalsScoutConfigUpdateBodyMaxReportActionsPerDayMax)
+            .optional()
+            .describe(
+                "Report actions this scout may start per rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it."
             ),
         precheck_query: zod
             .string()
@@ -4580,7 +4705,7 @@ export const SignalsScoutRunsEmissionReportsBatchBody = /* @__PURE__ */ zod
     )
 
 /**
- * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted.
+ * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. Pass `if_updated_at` to write only when the entry is still the one you read.
  * @summary Remember a scratchpad entry
  */
 export const signalsScoutScratchpadRememberBodyKeyMax = 300
@@ -4613,8 +4738,26 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
             .describe(
                 "Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier. Best-effort — a value that can't be parsed or is already in the past is dropped (the memory stays durable), not rejected, so the memory write is never lost."
             ),
+        if_updated_at: zod
+            .string()
+            .optional()
+            .describe(
+                "Optional precondition: the `updated_at` you read for this key from `scout-scratchpad-search`, sent back unchanged. The write happens only when the stored entry still has this `updated_at`. When the entry changed since you read it, or no entry has this key, nothing is written and the call returns 409 with the entry's current `updated_at`. Read the entry again and decide. Omit it to overwrite unconditionally. A value that can't be parsed is rejected, not dropped."
+            ),
     })
     .describe('Request body for `remember`.')
+
+/**
+ * Delete one scout memory by its exact key, so no scout reads it again. Use this to prune entries a skill change left stale. Returns `deleted=false` if no entry has that key. Requires editor access to skills, because the scratchpad steers the scout agents.
+ * @summary Delete a scratchpad entry by key
+ */
+export const signalsScoutScratchpadDiscardBodyKeyMax = 300
+
+export const SignalsScoutScratchpadDiscardBody = /* @__PURE__ */ zod
+    .object({
+        key: zod.string().max(signalsScoutScratchpadDiscardBodyKeyMax).describe('Memory key to delete.'),
+    })
+    .describe('Request body for `forget`.')
 
 /**
  * Delete an entry by key. Returns `deleted=false` if no row matched.

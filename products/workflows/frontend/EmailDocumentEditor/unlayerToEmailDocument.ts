@@ -561,6 +561,28 @@ function uniformBorder(
     return { borderWidth: widths[0], borderColor: [...colors][0] }
 }
 
+/** A button's border. Unlike a column's, its sides can differ in width, as on a button with a thicker bottom edge. */
+function buttonBorder(
+    border: Record<string, any> | undefined,
+    unsupported: Set<string>
+): Pick<EmailBlockStyle, 'borderWidth' | 'borderSides' | 'borderColor'> | null {
+    const widths = BORDER_SIDES.map((side) =>
+        border?.[`border${side}Style`] === 'none' ? 0 : (parsePx(border?.[`border${side}Width`]) ?? 0)
+    )
+    if (new Set(widths).size === 1) {
+        return uniformBorder(border, unsupported, 'buttons with a border on only some sides')
+    }
+    const drawn = BORDER_SIDES.filter((_, index) => widths[index] > 0)
+    const colors = new Set(drawn.map((side) => border?.[`border${side}Color`]))
+    const styles = new Set(drawn.map((side) => border?.[`border${side}Style`] ?? 'solid'))
+    if (colors.size > 1 || styles.size > 1 || !styles.has('solid')) {
+        unsupported.add('buttons with a border on only some sides')
+        return null
+    }
+    const [top, right, bottom, left] = widths
+    return { borderSides: { top, right, bottom, left }, borderColor: [...colors][0] }
+}
+
 function fontStyleFrom(values: Record<string, any>): Pick<EmailBlockStyle, 'fontFamily' | 'fontUrl'> {
     // "inherit" picks up the email's font in the old layout, which is what no font means here.
     const family = values.fontFamily?.value === 'inherit' ? undefined : values.fontFamily?.value
@@ -1093,7 +1115,7 @@ function convertContentBlocksWithoutPhone(
                                     ? colors.hoverColor || undefined
                                     : undefined,
                             ...fontStyleFrom(values),
-                            ...uniformBorder(values.border, unsupported, 'buttons with a border on only some sides'),
+                            ...buttonBorder(values.border, unsupported),
                             buttonWidth:
                                 values.size?.autoWidth === false ? (parsePx(values.size?.width) ?? 100) : undefined,
                             fontSize,

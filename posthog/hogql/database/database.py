@@ -70,7 +70,6 @@ from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.billing_usage_records import BillingUsageRecordsTable
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
-from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.document_embeddings import (
     HOGQL_MODEL_TABLES,
@@ -95,7 +94,7 @@ from posthog.hogql.database.schema.experiment_exposures_preaggregated import Exp
 from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
     ExperimentMetricEventsPreaggregatedTable,
 )
-from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, join_persons_to_flag_evaluations
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, follow_persons_on_events_mode
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
@@ -392,8 +391,6 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     "session_replay_events": TableNode(name="session_replay_events", table=SessionReplayEventsTable()),
     "cohort_people": TableNode(name="cohort_people", table=CohortPeople()),
     "static_cohort_people": TableNode(name="static_cohort_people", table=StaticCohortPeople()),
-    # Kept only so saved queries still resolve; new queries should use `cohort_people`.
-    "cohort_membership": TableNode(name="cohort_membership", table=CohortMembershipTable(), hidden=True),
     "precalculated_events": TableNode(name="precalculated_events", table=PrecalculatedEventsTable()),
     "precalculated_person_properties": TableNode(
         name="precalculated_person_properties", table=PrecalculatedPersonPropertiesTable()
@@ -825,7 +822,7 @@ def _compute_system_table_access_decision(
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
     org_membership = user_access_control._organization_membership
-    if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
+    if org_membership and org_membership.effective_level >= OrganizationMembership.Level.ADMIN:
         return user_access_control, unentitled
 
     # Resources the user holds object-level grants on despite having no resource-level access. REST
@@ -1602,6 +1599,7 @@ class Database(BaseModel):
         ]
         return sorted(selected, key=_serialization_order)
 
+    @tracer.start_as_current_span("serialize_hogql_database")
     def serialize(
         self,
         context: HogQLContext,
@@ -1974,6 +1972,7 @@ class Database(BaseModel):
             timings = HogQLTimings()
 
         HOGQL_DATABASE_BUILD_TOTAL.labels(trigger=trigger).inc()
+        trace.get_current_span().set_attribute("trigger", str(trigger))
 
         cache_key = None
         if use_cached_sources and not schema_table_names:
@@ -2627,9 +2626,8 @@ class Database(BaseModel):
                         join_table=database.get_table("persons"),
                         resolver=PERSONS,
                     )
-                    if database.has_table(["posthog", "flag_evaluations"]):
-                        join_persons_to_flag_evaluations(database)
 
+                follow_persons_on_events_mode(database, modifiers.personsOnEventsMode)
                 _add_error_tracking_fields(database)
 
         with timings.measure("session_table", emit_span=True):

@@ -46,7 +46,14 @@ from . import (
     screening,
 )
 from .applicability import applicable, content_profile
-from .call_review_queries import CallTypeRow, load_call_types, load_review_calls, snippet_matches
+from .call_review_queries import (
+    CODE_CHECK_CALLS_PER_CALL_TYPE,
+    CallTypeRow,
+    ReviewCallRow,
+    load_call_types,
+    load_review_calls,
+    snippet_matches,
+)
 from .config import REVIEW_WINDOW, WINDOW, SuggestionSettings, runs_for_organization
 from .coverage import Coverage, dismissed_dedupe_keys, existing_evals
 from .measure import discover_sample, hydrate_sample, measure, structured_outputs
@@ -271,9 +278,16 @@ def _reviewed_proposals(
         for card in cards
         if card.code_check and card not in prompt_bugs
     ]
-    coded = [
+    kept_code = [
         (card, code) for card, code in checked if code is not None and judge_calibration.keeps(card, code.calibration)
     ]
+    # Every card is settled on the calls the review labelled before the time left goes to counting more calls.
+    day_calls = _code_check_calls(team, day, per_mille, [card for card, _ in kept_code], code_deadline)
+    widened = [
+        (card, judge_calibration.counted_on_day(card, code, rendering, day_calls, code_deadline))
+        for card, code in kept_code
+    ]
+    coded = [(card, code) for card, code in widened if code is not None]
     coded_cards = [card for card, _ in coded]
     judged = [card for card in cards if card not in prompt_bugs and card not in coded_cards]
     calibrated = _calibrate(team, run, judged, rendering, judge_model, budget, deadline)
@@ -352,6 +366,21 @@ def _prompt_snippets(
         return {}
     chosen = {unnamed[name].key: ranking.choose_snippet(texts, matches[name]) for name, texts in candidates.items()}
     return {key: snippet for key, snippet in chosen.items() if snippet is not None}
+
+
+def _code_check_calls(
+    team: Team, window: ProfileWindow, per_mille: int, cards: Sequence[call_review.ReviewCard], deadline: float | None
+) -> list[ReviewCallRow]:
+    """More of the day's calls of the code cards' call types to count them on, or none, which leaves each code check
+    counted on the calls the review read."""
+    call_types = list({c.key: c for card in cards for c in card.call_types}.values())
+    if not call_types or _time_left(deadline) < MAX_EXECUTION_TIME_SECONDS:
+        return []
+    try:
+        return load_review_calls(team, window, per_mille, call_types, per_type=CODE_CHECK_CALLS_PER_CALL_TYPE)
+    except Exception as error:
+        logger.warning("eval_suggestions_code_check_calls_failed", team_id=team.pk, error=str(error))
+        return []
 
 
 def _publish_fixes_only(

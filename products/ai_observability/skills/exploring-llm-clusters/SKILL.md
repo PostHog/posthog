@@ -83,6 +83,18 @@ and disabled when a custom job is created for the same level.
 
 ## Workflow: explore clusters
 
+### Check setup and scheduled results
+
+If there are no recent results, read `posthog:llma-clustering-config-get` before diagnosing missing data.
+Clustering is off by default. If the user wants automatic clustering, use
+`posthog:llma-clustering-config-set-enabled` with `enabled: true`; organization AI data processing consent is required.
+Reading historical clusters does not require enabling new runs.
+
+Enabling clustering lets existing schedules prepare new data and find groups; it does not start an immediate run or backfill historical traces.
+Each job needs at least 10 eligible prepared items, and enough similar items to form groups.
+Trace and generation jobs look back seven days; evaluation jobs look back three days and exclude numeric and categorical results.
+If results are missing, inspect the enabled jobs and their saved filters, and confirm that matching data continues to arrive.
+
 ### Step 1 — List recent clustering runs
 
 ```sql

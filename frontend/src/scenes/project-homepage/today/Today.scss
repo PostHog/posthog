@@ -119,7 +119,7 @@ html[data-today-transition]::view-transition-new(root) {
 .TodayHome__list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 16px;
 }
 
 .TodayHome__heading {
@@ -161,7 +161,8 @@ html[data-today-transition]::view-transition-new(root) {
 }
 
 .TodayJumpList__more {
-    margin: 0 -12px;
+    // The section's 16px gap is for heading-to-content; the extra rows continue the list, so they sit closer.
+    margin: -8px -12px 0;
 
     > .TodayJumpList {
         margin: 0;
@@ -806,6 +807,14 @@ html[data-today-transition]::view-transition-new(root) {
     }
 }
 
+.TodayJumpRow__pinned {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-inline-end: 4px;
+    vertical-align: -1px;
+}
+
 .TodayJumpRow__link {
     display: block;
     overflow: hidden;
@@ -1117,5 +1126,89 @@ html[data-today-transition]::view-transition-new(root) {
             border-color: transparent !important;
             box-shadow: none !important;
         }
+    }
+}
+
+.TodayPrimaryDashboard {
+    position: relative;
+
+    // Fixed rather than a max, so the card holds its space while the dashboard chunk and tiles load.
+    height: 240px;
+    overflow: hidden;
+    border: 1px solid var(--today-line);
+    border-radius: 8px;
+
+    &::after {
+        position: absolute;
+        inset: auto 0 0;
+        z-index: 1;
+        height: 160px;
+        pointer-events: none;
+        content: '';
+        background: linear-gradient(to top, var(--today-paper) 15%, transparent);
+
+        // Opacity rather than the gradient itself, because gradients don't interpolate.
+        transition: opacity 200ms ease;
+    }
+
+    &:has(.TodayPrimaryDashboard__link:focus-visible)::after {
+        opacity: 0.7;
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+        &:hover::after {
+            opacity: 0.7;
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        &::after {
+            transition: none;
+        }
+    }
+}
+
+.TodayPrimaryDashboard__preview {
+    // Laid out at twice the card's width and scaled to half, so the grid uses its wide layout and more tiles fit.
+    width: 200%;
+    padding: 32px 24px 24px;
+    pointer-events: none;
+    user-select: none;
+
+    // Keeps the grid's own z-indexes below the fade and the link.
+    isolation: isolate;
+    transform: scale(0.5);
+    transform-origin: top left;
+}
+
+.TodayPrimaryDashboard__link {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding-bottom: 16px;
+    border-radius: 8px;
+
+    &:focus-visible {
+        outline: 2px solid var(--today-focus-border);
+        outline-offset: 2px;
+    }
+}
+
+.TodayPrimaryDashboard__cta {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--today-muted);
+    transition: color 200ms ease;
+
+    .TodayPrimaryDashboard__link:hover &,
+    .TodayPrimaryDashboard__link:focus-visible & {
+        color: var(--today-ink);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        transition: none;
     }
 }

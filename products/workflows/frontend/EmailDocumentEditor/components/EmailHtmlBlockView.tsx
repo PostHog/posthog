@@ -71,7 +71,7 @@ export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }:
                     : undefined,
             }}
         >
-            <div contentEditable={false} className="relative group">
+            <div contentEditable={false} className="relative group" onDoubleClick={() => setEditing(true)}>
                 {node.attrs.html ? (
                     // allow-same-origin only lets the height be read. Without allow-scripts nothing in it can run.
                     <iframe

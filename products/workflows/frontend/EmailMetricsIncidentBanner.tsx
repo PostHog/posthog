@@ -16,7 +16,7 @@ export function EmailMetricsIncidentBanner({
     }
 
     return (
-        <LemonBanner type="warning">
+        <LemonBanner type="warning" dismissKey="workflows-email-metrics-incident-2026-11-03">
             Email metrics for Nov 3, 2026, 10:58-11:36 UTC are inflated because of an incident.{' '}
             <Link
                 to="https://www.posthogstatus.com/incidents/q6dk441s"

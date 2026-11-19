@@ -1,6 +1,7 @@
 import { LemonBanner, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { LLMProviderKeysSettings } from '@posthog/products-ai-observability/frontend/settings/LLMProviderKeysSettings'
 import { ParserRecipesSettings } from '@posthog/products-ai-observability/frontend/settings/ParserRecipesSettings'
+import { AIFeaturesSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ai_features/AIFeaturesSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/assignment_rules/AssignmentRules'
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
@@ -9,6 +10,7 @@ import { Releases } from '@posthog/products-error-tracking/frontend/scenes/Error
 import { SeverityRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/severity_rules/SeverityRules'
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
+import { TagRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/tag_rules/TagRules'
 import { McpCustomHarnessesSettings } from '@posthog/products-mcp-analytics/frontend/settings/McpCustomHarnessesSettings'
 import { McpStoreSettings } from '@posthog/products-mcp-store/frontend/McpStoreSettings'
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
@@ -514,7 +516,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-ai-subscriptions',
         title: 'Bring your own subscription',
         group: 'AI',
-        flag: ['PHAI_SANDBOX_MODE', 'POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', 'TODAY_RAIL_NAV'],
+        flag: ['PHAI_SANDBOX_MODE', 'TODAY_RAIL_NAV'],
         keywords: ['subscriptions', 'byos', 'plan & usage'],
         settings: [
             {
@@ -538,7 +540,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-ai-subscriptions',
         title: 'Subscriptions',
         group: 'AI',
-        flag: ['PHAI_SANDBOX_MODE', 'POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', '!TODAY_RAIL_NAV'],
+        flag: ['PHAI_SANDBOX_MODE', '!TODAY_RAIL_NAV'],
         settings: [
             {
                 id: 'ai-subscription-codex',
@@ -952,6 +954,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['rate', 'limit', 'throttle', 'ingestion', 'cap', 'bypass'],
             },
             {
+                id: 'error-tracking-ai-features',
+                title: 'AI features',
+                component: <AIFeaturesSettings />,
+                allowForTeam: (t) => !!t?.available_error_tracking_ai_features?.length,
+                keywords: ['ai', 'llm', 'summary', 'summaries', 'credits'],
+            },
+            {
                 id: 'error-tracking-auto-assignment',
                 title: 'Assignment rules',
                 description: 'Automatically assign errors to team members based on rules you define.',
@@ -971,6 +980,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Set the initial severity of new issues based on rules you define.',
                 component: <SeverityRules />,
                 keywords: ['severity', 'priority', 'triage', 'critical', 'rule'],
+            },
+            {
+                id: 'error-tracking-tag-rules',
+                title: 'Tag rules',
+                description: 'Tag new issues based on rules you define.',
+                component: <TagRules />,
+                flag: 'ERROR_TRACKING_ISSUE_TAGS',
+                keywords: ['tag', 'label', 'rule', 'triage', 'categorize'],
             },
             {
                 id: 'error-tracking-suppression-rules',
@@ -1732,6 +1749,15 @@ export const SETTINGS_MAP: SettingSection[] = [
         flag: 'PRODUCT_BUSINESS_KNOWLEDGE',
         settings: [
             {
+                id: 'business-knowledge-connect-agent',
+                title: 'Connect your agent',
+                description:
+                    'Let your own AI agent search this business knowledge through the PostHog MCP server. The agent signs in with a project secret API key, so it works without a user.',
+                component: <ConnectAgentSetting />,
+                flag: 'BUSINESS_KNOWLEDGE_MCP',
+                keywords: ['business', 'knowledge', 'agent', 'mcp', 'api key', 'secret', 'search'],
+            },
+            {
                 id: 'business-knowledge-learn-from-support',
                 title: 'Self-learning',
                 description:
@@ -1747,15 +1773,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Let business knowledge read these repositories when answering a question. It searches file names and the README, then reads a file. It does not index the code.',
                 component: <GithubReposSetting />,
                 keywords: ['business', 'knowledge', 'github', 'repository', 'code'],
-            },
-            {
-                id: 'business-knowledge-connect-agent',
-                title: 'Connect your agent',
-                description:
-                    'Let your own AI agent search this business knowledge through the PostHog MCP server. The agent signs in with a project secret API key, so it works without a user.',
-                component: <ConnectAgentSetting />,
-                flag: 'BUSINESS_KNOWLEDGE_MCP',
-                keywords: ['business', 'knowledge', 'agent', 'mcp', 'api key', 'secret', 'search'],
             },
         ],
     },

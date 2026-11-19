@@ -78,7 +78,6 @@ def flagged(failed: int, of: int, target: str, verb: str = "flagged") -> str:
 
 @frozen
 class _CheckWords:
-    title: str
     summary: str
     rule: str
     why: str
@@ -86,27 +85,24 @@ class _CheckWords:
 
 CHECKS: dict[str, _CheckWords] = {
     UNRECOVERED_ERRORS: _CheckWords(
-        title="Unrecovered tool or model failures",
-        summary="Flags traces where a tool or model call fails without a later successful attempt.",
+        summary="Flags traces where a tool or model call fails and no later attempt succeeds.",
         rule=(
-            "A trace fails when the last call to a tool, by span name, or the last model call ended in an error. "
-            "Approval pauses and cancellations don't count as errors."
+            "Fails when the last call to a tool, or the last model call, ends in an error. Each tool counts by its "
+            "span name. Approval pauses and cancellations aren't errors."
         ),
-        why="The agent went on without the result of that call.",
+        why="The agent carries on without that call's result.",
     ),
     REPEATED_TOOL_CALLS: _CheckWords(
-        title="Repeated identical tool calls",
         summary=f"Flags traces where the agent calls one tool with the same arguments {REPEAT_THRESHOLD} or more times.",
         rule=(
-            f"A trace fails when one tool is called with identical arguments {REPEAT_THRESHOLD} or more times. "
-            "Dispatcher and polling tools, which repeat by design, are skipped."
+            f"Fails when the agent calls one tool with the same arguments {REPEAT_THRESHOLD} or more times. "
+            "Dispatcher and polling tools repeat by design, so they're skipped."
         ),
-        why="Each repeated call adds latency and cost.",
+        why="Each repeat adds time and cost.",
     ),
     REFUSALS: _CheckWords(
-        title="Refused requests",
-        summary="Flags traces whose final answer refuses the user's request.",
-        rule="Only the final answer counts. Refusals in earlier steps or in tool output don't.",
+        summary="Flags traces where the final answer refuses what the user asked.",
+        rule="Fails when the final answer refuses the request. Refusals in earlier steps or in tool output don't count.",
         why="The user doesn't get what they asked for.",
     ),
 }
@@ -114,7 +110,6 @@ CHECKS: dict[str, _CheckWords] = {
 
 def check_words(check: AdaptedCheck) -> _CheckWords:
     return CHECKS.get(check.key) or _CheckWords(
-        title=check.name,
         summary=f'Flags traces that fail the "{check.name}" check.',
         rule=_sentence(check.description),
         why="",
@@ -128,7 +123,7 @@ def code_check_text(check: AdaptedCheck, failed: int, of: int, segment: str | No
     if segment:
         summary = summary.replace("Flags traces", f"Flags {_plain(segment)} traces", 1)
     return CardText(
-        headline=words.title,
+        headline=check.name,
         outcome=summary,
         reason=words.why,
         observation=flagged(failed, of, "trace"),
@@ -151,10 +146,6 @@ JUDGES: dict[str, _JudgeWords] = {
     "sentiment": _JudgeWords(
         title="Frustrated users",
         summary="Labels the sentiment of the last user message in each generation, so you can find frustrated users.",
-    ),
-    "prompt_injection": _JudgeWords(
-        title="Prompt injection attempts",
-        summary="Flags user messages and content the model reads that try to override the assistant's instructions.",
     ),
 }
 
@@ -197,16 +188,16 @@ def _gap_words(gap: StructuredGap) -> _GapWords:
     if gap.meaning == "label":
         return _GapWords(
             marked=f"labeled {values}",
-            rule=f"A trace fails when any of its {items} labeled {values} fits another label better.",
+            rule=f"Fails when a trace has {items} labeled {values} that fit another label better.",
         )
     if is_urgent(gap):
         return _GapWords(
             marked="marked urgent",
-            rule=f"A trace fails when any of its {items} marked urgent describes a minor or speculative problem.",
+            rule=f"Fails when a trace has {items} marked urgent that describe a minor or speculative problem.",
         )
     return _GapWords(
         marked=f"marked {values}",
-        rule=f"A trace fails when any of its {items} marked {values} is in a different state.",
+        rule=f"Fails when a trace has {items} marked {values} that are in a different state.",
     )
 
 
@@ -308,8 +299,7 @@ def fix_text(fix: EvalFix) -> CardText:
     return CardText(
         headline="No recent events match this eval",
         outcome=(
-            f"No AI events from {window} match this eval's filters. "
-            "Review its filters and recent traffic to check whether this is expected."
+            f"No AI events from {window} match this eval's filters. If you still expect traffic, check its filters."
         ),
         reason=f"It has no runs in {lookback}.",
     )

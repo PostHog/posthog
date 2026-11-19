@@ -119,3 +119,155 @@ def test_pnpm_lock_peer_ranges_returns_every_version() -> None:
         "1.9.0": ">=1.257.2",
         "1.11.2": "^2.0.0",
     }
+
+
+GIT_POSTHOG = '{ git = "https://github.com/PostHog/posthog-rs", rev = "abc", version = "1.0.0" }'
+
+
+def _write_rust_root(root: Path, workspace_dep: str, workspace_lock: list[tuple[str, str]], cli_dep: str) -> None:
+    (root / "rust").mkdir()
+    (root / "cli").mkdir()
+    (root / "rust" / "Cargo.toml").write_text(f"[workspace.dependencies]\n{workspace_dep}\n")
+    (root / "rust" / "Cargo.lock").write_text(
+        "".join(f'[[package]]\nname = "{name}"\nversion = "{version}"\n\n' for name, version in workspace_lock)
+    )
+    (root / "cli" / "Cargo.toml").write_text(f"[dependencies]\n{cli_dep}\n")
+    (root / "cli" / "Cargo.lock").write_text('[[package]]\nname = "posthog"\nversion = "1.0.0"\n')
+
+
+@pytest.mark.parametrize(
+    "workspace_dep,workspace_lock,problem",
+    [
+        (f"posthog = {GIT_POSTHOG}", [("posthog", "1.0.0")], None),
+        ('posthog = "1.1.0"', [("posthog", "1.1.0")], None),
+        ('posthog-rs = "1.1.0"', [("posthog", "1.1.0"), ("posthog-rs", "1.1.0")], None),
+        (
+            'posthog = { git = "https://github.com/PostHog/posthog-rs", rev = "abc" }',
+            [("posthog", "1.0.0")],
+            "rust/Cargo.toml: posthog has no version requirement",
+        ),
+        ('posthog = "2.0.0"', [("posthog", "2.0.0")], "rust/Cargo.toml: posthog = '2.0.0', expected major 1"),
+        (
+            'posthog-rs = "0.33.1"',
+            [("posthog-rs", "0.33.1")],
+            "rust/Cargo.toml: posthog-rs = '0.33.1', expected major 1",
+        ),
+        (
+            'posthog = "1.1.0"',
+            [("posthog", "1.1.0"), ("posthog-rs", "0.33.1")],
+            "rust/Cargo.lock resolves posthog/posthog-rs to majors [0, 1]",
+        ),
+        ('serde = "1"', [("serde", "1.0.0")], "rust/Cargo.toml declares neither of posthog, posthog-rs"),
+    ],
+)
+def test_check_rust_reads_either_crate_name_and_every_lock_entry(
+    tmp_path: Path, workspace_dep: str, workspace_lock: list[tuple[str, str]], problem: str | None
+) -> None:
+    _write_rust_root(tmp_path, workspace_dep, workspace_lock, f"posthog = {GIT_POSTHOG}")
+
+    problems = guard.check_rust(tmp_path)
+
+    if problem is None:
+        assert problems == []
+    else:
+        assert len(problems) >= 1
+        assert problems[0].startswith(problem)
+
+
+def test_check_rust_applies_the_expected_major_to_the_cli(tmp_path: Path) -> None:
+    _write_rust_root(
+        tmp_path, f"posthog = {GIT_POSTHOG}", [("posthog", "1.0.0")], 'posthog-rs = { version = "=0.30.0" }'
+    )
+
+    assert guard.check_rust(tmp_path) == [
+        "cli/Cargo.toml: posthog-rs = '=0.30.0', expected major 1. " + guard.MIGRATION_HINT,
+    ]
+
+
+@pytest.mark.parametrize(
+    "module,version,problems",
+    [
+        ("github.com/posthog/posthog-go/v2", "v2.1.1", []),
+        (
+            "github.com/posthog/posthog-go",
+            "v1.44.1",
+            [
+                "bin/hobby-installer/go.mod requires github.com/posthog/posthog-go v1, expected github.com/posthog/posthog-go/v2 v2",
+                "bin/hobby-installer/go.sum records posthog-go outside github.com/posthog/posthog-go/v2 v2",
+            ],
+        ),
+        (
+            "github.com/posthog/posthog-go/v3",
+            "v3.0.0",
+            [
+                "bin/hobby-installer/go.mod requires github.com/posthog/posthog-go/v3 v3, expected github.com/posthog/posthog-go/v2 v2",
+                "bin/hobby-installer/go.sum records posthog-go outside github.com/posthog/posthog-go/v2 v2",
+            ],
+        ),
+    ],
+)
+def test_check_go_holds_the_module_path_and_version_to_the_expected_major(
+    tmp_path: Path, module: str, version: str, problems: list[str]
+) -> None:
+    installer = tmp_path / "bin" / "hobby-installer"
+    installer.mkdir(parents=True)
+    (installer / "go.mod").write_text(f"module example\n\nrequire (\n\t{module} {version}\n)\n")
+    (installer / "go.sum").write_text(f"{module} {version} h1:x=\n{module} {version}/go.mod h1:y=\n")
+
+    found = guard.check_go(tmp_path)
+
+    assert len(found) == len(problems)
+    for actual, expected in zip(found, problems):
+        assert actual.startswith(expected)
+
+
+def _write_node_root(root: Path, root_version: str, desktop_version: str) -> None:
+    def lock(version: str, wrappers: str = "") -> str:
+        return f"packages:\n\n{wrappers}  posthog-node@{version}:\n    resolution: {{integrity: x}}\n\n"
+
+    wrappers = (
+        "  '@posthog/mcp@1.3.0':\n    resolution: {integrity: x}\n    peerDependencies:\n      posthog-node: ^5.0.0 || ^6.0.0\n\n"
+        "  '@posthog/react@1.9.0':\n    resolution: {integrity: x}\n    peerDependencies:\n      posthog-js: '>=1.257.2'\n\n"
+    )
+    for workspace, manifest_dir, version in (
+        (root, root / "nodejs", root_version),
+        (root / "products" / "desktop", root / "products" / "desktop" / "apps" / "code", desktop_version),
+    ):
+        manifest_dir.mkdir(parents=True)
+        (manifest_dir / "package.json").write_text(json.dumps({"dependencies": {"posthog-node": version}}))
+        (workspace / "pnpm-workspace.yaml").write_text("packages: []\n")
+        (workspace / "pnpm-lock.yaml").write_text(lock(version, wrappers if workspace == root else ""))
+
+
+@pytest.mark.parametrize(
+    "root_version,desktop_version,problems",
+    [
+        ("6.0.4", "5.74.0", []),
+        (
+            "5.74.0",
+            "5.74.0",
+            [
+                "nodejs/package.json [dependencies]: posthog-node declares '5.74.0', which is not pinned to major 6",
+                "pnpm-lock.yaml resolves posthog-node to majors [5], expected {6}",
+            ],
+        ),
+        (
+            "6.0.4",
+            "6.0.4",
+            [
+                "products/desktop/apps/code/package.json [dependencies]: posthog-node declares '6.0.4', which is not pinned to major 5",
+                "products/desktop/pnpm-lock.yaml resolves posthog-node to majors [6], expected {5}",
+            ],
+        ),
+    ],
+)
+def test_check_node_holds_each_pnpm_workspace_to_its_own_major(
+    tmp_path: Path, root_version: str, desktop_version: str, problems: list[str]
+) -> None:
+    _write_node_root(tmp_path, root_version, desktop_version)
+
+    found = guard.check_node(tmp_path)
+
+    assert len(found) == len(problems)
+    for actual, expected in zip(found, problems):
+        assert actual.startswith(expected)

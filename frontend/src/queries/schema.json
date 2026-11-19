@@ -1851,6 +1851,10 @@
                 "count": {
                     "$ref": "#/definitions/integer"
                 },
+                "entry_span_count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results."
+                },
                 "error_count": {
                     "$ref": "#/definitions/integer"
                 },
@@ -3030,6 +3034,10 @@
                 "boxPlot": {
                     "$ref": "#/definitions/AssistantDataVisualizationBoxPlotSettings",
                     "description": "Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair."
+                },
+                "colorBarsByCategory": {
+                    "description": "Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts.",
+                    "type": "boolean"
                 },
                 "goalLines": {
                     "description": "Horizontal goal lines drawn across the chart.",
@@ -16001,6 +16009,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "provenance": {
+                    "$ref": "#/definitions/MetricsQueryProvenance"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -20660,6 +20671,10 @@
                     "$ref": "#/definitions/ChartStyle",
                     "description": "Chart rendering style overrides (line shape). Only applies to line and area charts."
                 },
+                "colorBarsByCategory": {
+                    "description": "Color each X-axis category in single-series bar charts.",
+                    "type": "boolean"
+                },
                 "goalLines": {
                     "items": {
                         "$ref": "#/definitions/GoalLine"
@@ -20732,6 +20747,12 @@
                 },
                 "valueLabelBackground": {
                     "type": "boolean"
+                },
+                "valueLabelBackgroundColor": {
+                    "type": "string"
+                },
+                "valueLabelColor": {
+                    "type": "string"
                 },
                 "valueLabelFontSize": {
                     "type": "number"
@@ -32417,6 +32438,10 @@
                     "description": "Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels.",
                     "type": "boolean"
                 },
+                "showSummaryOnDashboards": {
+                    "default": false,
+                    "type": "boolean"
+                },
                 "showTrendLines": {
                     "description": "Display linear regression trend lines on the chart (only for historical trends viz)",
                     "type": "boolean"
@@ -40545,6 +40570,10 @@
                 "level": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationLevel"
                 },
+                "minor": {
+                    "description": "True when the monthly impact is under 1% of the ad account's monthly spend.",
+                    "type": "boolean"
+                },
                 "reason": {
                     "type": "string"
                 },
@@ -40887,7 +40916,7 @@
             "additionalProperties": false,
             "properties": {
                 "adTable": {
-                    "description": "Google Ads ad table, used to read the ad copy of each ad group.",
+                    "description": "Google Ads ad table, used to read the ad copy and landing pages of each ad group.",
                     "type": "string"
                 },
                 "campaignConversionActionTable": {
@@ -44128,7 +44157,19 @@
             "type": "object"
         },
         "MetricsAggregation": {
-            "enum": ["sum", "avg", "count", "min", "max", "quantile", "rate", "increase", "histogram_quantile"],
+            "enum": [
+                "sum",
+                "avg",
+                "count",
+                "min",
+                "max",
+                "quantile",
+                "rate",
+                "increase",
+                "histogram_quantile",
+                "count_rate",
+                "count_increase"
+            ],
             "type": "string"
         },
         "MetricsAlertConfig": {
@@ -44642,6 +44683,33 @@
             "required": ["time", "value"],
             "type": "object"
         },
+        "MetricsQueryProvenance": {
+            "additionalProperties": false,
+            "description": "Where a metrics tile's buckets came from. Set only on dashboard-v2 tiles.",
+            "properties": {
+                "mode": {
+                    "$ref": "#/definitions/MetricsQueryProvenanceMode"
+                },
+                "precomputedUntil": {
+                    "description": "Buckets before this time came from precomputed metrics. Absent when no clause read them.",
+                    "type": "string"
+                },
+                "reasons": {
+                    "description": "Why clauses ran raw, one per clause.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["mode"],
+            "type": "object"
+        },
+        "MetricsQueryProvenanceMode": {
+            "description": "`precomputed`: every bucket from precomputed metrics. `mixed`: stored buckets for the history and raw samples for the rest. `raw`: every bucket from raw samples.",
+            "enum": ["precomputed", "mixed", "raw"],
+            "type": "string"
+        },
         "MetricsQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -44656,6 +44724,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "provenance": {
+                    "$ref": "#/definitions/MetricsQueryProvenance"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -53585,6 +53656,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "provenance": {
+                            "$ref": "#/definitions/MetricsQueryProvenance"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -58198,6 +58272,10 @@
                 },
                 "hidden": {
                     "type": "boolean"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
+                    "type": "string"
                 }
             },
             "type": "object"
@@ -58218,6 +58296,10 @@
                 },
                 "hidden": {
                     "type": "boolean"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
+                    "type": "string"
                 }
             },
             "required": ["assignmentBy"],
@@ -58240,6 +58322,10 @@
                     "type": "boolean"
                 },
                 "label": {
+                    "type": "string"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
                     "type": "string"
                 }
             },
@@ -62451,6 +62537,10 @@
                 },
                 "flatSpans": {
                     "description": "Return the matching spans themselves, one row per span (root and child), instead of the whole-trace grouping. Streams the matches under `ORDER BY … LIMIT` rather than grouping every matching span by trace, so a filter on a hot child attribute (e.g. `code.filepath`) stays bounded. Distinct from `rootSpans`, which scopes whole-trace selection. The single-trace waterfall never sets this.",
+                    "type": "boolean"
+                },
+                "includeEvents": {
+                    "description": "Include each span's OpenTelemetry events. The column is large, so only set this on small lists",
                     "type": "boolean"
                 },
                 "kind": {

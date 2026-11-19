@@ -75,3 +75,18 @@ export function applyQuickFilter(
         properties: [...(condition.properties ?? []), ...filters.filter((filter) => !hasFilter(condition, filter))],
     }))
 }
+
+/** Takes the quick filter's filters out of every condition set. Sampling has no earlier value to restore, so it stays. */
+export function removeQuickFilter(
+    key: QuickFilterKey,
+    conditions: EvaluationConditionSet[],
+    testAccountFilters: AnyPropertyFilter[]
+): EvaluationConditionSet[] {
+    const filters = filtersFor(key, testAccountFilters)
+    return conditions.map((condition) => ({
+        ...condition,
+        properties: (condition.properties ?? []).filter(
+            (existing) => !filters.some((filter) => objectsEqual(existing, filter))
+        ),
+    }))
+}

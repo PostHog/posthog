@@ -1,10 +1,40 @@
-import { PostHog } from 'posthog-node'
+import { CaptureError, PostHog } from 'posthog-node'
+import { Counter } from 'prom-client'
 
 import { Team } from '~/types'
 
 import { defaultConfig } from '../config/config'
+import { logger } from './logger'
 
 const fs = require('fs')
+
+const captureEventsLostCounter = new Counter({
+    name: 'posthog_sdk_capture_events_lost_total',
+    help: "Events this service's PostHog client could not deliver, by capture endpoint and reason.",
+    labelNames: ['endpoint', 'reason'],
+})
+
+const UNDELIVERED = 'undelivered'
+
+/**
+ * The events a failed capture batch lost, by reason. A dropped event counts under the drop detail
+ * capture or the client gave it. An event with no accepted result counts as `undelivered`: its
+ * request failed, its retries ran out, or it was still queued at shutdown.
+ */
+export function countCaptureLosses(error: CaptureError): Map<string, number> {
+    const losses = new Map<string, number>()
+    const add = (reason: string, count: number): void => {
+        if (count > 0) {
+            losses.set(reason, (losses.get(reason) ?? 0) + count)
+        }
+    }
+    for (const drop of error.drops) {
+        // The detail becomes a metric label, so an unexpected value from the far end must not add series without bound.
+        add(drop.details && /^[a-z0-9_ ]{1,64}$/.test(drop.details) ? drop.details : 'other', 1)
+    }
+    add(UNDELIVERED, error.retryExhausted.length)
+    return losses
+}
 
 const posthog = defaultConfig.POSTHOG_API_KEY
     ? new PostHog(defaultConfig.POSTHOG_API_KEY, {
@@ -12,6 +42,17 @@ const posthog = defaultConfig.POSTHOG_API_KEY
           enableExceptionAutocapture: false, // TODO - disabled while data volume is a problem, PS seems /extremely/ chatty exceptions wise
       })
     : null
+
+// The client reports every event it loses only through this event, including events capture drops inside a 200 response.
+posthog?.on('error', (error: unknown) => {
+    if (!(error instanceof CaptureError)) {
+        return
+    }
+    for (const [reason, count] of countCaptureLosses(error)) {
+        captureEventsLostCounter.inc({ endpoint: error.endpoint, reason }, count)
+    }
+    logger.warn('⚠️', 'PostHog client lost events', { error: error.message })
+})
 
 if (process.env.NODE_ENV === 'test' && posthog) {
     void posthog.disable()
@@ -124,6 +165,6 @@ export function captureException(exception: any, hint?: Partial<ExceptionHint>):
             }
         }
 
-        posthog.captureException(exception, undefined, additionalProperties)
+        posthog.captureException(exception, { properties: additionalProperties })
     }
 }

@@ -8,12 +8,14 @@ import { EmailBlockStyle, EmailSides, resolvePageStyle } from '../emailDocument'
 import { useEmailEditorContext } from '../emailEditorContext'
 import { EmailBoxFields } from './EmailBoxFields'
 import { EmailColumnsFields } from './EmailColumnsFields'
+import { EmailHtmlCodeField } from './EmailHtmlCodeField'
 import { EmailTextFields } from './EmailTextFields'
 import { EmailVisibilityFields } from './EmailVisibilityFields'
 import { EmailAlignField } from './fields/EmailAlignField'
 import { EmailColorField } from './fields/EmailColorField'
 import { EmailFieldRow } from './fields/EmailFieldRow'
 import { EmailNumberField } from './fields/EmailNumberField'
+import { EmailSidesField } from './fields/EmailSidesField'
 import { EmailWeightField } from './fields/EmailWeightField'
 
 const DEFAULT_TEXT_PADDING: EmailSides = { top: 8, right: 0, bottom: 8, left: 0 }
@@ -160,13 +162,31 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                             onChange={(innerPaddingY) => set({ innerPaddingY })}
                         />
                     </EmailFieldRow>
-                    <EmailNumberField
+                    <EmailSidesField
                         label="Border"
-                        value={style.borderWidth}
-                        placeholder={0}
-                        onChange={(borderWidth) => set({ borderWidth })}
+                        value={
+                            style.borderSides ??
+                            (style.borderWidth
+                                ? {
+                                      top: style.borderWidth,
+                                      right: style.borderWidth,
+                                      bottom: style.borderWidth,
+                                      left: style.borderWidth,
+                                  }
+                                : undefined)
+                        }
+                        placeholder={NO_PADDING}
+                        onChange={(sides) => {
+                            const widths = sides ? [sides.top, sides.right, sides.bottom, sides.left] : [0]
+                            set(
+                                new Set(widths).size === 1
+                                    ? { borderWidth: widths[0] || undefined, borderSides: undefined }
+                                    : { borderWidth: undefined, borderSides: sides }
+                            )
+                        }}
+                        attr="email-editor-button-border"
                     />
-                    {style.borderWidth ? (
+                    {style.borderWidth || style.borderSides ? (
                         <EmailColorField
                             label="Border color"
                             value={style.borderColor}
@@ -304,7 +324,16 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
             )
             break
         case 'emailHtml':
-            fields = <EmailBoxFields style={style} set={set} defaultPadding={NO_PADDING} showBorder={false} />
+            fields = (
+                <>
+                    <EmailHtmlCodeField
+                        key={pos}
+                        html={String(node.attrs.html ?? '')}
+                        onChange={(html) => setBlockAttribute(editor, pos, 'html', html)}
+                    />
+                    <EmailBoxFields style={style} set={set} defaultPadding={NO_PADDING} showBorder={false} />
+                </>
+            )
             break
         default:
             break

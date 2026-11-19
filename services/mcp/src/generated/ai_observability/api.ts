@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 98 enabled ops
+ * PostHog API - MCP 99 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -2438,6 +2438,21 @@ export const LlmAnalyticsClusteringConfigListParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const LlmAnalyticsClusteringConfigSetEnabledCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const LlmAnalyticsClusteringConfigSetEnabledCreateBody = () => zod.object({
+    enabled: zod.boolean().describe('Enable or disable automated clustering for this project.'),
 })
 
 /**

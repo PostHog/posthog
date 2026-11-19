@@ -6,14 +6,18 @@ from parameterized import parameterized
 
 from posthog.utils import absolute_uri
 
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.tasks.abuse_classification import classify_hog_function_for_abuse
 from products.cdp.backend.test.abuse_support import (
+    RULE_FREE_HOG,
     SCORES,
     SECRET_VALUE,
     TEAM_FLAG,
     AbuseClassificationTestCase,
     decision_payload,
 )
+
+LOW_CONTROL_SCORES = {**SCORES, "normal_integration": 0.2}
 
 
 class TestAbuseClassification(AbuseClassificationTestCase):
@@ -32,16 +36,86 @@ class TestAbuseClassification(AbuseClassificationTestCase):
 
     @parameterized.expand(
         [
-            ("default_thresholds", None, True, False),
-            ("thresholds_from_payload", {"alert_threshold": 0.3, "block_threshold": 0.75}, True, True),
-            ("invalid_payload_uses_defaults", {"alert_threshold": "high"}, True, False),
+            ("high_control_skips_a_moderate_model_alert", SCORES, None, RULE_FREE_HOG, [], False, False),
+            ("low_control_keeps_a_moderate_model_alert", LOW_CONTROL_SCORES, None, RULE_FREE_HOG, [], True, False),
+            (
+                "high_control_still_alerts_and_blocks_at_the_block_threshold",
+                {**SCORES, "resource_exhaustion": 0.9},
+                None,
+                RULE_FREE_HOG,
+                [],
+                True,
+                True,
+            ),
+            (
+                "thresholds_from_payload",
+                SCORES,
+                {"alert_threshold": 0.3, "block_threshold": 0.75},
+                RULE_FREE_HOG,
+                [],
+                True,
+                True,
+            ),
+            (
+                "control_threshold_from_payload",
+                SCORES,
+                {"alert_threshold": 0.5, "block_threshold": 0.9, "control_threshold": 0.99},
+                RULE_FREE_HOG,
+                [],
+                True,
+                False,
+            ),
+            (
+                "invalid_payload_uses_defaults",
+                LOW_CONTROL_SCORES,
+                {"alert_threshold": "high"},
+                RULE_FREE_HOG,
+                [],
+                True,
+                False,
+            ),
+            (
+                "blocking_rule_overrides_the_model",
+                SCORES,
+                None,
+                "fetch('http://169.254.169.254/latest')",
+                ["internal_host"],
+                True,
+                True,
+            ),
+            (
+                "alerting_rule_does_not_block",
+                SCORES,
+                {"alert_threshold": 0.9, "block_threshold": 0.95},
+                "fetch('https://webhook.site/0000')",
+                ["request_catcher"],
+                True,
+                False,
+            ),
+            (
+                "rule_alerts_when_high_control_skips_the_model_alert",
+                SCORES,
+                None,
+                "fetch('https://webhook.site/0000')",
+                ["request_catcher"],
+                True,
+                False,
+            ),
         ]
     )
     def test_a_verdict_is_captured_as_an_internal_event(
-        self, _name: str, payload: dict | None, would_alert: bool, would_block: bool
+        self,
+        _name: str,
+        scores: dict[str, float],
+        payload: dict | None,
+        hog: str,
+        rule_hits: list[str],
+        would_alert: bool,
+        would_block: bool,
     ) -> None:
+        self.gateway.response = httpx.Response(200, json=decision_payload(scores))
         self.flags.payload = payload
-        hog_function = self.create_destination(template_id="template-webhook")
+        hog_function = self.create_destination(template_id="template-webhook", hog=hog)
 
         [event] = self.captured_events()
         properties = event["properties"]
@@ -59,12 +133,9 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             "code_modified_from_template": None,
             "enabled": True,
             "trigger": "save",
-            "score_internal_network": 0.12,
-            "score_resource_exhaustion": 0.8,
-            "score_malformed_payload": 0.05,
-            "score_unrelated_destination": 0.3,
-            "score_normal_integration": 0.95,
-            "risk_score": 0.8,
+            **{f"score_{question}": score for question, score in scores.items()},
+            "risk_score": scores["resource_exhaustion"],
+            "rule_hits": rule_hits,
             "would_alert": would_alert,
             "would_block": would_block,
             "state_truncated": False,
@@ -76,40 +147,148 @@ class TestAbuseClassification(AbuseClassificationTestCase):
 
     @parameterized.expand(
         [
-            ("refused", httpx.Response(503, json={"error": "busy"}), None, "gateway_error"),
-            ("unreachable", None, httpx.ConnectError("connection refused"), "gateway_unreachable"),
             (
-                "unreadable",
+                "refused_with_a_blocking_rule",
+                httpx.Response(503, json={"error": "busy"}),
+                None,
+                {},
+                {"error": "gateway_error", "rule_hits": ["internal_host"], "would_alert": True, "would_block": True},
+            ),
+            (
+                "unreachable_without_a_rule",
+                None,
+                httpx.ConnectError("connection refused"),
+                {"hog": RULE_FREE_HOG},
+                {"error": "gateway_unreachable", "rule_hits": [], "would_alert": None, "would_block": None},
+            ),
+            (
+                "unreadable_with_padded_input",
                 httpx.Response(200, json=decision_payload({"internal_network": 0.1})),
                 None,
-                "invalid_answer",
+                {
+                    "hog": RULE_FREE_HOG,
+                    "inputs_schema": [{"key": "padding", "type": "string"}],
+                    "inputs": {"padding": {"value": "B" * 300_000}},
+                },
+                {
+                    "error": "invalid_answer",
+                    "rule_hits": ["oversized_input"],
+                    "would_alert": True,
+                    "would_block": False,
+                },
+            ),
+            (
+                "secret_input_runs_a_huge_range",
+                httpx.Response(503, json={"error": "busy"}),
+                None,
+                {"hog": RULE_FREE_HOG, "inputs": {"api_key": {"value": "{range(1000000)}"}}},
+                {"error": "gateway_error", "rule_hits": ["huge_range"], "would_alert": True, "would_block": False},
+            ),
+            (
+                "secret_mapping_input_amplifies_a_string",
+                httpx.Response(503, json={"error": "busy"}),
+                None,
+                {
+                    "hog": RULE_FREE_HOG,
+                    "mappings": [
+                        {
+                            "name": "Orders",
+                            "inputs_schema": [{"key": "token", "type": "string", "secret": True}],
+                            "inputs": {"token": {"value": "{replaceAll(event.event, '', 'xx')}"}},
+                        }
+                    ],
+                },
+                {
+                    "error": "gateway_error",
+                    "rule_hits": ["replace_amplification"],
+                    "would_alert": True,
+                    "would_block": False,
+                },
             ),
         ]
     )
-    def test_a_gateway_failure_is_captured_as_an_error_event(
-        self, _name: str, response: httpx.Response | None, error: Exception | None, reason: str
+    def test_a_gateway_failure_is_captured_as_an_error_event_with_the_rule_verdict(
+        self,
+        _name: str,
+        response: httpx.Response | None,
+        error: Exception | None,
+        overrides: dict[str, Any],
+        expected: dict[str, Any],
     ) -> None:
         if response is not None:
             self.gateway.response = response
         self.gateway.error = error
 
-        self.create_destination()
+        self.create_destination(**overrides)
 
         [event] = self.captured_events()
-        assert event["properties"]["error"] == reason
-        assert "risk_score" not in event["properties"]
+        properties = event["properties"]
+        assert {key: properties.get(key) for key in expected} == expected
+        assert "risk_score" not in properties
 
-    def test_an_oversized_function_is_cut_to_the_state_limit_and_flagged(self) -> None:
-        self.create_destination(hog="print('padding')\n" * 10_000 + "fetch('http://169.254.169.254/latest')")
+    @parameterized.expand(
+        [
+            (
+                "long_code_is_cut",
+                {"hog": "print('padding')\n" * 10_000 + "fetch('http://169.254.169.254/latest')"},
+                True,
+                None,
+            ),
+            (
+                "padded_input_collapses_to_its_length",
+                {
+                    "hog": RULE_FREE_HOG,
+                    "inputs_schema": [{"key": "padding", "type": "string"}],
+                    "inputs": {"padding": {"value": "x" + "B" * 900_000 + "y"}},
+                },
+                False,
+                'x["B" repeated 900000 times]y',
+            ),
+        ]
+    )
+    def test_an_oversized_function_fits_the_state_limit(
+        self, _name: str, overrides: dict[str, Any], truncated: bool, padding_seen: str | None
+    ) -> None:
+        self.create_destination(**overrides)
 
         [body] = self.gateway.bodies()
         [event] = self.captured_events()
-        assert len(json.dumps(json.loads(body)["state"], ensure_ascii=False, separators=(",", ":"))) <= 65_536
-        assert event["properties"]["state_truncated"] is True
+        state = json.loads(body)["state"]
+        assert len(json.dumps(state, ensure_ascii=False, separators=(",", ":"))) <= 65_536
+        assert event["properties"]["state_truncated"] is truncated
+        if padding_seen is not None:
+            assert state["inputs"]["padding"]["value"] == padding_seen
 
-    @parameterized.expand([("name_only", {"name": "Renamed"}, 1), ("code", {"hog": "print('changed')"}, 2)])
+    @parameterized.expand(
+        [
+            ("name_only", {"name": "Renamed"}, 1),
+            ("code", {"hog": "print('changed')"}, 2),
+            (
+                "secret_rotated_to_a_benign_value",
+                {
+                    "inputs": {
+                        "url": {"value": "https://hooks.example.com/orders"},
+                        "api_key": {"value": "sk-live-rotated"},
+                        "body": {"value": {"bytecode": "https://collector.example.net"}},
+                    }
+                },
+                1,
+            ),
+            (
+                "secret_input_that_matches_a_rule",
+                {
+                    "inputs": {
+                        "url": {"value": "https://hooks.example.com/orders"},
+                        "api_key": {"value": "{range(1000000)}"},
+                        "body": {"value": {"bytecode": "https://collector.example.net"}},
+                    }
+                },
+                2,
+            ),
+        ]
+    )
     def test_a_resave_is_scored_again_only_when_its_content_changes(
-        self, _name: str, changes: dict[str, str], expected_requests: int
+        self, _name: str, changes: dict[str, Any], expected_requests: int
     ) -> None:
         hog_function = self.create_destination()
 
@@ -176,6 +355,17 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         classify_hog_function_for_abuse(team_id=self.team.id, hog_function_id=str(hog_function.id))
 
         assert len(self.gateway.requests) == expected_requests
+
+    def test_an_undecryptable_secret_input_still_scores_the_public_config(self) -> None:
+        hog_function = self.create_destination(hog=RULE_FREE_HOG)
+        HogFunction.objects.filter(pk=hog_function.pk).update(
+            hog="print(event.event)", encrypted_inputs="ciphertext without its key"
+        )
+
+        classify_hog_function_for_abuse(team_id=self.team.id, hog_function_id=str(hog_function.id))
+
+        assert len(self.gateway.requests) == 2
+        assert "risk_score" in self.captured_events()[-1]["properties"]
 
     def test_enabling_a_function_that_was_never_scored_scores_it(self) -> None:
         hog_function = self.create_destination(enabled=False)
