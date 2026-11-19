@@ -327,6 +327,11 @@ GROUP BY day
 def _current_source_counts(
     runner: TrendsQueryRunner, *, start: datetime, end: datetime, timeout_seconds: float | None
 ) -> dict[date, int]:
+    settings = runner.hogql_settings
+    if timeout_seconds is not None:
+        base = runner.hogql_settings or HogQLGlobalSettings()
+        budget = max(1, math.ceil(timeout_seconds))
+        settings = base.model_copy(update={"max_execution_time": min(budget, base.max_execution_time or budget)})
     response = execute_hogql_query(
         VERIFY_QUERY_TEMPLATE,
         runner.team,
@@ -338,9 +343,8 @@ def _current_source_counts(
             "row_limit": ast.Constant(value=MAX_RANGE_DAYS + 1),
         },
         workload=runner.workload,
-        settings=None
-        if timeout_seconds is None
-        else HogQLGlobalSettings(max_execution_time=max(1, math.ceil(timeout_seconds))),
+        ch_user=runner.ch_user,
+        settings=settings,
     )
     return {day: int(source) for day, source in response.results or []}
 
