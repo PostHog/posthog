@@ -10,6 +10,7 @@ import { PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/ge
 import { TaskPullRequest } from './taskPullRequests'
 import { recentSourceLabel } from './todayRecentFilters'
 import { TodaySessionDot, todaySessionDot } from './todaySessionDot'
+import type { TodayRailPane } from './todayShellLogic'
 import { TodaySessionMenuTarget, TodayWorkItem, sessionMenuTarget } from './todayWorkItems'
 
 /** What a session row's hover card says, built once per row so the shared card gets a stable payload. */
@@ -67,6 +68,8 @@ export interface TodayExplainerPreview extends SidebarProductMeta {
     kind: 'explainer'
     label: string
     icon: JSX.Element
+    /** Set on a rail tile's card, so the card reports which pane it explained. */
+    railPane?: TodayRailPane
 }
 
 export type TodayPreviewPayload =

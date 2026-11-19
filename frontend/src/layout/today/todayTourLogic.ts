@@ -6,7 +6,7 @@ import { navSwitchLogic } from 'lib/components/NavSwitch/navSwitchLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { isTodayPaneEnabled } from './todayPaneFlags'
-import { TODAY_PANE_INTROS, TodayIntroPane } from './todayPaneIntros'
+import { TODAY_HOME_DESCRIPTION, TODAY_PANE_INTROS, TodayIntroPane } from './todayPaneIntros'
 import { TodayRailPane, TodayView, todayShellLogic } from './todayShellLogic'
 import { TodayTourPoint } from './todayTourGeometry'
 
@@ -30,7 +30,7 @@ const TODAY_TOUR_STEPS: TodayTourStep[] = [
         pane: 'home',
         pointsAt: 'page',
         title: 'Home',
-        description: 'What changed in your product today, with highlights, metrics that moved and suggestions for you.',
+        description: TODAY_HOME_DESCRIPTION,
     },
     introStep('analytics', 'Analytics'),
     introStep('people', 'People'),

@@ -10,6 +10,10 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { TodayAccountMenu } from './TodayAccountMenu'
 import { TodayMoreMenu } from './TodayMoreMenu'
+import { todayRailPaneDescription } from './todayPaneIntros'
+import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
+import { TodayExplainerPreview } from './todayPreviewCards'
+import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 import { TODAY_PANES, TODAY_RAIL_FOOTER_PANES } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
 import { TODAY_RAIL_WIDTH, TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
@@ -23,6 +27,20 @@ const WizardRailButton = lazyWithRetry(() =>
 
 // pinned: autocapture data-attr. The Settings tile kept the attribute of the gear button it replaced.
 const RAIL_DATA_ATTRS: Partial<Record<TodayRailPane, string>> = { settings: 'today-settings' }
+
+// Built once, so each tile hands the shared card the same payload on every render.
+const RAIL_PREVIEWS = Object.fromEntries(
+    (Object.keys(TODAY_PANES) as TodayRailPane[]).map((pane) => [
+        pane,
+        {
+            kind: 'explainer',
+            label: TODAY_PANES[pane].label,
+            icon: TODAY_PANES[pane].icon,
+            description: todayRailPaneDescription(pane),
+            railPane: pane,
+        },
+    ])
+) as Record<TodayRailPane, TodayExplainerPreview>
 
 const RAIL_TILE_HEIGHT = 56
 const RAIL_GAP = 12
@@ -45,42 +63,49 @@ export function TodayRail(): JSX.Element {
     const overflowPanes = railPanes.slice(fitCount)
 
     const renderTile = (pane: TodayRailPane): JSX.Element => (
-        <TodayRailTile
-            key={pane}
-            label={TODAY_PANES[pane].label}
-            icon={TODAY_PANES[pane].icon}
-            active={activePane === pane}
-            to={railPaneHref(pane, effectivePhaiView, featureFlags)}
-            onClick={() => clickRailPane(pane)}
-            dataAttr={RAIL_DATA_ATTRS[pane] ?? `today-rail-${pane}`}
-        />
+        <TodayPreviewTrigger key={pane} payload={RAIL_PREVIEWS[pane]} className="w-full shrink-0">
+            <TodayRailTile
+                label={TODAY_PANES[pane].label}
+                icon={TODAY_PANES[pane].icon}
+                active={activePane === pane}
+                to={railPaneHref(pane, effectivePhaiView, featureFlags)}
+                onClick={() => clickRailPane(pane)}
+                dataAttr={RAIL_DATA_ATTRS[pane] ?? `today-rail-${pane}`}
+            />
+        </TodayPreviewTrigger>
     )
 
     return (
-        <nav
-            aria-label="Main"
-            className="TodayShell__rail flex shrink-0 flex-col items-center gap-3 bg-[var(--chrome)] pt-3 pb-3"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{ width: TODAY_RAIL_WIDTH }}
-        >
-            <div ref={paneListRef} className="flex min-h-0 w-full flex-1 flex-col items-center gap-3 overflow-hidden">
-                {visiblePanes.map(renderTile)}
-            </div>
-            {wizardUiEnabled &&
-                currentProjectId !== null && (
-                    // A local boundary keeps a failed wizard chunk from reaching the shell's
-                    // ChunkLoadErrorBoundary, which reloads the whole app.
-                    <PostHogErrorBoundary fallback={<></>}>
-                        <Suspense fallback={null}>
-                            <WizardRailButton key={currentProjectId} projectId={String(currentProjectId)} />
-                        </Suspense>
-                    </PostHogErrorBoundary>
-                )}
-            <div className="flex w-full flex-col items-center gap-3">
-                <TodayMoreMenu overflowPanes={overflowPanes} />
-                {TODAY_RAIL_FOOTER_PANES.map(renderTile)}
-            </div>
-            <TodayAccountMenu />
-        </nav>
+        // The rail is not shown in the phone layout, so its card needs no phone check.
+        <TodayPreviewCardProvider>
+            <nav
+                aria-label="Main"
+                className="TodayShell__rail flex shrink-0 flex-col items-center gap-3 bg-[var(--chrome)] pt-3 pb-3"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ width: TODAY_RAIL_WIDTH }}
+            >
+                <div
+                    ref={paneListRef}
+                    className="flex min-h-0 w-full flex-1 flex-col items-center gap-3 overflow-hidden"
+                >
+                    {visiblePanes.map(renderTile)}
+                </div>
+                {wizardUiEnabled &&
+                    currentProjectId !== null && (
+                        // A local boundary keeps a failed wizard chunk from reaching the shell's
+                        // ChunkLoadErrorBoundary, which reloads the whole app.
+                        <PostHogErrorBoundary fallback={<></>}>
+                            <Suspense fallback={null}>
+                                <WizardRailButton key={currentProjectId} projectId={String(currentProjectId)} />
+                            </Suspense>
+                        </PostHogErrorBoundary>
+                    )}
+                <div className="flex w-full flex-col items-center gap-3">
+                    <TodayMoreMenu overflowPanes={overflowPanes} />
+                    {TODAY_RAIL_FOOTER_PANES.map(renderTile)}
+                </div>
+                <TodayAccountMenu />
+            </nav>
+        </TodayPreviewCardProvider>
     )
 }

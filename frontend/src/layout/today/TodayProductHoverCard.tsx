@@ -1,3 +1,6 @@
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
+
 import { IconExternal } from '@posthog/icons'
 import { Button, Item, ItemContent, ItemSeparator, ItemTitle, Text } from '@posthog/quill'
 
@@ -14,6 +17,13 @@ export function TodayProductHoverCard({
     preview: TodayProductPreview | TodayExplainerPreview
     onAction: () => void
 }): JSX.Element {
+    const railPane = preview.kind === 'explainer' ? preview.railPane : undefined
+    useEffect(() => {
+        if (railPane) {
+            posthog.capture('today rail preview shown', { pane: railPane })
+        }
+    }, [railPane])
+
     return (
         <div className="flex flex-col" data-attr="today-product-hover-card">
             <Item size="xs" className="items-start">

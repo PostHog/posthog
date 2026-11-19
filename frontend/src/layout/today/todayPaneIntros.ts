@@ -38,6 +38,14 @@ export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntroCopy> = {
     },
 }
 
+export const TODAY_HOME_DESCRIPTION =
+    'What changed in your product today, with highlights, metrics that moved and suggestions for you.'
+
+/** What a rail item opens, for its hover card. Home has no intro, so it has its own line. */
+export function todayRailPaneDescription(pane: TodayRailPane): string {
+    return pane === 'home' ? TODAY_HOME_DESCRIPTION : TODAY_PANE_INTROS[pane].description
+}
+
 // pinned: keys in the user's server-side `has_seen_product_intro_for`. Renaming one shows that intro again to
 // everyone who dismissed it.
 export function todayPaneIntroKey(pane: TodayIntroPane): string {
