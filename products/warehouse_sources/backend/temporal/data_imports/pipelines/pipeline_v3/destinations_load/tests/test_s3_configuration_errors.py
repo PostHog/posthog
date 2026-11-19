@@ -168,7 +168,7 @@ STARTED = dt.datetime(2026, 3, 5, 7, 8, 9, tzinfo=dt.UTC)
 
 
 @pytest.mark.asyncio
-class TestKeyPrefix:
+class TestObjectKeys:
     async def test_objects_and_manifest_go_under_the_rendered_prefix(self) -> None:
         ctx = dataclasses.replace(
             _ctx(),

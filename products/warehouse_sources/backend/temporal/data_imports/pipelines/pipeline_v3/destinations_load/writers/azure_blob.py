@@ -149,7 +149,6 @@ class AzureBlobDestinationWriter:
         self._ctx = ctx
         config = ctx.config or {}
         self._container: str = (config.get("container_name") or config.get("container") or "").strip("/")
-        self._run_prefix_value = run_object_prefix(ctx)
         self._compression: ParquetCompression = config.get("compression") or DEFAULT_COMPRESSION
         self._max_concurrency: int = settings.BATCH_EXPORT_AZURE_BLOB_MAX_CONCURRENT_UPLOADS
 
@@ -178,7 +177,7 @@ class AzureBlobDestinationWriter:
     # --- names ------------------------------------------------------------------------
 
     def _run_prefix(self) -> str:
-        return self._run_prefix_value
+        return run_object_prefix(self._ctx)
 
     def _blob_name(self, batch_index: int) -> str:
         return f"{self._run_prefix()}part-{batch_index:04d}.parquet"

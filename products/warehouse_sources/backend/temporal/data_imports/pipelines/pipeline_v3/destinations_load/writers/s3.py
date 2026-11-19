@@ -293,7 +293,6 @@ class S3DestinationWriter:
         config = ctx.config or {}
         self._bucket: str = (config.get("bucket") or config.get("bucket_name") or "").strip().strip("/")
         self._region: str = (config.get("region") or "").strip()
-        self._run_prefix_value = run_object_prefix(ctx)
         self._use_virtual_style_addressing = bool(config.get("use_virtual_style_addressing"))
         self._compression: ParquetCompression = config.get("compression") or DEFAULT_COMPRESSION
 
@@ -328,7 +327,7 @@ class S3DestinationWriter:
     # --- keys -------------------------------------------------------------------------
 
     def _run_prefix(self) -> str:
-        return self._run_prefix_value
+        return run_object_prefix(self._ctx)
 
     def _object_key(self, batch_index: int) -> str:
         return f"{self._run_prefix()}part-{batch_index:04d}.parquet"
