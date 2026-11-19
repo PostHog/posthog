@@ -237,7 +237,9 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
         if language == MetricsQueryLanguage.BUILDER:
             request = self._builder_request()
             if self._tile_dashboard_id is not None and self._precompute_enabled:
-                return self._keep_precompute(run_precomputed_metric_query(team=self.team, request=request))
+                return self._keep_precompute(
+                    run_precomputed_metric_query(team=self.team, request=request, record_use=self._viewer_is_member)
+                )
             return run_metric_query(team=self.team, request=request)
         date_from, date_to = self._date_from, self._date_range.date_to()
         interval = resolve_query_interval(self.query.interval, variables, date_from, date_to)
@@ -252,7 +254,12 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
             if self._tile_dashboard_id is not None and self._precompute_enabled:
                 return self._keep_precompute(
                     run_precomputed_promql_query(
-                        team=self.team, promql=text, date_from=date_from, date_to=date_to, interval=interval
+                        team=self.team,
+                        promql=text,
+                        date_from=date_from,
+                        date_to=date_to,
+                        interval=interval,
+                        record_use=self._viewer_is_member,
                     )
                 )
             return run_promql_range(self.team, text, date_from, date_to, interval)
@@ -363,6 +370,11 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
     @cached_property
     def _precompute_enabled(self) -> bool:
         return precompute_enabled(self.team)
+
+    @property
+    def _viewer_is_member(self) -> bool:
+        user = cast("Optional[User | SharedLinkUser]", self.user)
+        return user is not None and not user.is_anonymous
 
     def _keep_precompute(self, result: MetricQueryResult) -> list[MetricSeries]:
         self._provenance, self._shadow = result.provenance, result.shadow

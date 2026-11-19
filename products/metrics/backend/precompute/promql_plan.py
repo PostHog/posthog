@@ -40,13 +40,20 @@ from products.metrics.backend.metric_query_runner import _align_to_interval, _in
 from products.metrics.backend.models import MetricPrecomputedMetric
 from products.metrics.backend.precompute.definitions import (
     MAX_KEPT_LABELS,
+    NOT_STARTED_BY_VIEWER,
     LabelRef,
     Leaf,
     find_precomputed_metric,
     get_or_create_precomputed_metric,
     labels_of,
 )
-from products.metrics.backend.precompute.store import Entry, EntryKey, bucket_width, read_entries
+from products.metrics.backend.precompute.store import (
+    Entry,
+    EntryKey,
+    TooManyStoredPointsError,
+    bucket_width,
+    read_entries,
+)
 from products.metrics.backend.promql import fill_range_variables, promql_range_results
 
 HOUR = dt.timedelta(hours=1)
@@ -60,6 +67,11 @@ MAX_STORED_POINTS = 500_000
 _LAST_USED_RESOLUTION = dt.timedelta(hours=1)
 _STEP_WINDOWS = frozenset({"$__interval", "${__interval}", "$__rate_interval", "${__rate_interval}"})
 _DURATION = re.compile(r"(\d+)(ms|s|m|h|d|w|y)")
+_DURATION_TEXT = re.compile(r"(?:\d+(?:ms|s|m|h|d|w|y))+")
+# Longer windows can't be stored anyway, and a bounded token keeps parsing cheap and the date arithmetic in range.
+_MAX_DURATION_TEXT_LENGTH = 32
+_MAX_WINDOW = dt.timedelta(days=400)
+MAX_EXPANDED_POINTS = 2_000_000
 _DURATION_UNITS = {
     "ms": dt.timedelta(milliseconds=1),
     "s": dt.timedelta(seconds=1),
@@ -159,9 +171,12 @@ def _string(token: Token) -> str:
 
 
 def parse_duration(text: str) -> dt.timedelta | None:
-    if not text or _DURATION.sub("", text):
+    if not text or len(text) > _MAX_DURATION_TEXT_LENGTH or not _DURATION_TEXT.fullmatch(text):
         return None
-    return sum((int(amount) * _DURATION_UNITS[unit] for amount, unit in _DURATION.findall(text)), start=dt.timedelta())
+    duration = sum(
+        (int(amount) * _DURATION_UNITS[unit] for amount, unit in _DURATION.findall(text)), start=dt.timedelta()
+    )
+    return duration if duration <= _MAX_WINDOW else None
 
 
 def _labels(parser: _Parser) -> tuple[str, ...]:
@@ -371,9 +386,18 @@ def _on_boundary(value: dt.datetime | dt.timedelta, bucket: dt.timedelta) -> boo
 
 
 def plan_promql(
-    team: Team, text: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
+    team: Team,
+    text: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    interval: str | None,
+    *,
+    record_use: bool = True,
 ) -> PromQLPlan | str:
-    """Plan a PromQL tile, or return why it runs raw. The first long-range tile that needs a metric creates it."""
+    """Plan a PromQL tile, or return why it runs raw. The first long-range tile that needs a metric creates it.
+
+    Without `record_use`, as for a shared-link viewer, the plan only reads: it creates no metric and doesn't keep
+    one in use."""
     if team.parent_team_id is not None:
         return "precomputing is not available in a child environment"
     expr = fill_range_variables(text, date_from, date_to)
@@ -392,12 +416,15 @@ def plan_promql(
     if precomputed_metric is None:
         if date_to - date_from < MIN_RANGE_TO_CREATE:
             return "the range is too short to precompute"
+        if not record_use:
+            return NOT_STARTED_BY_VIEWER
         if get_or_create_precomputed_metric(team.pk, leaf) is None:
             return "the project has no room for another precomputed metric"
         return "precomputing started"
     if precomputed_metric.state != MetricPrecomputedMetric.State.ACTIVE:
         return "the precomputed metric is paused"
-    _touch(precomputed_metric)
+    if record_use:
+        _touch(precomputed_metric)
     covered_from, covered_to = precomputed_metric.covered_from, precomputed_metric.covered_to
     if covered_from is None or covered_to is None or covered_from > first_step - window:
         return "the precomputed metric is still filling"
@@ -482,6 +509,9 @@ def histogram_quantile(quantile: float, buckets: Sequence[tuple[float, float]]) 
         bucket_start = monotonic[index - 1][0]
         count -= monotonic[index - 1][1]
         rank -= monotonic[index - 1][1]
+    if count == 0:
+        # Only an empty first bucket with a zero rank gets here. Prometheus divides 0 by 0 and returns NaN.
+        return math.nan
     return bucket_start + (bucket_end - bucket_start) * (rank / count)
 
 
@@ -496,21 +526,28 @@ def evaluate_stored(plan: PromQLPlan, entries: dict[EntryKey, Entry]) -> list[di
     kept = [label.key for label in labels_of(plan.precomputed_metric)]
     bucket = bucket_width(plan.precomputed_metric)
     steps_by_bucket = _windows(plan, bucket)
-    output_by = [label for label in query.group_by if label != "le"]
+    quantile = query.kind == PrecomputedMetricKind.BUCKET_INCREASE
+    # A quantile folds `le` into its value. Any other query keeps `le` like any other label.
+    output_by = [label for label in query.group_by if label != "le"] if quantile else list(query.group_by)
     sums: dict[tuple[dt.datetime, tuple[str, ...], str], float] = {}
+    expanded = 0
     for entry in entries.values():
         values = dict(zip(kept, entry.labels))
         if not all(matcher.matches(values.get(matcher.label, "")) for matcher in query.matchers):
             continue
         group = tuple(values.get(label, "") for label in output_by)
-        le = values.get("le", "")
+        le = values.get("le", "") if quantile else ""
         for bucket_start, value in entry.points.items():
-            for step in steps_by_bucket.get(bucket_start, ()):
+            steps = steps_by_bucket.get(bucket_start, ())
+            expanded += len(steps)
+            if expanded > MAX_EXPANDED_POINTS:
+                raise TooManyStoredPointsError
+            for step in steps:
                 key = (step, group, le)
                 sums[key] = sums.get(key, 0.0) + float(value)  # type: ignore[arg-type]
 
     by_group: dict[tuple[str, ...], dict[dt.datetime, float]] = {}
-    if query.kind == PrecomputedMetricKind.BUCKET_INCREASE:
+    if quantile:
         buckets: dict[tuple[dt.datetime, tuple[str, ...]], list[tuple[float, float]]] = {}
         for (step, group, le), total in sums.items():
             try:
@@ -550,11 +587,11 @@ def _rank(by_group: dict[tuple[str, ...], dict[dt.datetime, float]], rank: str, 
 
 
 def raw_tail(team: Team, plan: PromQLPlan) -> list[dict[str, Any]]:
-    """The steps after the stored ones, from Snuffle with the tile's own query."""
+    """The steps after the stored ones, from Snuffle with the tile's own query. The caller records the query."""
     first_raw = plan.cut + plan.step
     if first_raw > plan.date_to:
         return []
-    return promql_range_results(team, plan.expr, first_raw, plan.date_to, plan.step)
+    return promql_range_results(team, plan.expr, first_raw, plan.date_to, plan.step, record_query=False)
 
 
 def merge_results(*parts: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -1,5 +1,6 @@
 import math
 import datetime as dt
+from typing import cast
 
 import pytest
 import time_machine
@@ -14,12 +15,15 @@ from parameterized import parameterized
 from posthog.schema import MetricsQuery
 
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import SharingConfiguration, User
+from posthog.shared_link_user import SharedLinkUser
 
 from products.metrics.backend.facade.api import run_precomputed_promql_query
 from products.metrics.backend.facade.contracts import MetricSeries
 from products.metrics.backend.facade.enums import MetricQueryProvenanceMode, PrecomputedMetricKind
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
 from products.metrics.backend.models import MetricDailyQueryCount, MetricPrecomputedMetric
+from products.metrics.backend.precompute.definitions import NOT_STARTED_BY_VIEWER
 from products.metrics.backend.precompute.fill import fill_precomputed_metrics
 from products.metrics.backend.precompute.promql_plan import (
     DELTA_HISTOGRAM_BUCKET,
@@ -90,6 +94,8 @@ class TestParsePromQL(SimpleTestCase):
             ("bad_escape", 'sum(sum_over_time(m{a=~"x\\.y"}[1h]))'),
             ("bare_selector", "sum(m)"),
             ("too_many_labels", "sum by (a, b, c, d, e, f) (sum_over_time(m[1h]))"),
+            ("window_past_any_stored_range", "sum(sum_over_time(m[1000000y]))"),
+            ("overlong_duration_token", f"sum(sum_over_time(m[{'1' * 40}s]))"),
         ]
     )
     def test_other_shapes_run_raw(self, _name, text):
@@ -114,6 +120,7 @@ class TestParsePromQL(SimpleTestCase):
             ("no_inf_bucket", 0.5, [(0.5, 10.0), (1.0, 30.0)], math.nan),
             ("no_observations", 0.5, [(0.5, 0.0), (math.inf, 0.0)], math.nan),
             ("non_monotonic_is_fixed", 0.5, [(0.5, 10.0), (1.0, 5.0), (math.inf, 20.0)], 0.5),
+            ("zero_quantile_with_an_empty_first_bucket", 0.0, [(0.5, 0.0), (1.0, 10.0), (math.inf, 10.0)], math.nan),
         ]
     )
     def test_histogram_quantile_matches_prometheus(self, _name, quantile, buckets, expected):
@@ -242,6 +249,13 @@ class TestPrecomputedPromQL(APIBaseTest):
             ),
             ("sort_daily", "sort(sum by (provider) (sum_over_time(llm_cost_usd[$__interval])))", 7, "day", EXACT),
             (
+                "sum_by_le_keeps_each_bucket",
+                "sum by (le) (sum_over_time(llm_latency_seconds_bucket[$__interval]))",
+                2,
+                "hour",
+                EXACT,
+            ),
+            (
                 "p95_cumulative_hourly",
                 "histogram_quantile(0.95, sum by (le) (increase(llm_latency_seconds_bucket[$__interval])))",
                 2,
@@ -344,6 +358,28 @@ class TestPrecomputedPromQL(APIBaseTest):
         assert result.provenance.reasons == ("precomputing is off for this project",)
         assert not MetricPrecomputedMetric.objects.for_team(self.team.pk).exists()
 
+    def test_a_tile_answered_fully_from_storage_counts_as_one_query(self):
+        promql = "sort(sum by (provider) (sum_over_time(llm_cost_usd[$__interval])))"
+        self._precompute(promql, 7, "day")
+        MetricDailyQueryCount.objects.for_team(self.team.pk).delete()
+
+        result = self._run(promql, 7, "day")
+
+        assert result.provenance.mode == MetricQueryProvenanceMode.PRECOMPUTED
+        assert list(MetricDailyQueryCount.objects.for_team(self.team.pk).values_list("metric_name", "query_count")) == [
+            ("llm_cost_usd", 1)
+        ]
+
+    def test_a_tile_whose_window_expands_past_the_budget_runs_raw(self):
+        promql = "sum(sum_over_time(llm_cost_usd[1d]))"
+        self._precompute(promql, 7, "hour")
+
+        with patch("products.metrics.backend.precompute.promql_plan.MAX_EXPANDED_POINTS", 10):
+            result = self._run(promql, 7, "hour")
+
+        assert result.provenance.reasons == ("too much stored data to load",)
+        assert result.series == self._raw(promql, 7, "hour")
+
     def test_a_sampled_tile_reports_its_shadow_check(self):
         promql = "sum by (model) (sum_over_time(llm_cost_usd[$__interval]))"
         self._precompute(promql, 2, "hour")
@@ -380,7 +416,7 @@ class TestDeltaHistogramLookup(ClickhouseTestMixin, APIBaseTest):
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestMetricsQueryRunnerPromQLPrecompute(APIBaseTest):
-    def _run(self, snuffle: FakeSnuffle):
+    def _run(self, snuffle: FakeSnuffle, user: User | SharedLinkUser | None = None):
         runner = MetricsQueryRunner(
             query=MetricsQuery(
                 language="promql",
@@ -390,6 +426,7 @@ class TestMetricsQueryRunnerPromQLPrecompute(APIBaseTest):
                 dateRange={"date_from": "-2d"},
             ),
             team=self.team,
+            user=cast(User, user or self.user),
         )
         with (
             fake_snuffle(snuffle),
@@ -424,3 +461,18 @@ class TestMetricsQueryRunnerPromQLPrecompute(APIBaseTest):
         assert properties["precompute_shadow_checked"] is True
         assert properties["precompute_shadow_max_rel_diff"] == pytest.approx(0.0, abs=EXACT)
         assert properties["precompute_shadow_mismatched_points"] == 0
+
+    def test_a_shared_link_viewer_neither_creates_nor_keeps_a_metric_in_use(self):
+        viewer = SharedLinkUser(SharingConfiguration(team=self.team, enabled=True))
+        snuffle = _snuffle()
+        with time_machine.travel(NOW, tick=False):
+            first, _ = self._run(snuffle, viewer)
+            assert first.provenance is not None and first.provenance.reasons == [NOT_STARTED_BY_VIEWER]
+            assert not MetricPrecomputedMetric.objects.for_team(self.team.pk).exists()
+
+            self._run(snuffle)
+            stale = NOW - dt.timedelta(days=3)
+            MetricPrecomputedMetric.objects.for_team(self.team.pk).update(last_used_at=stale)
+            self._run(snuffle, viewer)
+
+        assert MetricPrecomputedMetric.objects.for_team(self.team.pk).get().last_used_at == stale

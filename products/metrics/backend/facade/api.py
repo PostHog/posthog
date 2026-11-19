@@ -470,10 +470,15 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     return _run_metric_query(team, request, {})
 
 
-def run_precomputed_metric_query(*, team: Team, request: MetricQueryRequest) -> MetricQueryResult:
+def run_precomputed_metric_query(
+    *, team: Team, request: MetricQueryRequest, record_use: bool = True
+) -> MetricQueryResult:
     """`run_metric_query` for a dashboard-v2 tile: each clause that a precomputed metric covers reads its stored
     buckets and runs raw only for the newest ones. The first long-range tile that needs a precomputed metric
-    creates it and runs raw meanwhile. The result says where its buckets came from."""
+    creates it and runs raw meanwhile. The result says where its buckets came from.
+
+    Pass `record_use=False` for a viewer who isn't a project member: the tile then reads stored buckets but
+    creates no precomputed metric and doesn't keep one in use."""
     if not precompute_enabled(team):
         return MetricQueryResult(
             series=_run_metric_query(team, request, {}),
@@ -484,7 +489,7 @@ def run_precomputed_metric_query(*, team: Team, request: MetricQueryRequest) -> 
     runners: dict[str, PrecomputedClauseRunner] = {}
     entries_cache: dict = {}
     for clause in request.clauses:
-        plan = plan_clause(team, clause, request)
+        plan = plan_clause(team, clause, request, record_use=record_use)
         if isinstance(plan, str):
             reasons.append(f"{clause.name}: {plan}")
             continue
@@ -510,7 +515,13 @@ def run_precomputed_metric_query(*, team: Team, request: MetricQueryRequest) -> 
 
 
 def run_precomputed_promql_query(
-    *, team: Team, promql: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
+    *,
+    team: Team,
+    promql: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    interval: str | None,
+    record_use: bool = True,
 ) -> MetricQueryResult:
     """`run_promql_range` for a dashboard-v2 tile: a planned query reads its stored steps and runs raw only for the
     newest ones. The first long-range tile that needs a precomputed metric creates it and runs raw meanwhile."""
@@ -525,15 +536,16 @@ def run_precomputed_promql_query(
 
     if not precompute_enabled(team):
         return raw_result(_PRECOMPUTE_OFF)
-    plan = plan_promql(team, promql, date_from, date_to, interval)
+    plan = plan_promql(team, promql, date_from, date_to, interval, record_use=record_use)
     if isinstance(plan, str):
         return raw_result(plan)
     try:
-        entries = read_promql_entries(plan)
+        stored = evaluate_stored(plan, read_promql_entries(plan))
     except TooManyStoredPointsError:
         return raw_result("too much stored data to load")
-    tail = raw_tail(team, plan)
-    series = series_from_results(team, promql, merge_results(evaluate_stored(plan, entries), tail))
+    # The raw tail doesn't record the query, so a tile answered fully from storage still counts as a query.
+    _record_promql_query(team, plan.expr)
+    series = series_from_results(team, promql, merge_results(stored, raw_tail(team, plan)))
     provenance = MetricQueryProvenance(
         mode=MetricQueryProvenanceMode.MIXED
         if plan.cut + plan.step <= date_to

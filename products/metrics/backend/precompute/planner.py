@@ -43,6 +43,7 @@ from products.metrics.backend.metric_query_runner import (
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.models import MetricPrecomputedMetric
 from products.metrics.backend.precompute.definitions import (
+    NOT_STARTED_BY_VIEWER,
     find_precomputed_metric,
     get_or_create_precomputed_metric,
     labels_of,
@@ -98,8 +99,13 @@ def _is_rate(clause: MetricQueryClause) -> bool:
     )
 
 
-def plan_clause(team: Team, clause: MetricQueryClause, request: MetricQueryRequest) -> ClausePlan | str:
-    """Plan one clause, or return why it runs raw. The first long-range tile that needs a metric creates it."""
+def plan_clause(
+    team: Team, clause: MetricQueryClause, request: MetricQueryRequest, *, record_use: bool = True
+) -> ClausePlan | str:
+    """Plan one clause, or return why it runs raw. The first long-range tile that needs a metric creates it.
+
+    Without `record_use`, as for a shared-link viewer, the plan only reads: it creates no metric and doesn't keep
+    one in use."""
     if team.parent_team_id is not None:
         # Precomputed metrics are stored per project, but samples are per environment.
         return "precomputing is not available in a child environment"
@@ -123,12 +129,15 @@ def plan_clause(team: Team, clause: MetricQueryClause, request: MetricQueryReque
     if precomputed_metric is None:
         if request.date_to - request.date_from < MIN_RANGE_TO_CREATE:
             return "the range is too short to precompute"
+        if not record_use:
+            return NOT_STARTED_BY_VIEWER
         if get_or_create_precomputed_metric(team.pk, leaf) is None:
             return "the project has no room for another precomputed metric"
         return "precomputing started"
     if precomputed_metric.state != MetricPrecomputedMetric.State.ACTIVE:
         return "the precomputed metric is paused"
-    _touch(precomputed_metric)
+    if record_use:
+        _touch(precomputed_metric)
     date_from = _align_to_interval(request.date_from, interval, tzinfo=team.timezone_info)
     covered_from, covered_to = precomputed_metric.covered_from, precomputed_metric.covered_to
     if covered_from is None or covered_to is None or covered_from > date_from:

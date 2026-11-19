@@ -287,6 +287,7 @@ class TestMetricsQueryRunnerPrecompute(ClickhouseTestMixin, APIBaseTest):
                 dateRange={"date_from": "-7d"},
             ),
             team=self.team,
+            user=self.user,
         )
         with (
             patch(
