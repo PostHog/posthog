@@ -649,9 +649,9 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     'entity-search': (allTools) => {
         const base =
             'Tool "entity-search" was removed. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill (a built-in local skill, when installed) for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).'
-        const hasCatalog = allTools.some((t) => t.name === 'data-catalog-metric-run')
+        const hasCatalog = allTools.some((t) => t.name === 'metric-list')
         return hasCatalog
-            ? `${base} For governed business metrics, search \`system.information_schema.metrics\` instead of \`system.insights\`.`
+            ? `${base} For governed business metrics, call "metric-list" instead of searching \`system.insights\`.`
             : base
     },
     'vision-scanners-suggest-tags': () =>
