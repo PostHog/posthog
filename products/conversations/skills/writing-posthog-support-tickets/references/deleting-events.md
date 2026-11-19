@@ -14,11 +14,12 @@ Tell the person when one of these fits, and write no ticket unless they still ne
 - **Removing a property and keeping the events.** Support cannot usually do this. Tell the person before you write anything, unless they already said that deleting the events is fine. If they still want to ask, write the ticket as a request to delete those events, with everything below, and say in **Request** that they would rather keep the events if PostHog can remove only the properties.
 
 Do not offer other workarounds from memory. Check them with `posthog:docs-search` first.
+When the docs show a self-serve route that is not listed here, tell the person about it first, and write the ticket only if they cannot use it.
 
 ## What the ticket must include
 
 **Region and project ID.**
-Take the ID from `posthog:project-get` and the region from the host of a `_posthogUrl`.
+Take both from the project lookup in the skill.
 IDs repeat across regions, so always give both.
 A query covers one project, so give a query and a count for each project.
 

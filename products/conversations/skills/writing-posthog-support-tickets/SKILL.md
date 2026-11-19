@@ -4,12 +4,14 @@ description: >
   Writes a ticket to PostHog's support team for the person you are helping, after you have
   investigated, so a support engineer can act on it without asking a follow-up question. Use when
   the person asks to contact PostHog support, talk to a human, raise or file a ticket, or send
-  PostHog a request, including deleting events or other data, privacy and GDPR requests, billing
-  and account problems, and errors you cannot explain. Answers from the docs first and writes no
-  ticket when the docs settle it. Otherwise runs the lookups support would ask for (project,
-  region, links, a deletion query and its count), writes one short ticket in a fixed shape, and
-  hands it to the person to send. Not for a team's own helpdesk tickets from its customers, which
-  the conversations-tickets tools cover.
+  PostHog a request, and when an investigation of a problem with a feature, such as an
+  experiment's sample ratio mismatch, missing data, a number that looks wrong or an error, ends
+  with something only PostHog can check or do. Also covers deleting events, privacy and GDPR
+  requests, and billing and account problems. Answers from the docs and the product's own
+  diagnosis first, and writes no ticket when they settle it. Otherwise runs the lookups support
+  would ask for, writes one short ticket in a fixed shape, and hands it to the person to send. Not
+  for a team's own helpdesk tickets from its customers, which the conversations-tickets tools
+  cover.
 ---
 
 # Writing a support ticket to PostHog
@@ -28,11 +30,16 @@ If the docs answer the question, give the answer and the docs link, and do not o
 When they answer part of it, answer that part, and put only the rest in a ticket.
 That includes "is this possible?" questions: a no from the docs is an answer, not a reason for a ticket.
 
+For a problem with a feature, such as uneven experiment exposures, missing events or a number that looks wrong, run the product's own diagnosis too, as [references/product-problems.md](./references/product-problems.md) describes.
+Most of these problems have a cause in their setup that their own data shows.
+When the diagnosis finds it, give the person the cause and the fix, and write no ticket.
+
 A ticket is for something only PostHog staff can do or see:
 
 - An action that staff run, such as deleting specific events, changing a bill, or restoring access to an account.
 - Data or state on PostHog's side that neither of you can see.
 - An error you reproduced that the docs do not explain.
+- A problem the product's diagnosis checked but could not explain, or traced to PostHog's side.
 
 Write one too when the person still wants a human after hearing the answer.
 The ticket then says what the docs said and asks only what is left.
@@ -42,19 +49,25 @@ Tell the person what you found, and offer a ticket.
 The Support panel in PostHog offers a ticket on a paid plan or an active trial, and a billing or usage question on any plan.
 Check the plan with `posthog:billing-subscription-get`.
 On the free plan, unless it is a billing question, say so before you write one, and point them to the community forum at https://posthog.com/questions.
+If the lookup fails or is refused, don't guess the plan, and go on: PostHog checks it before the person can send the ticket.
 
 ## 2. Investigate
 
 Do the lookups that support would otherwise ask for.
 
-- **Project.** Get the name and ID from `posthog:project-get`. The region is the host of any `_posthogUrl` in your tool results: `us.posthog.com` is US Cloud, and `eu.posthog.com` is EU Cloud.
+- **Project.** Get the name and ID from `posthog:project-get`. Take the region from the host of a PostHog link in your tool results: `us.posthog.com` is US Cloud, and `eu.posthog.com` is EU Cloud. When no result has a `_posthogUrl`, get a link to the project from `posthog:generate-app-url` and read its host. If it is neither host, write the host you found.
 - **Objects.** For each flag, insight, dashboard, experiment, error, replay or survey they mention, look it up and take its link from the `_posthogUrl` field of the result. Never build a PostHog URL by hand, because a wrong link reads as a real one. For a docs page, copy the URL from the `posthog:docs-search` result as it is.
 - **SDK.** When the problem is in their app, read `$lib` and `$lib_version` from a recent event they sent.
-- **Required details.** If the request is one of the kinds below, follow its reference before you write.
+- **What support needs.** Include every item in the row that fits the request, and read its reference when it has one.
 
-| Request                                                       | Must include                                                                        | Read                                                             |
-| ------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Delete events, or remove personal or sensitive data from them | Region, project ID, a query with UTC time bounds, and the count that query returned | [references/deleting-events.md](./references/deleting-events.md) |
+| Request                                                                                                            | Must include                                                                                                                                                                                         | Read                                                               |
+| ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Delete events, or remove personal or sensitive data from them                                                      | Region, project ID, a query with UTC time bounds, and the count that query returned                                                                                                                  | [references/deleting-events.md](./references/deleting-events.md)   |
+| A problem with a feature, such as an experiment's sample ratio mismatch, missing data or a number that looks wrong | A link to the object and the setting that matters, what they see and what they expected as numbers, the time range in UTC, the SDK and its version, and each check the diagnosis ran with its result | [references/product-problems.md](./references/product-problems.md) |
+| An error                                                                                                           | The exact error, where it shows (a page, an API endpoint or an SDK call), when it started, the steps that reproduce it, and the SDK and its version                                                  | None                                                               |
+| A bill or usage question                                                                                           | The billing period, the product, and the amounts or usage they see                                                                                                                                   | None                                                               |
+
+For a kind of request not listed, include what support would otherwise ask for: the object, the numbers, the time range in UTC, and what you ruled out.
 
 When a lookup finds nothing, or fails, say so in the ticket, such as "No flag with the key `checkout-v2` in project 12345".
 Ask the person only for what you cannot look up and support needs, such as the exact error, when it started, or what they expected.
@@ -121,9 +134,9 @@ Say which details or links you could not find, so they can add them before they 
 
 ## Before you hand it over, check
 
-- The docs did not already answer it.
+- The docs did not already answer it, and the product's diagnosis, when there is one, did not find the cause in their setup.
 - Every link came from a tool result, from `posthog:docs-search` as it is, or from the person.
-- A request of a kind in the table has every required detail.
+- The ticket has every item in its row of the table.
 - **Request** has every question the docs did not answer, with every part, and only PostHog can answer it or do what it asks.
 - Each "<your name> checked" line is a lookup you ran in this conversation.
 - No credential or personal data about their users made it in.
