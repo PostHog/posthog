@@ -15,7 +15,7 @@ export const OVERVIEW_VARIANTS: PrototypeVariant[] = [
 export function OverviewPrototype(): JSX.Element {
     const variant = usePrototypeVariant(OVERVIEW_VARIANTS)
     return (
-        <div className="@container pb-20">
+        <div data-quill className="@container pb-20">
             {variant.key === 'A' ? <OverviewAttention /> : null}
             {variant.key === 'B' ? <OverviewPerformance /> : null}
             {variant.key === 'C' ? <OverviewTimeline /> : null}
