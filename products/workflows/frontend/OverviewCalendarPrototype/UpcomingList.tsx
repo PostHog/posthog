@@ -11,16 +11,23 @@ export function UpcomingList({
     days,
     limit,
     compact = false,
+    day,
 }: {
     days: number
     limit: number
     compact?: boolean
+    day?: dayjs.Dayjs
 }): JSX.Element {
-    const upcoming = entriesBetween(dayjs(), TODAY.add(days, 'day'))
+    const upcoming = (
+        day ? entriesBetween(day.startOf('day'), day.endOf('day')) : entriesBetween(dayjs(), TODAY.add(days, 'day'))
+    )
         .filter((e) => e.state === 'scheduled' || e.state === 'paused')
         // A repeating workflow shows once, at its next run.
         .filter((e, i, all) => !e.repeatId || all.findIndex((other) => other.repeatId === e.repeatId) === i)
         .slice(0, limit)
+    if (!upcoming.length) {
+        return <span className="px-1 text-xs text-muted-foreground">Nothing goes out that day.</span>
+    }
     return (
         <CardGroup size="sm">
             {upcoming.map((entry) => (

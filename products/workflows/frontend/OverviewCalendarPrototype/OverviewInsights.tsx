@@ -1,41 +1,41 @@
-// PROTOTYPE (throwaway): overview B2, round 2. Performance first with insights: a headline, the numbers, how
-// messages turn into conversions, what people do after a click, replay vision, the best time to send and send
-// health. A side rail keeps the small parts of A: what needs attention, the next 7 days and drafts.
+// PROTOTYPE (throwaway): overview B3, round 3. Performance first: filters for period, topic and channel, five
+// numbers, sends per day, message to conversion next to the top messages, what people do after a click next to
+// replay vision, suggested improvements, and deliverability. A side rail keeps what needs attention, the next 7
+// days and drafts. `newAccount` shows the empty states and the steps that fill them.
 import { useMemo, useState } from 'react'
 
-import { ToggleGroup, ToggleGroupItem } from '@posthog/quill'
-import { BarList, FunnelChart, Heatmap, TimeSeriesBarChart, funnelFromCounts } from '@posthog/quill-charts'
+import { TimeSeriesBarChart } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 
 import { AfterClickCard } from './AfterClickCard'
 import { AttentionCompact } from './AttentionCompact'
 import { ChartCard } from './ChartCard'
+import { ConversionCard } from './ConversionCard'
 import { DeliverabilityCard } from './DeliverabilityCard'
 import { DraftsList } from './DraftsList'
+import { EmptyInsight } from './EmptyInsight'
 import {
-    CONVERSIONS_SERIES,
+    CONVERSION_GOALS,
     CONVERSION_RATE,
-    ChannelFilter,
-    SEND_TIME_DAYS,
-    SEND_TIME_HOURS,
-    SEND_TIME_OPENS,
-    TOP_MESSAGES,
+    CONVERSIONS_SERIES,
+    DEFAULT_OVERVIEW_FILTERS,
+    OverviewFilterState,
     dailyTotals,
-    seriesFor,
+    filteredRows,
+    forPeriod,
+    periodLabels,
+    topicFactor,
     weightedRate,
 } from './insightsData'
+import { OverviewFilterBar } from './OverviewFilterBar'
 import { OverviewMetric } from './OverviewMetric'
-import { EntryKind, SERIES_LABELS, formatCount, sum } from './prototypeData'
+import { EntryKind, formatCount, sum } from './prototypeData'
 import { ReplayScannerCard } from './ReplayScannerCard'
+import { SetupChecklist } from './SetupChecklist'
+import { SuggestionsCard } from './SuggestionsCard'
+import { TopMessagesCard } from './TopMessagesCard'
 import { WeekAhead } from './WeekAhead'
-
-const CHANNELS: { value: ChannelFilter; label: string }[] = [
-    { value: 'all', label: 'All channels' },
-    { value: 'email', label: 'Email' },
-    { value: 'sms', label: 'SMS' },
-    { value: 'push', label: 'Push' },
-]
 
 const KINDS: { kind: EntryKind; label: string; dot: string }[] = [
     { kind: 'broadcast', label: 'Broadcasts', dot: 'bg-[var(--data-color-1)]' },
@@ -44,18 +44,21 @@ const KINDS: { kind: EntryKind; label: string; dot: string }[] = [
 ]
 
 const VOLUME_CONFIG = { xAxis: { timezone: 'UTC', interval: 'day' as const }, yAxis: { showGrid: true } }
-const HEATMAP_CONFIG = { xTickFormatter: (label: string, i: number) => (i % 3 === 0 ? label : null) }
-const TOP_CONFIG = { valueDisplay: 'value' as const }
 
-export function OverviewInsights(): JSX.Element {
+export function OverviewInsights({ newAccount = false }: { newAccount?: boolean }): JSX.Element {
     const theme = useChartTheme()
-    const [channel, setChannel] = useState<ChannelFilter>('all')
+    const [filters, setFilters] = useState<OverviewFilterState>(DEFAULT_OVERVIEW_FILTERS)
+    const [goal, setGoal] = useState<string | null>(newAccount ? null : 'upgraded')
 
-    const rows = useMemo(() => seriesFor(channel), [channel])
-    const daily = useMemo(() => dailyTotals(rows), [rows])
+    const factor = newAccount ? 0 : topicFactor(filters)
+    const rows = useMemo(() => filteredRows(filters), [filters])
+    const daily = useMemo(
+        () => forPeriod(dailyTotals(rows), filters.period).map((v) => Math.round(v * factor)),
+        [rows, filters.period, factor]
+    )
     const sent = sum(daily)
     const deliveredRate = weightedRate(rows, (r) => r.deliveredRate)
-    const opensApply = channel !== 'sms'
+    const opensApply = filters.channel !== 'sms'
     const openRate = weightedRate(
         rows.filter((r) => r.channel !== 'sms'),
         (r) => r.openRate
@@ -64,97 +67,82 @@ export function OverviewInsights(): JSX.Element {
     const delivered = Math.round(sent * deliveredRate)
     const opened = Math.round(delivered * openRate)
     const clicked = Math.round(delivered * clickRate)
-    const converted = Math.round(clicked * CONVERSION_RATE[channel])
-
+    const goalFactor = CONVERSION_GOALS.find((g) => g.key === goal)?.factor ?? 0
+    const converted = Math.round(clicked * CONVERSION_RATE[filters.channel] * goalFactor)
+    const conversions = useMemo(
+        () => forPeriod(CONVERSIONS_SERIES, filters.period).map((v) => Math.round(v * factor * goalFactor)),
+        [filters.period, factor, goalFactor]
+    )
+    const labels = useMemo(() => periodLabels(filters.period), [filters.period])
     const volume = useMemo(
         () =>
             KINDS.map(({ kind, label }) => ({
                 key: kind,
                 label,
-                data: dailyTotals(rows.filter((r) => r.kind === kind)),
+                data: forPeriod(dailyTotals(rows.filter((r) => r.kind === kind)), filters.period).map((v) =>
+                    Math.round(v * factor)
+                ),
             })),
-        [rows]
+        [rows, filters.period, factor]
     )
-    const funnel = useMemo(
-        () =>
-            funnelFromCounts(
-                [
-                    { label: 'Sent', count: sent },
-                    { label: 'Delivered', count: delivered },
-                    ...(opensApply ? [{ label: 'Opened', count: opened }] : []),
-                    { label: 'Clicked', count: clicked },
-                    { label: 'Converted', count: converted },
-                ],
-                { label: 'Messages' }
-            ),
+    const steps = useMemo(
+        () => [
+            { label: 'Sent', count: sent },
+            { label: 'Delivered', count: delivered },
+            ...(opensApply ? [{ label: 'Opened', count: opened }] : []),
+            { label: 'Clicked', count: clicked },
+            { label: 'Converted', count: converted },
+        ],
         [sent, delivered, opened, clicked, converted, opensApply]
     )
-    const funnelCounts = [sent, delivered, ...(opensApply ? [opened] : []), clicked, converted]
-    const top = useMemo(
-        () => TOP_MESSAGES.map((m) => ({ key: m.key, label: m.label, data: [Math.round(m.clickRate * 1000) / 10] })),
-        []
-    )
+    const noSends = newAccount
+    const rate = (value: number): number => (noSends ? 0 : value * 100)
 
     return (
         <div className="flex flex-col gap-6">
-            <div className="flex flex-wrap items-end justify-between gap-4">
-                <div className="flex max-w-3xl flex-col gap-1">
-                    <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        Last 30 days
-                    </span>
-                    <p className="mb-0 text-2xl font-semibold leading-snug">
-                        {formatCount(delivered)} messages reached people, and{' '}
-                        <span className="text-success-foreground">{formatCount(converted)} converted</span> after one,
-                        18% more than the 30 days before.
-                    </p>
-                </div>
-                <ToggleGroup
-                    variant="outline"
-                    aria-label="Channel"
-                    value={[channel]}
-                    onValueChange={(next: string[]) => next[0] && setChannel(next[0] as ChannelFilter)}
-                >
-                    {CHANNELS.map((c) => (
-                        <ToggleGroupItem key={c.value} value={c.value}>
-                            {c.label}
-                        </ToggleGroupItem>
-                    ))}
-                </ToggleGroup>
-            </div>
+            <OverviewFilterBar filters={filters} onChange={setFilters} />
 
             <div className="grid grid-cols-2 gap-3 @min-[48rem]:grid-cols-3 @min-[72rem]:grid-cols-5">
-                <OverviewMetric title="Messages sent" value={sent} data={daily} change={12} format={formatCount} />
+                <OverviewMetric
+                    title="Messages sent"
+                    value={sent}
+                    data={noSends ? undefined : daily}
+                    change={noSends ? undefined : 12}
+                    format={formatCount}
+                    subtitle={noSends ? 'None yet' : undefined}
+                />
                 <OverviewMetric
                     title="Delivered"
-                    value={deliveredRate * 100}
-                    change={-0.4}
-                    format={(v) => `${v.toFixed(1)}%`}
-                    subtitle={`${formatCount(delivered)} messages`}
+                    value={rate(deliveredRate)}
+                    change={noSends ? undefined : -0.4}
+                    format={(v) => (noSends ? '-' : `${v.toFixed(1)}%`)}
+                    subtitle={noSends ? 'None yet' : `${formatCount(delivered)} messages`}
                 />
                 {opensApply ? (
                     <OverviewMetric
                         title="Opened"
-                        value={openRate * 100}
-                        change={3}
-                        format={(v) => `${v.toFixed(0)}%`}
-                        subtitle={`${formatCount(opened)} of messages delivered`}
+                        value={rate(openRate)}
+                        change={noSends ? undefined : 3}
+                        format={(v) => (noSends ? '-' : `${v.toFixed(0)}%`)}
+                        subtitle={noSends ? 'None yet' : `${formatCount(opened)} of messages delivered`}
                     />
                 ) : (
-                    <OverviewMetric title="Replies" value={42} change={8} subtitle="6 were STOP" />
+                    <OverviewMetric title="Replies" value={noSends ? 0 : 42} change={8} subtitle="6 were STOP" />
                 )}
                 <OverviewMetric
                     title="Clicked"
-                    value={clickRate * 100}
-                    change={1}
-                    format={(v) => `${v.toFixed(1)}%`}
-                    subtitle={`${formatCount(clicked)} people`}
+                    value={rate(clickRate)}
+                    change={noSends ? undefined : 1}
+                    format={(v) => (noSends ? '-' : `${v.toFixed(1)}%`)}
+                    subtitle={noSends ? 'None yet' : `${formatCount(clicked)} people`}
                 />
                 <OverviewMetric
                     title="Converted"
                     value={converted}
-                    data={CONVERSIONS_SERIES}
-                    change={18}
-                    format={formatCount}
+                    data={noSends || !goal ? undefined : conversions}
+                    change={noSends || !goal ? undefined : 18}
+                    format={(v) => (goal ? formatCount(v) : '-')}
+                    subtitle={goal ? undefined : 'Pick a conversion goal'}
                 />
             </div>
 
@@ -164,87 +152,54 @@ export function OverviewInsights(): JSX.Element {
                         title="Messages sent per day"
                         description="By messaging type"
                         action={
-                            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-                                {KINDS.map((k) => (
-                                    <span key={k.kind} className="inline-flex items-center gap-1">
-                                        <span aria-hidden className={`size-2 rounded-xs ${k.dot}`} />
-                                        {k.label}
-                                    </span>
-                                ))}
-                            </div>
+                            noSends ? null : (
+                                <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                                    {KINDS.map((k) => (
+                                        <span key={k.kind} className="inline-flex items-center gap-1">
+                                            <span aria-hidden className={`size-2 rounded-xs ${k.dot}`} />
+                                            {k.label}
+                                        </span>
+                                    ))}
+                                </div>
+                            )
                         }
                     >
-                        <div className="flex h-56 flex-col">
-                            <TimeSeriesBarChart
-                                series={volume}
-                                labels={SERIES_LABELS}
-                                theme={theme}
-                                config={VOLUME_CONFIG}
+                        {noSends ? (
+                            <EmptyInsight
+                                title="No messages sent yet"
+                                detail="Broadcasts, workflows and transactional emails show here by day once they go out."
                             />
-                        </div>
+                        ) : (
+                            <div className="flex h-56 flex-col">
+                                <TimeSeriesBarChart
+                                    series={volume}
+                                    labels={labels}
+                                    theme={theme}
+                                    config={VOLUME_CONFIG}
+                                />
+                            </div>
+                        )}
                     </ChartCard>
 
                     <div className="grid gap-6 @min-[56rem]:grid-cols-2">
-                        <ChartCard
-                            title="From message to conversion"
-                            description="Converted: did the goal event within 7 days of a click"
-                        >
-                            <div className="flex h-64 flex-col">
-                                <FunnelChart
-                                    steps={funnel.steps}
-                                    series={funnel.series}
-                                    theme={theme}
-                                    stepFooter={(i) => (
-                                        <div className="text-xs leading-tight">
-                                            <div className="truncate font-semibold">{funnel.steps[i]}</div>
-                                            <div className="text-muted-foreground">
-                                                {formatCount(funnelCounts[i] ?? 0)}
-                                            </div>
-                                        </div>
-                                    )}
-                                />
-                            </div>
-                        </ChartCard>
-                        <ChartCard
-                            title="Best time to send"
-                            description="Email opens by weekday and hour. Tuesday at 9:00 gets the most."
-                        >
-                            <div className="flex h-64 flex-col">
-                                <Heatmap
-                                    xLabels={SEND_TIME_HOURS}
-                                    yLabels={SEND_TIME_DAYS}
-                                    cells={SEND_TIME_OPENS}
-                                    theme={theme}
-                                    config={HEATMAP_CONFIG}
-                                />
-                            </div>
-                        </ChartCard>
+                        <ConversionCard steps={steps} goal={goal} onGoal={setGoal} noSends={noSends} />
+                        <TopMessagesCard noSends={noSends} />
                     </div>
 
                     <div className="grid gap-6 @min-[56rem]:grid-cols-[3fr_2fr]">
-                        <AfterClickCard />
-                        <ReplayScannerCard />
+                        <AfterClickCard noSends={noSends} />
+                        <ReplayScannerCard noScanner={newAccount} />
                     </div>
 
-                    <div className="grid gap-6 @min-[56rem]:grid-cols-2">
-                        <ChartCard title="Top messages by click rate" description="Last 30 days, at least 500 sent">
-                            <div className="flex h-48 flex-col">
-                                <BarList
-                                    series={top}
-                                    theme={theme}
-                                    config={TOP_CONFIG}
-                                    valueFormatter={(v) => `${v.toFixed(1)}%`}
-                                />
-                            </div>
-                        </ChartCard>
-                        <DeliverabilityCard />
-                    </div>
+                    <SuggestionsCard noSends={noSends} />
+
+                    <DeliverabilityCard noDomain={newAccount} />
                 </div>
 
                 <aside className="flex min-w-0 flex-col gap-4">
-                    <AttentionCompact />
-                    <WeekAhead />
-                    <DraftsList />
+                    {newAccount ? <SetupChecklist /> : <AttentionCompact />}
+                    <WeekAhead noSends={noSends} />
+                    {newAccount ? null : <DraftsList />}
                 </aside>
             </div>
         </div>

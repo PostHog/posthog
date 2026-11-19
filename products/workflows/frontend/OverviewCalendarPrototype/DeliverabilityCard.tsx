@@ -1,10 +1,16 @@
-import { Button } from '@posthog/quill'
-// PROTOTYPE (throwaway): send health as three gauges against the limits that cut a daily send limit.
+import { IconCheck, IconWarning } from '@posthog/icons'
+import { Button, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@posthog/quill'
+// PROTOTYPE (throwaway): send health. Gauges against the limits that cut a daily send limit, the sending domain's
+// records, today's use of the daily limit, and delivery by mailbox provider.
 import { Gauge } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 
 import { ChartCard } from './ChartCard'
+import { EmptyInsight } from './EmptyInsight'
+import { DAILY_LIMIT, DOMAIN_CHECKS, MAILBOX_PROVIDERS } from './insightsData'
+import { SENDING_DOMAIN, formatCount, percent } from './prototypeData'
+import { prototypeToast } from './prototypeToast'
 
 const GAUGES = [
     {
@@ -42,28 +48,120 @@ const GAUGES = [
     },
 ]
 
-export function DeliverabilityCard(): JSX.Element {
+export function DeliverabilityCard({ noDomain }: { noDomain: boolean }): JSX.Element {
     const theme = useChartTheme()
+    if (noDomain) {
+        return (
+            <ChartCard title="Deliverability" description="Email">
+                <EmptyInsight
+                    title="Verify a sending domain"
+                    detail="Add SPF, DKIM and DMARC records for your domain, so mailbox providers trust your email. Bounce, spam and delivery numbers show here once you send."
+                >
+                    <Button variant="primary" size="sm" onClick={() => prototypeToast('the sending domain setup')}>
+                        Add a sending domain
+                    </Button>
+                </EmptyInsight>
+            </ChartCard>
+        )
+    }
+    const usedShare = DAILY_LIMIT.used / DAILY_LIMIT.limit
     return (
         <ChartCard
             title="Deliverability"
             description="Email, last 7 days"
-            action={<Button variant="link">Sending domains</Button>}
+            action={
+                <Button variant="link" onClick={() => prototypeToast('the sending domains')}>
+                    Sending domains
+                </Button>
+            }
         >
-            <div className="grid grid-cols-3 gap-2">
-                {GAUGES.map((g) => (
-                    <div key={g.label} className="flex h-32 min-w-0 flex-col">
-                        <Gauge
-                            value={g.value}
-                            min={0}
-                            max={g.max}
-                            thresholds={g.thresholds}
-                            theme={theme}
-                            label={g.label}
-                            config={{ valueFormatter: (v) => `${v.toFixed(g.decimals)}%` }}
-                        />
+            <div className="grid gap-6 @min-[64rem]:grid-cols-2">
+                <div className="flex min-w-0 flex-col gap-4">
+                    <div className="grid grid-cols-3 gap-2">
+                        {GAUGES.map((g) => (
+                            <div key={g.label} className="flex h-32 min-w-0 flex-col">
+                                <Gauge
+                                    value={g.value}
+                                    min={0}
+                                    max={g.max}
+                                    thresholds={g.thresholds}
+                                    theme={theme}
+                                    label={g.label}
+                                    config={{ valueFormatter: (v) => `${v.toFixed(g.decimals)}%` }}
+                                />
+                            </div>
+                        ))}
                     </div>
-                ))}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="flex flex-col gap-1.5">
+                            <span className="text-xs font-medium text-muted-foreground">{SENDING_DOMAIN}</span>
+                            <div className="flex flex-wrap gap-3">
+                                {DOMAIN_CHECKS.map((c) => (
+                                    <span key={c.key} className="inline-flex items-center gap-1 text-sm">
+                                        {c.ok ? (
+                                            <IconCheck className="size-4 text-success-foreground" />
+                                        ) : (
+                                            <IconWarning className="size-4 text-destructive-foreground" />
+                                        )}
+                                        {c.label}
+                                    </span>
+                                ))}
+                            </div>
+                            <Button
+                                variant="link"
+                                size="inline"
+                                className="self-start"
+                                onClick={() => prototypeToast('the DKIM record to fix')}
+                            >
+                                Fix DKIM
+                            </Button>
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                            <span className="text-xs font-medium text-muted-foreground">Daily limit today</span>
+                            <div className="h-2 overflow-hidden rounded-full bg-fill-hover">
+                                <div
+                                    className={
+                                        usedShare > 0.8
+                                            ? 'h-full bg-warning-foreground'
+                                            : 'h-full bg-[var(--data-color-1)]'
+                                    }
+                                    style={{ width: `${usedShare * 100}%` }}
+                                />
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                                {formatCount(DAILY_LIMIT.used)} of {formatCount(DAILY_LIMIT.limit)} used
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Mailbox provider</TableHead>
+                            <TableHead className="text-right">Share</TableHead>
+                            <TableHead className="text-right">Delivered</TableHead>
+                            <TableHead className="text-right">Opened</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {MAILBOX_PROVIDERS.map((m) => (
+                            <TableRow key={m.key}>
+                                <TableCell>{m.label}</TableCell>
+                                <TableCell className="text-right tabular-nums">{percent(m.share)}</TableCell>
+                                <TableCell
+                                    className={
+                                        m.delivered < 0.97
+                                            ? 'text-right tabular-nums text-warning-foreground'
+                                            : 'text-right tabular-nums'
+                                    }
+                                >
+                                    {percent(m.delivered)}
+                                </TableCell>
+                                <TableCell className="text-right tabular-nums">{percent(m.opened)}</TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
             </div>
         </ChartCard>
     )
