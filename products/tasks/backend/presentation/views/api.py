@@ -2226,6 +2226,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "budget_guard",
                 "benjamin_version",
                 "agent_version",
+                "upstream_turn_retry",
             }:
                 return False
         return True
@@ -4600,13 +4601,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # the generator, after SSE admission, off the event loop.
         thin_tail = run_stream_thin_tail(stream_info.state) and not start_latest
         backlog_serve_after: int | None = None
-        backlog_log_urls: list[str] = []
+        backlog_logs: list[tasks_facade.TaskRunLog] = []
         if thin_tail:
             if not last_event_id:
                 backlog_serve_after = -1
             else:
                 backlog_serve_after = parse_log_cursor(last_event_id)
-            backlog_log_urls = tasks_facade.get_task_run_log_urls(pk, task_id, self.team_id) or []
+            backlog_logs = tasks_facade.get_task_run_logs(pk, task_id, self.team_id) or []
 
         async def async_stream() -> AsyncGenerator[bytes]:
             redis_stream = TaskRunRedisStream(stream_key, use_dedicated_stream)
@@ -4656,9 +4657,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     backlog_reserved = 0
                     try:
                         try:
-                            backlog_bytes = await asyncio.to_thread(
-                                tasks_facade.get_task_run_log_size, backlog_log_urls
-                            )
+                            backlog_bytes = await asyncio.to_thread(tasks_facade.get_task_run_log_size, backlog_logs)
                             observe_stream_backlog_bytes(origin_product, backlog_bytes)
                             backlog_oversized = backlog_bytes > settings.TASK_RUN_STREAM_BACKLOG_MAX_BYTES
                             if backlog_oversized:
@@ -4687,7 +4686,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                             else:
                                 backlog_reserved = backlog_bytes
                                 log_content = await asyncio.to_thread(
-                                    tasks_facade.read_task_run_log_content, backlog_log_urls
+                                    tasks_facade.read_task_run_log_content, backlog_logs
                                 )
                             backlog_entries, backlog_index = await asyncio.to_thread(_parse_backlog, log_content)
                             del log_content

@@ -48,6 +48,9 @@ from products.signals.backend.implementation_dispatch_tasks import (
 )
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
 from products.signals.backend.implementation_pr_cache import refresh_implementation_pr_cache_for_links
+from products.signals.backend.implementation_pr_notification_tasks import (
+    deliver_implementation_pr_notifications as deliver_implementation_pr_notifications,
+)
 from products.signals.backend.inbox_push_notifications import notify_pull_request_ready, notify_report_visible
 from products.signals.backend.inbox_summary import github_datetime, sync_pull_request_participants
 from products.signals.backend.models import (

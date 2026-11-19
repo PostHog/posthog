@@ -50,8 +50,8 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.actions.backend.facade.api import get_action_inventory
+from products.alerts.backend.facade.api import alert_inventory
 from products.alerts.backend.facade.destinations import redact_urls_in_name
-from products.alerts.backend.models.alert import AlertConfiguration
 from products.business_knowledge.backend.models.constants import SourceStatus
 from products.business_knowledge.backend.models.knowledge_source import KnowledgeSource
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -562,31 +562,25 @@ def _experiment_status(exp: RecentExperiment) -> str:
 def _recent_alerts(team: Team) -> dict[str, Any]:
     """Insight alert orientation — total + currently-enabled, plus 5 most-recently-created.
 
-    `AlertConfiguration` carries `created_at` from `CreatedMetaFields` but no
-    `updated_at` — sorting by creation recency surfaces newly-configured alerts,
-    which is the high-signal moment (someone setting up an alert today is actively
-    monitoring something).
+    Alerts carry `created_at` but no `updated_at` — sorting by creation recency surfaces
+    newly-configured alerts, which is the high-signal moment (someone setting up an alert today
+    is actively monitoring something).
     """
-    qs = AlertConfiguration.objects.filter(team=team)
-    total = qs.count()
-    enabled = qs.filter(enabled=True).count()
-    recent = qs.order_by("-created_at")[:RECENT_ENTITY_LIMIT].values(
-        "id", "name", "enabled", "state", "calculation_interval", "insight_id", "created_at"
-    )
+    inventory = alert_inventory(team_id=team.id, recent_limit=RECENT_ENTITY_LIMIT)
     return {
-        "total_count": total,
-        "enabled_count": enabled,
+        "total_count": inventory.total_count,
+        "enabled_count": inventory.enabled_count,
         "recent": [
             {
-                "id": str(row["id"]),
-                "name": redact_urls_in_name(row["name"] or ""),
-                "enabled": row["enabled"],
-                "state": row["state"],
-                "calculation_interval": row["calculation_interval"],
-                "insight_id": row["insight_id"],
-                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "id": str(alert.id),
+                "name": redact_urls_in_name(alert.name or ""),
+                "enabled": alert.enabled,
+                "state": alert.state.value,
+                "calculation_interval": alert.calculation_interval,
+                "insight_id": alert.insight_id,
+                "created_at": alert.created_at.isoformat(),
             }
-            for row in recent
+            for alert in inventory.recent
         ],
     }
 

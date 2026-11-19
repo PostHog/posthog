@@ -9,7 +9,7 @@ import {
     businessKnowledgeKeysList,
     businessKnowledgeLibrariesList,
 } from '../../generated/api'
-import { connectAgentLogic } from './connectAgentLogic'
+import { ALL_KNOWLEDGE, connectAgentLogic } from './connectAgentLogic'
 
 jest.mock('lib/api', () => {
     class ApiError extends Error {
@@ -72,7 +72,7 @@ describe('connectAgentLogic', () => {
         logic = connectAgentLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        logic.actions.setLibraryId(LIBRARY.id)
+        logic.actions.setReads(LIBRARY.id)
         logic.actions.setLabel('  Docs agent  ')
     })
 
@@ -90,7 +90,21 @@ describe('connectAgentLogic', () => {
         expect(businessKnowledgeKeysCreate).toHaveBeenCalledWith('1', { label: 'Docs agent', library_id: LIBRARY.id })
         expect(logic.values.createdKey?.value).toBe('phs_new_key_value')
         expect(logic.values.listedKeys).toEqual([{ ...NEW_KEY, value: null }, EXISTING_KEY])
-        expect(logic.values.createDisabledReason).toBe('Choose a library')
+        expect(logic.values.createDisabledReason).toBe('Choose what the agent can read')
+    })
+
+    it('creates a key with no library when the admin chooses all business knowledge', async () => {
+        ;(businessKnowledgeKeysCreate as jest.Mock).mockResolvedValue({
+            ...NEW_KEY,
+            is_limited: false,
+            library_id: null,
+        })
+        logic.actions.setReads(ALL_KNOWLEDGE)
+
+        logic.actions.createKey()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(businessKnowledgeKeysCreate).toHaveBeenCalledWith('1', { label: 'Docs agent', library_id: null })
     })
 
     it('keeps the form and shows the reason when the key is refused', async () => {
@@ -124,5 +138,21 @@ describe('connectAgentLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.listedKeys).toEqual([{ ...NEW_KEY, value: null }, EXISTING_KEY])
+    })
+
+    it('makes every key on a library page read that library and lists only its keys', async () => {
+        ;(businessKnowledgeKeysCreate as jest.Mock).mockResolvedValue(NEW_KEY)
+        const libraryLogic = connectAgentLogic({ libraryId: LIBRARY.id })
+        libraryLogic.mount()
+        await expectLogic(libraryLogic).toFinishAllListeners()
+        libraryLogic.actions.setLabel('Docs agent')
+
+        libraryLogic.actions.createKey()
+        await expectLogic(libraryLogic).toFinishAllListeners()
+
+        expect(businessKnowledgeKeysCreate).toHaveBeenCalledWith('1', { label: 'Docs agent', library_id: LIBRARY.id })
+        expect(libraryLogic.values.listedKeys).toEqual([{ ...NEW_KEY, value: null }])
+        expect(libraryLogic.values.reads).toBe(LIBRARY.id)
+        libraryLogic.unmount()
     })
 })

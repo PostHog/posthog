@@ -39,7 +39,7 @@ if EE_AVAILABLE:
 
 logger = structlog.get_logger(__name__)
 
-MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 50
+MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 100
 
 
 def _enforce_caller_holds_scopes(request: Request, scopes: Iterable[str]) -> None:
@@ -200,14 +200,11 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         _enforce_caller_may_grant_business_knowledge_read(self.context["request"], self.context["view"].team, added)
         # Every project member can read the legacy secret token, so the check on the person who grants
         # the scope does not limit who ends up holding this key.
-        if (
-            "business_knowledge:read" in added
-            and self.instance is not None
-            and _mirrors_legacy_team_token(self.instance)
-        ):
+        restricted_legacy_scopes = set(added) & {"business_knowledge:read", "person:write"}
+        if restricted_legacy_scopes and self.instance is not None and _mirrors_legacy_team_token(self.instance):
             raise serializers.ValidationError(
                 "This key is the project's legacy secret token, which every project member can read. "
-                "Create a new key for the business_knowledge:read scope."
+                f"Create a new key for these scopes: {', '.join(sorted(restricted_legacy_scopes))}."
             )
         if "llm_gateway:read" in added:
             _enforce_gateway_bans(self.context["request"], self.context["view"].team)

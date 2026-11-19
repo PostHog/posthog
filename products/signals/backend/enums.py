@@ -25,6 +25,7 @@ class ReportTaskActionKind(LabeledStrEnum):
     GET_IT_MERGED = "get_it_merged", "Get it merged"
     MAKE_IT_GREEN = "make_it_green", "Make it green"
     RESOLVE_CONFLICTS = "resolve_conflicts", "Resolve conflicts"
+    IMPLEMENT = "implement", "Implement"
     SUGGESTED_PROMPT = "suggested_prompt", "Suggested prompt"
     ASK = "ask", "Ask"
 
@@ -275,6 +276,10 @@ class SignalSourceProduct(StrEnum):
     SENTINELONE = "sentinelone"
     JFROG_XRAY = "jfrog_xray"
     DYNATRACE_SECURITY = "dynatrace_security"
+    # App reviews and error-report feedback
+    APP_STORE_CONNECT = "app_store_connect"
+    # Sentry user feedback has its own product so it can be toggled apart from Sentry issues.
+    SENTRY_FEEDBACK = "sentry_feedback"
 
 
 class SignalSourceType(StrEnum):
@@ -472,6 +477,8 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.SENTINELONE: "SentinelOne",
     SignalSourceProduct.JFROG_XRAY: "JFrog Xray",
     SignalSourceProduct.DYNATRACE_SECURITY: "Dynatrace Application Security",
+    SignalSourceProduct.APP_STORE_CONNECT: "App Store Connect",
+    SignalSourceProduct.SENTRY_FEEDBACK: "Sentry user feedback",
 }
 
 

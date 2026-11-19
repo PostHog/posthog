@@ -11,7 +11,7 @@ import datetime as dt
 import threading
 import contextlib
 import dataclasses
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 
 from django.conf import settings
 from django.db import close_old_connections
@@ -35,11 +35,11 @@ from posthog.temporal.common.metrics import ExecutionTimeRecorder
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.managed_warehouse.backend.backfill_trino import (
-    data_imports_through_hoglake,
+    data_imports_gigahog_flag,
+    data_imports_register_in_hoglake,
     data_imports_through_trino,
     data_imports_trino_flag,
     hoglake_schema,
-    trino_backend_for,
 )
 from products.managed_warehouse.backend.client import make_duckgres_conninfo
 from products.managed_warehouse.backend.common import (
@@ -77,6 +77,16 @@ from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_
     staging_table_minted_at,
     staging_table_name,
 )
+from products.managed_warehouse.backend.temporal.gigahog_client import GigahogClient, GigahogConfig
+from products.managed_warehouse.backend.temporal.gigahog_register_data_imports import (
+    REPLACEMENT_MAX_FILES,
+    gigahog_commit_refused,
+    gigahog_config,
+    gigahog_landing_uri,
+    gigahog_team_filesystem,
+    register_prepared_files_in_gigahog,
+    require_gigahog_namespace,
+)
 from products.managed_warehouse.backend.temporal.hoglake_register_data_imports import (
     cleanup_hoglake_registration_tables,
     hoglake_import_table_name,
@@ -96,6 +106,7 @@ from products.managed_warehouse.backend.temporal.metrics import (
 )
 from products.managed_warehouse.backend.temporal.source_job_state import record_managed_warehouse_source_job_activity
 from products.managed_warehouse.backend.trino_compiler import get_trino_target_readiness
+from products.warehouse_sources.backend.facade.api import earliest_import_table_named
 from products.warehouse_sources.backend.facade.ducklake import query_folder_publishing_job_id
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
@@ -131,6 +142,7 @@ _CLEANUP_FINALIZER_PATCH_ID = "ducklake-register-cleanup-finalizer-2026-08"
 ENGINE_DUCKGRES = "duckgres"
 ENGINE_TRINO = "trino"
 ENGINE_HOGLAKE = "hoglake"
+ENGINE_GIGAHOG = "gigahog"
 # Prefix of the folders that hold a Trino registration's copy of the files, below the DuckLake data path.
 _TRINO_IMPORTS_PREFIX = "_ph_imports"
 _SHADOW_TABLE_PREFIX = "__ph_register_"
@@ -340,6 +352,9 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
     if not flag_enabled:
         return False
 
+    if await asyncio.to_thread(_registers_in_gigahog, organization_id):
+        # Gigahog is PostHog's own catalog, so the organization's Trino target and duckgres play no part.
+        return True
     if await asyncio.to_thread(_registers_in_hoglake, organization_id):
         # A hoglake catalog takes no DuckLake statements, so neither the Trino flag nor duckgres applies.
         return await _trino_target_ready(inputs.team_id, organization_id, logger)
@@ -400,16 +415,48 @@ async def _trino_target_ready(team_id: int, organization_id: str, logger: typing
     return True
 
 
-def _registers_in_hoglake(organization_id: str) -> bool:
-    """Whether the organization's data imports register in its hoglake catalog.
+def _gigahog_config() -> GigahogConfig | None:
+    return gigahog_config(
+        url=settings.GIGAHOG_URL,
+        catalog=settings.GIGAHOG_IMPORTS_CATALOG,
+        data_path=settings.GIGAHOG_IMPORTS_DATA_PATH,
+        token_url=settings.GIGAHOG_IMPORTS_TOKEN_URL,
+        client_id=settings.GIGAHOG_IMPORTS_CLIENT_ID,
+        client_secret=settings.GIGAHOG_IMPORTS_CLIENT_SECRET,
+    )
 
-    Only an organization with the hoglake flag asks the control plane for its backend, so every other organization
-    keeps its path without an extra request.
+
+def _registers_in_gigahog(organization_id: str) -> bool:
+    """Whether the organization's data imports are written to Gigahog.
+
+    A worker without Gigahog settings refuses a flagged organization instead of falling back to another path, so a
+    missing deployment setting shows as failed runs and not as imports that land in the wrong catalog. On a worker
+    with Gigahog settings, a flag lookup without an answer is retried, because reading it as off would send a
+    Gigahog organization to another catalog and leave its Gigahog table stale. A worker without them reads it as
+    off, so a flag that is not defined does not stop data imports where Gigahog is not deployed.
     """
-    if not data_imports_through_hoglake(organization_id):
+    configured = bool(settings.GIGAHOG_URL)
+    flag = data_imports_gigahog_flag(organization_id)
+    if not configured:
+        if flag:
+            raise ApplicationError(
+                "The organization's data imports go to Gigahog, and this worker has no GIGAHOG_URL", non_retryable=True
+            )
         return False
+    if flag is None:
+        raise ApplicationError(
+            f"The Gigahog data imports flag gave no answer for organization {organization_id}", non_retryable=False
+        )
+    if flag:
+        # Only flagged organizations need the rest of the settings, so an incomplete rollout of them does not stop
+        # the imports of organizations that do not use Gigahog.
+        _gigahog_config()
+    return flag
+
+
+def _registers_in_hoglake(organization_id: str) -> bool:
     try:
-        return trino_backend_for(organization_id, use_cache=True) == "hoglake"
+        return data_imports_register_in_hoglake(organization_id)
     except CPUnavailableError as error:
         raise ApplicationError(str(error), non_retryable=False) from error
 
@@ -448,6 +495,10 @@ async def prepare_ducklake_data_imports_registration_activity(
         # Database lookups use the shared database thread, and network calls run in their own threads, so a slow
         # flags service or control plane cannot block other activities' database calls.
         organization_id = str(await database_sync_to_async(_get_org_id_for_team)(inputs.team_id))
+        if await asyncio.to_thread(_registers_in_gigahog, organization_id):
+            return await _prepare_gigahog_registration(
+                inputs, schema=schema, organization_id=organization_id, prepared_source_uri=prepared_source_uri
+            )
         if await asyncio.to_thread(_registers_in_hoglake, organization_id):
             hoglake_table_name = hoglake_import_table_name(schema.table.name)
             await logger.ainfo("Registering the data import in the team's hoglake namespace", table=hoglake_table_name)
@@ -513,6 +564,53 @@ async def prepare_ducklake_data_imports_registration_activity(
         )
 
 
+async def _prepare_gigahog_registration(
+    inputs: DuckLakeRegisterDataImportsInputs,
+    *,
+    schema: ExternalDataSchema,
+    organization_id: str,
+    prepared_source_uri: str,
+) -> DuckLakeRegisterDataImportsMetadata:
+    assert schema.table is not None
+    table_name = hoglake_import_table_name(schema.table.name)
+    holder = await database_sync_to_async(_import_table_name_holder)(team_id=inputs.team_id, table_name=table_name)
+    if holder is not None and holder != schema.table.id:
+        raise ApplicationError(
+            f"Import table {holder} of team {inputs.team_id} already holds the name '{table_name}' in Gigahog, so "
+            "this import is not written there until it has a name of its own",
+            non_retryable=True,
+        )
+    config = _gigahog_config()
+    assert config is not None
+    await LOGGER.ainfo("Writing the data import to the team's Gigahog namespace", table=table_name)
+    return DuckLakeRegisterDataImportsMetadata(
+        source_schema_id=str(schema.id),
+        prepared_queryable_folder=inputs.prepared_queryable_folder,
+        prepared_source_uri=prepared_source_uri,
+        landing_uri=gigahog_landing_uri(
+            config.data_path,
+            organization_id=organization_id,
+            team_id=inputs.team_id,
+            table_name=table_name,
+            source_schema_id=str(inputs.schema_id),
+            job_id=re.sub(r"[^A-Za-z0-9_-]", "_", str(inputs.job_id)),
+            generation_token=_generation_token(inputs.prepared_queryable_folder, inputs.job_id),
+        ),
+        ducklake_schema_name=hoglake_schema(inputs.team_id),
+        ducklake_table_name=table_name,
+        engine=ENGINE_GIGAHOG,
+    )
+
+
+def _import_table_name_holder(*, team_id: int, table_name: str) -> uuid.UUID | None:
+    """The import table that holds `table_name` in the team's Gigahog namespace: the earliest created one.
+
+    HogQL does not keep import table names unique within a team, and Gigahog holds one table per name. A later import
+    is refused from its first sync on, so the earliest one is the first holder and keeps syncing.
+    """
+    return earliest_import_table_named(team_id, table_name)
+
+
 @activity.defn
 def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDataImportsActivityInputs) -> bool:
     activity_started_monotonic = time.monotonic()
@@ -529,6 +627,13 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
         details=("ducklake_register_data_imports", inputs.metadata.source_schema_id),
         logger=logger,
     )
+    if inputs.metadata.engine == ENGINE_GIGAHOG:
+        return _copy_and_register_in_gigahog(
+            inputs,
+            heartbeater=heartbeater,
+            logger=logger,
+            schema_id=schema_id,
+        )
     if inputs.metadata.engine == ENGINE_HOGLAKE:
         return _copy_and_register_in_hoglake(
             inputs,
@@ -674,6 +779,42 @@ def _hoglake_landing_uri(
     )
 
 
+def _finish_prepared_registration(
+    inputs: DuckLakeRegisterDataImportsActivityInputs,
+    *,
+    published: bool,
+    row_count: int,
+    landing_uri: str,
+    landing_paths: list[str],
+    copied_bytes: int,
+    schema_id: str,
+    logger: typing.Any,
+    message: str,
+    table_field: str,
+    delete_landing_files: Callable[[], None],
+) -> bool:
+    if not published:
+        delete_landing_files()
+        _record_stale_generation_skip(team_id=inputs.team_id, schema_id=schema_id, logger=logger)
+        return False
+
+    _record_registration_metrics(
+        team_id=inputs.team_id,
+        schema_id=schema_id,
+        file_count=len(landing_paths),
+        row_count=row_count,
+        copied_bytes=copied_bytes,
+    )
+    metadata = inputs.metadata
+    logger.info(
+        message,
+        **{table_field: f"{metadata.ducklake_schema_name}.{metadata.ducklake_table_name}"},
+        file_count=len(landing_paths),
+        landing_uri=landing_uri,
+    )
+    return True
+
+
 def _copy_and_register_in_hoglake(
     inputs: DuckLakeRegisterDataImportsActivityInputs,
     *,
@@ -730,25 +871,110 @@ def _copy_and_register_in_hoglake(
             if not add_files_started:
                 _delete_trino_landing_files(landing_uri, logger=logger)
             raise
-        if not result.published:
-            _delete_trino_landing_files(landing_uri, logger=logger)
-            _record_stale_generation_skip(team_id=inputs.team_id, schema_id=schema_id, logger=logger)
-            return False
-
-        _record_registration_metrics(
-            team_id=inputs.team_id,
-            schema_id=schema_id,
-            file_count=len(landing_paths),
+        return _finish_prepared_registration(
+            inputs,
+            published=result.published,
             row_count=result.row_count,
-            copied_bytes=copied_bytes,
-        )
-        logger.info(
-            "Copied and registered prepared Parquet files in hoglake",
-            hoglake_table=f"{metadata.ducklake_schema_name}.{metadata.ducklake_table_name}",
-            file_count=len(landing_paths),
             landing_uri=landing_uri,
+            landing_paths=landing_paths,
+            copied_bytes=copied_bytes,
+            schema_id=schema_id,
+            logger=logger,
+            message="Copied and registered prepared Parquet files in hoglake",
+            table_field="hoglake_table",
+            delete_landing_files=lambda: _delete_trino_landing_files(landing_uri, logger=logger),
         )
-        return True
+
+
+def _copy_and_register_in_gigahog(
+    inputs: DuckLakeRegisterDataImportsActivityInputs,
+    *,
+    heartbeater: HeartbeaterSync,
+    logger: typing.Any,
+    schema_id: str,
+) -> bool:
+    metadata = inputs.metadata
+    config = _gigahog_config()
+    if config is None:
+        raise ApplicationError("This worker has no GIGAHOG_URL to write the data import to", non_retryable=True)
+    registration_names = inputs.registration_table_names or _new_registration_table_names()
+    # The workflow mints the names and records them in its history, so the token, which keys the commit's
+    # idempotency, stays the same for this registration.
+    attempt_token = registration_names.shadow_name.removeprefix(_SHADOW_TABLE_PREFIX)
+    generation_uri = _generation_scoped_landing_uri(
+        metadata.landing_uri,
+        job_id=inputs.job_id,
+        prepared_queryable_folder=metadata.prepared_queryable_folder,
+    )
+    landing_uri = f"{generation_uri}/{attempt_token}/{uuid.uuid4().hex[:16]}"
+    organization_id = str(_get_org_id_for_team(inputs.team_id))
+
+    commit_started = False
+
+    def mark_commit_started() -> None:
+        nonlocal commit_started
+        commit_started = True
+
+    with heartbeater, GigahogClient(config, team_id=inputs.team_id) as client:
+        require_gigahog_namespace(client, organization_id=organization_id, team_id=inputs.team_id)
+
+        def delete_landing_files() -> None:
+            _delete_gigahog_landing_files(client, landing_uri, logger=logger)
+
+        try:
+            # The worker's own role cannot write to Gigahog, so every S3 call uses the team's session. A filesystem's
+            # credentials cannot be renewed, so the copy gets a session with its full lifetime.
+            with _stage_timer(stage="copy", team_id=inputs.team_id, schema_id=schema_id):
+                landing_paths, copied_bytes = _copy_prepared_parquet_files(
+                    metadata.prepared_source_uri,
+                    landing_uri,
+                    s3=gigahog_team_filesystem(client, fresh=True),
+                    max_files=REPLACEMENT_MAX_FILES,
+                )
+            with _stage_timer(stage="register", team_id=inputs.team_id, schema_id=schema_id):
+                result = register_prepared_files_in_gigahog(
+                    config=config,
+                    organization_id=organization_id,
+                    team_id=inputs.team_id,
+                    table_name=metadata.ducklake_table_name,
+                    attempt_token=attempt_token,
+                    landing_uri=landing_uri,
+                    landing_paths=landing_paths,
+                    hive_partition_columns=_hive_partition_columns(landing_uri, landing_paths),
+                    filesystem=gigahog_team_filesystem(client),
+                    should_publish=lambda: _should_publish_prepared_generation(inputs),
+                    before_commit=mark_commit_started,
+                    client=client,
+                )
+        except Exception as error:
+            # No table references this execution's files before the commit or after Gigahog refuses it, and no other
+            # execution writes here. A commit with an unknown outcome may reference them, so they stay.
+            if not commit_started or gigahog_commit_refused(error):
+                delete_landing_files()
+            raise
+        return _finish_prepared_registration(
+            inputs,
+            published=result.published,
+            row_count=result.row_count,
+            landing_uri=landing_uri,
+            landing_paths=landing_paths,
+            copied_bytes=copied_bytes,
+            schema_id=schema_id,
+            logger=logger,
+            message="Copied prepared Parquet files to Gigahog and committed them",
+            table_field="gigahog_table",
+            delete_landing_files=delete_landing_files,
+        )
+
+
+def _delete_gigahog_landing_files(client: GigahogClient, landing_uri: str, *, logger: typing.Any) -> None:
+    try:
+        filesystem = gigahog_team_filesystem(client)
+    except Exception as error:
+        logger.warning("Failed to get the team's S3 session to delete Gigahog landing files", error=str(error))
+        capture_exception(error)
+        return
+    _delete_trino_landing_files(landing_uri, logger=logger, s3=filesystem)
 
 
 def _copy_and_register_through_trino(
@@ -834,30 +1060,48 @@ def _copy_and_register_through_trino(
         return True
 
 
-def _trino_landing_files(landing_uri: str) -> list[str]:
-    s3 = get_s3_client()
+def _trino_landing_files(landing_uri: str, *, s3: typing.Any = None) -> list[str]:
+    s3 = get_s3_client() if s3 is None else s3
     # The trailing slash keeps the listing inside this execution's folder.
     prefix = landing_uri.removeprefix("s3://").rstrip("/") + "/"
     s3.invalidate_cache(prefix)
-    return list(s3.find(prefix))
+    return list(_find_under(s3, prefix))
 
 
-def _delete_trino_landing_files(landing_uri: str, *, logger: typing.Any) -> None:
+def _find_under(s3: typing.Any, folder: str, *, detail: bool = False) -> typing.Any:
+    """`s3.find(folder)`, where an empty folder lists as empty.
+
+    When a listing is empty, s3fs looks the folder up as an object, and S3 answers that HeadObject with 403, not 404,
+    to a session whose ListBucket grant is limited to a prefix, as the team's Gigahog session is. Listing again with
+    the folder as `prefix` skips that lookup, so an empty answer there means the folder is empty, and a refusal there
+    is a real one.
+    """
     try:
-        paths = _trino_landing_files(landing_uri)
+        return s3.find(folder, detail=detail)
+    except PermissionError:
+        parent, name = folder.rstrip("/").rsplit("/", 1)
+        if s3.find(parent, prefix=f"{name}/", detail=detail):
+            raise
+        return {} if detail else []
+
+
+def _delete_trino_landing_files(landing_uri: str, *, logger: typing.Any, s3: typing.Any = None) -> None:
+    try:
+        s3 = get_s3_client() if s3 is None else s3
+        paths = _trino_landing_files(landing_uri, s3=s3)
         if paths:
-            get_s3_client().rm(paths)
-        remaining = _trino_landing_files(landing_uri)
+            s3.rm(paths)
+        remaining = _trino_landing_files(landing_uri, s3=s3)
         if remaining:
             raise RuntimeError(f"{len(remaining)} files remain after the delete")
         logger.info(
-            "Deleted the files of a Trino registration attempt that added none of them",
+            "Deleted the files of a registration attempt that added none of them",
             landing_uri=landing_uri,
             file_count=len(paths),
         )
     except Exception as error:
         logger.warning(
-            "Failed to delete the files of a Trino registration attempt that added none of them",
+            "Failed to delete the files of a registration attempt that added none of them",
             landing_uri=landing_uri,
             error=str(error),
         )
@@ -944,20 +1188,28 @@ def _generation_scoped_landing_uri(
     raise ApplicationError("DuckLake landing URI does not match the registration job", non_retryable=True)
 
 
-def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> tuple[list[str], int]:
+def _copy_prepared_parquet_files(
+    source_uri: str, landing_uri: str, *, s3: typing.Any = None, max_files: int | None = None
+) -> tuple[list[str], int]:
     source_prefix = source_uri.removeprefix("s3://").rstrip("/")
     landing_prefix = landing_uri.removeprefix("s3://").rstrip("/")
-    s3 = get_s3_client()
+    s3 = get_s3_client() if s3 is None else s3
     # The client is cached per thread for the life of the worker, and its listings never expire.
     # s3fs find() never replaces a listing that is already cached, and copy() reads the details of
     # each source file from that listing. A rotating prepared folder that was rewritten with new
     # file names would fail with FileNotFoundError, so start from an empty cache.
     s3.invalidate_cache()
-    found = s3.find(source_prefix, detail=True)
+    found = _find_under(s3, source_prefix, detail=True)
     source_paths = list(found.keys()) if isinstance(found, dict) else list(found)
     parquet_paths = sorted(str(path) for path in source_paths if str(path).lower().endswith(".parquet"))
     if not parquet_paths:
         raise ApplicationError(f"No prepared Parquet files found under {source_uri}", non_retryable=True)
+    if max_files is not None and len(parquet_paths) > max_files:
+        raise ApplicationError(
+            f"The generation has {len(parquet_paths)} files, and the destination takes at most {max_files} per "
+            "registration",
+            non_retryable=True,
+        )
 
     source_copy_paths: list[str] = []
     landing_copy_paths: list[str] = []
@@ -1459,6 +1711,10 @@ def cleanup_ducklake_registration_tables_activity(inputs: DuckLakeRegisterCleanu
     logger = LOGGER.bind(schema_name=inputs.schema_name)
     if not settings.TEST:
         close_old_connections()
+
+    if inputs.engine == ENGINE_GIGAHOG:
+        # A Gigahog replacement is one commit and creates no staging or previous tables.
+        return
 
     if inputs.engine == ENGINE_HOGLAKE:
         if inputs.table_name is None or len(inputs.table_names) != 2:

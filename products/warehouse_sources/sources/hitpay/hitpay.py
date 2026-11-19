@@ -76,7 +76,9 @@ def _incremental_param(cursor_path: str) -> dict[str, Any]:
 
 def _paginator_for(config: HitpayEndpointConfig) -> BasePaginator:
     if config.pagination == "cursor":
-        return JSONResponseCursorPaginator(cursor_path="meta.next_cursor", cursor_param="cursor")
+        return JSONResponseCursorPaginator(
+            cursor_path="meta.next_cursor", cursor_param="cursor", raise_on_repeated_cursor=True
+        )
     if config.pagination == "page":
         return PageNumberPaginator(base_page=1, page_param=config.page_param, total_path="meta.last_page")
     return SinglePagePaginator()

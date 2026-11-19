@@ -304,6 +304,9 @@ const inboxReportActionsRun = (): ToolBase<
         if (params.message !== undefined) {
             body['message'] = params.message
         }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
         const result = await context.api.request<Schemas.SignalReportTaskActionRunResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/actions/run/`,
@@ -874,6 +877,7 @@ const inboxReportsList = (): ToolBase<
                 include_source_metadata: params.include_source_metadata,
                 include_unlisted: params.include_unlisted,
                 limit: params.limit,
+                needs_you: params.needs_you,
                 offset: params.offset,
                 ordering: params.ordering,
                 priority: params.priority,
@@ -889,6 +893,7 @@ const inboxReportsList = (): ToolBase<
                 source_product: params.source_product,
                 status: params.status,
                 suggested_reviewers: params.suggested_reviewers,
+                tags: params.tags,
                 task_id: params.task_id,
                 teammate_uuid: params.teammate_uuid,
                 unclaimed: params.unclaimed,
@@ -905,6 +910,7 @@ const inboxReportsList = (): ToolBase<
                     'title',
                     'summary',
                     'metrics',
+                    'tags',
                     'status',
                     'priority',
                     'actionability',
@@ -1465,6 +1471,38 @@ const inboxSourceFilterCatalogsList = (): ToolBase<
     },
 })
 
+const InboxSourceFilterPreviewSchema = () => {
+    const SignalsSourceConfigsFilterPreviewCreateBody = orvalSchemas.SignalsSourceConfigsFilterPreviewCreateBody()
+    return SignalsSourceConfigsFilterPreviewCreateBody
+}
+
+const inboxSourceFilterPreview = (): ToolBase<
+    ReturnType<typeof InboxSourceFilterPreviewSchema>,
+    Schemas.SourceFilterPreviewResponse
+> => ({
+    name: 'inbox-source-filter-preview',
+    schema: InboxSourceFilterPreviewSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxSourceFilterPreviewSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_product !== undefined) {
+            body['source_product'] = params.source_product
+        }
+        if (params.source_type !== undefined) {
+            body['source_type'] = params.source_type
+        }
+        if (params.expression !== undefined) {
+            body['expression'] = params.expression
+        }
+        const result = await context.api.request<Schemas.SourceFilterPreviewResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/filter_preview/`,
+            body,
+        })
+        return result
+    },
+})
+
 const InboxSteeringInstructionsGetSchema = () => z.object({})
 
 const inboxSteeringInstructionsGet = (): ToolBase<
@@ -1637,6 +1675,12 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
+        }
+        if (params.report_actions !== undefined) {
+            body['report_actions'] = params.report_actions
+        }
+        if (params.max_report_actions_per_day !== undefined) {
+            body['max_report_actions_per_day'] = params.max_report_actions_per_day
         }
         if (params.lifecycle_locked !== undefined) {
             body['lifecycle_locked'] = params.lifecycle_locked
@@ -1841,6 +1885,12 @@ const scoutConfigUpdate = (): ToolBase<
         }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
+        }
+        if (params.report_actions !== undefined) {
+            body['report_actions'] = params.report_actions
+        }
+        if (params.max_report_actions_per_day !== undefined) {
+            body['max_report_actions_per_day'] = params.max_report_actions_per_day
         }
         if (params.precheck_query !== undefined) {
             body['precheck_query'] = params.precheck_query
@@ -2804,6 +2854,32 @@ const scoutRunsRetrieve = (): ToolBase<ReturnType<typeof ScoutRunsRetrieveSchema
     },
 })
 
+const ScoutScratchpadDiscardSchema = () => {
+    const SignalsScoutScratchpadDiscardBody = orvalSchemas.SignalsScoutScratchpadDiscardBody()
+    return SignalsScoutScratchpadDiscardBody
+}
+
+const scoutScratchpadDiscard = (): ToolBase<
+    ReturnType<typeof ScoutScratchpadDiscardSchema>,
+    Schemas.ForgetResponse
+> => ({
+    name: 'scout-scratchpad-discard',
+    schema: ScoutScratchpadDiscardSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutScratchpadDiscardSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
+        const result = await context.api.request<Schemas.ForgetResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/discard/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ScoutScratchpadForgetSchema = () => {
     const SignalsScoutScratchpadForgetBody = orvalSchemas.SignalsScoutScratchpadForgetBody()
     return SignalsScoutScratchpadForgetBody
@@ -3262,6 +3338,12 @@ const signalsScoutConfigCreate = (): ToolBase<
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
+        if (params.report_actions !== undefined) {
+            body['report_actions'] = params.report_actions
+        }
+        if (params.max_report_actions_per_day !== undefined) {
+            body['max_report_actions_per_day'] = params.max_report_actions_per_day
+        }
         if (params.lifecycle_locked !== undefined) {
             body['lifecycle_locked'] = params.lifecycle_locked
         }
@@ -3436,6 +3518,12 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
+        }
+        if (params.report_actions !== undefined) {
+            body['report_actions'] = params.report_actions
+        }
+        if (params.max_report_actions_per_day !== undefined) {
+            body['max_report_actions_per_day'] = params.max_report_actions_per_day
         }
         if (params.precheck_query !== undefined) {
             body['precheck_query'] = params.precheck_query
@@ -4022,6 +4110,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
     'inbox-source-filter-catalogs-list': inboxSourceFilterCatalogsList,
+    'inbox-source-filter-preview': inboxSourceFilterPreview,
     'inbox-steering-instructions-get': inboxSteeringInstructionsGet,
     'inbox-steering-instructions-update': inboxSteeringInstructionsUpdate,
     'inbox-usage-get': inboxUsageGet,
@@ -4059,6 +4148,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-runs-list': scoutRunsList,
     'scout-runs-recent-emissions': scoutRunsRecentEmissions,
     'scout-runs-retrieve': scoutRunsRetrieve,
+    'scout-scratchpad-discard': scoutScratchpadDiscard,
     'scout-scratchpad-forget': scoutScratchpadForget,
     'scout-scratchpad-remember': scoutScratchpadRemember,
     'scout-scratchpad-search': scoutScratchpadSearch,

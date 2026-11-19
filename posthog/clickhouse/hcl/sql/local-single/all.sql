@@ -853,8 +853,7 @@ CREATE TABLE posthog.kafka_session_replay_events (
   is_deleted UInt8,
   ai_tags_fixed Array(String),
   ai_tags_freeform Array(String),
-  ai_highlighted UInt8,
-  surfacing_score Nullable(Float32)
+  ai_highlighted UInt8
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_session_replay_events';
 CREATE TABLE posthog.kafka_tophog (
   timestamp DateTime64(6, 'UTC'),
@@ -2733,7 +2732,6 @@ CREATE TABLE posthog.sharded_session_replay_events (
   ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
-  surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
   snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.session_replay_events', '{replica}') ORDER BY (toDate(min_first_timestamp), team_id, session_id) PARTITION BY toYYYYMM(min_first_timestamp) SETTINGS index_granularity = 512;
 CREATE TABLE posthog.sharded_sessions (
@@ -4235,8 +4233,7 @@ CREATE TABLE posthog.writable_session_replay_events (
   is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
-  ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
-  surfacing_score SimpleAggregateFunction(max, Nullable(Float32))
+  ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_session_replay_events', sipHash64(distinct_id));
 CREATE TABLE posthog.writable_sessions (
   session_id String,
@@ -5808,7 +5805,7 @@ AND
   ((fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 80))) >= (min_first_timestamp - toIntervalDay(31))) AND (fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 80))) <= (min_first_timestamp + toIntervalDay(31))))
 AND
   true;
-CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_session_replay_events (session_id String, team_id Int64, distinct_id String, min_first_timestamp DateTime64(6, 'UTC'), max_last_timestamp DateTime64(6, 'UTC'), block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_urls SimpleAggregateFunction(groupArrayArray, Array(String)), first_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)), click_count Int64, keypress_count Int64, mouse_activity_count Int64, active_milliseconds Int64, console_log_count Int64, console_warn_count Int64, console_error_count Int64, size Int64, message_count Int64, event_count Int64, snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), retention_period_days SimpleAggregateFunction(max, Nullable(Int64)), is_deleted SimpleAggregateFunction(max, UInt8), ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_highlighted SimpleAggregateFunction(max, UInt8), surfacing_score SimpleAggregateFunction(max, Nullable(Float32))) AS SELECT
+CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_session_replay_events (session_id String, team_id Int64, distinct_id String, min_first_timestamp DateTime64(6, 'UTC'), max_last_timestamp DateTime64(6, 'UTC'), block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_urls SimpleAggregateFunction(groupArrayArray, Array(String)), first_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)), click_count Int64, keypress_count Int64, mouse_activity_count Int64, active_milliseconds Int64, console_log_count Int64, console_warn_count Int64, console_error_count Int64, size Int64, message_count Int64, event_count Int64, snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), retention_period_days SimpleAggregateFunction(max, Nullable(Int64)), is_deleted SimpleAggregateFunction(max, UInt8), ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_highlighted SimpleAggregateFunction(max, UInt8)) AS SELECT
   session_id,
   team_id,
   any(distinct_id) AS distinct_id,
@@ -5837,7 +5834,6 @@ CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_se
   groupUniqArrayArray(ai_tags_fixed) AS ai_tags_fixed,
   groupUniqArrayArray(ai_tags_freeform) AS ai_tags_freeform,
   max(ai_highlighted) AS ai_highlighted,
-  max(surfacing_score) AS surfacing_score,
   argMinState(replay.snapshot_mode, first_timestamp) AS snapshot_mode_v2
 FROM posthog.kafka_session_replay_events AS replay
 GROUP BY
@@ -7482,7 +7478,6 @@ CREATE TABLE posthog.session_replay_events (
   ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
-  surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
   snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_session_replay_events', sipHash64(distinct_id));
 CREATE TABLE posthog.sessions (

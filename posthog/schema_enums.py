@@ -2389,6 +2389,8 @@ class MetricsAggregation(StrEnum):
     RATE = "rate"
     INCREASE = "increase"
     HISTOGRAM_QUANTILE = "histogram_quantile"
+    COUNT_RATE = "count_rate"
+    COUNT_INCREASE = "count_increase"
 
 
 class MetricsAttributeScope(StrEnum):
@@ -3072,6 +3074,12 @@ class RefreshType(StrEnum):
     FORCE_BLOCKING = "force_blocking"
     FORCE_CACHE = "force_cache"
     LAZY_ASYNC = "lazy_async"
+
+
+class YAxisPosition2(StrEnum):
+    AUTO = "auto"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class ResultCustomizationBy(StrEnum):

@@ -37,6 +37,7 @@ from products.managed_warehouse.backend.facade.contracts import (
 from products.managed_warehouse.backend.facade.feature_flags import (
     DATA_IMPORTS_TRINO_REGISTRATION_FLAG,
     DUCKLAKE_TRINO_REGISTRATION_FLAG,
+    GIGAHOG_DATA_IMPORTS_FLAG,
     HOGLAKE_BACKFILL_REGISTRATION_FLAG,
     HOGLAKE_DATA_IMPORTS_REGISTRATION_FLAG,
 )
@@ -116,16 +117,35 @@ def data_imports_through_trino(organization_id: str) -> bool:
     return _organization_flag_enabled(DATA_IMPORTS_TRINO_REGISTRATION_FLAG, organization_id)
 
 
-def data_imports_trino_flag(organization_id: str) -> bool | None:
+def data_imports_register_in_hoglake(organization_id: str) -> bool:
+    """Whether the organization's data imports register in its hoglake catalog.
+
+    Only an organization with the hoglake flag asks the control plane for its backend, so every other organization
+    keeps its path without an extra request. Raises CPUnavailableError when the control plane gives no answer.
+    """
+    if not data_imports_through_hoglake(organization_id):
+        return False
+    return trino_backend_for(organization_id, use_cache=True) == "hoglake"
+
+
+def _organization_flag_or_none(flag: str, organization_id: str) -> bool | None:
     """Return None when the flags client gives no answer: the lookup failed, or the flag is not defined."""
     value = get_feature_flag_or_none(
-        DATA_IMPORTS_TRINO_REGISTRATION_FLAG,
+        flag,
         organization_id,
         groups={"organization": organization_id},
         group_properties={"organization": {"id": organization_id}},
         send_feature_flag_events=False,
     )
     return None if value is None else value is True
+
+
+def data_imports_trino_flag(organization_id: str) -> bool | None:
+    return _organization_flag_or_none(DATA_IMPORTS_TRINO_REGISTRATION_FLAG, organization_id)
+
+
+def data_imports_gigahog_flag(organization_id: str) -> bool | None:
+    return _organization_flag_or_none(GIGAHOG_DATA_IMPORTS_FLAG, organization_id)
 
 
 # The monotonic time each cached backend expires at, with the backend.

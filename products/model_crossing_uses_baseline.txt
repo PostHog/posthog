@@ -139,7 +139,6 @@ data_modeling.DataModelingJob products.data_warehouse.backend.presentation.views
 data_modeling.DataModelingJob products.data_warehouse.backend.presentation.views.saved_query.view_state instance-single 1
 data_modeling.DataModelingJob products.data_warehouse.backend.presentation.views.saved_query.viewset instance-many(filter) 1
 data_modeling.DataModelingJob products.data_warehouse.backend.presentation.views.saved_query.viewset instance-many(order_by) 1
-data_modeling.DataModelingJob products.data_warehouse.backend.presentation.views.saved_query.viewset prefetch 1
 data_modeling.DataModelingJob products.data_warehouse.backend.temporal.health_checks.materialized_view_failure instance-many(order_by) 1
 data_modeling.DataModelingJob products.endpoints.backend.presentation.views.api instance-many(order_by) 1
 data_modeling.DataModelingJob products.endpoints.backend.tasks.tasks instance-many(exclude) 1
@@ -270,8 +269,6 @@ django.Q products.tasks.backend.facade.api.general_channel_q facade-returns 1
 django.Q products.tasks.backend.facade.api.get_latest_pr_url_by_task facade-accepts(conditions) 1
 django.Q products.tasks.backend.facade.api.get_merged_pr_task_ids facade-accepts(conditions) 1
 django.Q products.tasks.backend.facade.api.get_pull_requests_for_tasks facade-accepts(conditions) 1
-django.Q products.tasks.backend.facade.api.latest_task_run_pr_merged_subquery facade-accepts(conditions) 1
-django.Q products.tasks.backend.facade.api.latest_task_run_pr_url_subquery facade-accepts(conditions) 1
 django.Q products.tasks.backend.facade.api.personal_channel_q facade-returns 1
 django.Q products.tasks.backend.facade.api.task_ids_with_pr_url_subquery facade-accepts(conditions) 1
 django.Q products.tasks.backend.facade.api.visible_channels_q facade-returns 1
@@ -304,8 +301,6 @@ django.QuerySet products.product_analytics.backend.facade.api.with_last_viewed_a
 django.QuerySet products.product_analytics.backend.facade.models.resolve_insight_by_id_or_short_id facade-accepts(queryset) 1
 django.QuerySet products.stamphog.backend.facade.api.LazyDTOList.__init__ facade-accepts(queryset) 1
 django.QuerySet products.tasks.backend.facade.api.task_ids_with_pr_url_subquery facade-returns 1
-django.Subquery products.tasks.backend.facade.api.latest_task_run_pr_merged_subquery facade-returns 1
-django.Subquery products.tasks.backend.facade.api.latest_task_run_pr_url_subquery facade-returns 1
 endpoints.Endpoint products.endpoints.backend.facade.api.generate_openapi_spec facade-accepts(endpoint) 1
 endpoints.Endpoint products.endpoints.backend.facade.api.validate_update_request facade-accepts(endpoint) 1
 endpoints.EndpointVersion products.endpoints.backend.facade.api.build_materialization_info facade-accepts(version) 1
@@ -880,14 +875,11 @@ warehouse_sources.ExternalDataSchema products.data_warehouse.backend.management.
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.management.commands.update_data_import_schedules instance-many(filter) 1
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.motherduck_helpers instance-many(select_related) 2
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.mysql_helpers instance-many(exclude) 1
-warehouse_sources.ExternalDataSchema products.data_warehouse.backend.mysql_helpers instance-many(filter) 1
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.postgres_helpers instance-many(exclude) 1
-warehouse_sources.ExternalDataSchema products.data_warehouse.backend.postgres_helpers instance-many(filter) 1
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.postgres_helpers instance-many(select_related) 1
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.presentation.views.data_warehouse instance-many(select_related) 1
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.redshift_helpers instance-many(select_related) 2
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.snowflake_helpers instance-many(exclude) 1
-warehouse_sources.ExternalDataSchema products.data_warehouse.backend.snowflake_helpers instance-many(filter) 1
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.sql_warehouse_migration instance-many(filter) 1
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.sql_warehouse_migration instance-many(select_related) 1
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.sync_status in-collection 1
