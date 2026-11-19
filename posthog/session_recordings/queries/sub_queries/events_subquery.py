@@ -134,6 +134,13 @@ class UnsessionedFilter:
 
 
 @frozen
+class GatheredExprs:
+    exprs: list[ast.Expr]
+    hybrid_query: Optional[ast.SelectQuery]
+    unsessioned_filters: list[UnsessionedFilter]
+
+
+@frozen
 class SessionIdMatchPlan:
     queries: list[ast.SelectQuery]
     strategy: Literal["separate", "combined"]
@@ -244,8 +251,6 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             # Without an event or action filter there is no event to match by time.
             or not self.entities
             or all(isinstance(entity, DataWarehouseNode) for entity in self.entities)
-            # A filter that names no event would scan every event of the team in the window.
-            or not self._entities_name_their_events()
             or (self._query.session_ids is None and self._date_range_days() > UNSESSIONED_EVENTS_MAX_RANGE_DAYS)
             or (
                 self._query.session_ids is not None
@@ -255,6 +260,10 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             return False
         return feature_enabled_or_false(
             UNSESSIONED_EVENTS_FLAG, str(self._team.id), only_evaluate_locally=True, send_feature_flag_events=False
+        ) and (
+            # Checked after the flag, because it loads each action from Postgres. A filter that names
+            # no event would scan every event of the team in the window.
+            self._entities_name_their_events()
         )
 
     def _entities_name_their_events(self) -> bool:
@@ -266,7 +275,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     action = get_action(action_id=entity.id, project_id=self._team.project_id)
                 except ActionNotFound:
                     return False
-                if not all(action.get_step_events()):
+                step_events = action.get_step_events()
+                if not step_events or not all(step_events):
                     return False
         return True
 
@@ -969,9 +979,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             limit=ast.Constant(value=EVENTS_SUBQUERY_ROW_LIMIT * (len(predicates) if is_or else 1)),
         )
 
-    def _gathered_exprs(
-        self, union_entities: bool
-    ) -> tuple[list[ast.Expr], Optional[ast.SelectQuery], list[UnsessionedFilter]]:
+    def _gathered_exprs(self, union_entities: bool) -> GatheredExprs:
         """
         `union_entities` merges the event/action filters into a single subquery, for callers that
         intersect the subqueries by event id rather than by session id (see
@@ -1074,7 +1082,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     continue
                 gathered_exprs.append(property_to_expr(p, team=self._team, scope="event"))
 
-        return gathered_exprs, hybrid_query, unsessioned_filters
+        return GatheredExprs(exprs=gathered_exprs, hybrid_query=hybrid_query, unsessioned_filters=unsessioned_filters)
 
     def _separate_queries(
         self,
@@ -1114,10 +1122,10 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return self.get_session_id_match_plan().queries
 
     def get_session_id_match_plan(self, allow_combined_filters: bool = False) -> SessionIdMatchPlan:
-        gathered_exprs, hybrid_query, unsessioned_filters = self._gathered_exprs(union_entities=False)
+        gathered = self._gathered_exprs(union_entities=False)
+        gathered_exprs, hybrid_query = gathered.exprs, gathered.hybrid_query
         match_unsessioned = self._matches_unsessioned_events()
-        if not match_unsessioned:
-            unsessioned_filters = []
+        unsessioned_filters = gathered.unsessioned_filters if match_unsessioned else []
         # The combined scan has no slot for a per-filter person and time match.
         eligible = (
             allow_combined_filters and not match_unsessioned and self._can_combine_session_filters(len(gathered_exprs))
@@ -1218,7 +1226,12 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         """
         # The subqueries are intersected by event id below, and an event has exactly one name,
         # so keeping one subquery per entity would match nothing as soon as there are two.
-        gathered_exprs, hybrid_query, unsessioned_filters = self._gathered_exprs(union_entities=True)
+        gathered = self._gathered_exprs(union_entities=True)
+        gathered_exprs, hybrid_query, unsessioned_filters = (
+            gathered.exprs,
+            gathered.hybrid_query,
+            gathered.unsessioned_filters,
+        )
         # Subqueries only need to return uuid for the GlobalIn comparison
         select_queries: list[ast.SelectQuery] = self._separate_queries(
             select_expr=ast.Field(chain=["uuid"]),
