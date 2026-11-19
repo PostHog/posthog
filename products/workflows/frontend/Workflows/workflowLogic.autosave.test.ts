@@ -82,14 +82,15 @@ const SANDBOX_EMAIL = {
         },
     },
 } as HogFlow['actions'][number]
-const withSandboxEmail = (actions: HogFlow['actions']): Pick<HogFlow, 'actions' | 'edges'> => {
+const withSandboxEmail = (
+    actions: HogFlow['actions'],
+    stepIds: string[] = [SANDBOX_EMAIL.id]
+): Pick<HogFlow, 'actions' | 'edges'> => {
     const [trigger, exit] = actions
+    const chain = [trigger, ...stepIds.map((id) => ({ ...SANDBOX_EMAIL, id })), exit]
     return {
-        actions: [trigger, SANDBOX_EMAIL, exit],
-        edges: [
-            { from: trigger.id, to: SANDBOX_EMAIL.id, type: 'continue' },
-            { from: SANDBOX_EMAIL.id, to: exit.id, type: 'continue' },
-        ],
+        actions: chain,
+        edges: chain.slice(1).map((step, index) => ({ from: chain[index].id, to: step.id, type: 'continue' })),
     }
 }
 
@@ -1223,17 +1224,21 @@ describe('workflowLogic auto-save', () => {
             })
 
             it.each([
-                ['moves the live workflow onto the test sender', false, true],
-                ['keeps a workflow that is already live on the test sender', true, false],
+                ['moves the live workflow onto the test sender', [], ['sandbox_email'], true],
+                ['keeps the same test sender step', ['sandbox_email'], ['sandbox_email'], false],
+                [
+                    'moves a second step onto the test sender',
+                    ['sandbox_email'],
+                    ['sandbox_email', 'second_email'],
+                    true,
+                ],
             ])(
-                'warns in the publish dialog when the draft %s (live on the test sender: %s): %s',
-                async (_, liveOnSandbox, warns) => {
-                    const ownSender = { actions: [VALID_TRIGGER, EXIT], edges: makeWorkflow().edges }
-                    const sandbox = withSandboxEmail([VALID_TRIGGER, EXIT])
+                'warns in the publish dialog when the draft %s (live %j, staged %j): %s',
+                async (_, liveSteps, stagedSteps, warns) => {
                     const workflowWithDraft = makeWorkflow({
                         status: 'active',
-                        ...(liveOnSandbox ? sandbox : ownSender),
-                        draft: { name: 'Autosave test', ...sandbox },
+                        ...withSandboxEmail([VALID_TRIGGER, EXIT], liveSteps),
+                        draft: { name: 'Autosave test', ...withSandboxEmail([VALID_TRIGGER, EXIT], stagedSteps) },
                         draft_updated_at: '2026-05-01T00:01:00.000Z',
                     })
                     useMocks({

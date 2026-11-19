@@ -63,7 +63,7 @@ import {
 import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { isVerifiedEmailSender, resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
-import { isLiveOnSandboxSender, readySandboxSender } from '../Channels/sandboxSender'
+import { isLiveOnSandboxSender, publishMovesStepsToSandboxSender, readySandboxSender } from '../Channels/sandboxSender'
 import {
     AiEmailDraftResult,
     aiEmailDraftFailureMessage,
@@ -4844,9 +4844,8 @@ export const workflowLogic = kea<workflowLogicType>([
             } finally {
                 actions.setDraftActionPending(null)
             }
-            const live = values.originalWorkflow
             const movesToSandboxSender =
-                !!live && isLiveOnSandboxSender(withStagedDraft(live)) && !isLiveOnSandboxSender(live)
+                !!values.originalWorkflow && publishMovesStepsToSandboxSender(values.originalWorkflow)
             if (movesToSandboxSender) {
                 // pinned: analytics event names and property values
                 posthog.capture('workflows sandbox sender enable warning shown', {

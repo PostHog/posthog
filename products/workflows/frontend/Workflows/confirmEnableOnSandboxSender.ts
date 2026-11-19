@@ -2,7 +2,7 @@ import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
-export type SandboxSenderEnableSurface = 'editor' | 'list' | 'publish'
+export type SandboxSenderEnableSurface = 'editor' | 'list'
 
 export function confirmEnableOnSandboxSender(
     workflowId: string,

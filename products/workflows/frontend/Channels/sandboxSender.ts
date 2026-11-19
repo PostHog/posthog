@@ -14,6 +14,16 @@ export function isLiveOnSandboxSender(workflow: Pick<HogFlow, 'status' | 'action
     return workflow.status === 'active' && (workflow.actions ?? []).some((action) => action.type === 'email_sandbox')
 }
 
+// Publishing promotes the staged draft over an active workflow, so a step it moves onto the test sender
+// goes live, even when another step already sends from it.
+export function publishMovesStepsToSandboxSender(live: HogFlow): boolean {
+    if (live.status !== 'active' || !live.draft) {
+        return false
+    }
+    const liveSandboxIds = new Set(live.actions.filter((a) => a.type === 'email_sandbox').map((a) => a.id))
+    return (live.draft.actions ?? []).some((a) => a.type === 'email_sandbox' && !liveSandboxIds.has(a.id))
+}
+
 export async function provisionSandboxSender(teamId: string, surface: SandboxSenderSurface): Promise<number> {
     const { integration_id } = await workflowEmailSandboxProvision(teamId)
     // pinned: analytics event name
