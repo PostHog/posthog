@@ -11,6 +11,7 @@ from posthog.models.event.util import bulk_create_events
 from products.ai_observability.backend.logic.traces.events_fallback import (
     AI_EVENTS_RETENTION_DAYS,
     FALLBACK_AFTER_HINT,
+    FallbackWindow,
     page_window,
 )
 from products.ai_observability.backend.logic.traces.sentiment_queries import (
@@ -134,6 +135,14 @@ class TestSentimentQueries(ClickhouseTestMixin, BaseTest):
 
         assert sentiments == {}
         assert len(queries) == 1
+
+    def test_a_page_ending_at_the_last_datetime_reads_the_shared_table_without_overflowing(self) -> None:
+        window = FallbackWindow(start=WINDOW.start, end=datetime(9999, 12, 31, tzinfo=UTC))
+        bulk_create_events([_event(self.team, "aged", _sentiment("negative", 0.8, "generation-1"), T0, 0)])
+
+        sentiments = load_sentiments(self.team, self.user, ["aged"], window, PAST_RETENTION)
+
+        assert sentiments == {"aged": TraceSentimentRow(label="negative", score=0.8)}
 
     def test_a_page_past_retention_reads_the_shared_table_until_its_generations_leave_ai_events(self) -> None:
         retention_end = WINDOW.end + timedelta(days=AI_EVENTS_RETENTION_DAYS + 1)

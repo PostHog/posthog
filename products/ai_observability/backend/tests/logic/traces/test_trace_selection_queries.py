@@ -33,6 +33,7 @@ from products.ai_observability.backend.logic.traces.trace_selection import (
 from products.ai_observability.backend.logic.traces.trace_selection_queries import (
     SELECTION_QUERY_NAME,
     SelectionCounts,
+    _reads_beyond_posthog_tables,
     load_selection_page,
 )
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -453,3 +454,16 @@ def test_a_filter_hogql_cannot_express_is_a_selection_error() -> None:
 
     with pytest.raises(InvalidTraceSelectionError):
         load_selection_page(Team(), None, selection, after=None, limit=10)
+
+
+@pytest.mark.parametrize(
+    "prop, expected",
+    [
+        ({"type": "hogql", "key": "1 = 1"}, True),
+        ({"type": "person", "key": "$virt_revenue", "value": 10, "operator": "gt"}, True),
+        ({"type": "group", "key": "$virt_mrr", "value": 10, "operator": "gt", "group_type_index": 0}, True),
+        ({"type": "person", "key": "email", "value": "user@example.com", "operator": "exact"}, False),
+    ],
+)
+def test_a_filter_on_a_virtual_revenue_property_needs_the_full_catalog(prop: dict[str, Any], expected: bool) -> None:
+    assert _reads_beyond_posthog_tables(prop) is expected
