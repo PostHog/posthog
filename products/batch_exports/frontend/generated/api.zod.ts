@@ -667,7 +667,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored."
+                            'Read events from the native JSON events table (`true`) or the legacy events table (`false`). A value set here always applies to this export, `false` included. When unset, the export reads the legacy table until PostHog moves batch exports to the native table. Project settings and other events table switches do not change which table a batch export reads.'
                         ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
@@ -1641,7 +1641,7 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored."
+                            'Read events from the native JSON events table (`true`) or the legacy events table (`false`). A value set here always applies to this export, `false` included. When unset, the export reads the legacy table until PostHog moves batch exports to the native table. Project settings and other events table switches do not change which table a batch export reads.'
                         ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
@@ -2374,7 +2374,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored."
+                            'Read events from the native JSON events table (`true`) or the legacy events table (`false`). A value set here always applies to this export, `false` included. When unset, the export reads the legacy table until PostHog moves batch exports to the native table. Project settings and other events table switches do not change which table a batch export reads.'
                         ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
@@ -3092,7 +3092,7 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored."
+                            'Read events from the native JSON events table (`true`) or the legacy events table (`false`). A value set here always applies to this export, `false` included. When unset, the export reads the legacy table until PostHog moves batch exports to the native table. Project settings and other events table switches do not change which table a batch export reads.'
                         ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
@@ -3829,7 +3829,7 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored."
+                            'Read events from the native JSON events table (`true`) or the legacy events table (`false`). A value set here always applies to this export, `false` included. When unset, the export reads the legacy table until PostHog moves batch exports to the native table. Project settings and other events table switches do not change which table a batch export reads.'
                         ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
@@ -4295,7 +4295,7 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored."
+                            'Read events from the native JSON events table (`true`) or the legacy events table (`false`). A value set here always applies to this export, `false` included. When unset, the export reads the legacy table until PostHog moves batch exports to the native table. Project settings and other events table switches do not change which table a batch export reads.'
                         ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
@@ -4565,7 +4565,7 @@ export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
                     .union([zod.boolean(), zod.null()])
                     .optional()
                     .describe(
-                        "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored."
+                        'Read events from the native JSON events table (`true`) or the legacy events table (`false`). A value set here always applies to this export, `false` included. When unset, the export reads the legacy table until PostHog moves batch exports to the native table. Project settings and other events table switches do not change which table a batch export reads.'
                     ),
                 usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                 usePreaggregatedTableTransforms: zod
