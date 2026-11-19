@@ -419,6 +419,8 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
             for contact in page.data
             if contact.get("unsubscribed") is True and (email := exact_email(contact.get("email")))
         )
+    # The opt-out steps saw only these contacts, so a contact added to Resend later waits for the next import.
+    scanned = {row["email"].lower() for row in contacts.everyone}
     segments = []
     for page in client.pages("/segments"):
         for segment in page.data:
@@ -426,11 +428,19 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
             if not segment_id:
                 continue
             name = str(segment.get("name") or segment_id)
-            members = [
-                row
-                for members_page in client.pages(f"/segments/{quote(segment_id, safe='')}/contacts")
-                for row in _collect(contacts, members_page.data)
-            ]
+            members = []
+            for members_page in client.pages(f"/segments/{quote(segment_id, safe='')}/contacts"):
+                known = [
+                    contact
+                    for contact in members_page.data
+                    if (email := exact_email(contact.get("email"))) and email.lower() in scanned
+                ]
+                unsubscribed.update(
+                    email.lower()
+                    for contact in known
+                    if contact.get("unsubscribed") is True and (email := exact_email(contact.get("email")))
+                )
+                members += _collect(contacts, known)
             segments.append(
                 ContactList(
                     cohort_name=f"{name[:MAX_SOURCE_NAME_LENGTH]} (from Resend)",
@@ -439,7 +449,6 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
                     rows=tuple(members),
                 )
             )
-    # Read last, so a contact who joined a segment after the contact list was read still becomes a person.
     everyone = contacts.everyone
     # One shared set, so a large opt-out list isn't copied once per segment.
     non_members = frozenset(unsubscribed)

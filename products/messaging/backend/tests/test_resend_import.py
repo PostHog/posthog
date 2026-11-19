@@ -762,6 +762,36 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         assert len(lists) == 4 and lists[0].non_members
         assert len({id(contact_list.non_members) for contact_list in lists}) == 1
 
+    def test_a_contact_only_a_segment_lists_waits_for_the_next_import(self) -> None:
+        late = {**self.resend.data["contacts"][0], "id": "c-late", "email": "late@example.com", "unsubscribed": True}
+        listed = list(self.resend.data["contacts"])
+        lists: list[Any] = []
+        save = resend.save_contact_lists
+
+        def record(context: Any, everyone: Any, segments: Any, *args: Any) -> Any:
+            lists.extend([everyone, *segments])
+            return save(context, everyone, segments, *args)
+
+        def get(url: str, params: dict | None = None, **kwargs: Any) -> Any:
+            # The contact joins after the contact list was read, and unsubscribes too.
+            self.resend.data["contacts"] = [*listed, late] if "/segments/" in url else listed
+            return FakeResend.get(self.resend, url, params=params, **kwargs)
+
+        self.resend.data["segment_contacts"] = {"seg-1": [*self.resend.data["segment_contacts"]["seg-1"], "c-late"]}
+        self.resend.data["contacts"] = [*listed]
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts", "new_people"], API_KEY, self.user.id)
+        with (
+            patch("products.messaging.backend.services.resend_client.requests.get", side_effect=get),
+            patch.object(resend, "save_contact_lists", side_effect=record),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        everyone, segment = lists
+        assert segment.rows
+        assert "late@example.com" not in {row["email"] for row in [*everyone.rows, *segment.rows]}
+
     def test_a_segment_id_cannot_reach_another_resend_endpoint(self) -> None:
         self.resend.data["segments"] = [{**self.resend.data["segments"][0], "id": "s/../../api-keys"}]
 
