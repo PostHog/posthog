@@ -199,14 +199,14 @@ def write_entries(
     """Make the stored buckets in `[start, end)` hold `entries`, and return how many buckets were written.
 
     A bucket is written only when its values changed, or when it ends by `final_before` and turns final. A final
-    bucket is never rewritten, and a bucket with no entries keeps no row.
+    bucket is never rewritten. A bucket with no entries keeps a row with empty series, because the re-fill finds the
+    buckets that can still change from their rows.
     """
     team_id = precomputed_metric.team_id
     width = bucket_width(precomputed_metric)
     starts = list(_bucket_starts(start, end, width))
     created: list[MetricPrecomputedChunk] = []
     updated: list[MetricPrecomputedChunk] = []
-    emptied: list[Any] = []
     with transaction.atomic():
         stored = {
             chunk.start: chunk
@@ -222,10 +222,6 @@ def write_entries(
             if len(series) > MAX_ENTRIES_PER_CHUNK:
                 raise TooManySeriesError("one bucket has too many label sets; keep fewer labels")
             final = final_before is not None and bucket + width <= final_before
-            if not series:
-                if chunk is not None:
-                    emptied.append(chunk.pk)
-                continue
             if chunk is None:
                 created.append(
                     MetricPrecomputedChunk(
@@ -235,8 +231,6 @@ def write_entries(
             elif _series_changed(chunk.series, series) or final != chunk.final:
                 chunk.series, chunk.final = series, final
                 updated.append(chunk)
-        if emptied:
-            MetricPrecomputedChunk.objects.for_team(team_id).filter(pk__in=emptied).delete()
         if created:
             MetricPrecomputedChunk.objects.for_team(team_id).bulk_create(created)
         if updated:
@@ -244,4 +238,4 @@ def write_entries(
             for chunk in updated:
                 chunk.computed_at = dt.datetime.now(dt.UTC)
             MetricPrecomputedChunk.objects.for_team(team_id).bulk_update(updated, ["series", "final", "computed_at"])
-    return len(created) + len(updated) + len(emptied)
+    return len(created) + len(updated)

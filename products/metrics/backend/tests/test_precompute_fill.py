@@ -360,6 +360,25 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
         for bucket_start, (_, final) in self._chunks().items():
             assert final is (bucket_start + dt.timedelta(hours=1) <= later - FINAL_AFTER), bucket_start
 
+    def test_the_refill_reads_late_data_in_an_hour_that_was_empty_after_a_pause_in_fills(self):
+        self._seed_delta_counter("checkout", 1.0, SETTLED - dt.timedelta(hours=40), 10)
+        self._create(PrecomputedMetricKind.INCREASE, "requests_total")
+        self._fill()
+        empty_hour = SETTLED - dt.timedelta(hours=10)
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name="requests_total",
+            metric_type="sum",
+            aggregation_temporality="delta",
+            is_monotonic=True,
+            service_name="checkout",
+            points=[(empty_hour + dt.timedelta(minutes=30), 4.0)],
+        )
+
+        precomputed = self._fill(now=NOW + dt.timedelta(hours=72))
+
+        assert self._stored(precomputed)[("checkout",)][empty_hour] == 4.0
+
     def test_a_final_bucket_is_never_rewritten(self):
         precomputed = self._create(PrecomputedMetricKind.INCREASE, "requests_total")
         hour = SETTLED - dt.timedelta(days=3)
@@ -379,7 +398,7 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
         self._fill()
 
         chunks = self._chunks()
-        assert len(chunks) == 30
+        assert len([series for series, _ in chunks.values() if series]) == 30
         for bucket_start, (_, final) in chunks.items():
             assert final is (bucket_start + dt.timedelta(hours=1) <= NOW - FINAL_AFTER), bucket_start
 
