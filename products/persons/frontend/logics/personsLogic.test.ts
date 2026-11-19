@@ -651,4 +651,57 @@ describe('personsLogic', () => {
             expect(resetSource.events).toBeUndefined()
         })
     })
+
+    describe('flag calls query', () => {
+        const person: PersonType = {
+            id: 'person-1',
+            uuid: 'uuid-1',
+            distinct_ids: ['did-1'],
+            properties: {},
+            is_identified: true,
+            created_at: '2024-01-01',
+        }
+
+        beforeEach(async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/persons/': () => [200, { results: [person] }],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadPerson('did-1')
+            }).toDispatchActions(['loadPerson', 'loadPersonSuccess'])
+        })
+
+        it('lists only the loaded person flag calls from the last 24 hours', () => {
+            const query = logic.values.flagCallsQuery!
+            expect(query).toMatchObject({
+                showEventFilter: false,
+                showEventsFilter: false,
+                showTableViews: false,
+                showSavedQueries: false,
+                showSavedFilters: false,
+            })
+            expect(query.source).toMatchObject({
+                kind: NodeKind.EventsQuery,
+                event: '$feature_flag_called',
+                personId: 'person-1',
+                after: '-24h',
+            })
+            expect((query.source as any).events).toBeUndefined()
+        })
+
+        it.each([
+            [undefined, false],
+            ['-24h', false],
+            ['-90d', false],
+            ['-180d', true],
+            ['all', true],
+        ])('with the range starting at %s, flagCallsReachPastRetention is %s', async (after, expected) => {
+            const current = logic.values.flagCallsQuery!
+            logic.actions.setFlagCallsQuery({ ...current, source: { ...current.source, after } as any })
+
+            await expectLogic(logic).toMatchValues({ flagCallsReachPastRetention: expected })
+        })
+    })
 })
