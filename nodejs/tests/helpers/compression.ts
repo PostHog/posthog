@@ -23,3 +23,28 @@ export const compressWithoutEnding = async (
     encoder.destroy()
     return Buffer.concat(parts)
 }
+
+const flushedOutput = async (encoder: Gzip | Deflate, decodedBytes: number): Promise<Buffer> => {
+    const parts: Buffer[] = []
+    const collect = (part: Buffer): number => parts.push(part)
+    encoder.on('data', collect)
+    encoder.write(Buffer.alloc(decodedBytes, ' '))
+    await new Promise<void>((resolve) => encoder.flush(() => resolve()))
+    encoder.off('data', collect)
+    return Buffer.concat(parts)
+}
+
+const emptyStoredBlock = Buffer.from([0x00, 0x00, 0x00, 0xff, 0xff])
+
+export const compressTwoPartsApart = async (
+    encoding: 'gzip' | 'deflate',
+    decodedBytesPerPart: number,
+    gapBytes: number
+): Promise<Buffer> => {
+    const encoder = encoding === 'gzip' ? createGzip() : createDeflate()
+    const first = await flushedOutput(encoder, decodedBytesPerPart)
+    const gap = Buffer.concat(Array(Math.ceil(gapBytes / emptyStoredBlock.length)).fill(emptyStoredBlock))
+    const second = await flushedOutput(encoder, decodedBytesPerPart)
+    encoder.destroy()
+    return Buffer.concat([first, gap, second])
+}

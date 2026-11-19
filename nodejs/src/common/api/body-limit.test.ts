@@ -9,7 +9,7 @@ import { ServerCommands } from '~/common/utils/commands'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { parseJSON } from '~/common/utils/json-parse'
 import { PubSub } from '~/common/utils/pubsub'
-import { compressWithoutEnding } from '~/tests/helpers/compression'
+import { compressTwoPartsApart, compressWithoutEnding } from '~/tests/helpers/compression'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { RedisPool } from '~/types'
 
@@ -137,6 +137,40 @@ describe('setupExpressApp JSON body limit', () => {
             })
         }
     )
+
+    describe('with a limit larger than one decoded block', () => {
+        let largerLimitApp: Application
+        let largerLimitServer: ReturnType<Application['listen']>
+
+        beforeAll(() => {
+            largerLimitApp = setupExpressApp({ jsonBodyLimit: '64kb' })
+            largerLimitApp.post('/echo', (req: Request, res: Response) => {
+                res.status(200).json({ ok: true })
+            })
+            largerLimitServer = largerLimitApp.listen(0, () => {})
+        })
+
+        afterAll(() => {
+            largerLimitServer.close()
+        })
+
+        it.each(['gzip', 'deflate'] as const)(
+            'answers a %s JSON body whose later read decodes past the bytes left under the limit with 413',
+            async (encoding) => {
+                const twoReads = await compressTwoPartsApart(encoding, 48 * 1024, 4 * 1024 * 1024)
+                const upload = supertest(largerLimitApp)
+                    .post('/echo')
+                    .set({ 'Content-Type': 'application/json', 'Content-Encoding': encoding })
+                upload.write(Buffer.concat([twoReads, Buffer.alloc(16, 0xff)]))
+                const oversized = await upload
+
+                expect([oversized.status, oversized.body]).toEqual([
+                    413,
+                    { status: 'error', error: 'Request entity too large' },
+                ])
+            }
+        )
+    })
 
     describe('on the command route', () => {
         let redisPool: RedisPool
