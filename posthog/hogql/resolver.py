@@ -648,11 +648,8 @@ class Resolver(CloningVisitor):
                 select_query = expr.select_query
                 if scalar_ctes:
                     select_query = self._copy(select_query)
-                    first_branch = select_query
-                    while isinstance(first_branch, ast.SelectSetQuery):
-                        first_branch = first_branch.initial_select_query
                     # Lazy property bindings belong to each branch's tables, not to the first branch's resolved CTE.
-                    first_branch.ctes = {**scalar_ctes, **(first_branch.ctes or {})}
+                    self._inherit_scalar_ctes(select_query, scalar_ctes)
                 subsequent.append(
                     ast.SelectSetNode(set_operator=expr.set_operator, select_query=self.visit(select_query))
                 )
@@ -681,6 +678,43 @@ class Resolver(CloningVisitor):
             return result
         finally:
             self.ctes = parent_ctes
+
+    def _inherit_scalar_ctes(self, node: ast.SelectQuery | ast.SelectSetQuery, inherited: dict[str, ast.CTE]) -> None:
+        if isinstance(node, ast.SelectSetQuery):
+            first_branch = node.initial_select_query
+            while isinstance(first_branch, ast.SelectSetQuery):
+                first_branch = first_branch.initial_select_query
+            branch_ctes = first_branch.ctes or {}
+            subsequent_ctes = {name: cte for name, cte in inherited.items() if name not in branch_ctes}
+            subsequent_ctes.update((name, cte) for name, cte in branch_ctes.items() if cte.cte_type == "column")
+            self._inherit_scalar_ctes(node.initial_select_query, inherited)
+            for branch in node.subsequent_select_queries:
+                self._inherit_scalar_ctes(branch.select_query, subsequent_ctes)
+            return
+
+        available = {**inherited, **(node.ctes or {})}
+        ordered: dict[str, ast.CTE] = {}
+        visiting: set[str] = set()
+
+        def include(name: str) -> None:
+            if name not in available or name in visiting:
+                return
+            visiting.add(name)
+            collector = FieldCollector()
+            collector.visit(available[name].expr)
+            for field in collector.fields:
+                if field.chain:
+                    include(str(field.chain[0]))
+            ordered[name] = available[name]
+
+        for name in node.ctes or {}:
+            include(name)
+        collector = FieldCollector()
+        collector.visit(node)
+        for field in collector.fields:
+            if field.chain:
+                include(str(field.chain[0]))
+        node.ctes = ordered or None
 
     def _lower_by_name_operators(self, node: ast.SelectSetQuery) -> None:
         """Align named set operands before positional type unification.

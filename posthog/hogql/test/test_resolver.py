@@ -1325,6 +1325,24 @@ class TestResolver(BaseTest):
             "WITH page_view_stats AS (SELECT 1 AS a) SELECT a FROM page_view_stats LIMIT 50000 UNION ALL WITH purchase_stats AS (SELECT 2 AS a) SELECT a FROM page_view_stats LIMIT 50000",
         )
 
+    @parameterized.expand(
+        [
+            ("unused", "WITH number AS n SELECT n FROM numbers(1) UNION ALL SELECT 0"),
+            (
+                "nested_unused",
+                "WITH number AS n SELECT n FROM numbers(1) UNION ALL (SELECT 0 UNION ALL SELECT n FROM numbers(1))",
+            ),
+            (
+                "local_dependency",
+                "WITH 1 AS a, (SELECT a)+a AS b SELECT b UNION ALL WITH 2 AS a SELECT b",
+            ),
+        ]
+    )
+    def test_union_scalar_aliases_only_resolve_in_branches_that_use_them(self, _name: str, query: str):
+        resolved = resolve_types(self._select(query), self.context, dialect="clickhouse")
+        self.assertIsInstance(resolved.type, ast.SelectSetQueryType)
+        self.assertEqual(self.context.errors, [])
+
     def test_with_clause_before_parens_select_set(self):
         printed = self._print_hogql("WITH cte AS (SELECT 1 AS a) (SELECT a FROM cte UNION ALL SELECT a FROM cte)")
         self.assertEqual(
