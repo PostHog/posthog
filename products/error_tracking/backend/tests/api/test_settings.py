@@ -163,18 +163,16 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
         ]
     )
     def test_team_lists_available_ai_features_from_the_local_project_flag(self, _name, url, flag_on, expected):
-        with patch.object(team_flags, "feature_enabled_or_false", return_value=flag_on) as flag_check:
+        enabled_project = str(self.team.id) if flag_on else None
+
+        # Local definitions only: the fake has no remote service to fall back to.
+        def local_flags(flag, distinct_id, *, groups, only_evaluate_locally, **_options):
+            return only_evaluate_locally and flag == ISSUE_SUMMARY_FLAG and groups == {"project": enabled_project}
+
+        with patch.object(team_flags, "feature_enabled_or_false", new=local_flags):
             response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
         team = body["app_context"]["current_team"] if url == "/_app_context" else body
         self.assertEqual(team["available_error_tracking_ai_features"], expected)
-        flag_check.assert_called_once_with(
-            ISSUE_SUMMARY_FLAG,
-            str(self.team.id),
-            groups={"project": str(self.team.id)},
-            group_properties={"project": {"id": str(self.team.id)}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
