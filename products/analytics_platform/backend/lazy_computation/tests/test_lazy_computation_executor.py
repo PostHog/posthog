@@ -12,6 +12,7 @@ from django.utils import timezone as django_timezone
 
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from temporalio.exceptions import CancelledError
 
 from posthog.schema import BaseMathType, DateRange, EventsNode, HogQLQueryModifiers, TrendsQuery
 
@@ -2864,6 +2865,29 @@ class TestComputationExecutorExecute(BaseTest):
         assert insert_count[0] == 1
         assert len(result.errors) == 1
         assert result.job_ids == []
+
+    def test_cancelled_activity_propagates_and_fails_the_job(self):
+        query_info, query_hash = self._make_query_info()
+        insert_count = [0]
+
+        def cancelled(team, job):
+            insert_count[0] += 1
+            raise CancelledError("Cancelled")
+
+        executor = LazyComputationExecutor(max_retries=3)
+        with pytest.raises(CancelledError):
+            executor.execute(
+                team=self.team,
+                query_info=query_info,
+                start=datetime(2024, 1, 1, tzinfo=UTC),
+                end=datetime(2024, 1, 2, tzinfo=UTC),
+                run_insert=cancelled,
+            )
+
+        assert insert_count[0] == 1
+        assert list(PreaggregationJob.objects.filter(query_hash=query_hash).values_list("status", flat=True)) == [
+            PreaggregationJob.Status.FAILED
+        ]
 
     def test_non_retryable_error_does_not_block_future_queries(self):
         query_info, query_hash = self._make_query_info()
