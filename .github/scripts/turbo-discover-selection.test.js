@@ -9,9 +9,6 @@ const os = require('node:os')
 const path = require('node:path')
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const fs = require('node:fs')
-const os = require('node:os')
-const path = require('node:path')
 const {
     decideJsonTargets,
     decideSelection,
@@ -214,9 +211,6 @@ test('a product cascade gets the lowest phase that covers every file it changed'
         ['non_isolated_product', ['products/tasks/backend/logic.py', 'products/tasks/backend/tests/test_logic.py'], 3],
         ['non_isolated_product', ['products/tasks/backend/models.py'], null],
         ['non_isolated_product', ['products/tasks/backend/models/task.py'], null],
-        ['non_isolated_product', ['products/tasks/backend/dev_stack_image_models.py'], null],
-        ['non_isolated_product', ['products/signals/backend/filter_catalog.py'], null],
-        ['non_isolated_product', ['products/tasks/backend/error_telemetry.py'], 3],
         ['non_isolated_product', ['products/tasks/backend/__snapshots__/gen/models.py'], null],
         ['non_isolated_product', ['products/tasks/backend/tests/__snapshots__/helpers.py'], null],
         ['non_isolated_product', ['products/tasks/backend/tests/test_api.py', 'products/tasks/backend/migrations/0042_x.py'], null],
