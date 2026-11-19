@@ -1,0 +1,490 @@
+{
+    "rows": [
+        {
+            "modules": [
+                {
+                    "id": "user",
+                    "name": "Web user",
+                    "note": "opens Email & Messaging",
+                    "external": true,
+                    "seam": [],
+                    "flex": 2
+                },
+                {
+                    "id": "agents",
+                    "name": "Agents: MCP, API, CLI",
+                    "note": "most creations",
+                    "external": true,
+                    "seam": [],
+                    "flex": 1
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "txlist",
+                    "name": "Transactional list",
+                    "note": "its own product",
+                    "used": 1,
+                    "seam": ["transactionalEmailsLogic"],
+                    "chips": [
+                        {
+                            "id": "tx-join",
+                            "text": "joins in the browser"
+                        }
+                    ]
+                },
+                {
+                    "id": "home",
+                    "name": "Email & Messaging home",
+                    "note": "products/workflows/frontend/messagingHome",
+                    "change": "added",
+                    "flex": 1,
+                    "seam": [
+                        {
+                            "name": "sections",
+                            "change": "added"
+                        },
+                        {
+                            "name": "<ViewPage view>",
+                            "change": "added"
+                        }
+                    ],
+                    "chips": [
+                        {
+                            "id": "home-registry",
+                            "text": "section registry",
+                            "change": "added"
+                        },
+                        {
+                            "id": "home-sidebar",
+                            "text": "in-scene sidebar",
+                            "change": "added"
+                        }
+                    ]
+                },
+                {
+                    "id": "engine",
+                    "name": "Workflow list engine",
+                    "note": "workflowList/",
+                    "change": "added",
+                    "flex": 1,
+                    "seam": [
+                        {
+                            "name": "workflowListLogic(view)",
+                            "change": "added"
+                        },
+                        {
+                            "name": "LIST_COLUMNS",
+                            "change": "added"
+                        }
+                    ],
+                    "chips": [
+                        {
+                            "id": "engine-state",
+                            "text": "filters, URL, paging",
+                            "change": "added"
+                        },
+                        {
+                            "id": "engine-cols",
+                            "text": "column registry",
+                            "change": "added"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "msgprod",
+                    "name": "Messaging product",
+                    "note": "templates, code emails",
+                    "used": 12,
+                    "seam": ["templates list", "code emails"]
+                },
+                {
+                    "id": "bcshape",
+                    "name": "Broadcast shape",
+                    "todayName": "Broadcasts list",
+                    "note": "broadcastShape.ts, own PR",
+                    "used": 18,
+                    "change": "changed",
+                    "seam": [
+                        "isBroadcastShaped",
+                        "canEditInWizard",
+                        {
+                            "name": "broadcastsLogic",
+                            "change": "removed"
+                        }
+                    ],
+                    "chips": [
+                        {
+                            "id": "bc-list",
+                            "text": "list state",
+                            "change": "removed"
+                        },
+                        {
+                            "id": "bc-n1",
+                            "text": "status: 3 requests per row",
+                            "change": "removed"
+                        }
+                    ]
+                },
+                {
+                    "id": "wflist",
+                    "name": "Workflows list",
+                    "note": "workflowsLogic",
+                    "used": 5,
+                    "seam": ["workflowsLogic"],
+                    "chips": [
+                        {
+                            "id": "wf-engine",
+                            "text": "filter, URL engine copy",
+                            "followUp": true
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "list",
+                    "name": "Workflow list read model",
+                    "todayName": "List read model",
+                    "note": "hog_flow_reads",
+                    "change": "changed",
+                    "flex": 1.3,
+                    "seam": [
+                        {
+                            "name": "list_workflows(query)",
+                            "change": "changed"
+                        },
+                        {
+                            "name": "count_views",
+                            "change": "added"
+                        },
+                        {
+                            "name": "BUILT_IN_VIEWS",
+                            "change": "added"
+                        }
+                    ],
+                    "chips": [
+                        {
+                            "id": "list-query",
+                            "text": "typed query + sort enum",
+                            "change": "changed"
+                        },
+                        {
+                            "id": "list-bc",
+                            "text": "broadcast status enricher (Broadcasts PR)",
+                            "change": "added"
+                        },
+                        {
+                            "id": "list-typeq",
+                            "text": "workflow_type_q on actions",
+                            "change": "removed"
+                        },
+                        {
+                            "id": "list-single",
+                            "text": "single reads: split out",
+                            "followUp": true
+                        }
+                    ]
+                },
+                {
+                    "id": "api",
+                    "name": "Workflows list API",
+                    "note": "HogFlowViewSet",
+                    "used": 2,
+                    "change": "changed",
+                    "seam": [
+                        "GET hog_flows ?type",
+                        {
+                            "name": "?view, ?sort",
+                            "change": "added"
+                        },
+                        {
+                            "name": "GET hog_flows/counts",
+                            "change": "added"
+                        }
+                    ],
+                    "chips": [
+                        {
+                            "id": "api-row",
+                            "text": "rows + kind, channels (MCP too)",
+                            "change": "added"
+                        }
+                    ],
+                    "flex": 1
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "events",
+                    "name": "Usage events",
+                    "note": "_report_workflow_action",
+                    "change": "changed",
+                    "seam": ["report_user_action"],
+                    "chips": [
+                        {
+                            "id": "ev-props",
+                            "text": "+ step props, kind, trigger",
+                            "change": "added"
+                        },
+                        {
+                            "id": "ev-life",
+                            "text": "lifecycle from writes",
+                            "followUp": true
+                        }
+                    ]
+                },
+                {
+                    "id": "writes",
+                    "name": "Workflow writes",
+                    "note": "create, save live, publish",
+                    "change": "changed",
+                    "seam": ["create_workflow", "update_workflow", "publish_draft"],
+                    "chips": [
+                        {
+                            "id": "writes-guard",
+                            "text": "lint: no bulk_update on actions",
+                            "change": "added"
+                        }
+                    ]
+                },
+                {
+                    "id": "classify",
+                    "name": "Workflow classification",
+                    "note": "workflow_classification.py",
+                    "change": "added",
+                    "seam": [
+                        {
+                            "name": "step_types_of",
+                            "change": "added"
+                        },
+                        {
+                            "name": "channels_of",
+                            "change": "added"
+                        },
+                        {
+                            "name": "kind_of",
+                            "change": "added"
+                        },
+                        {
+                            "name": "kind_q",
+                            "change": "added"
+                        }
+                    ],
+                    "chips": [
+                        {
+                            "id": "cl-types",
+                            "text": "MESSAGING_ACTION_TYPES",
+                            "change": "changed"
+                        },
+                        {
+                            "id": "cl-null",
+                            "text": "NULL arm: @> until step 4",
+                            "change": "added"
+                        },
+                        {
+                            "id": "cl-bill",
+                            "text": "billable derive moves here",
+                            "followUp": true
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "analytics",
+                    "name": "Product analytics",
+                    "note": "hog_flow_* events, arrival event",
+                    "external": true,
+                    "seam": [],
+                    "flex": 1
+                },
+                {
+                    "id": "model",
+                    "name": "HogFlow model",
+                    "note": "hog_flow.py",
+                    "seam": [
+                        {
+                            "name": "save() derives step_types",
+                            "change": "added"
+                        }
+                    ],
+                    "chips": [
+                        {
+                            "id": "model-col",
+                            "text": "step_types column",
+                            "change": "added"
+                        }
+                    ],
+                    "change": "changed"
+                }
+            ]
+        }
+    ],
+    "wires": [
+        {
+            "from": "user",
+            "to": "home-seam",
+            "label": "opens a view",
+            "labelAt": 0.5,
+            "labelAlign": "start",
+            "labelOffset": [6, 0]
+        },
+        {
+            "from": "home",
+            "to": "txlist",
+            "change": "added",
+            "fromSide": "left",
+            "toSide": "right"
+        },
+        {
+            "from": "home",
+            "to": "engine",
+            "change": "added",
+            "fromSide": "right",
+            "toSide": "left"
+        },
+        {
+            "from": "txlist",
+            "to": "msgprod",
+            "kind": "leak",
+            "straight": "from",
+            "label": "7 symbols, 5 files",
+            "labelAt": 0.5,
+            "labelAlign": "start",
+            "labelOffset": [6, 0]
+        },
+        {
+            "from": "engine",
+            "to": "api-seam",
+            "change": "added",
+            "fromAt": 0.02,
+            "straight": "from",
+            "label": "?view=",
+            "labelAt": 0.12,
+            "labelAlign": "end",
+            "labelOffset": [-6, 0]
+        },
+        {
+            "from": "wflist",
+            "to": "api-seam",
+            "toAt": 0.8,
+            "label": "type=",
+            "labelAt": 0.5,
+            "labelAlign": "start",
+            "labelOffset": [6, 0]
+        },
+        {
+            "from": "bcshape",
+            "to": "api-seam",
+            "change": "removed",
+            "fromAt": 0.85,
+            "toAt": 0.08,
+            "label": "N+1",
+            "labelAt": 0.75,
+            "labelAlign": "end",
+            "labelOffset": [-6, 0],
+            "crossAt": 0.3
+        },
+        {
+            "from": "agents",
+            "to": "api",
+            "fromSide": "right",
+            "toSide": "right",
+            "bend": 22,
+            "label": "workflows-list",
+            "labelAt": 0.22,
+            "labelAlign": "end",
+            "labelOffset": [-6, 0]
+        },
+        {
+            "from": "api",
+            "to": "list",
+            "fromSide": "left",
+            "toSide": "right"
+        },
+        {
+            "from": "list",
+            "to": "classify-seam",
+            "change": "added",
+            "fromAt": 0.9,
+            "toAt": 0.4,
+            "label": "kind_q",
+            "labelAt": 0.5,
+            "labelAlign": "start",
+            "labelOffset": [6, 0]
+        },
+        {
+            "from": "writes",
+            "to": "events",
+            "fromSide": "left",
+            "toSide": "right"
+        },
+        {
+            "from": "events",
+            "to": "analytics",
+            "toAt": 0.3
+        },
+        {
+            "from": "model",
+            "to": "classify",
+            "change": "added",
+            "toSide": "bottom",
+            "fromSide": "top",
+            "label": "step_types_of",
+            "labelAt": 0.5,
+            "labelAlign": "start"
+        },
+        {
+            "from": "writes",
+            "to": "model",
+            "change": "added",
+            "fromSide": "bottom",
+            "toSide": "top",
+            "fromAt": 0.8,
+            "toAt": 0.2,
+            "label": "save()",
+            "labelAt": 0.5,
+            "labelAlign": "start",
+            "labelOffset": [6, 0]
+        }
+    ],
+    "untouched": [
+        {
+            "name": "Project tree",
+            "seam": ["_visible_files", "file_system list"],
+            "note": "shared list path; reads no actions"
+        },
+        {
+            "name": "Send calendar",
+            "seam": ["send_calendar"],
+            "note": "ships as today"
+        },
+        {
+            "name": "Setup status",
+            "seam": ["get_setup_steps"],
+            "note": "workflow_type_q becomes kind_q"
+        },
+        {
+            "name": "Node CDP executor",
+            "seam": ["hogflow-functions"],
+            "note": "reads billable_action_types"
+        },
+        {
+            "name": "Canvas",
+            "seam": ["set_workflow_enabled"],
+            "note": "activates with no event"
+        }
+    ]
+}

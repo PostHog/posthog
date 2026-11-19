@@ -1,0 +1,20 @@
+sequenceDiagram
+    autonumber
+    actor A as Editor
+    participant W as Workflow writes
+    participant M as HogFlow.save()
+    participant DB as posthog_hogflow
+    participant H as Home counts
+    A->>W: save without its last email step
+    alt a live graph write (draft workflow, or API save without stage_draft)
+        W->>M: save()
+        M->>DB: step_types without a messaging type
+        H->>DB: next count: Messaging workflows n-1, Workflows n+1 automation
+    else active, and the edit is staged (editor, MCP patch-graph)
+        W->>M: save(update_fields=[draft, ...])
+        Note over DB: stays in Messaging workflows until publish
+        A->>W: publish_draft
+        W->>M: save() with the published actions
+        M->>DB: step_types without a messaging type
+    end
+    Note over A,H: the workflow stays reachable on the Workflows page as an automation, no notice

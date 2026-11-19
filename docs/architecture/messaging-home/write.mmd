@@ -1,0 +1,32 @@
+sequenceDiagram
+    autonumber
+    actor A as Editor, MCP or API
+    participant V as HogFlowViewSet
+    participant W as Workflow writes
+    participant M as HogFlow.save()
+    participant C as Classification
+    participant DB as posthog_hogflow
+    participant EV as Usage events
+    A->>V: update (editor full save, API PATCH, or MCP workflows-patch-graph)
+    V->>W: update_workflow(validated_data)
+    W->>DB: select_for_update (row lock)
+    alt the write routes to draft (stage_draft, MCP patch-graph on active or disabled_from_active)
+        W->>M: _write_draft: save(update_fields=[draft, draft_updated_at, draft_encrypted_inputs])
+        M->>DB: draft only, step_types unchanged, no worker reload
+        opt the same payload changes live metadata or tags
+            W->>M: _save_live(metadata only): save()
+            M->>C: step_types_of(self.actions), the live graph
+            M->>DB: metadata + the same step_types
+        end
+    else live graph write (draft workflow, API save without stage_draft, publish_draft)
+        W->>M: _save_live: save()
+        M->>C: step_types_of(self.actions)
+        C-->>M: sorted distinct step types (never raises)
+        M->>DB: actions, encrypted_inputs, step_types in one UPDATE
+    end
+    W-->>V: WorkflowWriteResult(previous, current)
+    opt the event holds the full workflow (created, activated, draft_published)
+        V->>EV: _report_workflow_action(current)
+        EV->>C: event_properties(origin_product, step_types)
+        EV->>EV: + has_messaging_step, channels, kind, trigger_type (guarded capture)
+    end

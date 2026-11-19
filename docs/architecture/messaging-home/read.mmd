@@ -1,0 +1,30 @@
+sequenceDiagram
+    autonumber
+    actor U as Web user
+    participant H as Home (section registry)
+    participant E as workflowListLogic(view)
+    participant API as Workflows list API
+    participant L as List read model
+    participant C as Classification
+    participant DB as posthog_hogflow
+    U->>H: open the Messaging workflows view
+    Note over U,H: the arrival event fires
+    par the page
+        H->>E: mount with the view key and frontend columns
+        E->>API: GET hog_flows?view=messaging-workflows&sort=...&limit=30
+        API->>L: list_workflows(BUILT_IN_VIEWS[key])
+        L->>C: kind_q({MESSAGING})
+        L->>DB: page + total on step_types (NULL arm until deploy 4)
+        DB-->>E: wide rows with kind, step_types
+        alt the list total is 0
+            E-->>U: the view's empty state with its create action
+        end
+    and the counts
+        H->>API: GET hog_flows/counts?views=broadcasts,messaging-workflows
+        API->>L: count_views(team, reader, keys)
+        L->>DB: one statement on team + access filter, hidden origins inside each aggregate
+        DB-->>H: counts, has_transactional
+    end
+    alt counts failed or timed out
+        H-->>U: sidebar without numbers, no nudge
+    end
