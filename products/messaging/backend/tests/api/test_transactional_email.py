@@ -1277,13 +1277,6 @@ class TestTransactionalEmail(APIBaseTest):
                         None,
                     ),
                     (
-                        "the_first_minute_there_is_east_of_utc",
-                        "0001-01-01T00:00:00+00:01",
-                        "0001-01-01T00:00:00.000Z",
-                        {"status": "queued", "scheduled_at": None},
-                        None,
-                    ),
-                    (
                         "in_year_one_east_of_utc",
                         "0001-06-01T09:00:00+01:00",
                         "0001-06-01T08:00:00.000Z",
@@ -1433,6 +1426,7 @@ class TestTransactionalEmail(APIBaseTest):
                     ("a_blank_time", "", "invalid_format"),
                     ("the_last_microsecond_there_is", "9999-12-31T23:59:59.999999Z", "scheduled_too_far"),
                     ("the_last_second_there_is_west_of_utc", "9999-12-31T23:59:59-01:00", "scheduled_too_far"),
+                    ("the_first_minute_there_is_east_of_utc", "0001-01-01T00:00:00+00:01", "too_early"),
                 )
             ),
             ("template_key_form_a_blank_time", "code_form", "", "invalid_format"),

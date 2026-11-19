@@ -593,6 +593,7 @@ class ScheduledAtField(serializers.DateTimeField):
         "invalid_format": "Use a time like `YYYY-MM-DDThh:mm:ss.sss` followed by a UTC offset, such as "
         "`2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. Seconds and their fraction are optional.",
         "repeated": "Send `scheduled_at` once, so PostHog knows which time to send the email at.",
+        "too_early": "Use a time from `0001-01-01T00:00:00Z` on.",
     }
 
     def get_value(self, dictionary: Mapping[str, Any]) -> Any:
@@ -615,13 +616,11 @@ class ScheduledAtField(serializers.DateTimeField):
         try:
             value.astimezone(UTC)
         except OverflowError:
-            # In UTC this falls outside the datetimes Python holds, and DRF would answer overflow. Clamped, the
-            # seven-day check refuses a late one, and an early one is a time that passed.
-            return (
-                datetime.max.replace(tzinfo=UTC)
-                if value.year == datetime.max.year
-                else datetime.min.replace(tzinfo=UTC)
-            )
+            # In UTC this falls outside the datetimes Python holds. Clamped, the seven-day check refuses a late one.
+            # An early one is refused here, since clamping would give distinct times one idempotency fingerprint.
+            if value.year != datetime.max.year:
+                self.fail("too_early")
+            return datetime.max.replace(tzinfo=UTC)
         return super().enforce_timezone(value)
 
     def to_internal_value(self, value: Any) -> datetime:
