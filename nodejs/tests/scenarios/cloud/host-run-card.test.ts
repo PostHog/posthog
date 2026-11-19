@@ -81,12 +81,13 @@ describe('host-run-card.sh', () => {
         poolerUrls: string | null = POOLER_URLS
     ): ChildProcess {
         const bin = path.join(dir, 'bin')
+        const host = path.resolve(dir, env.SCENARIO_HOST_ROOT ?? 'host')
         mkdirSync(bin)
-        mkdirSync(path.join(dir, 'host', 'input'), { recursive: true })
-        writeFileSync(path.join(dir, 'host', 'input', 'manifest.json'), JSON.stringify({ runId: RUN_ID, ...manifest }))
+        mkdirSync(path.join(host, 'input'), { recursive: true })
+        writeFileSync(path.join(host, 'input', 'manifest.json'), JSON.stringify({ runId: RUN_ID, ...manifest }))
         if (poolerUrls !== null) {
-            mkdirSync(path.join(dir, 'host', 'pooler'), { recursive: true })
-            writeFileSync(path.join(dir, 'host', 'pooler', 'urls'), `${poolerUrls}\n`)
+            mkdirSync(path.join(host, 'pooler'), { recursive: true })
+            writeFileSync(path.join(host, 'pooler', 'urls'), `${poolerUrls}\n`)
         }
         writeFileSync(path.join(bin, 'aws'), FAKE_AWS, { mode: 0o755 })
         if (runner) {
@@ -104,7 +105,7 @@ describe('host-run-card.sh', () => {
                 HOME: dir,
                 SCENARIO_RUN_ID: RUN_ID,
                 SCENARIO_EVIDENCE_BUCKET: BUCKET,
-                SCENARIO_HOST_ROOT: path.join(dir, 'host'),
+                SCENARIO_HOST_ROOT: host,
                 SCENARIO_PROCESS_LOGS: path.join(dir, 'processes'),
                 FAKE_S3: path.join(dir, 's3'),
                 FAKE_COMMANDS: path.join(dir, 'commands'),
@@ -136,6 +137,7 @@ describe('host-run-card.sh', () => {
         ['the evidence cannot be copied', { FAKE_CARD_EXIT: '0', FAKE_CARD_BLOCKS_COPY: '1' }, 0, false],
         ['the evidence cannot be listed', { FAKE_CARD_EXIT: '0', FAKE_FAILS: 'find' }, 0, false],
         ['the host root is relative', { FAKE_CARD_EXIT: '0', SCENARIO_HOST_ROOT: 'host' }, 0, true],
+        ['the host root starts with a hyphen', { FAKE_CARD_EXIT: '0', SCENARIO_HOST_ROOT: '-host' }, 0, true],
     ])('marks done with the runner exit code when %s', async (_, env, exitCode, uploaded) => {
         await exited(start(env))
 
