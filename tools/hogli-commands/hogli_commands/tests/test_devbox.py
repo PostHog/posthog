@@ -4453,6 +4453,7 @@ class TestDevboxShare:
             (0, "✔ Logged in as Jane (jane@example.com)", True, 1, ["trunk-logout"], "wasn't shared"),
             (1, "error connecting to api.trunk.io", True, 0, [], "--keep-trunk-login"),
             (devbox_cli.TRUNK_MISSING_EXIT, "", True, 0, ["share"], "Shared"),
+            (devbox_cli.TRUNK_LOGIN_WITHOUT_CLI_EXIT, "", True, 0, [], "--keep-trunk-login"),
         ],
         ids=[
             "logs_out",
@@ -4460,6 +4461,7 @@ class TestDevboxShare:
             "failed_logout_blocks_share",
             "unknown_login_refuses",
             "no_trunk_binary_shares",
+            "login_file_without_binary_refuses",
         ],
     )
     def test_share_handles_a_trunk_login(

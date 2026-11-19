@@ -1938,6 +1938,7 @@ def _warn_about_gh_login_before_sharing(name: str, workspace: dict[str, Any], *,
 
 _TRUNK_AUTH_TIMEOUT = 60
 TRUNK_MISSING_EXIT = 3
+TRUNK_LOGIN_WITHOUT_CLI_EXIT = 4
 _KEEP_TRUNK_LOGIN_HINT = "Run `hogli devbox:trunk:status` to see why, or pass --keep-trunk-login to share anyway."
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -1945,9 +1946,12 @@ _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 def remote_trunk(*args: str) -> list[str]:
     # trunk is on PATH only inside PostHog's flox environment. flox puts the binary under .flox/run
     # the first time it activates the environment, so the box can call it there without activating.
+    # Without the binary, a login that trunk stored before still sits in its user file, so that case
+    # gets its own exit code and a caller can't take it for "logged out".
     script = (
         f"cd {REMOTE_REPO_PATH} && "
         f'for trunk in .flox/run/*/bin/trunk; do if [ -x "$trunk" ]; then exec "$trunk" {shlex.join(args)}; fi; done; '
+        f"grep -qs '^trunk_user:' ~/.cache/trunk/user.yaml && exit {TRUNK_LOGIN_WITHOUT_CLI_EXIT}; "
         f"exit {TRUNK_MISSING_EXIT}"
     )
     return ["bash", "-c", script]
@@ -1956,7 +1960,7 @@ def remote_trunk(*args: str) -> list[str]:
 def read_trunk_login(name: str) -> str | None:
     """Return the `trunk whoami` line for the box's login, "" when there is none, or ``None`` when the box doesn't say.
 
-    A box without a trunk binary counts as logged out, because only that binary logs in.
+    A box without a trunk binary counts as logged out, unless trunk's user file still holds a login.
     """
     _skip_startup_wait()
     try:
@@ -1965,6 +1969,8 @@ def read_trunk_login(name: str) -> str | None:
         return None
     if result.returncode == TRUNK_MISSING_EXIT:
         return ""
+    if result.returncode == TRUNK_LOGIN_WITHOUT_CLI_EXIT:
+        return None
     output = _ANSI_ESCAPE.sub("", result.stdout + result.stderr)
     for line in output.splitlines():
         if "Logged in as" in line:

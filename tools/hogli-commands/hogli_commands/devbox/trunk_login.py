@@ -8,6 +8,7 @@ import click
 
 from .cli import (
     _TRUNK_AUTH_TIMEOUT,
+    TRUNK_LOGIN_WITHOUT_CLI_EXIT,
     TRUNK_MISSING_EXIT,
     _ensure_ssh_alias,
     _skip_startup_wait,
@@ -34,7 +35,7 @@ def _fail_without_trunk(name: str) -> None:
         result = run_in_workspace(name, remote_trunk("--version"), timeout=_TRUNK_AUTH_TIMEOUT)
     except subprocess.TimeoutExpired:
         _fail(f"'{name}' didn't answer. Check that the devbox runs with `hogli devbox:status`.")
-    if result.returncode == TRUNK_MISSING_EXIT:
+    if result.returncode in (TRUNK_MISSING_EXIT, TRUNK_LOGIN_WITHOUT_CLI_EXIT):
         _fail(
             f"Couldn't find the Trunk CLI on '{name}'. It comes with PostHog's flox environment, so run "
             "`hogli devbox:exec --flox -- true` once to set that up, then run this command again."
