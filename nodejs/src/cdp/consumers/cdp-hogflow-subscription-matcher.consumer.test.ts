@@ -2210,21 +2210,33 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 )
             })
 
-            it('looks up every event when the sync goes stale and the fallback watcher scan fails', async () => {
-                const gated = new MatcherUnderTest({ CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'on' })
-                gated.goalRows = [pinnedGoal('goal-flow-1', 'wuc_upgraded')]
-                gated.goalsSyncedAt = new Date()
-                gated.setHogFlows({ 'goal-flow-1': goalFlow(1) })
-                await (gated as any).refreshWatcherState()
-                gated.goalsSyncedAt = new Date(Date.now() - minutes(20))
-                gated.failWatcherScan = true
-                await expect((gated as any).refreshWatcherState()).rejects.toThrow('watcher scan failed')
-                gated.calls = []
+            it.each([
+                { goalsRecover: false, lookedUp: true },
+                { goalsRecover: true, lookedUp: false },
+            ])(
+                'after the sync goes stale and the fallback scan fails, looks up every event unless the goals recover (recover: $goalsRecover)',
+                async ({ goalsRecover, lookedUp }) => {
+                    const gated = new MatcherUnderTest({ CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'on' })
+                    gated.goalRows = [pinnedGoal('goal-flow-1', 'wuc_upgraded')]
+                    gated.goalsSyncedAt = new Date()
+                    gated.setHogFlows({ 'goal-flow-1': goalFlow(1) })
+                    await (gated as any).refreshWatcherState()
+                    gated.goalsSyncedAt = new Date(Date.now() - minutes(20))
+                    gated.failWatcherScan = true
+                    await expect((gated as any).refreshWatcherState()).rejects.toThrow('watcher scan failed')
+                    if (goalsRecover) {
+                        gated.goalsSyncedAt = new Date()
+                        await (gated as any).refreshWatcherState()
+                    }
+                    gated.calls = []
 
-                await gated.runWake([eventNamed('wuc_other')])
+                    await gated.runWake([eventNamed('wuc_other')])
 
-                expect(watcherLookup(gated)?.params.slice(0, 4)).toEqual([[1], ['user-1'], [1], ['person-uuid-1']])
-            })
+                    expect(watcherLookup(gated)?.params.slice(0, 4) ?? null).toEqual(
+                        lookedUp ? [[1], ['user-1'], [1], ['person-uuid-1']] : null
+                    )
+                }
+            )
 
             it('counts a conversion and a would-be miss in shadow mode when the table lacks the goal', async () => {
                 const missed = async (): Promise<number> =>

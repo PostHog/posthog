@@ -1219,6 +1219,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         }
         if (this.pinnedGoalsMode === 'on' && this.pinnedGoalsReady()) {
             this.usingPinnedGoals = true
+            this.liveWatchersUnknown = false
         } else if (this.usingPinnedGoals || Date.now() - this.watcherRefreshedAt >= WATCHER_TEAMS_REFRESH_INTERVAL_MS) {
             if (this.usingPinnedGoals) {
                 this.usingPinnedGoals = false
