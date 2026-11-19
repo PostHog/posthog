@@ -169,14 +169,15 @@ class TestEmail(BaseTest):
                 in message.html_body
             )
 
-    @patch("posthog.email.posthoganalytics.capture")
-    def test_smtp_send_increments_sent_metric_and_captures_the_send(self, mock_capture: MagicMock) -> None:
+    @patch("posthog.email.ph_background_capture")
+    def test_smtp_send_increments_sent_metric_and_captures_the_send(self, mock_background_capture: MagicMock) -> None:
         # The charts alert reads posthog_email_send_total{outcome,transport}; this locks the
         # name + label contract so a removed/mislabelled increment can't silently blind it.
         labels = {"outcome": "sent", "transport": "smtp"}
         before = REGISTRY.get_sample_value("posthog_email_send_total", labels) or 0.0
 
-        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CLOUD_DEPLOYMENT="US"):
+        mock_capture = mock_background_capture.return_value
+        with override_instance_config("EMAIL_HOST", "localhost"):
             message = EmailMessage(
                 campaign_key="metric_test_campaign", subject="Subject", template_name="async_migration_error"
             )

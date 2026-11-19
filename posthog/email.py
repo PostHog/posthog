@@ -5,8 +5,6 @@ import hashlib
 import smtplib
 import datetime
 import dataclasses
-from collections.abc import Iterator
-from contextlib import contextmanager
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -35,7 +33,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_string
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
-from posthog.ph_client import ScopedCapture, ph_scoped_capture
+from posthog.ph_client import ScopedCapture, ph_background_capture, ph_scoped_capture
 from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
@@ -413,21 +411,16 @@ def _send_via_http(
     if not is_http_email_service_available():
         raise Exception("Missing Workflows transactional email API key")
 
-    with _email_capture() as capture:
-        return _send_via_http_batch(capture, to, campaign_key, template_name, properties, will_retry)
-
-
-@contextmanager
-def _email_capture() -> Iterator[ScopedCapture]:
     if not current_task or current_task.request.is_eager:
         # The dedicated client blocks on its flush, which would hold the request. The web process keeps running,
         # so the global client delivers in the background. ScopedCapture keeps the cloud-only guard.
-        yield ScopedCapture(posthoganalytics)
-        return
+        return _send_via_http_batch(
+            ScopedCapture(posthoganalytics), to, campaign_key, template_name, properties, will_retry
+        )
 
     # A dedicated client, because the global one may never flush before a Celery worker exits.
     with ph_scoped_capture(event_region=get_instance_region()) as capture:
-        yield capture
+        return _send_via_http_batch(capture, to, campaign_key, template_name, properties, will_retry)
 
 
 def _send_via_http_batch(
@@ -527,21 +520,8 @@ def _send_via_smtp(
     reply_to: Optional[str] = None,
 ) -> None:
     """Sends emails using SMTP"""
-    with _email_capture() as capture:
-        _send_via_smtp_batch(capture, to, campaign_key, template_name, subject, txt_body, html_body, headers, reply_to)
-
-
-def _send_via_smtp_batch(
-    capture: ScopedCapture,
-    to: list[dict[str, str]],
-    campaign_key: str,
-    template_name: str,
-    subject: str,
-    txt_body: str,
-    html_body: str,
-    headers: dict,
-    reply_to: Optional[str],
-) -> None:
+    # One client per process: a client made per send stays registered for interpreter exit and is never freed.
+    capture = ph_background_capture()
     connection = None
     try:
         klass = import_string(settings.EMAIL_BACKEND) if settings.EMAIL_BACKEND else EmailBackend
@@ -602,7 +582,12 @@ def _send_via_smtp_batch(
                         capture,
                         dest,
                         "transactional email triggered",
-                        {"template_name": template_name, "campaign_key": campaign_key, "provider": "smtp"},
+                        {
+                            "template_name": template_name,
+                            "campaign_key": campaign_key,
+                            "provider": "smtp",
+                            "region": get_instance_region(),
+                        },
                     )
                     EMAIL_SEND_COUNTER.labels(outcome="sent", transport="smtp").inc()
     except _TRANSIENT_SMTP_ERRORS as err:
