@@ -35,6 +35,15 @@ export interface ContentWidget {
     query?: WidgetQuery
     text?: string
     format?: 'number' | 'currency' | 'percentage'
+    /** When the widget's data was last computed, as an ISO timestamp. */
+    refreshedAt?: string
+    footer?: ContentWidgetFooter
+}
+
+export interface ContentWidgetFooter {
+    text?: string
+    showUpdatedAt?: boolean
+    link?: { label: string; url: string }
 }
 
 /**

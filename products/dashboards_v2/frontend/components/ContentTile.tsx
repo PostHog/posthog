@@ -5,6 +5,7 @@ import { Button, Card, CardAction, CardContent, CardDescription, CardHeader, Car
 
 import type { ContentWidget } from '../layout/dashboardTypes'
 import { WidgetView } from '../widgets/WidgetView'
+import { ContentTileFooter } from './ContentTileFooter'
 import { TileContextMenu, useContentTileActions } from './TileContextMenu'
 
 export function ContentTile({
@@ -53,6 +54,7 @@ export function ContentTile({
                 <CardContent className="flex flex-col flex-1 min-h-0 overflow-hidden">
                     <WidgetView widget={widget} />
                 </CardContent>
+                {widget.footer && <ContentTileFooter footer={widget.footer} refreshedAt={widget.refreshedAt} />}
             </Card>
         </TileContextMenu>
     )

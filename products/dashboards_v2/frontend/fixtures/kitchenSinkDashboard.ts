@@ -33,6 +33,8 @@ const statRow = (prefix: string, y: number, cols: number, titles: string[]): Til
     return titles.map((title, index) => tile(`${prefix}-${index}`, index * w, y, w, 3, stat(title)))
 }
 
+const REFRESHED_AT = '2026-11-19T09:00:00Z'
+
 const BIG_TILE_COUNT = 120
 
 export const kitchenSinkDashboard: Dashboard = {
@@ -43,8 +45,17 @@ export const kitchenSinkDashboard: Dashboard = {
             id: 'kitchen-sink',
             title: 'Kitchen sink',
             tiles: [
-                ...statRow('ks-stat', 0, 24, ['Visitors', 'Sessions', 'Signups', 'Revenue']),
-                tile('ks-trend', 0, 3, 16, 8, line('Signups over time')),
+                ...statRow('ks-stat', 0, 18, ['Visitors', 'Sessions', 'Signups']),
+                tile('ks-stat-3', 18, 0, 6, 3, { ...stat('Revenue'), refreshedAt: REFRESHED_AT, footer: { showUpdatedAt: true } }),
+                tile('ks-trend', 0, 3, 16, 8, {
+                    ...line('Signups over time'),
+                    refreshedAt: REFRESHED_AT,
+                    footer: {
+                        text: 'Excludes internal users',
+                        showUpdatedAt: true,
+                        link: { label: 'Open insight', url: '/insights' },
+                    },
+                }),
                 tile('ks-notes', 16, 3, 8, 8, text('## Notes\n\nDrag a tile by its title. Resize it from its left, right or bottom edge.')),
                 section('ks-section', 0, 11, 24, 'Section with tiles', [
                     tile('ks-s-bar', 0, 0, 12, 7, bar('Signups by country')),
@@ -60,7 +71,7 @@ export const kitchenSinkDashboard: Dashboard = {
                 section('ks-left', 0, 32, 12, 'Half width', [tile('ks-l-bar', 0, 0, 12, 6, bar('Plans'))]),
                 section('ks-right', 12, 32, 12, 'Half width, empty', []),
                 section('ks-closed', 0, 42, 24, 'Closed section', [tile('ks-c-line', 0, 0, 24, 6, line('Hidden'))], true),
-                tile('ks-headless', 0, 44, 8, 4, text('A tile without a title is dragged by its body.')),
+                tile('ks-headless', 0, 44, 8, 4, { ...text('A tile without a title is dragged by its body.'), footer: { text: 'The footer is not a drag handle' } }),
             ],
         },
         {
