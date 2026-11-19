@@ -600,16 +600,19 @@ def proxy_mcp_request(
             installation=installation,
         )
 
-    enforcement_response = enforce_tool_approval(
-        installation,
-        data,
-        policy_context,
-        audit_entries,
-        caller_user_id=caller.user_id if caller is not None and caller.kind == "member" else None,
-    )
+    enforcement_response: HttpResponse | None = None
     if refusal_detail is not None:
-        # The audit trail keeps the attempt, as blocked, whatever the tool policy decided.
-        audit_entries = [(tool_name, "blocked") for tool_name, _decision in audit_entries]
+        # The tool policy is skipped because resolving an unregistered tool lists tools upstream with the
+        # owner's credential. The audit trail still keeps each attempted call, as blocked.
+        audit_entries = [(tool_name, "blocked") for tool_name in sorted(_requested_tool_names(data))]
+    else:
+        enforcement_response = enforce_tool_approval(
+            installation,
+            data,
+            policy_context,
+            audit_entries,
+            caller_user_id=caller.user_id if caller is not None and caller.kind == "member" else None,
+        )
     if gateway_server is not None and caller is not None and audit_entries:
         _write_audit_events(
             installation,

@@ -12,6 +12,9 @@ BORROWED_POSTHOG_CREDENTIAL_DETAIL = (
 )
 
 
+_DEFAULT_PORTS = {"https": 443, "http": 80}
+
+
 class BorrowedCredentialRefused(Exception):
     pass
 
@@ -37,7 +40,8 @@ def _is_posthog_mcp_url(url: str) -> bool:
 def _canonical_host_and_port(url: str) -> tuple[str, int | None]:
     try:
         parsed = urlparse(url)
-        return canonicalize_host(parsed.hostname or "").lower(), parsed.port
+        port = parsed.port or _DEFAULT_PORTS.get(parsed.scheme.lower())
+        return canonicalize_host(parsed.hostname or "").lower(), port
     except ValueError:
         return "", None
 
@@ -60,4 +64,5 @@ def _is_access_token_jwt_issued_here(token: str) -> bool:
         claims = jwt.decode(token, options={"verify_signature": False})
     except jwt.PyJWTError:
         return False
-    return (claims.get("iss") or "").rstrip("/") == (settings.SITE_URL or "").rstrip("/")
+    issuer = claims.get("iss")
+    return isinstance(issuer, str) and issuer.rstrip("/") == (settings.SITE_URL or "").rstrip("/")

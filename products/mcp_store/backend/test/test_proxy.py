@@ -1138,6 +1138,26 @@ class TestMCPProxyAccessControl(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_client_cls.assert_not_called()
 
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
+    @patch("products.mcp_store.backend.proxy.pinned_client")
+    def test_teammate_call_for_an_unlisted_tool_on_a_shared_posthog_connection_lists_nothing_upstream(
+        self, mock_client_cls, mock_fetch
+    ):
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", "password")
+        installation = self._create_installation(
+            self.team, owner, scope="shared", sensitive_configuration={"api_key": "pha_" + "x" * 40}
+        )
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "unlisted"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_fetch.assert_not_called()
+        mock_client_cls.assert_not_called()
+
     @patch("products.mcp_store.backend.proxy.pinned_client")
     def test_teammate_on_shared_third_party_connection_cannot_choose_the_project(self, mock_client_cls):
         owner = User.objects.create_and_join(self.organization, "owner@example.com", "password")
