@@ -248,3 +248,9 @@
     padding-bottom: 0;
     border-bottom: 0;
 }
+
+// Markdown headings in a text tile carry LemonMarkdown's rule underneath; a tile already frames its text.
+.DashboardV2__card .LemonMarkdown :is(h1, h2, h3) {
+    padding-bottom: 0;
+    border-bottom: 0;
+}
