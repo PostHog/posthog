@@ -62,7 +62,7 @@ export function SectionTile({
                             {remove && (
                                 <Button
                                     size="icon-xs"
-                                    tooltip="Remove section and its tiles"
+                                    tooltip={remove.label}
                                     aria-label={remove.label}
                                     data-attr={remove.dataAttr}
                                     disabledReason={remove.disabledReason}

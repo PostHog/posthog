@@ -83,7 +83,7 @@ export function useSectionActions(id: string, collapsed: boolean, onStartRename:
         },
         {
             key: 'remove',
-            label: 'Remove section',
+            label: 'Remove section and its tiles',
             dataAttr: 'dashboard-v2-section-remove',
             disabledReason: disabledReasonFor('removeTile'),
             destructive: true,
@@ -112,8 +112,6 @@ function TileMenuEntry({ action }: { action: TileAction }): JSX.Element {
             data-attr={action.dataAttr}
             variant={action.destructive ? 'destructive' : 'default'}
             disabled={!!action.disabledReason}
-            // ContextMenuItem has no disabledReason prop, so the reason rides on the native title.
-            title={action.disabledReason ?? undefined}
             onClick={action.onSelect}
         >
             {action.label}
@@ -134,7 +132,8 @@ export function TileContextMenu({ actions, children }: { actions: TileAction[]; 
             <ContextMenuTrigger render={<div className="DashboardV2__menu-trigger contents" />}>
                 {children}
             </ContextMenuTrigger>
-            <ContextMenuContent>
+            {/* Returning focus to the trigger would blur a rename input the menu just opened. */}
+            <ContextMenuContent finalFocus={false}>
                 {actions.map((action) => (
                     <TileMenuEntry key={action.key} action={action} />
                 ))}
