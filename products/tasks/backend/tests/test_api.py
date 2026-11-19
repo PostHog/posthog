@@ -13644,10 +13644,12 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
             ("pi_session_log_entries", True, "log_entries/?start=0"),
             ("pi_session_logs", True, "logs/"),
             ("pi_session_stream", True, "stream/"),
+            ("pi_session_stream_token", True, "stream_token/"),
             ("resume_chain_log_entries", False, "log_entries/"),
             ("resume_chain_session_logs", False, "session_logs/"),
         ]
     )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_log_reads_check_the_analytics_context_of_every_run_in_the_chain(
         self, _name: str, pi_session: bool, route: str
     ) -> None:

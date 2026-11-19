@@ -3880,6 +3880,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def stream_token(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        with _run_context_denied():
+            tasks_facade.check_task_run_history_context(pk, task_id, self.team_id, reader=self._log_context_reader())
         stream_info = tasks_facade.get_task_run_stream_info(pk, task_id, self.team_id)
         token = tasks_facade.create_task_run_stream_read_token(pk, task_id, self.team_id)
         if stream_info is None or token is None:
