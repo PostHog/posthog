@@ -385,10 +385,10 @@ An explicit value always wins over the client auto-detection; any other value is
 By default every cli-mode command goes through `exec`, so a client can only allow all of them or ask about each one.
 Send `split_writes=true` to list two tools instead:
 
-| Tool         | Runs                                                         | `readOnlyHint` |
-| ------------ | ------------------------------------------------------------ | -------------- |
-| `exec`       | Every discovery command and `call`s to read-only tools.      | `true`         |
-| `exec-write` | `call`s to tools that change data, and anything `exec` runs. | `false`        |
+| Tool         | Runs                                                         | `readOnlyHint` | `destructiveHint` |
+| ------------ | ------------------------------------------------------------ | -------------- | ----------------- |
+| `exec`       | Every discovery command and `call`s to read-only tools.      | `true`         | `false`           |
+| `exec-write` | `call`s to tools that change data, and anything `exec` runs. | `false`        | `true`            |
 
 ```text
 https://mcp.posthog.com/mcp?split_writes=true
@@ -400,6 +400,7 @@ x-posthog-split-writes: true
 
 The header wins when both are set, and `false` turns the split off.
 A client can then always allow `exec` and keep asking about `exec-write`.
+Clients that honor `destructiveHint`, such as Claude, ask about every `exec-write` call even when it is set to always allow.
 Claude and ChatGPT run tools marked `readOnlyHint: true` without asking by default, and Claude Code, Codex and Cursor take an allow rule for each tool name.
 
 - `exec` refuses a `call` to a tool whose definition lacks `readOnlyHint: true`, and to every tool from a connected MCP server, because PostHog can't check that server's claim. The refusal names `exec-write`.

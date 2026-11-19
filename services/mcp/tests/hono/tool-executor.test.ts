@@ -338,11 +338,14 @@ describe('ToolExecutor', () => {
             expect(result.tools.map((t) => [t.name, t.annotations?.readOnlyHint])).toEqual(expected)
         })
 
-        it('marks no exec dispatcher destructive', async () => {
+        it('marks only exec-write destructive', async () => {
             const result = await executor.handleToolsList(
                 makeToolExecutorState([], { useSingleExec: true, splitWrites: true })
             )
-            expect(result.tools.map((t) => t.annotations?.destructiveHint)).toEqual([false, false])
+            expect(result.tools.map((t) => [t.name, t.annotations?.destructiveHint])).toEqual([
+                ['exec', false],
+                ['exec-write', true],
+            ])
         })
 
         // The flag decides skill exposure per client; guides stay a Claude chat-host

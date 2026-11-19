@@ -166,7 +166,8 @@ export class InstructionsBuilder {
                 },
                 required: ['command'],
             },
-            annotations: { ...EXEC_TOOL_ANNOTATIONS },
+            // It can run deletes, and unlike `exec` it never carries reads that a destructive hint would make prompt.
+            annotations: { ...EXEC_TOOL_ANNOTATIONS, destructiveHint: true },
         }
     }
 
