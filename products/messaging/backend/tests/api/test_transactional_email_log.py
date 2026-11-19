@@ -698,9 +698,14 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             self._record_distinct_id(
                 str(UUIDT()), distinct_ids[name], f"{name}@example.com", NOW - timedelta(minutes=minutes_ago)
             )
-        _create_event(
-            team=self.team, event="purchase", distinct_id=distinct_ids["laptop"], timestamp=NOW - timedelta(minutes=60)
-        )
+        for name in ["laptop", *others]:
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=distinct_ids[name],
+                timestamp=NOW - timedelta(minutes=60),
+                properties={"amount": 2},
+            )
         flush_persons_and_events()
 
         with patch.dict(
@@ -711,13 +716,15 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 {
                     "workflow_id": str(self.workflow_id),
                     "event": "purchase",
+                    "revenue_property": "amount",
                     "date_from": (NOW - timedelta(days=1)).isoformat(),
                 },
             )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["recipients"] == 1 + SPLIT_LOOKUP_OTHERS
-        assert response.json()["converted"] == 1
+        assert response.json()["converted"] == 1 + SPLIT_LOOKUP_OTHERS
+        assert response.json()["revenue"] == 2 * (1 + SPLIT_LOOKUP_OTHERS)
 
     def _seed_impact_sends(self) -> None:
         create_person(team=self.team, distinct_ids=["clicker", "clicker-phone"])
