@@ -36,11 +36,12 @@ from products.feature_flags.backend.flag_windows.query import ConditionMatch, Wa
 @frozen
 class ScoreParameters:
     """An hour is an error rise when its excess over the baseline is at least `rise_z` standard deviations, and level 5
-    has full strength at `full_strength_z`. An exposure step is a rise in exposure share of at least `min_share_step`:
-    from one hour to the next for level 4, and over the highest share so far for the proximity. The proximity falls to
-    1/e when the error rise is `decay` after the latest step at or before it. Variation is noise below `min_exposed`
-    and `min_with_errors`, and in an hour or earlier week with fewer than `min_active` active people. A group flag
-    counts groups, so one large customer can't meet these minimums alone."""
+    has full strength at `full_strength_z`. An exposure step is a rise in exposure share of at least `min_share_step`.
+    Level 4 measures it from one hour to the next. The proximity measures it over the highest share so far, so a share
+    that dips and comes back makes no step, and it also counts the hour of an edit that doesn't enable the flag as a
+    step. The proximity falls to 1/e when the error rise is `decay` after the latest step at or before it. Variation
+    is noise below `min_exposed` and `min_with_errors`, and in an hour or earlier week with fewer than `min_active`
+    active people. A group flag counts groups, so one large customer can't meet these minimums alone."""
 
     alpha: float
     weight_level_2: float
@@ -317,10 +318,12 @@ def _excess_by_hour(
 
 def _exposure_steps(edit: WatchedEdit, exposure: Sequence[ExposureBucket], min_share_step: float) -> list[datetime]:
     """The starts of the buckets in which the exposure share rises at least `min_share_step` over the highest share
-    before them. Only the hour of the edit when no event carries the flag, or when the share never rises that much."""
-    steps = []
-    # Before an edit that enables the flag, nobody is exposed. Before other edits, the share is unknown, so the first
-    # bucket has no step.
+    before them, and the hour of an edit that doesn't enable the flag. For an edit that enables the flag, only the hour
+    of the edit when no event carries the flag, or when the share never rises that much."""
+    edit_hour = _utc_hour(edit.edited_at)
+    # An edit that doesn't enable the flag changes at once who gets which value, and its share before the edit is
+    # unknown, so its hour is the step instead of its first bucket. Before an edit that enables it, nobody is exposed.
+    steps = [] if edit.enables else [edit_hour]
     highest = 0.0 if edit.enables else None
     for bucket in exposure:
         share = _share(bucket.in_bucket)
@@ -328,4 +331,4 @@ def _exposure_steps(edit: WatchedEdit, exposure: Sequence[ExposureBucket], min_s
         if highest is not None and share - highest >= min_share_step:
             steps.append(bucket.start)
         highest = share if highest is None else max(highest, share)
-    return steps or [_utc_hour(edit.edited_at)]
+    return steps or [edit_hour]

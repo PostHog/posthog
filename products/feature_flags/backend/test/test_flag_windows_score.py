@@ -178,7 +178,7 @@ class TestScoreWindow(SimpleTestCase):
             ("errors_rise_an_hour_before_the_exposure_rise", True, [0.0, 0.0, 0.0, 0.5, 0.5, 0.5], 2, 0.0),
             ("errors_rise_at_a_small_step_before_a_larger_one", True, [0.1, 0.1, 0.1, 0.7, 0.7, 0.7], 0, 1.0),
             ("errors_rise_at_a_small_step_after_a_larger_one", True, [0.0, 0.6, 0.6, 0.7, 0.7, 0.7], 3, 1.0),
-            ("errors_rise_before_the_only_step_of_an_edit_that_doesnt_enable", False, [0.5, 0.5, 0.5, 0.7], 2, 0.0),
+            ("errors_rise_in_the_hour_of_an_edit_that_doesnt_enable", False, [0.5, 0.5, 0.5, 0.7], 0, 1.0),
             ("errors_rise_when_the_share_recovers_from_a_dip", True, [0.5, 0.5, 0.5, 0.4, 0.5], 4, math.exp(-4 / 6)),
         ]
     )
