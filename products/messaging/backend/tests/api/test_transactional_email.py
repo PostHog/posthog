@@ -1194,7 +1194,7 @@ class TestTransactionalEmail(APIBaseTest):
             response = self._send_with_scheduled_at(psak, route, None)
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert [payload["to"] for payload in cdp.received] == ["user@example.com"]
+        assert [(payload["to"], "scheduled_at" in payload) for payload in cdp.received] == [("user@example.com", False)]
 
     @parameterized.expand(
         [
