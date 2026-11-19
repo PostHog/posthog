@@ -46,6 +46,8 @@ export type RequestProperties = {
     featureFlagOverrides?: string | undefined
     // Caller-supplied tool denylist. Merged with the server's own excludes (switch tools, etc).
     excludeTools?: string[] | undefined
+    // Resource groups to advertise in `resources/list`; `none` advertises nothing.
+    resources?: string[] | undefined
     clientIp?: string | undefined
 }
 
@@ -95,6 +97,21 @@ export function sanitizeToolFilterNames(names: readonly string[] | undefined): s
     return unique.length > 0 ? unique : undefined
 }
 
+const RESOURCE_GROUP_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/
+
+function parseResourceGroups(value: string | undefined): string[] | undefined {
+    if (!value) {
+        return undefined
+    }
+    const parts = value.split(',').map((part) => part.trim().toLowerCase().replaceAll('_', '-'))
+    if (parts.every((part) => part === '')) {
+        return undefined
+    }
+    // Invalid names stay out of the filter rather than widening it to every resource.
+    const groups = new Set(parts.filter((part) => RESOURCE_GROUP_NAME.test(part)))
+    return [...groups].slice(0, MAX_TOOL_FILTER_NAMES)
+}
+
 function parseExcludeTools(value: string | undefined): string[] | undefined {
     return value ? sanitizeToolFilterNames(value.split(',')) : undefined
 }
@@ -138,6 +155,9 @@ export function parseRequestProperties(
         taskOriginProduct: sanitizeHeaderValue(header(request, 'x-posthog-task-origin')),
         excludeTools: parseExcludeTools(
             sanitizeHeaderValue(header(request, 'x-posthog-exclude-tools') || params.get('exclude_tools') || undefined)
+        ),
+        resources: parseResourceGroups(
+            header(request, 'x-posthog-mcp-resources') || params.get('resources') || undefined
         ),
         transport,
         requestStartTime: Date.now(),

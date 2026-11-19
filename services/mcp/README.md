@@ -352,6 +352,33 @@ https://mcp.posthog.com/mcp?features=flags&tools=dashboard-get
 
 The example above exposes all flag tools plus `dashboard-get`.
 
+### Resource filtering
+
+The server advertises its skills, docs, and UI apps as MCP resources, and some clients add every resource to their `@` file picker.
+Pass `resources` to choose which ones `resources/list` returns, or `none` to return none:
+
+```text
+https://mcp.posthog.com/mcp?resources=none
+https://mcp.posthog.com/mcp?resources=feature-flags,docs
+```
+
+```http
+x-posthog-mcp-resources: none
+```
+
+| Value              | Lists                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------- |
+| `none`             | No resources.                                                                               |
+| `skills`           | Every skill (`posthog://skills/…`).                                                         |
+| `<skill category>` | The skills in one category, such as `feature-flags` for `posthog://skills/feature-flags/…`. |
+| `docs`             | The docs resources (`posthog://docs/…`).                                                    |
+| `apps`             | The UI apps that render tool results (`ui://posthog/…`).                                    |
+
+Values are comma-separated and combined as a union, like `features`.
+Hyphens and underscores are equivalent, and a value that matches no resource adds nothing.
+The header wins when both the header and the query parameter are set.
+The filter changes only what the server lists: `resources/read` still serves every resource, so tools that render UI apps keep working.
+
 ### Server mode (tools vs cli)
 
 The MCP server can register either every PostHog tool individually (**tools** mode) or wrap them all behind a single `exec` CLI-like tool (**cli** mode).
