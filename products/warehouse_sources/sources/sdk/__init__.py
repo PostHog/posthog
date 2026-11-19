@@ -102,8 +102,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.cur
     SourceCursorManager,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
+    DatetimeStyle,
+    EpochUnit,
+    coerce_date,
     coerce_datetime_to_utc,
+    format_datetime,
+    from_epoch,
+    parse_datetime_or_epoch,
     parse_datetime_value,
+    to_epoch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.deadline import (
     DeadlineExceededError,
@@ -157,6 +164,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.url_utils import (
     redact_literal_values,
     scrub_url,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.incremental_start import (
+    resolve_incremental_start,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccount,
@@ -418,6 +428,7 @@ __all__ = [
     "DEFAULT_RETRY",
     "DELIMITER_ERROR",
     "DataWarehouseSourceCategory",
+    "DatetimeStyle",
     "DeadlineExceededError",
     "DependentEndpointConfig",
     "DiscoveryOptions",
@@ -425,6 +436,7 @@ __all__ = [
     "EXCEL_ERROR",
     "Endpoint",
     "EndpointResource",
+    "EpochUnit",
     "ExcelFileError",
     "ExternalDataSchema",
     "ExternalDataSchemaSyncType",
@@ -577,6 +589,7 @@ __all__ = [
     "cache_for",
     "camel_to_snake",
     "capture_exception",
+    "coerce_date",
     "coerce_datetime_to_utc",
     "config",
     "connect",
@@ -592,6 +605,8 @@ __all__ = [
     "find_values",
     "flatten_jsonapi",
     "flatten_nested",
+    "format_datetime",
+    "from_epoch",
     "from_private_key",
     "frozen",
     "get_dlt_mapping_for_external_table",
@@ -621,6 +636,7 @@ __all__ = [
     "normalize_namespace",
     "parent_snapshot_covers_through",
     "parse_azure_url",
+    "parse_datetime_or_epoch",
     "parse_datetime_value",
     "parse_gcs_url",
     "parse_r2_url",
@@ -636,6 +652,7 @@ __all__ = [
     "request_deadline",
     "required_parents_from_endpoint_configs",
     "resolve_file_format",
+    "resolve_incremental_start",
     "resolve_merge_keys",
     "resolve_request_url",
     "resolve_safe_host",
@@ -661,6 +678,7 @@ __all__ = [
     "suspend_adapter_retries",
     "table_root_of_url",
     "text_field",
+    "to_epoch",
     "tracked_interceptors",
     "try_resolve_parent_table",
     "unbracket_host",
