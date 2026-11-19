@@ -10,7 +10,6 @@ tools:
     workflows-email-activity:
         operation: workflow_email_log_activity_retrieve
         enabled: true
-        feature_flag: workflows-email-activity
         scopes:
             - hog_flow:read
             - person:read
@@ -25,6 +24,7 @@ tools:
             each session once, and started_after_send is true when the person started it after the email. Pass a
             session_id to the session recording tools to watch it. Pass expand to get the element each autocaptured
             click happened on.
+        feature_flag: workflows-email-activity
         response:
             strip_nulls: true
             expandable:
@@ -38,15 +38,15 @@ tools:
     workflows-email-get:
         operation: workflow_email_log_retrieve
         enabled: true
-        feature_flag: workflows-email-activity
         scopes:
             - hog_flow:read
             - person:read
         title: Get a workflow email send
         description: >
             Get one email a workflow sent, by its invocation_id (the run) and action_id (the email step), with its
-            timeline: sent, then delivered or bounced, and each open and click in the week after. Find both
-            ids with workflows-emails-list first.
+            timeline: sent, then delivered or bounced, and each open and click in the week after. Find both ids with
+            workflows-emails-list first.
+        feature_flag: workflows-email-activity
         response:
             informational_wrapper:
                 tag: workflow-email-log
@@ -56,7 +56,6 @@ tools:
     workflows-emails-list:
         operation: workflow_email_log_list
         enabled: true
-        feature_flag: workflows-email-activity
         scopes:
             - hog_flow:read
             - person:read
@@ -69,6 +68,7 @@ tools:
             and clicks come from the project's $workflows_email_* events, which are only recorded while its engagement
             events setting is on. When engagement_events_enabled is false, say so: sends made while it was off show no
             subject or engagement. Transactional emails have their own tools.
+        feature_flag: workflows-email-activity
         response:
             informational_wrapper:
                 tag: workflow-email-log
