@@ -6,6 +6,7 @@ import smtplib
 import datetime
 import dataclasses
 from decimal import Decimal
+from email.utils import parseaddr
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 if TYPE_CHECKING:
@@ -572,8 +573,11 @@ def _send_via_smtp(
     headers: dict,
     reply_to: Optional[str] = None,
     will_retry: bool = True,
-) -> None:
-    """Sends emails using SMTP"""
+) -> list[str]:
+    """Sends emails using SMTP, or through Workflows where the flag routes them.
+
+    Returns the addresses Workflows refused as undeliverable.
+    """
     # One client per process: a client made per send stays registered for interpreter exit and is never freed.
     try:
         capture = ph_background_capture(event_region=get_instance_region())
@@ -582,6 +586,7 @@ def _send_via_smtp(
         capture = ScopedCapture(None)
     connection = None
     workflows_error: WorkflowsEmailError | None = None
+    undeliverable: list[str] = []
     # Set while Workflows accepted an email whose `sent_at` has not committed yet.
     workflows_unrecorded = False
     try:
@@ -590,7 +595,8 @@ def _send_via_smtp(
         if txt_body:
             workflows_content["text"] = txt_body
         if effective_reply_to:
-            workflows_content["reply_to"] = [effective_reply_to]
+            # The send API takes bare addresses, so a display name such as `Support <help@example.com>` is dropped.
+            workflows_content["reply_to"] = [parseaddr(effective_reply_to)[1]]
 
         for dest in to:
             workflows_unrecorded = False
@@ -612,6 +618,7 @@ def _send_via_smtp(
                     if _is_undeliverable(err):
                         # Workflows refuses the address, such as after a hard bounce, so the email is dropped.
                         EMAIL_SEND_COUNTER.labels(outcome="undeliverable", transport="http").inc()
+                        undeliverable.append(dest["raw_email"])
                         _capture_email_event(
                             capture,
                             dest,
@@ -754,6 +761,7 @@ def _send_via_smtp(
         if not will_retry:
             capture_exception(workflows_error)
         raise workflows_error
+    return undeliverable
 
 
 class EmailDeliveryError(Exception):
@@ -917,7 +925,7 @@ def _send_email_now(
             )
         if is_smtp_email_service_available():
             # The flag can route an SMTP email through Workflows, which raises the same retryable errors.
-            _send_via_smtp(
+            return _send_via_smtp(
                 to=to,
                 campaign_key=campaign_key,
                 template_name=template_name,
@@ -928,7 +936,6 @@ def _send_email_now(
                 reply_to=reply_to,
                 will_retry=_send_will_retry(retry_in_worker),
             )
-            return []
     except RETRYABLE_HTTP_SEND_ERRORS as err:
         if not retry_in_worker:
             task = _worker_send_task()

@@ -623,14 +623,15 @@ class TestEmail(BaseTest):
                 campaign_key="smtp_routing",
                 subject="Subject",
                 template_name="async_migration_error",
-                reply_to="a@b.com",
+                reply_to="Support <a@b.com>",
             )
             message.add_recipient("test@posthog.com")
             if outcome == "retries":
                 with self.assertRaises(WorkflowsEmailError):
                     message.send(send_async=False, retry=False)
             else:
-                message.send(send_async=False, retry=False)
+                undeliverable = message.send(send_async=False, retry=False)
+                self.assertEqual(undeliverable, ["test@posthog.com"] if outcome == "dropped" else [])
 
         self.assertEqual(len(mail.outbox), expected_smtp_sends)
         self.assertEqual(mock_post.call_count, 1 if flag_on else 0)
