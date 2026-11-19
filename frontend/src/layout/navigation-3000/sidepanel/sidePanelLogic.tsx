@@ -184,6 +184,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     // only views canvases, so the authoring tabs (chat and blocks) are left out.
                     return [
                         SidePanelTab.CanvasTimeline,
+                        ...(hasAvailableFeature(AvailableFeature.AUDIT_LOGS) ? [SidePanelTab.Activity] : []),
                         SidePanelTab.Exports,
                         ...(isCloudOrDev ? [SidePanelTab.Support] : []),
                     ]

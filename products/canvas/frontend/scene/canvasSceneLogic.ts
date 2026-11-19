@@ -28,7 +28,14 @@ import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { AccessControlLevel, AccessControlResourceType, Breadcrumb, SidePanelTab, UserType } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityScope,
+    Breadcrumb,
+    SidePanelTab,
+    UserType,
+} from '~/types'
 
 import { runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 
@@ -816,7 +823,11 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             () => [(_, props: CanvasSceneLogicProps) => props.id],
-            (canvasId: string): SidePanelSceneContext => ({ canvas_id: canvasId }),
+            (canvasId: string): SidePanelSceneContext => ({
+                canvas_id: canvasId,
+                activity_scope: ActivityScope.CANVAS,
+                activity_item_id: canvasId,
+            }),
         ],
         shouldPoll: [
             (s) => [s.view, s.isGenerating, s.buildStatus],
