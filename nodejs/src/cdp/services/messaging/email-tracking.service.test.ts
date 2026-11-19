@@ -53,7 +53,7 @@ import {
     decodeHtmlEntitiesInHref,
     resolveEmailEngagementDistinctId,
 } from './email-tracking.service'
-import { EmailNestingTooDeepError, MAX_NESTING_DEPTH } from './helpers/href-anchors'
+import { EmailNestingTooDeepError, MIN_NESTING_LIMIT, NESTING_BUDGET } from './helpers/href-anchors'
 import { SesWebhookHandler } from './helpers/ses'
 import {
     EmailTrackingCodeSigner,
@@ -514,16 +514,31 @@ describe('EmailTrackingService', () => {
                 expect(out.replace(/<img src="[^"]*" style="display: none;" \/>/, '')).toBe(html)
             })
 
-            it('refuses an email nested deeper than the limit, in a comment too', () => {
+            it('refuses a large email nested deeper than the floor of the limit, in a comment too', () => {
                 const link = '<a href="https://example.com/">a</a>'
+                // Enough tags that the budget gives the floor.
+                const tags = '<br>'.repeat(Math.ceil(NESTING_BUDGET / MIN_NESTING_LIMIT))
                 // html, body and the link take three levels.
-                expect(sesTrack(`<body>${'<div>'.repeat(MAX_NESTING_DEPTH - 3)}${link}</body>`)).toContain('phl:0')
-                expect(() => sesTrack(`<body>${'<div>'.repeat(MAX_NESTING_DEPTH - 2)}${link}</body>`)).toThrow(
+                const nested = (depth: number): string => `<body>${tags}${'<div>'.repeat(depth)}${link}</body>`
+                expect(sesTrack(nested(MIN_NESTING_LIMIT - 3))).toContain('phl:0')
+                expect(() => sesTrack(nested(MIN_NESTING_LIMIT - 2))).toThrow(EmailNestingTooDeepError)
+                expect(() => sesTrack(`<body>${tags}<!--${'<div>'.repeat(MIN_NESTING_LIMIT)}--></body>`)).toThrow(
                     EmailNestingTooDeepError
                 )
-                expect(() => sesTrack(`<body><!--${'<div>'.repeat(MAX_NESTING_DEPTH)}--></body>`)).toThrow(
-                    EmailNestingTooDeepError
-                )
+            })
+
+            it('sends a small email nested deeper than the floor of the limit', () => {
+                const html = `<body>${'<div>'.repeat(2 * MIN_NESTING_LIMIT)}Hi</body>`
+                expect(sesTrack(html).indexOf('<img src="')).toBe(html.indexOf('</body>'))
+            })
+
+            it.each([
+                ['an open table makes the parser ignore', '<body><table><tr><td>Hi</td></tr></body>'],
+                ['comes after one inside a template', '<body><template></body></template><p>Hi</p></body>'],
+            ])('places the pixel before a body end tag that %s', (_name, html) => {
+                const out = sesTrack(html)
+                expect(out.indexOf('<img src="')).toBe(html.lastIndexOf('</body>'))
+                expect(out.replace(/<img src="[^"]*" style="display: none;" \/>/, '')).toBe(html)
             })
 
             it('places the pixel before a body end tag written with a slash', () => {

@@ -1,4 +1,4 @@
-import { DefaultTreeAdapterMap, TreeAdapter, defaultTreeAdapter, parse, parseFragment } from 'parse5'
+import { DefaultTreeAdapterMap, Parser, Token, TreeAdapter, defaultTreeAdapter, parseFragment } from 'parse5'
 
 import { escapeHtml } from './escape-html'
 
@@ -59,13 +59,23 @@ const COMMENT_OPENING_AS_TEXT = '<_--'
 type SourceAttribute = Omit<ScannedAttribute, 'name' | 'value'>
 
 // The parser looks back through the open elements for some tags, so its time grows with the nesting depth times the
-// number of tags. A limit well above how deep real emails nest keeps the read of an email of any size linear.
-export const MAX_NESTING_DEPTH = 256
+// number of tags. The depth an email may reach shrinks as its tag count grows, so that product stays under a budget,
+// down to a floor far deeper than real emails nest. That keeps the read of an email of any size linear.
+export const NESTING_BUDGET = 10_000_000
+export const MIN_NESTING_LIMIT = 256
+
+const nestingLimitFor = (html: string): number => {
+    let tags = 0
+    for (let at = html.indexOf('<'); at >= 0; at = html.indexOf('<', at + 1)) {
+        tags++
+    }
+    return Math.max(MIN_NESTING_LIMIT, Math.floor(NESTING_BUDGET / Math.max(tags, 1)))
+}
 
 export class EmailNestingTooDeepError extends Error {
-    constructor() {
+    constructor(limit: number) {
         super(
-            `This email nests HTML elements more than ${MAX_NESTING_DEPTH} levels deep, which is too deep to read its links. Remove some of the nesting and send it again.`
+            `This email nests HTML elements more than ${limit} levels deep, which is too deep to read its links. Remove some of the nesting and send it again.`
         )
         this.name = 'EmailNestingTooDeepError'
     }
@@ -74,14 +84,14 @@ export class EmailNestingTooDeepError extends Error {
 type ParentNode = DefaultTreeAdapterMap['parentNode']
 
 // Stops a parse when an element nests deeper than the limit. A template's content counts from the template.
-const nestingLimitedAdapter = (): TreeAdapter<DefaultTreeAdapterMap> => {
+const nestingLimitedAdapter = (limit: number): TreeAdapter<DefaultTreeAdapterMap> => {
     const depths = new WeakMap<Node, number>()
     const templates = new WeakMap<Node, Node>()
     const place = (parent: ParentNode, node: Node): void => {
         const owner = templates.get(parent)
         const depth = (depths.get(parent) ?? (owner ? depths.get(owner) : undefined) ?? 0) + 1
-        if (depth > MAX_NESTING_DEPTH) {
-            throw new EmailNestingTooDeepError()
+        if (depth > limit) {
+            throw new EmailNestingTooDeepError(limit)
         }
         depths.set(node, depth)
     }
@@ -193,13 +203,20 @@ const readAnchor = (html: string, base: number, element: Element, inComment: boo
 // Collects the opening `<a>` tags a browser reads, in source order. Comment content is read as markup too, because
 // Outlook renders the links inside its `<!--[if mso]>` blocks. That read takes a `<!--` as text, so each character
 // is parsed at most twice however many comments a comment opens.
-const scanAnchors = (html: string, root: Node, base: number, inComment: boolean, anchors: ScannedTag[]): void => {
+const scanAnchors = (
+    html: string,
+    root: Node,
+    base: number,
+    inComment: boolean,
+    limit: number,
+    anchors: ScannedTag[]
+): void => {
     const pending: Node[] = [root]
     while (pending.length > 0) {
         const node = pending.pop()!
         if (node.nodeName === '#comment') {
             if (!inComment) {
-                scanComment(html, node as DefaultTreeAdapterMap['commentNode'], anchors)
+                scanComment(html, node as DefaultTreeAdapterMap['commentNode'], limit, anchors)
             }
             continue
         }
@@ -222,7 +239,12 @@ const scanAnchors = (html: string, root: Node, base: number, inComment: boolean,
     }
 }
 
-const scanComment = (html: string, comment: DefaultTreeAdapterMap['commentNode'], anchors: ScannedTag[]): void => {
+const scanComment = (
+    html: string,
+    comment: DefaultTreeAdapterMap['commentNode'],
+    limit: number,
+    anchors: ScannedTag[]
+): void => {
     const location = comment.sourceCodeLocation
     if (!location || !html.startsWith(COMMENT_OPENING, location.startOffset)) {
         return
@@ -234,53 +256,43 @@ const scanComment = (html: string, comment: DefaultTreeAdapterMap['commentNode']
         return
     }
     const content = html.slice(contentStart, contentEnd).replaceAll(COMMENT_OPENING, COMMENT_OPENING_AS_TEXT)
-    const fragment = parseFragment(content, { ...PARSE_OPTIONS, treeAdapter: nestingLimitedAdapter() })
-    scanAnchors(html, fragment, contentStart, true, anchors)
-}
-
-const IMPLIED_START_TAG = {
-    startLine: 0,
-    startCol: 0,
-    startOffset: -1,
-    endLine: 0,
-    endCol: 0,
-    endOffset: -1,
+    const fragment = parseFragment(content, { ...PARSE_OPTIONS, treeAdapter: nestingLimitedAdapter(limit) })
+    scanAnchors(html, fragment, contentStart, true, limit, anchors)
 }
 
 type Scan = {
     anchors: ScannedTag[]
-    // The `<` of the first body end tag a browser reads, or -1.
+    // The `<` of the first body end tag the tokenizer reads, or -1.
     bodyEnd: number
 }
 
-const scanHtml = (html: string): Scan => {
-    let bodyEnd = -1
-    // parse5 keeps the location of the last body end tag, but an email that holds a second whole document has its
-    // first one mid-email, where the pixel has always gone. parse5 reports each one to the tree adapter.
-    const treeAdapter: TreeAdapter<DefaultTreeAdapterMap> = {
-        ...nestingLimitedAdapter(),
-        setNodeSourceCodeLocation(node, location) {
-            // parse5 records an end tag only for an element with a location, and a body whose start tag is left out
-            // has none. Its end tag still places the pixel.
-            if (!location && node.nodeName === 'body') {
-                location = { ...IMPLIED_START_TAG }
-            }
-            defaultTreeAdapter.setNodeSourceCodeLocation(node, location)
-        },
-        updateNodeSourceCodeLocation(node, endLocation) {
-            if (bodyEnd < 0 && node.nodeName === 'body' && endLocation.endTag) {
-                bodyEnd = endLocation.endTag.startOffset
-            }
-            defaultTreeAdapter.updateNodeSourceCodeLocation(node, endLocation)
-        },
+// Records the first body end tag. The tree keeps only the last one, and none that an open table makes the parser
+// ignore, but the pixel has always gone before the first, where a browser still renders it. One inside a template is
+// left out, because template content is never rendered.
+class BodyEndParser extends Parser<DefaultTreeAdapterMap> {
+    bodyEnd = -1
+
+    override onEndTag(token: Token.TagToken): void {
+        if (this.bodyEnd < 0 && token.tagName === 'body' && token.location && this.openElements.tmplCount === 0) {
+            this.bodyEnd = token.location.startOffset
+        }
+        super.onEndTag(token)
     }
-    const document = parse(html, { ...PARSE_OPTIONS, treeAdapter })
+}
+
+const scanHtml = (html: string): Scan => {
+    const limit = nestingLimitFor(html)
+    const parser = new BodyEndParser({ ...PARSE_OPTIONS, treeAdapter: nestingLimitedAdapter(limit) })
+    parser.tokenizer.write(html, true)
     const anchors: ScannedTag[] = []
-    scanAnchors(html, document, 0, false, anchors)
+    scanAnchors(html, parser.document, 0, false, limit, anchors)
     // Tree order is not source order: a link written inside a table moves before it.
     anchors.sort((a, b) => a.start - b.start)
     // A link that a misnested end tag closes early is reopened with the same tag, so it appears twice.
-    return { anchors: anchors.filter((anchor, index) => anchor.start !== anchors[index - 1]?.start), bodyEnd }
+    return {
+        anchors: anchors.filter((anchor, index) => anchor.start !== anchors[index - 1]?.start),
+        bodyEnd: parser.bodyEnd,
+    }
 }
 
 const firstByName = (attributes: ScannedAttribute[]): Map<string, ScannedAttribute> => {

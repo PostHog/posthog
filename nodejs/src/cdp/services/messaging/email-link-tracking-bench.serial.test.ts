@@ -1,7 +1,7 @@
 import { defaultConfig } from '~/common/config/config'
 
 import { EmailTrackingMode, addTrackingToEmail } from './email-tracking.service'
-import { MAX_NESTING_DEPTH } from './helpers/href-anchors'
+import { MIN_NESTING_LIMIT } from './helpers/href-anchors'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 
 describe('email link tracking benchmark', () => {
@@ -9,9 +9,12 @@ describe('email link tracking benchmark', () => {
     const signer = new EmailTrackingCodeSigner(defaultConfig.ENCRYPTION_SALT_KEYS, defaultConfig.CDP_EMAIL_TRACKING_URL)
     const invocation = { functionId: 'fn-1', id: 'inv-1', teamId: 1, state: {} } as any
     const spaces = ' '.repeat(64_000)
-    // Each end tag that matches no open element is looked for through all of them.
-    const deepestNesting = '<span>'.repeat(MAX_NESTING_DEPTH - 3)
+    // Each end tag that matches no open element is looked for through all of them. The body holds enough tags that
+    // the nesting limit is at its floor.
+    const deepestNesting = '<span>'.repeat(MIN_NESTING_LIMIT - 3)
     const unmatchedEndTags = '</x>'.repeat(400_000)
+    const attributes = Array.from({ length: 200_000 }, (_, i) => `a${i}`).join(' ')
+    const textBeforeTable = 'x<b></b>'.repeat(200_000)
 
     it.each<{ shape: string; mode: EmailTrackingMode; body: string; tagged: string; pixel?: boolean }>([
         {
@@ -51,6 +54,18 @@ describe('email link tracking benchmark', () => {
             mode: 'ses',
             body: `${deepestNesting}${unmatchedEndTags}<a href="https://example.com/x">x</a>`,
             tagged: `${deepestNesting}${unmatchedEndTags}<a href="https://example.com/x" ses:tags="phl:0">x</a>`,
+        },
+        {
+            shape: 'attributes in one anchor tag',
+            mode: 'ses',
+            body: `<a href="https://example.com/x" ${attributes}>x</a>`,
+            tagged: `<a href="https://example.com/x" ${attributes} ses:tags="phl:0">x</a>`,
+        },
+        {
+            shape: 'text and tags placed before an open table',
+            mode: 'ses',
+            body: `<table>${textBeforeTable}<a href="https://example.com/x">x</a>`,
+            tagged: `<table>${textBeforeTable}<a href="https://example.com/x" ses:tags="phl:0">x</a>`,
         },
         {
             shape: 'spaces inside an anchor tag',
