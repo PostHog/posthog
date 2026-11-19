@@ -5,18 +5,50 @@ import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
+import type { ReportSpendApi } from 'products/signals/frontend/generated/api.schemas'
+
 import { reportSpendLogic } from '../../logics/reportSpendLogic'
 import { DetailSection } from '../detail/DetailSection'
 import { RecordedSpend } from './RecordedSpend'
 
-export function ReportSpendSection({ reportId }: { reportId: string }): JSX.Element {
+// Scout runs are shared with the rest of their output, so they stay out of this report's total.
+function reportOwnSpend({ generation, implementation }: ReportSpendApi): number | null {
+    if (generation.total_spend === null && implementation.total_spend === null) {
+        return null
+    }
+    return (generation.total_spend ?? 0) + (implementation.total_spend ?? 0)
+}
+
+export function ReportSpendSection({
+    reportId,
+    onToggleCollapsed,
+}: {
+    reportId: string
+    onToggleCollapsed?: (collapsed: boolean) => void
+}): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const logic = reportSpendLogic({ teamId: currentTeamId ?? 0, reportId })
     const { spend, spendLoading, failed } = useValues(logic)
     const { refreshSpend } = useActions(logic)
 
     return (
-        <DetailSection title="Usage" icon={<IconReceipt />}>
+        <DetailSection
+            title="Usage"
+            icon={<IconReceipt />}
+            collapsible
+            defaultCollapsed
+            onToggleCollapsed={onToggleCollapsed}
+            meta={
+                spend && !failed ? (
+                    <span className="text-xs text-secondary" data-attr="report-spend-total">
+                        <RecordedSpend
+                            amount={reportOwnSpend(spend)}
+                            description="Report generation and implementation."
+                        />
+                    </span>
+                ) : null
+            }
+        >
             {failed ? (
                 <LemonBanner
                     type="error"
