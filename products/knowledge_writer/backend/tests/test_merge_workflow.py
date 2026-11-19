@@ -332,7 +332,9 @@ def test_a_docs_command_check_judges_the_merge_its_pull_request_names_and_return
         pull_request_dedupe_id("PostHog/posthog", PULL_REQUEST_NUMBER),
         failure_reason,
     )
-    assert finished == FinishedDocsCheck(status="no_docs", failure_reason=failure_reason, pull_request_url=None)
+    assert finished == FinishedDocsCheck(
+        status="no_docs", failure_reason=failure_reason, pull_request_url=None, reason=verdict.reason
+    )
 
 
 @pytest.mark.parametrize(

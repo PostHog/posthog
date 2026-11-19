@@ -5,6 +5,9 @@ import base64
 import asyncio
 import secrets
 from collections.abc import Callable
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 from uuid import UUID
 
@@ -13,14 +16,20 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 import requests
 from asgiref.sync import async_to_sync
+from temporalio.api.common.v1 import WorkflowExecution
 from temporalio.api.enums.v1 import TaskQueueType
 from temporalio.api.taskqueue.v1 import TaskQueue
-from temporalio.api.workflowservice.v1 import DescribeTaskQueueRequest
-from temporalio.service import RPCError
+from temporalio.api.workflowservice.v1 import (
+    DeleteWorkflowExecutionRequest,
+    DescribeTaskQueueRequest,
+    DescribeWorkflowExecutionRequest,
+)
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
+from posthog.llm.gateway_client import resolve_ai_gateway_config
 from posthog.models.integration import GitHubInstallationAccessFetchError, GitHubIntegration, GitHubIntegrationError
 from posthog.models.team import Team
 from posthog.temporal.common.client import async_connect
@@ -31,8 +40,10 @@ from products.tasks.backend.facade.contracts import TaskRunDTO
 
 from ...adapters.command_tag import CommandTagAdapter
 from ...adapters.repo_merge import pull_request_dedupe_id
+from ...facade.api import record_pull_request_event
 from ...facade.contracts import AdapterVerdict, DocsCommandRequest, DocsRequest
 from ...facade.enums import DocsChangeKind
+from ...facade.finished_check_hooks import FinishedDocsCheck
 from ...feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG, WRITER_FLAG, team_flag_state
 from ...logic import intake
 from ...logic.launch import start_writer
@@ -47,14 +58,15 @@ from ...logic.records import (
     HEAD_BRANCH_STATE_KEY,
     PULL_REQUEST_FAILURE_STATE_KEY,
     PULL_REQUEST_STATE_KEY,
+    ROUTED_PAGE_KEYS_STATE_KEY,
     WriterPullRequest,
     pull_request_json,
 )
 from ...logic.routing import route_request
 from ...logic.server_commit import docs_branch_head
 from ...logic.writer_change import WRITER_CHANGE_ARTIFACT_NAME, writer_change_artifact
-from ...settings import WriterSettings, writer_settings
-from ...temporal.client import publish_workflow_id
+from ...settings import WriterSettings, source_repositories, writer_settings
+from ...temporal.client import merge_check_workflow_id, publish_workflow_id
 
 PRODUCTION_DOCS_REPOSITORY = "posthog/posthog.com"
 SCRATCH_PAGE_NAME = "knowledge-writer-smoke-test.mdx"
@@ -71,12 +83,29 @@ LOCAL_SANDBOX_URLS = {
     "SANDBOX_API_URL": "http://localhost:8010",
     "SANDBOX_LLM_GATEWAY_URL": "http://host.docker.internal:3308",
 }
+MERGE_CHECK_TIMEOUT_SECONDS = 25 * 60
+MERGE_CHECK_DELETE_TIMEOUT_SECONDS = 120
+RUN_RECORDS_DIRECTORY = Path.home() / ".cache" / "posthog" / "knowledge-writer-e2e"
 
 
 @frozen
 class MissingPrerequisite:
     name: str
     fix: str
+
+
+@frozen
+class SourcePullRequest:
+    repository: str
+    number: int
+
+
+@frozen
+class MergeRun:
+    commit_sha: str
+    finished: FinishedDocsCheck
+    page_keys: tuple[str, ...]
+    opened: WriterPullRequest | None
 
 
 class Command(BaseCommand):
@@ -98,6 +127,11 @@ class Command(BaseCommand):
             metavar="SOURCE_PULL_REQUEST_URL",
             help="Run the real writer agent for a merged pull request whose change the section's docs lack",
         )
+        parser.add_argument(
+            "--from-merge",
+            metavar="SOURCE_PULL_REQUEST_URL",
+            help="Send a merged pull request through the merge check as a webhook would, then free it for the next run",
+        )
         parser.add_argument("--agent-timeout-minutes", type=int, default=240)
 
     def handle(self, *args, **options) -> None:
@@ -110,7 +144,13 @@ class Command(BaseCommand):
         if team is None:
             raise CommandError(f"Team {options['team_id']} does not exist")
         source_url: str | None = options["with_agent"]
-        missing = missing_prerequisites(team, repository, needs_agent=source_url is not None)
+        merge_source_url: str | None = options["from_merge"]
+        if source_url and merge_source_url:
+            raise CommandError("Pass --with-agent or --from-merge, not both")
+        merge_source = parsed_source_pull_request(merge_source_url) if merge_source_url else None
+        missing = missing_prerequisites(team, repository, needs_agent=bool(source_url or merge_source))
+        if merge_source:
+            missing += missing_merge_check_prerequisites(merge_source)
         github = None if missing else connected_github(team.id, repository, options["installation_id"])
         if not missing and github is None:
             missing.append(
@@ -124,6 +164,9 @@ class Command(BaseCommand):
         writer = writer_settings()
         if missing or writer is None or github is None:
             raise CommandError(f"{len(missing)} prerequisite(s) missing")
+        if merge_source:
+            self.handle_from_merge(github, writer, team, merge_source, options["agent_timeout_minutes"])
+            return
         section: str = options["section"]
         smoke_id = secrets.token_hex(4)
         branches: list[str] = []
@@ -154,6 +197,56 @@ class Command(BaseCommand):
         if failures:
             raise CommandError(f"{len(failures)} check(s) failed on {opened.url}")
         self.stdout.write(f"PASS draft pull request {opened.url} opened from a server commit, closed and cleaned up")
+
+    def handle_from_merge(
+        self,
+        github: GitHubIntegration,
+        writer: WriterSettings,
+        team: Team,
+        source: SourcePullRequest,
+        timeout_minutes: int,
+    ) -> None:
+        source_github = docs_github(team.id, source.repository.split("/", 1)[0], priority=Priority.CRITICAL)
+        if source_github is None:
+            raise CommandError(f"Team {team.id} has no GitHub integration for {source.repository}")
+        pull_request = source_github.api_request(
+            "GET",
+            f"/repos/{source.repository}/pulls/{source.number}",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+        ).json()
+        commit_sha = pull_request.get("merge_commit_sha")
+        if not pull_request.get("merged_at") or not isinstance(commit_sha, str):
+            raise CommandError(f"{source.repository}#{source.number} is not merged")
+        if pull_request["base"]["repo"].get("private") is not False:
+            raise CommandError(f"{source.repository} is private; the merge check only reads public repositories")
+        dedupe_id = pull_request_dedupe_id(source.repository, source.number)
+        free_pull_request_for_rerun(team.id, commit_sha, dedupe_id)
+        branches: list[str] = []
+        failures: list[str] = []
+        try:
+            run = run_from_merge(
+                source_github, team, pull_request, dedupe_id, timeout_minutes, branches, self.stdout.write
+            )
+            changed_files = pull_request_files(github, writer.docs_repository, run.opened) if run.opened else []
+            failures = check_pull_request(github, writer.docs_repository, run.opened) if run.opened else []
+        finally:
+            cleanup_problems = clean_up(github, writer, writer.docs_repository, branches)
+            free_pull_request_for_rerun(team.id, commit_sha, dedupe_id)
+            for problem in cleanup_problems:
+                self.stderr.write(f"CLEANUP FAILED {problem}")
+        record = merge_run_record(run, changed_files)
+        records_directory = RUN_RECORDS_DIRECTORY / f"{source.repository.replace('/', '-')}-{source.number}"
+        changes = changes_since_last_run(records_directory, record)
+        record_path = write_run_record(records_directory, record)
+        self.stdout.write(f"record: {record_path}")
+        for change in changes:
+            self.stdout.write(f"since last run: {change}")
+        failures += cleanup_problems
+        for failure in failures:
+            self.stderr.write(f"FAIL {failure}")
+        if failures:
+            raise CommandError(f"{len(failures)} check(s) failed")
+        self.stdout.write(f"PASS {run.finished.status} for {source.repository}#{source.number}, cleaned up for a rerun")
 
 
 def missing_prerequisites(team: Team, repository: str, *, needs_agent: bool) -> list[MissingPrerequisite]:
@@ -251,6 +344,31 @@ def missing_agent_services() -> list[MissingPrerequisite]:
     return missing
 
 
+def parsed_source_pull_request(url: str) -> SourcePullRequest:
+    parts = url.removeprefix("https://github.com/").rstrip("/").split("/")
+    if len(parts) != 4 or parts[2] != "pull" or not parts[3].isdigit():
+        raise CommandError(f"{url} is not a GitHub pull request URL")
+    return SourcePullRequest(repository=f"{parts[0]}/{parts[1]}", number=int(parts[3]))
+
+
+def missing_merge_check_prerequisites(source: SourcePullRequest) -> list[MissingPrerequisite]:
+    missing: list[MissingPrerequisite] = []
+    if source.repository.lower() not in {name.lower() for name in source_repositories()}:
+        missing.append(
+            MissingPrerequisite(
+                name="KNOWLEDGE_WRITER_SOURCE_REPOSITORIES",
+                fix=f"export KNOWLEDGE_WRITER_SOURCE_REPOSITORIES={source.repository}",
+            )
+        )
+    if resolve_ai_gateway_config() is None:
+        missing.append(
+            MissingPrerequisite(
+                name="AI gateway for the merge check judge", fix="export AI_GATEWAY_URL and AI_GATEWAY_API_KEY"
+            )
+        )
+    return missing
+
+
 def connected_github(team_id: int, repository: str, installation_id: str | None) -> GitHubIntegration | None:
     owner = repository.split("/", 1)[0]
     github = docs_github(team_id, owner, priority=Priority.CRITICAL)
@@ -261,6 +379,145 @@ def connected_github(team_id: int, repository: str, installation_id: str | None)
     except (*GITHUB_FAILURES, GitHubInstallationAccessFetchError):
         return None
     return docs_github(team_id, owner, priority=Priority.CRITICAL)
+
+
+def run_from_merge(
+    source_github: GitHubIntegration,
+    team: Team,
+    pull_request: dict[str, Any],
+    dedupe_id: str,
+    timeout_minutes: int,
+    branches: list[str],
+    announce: Callable[[str], object],
+) -> MergeRun:
+    commit_sha: str = pull_request["merge_commit_sha"]
+    record_pull_request_event(
+        {
+            "action": "closed",
+            "repository": pull_request["base"]["repo"],
+            "pull_request": pull_request,
+            "installation": {"id": source_github.integration.integration_id},
+        }
+    )
+    announce(f"merge check workflow: {temporal_workflow_link(merge_check_workflow_id(commit_sha))}")
+    finished = asyncio.run(merge_check_result(commit_sha))
+    if finished is None:
+        raise CommandError(f"The merge check for {commit_sha} returned no result; check the workflow")
+    failure = f" ({finished.failure_reason})" if finished.failure_reason else ""
+    announce(f"merge check: {finished.status}{failure}: {finished.reason}")
+    task = tasks_facade.get_task_by_origin_key(team.id, dedupe_id, include_latest_run=False)
+    if finished.status != "started" or task is None:
+        return MergeRun(commit_sha=commit_sha, finished=finished, page_keys=(), opened=None)
+    head_branch = tasks_facade.read_task_state_entry(task.id, team.id, HEAD_BRANCH_STATE_KEY)
+    if isinstance(head_branch, str):
+        branches.append(head_branch)
+    page_keys = tasks_facade.read_task_state_entry(task.id, team.id, ROUTED_PAGE_KEYS_STATE_KEY)
+    deadline = time.monotonic() + timeout_minutes * 60
+    opened = wait_for_pull_request(task.id, team.id, deadline, announce)
+    return MergeRun(
+        commit_sha=commit_sha,
+        finished=finished,
+        page_keys=tuple(page_keys) if isinstance(page_keys, list) else (),
+        opened=opened,
+    )
+
+
+async def merge_check_result(commit_sha: str) -> FinishedDocsCheck | None:
+    client = await async_connect()
+    handle = client.get_workflow_handle(merge_check_workflow_id(commit_sha), result_type=FinishedDocsCheck)
+    try:
+        return await asyncio.wait_for(handle.result(), MERGE_CHECK_TIMEOUT_SECONDS)
+    except RPCError as error:
+        if error.status != RPCStatusCode.NOT_FOUND:
+            raise
+        raise CommandError(
+            "The webhook entry skipped this pull request; see the knowledge_writer_merge_delivery_skipped log"
+        ) from error
+
+
+def free_pull_request_for_rerun(team_id: int, commit_sha: str, dedupe_id: str) -> None:
+    asyncio.run(delete_merge_check(commit_sha))
+    tasks_facade.release_task_origin_key(team_id, dedupe_id)
+
+
+async def delete_merge_check(commit_sha: str) -> None:
+    client = await async_connect()
+    execution = WorkflowExecution(workflow_id=merge_check_workflow_id(commit_sha))
+    try:
+        await client.workflow_service.delete_workflow_execution(
+            DeleteWorkflowExecutionRequest(namespace=client.namespace, workflow_execution=execution)
+        )
+    except RPCError as error:
+        if error.status != RPCStatusCode.NOT_FOUND:
+            raise
+        return
+    deadline = time.monotonic() + MERGE_CHECK_DELETE_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        try:
+            await client.workflow_service.describe_workflow_execution(
+                DescribeWorkflowExecutionRequest(namespace=client.namespace, execution=execution)
+            )
+        except RPCError as error:
+            if error.status == RPCStatusCode.NOT_FOUND:
+                return
+            raise
+        await asyncio.sleep(1)
+    raise CommandError(f"Temporal did not delete {execution.workflow_id} within {MERGE_CHECK_DELETE_TIMEOUT_SECONDS}s")
+
+
+def pull_request_files(github: GitHubIntegration, repository: str, opened: WriterPullRequest) -> list[str]:
+    files = github.api_request(
+        "GET",
+        f"/repos/{repository}/pulls/{opened.number}/files?per_page=100",
+        endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/files",
+    ).json()
+    return sorted(changed["filename"] for changed in files)
+
+
+def merge_run_record(run: MergeRun, changed_files: list[str]) -> dict[str, object]:
+    return {
+        "commit_sha": run.commit_sha,
+        "status": run.finished.status,
+        "failure_reason": run.finished.failure_reason,
+        "reason": run.finished.reason,
+        "page_keys": list(run.page_keys),
+        "docs_pull_request_url": run.opened.url if run.opened else None,
+        "changed_files": changed_files,
+    }
+
+
+def changes_since_last_run(directory: Path, record: dict[str, object]) -> list[str]:
+    for previous_path in sorted(directory.glob("*.json"), reverse=True):
+        try:
+            previous = json.loads(previous_path.read_text())
+        except (OSError, ValueError):
+            continue
+        return record_changes(previous, record)
+    return ["first run of this pull request"]
+
+
+def write_run_record(directory: Path, record: dict[str, object]) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    record_path = directory / f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.json"
+    partial_path = record_path.with_suffix(".partial")
+    partial_path.write_text(json.dumps(record, indent=2))
+    os.replace(partial_path, record_path)
+    return record_path
+
+
+def record_changes(previous: dict[str, object], current: dict[str, object]) -> list[str]:
+    changes: list[str] = []
+    for field, value in current.items():
+        earlier = previous.get(field)
+        if field == "docs_pull_request_url" or earlier == value:
+            continue
+        if isinstance(value, list) and isinstance(earlier, list):
+            added = sorted(set(value) - set(earlier))
+            removed = sorted(set(earlier) - set(value))
+            changes.append(f"{field}: added {added or 'none'}, removed {removed or 'none'}")
+            continue
+        changes.append(f"{field}: was {earlier!r}, now {value!r}")
+    return changes or ["no change in verdict, pages or files"]
 
 
 def task_run_link(team_id: int, task_id: UUID) -> str:

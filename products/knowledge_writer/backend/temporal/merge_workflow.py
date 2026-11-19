@@ -144,13 +144,18 @@ def record_judged_merge_check_failed(
     intake.capture_verdict(
         replace(judged_verdict, check_id=inputs.check_id, failure_reason=failure_reason), team_id=inputs.team_id
     )
-    return FinishedDocsCheck(status="no_docs", failure_reason=failure_reason, pull_request_url=None)
+    return FinishedDocsCheck(
+        status="no_docs", failure_reason=failure_reason, pull_request_url=None, reason=judged_verdict.reason
+    )
 
 
 def submit_verdict(inputs: MergeCheckInputs, verdict: AdapterVerdict) -> FinishedDocsCheck:
     outcome = intake.submit(replace(verdict, check_id=inputs.check_id), team_id=inputs.team_id)
     return FinishedDocsCheck(
-        status=outcome.status, failure_reason=verdict.failure_reason, pull_request_url=outcome.pull_request_url
+        status=outcome.status,
+        failure_reason=verdict.failure_reason,
+        pull_request_url=outcome.pull_request_url,
+        reason=verdict.reason,
     )
 
 
@@ -315,7 +320,7 @@ class MergeCheckWorkflow:
         self._waiter_ids.append(waiter_id)
 
     @workflow.run
-    async def run(self, inputs: MergeCheckInputs) -> None:
+    async def run(self, inputs: MergeCheckInputs) -> FinishedDocsCheck | None:
         try:
             finished = await workflow.execute_activity(
                 run_merge_check_activity,
@@ -336,6 +341,7 @@ class MergeCheckWorkflow:
             raise
         if finished is not None:
             await self._tell_waiters(finished)
+        return finished
 
     async def _tell_waiters(self, finished: FinishedDocsCheck) -> None:
         told_count = 0
