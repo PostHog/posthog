@@ -212,17 +212,17 @@ export function appendExceptionToMessage(message: string, exception_event?: Supp
 // Must match SECTION_SEPARATOR in products/conversations/backend/services/posthog_support.py, which lays
 // out agent drafts as sections joined by this line.
 const DRAFT_SECTION_SEPARATOR = '\n\n---\n\n'
-const DRAFT_IMAGES_LABEL = 'Images:'
+const DRAFT_ATTACHMENTS_LABEL = 'Attachments:'
 
-/** Adds an uploaded image to an agent draft, in an Images section right after Request. */
-export function addImageToDraftMessage(message: string, fileName: string, url: string): string {
-    const imageLine = `- ${fileName}: ${url}`
+/** Adds an uploaded file to an agent draft, in an Attachments section right after Request. */
+export function addAttachmentToDraftMessage(message: string, fileName: string, url: string): string {
+    const attachmentLine = `- ${fileName}: ${url}`
     const sections = message.split(DRAFT_SECTION_SEPARATOR)
-    const imagesIndex = sections.findIndex((section) => section.startsWith(`${DRAFT_IMAGES_LABEL}\n`))
-    if (imagesIndex === -1) {
-        sections.splice(1, 0, `${DRAFT_IMAGES_LABEL}\n${imageLine}`)
+    const attachmentsIndex = sections.findIndex((section) => section.startsWith(`${DRAFT_ATTACHMENTS_LABEL}\n`))
+    if (attachmentsIndex === -1) {
+        sections.splice(1, 0, `${DRAFT_ATTACHMENTS_LABEL}\n${attachmentLine}`)
     } else {
-        sections[imagesIndex] = `${sections[imagesIndex]}\n${imageLine}`
+        sections[attachmentsIndex] = `${sections[attachmentsIndex]}\n${attachmentLine}`
     }
     return sections.join(DRAFT_SECTION_SEPARATOR)
 }

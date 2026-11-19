@@ -12,7 +12,7 @@ import {
     CONVERSATIONS_MESSAGE_MAX_LENGTH,
     SUPPORT_MESSAGE_PREVIEW_MAX_LENGTH,
     SupportFormFields,
-    addImageToDraftMessage,
+    addAttachmentToDraftMessage,
     supportLogic,
     warnIfMessageTooLong,
 } from './supportLogic'
@@ -426,35 +426,37 @@ describe('supportLogic', () => {
         })
     })
 
-    describe('addImageToDraftMessage', () => {
+    describe('addAttachmentToDraftMessage', () => {
         const separator = '\n\n---\n\n'
 
         it.each([
             {
-                name: 'puts the first image between Request and Details',
+                name: 'puts the first attachment between Request and Details',
                 message: ['Request:\n\nIt broke.', 'Details:\n- Project: Web app'].join(separator),
                 expected: [
                     'Request:\n\nIt broke.',
-                    'Images:\n- a.png: https://x/a',
+                    'Attachments:\n- a.png: https://x/a',
                     'Details:\n- Project: Web app',
                 ].join(separator),
             },
             {
-                name: 'adds a later image to the same Images section',
-                message: ['Request:\n\nIt broke.', 'Images:\n- a.png: https://x/a', 'Details:\n- One'].join(separator),
+                name: 'adds a later attachment to the same Attachments section',
+                message: ['Request:\n\nIt broke.', 'Attachments:\n- a.png: https://x/a', 'Details:\n- One'].join(
+                    separator
+                ),
                 expected: [
                     'Request:\n\nIt broke.',
-                    'Images:\n- a.png: https://x/a\n- a.png: https://x/a',
+                    'Attachments:\n- a.png: https://x/a\n- a.png: https://x/a',
                     'Details:\n- One',
                 ].join(separator),
             },
             {
-                name: 'adds an Images section after a draft that is only a Request',
+                name: 'adds an Attachments section after a draft that is only a Request',
                 message: 'Request:\n\nIt broke.',
-                expected: ['Request:\n\nIt broke.', 'Images:\n- a.png: https://x/a'].join(separator),
+                expected: ['Request:\n\nIt broke.', 'Attachments:\n- a.png: https://x/a'].join(separator),
             },
         ])('$name', ({ message, expected }) => {
-            expect(addImageToDraftMessage(message, 'a.png', 'https://x/a')).toEqual(expected)
+            expect(addAttachmentToDraftMessage(message, 'a.png', 'https://x/a')).toEqual(expected)
         })
     })
 
