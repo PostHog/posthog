@@ -104,7 +104,11 @@ export function withUnresolvedChips(html: string): string {
 /** The person properties the templates read, for the custom person form. */
 export function personPropertiesUsed(templates: string[]): string[] {
     const keys = templates.flatMap((template) =>
-        Array.from(template.matchAll(/\bperson\.properties\.([A-Za-z0-9_$]+)/g), (match) => match[1])
+        // The editor writes `person.properties["renews on"]` for a key that isn't a plain name.
+        Array.from(
+            template.matchAll(/\bperson\.properties(?:\.([A-Za-z0-9_$]+)|\[\s*["']([^"']+)["']\s*\])/g),
+            (match) => match[1] ?? match[2]
+        )
     )
     return Array.from(new Set(keys))
 }

@@ -133,6 +133,10 @@ export class LiquidRenderer {
                 // Render partials from an in-memory map only: this disables LiquidJS's filesystem-backed
                 // partial loading, so user-controlled templates can't read local files via include/render/layout.
                 templates: {},
+                // Previews render while the page draws, so a runaway loop must fail fast instead of freezing the tab.
+                // The worker's budgets, from nodejs/src/cdp/utils/liquid.ts.
+                renderLimit: 500,
+                memoryLimit: 1_000_000,
             })
             this._liquid.registerFilter('currency', formatCurrency)
             this._liquid.registerTag('unsubscribe_url', UnsubscribeUrlTag)
@@ -241,10 +245,23 @@ export class LiquidRenderer {
 
     // Every output tag in source order, including those inside `if`, `case`, `for` and other blocks. Blocks keep
     // their children in arrays of templates, or in branches that each hold one.
-    private static outputsOf(templates: unknown[]): Output[] {
+    // Names the template binds itself, such as a `for` loop's item or an `assign` target. Their values only exist
+    // while the template runs, so checking them against the context would wrongly report them missing.
+    private static readonly LOOP_GLOBALS = ['forloop', 'tablerowloop']
+
+    private static outputsOf(templates: unknown[]): { outputs: Output[]; locals: Set<string> } {
         const found: Output[] = []
+        const locals = new Set<string>(this.LOOP_GLOBALS)
         const visit = (nodes: unknown[]): void => {
             for (const node of nodes) {
+                if (node instanceof Tag) {
+                    const { key, variable } = node as unknown as { key?: unknown; variable?: unknown }
+                    for (const name of [key, variable]) {
+                        if (typeof name === 'string') {
+                            locals.add(name)
+                        }
+                    }
+                }
                 if (node instanceof Output) {
                     found.push(node)
                 } else if (
@@ -260,7 +277,7 @@ export class LiquidRenderer {
             }
         }
         visit(templates)
-        return found.sort((a, b) => (a.token as any).begin - (b.token as any).begin)
+        return { outputs: found.sort((a, b) => (a.token as any).begin - (b.token as any).begin), locals }
     }
 
     /**
@@ -281,10 +298,17 @@ export class LiquidRenderer {
         const decoded = this.decode(template)
         let marked = ''
         let cursor = 0
-        for (const node of this.outputsOf(this.liquid.parse(decoded))) {
+        const { outputs, locals } = this.outputsOf(this.liquid.parse(decoded))
+        for (const node of outputs) {
             const { begin, end, content } = node.token as unknown as { begin: number; end: number; content: string }
             const expression = content.trim()
-            if (!expression || expression.includes('|') || this.resolvesDecoded(expression, context)) {
+            const root = expression.split(/[.[\s]/)[0]
+            if (
+                !expression ||
+                expression.includes('|') ||
+                locals.has(root) ||
+                this.resolvesDecoded(expression, context)
+            ) {
                 continue
             }
             marked += `${decoded.slice(cursor, begin)}{% raw %}${markUnresolved(decoded.slice(begin, end))}{% endraw %}`

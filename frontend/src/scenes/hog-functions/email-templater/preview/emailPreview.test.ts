@@ -1,9 +1,15 @@
-import { countUnresolved, renderEmailPreview, renderEmailPreviewMarked, withUnresolvedChips } from './emailPreview'
+import {
+    countUnresolved,
+    personPropertiesUsed,
+    renderEmailPreview,
+    renderEmailPreviewMarked,
+    withUnresolvedChips,
+} from './emailPreview'
 
 describe('renderEmailPreview', () => {
     const person = {
         id: 'person-1',
-        properties: { email: 'sam@example.com', first_name: 'Sam' },
+        properties: { email: 'sam@example.com', first_name: 'Sam', seats: ['a', 'b'] },
     }
 
     it.each([
@@ -29,6 +35,8 @@ describe('renderEmailPreview', () => {
             "{% if person.properties.email contains 'example' %}Hi {{ person.properties.nickname }}{% endif %}",
             'Hi {{ person.properties.nickname }}',
         ],
+        ['renders a loop item', '{% for seat in person.properties.seats %}{{ seat }}{% endfor %}', 'ab'],
+        ['renders a name the template assigns', '{% assign n = person.properties.first_name %}Hi {{ n }}', 'Hi Sam'],
         [
             'leaves a tag the template already marked raw alone',
             'Hi {% raw %}{{ person.properties.nickname }}{% endraw %}',
@@ -57,6 +65,19 @@ describe('renderEmailPreview', () => {
         expect(renderEmailPreview('Hi {{ person.properties.first_name }}', null)).toBe(
             'Hi {{ person.properties.first_name }}'
         )
+    })
+
+    it('gives up on a runaway loop instead of freezing the page', () => {
+        const template = '{% for i in (1..100000000) %}x{% endfor %}'
+
+        expect(renderEmailPreview(template, person)).toBe(template)
+    })
+
+    it('finds person properties the editor wrote in bracket notation', () => {
+        expect(personPropertiesUsed(['{{ person.properties.plan }} {{ person.properties["renews on"] }}'])).toEqual([
+            'plan',
+            'renews on',
+        ])
     })
 
     it('falls back to the template rather than throwing on a broken tag', () => {

@@ -23,7 +23,7 @@ export function EmailPreviewPersonBar({
     const [open, setOpen] = useState(false)
 
     return (
-        <div className="relative z-10 flex flex-wrap items-center gap-2 px-2 py-1 border-b bg-surface-secondary text-xs">
+        <div className="ph-no-capture relative z-10 flex flex-wrap items-center gap-2 px-2 py-1 border-b bg-surface-secondary text-xs">
             <IconEye className="text-muted shrink-0" />
             <span className="text-muted">Previewing as</span>
             <LemonDropdown
@@ -31,7 +31,7 @@ export function EmailPreviewPersonBar({
                 onClickOutside={() => setOpen(false)}
                 closeOnClickInside={false}
                 overlay={
-                    <div className="flex flex-col gap-2 p-1 w-64">
+                    <div className="ph-no-capture flex flex-col gap-2 p-1 w-64">
                         {personsFailed ? (
                             <span className="text-muted text-xs">Couldn't load people. Fill in a custom person.</span>
                         ) : (

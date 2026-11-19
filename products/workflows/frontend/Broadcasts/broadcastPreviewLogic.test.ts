@@ -16,7 +16,6 @@ import { DEFAULT_BROADCAST_EMAIL, broadcastWizardLogic } from './broadcastWizard
 const PRO_PLAN: AnyPropertyFilter[] = [
     { key: 'plan', value: ['pro'], operator: PropertyOperator.Exact, type: PropertyFilterType.Person },
 ]
-const HAS_EMAIL = { key: 'email', type: 'person', operator: 'is_set', value: 'is_set' }
 const ADA = ['person-ada', { display_name: 'Ada' }, JSON.stringify({ email: 'ada@example.com', name: 'Ada' })]
 const GRACE = ['person-grace', { display_name: 'Grace' }, JSON.stringify({ email: 'grace@example.com', name: 'Grace' })]
 const NO_EMAIL = ['person-anon', { display_name: 'Anon' }, JSON.stringify({ name: 'Anon' })]
@@ -79,7 +78,7 @@ describe('broadcastPreviewLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadPersons', 'loadPersonsSuccess'])
 
         expect(query.mock.calls.map(([sent]) => sent)).toEqual(
-            [[HAS_EMAIL], [...PRO_PLAN, HAS_EMAIL]].map((properties) => ({
+            [[], PRO_PLAN].map((properties) => ({
                 kind: NodeKind.ActorsQuery,
                 tags: { productKey: ProductKey.WORKFLOWS },
                 properties,
@@ -155,7 +154,7 @@ describe('broadcastPreviewLogic', () => {
             await resume(conditions)
 
             await waitFor(() => expect(previewPeople()).toEqual(['person-ada']))
-            expect(received.at(-1)).toEqual([...sent, HAS_EMAIL])
+            expect(received.at(-1)).toEqual(sent)
         })
     })
 
