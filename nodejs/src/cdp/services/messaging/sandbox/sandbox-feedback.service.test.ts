@@ -5,7 +5,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { Server, createServer } from 'http'
 import { AddressInfo } from 'net'
 import { createSign, generateKeyPairSync } from 'node:crypto'
-import { gunzipSync } from 'node:zlib'
+import { gunzipSync, gzipSync } from 'node:zlib'
 import { register } from 'prom-client'
 import { uncompressSync } from 'snappy'
 import supertest from 'supertest'
@@ -21,6 +21,7 @@ import { flush as flushAnalytics } from '~/common/utils/posthog'
 import { FetchResponse } from '~/common/utils/request'
 import { TeamManager } from '~/common/utils/team-manager'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { compressWithoutEnding } from '~/tests/helpers/compression'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
@@ -401,6 +402,62 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
                 expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, source: 'COMPLAINT' }])
             }
         )
+
+        const postGzip = (body: Buffer) => {
+            const req = supertest(app)
+                .post('/public/m/ses_sandbox_webhook')
+                .set({ 'Content-Type': 'text/plain', 'Content-Encoding': 'gzip' })
+            req.write(body)
+            return req
+        }
+
+        it.each([
+            ['a malformed gzip notification', () => Buffer.from('this is not compressed data')],
+            [
+                'a gzip notification that fails its check',
+                () => {
+                    const failedCheck = gzipSync(notification(sesRecord(team.id, complaint())))
+                    failedCheck[failedCheck.length - 1] ^= 0xff
+                    return failedCheck
+                },
+            ],
+        ])('answers %s with 400 and records nothing', async (_case, makeBody) => {
+            const rejected = await postGzip(makeBody())
+
+            expect({ status: rejected.status, rows: await suppressionRows() }).toEqual({ status: 400, rows: [] })
+        })
+
+        it('records a gzip notification like a plain one', async () => {
+            expect((await postGzip(gzipSync(notification(sesRecord(team.id, complaint()))))).status).toBe(200)
+            expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, source: 'COMPLAINT' }])
+        })
+
+        it.each([
+            ['a plain notification over the size limit, with its length', 'identity', false],
+            ['a plain notification over the size limit, in chunks', 'identity', true],
+            ['a gzip notification that decodes past the size limit before an invalid end', 'gzip', true],
+            ['a deflate notification that decodes past the size limit before an invalid end', 'deflate', true],
+            ['a br notification that decodes past the size limit before an invalid end', 'br', true],
+        ] as const)('answers %s with 413', async (_case, encoding, chunked) => {
+            const req = supertest(app)
+                .post('/public/m/ses_sandbox_webhook')
+                .set({
+                    'Content-Type': 'text/plain',
+                    ...(encoding === 'identity' ? {} : { 'Content-Encoding': encoding }),
+                })
+            const body =
+                encoding === 'identity'
+                    ? Buffer.alloc(150 * 1024, ' ')
+                    : Buffer.concat([
+                          await compressWithoutEnding(encoding, Buffer.alloc(64 * 1024, ' '), 64),
+                          Buffer.alloc(16, 0xff),
+                      ])
+            if (chunked) {
+                req.write(body)
+            }
+
+            expect((await (chunked ? req : req.send(body.toString()))).status).toBe(413)
+        })
 
         it.each([
             ['confirms', 'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&Token=t', 200, 1],
