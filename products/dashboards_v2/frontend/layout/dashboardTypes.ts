@@ -6,6 +6,8 @@ export const GRID = {
     gapPx: 12,
     /** Rows an open section keeps for its tiles when it has none, so it can still take a drop. */
     emptySectionRows: 2,
+    /** Below this width every tile is full width and the layout is read-only, because drag and resize need room. */
+    stackBelowPx: 768,
 } as const
 
 export function columnWidthPx(width: number, cols: number): number {

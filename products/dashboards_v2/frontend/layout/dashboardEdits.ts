@@ -2,6 +2,7 @@ import {
     type ContentWidget,
     type Dashboard,
     GRID,
+    type SectionTile,
     type SectionWidget,
     type Tile,
     type TilePlace,
@@ -70,6 +71,34 @@ function settleGrid(tiles: Tile[], cols: number): Tile[] {
 }
 
 /** Every edit ends here, so a saved dashboard never holds an overlap, a gap or a stale section height. */
+/** Every tile full width, one under another in reading order: top to bottom, then left to right. */
+export function stackTiles(tiles: Tile[], cols: number): Tile[] {
+    const ordered = [...tiles].sort((a, b) => a.place.y - b.place.y || a.place.x - b.place.x)
+    let y = 0
+    return ordered.map((tile) => {
+        const stacked = isSection(tile)
+            ? stackSection(tile, cols, y)
+            : { ...tile, place: { x: 0, y, w: cols, h: stackedRows(tile) } }
+        y += stacked.place.h
+        return stacked
+    })
+}
+
+/** A chart sized for a wide screen would fill a phone, so stacked charts stay between these heights. */
+const STACKED_CHART_ROWS = { min: 5, max: 8 }
+
+function stackedRows(tile: Tile): number {
+    if (tile.widget.type !== 'line' && tile.widget.type !== 'bar') {
+        return tile.place.h
+    }
+    return Math.min(STACKED_CHART_ROWS.max, Math.max(STACKED_CHART_ROWS.min, tile.place.h))
+}
+
+function stackSection(tile: SectionTile, cols: number, y: number): Tile {
+    const widget = { ...tile.widget, tiles: stackTiles(tile.widget.tiles, cols) }
+    return { ...tile, widget, place: { x: 0, y, w: cols, h: sectionRows(widget) } }
+}
+
 export function settleDashboard(dashboard: Dashboard): Dashboard {
     return { ...dashboard, tabs: dashboard.tabs.map((tab) => ({ ...tab, tiles: settleGrid(tab.tiles, GRID.columns) })) }
 }
