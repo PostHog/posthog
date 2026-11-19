@@ -54,10 +54,6 @@ const TAGGING_OFF_TEAM = {
 describe('MessageTemplate', () => {
     const priorAppContext = window.POSTHOG_APP_CONTEXT
 
-    beforeEach(() => {
-        useMocks({ get: { '/api/projects/:id/': TAGGING_OFF_TEAM } })
-    })
-
     afterEach(() => {
         cleanup()
         window.POSTHOG_APP_CONTEXT = priorAppContext
@@ -165,16 +161,11 @@ describe('MessageTemplate', () => {
     )
 
     it.each([
-        ['a sensitive template, whose links are never tagged', true, 'Not measured', undefined],
-        [
-            'any other template',
-            false,
-            'Needs link tagging',
-            expect.stringMatching(/\/settings\/environment-workflows#workflows-email-run-link-tag$/),
-        ],
+        ['a sensitive template, whose links are never tagged', true, 'Not measured', false],
+        ['any other template', false, 'Needs link tagging', true],
     ])(
-        "links the Impact tab's session step to the link tagging switch only for %s",
-        async (_, sensitive, label, href) => {
+        "offers the link tagging switch on the Impact tab's session step only for %s",
+        async (_, sensitive, label, offered) => {
             useMocks({
                 get: {
                     '/api/environments/:team_id/messaging_templates/:id/': { ...PASSWORD_RESET_WITH_DRAFT, sensitive },
@@ -185,7 +176,7 @@ describe('MessageTemplate', () => {
 
             fireEvent.click(screen.getByText('Impact'))
 
-            expect((await screen.findByText(label)).closest('a')?.getAttribute('href')).toEqual(href)
+            expect(!!(await screen.findByText(label)).closest('button')).toBe(offered)
         }
     )
 

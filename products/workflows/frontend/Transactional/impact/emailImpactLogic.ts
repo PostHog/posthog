@@ -1,4 +1,17 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -38,6 +51,7 @@ export const IMPACT_DATE_RANGES = [
 export interface emailImpactLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
+    alwaysSensitive: boolean
     days: number
     event: string | null
     followedNote: string | null
@@ -47,6 +61,7 @@ export interface emailImpactLogicValues {
     impactLoading: boolean
     lift: ImpactLift | null
     linkTagging: LinkTagging
+    linkTaggingSettingsOpen: boolean
     replayEnabled: boolean
     steps: ImpactStep[] | null
     untrackedNote: string | null
@@ -61,7 +76,9 @@ export interface emailImpactLogicActions {
         currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
-    refreshCurrentTeam: () => any // teamLogic
+    closeLinkTaggingSettings: () => {
+        value: true
+    }
     loadImpact: (_: void) => void
     loadImpactFailure: (
         error: string,
@@ -76,6 +93,12 @@ export interface emailImpactLogicActions {
     ) => {
         impact: TransactionalEmailImpactApi | null
         payload?: void
+    }
+    openLinkTaggingSettings: () => {
+        value: true
+    }
+    setAlwaysSensitive: (alwaysSensitive: boolean) => {
+        alwaysSensitive: boolean
     }
     setDays: (days: number) => {
         days: number
@@ -94,7 +117,7 @@ export interface emailImpactLogicMeta {
             impactLoading: boolean,
             impactError: string | null
         ) => ImpactFunnelState
-        linkTagging: (currentTeam: TeamPublicType | TeamType | null, arg: boolean | undefined) => LinkTagging
+        linkTagging: (currentTeam: TeamPublicType | TeamType | null, alwaysSensitive: boolean) => LinkTagging
         steps: (
             impact: TransactionalEmailImpactApi | null,
             event: string | null,
@@ -149,13 +172,23 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Transactional', 'impact', 'emailImpactLogic', key]),
     connect(() => ({
         values: [teamLogic, ['currentTeamId', 'currentTeam']],
-        actions: [teamLogic, ['loadCurrentTeamSuccess', 'refreshCurrentTeam']],
+        actions: [teamLogic, ['loadCurrentTeamSuccess']],
     })),
     actions({
         setEvent: (event: string | null) => ({ event }),
         setDays: (days: number) => ({ days }),
+        openLinkTaggingSettings: true,
+        closeLinkTaggingSettings: true,
+        setAlwaysSensitive: (alwaysSensitive: boolean) => ({ alwaysSensitive }),
     }),
-    reducers({
+    reducers(({ props }) => ({
+        // A selector that reads props keeps its result while the store is unchanged, so a template's new
+        // sensitivity flag goes through the store.
+        alwaysSensitive: [!!props.alwaysSensitive, { setAlwaysSensitive: (_, { alwaysSensitive }) => alwaysSensitive }],
+        linkTaggingSettingsOpen: [
+            false,
+            { openLinkTaggingSettings: () => true, closeLinkTaggingSettings: () => false },
+        ],
         event: [null as string | null, { persist: true }, { setEvent: (_, { event }) => event }],
         days: [30 as number, { setDays: (_, { days }) => days }],
         impactError: [
@@ -166,7 +199,7 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                 loadImpactFailure: (_, { errorObject }) => impactErrorMessage(errorObject),
             },
         ],
-    }),
+    })),
     loaders(({ props, values }) => ({
         impact: [
             null as TransactionalEmailImpactApi | null,
@@ -216,8 +249,8 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             ): ImpactFunnelState => impactFunnelState(impact, impactLoading, impactError),
         ],
         linkTagging: [
-            (s) => [s.currentTeam, (_, props: EmailImpactLogicProps) => props.alwaysSensitive],
-            (currentTeam: TeamPublicType | TeamType | null, alwaysSensitive: boolean | undefined): LinkTagging =>
+            (s) => [s.currentTeam, s.alwaysSensitive],
+            (currentTeam: TeamPublicType | TeamType | null, alwaysSensitive: boolean): LinkTagging =>
                 alwaysSensitive ? 'sensitive-email' : runLinkTaggingEnabled(currentTeam) ? 'on' : 'off',
         ],
         steps: [
@@ -264,21 +297,10 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             }
         },
     })),
-    afterMount(({ actions, cache }) => {
-        actions.loadImpact()
-        // The link tagging switch saves in another tab, which this tab can't observe, and this tab may have been
-        // closed or showing another editor tab when the reader saved it. So reload the team when Impact opens and
-        // on each return to the page. The focus event is the return itself, so the listener stays registered
-        // while the page is hidden.
-        actions.refreshCurrentTeam()
-        cache.disposables.add(
-            () => {
-                const onFocus = (): void => actions.refreshCurrentTeam()
-                window.addEventListener('focus', onFocus)
-                return () => window.removeEventListener('focus', onFocus)
-            },
-            'linkTaggingRefresh',
-            { pauseOnPageHidden: false }
-        )
+    propsChanged(({ actions, props }, oldProps) => {
+        if (!!props.alwaysSensitive !== !!oldProps.alwaysSensitive) {
+            actions.setAlwaysSensitive(!!props.alwaysSensitive)
+        }
     }),
+    afterMount(({ actions }) => actions.loadImpact()),
 ])

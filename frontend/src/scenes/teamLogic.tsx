@@ -412,7 +412,7 @@ export const teamLogic = kea<teamLogicType>([
             },
         ],
     }),
-    loaders(({ values, actions, cache }) => ({
+    loaders(({ values, actions }) => ({
         currentTeam: [
             null as TeamType | TeamPublicType | null,
             {
@@ -442,28 +442,12 @@ export const teamLogic = kea<teamLogicType>([
                         return values.currentTeam
                     }
 
-                    const refresh = (cache.teamRefreshes = (cache.teamRefreshes ?? 0) + 1)
-                    const savesBefore = cache.teamSaves ?? 0
-                    const saveRunning = (cache.teamSavesRunning ?? 0) > 0
-                    let refreshed: TeamType
                     try {
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                        refreshed = await api.get(`api/projects/${projectId}`)
+                        return await api.get(`api/projects/${projectId}`)
                     } catch {
                         return values.currentTeam
                     }
-                    // The server can read the team before a save that runs alongside this request commits, and the
-                    // save's own answer sets the team. A later refresh that already answered is newer too. Either way,
-                    // this answer would undo a newer team.
-                    if (
-                        saveRunning ||
-                        (cache.teamSaves ?? 0) !== savesBefore ||
-                        refresh < (cache.teamShownRefresh ?? 0)
-                    ) {
-                        return values.currentTeam
-                    }
-                    cache.teamShownRefresh = refresh
-                    return refreshed
                 },
                 updateCurrentTeam: async (payload: Partial<TeamType>, breakpoint) => {
                     if (!values.currentTeam) {
@@ -479,28 +463,22 @@ export const teamLogic = kea<teamLogicType>([
                     }
 
                     let patchedTeam: TeamType | TeamPublicType
-                    cache.teamSaves = (cache.teamSaves ?? 0) + 1
-                    cache.teamSavesRunning = (cache.teamSavesRunning ?? 0) + 1
-                    try {
-                        if (Object.keys(payload).length === 1 && payload.name && values.currentTeam.project_id) {
-                            // Renames go through the project id, because that mirrors the name onto the
-                            // passthrough team server-side. Every other patch goes through the team id.
-                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsPartialUpdate() from '~/generated/core/api' instead.
-                            const patchedProject = await api.update<ProjectType>(
-                                `api/projects/${values.currentTeam.project_id}`,
-                                { name: payload.name }
-                            )
-                            breakpoint()
-                            // Sync projectLogic too, as surfaces like the project switcher read currentProject.name
-                            actions.loadCurrentProjectSuccess(patchedProject)
-                            patchedTeam = { ...values.currentTeam, name: patchedProject.name }
-                        } else {
-                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsPartialUpdate() from '~/generated/core/api' instead.
-                            patchedTeam = await api.update(`api/projects/${values.currentTeam.id}`, payload)
-                            breakpoint()
-                        }
-                    } finally {
-                        cache.teamSavesRunning -= 1
+                    if (Object.keys(payload).length === 1 && payload.name && values.currentTeam.project_id) {
+                        // Renames go through the project id, because that mirrors the name onto the
+                        // passthrough team server-side. Every other patch goes through the team id.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsPartialUpdate() from '~/generated/core/api' instead.
+                        const patchedProject = await api.update<ProjectType>(
+                            `api/projects/${values.currentTeam.project_id}`,
+                            { name: payload.name }
+                        )
+                        breakpoint()
+                        // Sync projectLogic too, as surfaces like the project switcher read currentProject.name
+                        actions.loadCurrentProjectSuccess(patchedProject)
+                        patchedTeam = { ...values.currentTeam, name: patchedProject.name }
+                    } else {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsPartialUpdate() from '~/generated/core/api' instead.
+                        patchedTeam = await api.update(`api/projects/${values.currentTeam.id}`, payload)
+                        breakpoint()
                     }
 
                     // We need to reload current org (which lists its teams) in organizationLogic

@@ -57,8 +57,6 @@ describe('emailImpactLogic', () => {
                     onRequest()
                     return answer
                 },
-                '/api/projects/:id/': ({ params }) =>
-                    params.id === '@current' ? [200, MOCK_DEFAULT_TEAM] : [200, ENVIRONMENT],
             },
         })
     })

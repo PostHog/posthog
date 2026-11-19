@@ -47,7 +47,6 @@ describe('CodeEmailTabs', () => {
     const mocks = (workflow: () => [number, unknown]): Parameters<typeof useMocks>[0] => ({
         get: {
             '/api/projects/:team_id/transactional_code_emails/:id/': codeEmail,
-            '/api/projects/:id/': TAGGING_OFF_TEAM,
             '/api/environments/:team_id/hog_flows/:id/': workflow,
             '/api/projects/:team_id/transactional_email_log/impact/': {
                 sent: 10,
@@ -285,15 +284,13 @@ describe('CodeEmailTabs', () => {
         expect(screen.queryByText('ada@example.com')).not.toBeInTheDocument()
     })
 
-    it('links the Impact session step of a sensitive code email to the link tagging switch, since a send can turn sensitivity off', async () => {
+    it('offers the link tagging switch on the Impact session step of a sensitive code email, since a send can turn sensitivity off', async () => {
         useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
         renderTabs({ impact: true })
 
         fireEvent.click(await screen.findByText('Impact'))
 
-        expect((await screen.findByText('Needs link tagging')).closest('a')?.getAttribute('href')).toMatch(
-            /\/settings\/environment-workflows#workflows-email-run-link-tag$/
-        )
+        expect((await screen.findByText('Needs link tagging')).closest('button')).toBeInTheDocument()
     })
 
     it('offers no re-run of a sensitive email, whose sends keep no content', async () => {

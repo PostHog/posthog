@@ -1,6 +1,5 @@
 import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
-import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -11,9 +10,6 @@ import { AppContext, TeamType } from '~/types'
 
 import { projectLogic } from './projectLogic'
 import { teamLogic } from './teamLogic'
-
-type HeldAnswer = (status: number, body: object) => void
-type HeldRequests = { refreshes: HeldAnswer[]; saves: HeldAnswer[] }
 
 describe('teamLogic', () => {
     let logic: ReturnType<typeof teamLogic.build>
@@ -139,68 +135,6 @@ describe('teamLogic', () => {
 
             expect(logic.values.currentTeam?.project_id).toBe(MOCK_TEAM_ID)
             expect(logic.values.currentTeam?.test_account_filters).toEqual(refreshedFilters)
-        })
-
-        it.each([
-            [
-                'an older refresh answers after a newer one',
-                async ({ refreshes }: HeldRequests) => {
-                    logic.actions.refreshCurrentTeam()
-                    logic.actions.refreshCurrentTeam()
-                    await waitFor(() => expect(refreshes).toHaveLength(2))
-                    refreshes[1](200, { ...tabTeam, timezone: 'Europe/Berlin' })
-                    await waitFor(() => expect(logic.values.currentTeam?.timezone).toBe('Europe/Berlin'))
-                    refreshes[0](200, { ...tabTeam, timezone: 'UTC' })
-                },
-            ],
-            [
-                'the newer refresh fails',
-                async ({ refreshes }: HeldRequests) => {
-                    logic.actions.refreshCurrentTeam()
-                    logic.actions.refreshCurrentTeam()
-                    await waitFor(() => expect(refreshes).toHaveLength(2))
-                    refreshes[1](500, {})
-                    refreshes[0](200, { ...tabTeam, timezone: 'Europe/Berlin' })
-                },
-            ],
-            [
-                'a save starts while a refresh is in flight',
-                async ({ refreshes, saves }: HeldRequests) => {
-                    logic.actions.refreshCurrentTeam()
-                    await waitFor(() => expect(refreshes).toHaveLength(1))
-                    logic.actions.updateCurrentTeam({ timezone: 'Europe/Berlin' })
-                    await waitFor(() => expect(saves).toHaveLength(1))
-                    saves[0](200, { ...tabTeam, timezone: 'Europe/Berlin' })
-                    await waitFor(() => expect(logic.values.currentTeam?.timezone).toBe('Europe/Berlin'))
-                    refreshes[0](200, { ...tabTeam, timezone: 'UTC' })
-                },
-            ],
-            [
-                'a refresh starts while a save is in flight',
-                async ({ refreshes, saves }: HeldRequests) => {
-                    logic.actions.updateCurrentTeam({ timezone: 'Europe/Berlin' })
-                    await waitFor(() => expect(saves).toHaveLength(1))
-                    logic.actions.refreshCurrentTeam()
-                    await waitFor(() => expect(refreshes).toHaveLength(1))
-                    saves[0](200, { ...tabTeam, timezone: 'Europe/Berlin' })
-                    await waitFor(() => expect(logic.values.currentTeam?.timezone).toBe('Europe/Berlin'))
-                    refreshes[0](200, { ...tabTeam, timezone: 'UTC' })
-                },
-            ],
-        ])('refreshCurrentTeam keeps the newest team when %s', async (_, overlap) => {
-            await expectLogic(logic).toFinishAllListeners()
-            const held: HeldRequests = { refreshes: [], saves: [] }
-            const hold = (into: HeldAnswer[]) => (): Promise<[number, object]> =>
-                new Promise((resolve) => into.push((status, body) => resolve([status, body])))
-            useMocks({
-                get: { '/api/projects/:id': hold(held.refreshes) },
-                patch: { '/api/projects/:id': hold(held.saves) },
-            })
-
-            await overlap(held)
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.currentTeam?.timezone).toBe('Europe/Berlin')
         })
     })
 
