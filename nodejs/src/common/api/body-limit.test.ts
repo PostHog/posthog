@@ -1,9 +1,16 @@
-import { randomBytes } from 'crypto'
+import { randomBytes, randomUUID } from 'crypto'
 import supertest from 'supertest'
 import type { Application, Request, Response } from 'ultimate-express'
 import { brotliCompressSync, deflateSync, gzipSync } from 'zlib'
 
 import { setupExpressApp } from '~/common/api/router'
+import { defaultConfig } from '~/common/config/config'
+import { ServerCommands } from '~/common/utils/commands'
+import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { parseJSON } from '~/common/utils/json-parse'
+import { PubSub } from '~/common/utils/pubsub'
+import { waitForExpect } from '~/tests/helpers/expectations'
+import { RedisPool } from '~/types'
 
 describe('setupExpressApp JSON body limit', () => {
     let app: Application
@@ -82,54 +89,84 @@ describe('setupExpressApp JSON body limit', () => {
         })
     })
 
-    it.each([
-        ['gzip', gzipSync],
-        ['deflate', deflateSync],
-    ] as const)(
-        'answers a %s JSON body that fails its check after earlier chunks decoded with 400, without routing it',
-        async (encoding, compress) => {
-            const largeApp = setupExpressApp({})
-            let routedBodies = 0
-            largeApp.post('/body', (req: Request, res: Response) => {
-                routedBodies++
-                res.status(200).json({ padLength: req.body.pad.length })
-            })
-            largeApp.get('/routed', (req: Request, res: Response) => {
-                res.status(200).json({ routedBodies })
-            })
-            const largeServer = largeApp.listen(0, () => {})
-            const pad = randomBytes(512 * 1024).toString('base64')
-            const trailingWhitespace = Buffer.from(
-                randomBytes(2 * 1024 * 1024).map((byte) => ' \t\n\r'.charCodeAt(byte & 3))
-            )
-            const valid = compress(Buffer.concat([Buffer.from(JSON.stringify({ pad })), trailingWhitespace]))
-            const checkFailed = Buffer.from(valid)
-            checkFailed[checkFailed.length - 1] ^= 0xff
-            const post = (body: Buffer) => {
-                const req = supertest(largeApp)
-                    .post('/body')
-                    .set({ 'Content-Type': 'application/json', 'Content-Encoding': encoding })
-                req.write(body)
-                return req
-            }
+    describe('on the command route', () => {
+        let redisPool: RedisPool
+        let pubSub: PubSub
+        let commandsApp: Application
+        let commandsServer: ReturnType<Application['listen']>
 
-            try {
-                const failed = await post(checkFailed)
-                const routedAfterFailure = await supertest(largeApp).get('/routed')
-                const passed = await post(valid)
+        beforeAll(async () => {
+            redisPool = createRedisPoolFromConfig({
+                connection: { url: defaultConfig.REDIS_URL },
+                poolMinSize: 1,
+                poolMaxSize: 3,
+            })
+            pubSub = new PubSub(redisPool)
+            await pubSub.start()
+            commandsApp = setupExpressApp({})
+            commandsApp.use(new ServerCommands(pubSub).router())
+            commandsServer = commandsApp.listen(0, () => {})
+        })
 
-                expect({
-                    failed: [failed.status, failed.body],
-                    routedAfterFailure: routedAfterFailure.body,
-                    passed: [passed.status, passed.body],
-                }).toEqual({
-                    failed: [400, { status: 'error', error: 'Malformed compressed body' }],
-                    routedAfterFailure: { routedBodies: 0 },
-                    passed: [200, { padLength: pad.length }],
-                })
-            } finally {
-                largeServer.close()
+        afterAll(async () => {
+            commandsServer.close()
+            await pubSub.stop()
+            await redisPool.drain()
+            await redisPool.clear()
+        })
+
+        it.each([
+            ['gzip', gzipSync],
+            ['deflate', deflateSync],
+        ] as const)(
+            'publishes nothing for a %s command that fails its check after earlier chunks decoded',
+            async (encoding, compress) => {
+                const channel = `compressed-command-${encoding}-${randomUUID()}`
+                const subscriber = await redisPool.acquire()
+                const published: string[] = []
+                subscriber.on('message', (_channel: string, message: string) => published.push(message))
+                await subscriber.subscribe(channel)
+                const pad = randomBytes(512 * 1024).toString('base64')
+                const trailingWhitespace = Buffer.from(
+                    randomBytes(2 * 1024 * 1024).map((byte) => ' \t\n\r'.charCodeAt(byte & 3))
+                )
+                const commandBody = (attempt: string): Buffer =>
+                    compress(
+                        Buffer.concat([
+                            Buffer.from(JSON.stringify({ command: channel, message: { attempt, pad } })),
+                            trailingWhitespace,
+                        ])
+                    )
+                const checkFailed = commandBody('check failed')
+                checkFailed[checkFailed.length - 1] ^= 0xff
+                const post = (body: Buffer) => {
+                    const req = supertest(commandsApp)
+                        .post('/api/commands')
+                        .set({ 'Content-Type': 'application/json', 'Content-Encoding': encoding })
+                    req.write(body)
+                    return req
+                }
+
+                try {
+                    const failed = await post(checkFailed)
+                    const passed = await post(commandBody('valid'))
+                    await waitForExpect(() => expect(published.length).toBeGreaterThan(0))
+
+                    expect({
+                        failed: [failed.status, failed.body],
+                        passed: [passed.status, passed.body],
+                        published: published.map((message) => parseJSON(message).attempt),
+                    }).toEqual({
+                        failed: [400, { status: 'error', error: 'Malformed compressed body' }],
+                        passed: [200, { success: true }],
+                        published: ['valid'],
+                    })
+                } finally {
+                    await subscriber.unsubscribe(channel)
+                    subscriber.removeAllListeners('message')
+                    await redisPool.release(subscriber)
+                }
             }
-        }
-    )
+        )
+    })
 })
