@@ -570,9 +570,11 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
                 policy_files[path] = content
         # The policy names these manifests, so they can only be read once the policy is in. Like the
         # policy, each comes from the default branch, and an absent one leaves its entry unusable.
+        # Each is read as the blob at its path, so a symlink reads as its link text and the entry
+        # is unusable, rather than as a target that self-governance and the pins never cover.
         with timer.step("issuer_manifests"):
             for path in issuer_manifest_paths(policy_files.get(STAMPHOG_POLICY_ENTRYPOINT)):
-                content = client.get_default_branch_file(repo, path)
+                content = client.get_default_branch_blob_text(repo, path)
                 if content is not None:
                     policy_files[path] = content
         with timer.step("check_run_proofs"):

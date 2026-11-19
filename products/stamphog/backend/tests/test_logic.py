@@ -839,6 +839,40 @@ class CommitGraphqlTests(SimpleTestCase):
     def _blame(self, response: fakes.FakeResponse) -> list[dict]:
         return self._call(response, lambda c: c.get_blame_ranges("acme/widgets", "abc", "src/a.py", timeout=5))
 
+    @parameterized.expand(
+        [
+            (
+                "file",
+                {"text": "paths:\n  - tools/proof/\n", "isBinary": False, "isTruncated": False},
+                "paths:\n  - tools/proof/\n",
+            ),
+            (
+                "symlink_reads_its_link_text",
+                {"text": "../docs/x.yml", "isBinary": False, "isTruncated": False},
+                "../docs/x.yml",
+            ),
+            ("missing", None, None),
+            ("directory", {}, None),
+            ("binary", {"text": None, "isBinary": True, "isTruncated": False}, None),
+            ("truncated", {"text": "paths:", "isBinary": False, "isTruncated": True}, None),
+        ]
+    )
+    def test_default_branch_blob_text_reads_the_blob_at_the_path(
+        self, _name: str, blob: dict | None, expected: str | None
+    ) -> None:
+        # The contents API follows an in-repo symlink, so an issuer manifest read through it would
+        # take the target's text, which neither self-governance nor the pins cover.
+        response = fakes.FakeResponse(200, json_data={"data": {"repository": {"object": blob}}})
+
+        text = self._call(response, lambda c: c.get_default_branch_blob_text("acme/widgets", "tools/proof/issuer.yml"))
+
+        assert text == expected
+        assert self.graphql_variables == {
+            "owner": "acme",
+            "name": "widgets",
+            "expression": "HEAD:tools/proof/issuer.yml",
+        }
+
     def test_default_branch_objects_read_a_missing_path_as_absent(self) -> None:
         # One failed read would mark every proof stale, so a missing path must not fail the request.
         response = fakes.FakeResponse(

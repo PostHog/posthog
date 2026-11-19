@@ -1458,6 +1458,27 @@ class StamphogGitHubClient:
             objects[path] = GitObjectId(kind=kind, oid=oid) if isinstance(kind, str) and isinstance(oid, str) else None
         return objects
 
+    def get_default_branch_blob_text(self, repo: str, path: str) -> str | None:
+        """The text of the git blob at ``path`` on the default branch, or None when it holds none.
+
+        It reads the blob itself, so a symlink reads as its link text. The contents API follows an
+        in-repo symlink to its target, and an edit to that target changes no object at ``path``.
+        A directory, a binary blob and a blob GitHub cuts short read as None as well.
+        """
+        query = (
+            "query($owner: String!, $name: String!, $expression: String!) "
+            "{ repository(owner: $owner, name: $name) { object(expression: $expression) "
+            "{ ... on Blob { text isBinary isTruncated } } } }"
+        )
+        repository = self._repository_graphql(
+            repo, query, {"expression": f"HEAD:{path}"}, timeout=15, priority=Priority.CRITICAL
+        )
+        blob = repository.get("object") or {}
+        text = blob.get("text")
+        if blob.get("isBinary") or blob.get("isTruncated") or not isinstance(text, str):
+            return None
+        return text
+
     def get_default_branch_file(self, repo: str, path: str, *, priority: Priority = Priority.CRITICAL) -> str | None:
         """Fetch a file's text from the repo's DEFAULT branch, or ``None`` if it doesn't exist.
 
