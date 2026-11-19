@@ -95,6 +95,13 @@ from the setup screen; filtered lists keep their filters and results table.
 Dataset setup appears only when there are no active or archived datasets, so projects with only archived
 datasets can still browse and restore them from the list.
 
+Hosted datasets default to 100 per project, including archived datasets until they expire. Each dataset can hold
+2,000 items, including archived items. Each item can have 40 retained versions, and all datasets in a project
+share 25,000 retained item versions. Creating, editing, archiving, or restoring an item can add a version.
+Retention frees slots when it deletes version rows. An item payload can contain up to 406,666 bytes of compact
+UTF-8 JSON across its input, expected output, source output, and metadata. JSONL exports have a separate 250 MB limit,
+so a dataset with large items can exceed the size of a single export.
+
 Scorers have an optional **Short name** (up to 40 characters) for experiment table headers and other compact views.
 These views use the full name when the short name is blank. Editing or clearing a short name updates existing
 experiment displays without creating a scorer version or changing scoring rules. Versions appear in a separate badge.
@@ -316,7 +323,7 @@ Runs appear in the offline experiments UI.
 
 ## Postgres experiment ingestion
 
-The project API accepts offline experiment results behind the `ai-observability-offline-evaluations` feature flag.
+The project API accepts offline experiment results.
 The configured public suites call this API to publish completed scorer results.
 
 Experiments and their items, results, and payloads belong to the exact project/environment in the request path.
@@ -503,6 +510,8 @@ Experiment lifecycle events include dataset source, run source, status, and expe
 Dataset source is classified as `posthog` for hosted revisions, `external` for a supplied external source, or `unknown` when omitted; the original source string is never captured.
 Dataset and experiment usage events exclude input, output, reasoning, metadata values, and resource names.
 Rejected requests, unchanged item updates, and exact ingestion retries emit no success event.
+Quota rejections emit `llma dataset limit reached`. Its `resource`, `current_count`, and `limit` properties
+identify the count or byte limit that blocked the write. Project groups identify affected projects.
 Dataset and experiment reporting failures are logged without failing successful API operations.
 
 Frontend controls use `data-attr` for autocapture action matching.
@@ -631,7 +640,6 @@ Opening scorer history from an experiment clears remembered tag filters so they 
 
 ## Postgres experiment reads
 
-Read endpoints use the same feature flag as ingestion.
 The offline UI uses these APIs. The configured SQL pilot and Signals suites publish results here.
 
 The following GET paths are relative to `/api/projects/{project_id}/ai_observability/`:
@@ -734,8 +742,7 @@ Numeric increases do not imply better quality unless that meaning is established
 ### MCP access
 
 The `llma-offline-experiment-*` and `llma-offline-scorer-history` MCP tools expose
-these reads and the create/upload/complete/fail lifecycle behind the same
-`ai-observability-offline-evaluations` flag. Lifecycle tools record externally
+these reads and the create/upload/complete/fail lifecycle. Lifecycle tools record externally
 computed results; they do not execute evaluators. Scorer configuration remains on
 the existing `llma-score-definition-*` tools, with `version-list` and `version-get`
 for immutable version discovery. Version tools use the existing scorer permissions.
@@ -769,14 +776,23 @@ Passing the deadline makes a payload eligible for cleanup. It remains available 
 The sweep processes at most 20 batches of 500 candidates per payload type, alternating item and result payloads, with a three-minute work budget checked before each environment transaction. Each environment's batch commits independently; retries and overlapping runs are safe. Existing overdue payloads are included, and a backlog drains over subsequent runs.
 
 Each run emits `offline evaluation payload retention run` using scoped capture, including empty runs and handled failures. Properties include `run_id`, `status`, `batches` (committed environment batches), `item_payloads_expired`, `result_payloads_expired`, `payloads_expired`, `budget_exhausted`, and `duration_seconds`. Counts reflect committed work, and the same properties are logged. Event delivery is best-effort; a hard-killed worker cannot emit its completion event.
+The event also reports `item_payload_bytes_deleted`, `result_payload_bytes_deleted`, and their sum, `payload_bytes_deleted`.
+The dataset cleanup event, `dataset retention run`, reports `payload_bytes_deleted` for removed item versions, summing their input, expected output, source output, and metadata fields.
+Both measure the byte length of PostgreSQL's JSON text representation immediately before deletion and count only committed deletions.
+SQL null fields contribute zero; JSON null values and empty objects include their serialized bytes.
+These totals exclude indexes, row overhead, and storage compression, and do not measure disk space reclaimed by vacuum.
+Byte telemetry starts when these properties are deployed; older events without the properties cannot be treated as zero-byte deletions.
+Both cleanup events send aggregate run metrics to the US analytics project, retaining the deployment region in the `region` property.
+The events contain no customer payloads or customer identifiers. Filter by `region` for separate US and EU monitoring.
+EU history in the US project starts when centralized reporting is deployed; earlier EU events remain in the EU project.
 Expired input/output is not reconstructed from linked datasets or traces, and missing links do not prevent experiment reads.
 Opening those resources requires their own permissions.
 
 ## Inspecting offline results
 
-Open **Evaluations → Offline evals** to see the newest experiments and chosen score trends.
-When offline evaluations are enabled, **Experiments** is selected by default. **Datasets** opens the list on the same page
-with `tab=datasets` in the query string. MCP-generated dataset-list links retain this tab selector.
+Open **Evaluations → Offline evals**. The **Experiments** tab opens by default and shows the newest experiments and chosen score trends.
+**Datasets** opens the dataset list on the same page with `tab=datasets` in the query string.
+MCP-generated dataset-list links retain this tab selector.
 Existing `/ai-evals/datasets` and `/llm-analytics/datasets`
 links redirect there, preserving filters and pagination. Dataset creation and detail pages live at
 `/ai-evals/evaluations/offline/datasets/:id`, within the Offline evals navigation. Both legacy dataset
@@ -786,8 +802,6 @@ directly in the detail view; **Details** opens the dataset metadata without repl
 The back arrow beside the dataset name returns to the list and preserves its filters, including after creating a dataset.
 Creation and editing actions appear below the dataset form. Switching from Experiments to Datasets clears
 experiment search and filters and restores the saved dataset tag selection.
-Projects with Datasets enabled but without offline evaluations open **Datasets** automatically,
-including from experiment-list links. **Experiments** stays visible with a disabled **Coming soon** label.
 When Datasets is disabled, its tab stays disabled and direct list links show an availability message.
 The chevron beside **Score trends** collapses or expands the charts. It starts expanded and remembers
 your choice in local storage. Charts load on the first expansion if the page opens collapsed, and
@@ -836,13 +850,14 @@ Upload completion is separate from score quality. **Mark as completed** checks d
 
 Manage scorer definitions and versions under **Evaluations → Scorers**.
 The previous Human reviews Scorers entry and bookmarked scorer URLs redirect there.
-Scorer management remains available for manual reviews when offline evaluations are disabled.
 Scorer names open the full-page editor at `/ai-evals/evaluations/scorers/{scorer_id}`; `/ai-evals/evaluations/scorers/new` creates a scorer.
-The editor combines metadata and score configuration in one form. Passing settings are shown only when offline evaluations are enabled; hiding those controls preserves existing rules. **Save** patches metadata when configuration is unchanged; configuration changes save metadata and a new immutable version together. Saving edits to a boolean scorer with omitted or null polarity also creates a version that explicitly records the default.
+The editor shows metadata, score configuration, and the passing rule in one form.
+**Save** updates only the metadata when the configuration is unchanged. When the configuration changes, **Save** updates the metadata and creates a new immutable version.
+Saving edits to a boolean scorer with omitted or null polarity also creates a version that explicitly records the default.
 Saving a new configuration checks the version observed when editing started. A concurrent version change returns 409 without saving either the draft metadata or configuration.
 The **More → Create new version** action can create an unchanged configuration version after confirmation. Save or discard a dirty draft before using this action.
 The **Offline evals history** button in the editor opens a scorer's experiment timeline.
-With the offline feature enabled, a scorer timeline offers upload state, source, date range, comparison, and exact version filters.
+The timeline offers upload state, source, date range, comparison, and exact version filters.
 The filters use compact controls. Selected and comparison period timestamps use the project timezone, matching the date range boundaries, chart labels, and coverage dates; hover a timestamp for full timezone details.
 **Break down by** splits score history by Model, Prompt version, Application version, Suite, or Run source.
 Model uses the item's optional `model_version`, falling back to the experiment's `model_version` when omitted or null.
@@ -860,6 +875,3 @@ Its experiment table keeps names and coverage on one line, shows execution time 
 Compare against a previous or custom period.
 Custom comparison periods ending now retain that end when their URL is shared or reloaded.
 Equal-length periods can share elapsed-time axes; unequal periods keep their actual date axes.
-
-The `ai-observability-offline-evaluations` flag controls all new offline views and related scorer wording and links.
-The legacy `llm-analytics-offline-evals` flag does not enable them. Keep rollout disabled until producer upload-to-display verification is complete.

@@ -106,6 +106,7 @@ from products.cdp.backend.presentation.hog_functions import (
     filter_action_ids,
     filter_cohort_ids,
     gated_template_enabled,
+    is_property_group,
     validate_realtime_cohorts,
 )
 from products.cdp.backend.presentation.hog_invocations.cancel import (
@@ -388,6 +389,7 @@ from products.workflows.backend.presentation.views.hog_flow_batch_job import (
 from products.workflows.backend.presentation.views.hog_flow_fields import (
     HOG_FLOW_VARIABLES_MAX_BYTES,
     HogFlowActionTypeField,
+    HogFlowConditionFiltersSerializer,
     HogFlowMaskingSerializer,
     HogFlowVariableSerializer,
 )
@@ -410,12 +412,13 @@ _LookupResult = TypeVar("_LookupResult", Workflow, WorkflowRef, WorkflowEditStat
 _DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "bytecode_contract", "source")
 
 WORKFLOWS_COHORT_CONDITIONS_FLAG = "workflows-cohort-conditions"
+WORKFLOWS_CONDITION_FILTER_GROUPS_FLAG = "workflows-condition-filter-groups"
 
 
-def cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
+def _workflows_flag_rolled_out(flag: str, user: Any, organization_id: str) -> bool:
     try:
         return feature_enabled_or_false(
-            WORKFLOWS_COHORT_CONDITIONS_FLAG,
+            flag,
             user.distinct_id,
             groups={"organization": organization_id},
             group_properties={"organization": {"id": organization_id}},
@@ -424,6 +427,10 @@ def cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
         )
     except Exception:
         return False
+
+
+def cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
+    return _workflows_flag_rolled_out(WORKFLOWS_COHORT_CONDITIONS_FLAG, user, organization_id)
 
 
 LISTED_ORIGIN_PRODUCTS: list[str] = [
@@ -531,16 +538,18 @@ def _reject_over_cap_duration(action: dict, field: str, context: dict) -> None:
     raise serializers.ValidationError({"config": duration_cap_error(field)})
 
 
-def _cohort_condition_already_stored(action: dict, condition: dict, context: dict) -> bool:
+def _branch_condition_already_stored(
+    action: dict, condition: dict, context: dict, stored_key: str = "stored_branch_conditions"
+) -> bool:
     """
     True when this conditional_branch condition matches one already persisted for the same action.
 
-    Mirrors _wait_condition_already_stored: the cohort-conditions flag polices new adoption, not
-    edits around an accepted condition. Without this, a flag dial-down (or an internal re-save,
-    which has no request to evaluate the flag against) would fail compilation of an active flow's
-    unchanged cohort conditions.
+    Mirrors _wait_condition_already_stored: the cohort-conditions and filter-groups flags police new
+    adoption, not edits around an accepted condition. Without this, a flag dial-down (or an internal
+    re-save, which has no request to evaluate the flag against) would fail compilation of an active
+    flow's unchanged conditions.
     """
-    stored = context.get("stored_cohort_conditions")
+    stored = context.get(stored_key)
     if not stored:
         return False
     action_id = action.get("id")
@@ -1421,6 +1430,11 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
         help_text="The workflow's email sending rate limit. A slow enough rate raises the email audience limit. "
         "The response's rate_limited field says which rates qualify.",
     )
+    refresh = serializers.BooleanField(
+        default=False,
+        help_text="Count the audience now instead of reusing a count from the last few minutes. "
+        "Set it when the count decides whether a send may go ahead.",
+    )
 
 
 class RealtimeCohortStatusSerializer(serializers.Serializer):
@@ -1759,7 +1773,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             "no variables, so it can't be rerun. "
             "email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, "
             "inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, "
-            "html?, design?}}}}. Sends from PostHog's shared sandbox sender to members of the organization only, "
+            "html?, design?}}}}. Sends from the PostHog test sender to members of the organization only, "
             "so it takes no sender, reply-to, template, headers or attachments. Needs text or html. "
             "Only workflows, not broadcasts or templates, can hold it. "
             "Dictionary input values are template strings too — write booleans/numbers as single-expression "
@@ -1826,13 +1840,19 @@ class HogFlowActionSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
     _cohort_conditions_flag: Optional[bool] = None
+    _condition_filter_groups_flag: Optional[bool] = None
 
     def _cohort_conditions_enabled(self) -> bool:
         if self._cohort_conditions_flag is None:
-            self._cohort_conditions_flag = self._check_cohort_conditions_flag()
+            self._cohort_conditions_flag = self._check_flag(WORKFLOWS_COHORT_CONDITIONS_FLAG)
         return self._cohort_conditions_flag
 
-    def _check_cohort_conditions_flag(self) -> bool:
+    def _condition_filter_groups_enabled(self) -> bool:
+        if self._condition_filter_groups_flag is None:
+            self._condition_filter_groups_flag = self._check_flag(WORKFLOWS_CONDITION_FILTER_GROUPS_FLAG)
+        return self._condition_filter_groups_flag
+
+    def _check_flag(self, flag: str) -> bool:
         try:
             request = self.context.get("request")
             user = getattr(request, "user", None)
@@ -1841,7 +1861,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             get_team = self.context.get("get_team")
             if get_team is None:
                 return False
-            return cohort_conditions_rolled_out(user, str(get_team().organization_id))
+            return _workflows_flag_rolled_out(flag, user, str(get_team().organization_id))
         except Exception:
             return False
 
@@ -2558,15 +2578,30 @@ class HogFlowActionSerializer(serializers.Serializer):
                     if strict:
                         raise serializers.ValidationError("Event filters are not allowed in conditionals")
                 else:
+                    already_stored = _branch_condition_already_stored(data, condition, self.context)
                     cohorts_supported = (
                         is_conditional_branch
                         and (bool(filter_cohort_ids(filters)) or bool(filter_action_ids(filters)))
-                        and (
-                            _cohort_condition_already_stored(data, condition, self.context)
-                            or self._cohort_conditions_enabled()
-                        )
+                        and (already_stored or self._cohort_conditions_enabled())
                     )
-                    serializer = HogFunctionFiltersSerializer(
+                    uses_filter_groups = (
+                        is_conditional_branch
+                        and isinstance(filters, dict)
+                        and is_property_group(filters.get("properties"))
+                    )
+                    groups_already_stored = _branch_condition_already_stored(
+                        data, condition, self.context, "stored_grouped_branch_conditions"
+                    )
+                    # Refused on lenient web drafts too: a draft that kept the group would count as
+                    # already stored on activation and slip past the flag.
+                    if uses_filter_groups and not (groups_already_stored or self._condition_filter_groups_enabled()):
+                        raise serializers.ValidationError(
+                            {"config": "Filter groups in branch conditions aren't available for this organization."}
+                        )
+                    filters_serializer_class = (
+                        HogFlowConditionFiltersSerializer if uses_filter_groups else HogFunctionFiltersSerializer
+                    )
+                    serializer = filters_serializer_class(
                         data=filters,
                         context={**self.context, "cohort_membership_supported": True}
                         if cohorts_supported
@@ -3323,7 +3358,7 @@ class WorkflowEmailPauseStatusSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "True while this workflow's email is paused because its spam complaint or hard bounce rate "
-            "crossed a threshold. Other workflows in the project keep sending."
+            "crossed a threshold."
         ),
     )
     email_sending_paused_at = serializers.DateTimeField(
@@ -3828,7 +3863,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         }
 
         # Realtime cohorts an active flow's batch or schedule audience already sends to, so a flag
-        # dial-down polices new adoption only, like stored_cohort_conditions below.
+        # dial-down polices new adoption only, like stored_branch_conditions below.
         self.context["stored_realtime_audience_cohort_ids"] = {
             cohort_id
             for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
@@ -3838,7 +3873,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             for cohort_id in filter_cohort_ids((action.get("config") or {}).get("filters"))
         }
 
-        self.context["stored_cohort_conditions"] = {
+        self.context["stored_branch_conditions"] = {
             action["id"]: [
                 _authored_condition(stored_condition)
                 for stored_condition in [
@@ -3848,6 +3883,21 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                 if isinstance(stored_condition, dict)
             ]
             for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
+            if isinstance(action, dict) and action.get("id") and action.get("type") == "conditional_branch"
+        }
+
+        # Grouped conditions stored in any status, not only active. Resuming a disabled workflow
+        # revalidates its stored actions, and a Canvas resume has no request to evaluate the flag
+        # against, so an active-only list would refuse a workflow that already holds groups.
+        self.context["stored_grouped_branch_conditions"] = {
+            action["id"]: [
+                _authored_condition(stored_condition)
+                for stored_condition in (action.get("config") or {}).get("conditions") or []
+                if isinstance(stored_condition, dict)
+                and isinstance(stored_condition.get("filters"), dict)
+                and is_property_group(stored_condition["filters"].get("properties"))
+            ]
+            for action in ((instance.actions if instance else None) or [])
             if isinstance(action, dict) and action.get("id") and action.get("type") == "conditional_branch"
         }
 
@@ -3999,7 +4049,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             for action in data.get("actions", stored.actions if stored else None) or []
         ):
             raise serializers.ValidationError(
-                {"actions": "Only workflows can use the sandbox sender. Choose a verified email sender for this step."}
+                {
+                    "actions": "Only workflows can use the PostHog test sender. Choose a verified email sender for this step."
+                }
             )
         require_viewer_access_to_added_actions(
             self.context,
@@ -4388,7 +4440,7 @@ class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
             "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, "
             "preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, "
             "where email and name are optional templated overrides resolved per invocation; the address must "
-            "resolve to the selected sender's verified domain or the send fails. A sandbox step (type "
+            "resolve to the selected sender's verified domain or the send fails. A PostHog test sender step (type "
             "email_sandbox) takes only subject, preheader, text and to. The design is edited via "
             "operations, and html is always re-rendered from it."
         ),
@@ -4397,9 +4449,9 @@ class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
         choices=EmailStepSender.choices,
         required=False,
         help_text=(
-            "Switch the step's sender. 'sandbox' moves it to PostHog's sandbox sender, which sends only to "
+            "Switch the step's sender. 'sandbox' moves it to the PostHog test sender, which sends only to "
             "verified members of the organization and needs no verified domain; it is set up for the project "
-            "on first use. 'own' moves a sandbox step back to one of the project's verified senders, named in "
+            "on first use. 'own' moves a PostHog test sender step back to one of the project's verified senders, named in "
             "email_patch.from.integrationId. The step keeps its id, recipient, content and category."
         ),
     )
@@ -4407,7 +4459,7 @@ class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text=(
-            "With sender 'sandbox': drop the settings the sandbox sender can't keep (custom from address or "
+            "With sender 'sandbox': drop the settings the PostHog test sender can't keep (custom from address or "
             "name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch "
             "is refused and the error lists them, so confirm with the user before setting it."
         ),
@@ -4596,7 +4648,7 @@ def _apply_action_email_edit(
         if own_only:
             raise exceptions.ValidationError(
                 {
-                    "email_patch": f"A sandbox email step can't set {', '.join(own_only)}. To send from one of "
+                    "email_patch": f"A PostHog test sender step can't set {', '.join(own_only)}. To send from one of "
                     "the project's own senders, set sender: 'own' with email_patch.from.integrationId."
                 }
             )
@@ -4624,7 +4676,7 @@ def _switched_to_sandbox(action: dict, drop_own_sender_settings: bool) -> dict:
     if not valid_sandbox_action_id(action.get("id")):
         raise exceptions.ValidationError(
             {
-                "sender": f"{INVALID_ACTION_ID} Add a new email step with such an ID on the sandbox sender, "
+                "sender": f"{INVALID_ACTION_ID} Add a new email step with such an ID on the PostHog test sender, "
                 "then remove this one."
             }
         )
@@ -4632,7 +4684,7 @@ def _switched_to_sandbox(action: dict, drop_own_sender_settings: bool) -> dict:
     if dropped and not drop_own_sender_settings:
         raise exceptions.ValidationError(
             {
-                "sender": f"The sandbox sender can't keep these settings: {', '.join(dropped)}. Clear them first, "
+                "sender": f"The PostHog test sender can't keep these settings: {', '.join(dropped)}. Clear them first, "
                 "or send drop_own_sender_settings: true to drop them."
             }
         )
@@ -6319,7 +6371,7 @@ class HogFlowViewSet(
             raise exceptions.ValidationError(
                 {
                     "sender": "That sender's domain isn't verified yet. Verify it in the project's email settings, "
-                    "or keep the sandbox sender until then."
+                    "or keep the PostHog test sender until then."
                 }
             )
 
@@ -6387,10 +6439,10 @@ class HogFlowViewSet(
 
     def _check_sandbox_sender_available(self, request: Request) -> None:
         if not isinstance(request.user, User):
-            raise exceptions.ValidationError({"sender": "Switching to the sandbox sender needs a signed-in user."})
+            raise exceptions.ValidationError({"sender": "Switching to the PostHog test sender needs a signed-in user."})
         if not _can_set_up_sandbox_sender(self.team, request.user):
             raise exceptions.PermissionDenied(
-                "Setting up the sandbox sender needs edit access to all workflows in this project."
+                "Setting up the PostHog test sender needs edit access to all workflows in this project."
             )
         try:
             check_sandbox_sender_available(self.team, request.user)
@@ -7412,6 +7464,7 @@ class HogFlowViewSet(
             dedupe_key=dedupe_key,
             sends_email=params["sends_email"],
             email_rate_limit=params.get("email_sending_rate_limit"),
+            use_cached_counts=not params["refresh"],
         )
         # The cohort API denies a scoped token without cohort:read, so this response withholds the
         # cohort's name and build state from it too.

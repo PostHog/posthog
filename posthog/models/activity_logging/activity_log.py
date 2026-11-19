@@ -1,6 +1,7 @@
 import json
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
+from types import ModuleType
 from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union, cast
 from uuid import UUID
 
@@ -22,6 +23,7 @@ from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging import activity_log_config_registry
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
     ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
@@ -151,6 +153,8 @@ ActivityScope = Literal[
     "DataWarehouseJoin",
     "Billing",
     "Loop",
+    "SandboxEnvironment",
+    "SandboxCustomImage",
     "StamphogRepoConfig",
     "ReviewRepository",
     "ReviewProjectSettings",
@@ -477,6 +481,8 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     # The rubric API is limited to staff, so saved criteria and generated suggestions must not be
     # readable through activity_log:read. Record that the rubrics changed, never their contents.
     "SignalScoutConfig": ["rubrics"],
+    "SandboxEnvironment": ["environment_variables"],
+    "SandboxCustomImage": ["spec"],
 }
 
 field_name_overrides: dict[AuditableScope, dict[str, str]] = {
@@ -518,6 +524,8 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "managed_by": "managed by",
         "auto_pause_exempt": "never pause for inactivity",
         "write_scopes": "write access",
+        "report_actions": "report actions",
+        "max_report_actions_per_day": "report actions per day",
         "lifecycle_locked": "owner-only pause, resume, and delete",
         "allowed_mcp_tools": "allowed MCP tools",
         "tool_preset": "tool preset",
@@ -539,9 +547,6 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "scout_instructions": "scout instructions",
         "research_instructions": "research instructions",
         "implementation_instructions": "implementation instructions",
-    },
-    "OAuthApplication": {
-        "_provisioning_config": "provisioning config",
     },
     "OrganizationIPRestrictions": {
         "ip_restrictions": "IP allowlist",
@@ -621,6 +626,18 @@ platform_alert_runtime_fields = [
     "updated_at",
 ]
 
+sandbox_custom_image_machine_fields = [
+    "status",
+    "version",
+    "modal_image_name",
+    "base_image_reference",
+    "base_image_refresh_reference",
+    "scan_result",
+    "error",
+    "build_log",
+    "builder_task",
+]
+
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
     "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
@@ -686,6 +703,7 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     ],
     # Inserts bump these on every use. They are not a settings edit.
     "TicketMacro": ["usage_count", "last_used_at"],
+    "SandboxCustomImage": [*sandbox_custom_image_machine_fields, "updated_at"],
 }
 
 # Activity visibility restrictions - controls which users can see certain activity logs
@@ -914,16 +932,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "widget_instances",
         "widget_snapshots",
     ],
-    "FeatureFlag": [
-        "experiment",
-        "featureflagoverride",
-        "usage_dashboard",
-        "analytics_dashboards",
-        "flag_evaluation_contexts",
-        # FeatureFlagCodeAnalysis is team-scoped, so reading this relation for a diff hits the
-        # fail-closed manager. A code analysis does not change the flag, so the diff skips it.
-        "code_analyses",
-    ],
     "Experiment": [
         "feature_flag",
         "feature_flag_auto_archived",
@@ -959,8 +967,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "persondistinctid",
         "cohort",
         "cohortpeople",
-        "properties_last_updated_at",
-        "properties_last_operation",
         "version",
         "is_user",
     ],
@@ -1213,25 +1219,34 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Reverse relations auto-managed by FK creates, not user-initiated config changes.
         "runs",
     ],
-    "OAuthApplication": [
-        # Secrets — never diff these, even masked.
-        "client_secret",
-        "hash_client_secret",
-        # Reverse token relations can hold tens of thousands of rows; reading
-        # through them in `changes_between` would scan the token tables.
-        "oauthaccesstoken",
-        "oauthidtoken",
-        "oauthrefreshtoken",
-        "oauthgrant",
-        # Bookkeeping timestamps and FKs, not scope-ceiling intent.
-        "created",
-        "updated",
-        "cimd_metadata_last_fetched",
-        "dcr_client_id_issued_at",
-        "organization",
-        "user",
-    ],
+    "SandboxCustomImage": sandbox_custom_image_machine_fields,
 }
+
+
+# A scope's tuning lives next to the model it configures, in a data-only module, so the team that
+# owns the model owns its tuning. The registry lists those modules; the registries above keep the
+# scopes whose model has no product owner. Merging here rather than in the registry keeps the
+# duplicate check in this reviewed file.
+_SCOPE_CONFIG_REGISTRIES: dict[str, dict[Any, Any]] = {
+    "FIELD_EXCLUSIONS": field_exclusions,
+    "FIELD_NAME_OVERRIDES": field_name_overrides,
+    "FIELD_WITH_MASKED_CONTENTS": field_with_masked_contents,
+    "SIGNAL_EXCLUSIONS": signal_exclusions,
+}
+
+
+def _merge_scope_configs(registries: Mapping[str, dict[Any, Any]], modules: Iterable[ModuleType]) -> None:
+    for module in modules:
+        for attribute, registry in registries.items():
+            for scope, value in getattr(module, attribute, {}).items():
+                if scope in registry:
+                    raise RuntimeError(
+                        f"{attribute}: {scope} is tuned twice, so {module.__name__} cannot tune it again"
+                    )
+                registry[scope] = value
+
+
+_merge_scope_configs(_SCOPE_CONFIG_REGISTRIES, activity_log_config_registry.MODULES)
 
 
 def describe_change(m: Any) -> Union[str, dict]:

@@ -43,6 +43,7 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     autoFocus?: boolean
     sourceQuery?: AnyDataNode
     globals?: Record<string, any>
+    captureQueryTelemetry?: boolean
     schema?: Record<string, any> | null
     /** Ask for per-filter index eligibility. Costs a second resolution pass server-side, so set it only where the result is rendered. */
     indexUsage?: boolean
@@ -164,6 +165,7 @@ export function CodeEditor({
     onPressCmdShiftEnter,
     autoFocus,
     globals,
+    captureQueryTelemetry,
     sourceQuery,
     schema,
     onError,
@@ -213,6 +215,7 @@ export function CodeEditor({
         metadataQueryOffset: metadataQueryOffset,
         language: editorProps.language ?? 'text',
         globals,
+        captureQueryTelemetry,
         sourceQuery,
         monaco: monaco,
         editor: editor,

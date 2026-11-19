@@ -1,0 +1,6 @@
+('{"$browser_version":"120","nested":{"deep":null,"keep":1},"items":[{"a":null},2],"service.name":"api","$feature_flags":{"demo":"control","on":"true"},"$set":{"gone":null,"score":7}}','{"$set":{"gone":null,"score":7}}','{"name":"x","address":{"city":null}}',['plan'],[],['email'])
+('{"quoted":[1,2],"cut":"[1,2","a.b":1,"big":"20000000000000000000","fits":1e19}','{}','{"tags":[1,2],"$browser":"7"}',[],[],[])
+('{"$unparseable_properties":"{\\"k\\":1e400,\\"$set\\":{\\"a\\":1}}","$set":{"a":1}}','{"$set":{"a":1}}','{"$unparseable_properties":"{\\"n\\":1e400}"}',[],[],[])
+('{}','{}','{}',[],[],[])
+('{"$unparseable_properties":"{\\"broken\\""}','{}','{"$unparseable_properties":"[1"}',[],[],[])
+('{"$unparseable_properties":[]}','{}','{"$unparseable_properties":"\\"text\\""}',[],[],[])

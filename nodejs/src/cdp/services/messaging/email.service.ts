@@ -13,6 +13,7 @@ import {
     HogFunctionType,
     IntegrationType,
     MessageAssetRow,
+    MinimalAppMetric,
 } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
@@ -64,6 +65,8 @@ import {
     TRACKING_CODE_HEADER_NAME,
 } from './helpers/tracking-code'
 import { transactionalEmailIdentity, transactionalEmailIdentityTags } from './helpers/transactional-email-identity'
+import { WorkflowRunTag } from './helpers/utm'
+import { parseWorkflowEmailPause } from './helpers/workflow-email-pause'
 import { callsSettledBefore, declaredFileBytes, exceedsLargestSend, settledBeforeAbort } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
@@ -347,25 +350,6 @@ const workflowEmailPausedTotal = new Counter({
     help: 'Email sends skipped because the workflow they belong to had its email paused for complaints or hard bounces.',
 })
 
-/**
- * Whether this workflow's email is paused, and the customer-facing reason.
- *
- * Stamped into the synthetic hog function's metadata by HogFlowFunctionsService, which is the only
- * flow-level state in scope here. The `HogFlow` post_save signal publishes a worker config reload
- * when the pause is written, so an in-flight run and an already-queued batch send both stop at this
- * choke point instead of only newly started runs.
- */
-function parseWorkflowEmailPause(metadata: HogFunctionType['metadata']): { reason: string; byStaff: boolean } | null {
-    if (!metadata?.email_sending_paused_at) {
-        return null
-    }
-    const reason = metadata.email_sending_paused_reason
-    return {
-        reason: typeof reason === 'string' ? reason : '',
-        byStaff: metadata.email_sending_paused_by === 'staff',
-    }
-}
-
 function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
     // Wake around when the next token accrues. The 1x-2x jitter spreads a queued backlog's
     // retries so they don't all re-dequeue (and re-claim against one token) at the same instant.
@@ -418,6 +402,53 @@ function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: 
     // time back. Spread them over the next horizon so they do not arrive as one herd
     // asking for tokens that will not be there.
     return Math.floor(parkMs * (1 + Math.random()))
+}
+
+const SENDING_LIMIT_LONG_DELAY_MS = 60 * 60 * 1_000
+
+function sendStepOf(invocation: CyclotronJobInvocationHogFunction): string {
+    return invocation.state.actionId
+        ? `${invocation.state.actionId}:${invocation.state.actionStepCount ?? 0}`
+        : invocation.id
+}
+
+function sendingLimitHoldStartMs(invocation: CyclotronJobInvocationHogFunction): number | null {
+    const stamp = invocation.queueMetadata?.teamCappedAt
+    if (typeof stamp !== 'string') {
+        return null
+    }
+    const separator = stamp.lastIndexOf('@')
+    if (separator < 0 || stamp.slice(0, separator) !== sendStepOf(invocation)) {
+        return null
+    }
+    const heldAtMs = DateTime.fromISO(stamp.slice(separator + 1), { zone: 'utc' }).toMillis()
+    return Number.isFinite(heldAtMs) ? heldAtMs : null
+}
+
+function sentOverAnHourAfterFirstLimitHold(invocation: CyclotronJobInvocationHogFunction): boolean {
+    const heldSinceMs = sendingLimitHoldStartMs(invocation)
+    return heldSinceMs !== null && Date.now() - heldSinceMs > SENDING_LIMIT_LONG_DELAY_MS
+}
+
+function emailMetric(
+    invocation: CyclotronJobInvocationHogFunction,
+    metricName:
+        | 'email_sent'
+        | 'email_failed'
+        | 'email_untracked'
+        | 'email_sending_limit_delayed'
+        | 'email_sending_limit_delayed_over_1h'
+): MinimalAppMetric {
+    const appSourceVersion = resolveEmailSendingAppSourceVersion(invocation)
+    return {
+        team_id: invocation.teamId,
+        app_source_id: invocation.parentRunId ?? invocation.functionId,
+        instance_id: invocation.state.actionId || invocation.id,
+        metric_kind: 'email',
+        metric_name: metricName,
+        count: 1,
+        ...(appSourceVersion ? { app_source_version: appSourceVersion } : {}),
+    }
 }
 
 const teamEmailCapDelayedTotal = new Counter({
@@ -675,13 +706,30 @@ export class EmailService {
             : null
     }
 
-    private tagsLinksWithWorkflowRun(
+    private async workflowRunTagFor(
         invocation: CyclotronJobInvocationHogFunction,
         trackingEnabled: boolean,
-        isTest: boolean
-    ): boolean {
-        const sensitive = isSensitiveMessage(invocation)
-        return trackingEnabled && !isTest && !sensitive && this.workflowRunLinkTagTeams(invocation.teamId)
+        isTest: boolean,
+        senderEmail: string
+    ): Promise<WorkflowRunTag | null> {
+        if (!trackingEnabled || isTest || isSensitiveMessage(invocation)) {
+            return null
+        }
+        if (!this.workflowRunLinkTagTeams(invocation.teamId)) {
+            return null
+        }
+        const untagged = { runId: null, senderEmail, siteUrl: this.siteUrl }
+        try {
+            const enabled = await this.teamWorkflowsConfigService.tagsEmailLinksWithWorkflowRun(invocation.teamId)
+            return enabled ? { ...untagged, runId: invocation.id } : untagged
+        } catch (error) {
+            logger.warn('Workflow run link tag lookup failed - sending without the tag', {
+                teamId: invocation.teamId,
+                functionId: invocation.functionId,
+                error: error instanceof Error ? error.message : String(error),
+            })
+            return untagged
+        }
     }
 
     // Send email. `isTest` flags sends from the editor's "Run test" path so the tracking code
@@ -744,9 +792,7 @@ export class EmailService {
             // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
             // recovers — same fail-closed stance as the global SES gate.
             const workflowRateLimit = parseWorkflowEmailRateLimit(invocation.hogFunction.metadata)
-            const sendStep = invocation.state.actionId
-                ? `${invocation.state.actionId}:${invocation.state.actionStepCount ?? 0}`
-                : invocation.id
+            const sendStep = sendStepOf(invocation)
             let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
             if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest && !workflowRateClaimed) {
                 const periodSeconds = workflowRateLimit.period === 'minute' ? 60 : 3600
@@ -801,6 +847,7 @@ export class EmailService {
             const teamBudget = await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
             teamBudgetCharged = teamBudget.charged
             const capDelay = teamBudget.delay
+            const limitHeldSinceMs = sendingLimitHoldStartMs(invocation)
             if (capDelay) {
                 result.finished = false
                 result.parked = true
@@ -809,6 +856,10 @@ export class EmailService {
                 // without them the rescheduled dequeue resumes the Hog VM and drops the send.
                 result.invocation.queueParameters = params
                 result.invocation.queueMetadata = { ...invocation.queueMetadata, teamCapped: true }
+                if (capDelay.label && limitHeldSinceMs === null) {
+                    result.invocation.queueMetadata.teamCappedAt = `${sendStep}@${DateTime.utc().toISO()}`
+                    result.metrics.push(emailMetric(invocation, 'email_sending_limit_delayed'))
+                }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: capDelay.retryDelayMs })
                 const capRetrySeconds = Math.round(capDelay.retryDelayMs / 1000)
                 addLog(
@@ -833,9 +884,7 @@ export class EmailService {
                       html: tagEmailLinks(
                           paramsWithReplyTo.html,
                           this.utmTaggingFor(invocation, addLog),
-                          this.tagsLinksWithWorkflowRun(invocation, trackingEnabled, isTest)
-                              ? { runId: invocation.id, senderEmail: from.email, siteUrl: this.siteUrl }
-                              : null
+                          await this.workflowRunTagFor(invocation, trackingEnabled, isTest, from.email)
                       ),
                   }
                 : paramsWithReplyTo
@@ -993,30 +1042,16 @@ export class EmailService {
         // Test sends (from the editor's "Run test") must not record metrics — keep them out of the
         // workflow's Metrics tab, mirroring the isTest skip the SES webhook applies to delivery/open/click.
         if (!isTest) {
-            const appSourceVersion = resolveEmailSendingAppSourceVersion(invocation)
-            const sendVersion = appSourceVersion ? { app_source_version: appSourceVersion } : {}
-            result.metrics.push({
-                team_id: invocation.teamId,
-                app_source_id: invocation.parentRunId ?? invocation.functionId,
-                instance_id: invocation.state.actionId || invocation.id,
-                metric_kind: 'email',
-                metric_name: success ? 'email_sent' : 'email_failed',
-                count: 1,
-                ...sendVersion,
-            })
+            result.metrics.push(emailMetric(invocation, success ? 'email_sent' : 'email_failed'))
 
             // Untracked sends can never produce opens/clicks, so record them separately: open/click
             // rates are computed against (delivered - untracked) to avoid deflation.
             if (success && !trackingEnabled) {
-                result.metrics.push({
-                    team_id: invocation.teamId,
-                    app_source_id: invocation.parentRunId ?? invocation.functionId,
-                    instance_id: invocation.state.actionId || invocation.id,
-                    metric_kind: 'email',
-                    metric_name: 'email_untracked',
-                    count: 1,
-                    ...sendVersion,
-                })
+                result.metrics.push(emailMetric(invocation, 'email_untracked'))
+            }
+
+            if (success && sentOverAnHourAfterFirstLimitHold(invocation)) {
+                result.metrics.push(emailMetric(invocation, 'email_sending_limit_delayed_over_1h'))
             }
 
             if (success && assetRow) {

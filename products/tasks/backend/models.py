@@ -33,6 +33,7 @@ from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.integrations import IntegrationManager
 from posthog.integrations.lifecycle import sdk_runs_hooks
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.scoping.manager import EnvironmentScopedManager
@@ -87,7 +88,7 @@ from products.tasks.backend.metrics import (
 from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.redis import dedicated_stream_configured, run_uses_dedicated_stream
 from products.tasks.backend.run_options import RunSettings, apply_run_options, run_options_record, validate_run_options
-from products.tasks.backend.storage import append_jsonl_object
+from products.tasks.backend.storage import TaskRunLog, append_jsonl_object, read_run_log
 from products.tasks.backend.task_sources import apply_task_source, idempotency_key_startswith_q
 
 logger = structlog.get_logger(__name__)
@@ -2295,11 +2296,6 @@ class TaskSession(TeamScopedRootMixin, UUIDModel):
             task=task,
         )
 
-    def read_jsonl(self) -> str:
-        if self.object_storage_key is None:
-            return ""
-        return object_storage.read(self.object_storage_key, missing_ok=True) or ""
-
     def tag_object(self) -> None:
         if self.object_storage_key is None:
             return
@@ -3009,6 +3005,30 @@ class TaskRun(models.Model):
                 state.pop(key, None)
         self.state = state
 
+    @classmethod
+    def revoke_agent_egress_registrations(
+        cls,
+        run_id: str | uuid.UUID,
+        *,
+        reason: str,
+        sandbox_id: str | None = None,
+    ) -> int:
+        with transaction.atomic():
+            run = cls.objects.select_for_update().filter(id=run_id).only("id", "team_id").first()
+            if run is None:
+                return 0
+            registrations = AgentEgressRegistration.objects.for_team(run.team_id).filter(
+                task_run_id=run.id, revoked=False
+            )
+            if sandbox_id is not None:
+                registrations = registrations.filter(sandbox_id=sandbox_id)
+            return registrations.update(
+                revoked=True,
+                revoked_at=django_timezone.now(),
+                revoked_by="tasks-worker",
+                revocation_reason=reason,
+            )
+
     def prepare_for_cloud_resume(self) -> None:
         """
         Restart this cloud run from its existing log and sandbox snapshot.
@@ -3046,17 +3066,19 @@ class TaskRun(models.Model):
             prior_snapshot_mount_path=prior_snapshot_mount_path,
         )
 
-        self.save(
-            update_fields=[
-                "status",
-                "environment",
-                "queued_at",
-                "completed_at",
-                "error_message",
-                "state",
-                "updated_at",
-            ]
-        )
+        with transaction.atomic():
+            self.revoke_agent_egress_registrations(self.id, reason="cloud_resume")
+            self.save(
+                update_fields=[
+                    "status",
+                    "environment",
+                    "queued_at",
+                    "completed_at",
+                    "error_message",
+                    "state",
+                    "updated_at",
+                ]
+            )
         self.publish_stream_state_event()
 
     @classmethod
@@ -3074,7 +3096,10 @@ class TaskRun(models.Model):
         with transaction.atomic():
             locked_task_run = cls.objects.select_for_update().get(id=run_id)
             state = dict(locked_task_run.state or {})
+            previous_sandbox = (state.get("sandbox_id"), state.get("sandbox_backend", "modal"))
             mutator(state)
+            if previous_sandbox != (state.get("sandbox_id"), state.get("sandbox_backend", "modal")):
+                cls.revoke_agent_egress_registrations(run_id, reason="sandbox_changed")
             locked_task_run.state = state
             locked_task_run.save(update_fields=["state", "updated_at"])
             return state
@@ -3249,6 +3274,10 @@ class TaskRun(models.Model):
     def log_url(self) -> str:
         """Generate the S3 path for this run's logs."""
         return f"{self.get_task_s3_prefix()}/run_{self.id}.jsonl"
+
+    @property
+    def log(self) -> TaskRunLog:
+        return TaskRunLog(key=self.log_url)
 
     def get_task_s3_prefix(self) -> str:
         """Base prefix for task-scoped objects in S3."""
@@ -3876,7 +3905,7 @@ class TaskRun(models.Model):
     def _log_tail_is_conversation_cleared(self) -> bool:
         # Reads the whole object because S3 offers no cheap tail read; clears are rare
         # and the subsequent append re-reads it anyway.
-        content = object_storage.read(self.log_url, missing_ok=True) or ""
+        content = read_run_log(self.log)
         last_line = content.strip().rsplit("\n", 1)[-1]
         if not last_line:
             return False
@@ -3995,6 +4024,7 @@ class AgentEgressRegistration(models.Model):
     execution_id = models.UUIDField(unique=True, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="egress_registrations")
+    sandbox_id = models.CharField(max_length=255, null=True)
     region = models.CharField(max_length=32)
     actor_id = models.PositiveBigIntegerField()
     actor_epoch = models.PositiveBigIntegerField()
@@ -4003,6 +4033,10 @@ class AgentEgressRegistration(models.Model):
     relay_key_sha256 = models.CharField(max_length=43)
     lease_expires_at = models.DateTimeField()
     revoked = models.BooleanField(default=False)
+    created_at = models.DateTimeField(null=True)
+    revoked_at = models.DateTimeField(null=True)
+    revoked_by = models.CharField(max_length=64, null=True)
+    revocation_reason = models.CharField(max_length=64, null=True)
 
     objects = EnvironmentScopedManager()
 
@@ -4452,17 +4486,6 @@ class SandboxSnapshot(UUIDModel):
         self.save(update_fields=["status"])
 
     @classmethod
-    def get_latest_snapshot_for_integration(cls, integration_id: int) -> Optional["SandboxSnapshot"]:
-        return (
-            cls.objects.filter(
-                integration_id=integration_id,
-                status=cls.Status.COMPLETE,
-            )
-            .order_by("-created_at")
-            .first()
-        )
-
-    @classmethod
     def get_latest_snapshot_with_repos(
         cls, integration_id: int, required_repos: list[str]
     ) -> Optional["SandboxSnapshot"]:
@@ -4495,8 +4518,10 @@ class SandboxSnapshot(UUIDModel):
         super().delete(*args, **kwargs)
 
 
-class SandboxEnvironment(UUIDModel):
+class SandboxEnvironment(ModelActivityMixin, UUIDModel):
     """Configuration for sandbox execution environments including network access and secrets."""
+
+    activity_logging_on_delete = True
 
     class NetworkAccessLevel(models.TextChoices):
         TRUSTED = "trusted", "Trusted"
@@ -4625,8 +4650,10 @@ class SandboxEnvironment(UUIDModel):
         )
 
 
-class SandboxCustomImage(TeamScopedRootMixin):
+class SandboxCustomImage(ModelActivityMixin, TeamScopedRootMixin):
     """User-defined custom base image for cloud task sandboxes, layered on the VM sandbox base."""
+
+    activity_logging_on_delete = True
 
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
@@ -4706,6 +4733,14 @@ class SandboxCustomImage(TeamScopedRootMixin):
     @property
     def is_ready(self) -> bool:
         return self.status == self.Status.READY and bool(self.modal_image_name)
+
+    @property
+    def has_usable_build(self) -> bool:
+        return bool(self.modal_image_name) and self.status in (
+            self.Status.READY,
+            self.Status.SCANNING,
+            self.Status.BUILDING,
+        )
 
     def is_accessible_to_user(self, user_id: int | None) -> bool:
         if not self.private:

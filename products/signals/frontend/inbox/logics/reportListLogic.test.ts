@@ -12,6 +12,7 @@ import { initKeaTests } from '~/test/init'
 import { myClaim } from '../__mocks__/inboxMocks'
 import {
     INBOX_SCOPE_CLAIMED_BY_YOU,
+    INBOX_SCOPE_NEEDS_YOU,
     INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_SCOPE_FOR_YOU,
     InboxReportSectionKey,
@@ -221,65 +222,54 @@ describe('reportListLogic', () => {
 
         // The flat list merges the states by merge key, so a state loaded after a rebuild must use the
         // ranking of the states already on screen. Recommended gets a personal ranking in one flag arm.
-        it.each(['personal', 'recommended'] as const)(
-            'loads a later state from the personal ranking the loaded states use, sorted by %s',
-            async (sortField) => {
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_PERSONALIZED_SORT], {
-                    [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true,
-                })
-                inboxFiltersLogic.actions.setSort(sortField, 'asc')
-                await expectLogic(logic).toFinishAllListeners()
-                // Only an explicit Personalized sort explains a fallback, so a personal order is never one.
-                expect([logic.values.loadedPersonalOrder, logic.values.loadedPersonalFallback]).toEqual([true, false])
-                const laterLogic = reportListLogic(sectionListLogicProps('monitoring'))
-                laterLogic.mount()
-                requestedRankingIds = []
+        it('loads a later state from the personal ranking the loaded states use', async () => {
+            expect(logic.values.loadedPersonalOrder).toBe(true)
+            const laterLogic = reportListLogic(sectionListLogicProps('monitoring'))
+            laterLogic.mount()
+            requestedRankingIds = []
 
-                laterLogic.actions.ensureLoaded()
-                await expectLogic(laterLogic).toFinishAllListeners()
+            laterLogic.actions.ensureLoaded()
+            await expectLogic(laterLogic).toFinishAllListeners()
 
-                expect(requestedRankingIds).toEqual(['personal-ranking-1'])
-                laterLogic.unmount()
-            }
-        )
+            expect(requestedRankingIds).toEqual(['personal-ranking-1'])
+            laterLogic.unmount()
+        })
 
-        // A teammate scope also names the teammate as the ranking owner, so `sort=personal` reads their ranking.
+        // A Needs you scope stored while its flag is off falls back to For you.
         it.each([
             { scope: INBOX_SCOPE_FOR_YOU, sent: { suggested_reviewers: MOCK_USER_UUID } },
             { scope: INBOX_SCOPE_CLAIMED_BY_YOU, sent: { assignee: 'mine' } },
+            { scope: INBOX_SCOPE_NEEDS_YOU, needsYouFlag: true, sent: { needs_you: 'true' } },
+            { scope: INBOX_SCOPE_NEEDS_YOU, needsYouFlag: false, sent: { suggested_reviewers: MOCK_USER_UUID } },
             {
                 scope: 'teammate:t-1',
                 sent: { suggested_reviewers: 't-1', scope: 'teammate', teammate_uuid: 't-1' },
             },
             { scope: INBOX_SCOPE_ENTIRE_PROJECT, sent: {} },
-        ] as { scope: InboxScope; sent: Record<string, string> }[])(
-            'narrows the $scope request to $sent',
-            ({ scope, sent }) => {
+        ] as { scope: InboxScope; needsYouFlag?: boolean; sent: Record<string, string> }[])(
+            'narrows the $scope request to $sent with the Needs you flag $needsYouFlag',
+            ({ scope, needsYouFlag, sent }) => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_NEEDS_YOU_SCOPE], {
+                    [FEATURE_FLAGS.INBOX_NEEDS_YOU_SCOPE]: !!needsYouFlag,
+                })
                 logic.actions.setScope(scope)
-                const { suggested_reviewers, assignee, scope: sentScope, teammate_uuid } = logic.values.listApiParams
-                expect({ suggested_reviewers, assignee, scope: sentScope, teammate_uuid }).toEqual({
+                const {
+                    suggested_reviewers,
+                    assignee,
+                    needs_you,
+                    scope: sentScope,
+                    teammate_uuid,
+                } = logic.values.listApiParams
+                expect({ suggested_reviewers, assignee, needs_you, scope: sentScope, teammate_uuid }).toEqual({
                     suggested_reviewers: undefined,
                     assignee: undefined,
+                    needs_you: undefined,
                     scope: undefined,
                     teammate_uuid: undefined,
                     ...sent,
                 })
             }
         )
-
-        it("does not send the viewer's personal ranking id when switching to a teammate scope", async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_PERSONALIZED_SORT], {
-                [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true,
-            })
-            inboxFiltersLogic.actions.setSort('personal', 'asc')
-            await expectLogic(logic).toFinishAllListeners()
-            requestedRankingIds = []
-
-            logic.actions.setScope('teammate:t-1')
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(requestedRankingIds).toEqual([null])
-        })
 
         it.each([
             { name: 'tags the row with a new claim', scope: INBOX_SCOPE_ENTIRE_PROJECT, assignee: myClaim },

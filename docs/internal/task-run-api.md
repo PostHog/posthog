@@ -24,6 +24,12 @@ Submission takes ownership before navigation and only enables warm activation wh
 When the warm response advertises `permission_mode_mutable`, permission-only changes retain the draft’s warm run. Submission targets that run by ID and the server must acknowledge the final mode before delivering the prompt; other selection changes still release the run. Older servers keep the strict matching behavior.
 A successful submission gives the next draft a fresh warm-up budget. Remounting or retrying a failed submission does not.
 
+The PostHog AI web composer starts warm-up when its input gets focus, including automatic focus when the composer opens, only when no repository is attached.
+Warm-up requires AI data processing approval.
+Warm-up waits for the saved task settings to load.
+Attaching a repository releases an unused warm run and stops composer warm-up, including after typing.
+An empty draft releases its unused warm run five seconds after the input loses focus.
+
 Opening Ask AI on a Self-driving inbox report warms a task sandbox for the discussion.
 
 The response has status `201` and contains the task and its `latest_run`.
@@ -161,6 +167,7 @@ A done task refuses new runs, cloud resumes, and follow-up messages with `409`.
 `POST /api/projects/{team_id}/tasks/{task_id}/close/` moves an idle task to done.
 A task can become done only while its profile is set to `enforce` in the `tasks-task-done` feature flag payload.
 Every profile is off until the payload names it.
+With `enforce`, a task on the `review_hog`, `signals.scout_suggestions` or `conversations.support_reply` profile becomes done when a run completes.
 
 A task with a cloud run in progress refuses another run or a cloud resume with `409`.
 A run that is being canceled does not count.
@@ -202,15 +209,23 @@ Reports with `output_destinations.inbox: false` do not send notifications.
 Report notifications require `posthog-code-mobile-push`.
 Ordinary task notifications do not require this flag.
 
-`PATCH /api/users/@me/` sets four booleans under `notification_settings`:
+`PATCH /api/users/@me/` sets notification preference booleans under `notification_settings`:
 
-| Key                                  | Controls                 |
-| ------------------------------------ | ------------------------ |
-| `mobile_push_enabled`                | All mobile notifications |
-| `mobile_push_tasks_enabled`          | Chat and task updates    |
-| `mobile_push_reports_enabled`        | New reports              |
-| `mobile_push_report_updates_enabled` | Report updates           |
+| Key                                  | Controls                     |
+| ------------------------------------ | ---------------------------- |
+| `mobile_push_enabled`                | All mobile notifications     |
+| `mobile_push_tasks_enabled`          | Legacy Chat and Loops switch |
+| `mobile_push_chat_enabled`           | Chat notifications           |
+| `mobile_push_loops_enabled`          | Loop notifications           |
+| `mobile_push_reports_enabled`        | New reports                  |
+| `mobile_push_report_updates_enabled` | Report updates               |
 
-All four default to `true`.
+New accounts default to `true`. Chat uses `mobile_push_chat_enabled` with `mobile_push_chat_attention_enabled`, `mobile_push_chat_mentions_enabled`, `mobile_push_chat_replies_enabled`, `mobile_push_chat_completions_enabled`, and `mobile_push_chat_pr_outcomes_enabled`. Reports use `mobile_push_report_updates_enabled` with `mobile_push_report_attention_enabled`, `mobile_push_report_completions_enabled`, `mobile_push_report_pr_ready_enabled`, and `mobile_push_report_pr_outcomes_enabled`. Both a feature's parent switch and its activity switch must allow delivery. New reports use `mobile_push_reports_enabled` separately. `thread_message` carries a recipient-specific `isMention` boolean.
+
+Loops use `mobile_push_loops_enabled`, alongside each loop's delivery configuration. Existing `mobile_push_tasks_enabled` opt-outs initialize both Chat and Loops to off. A PATCH from an older client containing that legacy key still updates both feature switches, unless the request explicitly supplies an individual feature switch. Changing Chat notifications in the new app leaves loop alerts unchanged.
+
+`mobile_push_snooze_enabled` controls local snooze reminders. The mobile app checks it alongside the master switch before scheduling and cancels pending reminders when it observes an opt-out. Other devices observe changes on their next foreground refresh.
+
+Cancellation payloads identify the initiating user with `cancelledByUserId`; that user does not receive the cancellation alert. Completed non-interactive report work with an already attached, new PR awaiting review uses the PR-ready alert for eligible reviewers who allow it, sharing the normal PR deduplication key. Other recipients still receive the completion alert. Interactive runs keep completion alerts separate because PR artefacts identify the run, not the turn that produced them.
 The delivery worker checks that the account is active, along with current preferences and access, before it sends a queued notification.
 Task notifications require current viewer access to the task resource when queued and when delivered.

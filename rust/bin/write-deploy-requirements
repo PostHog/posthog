@@ -1,0 +1,57 @@
+#!/bin/sh
+# Writes the deploy requirements manifest of a Rust image (tools/deploy-requirements, version 1):
+# every sqlx migration version of the databases that the image declares, as "sqlx" requirements.
+# The deploy-time check (deploy-requirements-check) reads this file from the app image, so the
+# requirements always come from the image that rolls out, not from today's migration image.
+#
+# Usage: write-deploy-requirements "<databases>" <output file> [migrations base dir]
+# <databases> is a space-separated list of migrate-entry names, or empty for an image that
+# uses no sqlx database. An empty list writes a manifest with no requirements.
+set -eu
+
+DATABASES="${1-}"
+OUTPUT="${2:?Usage: write-deploy-requirements \"<databases>\" <output file> [migrations base dir]}"
+BASE="${3:-.}"
+
+migrations_dir() {
+    case "$1" in
+        persons) echo "persons_migrations" ;;
+        behavioral-cohorts) echo "behavioral_cohorts_migrations" ;;
+        cyclotron-node) echo "cyclotron-node-migrations" ;;
+        flags-read-store) echo "flags_read_store_migrations" ;;
+        *) return 1 ;;
+    esac
+}
+
+# sqlx reads the version from the digits before the first underscore of each .sql file.
+# A reversible migration has a .down.sql twin that is not a version of its own.
+versions_of() {
+    for path in "$1"/*.sql; do
+        [ -e "$path" ] || continue
+        name=$(basename "$path")
+        case "$name" in *.down.sql) continue ;; esac
+        echo "${name%%_*}"
+    done | sort -n -u | paste -sd, -
+}
+
+# Compact JSON with the key order of the Node writer, because the contract computes the digest
+# over the compact requirements list.
+requirements=""
+for database in $DATABASES; do
+    if ! dir=$(migrations_dir "$database"); then
+        echo "Unknown sqlx database '$database'. Use a name that migrate-entry accepts." >&2
+        exit 1
+    fi
+    versions=$(versions_of "$BASE/$dir")
+    [ -n "$versions" ] || continue
+    entry="{\"kind\":\"sqlx\",\"database\":\"$database\",\"versions\":[$versions]}"
+    requirements="${requirements:+$requirements,}$entry"
+done
+requirements="[$requirements]"
+if command -v sha256sum >/dev/null; then
+    digest=$(printf '%s' "$requirements" | sha256sum | cut -c1-12)
+else
+    digest=$(printf '%s' "$requirements" | shasum -a 256 | cut -c1-12)
+fi
+
+printf '{"schema_version":1,"source_commit":null,"digest":"%s","requirements":%s}\n' "$digest" "$requirements" > "$OUTPUT"

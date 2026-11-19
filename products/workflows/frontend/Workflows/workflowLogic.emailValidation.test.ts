@@ -1,4 +1,9 @@
+import { cleanup, render, screen } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+import { createElement } from 'react'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
@@ -155,6 +160,11 @@ describe('workflowLogic email step "from" validation', () => {
         logic = workflowLogic({ id: WORKFLOW_ID })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        lemonToast.dismiss()
+        render(createElement(jest.requireActual('react-toastify').ToastContainer))
+        const wasLoaded = posthog.__loaded
+        posthog.__loaded = true
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
 
         // The Enable button stays clickable on an invalid draft: the dispatch is what records the
         // attempt and reveals the messages, while the listener guard aborts the actual enable.
@@ -165,6 +175,15 @@ describe('workflowLogic email step "from" validation', () => {
         const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
         expect(result?.valid).toBe(false)
         expect(result?.emailErrors?.from).toBe(SENDER_ERROR)
+        const toast = await screen.findByText('Fix these steps before enabling: Trigger, Send email')
+        expect(toast.closest('[data-attr$="-toast"]')?.getAttribute('data-attr')).toBe('error-toast')
+        // Step names are user-authored, so analytics gets the fixed text, not the names on screen.
+        expect(
+            captureSpy.mock.calls.filter(([event]) => event === 'toast error').map(([, props]) => props?.message)
+        ).toEqual(['Fix these steps before enabling'])
+        captureSpy.mockRestore()
+        posthog.__loaded = wasLoaded
+        cleanup()
     })
 
     it('keeps an email step added after a save attempt quiet until the next attempt', async () => {

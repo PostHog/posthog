@@ -622,7 +622,7 @@ export const ReportCardRankingPillsNarrow: Story = {
     ),
 }
 
-// The Personalized sort: three tiers with reasons, a long reason that truncates, and a report after the
+// The personal order: three tiers with reasons, a long reason that truncates, and a report after the
 // list with no tier or reason.
 const personalReports: SignalReport[] = [
     makeReport({
@@ -835,6 +835,44 @@ export const ReportCardStates: Story = {
                 })}
             />
         </Stack>
+    ),
+}
+
+// Tag chips sit under the card body. Past three tags the rest fold into a `+n` chip.
+export const ReportCardWithTags: Story = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    render: () => (
+        <CardList>
+            <ReportCard
+                showTags
+                report={makeReport({
+                    title: 'fix(billing): Stop double-charging annual plans on renewal',
+                    priority: 'P1',
+                    source_products: ['error_tracking'],
+                    summary: 'Renewals for annual plans charge the card twice when the first attempt times out.',
+                    tags: ['billing', 'silent-failure', 'payments', 'retry-logic', 'customer-impact'],
+                })}
+            />
+            <ReportCard
+                showTags
+                report={makeReport({
+                    title: 'fix(docs): Point the SDK setup page at the current install command',
+                    priority: 'P3',
+                    source_products: ['session_replay'],
+                    summary: 'The setup page shows an install command for a package version that no longer exists.',
+                    tags: ['docs-gap', 'onboarding'],
+                })}
+            />
+            <ReportCard
+                showTags
+                report={makeReport({
+                    title: 'Report without tags keeps its height',
+                    priority: 'P2',
+                    source_products: ['github'],
+                    summary: 'No tag row renders when a report has no tags.',
+                })}
+            />
+        </CardList>
     ),
 }
 

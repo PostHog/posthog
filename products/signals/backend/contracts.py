@@ -1370,6 +1370,52 @@ class GoogleSearchConsoleSearchOpportunitySignalInput(SignalInputBase):
     extra: GoogleSearchConsoleSearchOpportunitySignalExtra
 
 
+# ── SEO site audits ──────────────────────────────────────────────────────────────
+
+
+class BingWebmasterToolsSearchOpportunitySignalExtra(SignalExtraBase):
+    site_url: str | None
+    issue_flag: str | None
+    issue: str | None
+    affected_urls: str | None
+    example_url: str | None
+    inbound_links: str | None
+
+
+class BingWebmasterToolsSearchOpportunitySignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SEARCH_OPPORTUNITY]
+    source_product: Literal[SignalSourceProduct.BING_WEBMASTER_TOOLS]
+    extra: BingWebmasterToolsSearchOpportunitySignalExtra
+
+
+class AhrefsSearchOpportunitySignalExtra(SignalExtraBase):
+    project_id: str | None
+    issue_id: str | None
+    issue_category: str | None
+    issue_importance: str | None
+    affected_urls: str | None
+
+
+class AhrefsSearchOpportunitySignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SEARCH_OPPORTUNITY]
+    source_product: Literal[SignalSourceProduct.AHREFS]
+    extra: AhrefsSearchOpportunitySignalExtra
+
+
+class SemrushSearchOpportunitySignalExtra(SignalExtraBase):
+    project_id: str | None
+    issue_id: str | None
+    affected_pages: str | None
+    example_url: str | None
+    audit_snapshot_id: str | None
+
+
+class SemrushSearchOpportunitySignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SEARCH_OPPORTUNITY]
+    source_product: Literal[SignalSourceProduct.SEMRUSH]
+    extra: SemrushSearchOpportunitySignalExtra
+
+
 class HelpscoutConversationSignalExtra(SignalExtraBase):
     number: str | None
     status: str | None
@@ -1924,6 +1970,34 @@ class CursorIssueSignalInput(SignalInputBase):
     source_type: Literal[SignalSourceType.ISSUE]
     source_product: Literal[SignalSourceProduct.CURSOR]
     extra: CursorIssueSignalExtra
+
+
+# ── App reviews and error-report feedback ──────────────────────────────────────
+
+
+class AppStoreConnectReviewSignalExtra(SignalExtraBase):
+    app_id: str | None
+    rating: str | None
+    territory: str | None
+    created_date: str | None
+
+
+class AppStoreConnectReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.APP_STORE_CONNECT]
+    extra: AppStoreConnectReviewSignalExtra
+
+
+class SentryFeedbackSignalExtra(SignalExtraBase):
+    project_slug: str | None
+    event_id: str | None
+    date_created: str | None
+
+
+class SentryFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.SENTRY_FEEDBACK]
+    extra: SentryFeedbackSignalExtra
 
 
 # ── Code, secret and cloud security scanners ───────────────────────────────────
@@ -2688,6 +2762,9 @@ SignalInput = Annotated[
     | EngineeringAnalyticsCIBrokenDefaultBranchSignalInput
     | EngineeringAnalyticsCIDurationRegressionSignalInput
     | GoogleSearchConsoleSearchOpportunitySignalInput
+    | BingWebmasterToolsSearchOpportunitySignalInput
+    | AhrefsSearchOpportunitySignalInput
+    | SemrushSearchOpportunitySignalInput
     | HelpscoutConversationSignalInput
     | DecagonConversationSignalInput
     | VitallyConversationSignalInput
@@ -2728,6 +2805,8 @@ SignalInput = Annotated[
     | AzureApplicationInsightsIssueSignalInput
     | AppsignalIssueSignalInput
     | CursorIssueSignalInput
+    | AppStoreConnectReviewSignalInput
+    | SentryFeedbackSignalInput
     | SonarcloudScannerFindingSignalInput
     | CheckmarxScannerFindingSignalInput
     | VeracodeScannerFindingSignalInput
@@ -2846,6 +2925,9 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     EngineeringAnalyticsCIBrokenDefaultBranchSignalInput,
     EngineeringAnalyticsCIDurationRegressionSignalInput,
     GoogleSearchConsoleSearchOpportunitySignalInput,
+    BingWebmasterToolsSearchOpportunitySignalInput,
+    AhrefsSearchOpportunitySignalInput,
+    SemrushSearchOpportunitySignalInput,
     HelpscoutConversationSignalInput,
     DecagonConversationSignalInput,
     VitallyConversationSignalInput,
@@ -2886,6 +2968,8 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     AzureApplicationInsightsIssueSignalInput,
     AppsignalIssueSignalInput,
     CursorIssueSignalInput,
+    AppStoreConnectReviewSignalInput,
+    SentryFeedbackSignalInput,
     SonarcloudScannerFindingSignalInput,
     CheckmarxScannerFindingSignalInput,
     VeracodeScannerFindingSignalInput,

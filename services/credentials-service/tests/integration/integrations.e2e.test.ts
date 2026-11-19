@@ -223,7 +223,7 @@ async function auditRows(): Promise<{ operation: string; outcome: string; owner_
 
 beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:17-alpine').start()
-    await runMigrations({ databaseUrl: container.getConnectionUri(), direction: 'up' })
+    await runMigrations({ databaseUrl: container.getConnectionUri(), direction: 'up', partmanOptional: true })
     pool = new Pool({ connectionString: container.getConnectionUri(), max: 5 })
     audit = new AuditQueue(pool, { flushIntervalMs: 60_000 })
     kms = new LocalKms([randomBytes(32)])
@@ -447,6 +447,7 @@ describe('audit write safety', () => {
     ])('stores a batch whose caller holds %s', async (_label, caller, stored) => {
         const entry = {
             actor: { deployment: WEB, caller, userId: null, jti: 'j', requestId: 'r' },
+            occurredAt: new Date(),
             operation: 'read',
             outcome: 'ok',
             ownerType: 'team',
@@ -962,6 +963,31 @@ describe('list across teams', () => {
 })
 
 describe('audit', () => {
+    it('keeps the access time when a queued entry is flushed', async () => {
+        const occurredAt = new Date('2020-01-02T03:04:05.678Z')
+        audit.enqueue([
+            {
+                actor: { deployment: WEB, caller: 'test', userId: null, jti: 'jti', requestId: 'queued-read' },
+                occurredAt,
+                operation: 'read',
+                outcome: 'ok',
+                ownerType: 'team',
+                ownerId: TEAM_A,
+                integrationId: null,
+                kind: 'hubspot',
+            },
+        ])
+
+        await audit.flush()
+
+        const rows = await pool.query('SELECT occurred_at FROM audit_log')
+        expect(rows.rows.map((row) => row.occurred_at.toISOString())).toEqual([occurredAt.toISOString()])
+        const line = logLines
+            .map((value) => JSON.parse(value))
+            .find((value) => value.fields?.request_id === 'queued-read')
+        expect(line?.fields.occurred_at).toBe(occurredAt.toISOString())
+    })
+
     it('writes one row per changed record in the write transaction, and queues read rows', async () => {
         const created = await create()
         await call('PATCH', `/${created.id}`, { body: { sensitive_config_patch: { access_token: 'fake-rotated' } } })
@@ -1017,6 +1043,7 @@ describe('audit', () => {
         small.enqueue([
             {
                 actor: { deployment: WEB, caller: 'test', userId: null, jti: 'jti', requestId: 'req' },
+                occurredAt: new Date(),
                 operation: 'read',
                 outcome: 'ok',
                 ownerType: 'team',
@@ -1034,6 +1061,7 @@ describe('audit', () => {
         const before = await droppedTotal()
         const entry = {
             actor: { deployment: WEB, caller: 'test', userId: null, jti: 'jti', requestId: 'req' },
+            occurredAt: new Date(),
             operation: 'read',
             outcome: 'ok',
             ownerType: 'team',

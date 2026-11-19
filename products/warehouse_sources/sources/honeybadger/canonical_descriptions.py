@@ -196,4 +196,58 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "When the evaluation ran.",
         },
     },
+    "notices_per_day": {
+        "description": "Number of error notifications processed per project per day, as shown on the project's Reports tab. Days start at midnight UTC.",
+        "docs_url": "https://docs.honeybadger.io/api/projects/#get-report-data",
+        "columns": {
+            "project_id": "Identifier of the project the counts belong to.",
+            "day": "Start of the day (midnight UTC) the count covers.",
+            "count": "Number of error notifications processed on that day.",
+        },
+    },
+    "notices_by_class": {
+        "description": "Number of error notifications processed per project in the last 30 days, grouped by error class.",
+        "docs_url": "https://docs.honeybadger.io/api/projects/#get-report-data",
+        "columns": {
+            "project_id": "Identifier of the project the counts belong to.",
+            "klass": "The error class name (e.g. RuntimeError).",
+            "count": "Number of error notifications of that class processed in the window.",
+        },
+    },
+    "accounts": {
+        "description": "A Honeybadger account the authenticated user belongs to. Accounts own projects, teams, and billing.",
+        "docs_url": "https://docs.honeybadger.io/api/accounts/",
+        "columns": {
+            "id": "Unique identifier for the account.",
+            "name": "Name of the account.",
+            "email": "Email address of the account.",
+            "active": "Whether the account is active.",
+            "parked": "Whether the account is parked.",
+        },
+    },
+    "account_users": {
+        "description": "A user who belongs to a Honeybadger account, with their role in it.",
+        "docs_url": "https://docs.honeybadger.io/api/accounts/#get-a-list-of-account-users-or-user-details",
+        "columns": {
+            "id": "Unique identifier for the user.",
+            "account_id": "Identifier of the account the user belongs to.",
+            "account_name": "Name of the account the user belongs to.",
+            "role": "The user's role in the account: Member, Billing, Admin, or Owner.",
+            "name": "Name of the user.",
+            "email": "Email address of the user.",
+        },
+    },
+    "team_members": {
+        "description": "A member of a Honeybadger team. Teams control which users can access which projects.",
+        "docs_url": "https://docs.honeybadger.io/api/teams/#get-a-list-of-team-members-or-team-member-details",
+        "columns": {
+            "id": "Unique identifier for the team member.",
+            "team_id": "Identifier of the team.",
+            "team_name": "Name of the team.",
+            "name": "Name of the team member.",
+            "email": "Email address of the team member.",
+            "admin": "Whether the member is an admin of the team.",
+            "created_at": "When the member joined the team.",
+        },
+    },
 }

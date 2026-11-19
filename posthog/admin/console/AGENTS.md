@@ -2,7 +2,8 @@
 
 The staff back office at `/admin/console/`.
 It replaces custom Django admin views and templates for staff workflows.
-The semgrep rules in `.semgrep/rules/devex/no-new-custom-admin-views.yaml` and `no-new-custom-admin-templates.yaml` block new ones (admin views, URLs under `/admin/`, save hooks, workflow actions, admin templates and scripts, and any file under `templates/admin/` or `static/admin/`), and the program ends when their findings reach zero.
+The semgrep rules in `.semgrep/rules/devex/no-new-custom-admin-views.yaml` and `no-new-custom-admin-templates.yaml` block new ones (admin views, URLs under `/admin/`, save hooks, workflow actions, admin templates and scripts, and any file under `templates/admin/` or `static/admin/`).
+The program ends when no staff page, workflow, template override or admin script is left in the Django admin.
 The Django admin stays for plain CRUD on models, with the Python tweaks that the "Django admin" section of [`.agents/architecture.md`](../../../.agents/architecture.md) allows. Read it when you decide whether a change stays in the admin.
 Before you add or change a panel, operation or tool, invoke `/extending-the-admin-console`. It holds the judgment calls: where a change goes, copy, how to classify an operation, and the checks before done.
 
@@ -21,7 +22,7 @@ Before you add or change a panel, operation or tool, invoke `/extending-the-admi
 1. In `products/<product>/backend/console.py`, subclass `Panel` and decorate it with `@console.register_panel`. Set `record` to a key from `RECORD_TYPES` in `records.py` (`team`, `organization` or `deletion-request`). Import only your product's `facade/`, `posthog.admin.console`, and, for a bridge, the `ModelAdmin` that still holds the view. `products/workflows/backend/console.py` is the reference.
 2. Set `owner = Owner(name=..., crest=...)`. The crest is a mini crest slug from `@posthog/brand`, for example `workflows`. Define each `Owner` once and import it. Add `staff_group` when the team gates operations with `Gate.owner()`. `migrate` and `ensure_migration_defaults` create that group on dev, test and hobby databases. In production, create the group in Django admin and add the staff who run those operations. A local `migrate` and `manage.py check --database default` warn when the group is missing.
 3. For each action, return an `Operation`. Put its inputs in a Django `forms.Form` (`form_class`); the console renders and validates it. Its `handler(request, obj, form)` returns `None` when done. The handler is a service function, or `AdminViewBridge(Model, SomeAdmin.view_method)` while the logic still lives in a `ModelAdmin`. A bridged view must take a POST and answer with a redirect. Later, replace the bridge with a service function; the panel stays as it is.
-4. Run `pnpm --filter=@posthog/frontend build:admin-console` when you add an owner crest or change a template. `posthog/admin/test_admin_console.py` fails when a template class, a linked asset or an owner crest is missing from the build output.
+4. Run `pnpm --filter=@posthog/frontend build:admin-console` when you add an owner crest or change a template. `posthog/test/repo_invariants/test_admin_console_assets.py` fails when a template class, a linked asset or an owner crest is missing from the build output.
 
 ## Add a tool
 

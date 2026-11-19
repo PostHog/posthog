@@ -1262,8 +1262,8 @@ def _swap_keeps_bindings(original: ast.AST, swapped: ast.AST, flag_key_predicate
 
     The swap may change only the table each swapped scan reads. A name that binds elsewhere changes the result
     with no resolution error: a `WITH` name that a `flag_evaluations` column now shadows, a `COLUMNS(...)` that
-    expands to other columns, or a `person_id` that read the stored events column and now reads the person overrides
-    join. The persons-on-events mode decides how `events` reads person fields. The comparison ignores order,
+    expands to other columns, or a person field that the two tables define differently. The persons-on-events mode
+    decides how `events` reads person fields, and Database.create_for makes `flag_evaluations` follow it. The comparison ignores order,
     because the swap moves `PREWHERE` into `WHERE`. The swapped query also reads flag_key once for each of the
     `flag_key_predicates` that the swap adds.
     """

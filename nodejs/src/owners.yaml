@@ -5,6 +5,11 @@ rules:
       owners: team-ai-observability
     - match: '/cdp/'
       owners: team-workflows
+    - match:
+          - '/cdp/consumers/cdp-cohort-membership.consumer.*'
+          - '/cdp/services/cohort-membership/'
+          - '/cdp/dev/cohort-sweep-e2e.test.*'
+      owners: team-feature-flags
     - match: '/ingestion/'
       owners: team-ingestion
     - match: '/ingestion/pipelines/sessionreplay/'
@@ -46,6 +51,7 @@ rules:
           - '/common/utils/db/*.test.*'
           - '/common/utils/env-utils.test.*'
           - '/common/utils/geoip.test.*'
+          - '/common/utils/posthog.test.*'
           - '/common/utils/event-ingestion-restrictions/*.test.*'
       owners: team-ingestion
     - match:

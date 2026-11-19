@@ -7,6 +7,7 @@ contract check watches this file to decide whether they must retest.
 
 from __future__ import annotations
 
+import re
 import hashlib
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, field
@@ -130,7 +131,7 @@ MAX_STORED_INTEGER: Final = 2_147_483_647
 # The most recent checks an N-of-M decision can look back over, unless the kind sets its own.
 MAX_EVALUATION_PERIODS: Final = 10
 # The largest window any kind allows. The API publishes it, and each kind enforces its own.
-MAX_SOURCE_EVALUATION_PERIODS: Final = 60
+MAX_SOURCE_EVALUATION_PERIODS: Final = 1441
 
 
 @frozen
@@ -951,6 +952,24 @@ class EvaluationAnnouncement:
 
 
 @frozen
+class HandoffSend:
+    """One send a routing or destination edit owes a destination about a group that is firing.
+
+    A destination that gains the firing hears it now, so its later resolve has something to close. An
+    incident manager that loses it hears the resolve, so the incident does not stay open. The
+    destination is named by id and read when the send runs, so no credential travels on the payload.
+    """
+
+    grouping_key: str
+    # The firing the send concerns, which names the incident and the Slack thread.
+    episode_started_at: datetime
+    # An `AlertDestination` id, or an `AlertReceiver` id when `routed`.
+    destination_id: str
+    routed: bool
+    gained: bool
+
+
+@frozen
 class AlertDeliveryRequest:
     """Where to find what one evaluation decided, rather than a copy of it.
 
@@ -995,6 +1014,9 @@ class AlertDeliveryRequest:
     # and which of them one activity sends. The workflow sets `part`.
     parts: int = 1
     part: int = 0
+    # Set on a request for the hand-over workflow, after an edit moved firings between incident
+    # managers. It reads the rows that opened those firings, and writes no history.
+    handoff: tuple[HandoffSend, ...] = ()
 
     def to_stored(self) -> dict[str, Any]:
         return asdict(self)
@@ -1512,6 +1534,7 @@ class DestinationType(LabeledStrEnum):
     WEBHOOK = "webhook", "Webhook"
     TEAMS = "teams", "Microsoft Teams"
     PAGERDUTY = "pagerduty", "PagerDuty"
+    INCIDENT_IO = "incident_io", "incident.io"
     EMAIL = "email", "Email"
     IN_APP = "in_app", "In-app notification"
 
@@ -1540,6 +1563,11 @@ class IncidentAction(StrEnum):
     RESOLVE = "resolve"
 
 
+# The ID goes into the URL path of every send, so delivery checks it again rather than trust the stored value.
+# Anchored because DRF's RegexField searches rather than matches the whole value.
+INCIDENT_IO_ALERT_SOURCE_CONFIG_ID_RE: Final = re.compile(r"\A[0-9A-Za-z]{26}\Z")
+
+
 class AlertDestinationData(TypedDict):
     type: DestinationType
     slack_workspace_id: NotRequired[int]
@@ -1552,6 +1580,9 @@ class AlertDestinationData(TypedDict):
     pagerduty_routing_key: NotRequired[str]
     pagerduty_severity: NotRequired[str]
     pagerduty_region: NotRequired[str]
+    incident_io_alert_source_config_id: NotRequired[str]
+    # Secret-bearing: reads show only its last four characters.
+    incident_io_secret: NotRequired[str]
     email_addresses: NotRequired[list[str]]
     # Users rather than addresses, so a send reaches each one's current address, and only while they have access.
     email_user_ids: NotRequired[list[int]]
@@ -1570,13 +1601,14 @@ DESTINATION_EVENT_KINDS: Final = frozenset(
 
 # Turns on team-wide receivers and routes for a team, in delivery and in the API that edits them.
 ROUTING_FLAG: Final = "platform-alerts-routing"
-# The types routed delivery sends to. It skips incident managers, and email and in-app need
-# recipients that belong to one alert.
+# The types routed delivery sends to. Email and in-app need recipients that belong to one alert.
 ROUTABLE_DESTINATION_TYPES: Final = (
     DestinationType.SLACK,
     DestinationType.WEBHOOK,
     DestinationType.TEAMS,
     DestinationType.DISCORD,
+    DestinationType.PAGERDUTY,
+    DestinationType.INCIDENT_IO,
 )
 
 
@@ -1603,6 +1635,14 @@ class StoredAlertDestination:
     consecutive_failures: int
     legacy_hog_function_ids: tuple[UUID, ...]
     keeps_legacy_webhook_body: bool = False
+
+
+@frozen
+class DeliveryTestOutcome:
+    """What sending a test message to an alert's destinations did: how many took it, and how many refused or failed."""
+
+    sent: int
+    failed: int
 
 
 @frozen

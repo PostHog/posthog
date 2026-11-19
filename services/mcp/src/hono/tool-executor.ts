@@ -53,6 +53,7 @@ import {
     type ExecInnerCallProperties,
     type ExecInnerCallTracker,
 } from '@/tools/exec'
+import { LEARN_TOOL_NAME } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import { skillAnalyticsProperties, skillLookupMissProperties } from '@/tools/skills/analytics'
@@ -69,6 +70,7 @@ import {
     trackToolsList,
     type ToolCallAnalyticsMeta,
 } from './analytics'
+import { MCP_TIME_SERIES_CHARTS_FLAG } from './constants'
 import {
     type GuidanceEngine,
     type GuidanceNotice,
@@ -81,6 +83,10 @@ import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metr
 import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
 import type { ToolCatalog } from './tool-catalog'
+
+function drawsTimeSeriesCharts(state: ResolvedState): boolean {
+    return state.toolFeatureFlags?.[MCP_TIME_SERIES_CHARTS_FLAG] === true && state.clientProfile.drawsTimeSeriesCharts()
+}
 
 interface ResolvedTool {
     name: string
@@ -215,7 +221,7 @@ export class ToolExecutor {
         const nameSet = new Set(state.allTools.map((t) => t.name))
         const filteredTools = this.catalog.getPreBuiltEntries().filter((e) => nameSet.has(e.name))
 
-        return filteredTools.map((entry) => {
+        const tools = filteredTools.map((entry) => {
             if (entry.name === EXECUTE_SQL_TOOL_NAME) {
                 return {
                     ...entry,
@@ -224,6 +230,9 @@ export class ToolExecutor {
             }
             return entry
         })
+        return this.instructionsBuilder.isLearnToolEnabled(state)
+            ? [...tools, this.instructionsBuilder.buildLearnToolEntry()]
+            : tools
     }
 
     private findOriginalTool(toolName: string, state: ResolvedState): ListToolsResult['tools'][number] | undefined {
@@ -345,6 +354,20 @@ export class ToolExecutor {
             return this.callExecTool(callParams, state, analyticsMeta)
         }
 
+        // Tools mode has no `exec` tool, so it lists `learn` as a tool of its own (Cursor is the main
+        // tools-mode client). The call runs the `exec learn` path so that both modes serve one skill catalog.
+        if (toolName === LEARN_TOOL_NAME && this.instructionsBuilder.isLearnToolEnabled(state)) {
+            const command = String((callParams.arguments as Record<string, unknown> | undefined)?.command ?? '').trim()
+            return this.callExecTool(
+                {
+                    ...callParams,
+                    arguments: { command: /^learn(\s|$)/.test(command) ? command : `learn ${command}` },
+                },
+                state,
+                analyticsMeta
+            )
+        }
+
         if (toolName === 'render-ui') {
             // render-ui is only advertised to MCP Apps hosts; reject calls from others.
             if (!state.renderUiEnabled) {
@@ -358,7 +381,10 @@ export class ToolExecutor {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
             const scopeGatedTool = state.findScopeGatedTool(toolName)
             if (scopeGatedTool) {
-                const error = missingToolScopeError(scopeGatedTool, state.context, state.oauthClientId)
+                const error = missingToolScopeError(scopeGatedTool, state.context, {
+                    oauthClientId: state.oauthClientId,
+                    supportsStepUp: state.supportsStepUp && !state.viaMcpStore,
+                })
                 return handleToolError(error, toolName, state.distinctId, undefined, state.suppressAnalytics)
             }
             const text = getDeprecatedToolRedirect(toolName, state.allTools) ?? `Tool ${toolName} not found`
@@ -542,6 +568,7 @@ export class ToolExecutor {
                     distinctId,
                     mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext)
                         .mcpClientName,
+                    appendTimeSeriesChartData: drawsTimeSeriesCharts(state),
                 })
             }
 
@@ -974,6 +1001,7 @@ export class ToolExecutor {
             state.scopeGatedTools,
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
+                appendTimeSeriesChartData: drawsTimeSeriesCharts(state),
                 mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
                 learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
                     state,
@@ -983,6 +1011,8 @@ export class ToolExecutor {
                 ...(state.heldTools ? { heldTools: state.heldTools } : {}),
                 builtInSkillHint: this.builtInSkillHint(state),
                 oauthClientId: state.oauthClientId,
+                // Matches challengeStepUpForGatedTool: a call through the MCP store gets no challenge.
+                supportsStepUp: state.supportsStepUp && !state.viaMcpStore,
                 metricCatalogLookup: resolveMetricCatalogMode(state.metricCatalog) === 'lookup',
                 ...(state.gatewayToolsEnabled
                     ? {
