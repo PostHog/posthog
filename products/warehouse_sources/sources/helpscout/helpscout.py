@@ -1,4 +1,3 @@
-from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
 from urllib.parse import urlencode
@@ -54,6 +53,9 @@ class HelpScoutResumeConfig:
     # sync pages through the same window.
     page: Optional[int] = None
     report_end: str = ""
+    # Fan-out reports: the primary key of the last row read, so a resumed sync can drop a repeat
+    # of it at the start of the next page.
+    last_report_key: Optional[list[Any]] = None
 
 
 def _uses_v3_route(config: HelpScoutEndpointConfig, api_version: str) -> bool:
@@ -220,19 +222,20 @@ def _top_level_resource(
     )
 
 
-def _drop_repeated_rows(key_fields: list[str]) -> Callable[[dict[str, Any]], bool]:
+class _RepeatedRowCollapser:
     # Repeats arrive next to each other because the report is sorted on the conversation
-    # number, so only the previous key needs to be kept.
-    previous: list[tuple[Any, ...]] = []
+    # number, so only the previous key needs to be kept. This runs as a map, not a filter,
+    # because filters run before the map that renames the parent id to `user_id`.
+    def __init__(self, key_fields: list[str], last_key: Optional[list[Any]] = None) -> None:
+        self._key_fields = key_fields
+        self.last_key = last_key
 
-    def _keep(row: dict[str, Any]) -> bool:
-        key = tuple(row.get(field) for field in key_fields)
-        if previous and previous[0] == key:
-            return False
-        previous[:] = [key]
-        return True
-
-    return _keep
+    def __call__(self, row: dict[str, Any]) -> list[dict[str, Any]]:
+        key = [row.get(field) for field in self._key_fields]
+        if key == self.last_key:
+            return []
+        self.last_key = key
+        return [row]
 
 
 def _fanout_resource(
@@ -246,6 +249,7 @@ def _fanout_resource(
     parent_config = HELP_SCOUT_ENDPOINTS[config.fanout.parent_name]
 
     report_end = _format_since(datetime.now(UTC))
+    last_report_key: Optional[list[Any]] = None
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
@@ -253,6 +257,8 @@ def _fanout_resource(
             initial_paginator_state = resume.fanout_state
             if resume.report_end:
                 report_end = resume.report_end
+            last_report_key = resume.last_report_key
+    collapser = _RepeatedRowCollapser(config.primary_key, last_report_key) if config.is_report else None
 
     child_params: dict[str, Any] = dict(config.params)
     child_endpoint_extra: Endpoint
@@ -270,8 +276,14 @@ def _fanout_resource(
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state is not None:
+            # The checkpoint runs after the page is transformed, so the collapser holds the key of
+            # the last row the checkpoint covers. A resumed run then drops a repeat of that row.
             resumable_source_manager.save_state(
-                HelpScoutResumeConfig(fanout_state=state, report_end=report_end if config.is_report else "")
+                HelpScoutResumeConfig(
+                    fanout_state=state,
+                    report_end=report_end if config.is_report else "",
+                    last_report_key=collapser.last_key if collapser else None,
+                )
             )
 
     resource = cast(
@@ -297,8 +309,8 @@ def _fanout_resource(
             child_params_extra=child_params or None,
         ),
     )
-    if config.is_report:
-        resource = resource.add_filter(_drop_repeated_rows(config.primary_key))
+    if collapser is not None:
+        resource = resource.add_map(collapser)
     return resource
 
 
