@@ -3571,7 +3571,7 @@ describe("PostHogAPIClient", () => {
     it("treats a page without a matching count as the final page", async () => {
       const fetch = vi.fn().mockResolvedValue({
         ...page(makeEntries(10, "a"), 0, 0),
-        headers: new Headers(),
+        headers: new Headers({ "X-Log-Offset": "0" }),
       });
       const client = makeClient(fetch);
 
@@ -3584,6 +3584,18 @@ describe("PostHogAPIClient", () => {
         hasMore: false,
         matchingCount: null,
       });
+    });
+
+    it("rejects a page that has no offset", async () => {
+      const fetch = vi.fn().mockResolvedValue({
+        ...page(makeEntries(10, "a"), 0, 10),
+        headers: new Headers(),
+      });
+      const client = makeClient(fetch);
+
+      await expect(
+        client.getTaskRunSessionLogsPage("task-1", "run-1", { limit: 1 }),
+      ).rejects.toThrow();
     });
 
     it("does not retry a definite client error", async () => {

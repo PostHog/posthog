@@ -19,7 +19,7 @@ export function parseLogEntriesPage(
   headers: Headers,
   start: number,
 ): TaskRunSessionLogsPage {
-  const offset = parseCountHeader(headers, "X-Log-Offset") ?? 0;
+  const offset = parseCountHeader(headers, "X-Log-Offset");
   if (offset !== start) {
     throw new Error(`Log entries page starts at ${offset}, not ${start}`);
   }
