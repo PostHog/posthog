@@ -1952,9 +1952,11 @@ class FeatureFlagSerializer(
             # A dependent the caller cannot read is ignored, so the write reveals neither its runtime nor its existence.
             dependents = find_dependent_flags(self.instance)
             readable_ids = set(
-                self._readable_flags(FeatureFlag.objects.filter(id__in=[d.id for d in dependents])).values_list(
-                    "id", flat=True
-                )
+                self._readable_flags(
+                    FeatureFlag.objects.filter(
+                        id__in=[d.id for d in dependents], team__project_id=self.context["project_id"]
+                    )
+                ).values_list("id", flat=True)
             )
             broken_dependents = [
                 dependent
