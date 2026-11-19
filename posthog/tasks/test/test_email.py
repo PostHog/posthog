@@ -33,6 +33,7 @@ from posthog.tasks.email import (
     send_code_based_verification,
     send_discussions_mentioned,
     send_email_change_emails,
+    send_email_sender_domain_sending_stopped,
     send_email_sending_reputation_finding,
     send_email_sending_tier_demoted,
     send_email_verification_code,
@@ -264,6 +265,23 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert "1,000 emails per day" in mocked_email_messages[0].html_body
         assert "per hour" not in mocked_email_messages[0].html_body
+
+    def test_send_email_sender_domain_sending_stopped_skips_a_deactivated_admin(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        deactivated_admin = self._create_user("deactivated-admin@posthog.com", is_active=False)
+        OrganizationMembership.objects.filter(user=deactivated_admin, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+
+        send_email_sender_domain_sending_stopped(
+            team_id=self.team.id, domain="mail.example.com", stopped_at="2026-01-05T07:15:00+00:00"
+        )
+
+        assert [entry["raw_email"] for entry in mocked_email_messages[0].to] == [self.user.email]
 
     def test_send_delegation_invite_falls_back_when_organization_name_is_a_url(
         self, MockEmailMessage: MagicMock
@@ -1412,7 +1430,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         assert mocked_email_messages == []
 
-    def test_send_hog_function_filters_uncompilable_skips_a_creator_who_left(self, MockEmailMessage: MagicMock) -> None:
+    @parameterized.expand([("left_the_organization",), ("deactivated",)])
+    def test_send_hog_function_filters_uncompilable_skips_a_creator_who_left(
+        self, MockEmailMessage: MagicMock, how_they_left: str
+    ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -1424,7 +1445,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
         )
         # The email names the project and quotes the error, so it must not follow a stale created_by.
-        OrganizationMembership.objects.filter(user=creator, organization=self.organization).delete()
+        if how_they_left == "left_the_organization":
+            OrganizationMembership.objects.filter(user=creator, organization=self.organization).delete()
+        else:
+            creator.is_active = False
+            creator.save(update_fields=["is_active"])
 
         send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
 
