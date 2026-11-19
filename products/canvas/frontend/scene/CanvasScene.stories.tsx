@@ -38,6 +38,7 @@ const canvas: CanvasApi = {
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     url: `https://app.example.com/canvases/${CANVAS_ID}`,
+    user_access_level: 'manager',
 }
 
 function viewResponse(overrides: Partial<CanvasApi> = {}): CanvasViewResponseApi {
@@ -219,6 +220,7 @@ export const BuiltPublicByTeammate: Story = {
                         first_name: 'Sam',
                         email: 'sam@example.com',
                     } as CanvasApi['created_by'],
+                    user_access_level: 'editor',
                 }),
                 published_build: liveBuild,
                 current_version_id: 'version-2',

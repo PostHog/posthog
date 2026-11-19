@@ -643,6 +643,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.json()["code"] == expected_code
         setup_url = f"{settings.SITE_URL}/project/{self.team.id}/workflows/channels/email/new"
         assert (setup_url in response.json()["detail"]) == pipeline_code.startswith("sandbox_")
+        assert ("PostHog test sender" in response.json()["detail"]) == pipeline_code.startswith("sandbox_")
 
     @parameterized.expand(
         [

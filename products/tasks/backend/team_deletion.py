@@ -3,12 +3,12 @@
 ``Task.team`` and ``TaskRun.team`` are ``on_delete=CASCADE``, and Django's deletion collector
 deletes related rows directly instead of calling each instance's ``delete()``, so the model-level
 delete guards never run for a team/project/organization delete. The rows vanish while any running
-``process_task``/``execute_sandbox`` workflow keeps executing against them.
+``process_task`` workflow keeps executing against them.
 
 Stopping is a cancel, not a terminate. A terminate ends the execution without running any workflow
 code, so the teardown that reaps the Modal sandbox and completes the run stream is skipped, and the
 ``SandboxSession``/``SandboxEnvironment`` rows that would let anything else reap the sandbox are
-cascade-deleted in the same transaction. Both workflows handle ``asyncio.CancelledError`` by
+cascade-deleted in the same transaction. The workflow handles ``asyncio.CancelledError`` by
 tearing the sandbox down, so cancelling is what actually frees the compute. A workflow that never
 acts on the cancel is left to its own inactivity timeout, which is the accepted cost of not leaking
 a sandbox in the normal case.
@@ -33,11 +33,6 @@ from products.tasks.backend.models import TaskRun
 logger = logging.getLogger(__name__)
 
 _NON_TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
-
-# ``TaskRun.workflow_id`` is the orchestrator's id. ``execute_sandbox`` runs under a sibling id and
-# is started as an independent top-level execution rather than a Temporal child, so cancelling the
-# orchestrator does not reach it. ``TaskManagementWorkflow.run`` derives the same suffix.
-_SANDBOX_WORKFLOW_ID_SUFFIX = "-sandbox"
 
 # Per-call cap plus a cap on the whole sweep. The on-commit callback runs in-band with the delete,
 # which for a real team delete is `delete_team_records_activity` under a 10-minute start-to-close
@@ -91,22 +86,19 @@ def cancel_task_workflows(team_id: int, workflows: list[tuple[str, str]]) -> Non
     async def cancel_all() -> None:
         # One event loop drives the whole sweep, so the client is never used across loops.
         for run_id, workflow_id in workflows:
-            for target_id in (workflow_id, f"{workflow_id}{_SANDBOX_WORKFLOW_ID_SUFFIX}"):
-                try:
-                    await client.get_workflow_handle(target_id).cancel(rpc_timeout=_CANCEL_RPC_TIMEOUT)
-                except RPCError as error:
-                    # NOT_FOUND covers "never started" and "already finished", which is also the
-                    # normal outcome for the sandbox id on a run that has no sandbox workflow.
-                    if error.status != RPCStatusCode.NOT_FOUND:
-                        logger.exception(
-                            "tasks_team_delete_workflow_cancel_failed",
-                            extra={"team_id": team_id, "run_id": run_id, "workflow_id": target_id},
-                        )
-                except Exception:
+            try:
+                await client.get_workflow_handle(workflow_id).cancel(rpc_timeout=_CANCEL_RPC_TIMEOUT)
+            except RPCError as error:
+                if error.status != RPCStatusCode.NOT_FOUND:
                     logger.exception(
                         "tasks_team_delete_workflow_cancel_failed",
-                        extra={"team_id": team_id, "run_id": run_id, "workflow_id": target_id},
+                        extra={"team_id": team_id, "run_id": run_id, "workflow_id": workflow_id},
                     )
+            except Exception:
+                logger.exception(
+                    "tasks_team_delete_workflow_cancel_failed",
+                    extra={"team_id": team_id, "run_id": run_id, "workflow_id": workflow_id},
+                )
 
     try:
         asyncio.run(asyncio.wait_for(cancel_all(), _CANCEL_TOTAL_TIMEOUT_SECONDS))

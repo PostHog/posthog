@@ -8,6 +8,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { _MetricsOverviewServiceApi } from '../generated/api.schemas'
 import { STALE_AFTER_MS, metricsOverviewLogic } from './metricsOverviewLogic'
+import { MetricsSummaryTable } from './MetricsSummaryTable'
 
 const isStale = (lastSeen: string): boolean => dayjs().diff(dayjs(lastSeen)) > STALE_AFTER_MS
 
@@ -193,6 +194,7 @@ export const MetricsOverview = (): JSX.Element => {
                     },
                 ]}
             />
+            <MetricsSummaryTable />
         </div>
     )
 }

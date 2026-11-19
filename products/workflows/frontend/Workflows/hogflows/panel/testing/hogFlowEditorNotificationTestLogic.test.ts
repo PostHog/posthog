@@ -518,7 +518,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             [
                 'no member has verified their email',
                 { results: [member('Cy', false)], next: null },
-                'No one in your organization has verified their email address yet. Verify yours to send a sandbox test.',
+                'No one in your organization has verified their email address yet. Verify yours to send a test from the PostHog test sender.',
             ],
             [
                 'the member lookup failed',

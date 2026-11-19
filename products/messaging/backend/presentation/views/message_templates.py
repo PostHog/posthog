@@ -752,7 +752,7 @@ class MakeTransactionalSerializer(serializers.Serializer):
 class SendWarningSerializer(serializers.Serializer):
     code = serializers.ChoiceField(
         choices=SendWarningCode.choices,
-        help_text="What the warning is about. `sandbox_sender`: the email went out from PostHog's sandbox sender "
+        help_text="What the warning is about. `sandbox_sender`: the email went out from the PostHog test sender "
         "because the project has no verified sending domain, so it only reaches members of the organization.",
     )
     message = serializers.CharField(help_text="What happened and what to do next, in words a person can read.")
@@ -910,7 +910,7 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
         "`cc`, `bcc` and `attachments`"
     ),
     403: OpenApiResponse(
-        description="The project has no verified sending domain, and the sandbox sender isn't available for its "
+        description="The project has no verified sending domain, and the PostHog test sender isn't available for its "
         "organization"
     ),
     404: OpenApiResponse(description="Template not found"),
@@ -918,7 +918,7 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
     422: OpenApiResponse(
         description="The email can't go out: the recipient is suppressed or can't receive email, sending is "
         "suspended for the project or paused for this transactional email, or the Idempotency-Key was already "
-        "used for a different request, or the email would go out from the sandbox sender to someone outside the "
+        "used for a different request, or the email would go out from the PostHog test sender to someone outside the "
         "organization"
     ),
     429: OpenApiResponse(description="Rate limited, or the project is over its email quota"),

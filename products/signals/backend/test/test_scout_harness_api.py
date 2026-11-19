@@ -2763,6 +2763,60 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert NOT_IN_USE_WRITES_KEY not in (sibling_run.metadata or {})
 
 
+class TestScoutHarnessScratchpadDiscardAPI(APIBaseTest):
+    def _discard_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/scratchpad/discard/"
+
+    @parameterized.expand(
+        [
+            ("scout_scope_only", ["signal_scout:write"], status.HTTP_403_FORBIDDEN, True),
+            ("scratchpad_internal_scope_only", ["signal_scratchpad_internal:write"], status.HTTP_403_FORBIDDEN, True),
+            ("both_steering_scopes", ["signal_scout:write", "llm_skill:write"], status.HTTP_200_OK, False),
+        ]
+    )
+    def test_api_keys_need_the_steering_scopes(
+        self, _name: str, scopes: list[str], expected: int, entry_survives: bool
+    ) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        SignalScratchpad.objects.create(team=self.team, key="dedupe:stale", content="old marker")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            self._discard_url(), data={"key": "dedupe:stale"}, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}"
+        )
+
+        assert response.status_code == expected, response.content
+        assert SignalScratchpad.objects.filter(team=self.team, key="dedupe:stale").exists() == entry_survives
+
+    def test_session_discard_requires_skill_editor_rbac(self) -> None:
+        from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+        SignalScratchpad.objects.create(team=self.team, key="dedupe:stale", content="old marker")
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_llm_skill(
+            self_: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+        ) -> bool:
+            if resource == "llm_skill":
+                return False
+            return real_check(self_, resource, required_level)
+
+        with patch.object(UserAccessControl, "check_access_level_for_resource", autospec=True) as mock_check:
+            mock_check.side_effect = deny_llm_skill
+            denied = self.client.post(self._discard_url(), data={"key": "dedupe:stale"}, format="json")
+        assert denied.status_code == status.HTTP_403_FORBIDDEN
+        assert SignalScratchpad.objects.filter(team=self.team, key="dedupe:stale").exists()
+
+        allowed = self.client.post(self._discard_url(), data={"key": "dedupe:stale"}, format="json")
+        assert allowed.status_code == status.HTTP_200_OK
+        assert allowed.json() == {"deleted": True}
+        assert not SignalScratchpad.objects.filter(team=self.team, key="dedupe:stale").exists()
+
+
 class TestSearchMemoryQuerySerializer(SimpleTestCase):
     @parameterized.expand(
         [
