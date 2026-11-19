@@ -228,6 +228,17 @@ describe('sandbox email test sends', () => {
         )
     })
 
+    it('reports a send SES rejected as failed', async () => {
+        world.ses.replyNext(SES_REJECTED)
+
+        await expect(tester().send(testRun())).resolves.toEqual({ status: 'failed', reason: 'ses_rejected' })
+        await waitForExpect(() =>
+            expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
+                ['workflows sandbox email failed', 'test'],
+            ])
+        )
+    })
+
     it('skips the test when the worker has sending off', async () => {
         serveWorker({ sendingOn: false })
 

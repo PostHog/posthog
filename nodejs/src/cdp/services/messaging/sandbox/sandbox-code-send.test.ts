@@ -465,6 +465,11 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             expect.stringContaining(`The PostHog test sender didn't send the email (skipped): ${reason}`)
         )
         expect(deliveryStatuses(queued[0].id)).toEqual([{ status: 'failed', reason }])
+        await waitForExpect(() =>
+            expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
+                ['workflows sandbox email blocked', 'code'],
+            ])
+        )
     })
 
     it('records a send as failed and sends nothing when the sandbox sender is switched off after the send was queued', async () => {
@@ -525,6 +530,13 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         expect(world.ses.delivered).toHaveLength(delivered)
         expect(results.at(-1)).toMatchObject({ finished: true })
         expect(deliveryStatuses(queued[0].id)).toEqual([final])
+        const expectedEvent =
+            final.status === 'sent' ? 'workflows sandbox email sent' : 'workflows sandbox email failed'
+        await waitForExpect(() =>
+            expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
+                [expectedEvent, 'code'],
+            ])
+        )
     })
 
     const rerunFromStoredRun = async (invocationId: string): Promise<CyclotronJobInvocation[]> => {
