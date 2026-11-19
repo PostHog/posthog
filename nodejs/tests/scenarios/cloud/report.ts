@@ -45,13 +45,17 @@ const HostScorecard = z.object({
 
 const MetricData = z.object({
     MetricDataResults: z.array(
-        z.object({
-            Id: z.enum(['max', 'avg']),
-            Timestamps: z.array(z.string()),
-            Values: z.array(z.number()),
-            StatusCode: z.string(),
-            Messages: z.array(z.object({ Code: z.string().optional(), Value: z.string().optional() })).optional(),
-        })
+        z
+            .object({
+                Id: z.enum(['max', 'avg']),
+                Timestamps: z.array(z.string()),
+                Values: z.array(z.number()),
+                StatusCode: z.string(),
+                Messages: z.array(z.object({ Code: z.string().optional(), Value: z.string().optional() })).optional(),
+            })
+            .refine(({ Timestamps, Values }) => Timestamps.length === Values.length, {
+                message: 'CloudWatch returned a different number of timestamps and values',
+            })
     ),
 })
 

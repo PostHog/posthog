@@ -1082,6 +1082,13 @@ describe('cloud controller', () => {
             'no reader maximum for the minute before T0',
         ],
         [
+            'a CloudWatch series with fewer values than timestamps',
+            { readerAcu: IDLE_THEN_PROMOTED, shortAverageValues: true },
+            () => undefined,
+            'invalid',
+            'could not read the reader capacity',
+        ],
+        [
             'a whole minute missing from the five before T0',
             { readerAcu: IDLE_THEN_PROMOTED.filter(({ minute }) => minute !== -2) },
             () => undefined,
@@ -1181,41 +1188,54 @@ describe('cloud controller', () => {
         }
     })
 
-    it('judges the reader against the idle limit its own profile sets', async () => {
-        const { controller } = prepare({
-            profile: (p) => ({ ...p, readerAcu: { ...p.readerAcu, idleMax: 1.5 } }),
-            cloud: { readerAcu: IDLE_THEN_PROMOTED },
-            env: api.credentials,
-        })
+    it.each<[string, number, number, string, string]>([
+        [
+            'under the highest reader maximum before T0',
+            1.5,
+            2,
+            'invalid',
+            'reader above its 1.5 ACU idle limit before T0',
+        ],
+        ['at the highest reader maximum before T0', 2, 0, 'passed', ''],
+    ])(
+        'judges the reader against an idle limit its own profile sets %s',
+        async (_, idleMax, exitCode, status, reason) => {
+            const { controller } = prepare({
+                profile: (p) => ({ ...p, readerAcu: { ...p.readerAcu, idleMax } }),
+                cloud: { readerAcu: IDLE_THEN_PROMOTED },
+                env: api.credentials,
+            })
 
-        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
+            await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(exitCode)
 
-        expect(published()).toMatchObject({ status: 'invalid', reader_acu_at_t0: 1.5 })
-        expect(published().status_reason).toContain('reader above its 1.5 ACU idle limit before T0')
-    })
+            expect(published()).toMatchObject({ status, reader_acu_at_t0: 1.5 })
+            expect(published().status_reason).toContain(reason)
+        }
+    )
 
-    it.each<[string, Partial<FakeCloudOptions>, string]>([
+    it.each<[string, Partial<FakeCloudOptions>, string, string]>([
         [
             'CloudWatch refuses only the average series',
             { readerAcu: IDLE_THEN_PROMOTED, averageStatuses: ['Forbidden'] },
             'Could not read the reader capacity, so its ACU in the minute before T0',
+            'could not read the reader capacity',
         ],
         [
-            'CloudWatch has an average but no maximum for the minute before T0',
+            'CloudWatch has an average at the reader minimum but no maximum for the minute before T0',
             {
-                readerAcu: IDLE_THEN_PROMOTED.map((minute) =>
-                    minute.minute === -1 ? { minute: -1, avg: minute.avg } : minute
-                ),
+                readerAcu: IDLE_THEN_PROMOTED.map((minute) => (minute.minute === -1 ? { minute: -1, avg: 1 } : minute)),
             },
             'CloudWatch has no reader maximum for the minute before T0',
+            'no reader maximum for the minute before T0',
         ],
-    ])('names what is missing when %s', async (_, cloudOptions, summary) => {
+    ])('names what is missing when %s', async (_, cloudOptions, summary, reason) => {
         const { controller } = prepare({ cloud: cloudOptions, env: api.credentials })
 
-        await main(['run', profilePath(), FAILOVER_CARD], controller)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
 
         expect(out.join('\n')).toContain(summary)
-        expect(published().reader_acu_at_t0).toBeNull()
+        expect(published()).toMatchObject({ status: 'invalid', reader_acu_at_t0: null })
+        expect(published().status_reason).toContain(reason)
     })
 
     it('publishes the receipt, the cost estimate and the fingerprint beside the runner measurements', async () => {
