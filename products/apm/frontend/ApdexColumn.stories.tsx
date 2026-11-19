@@ -41,6 +41,9 @@ const ENDPOINTS: EndpointsHealthResponseApi = {
         {
             service_name: 'checkout-api',
             endpoint: 'POST /checkout',
+            span_name: 'POST /checkout',
+            route_attribute: null,
+            route: null,
             environment: 'production',
             status: 'serious',
             health: health(6.2, 0.08, 2300, 0.48),
@@ -48,6 +51,9 @@ const ENDPOINTS: EndpointsHealthResponseApi = {
         {
             service_name: 'search',
             endpoint: 'GET /search',
+            span_name: 'GET /search',
+            route_attribute: null,
+            route: null,
             environment: 'production',
             status: 'good',
             health: health(18.4, 0.004, 711, 0.83),

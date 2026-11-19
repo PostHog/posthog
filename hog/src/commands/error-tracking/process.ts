@@ -5,7 +5,7 @@ import { processArtifacts, select } from '@/error-tracking/run'
 
 import {
     DRY_RUN_OPTION,
-    PATHS,
+    PATHS_OR_STDIN,
     readOptions,
     RELEASE_OPTIONS,
     renderUpload,
@@ -16,7 +16,7 @@ import {
 
 export default defineCommand({
     description: 'Inject chunk IDs into JavaScript bundles, then upload every artifact',
-    args: PATHS,
+    args: PATHS_OR_STDIN,
     options: { ...SELECTION_OPTIONS, ...UPLOAD_OPTIONS, ...RELEASE_OPTIONS, ...DRY_RUN_OPTION },
     scopes: UPLOAD_SCOPES,
     notes: [

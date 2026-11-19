@@ -96,6 +96,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "ad_group_ad_ad_final_urls": "Landing-page URLs the ad sends users to.",
             "ad_group_ad_ad_strength": "Google's rated strength of the ad.",
             "ad_group_ad_policy_summary_approval_status": "Overall policy approval status of the ad.",
+            "ad_group_ad_policy_summary_policy_topic_entries": "Policy findings for the ad. Each entry is a JSON object with the policy topic, its type (PROHIBITED, LIMITED and others) and the evidence, for example the ad text that triggered it.",
         },
     },
     "ad_stats": {

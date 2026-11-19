@@ -5952,7 +5952,7 @@ Note: Parsed all requests and response examples in the vendor's published Postma
 
 ## HiBob — **thin**
 
-Today (20): `applications`, `candidates`, `employee_deductions`, `employee_dependents`, `employee_employment`, `employee_entitlements`, `employee_equities`, `employee_lifecycle`, `employee_right_to_work`, `employee_salaries`, `employee_variable_pay`, `employees`, `employers`, `named_lists`, `skill_proficiency_levels`, `skills`, `tasks`, `time_off_calendars`, `time_off_request_changes`, `work_locations`
+Today (27): `applications`, `candidates`, `employee_actual_payments`, `employee_deductions`, `employee_dependents`, `employee_employment`, `employee_entitlements`, `employee_equities`, `employee_lifecycle`, `employee_right_to_work`, `employee_salaries`, `employee_variable_pay`, `employees`, `employers`, `goal_key_results`, `goals`, `job_families`, `job_roles`, `named_lists`, `skill_proficiency_levels`, `skills`, `tasks`, `time_off_calendars`, `time_off_policies`, `time_off_policy_types`, `time_off_request_changes`, `work_locations`
 
 Diffed against: <https://apidocs.hibob.com/reference/get_tasks>
 
@@ -5965,10 +5965,10 @@ Diffed against: <https://apidocs.hibob.com/reference/get_tasks>
 - [x] `GET /company/named-lists` — lookup table resolving the list-value field ids stored on every employee record (high). Added as `named_lists`, one row per list item (nested children flattened with `parentId`), archived items included.
 - [x] `POST /hiring/candidates/search` — recruiting pipeline entities, unreachable today (high)
 - [x] `POST /hiring/applications/search` — application rows joining candidates to job openings — the recruiting funnel fact table (high). Added as `applications`.
-- [ ] `GET /job-catalog/job-roles and /job-catalog/job-families` — lookup tables resolving role and family ids carried on employee records (high)
-- [ ] `GET /payroll/history` — payroll runs over time, plus POST /people/actual-payments/search (medium)
-- [ ] `POST /goals/goals/search` — goals and key results with progress, including /goals/goals/key-results/search (medium)
-- [ ] `GET /timeoff/policies and /timeoff/policy-types` — lookup tables resolving the policy ids on time off requests (medium)
+- [x] `GET /job-catalog/job-roles and /job-catalog/job-families` — lookup tables resolving role and family ids carried on employee records (high). Added as `job_roles` and `job_families`. The API serves them only for companies on Job catalog 2.0; older catalogs return 404.
+- [x] `GET /payroll/history` — payroll runs over time, plus POST /people/actual-payments/search (medium). Added `employee_actual_payments` from the actual payments search, fanned out over employee ids in batches of 200. `GET /payroll/history` is skipped: HiBob marks it legacy and planned for deprecation, and its data is in the bulk employee tables already synced.
+- [x] `POST /goals/goals/search` — goals and key results with progress, including /goals/goals/key-results/search (medium). Added as `goals` and `goal_key_results`; key results fan out over the goals that have key results, because the search requires a goalId filter.
+- [x] `GET /timeoff/policies and /timeoff/policy-types` — lookup tables resolving the policy ids on time off requests (medium). Added as `time_off_policy_types` and `time_off_policies`. The API lists only names, so each table reads the details one name at a time (policies via GET /timeoff/policies/names per type).
 - [x] `GET /bulk/people/deduction`, `/entitlement`, `/variable`, `/dependents`, `/right-to-work` and `/equities` — bulk reads of the payroll and other employee tables, announced in the vendor changelog (medium). Added as `employee_deductions`, `employee_entitlements`, `employee_variable_pay`, `employee_dependents`, `employee_right_to_work` and `employee_equities`, full refresh like the other bulk history tables.
 - [x] `POST /employers/search` and `POST /employers/{employerId}/work-locations/search` — employer legal entities and their work locations from the Employer API (medium). Added as `employers` and `work_locations`; work locations fan out over employer ids, full refresh.
 - [x] `POST /skills/search` and `GET /skills/proficiency-levels` — the Skills API catalog and its proficiency levels lookup (low). Added as `skills` and `skill_proficiency_levels`, full refresh. The search only returns skills created through the Public API.
@@ -6015,13 +6015,13 @@ Diffed against: <https://docs.honeybadger.io/api/>
 - [x] `projects/{id}/sites/{id}/outages` — downtime events per monitored site - the core availability fact table (high)
 - [x] `projects/{id}/faults/{id}/affected_users` — user impact per fault, needed to rank errors by blast radius (high)
 - [x] `projects/{id}/environments` — lookup table resolving the environment names carried on faults and deploys (high)
-- [ ] `projects/{id}/reports/notices_per_day` — prebuilt daily error volume breakdown (medium)
-- [ ] `projects/{id}/reports/notices_by_class` — error-class breakdown dimension for triage dashboards (medium)
+- [x] `projects/{id}/reports/notices_per_day` — prebuilt daily error volume breakdown (medium). Added as `notices_per_day` (incremental on `day` via `start`; first sync reads 30 days).
+- [x] `projects/{id}/reports/notices_by_class` — error-class breakdown dimension for triage dashboards (medium). Added as `notices_by_class` (full refresh, rolling 30-day window).
 - [x] `projects/{id}/check_ins` — cron/heartbeat monitor state, a separate reliability signal from faults (medium). Added as `check_ins` (full refresh).
 - [x] `projects/{id}/alarms/{id}/history` — alarm state transition history - classic state-change fact table (medium). Added as `alarm_history` (fan-out over alarms, full refresh; off by default).
 - [x] `projects/{id}/faults/{id}/comments` — triage discussion attached to faults we already sync (medium). Added as `comments` (fan-out over `faults`, full refresh; off by default).
-- [ ] `teams/{id}/team_members` — membership table resolving assignee/owner references (low)
-- [ ] `accounts (and accounts/{id}/users)` — account-level roster for multi-account orgs (low)
+- [x] `teams/{id}/team_members` — membership table resolving assignee/owner references (low). Added as `team_members` (fan-out over teams, full refresh; off by default).
+- [x] `accounts (and accounts/{id}/users)` — account-level roster for multi-account orgs (low). Added as `accounts` and `account_users` (fan-out over accounts; off by default), both full refresh.
 
 Note: Static endpoint list; source dir products/warehouse_sources/sources/honeybadger has no dynamic table discovery. Enumerated every /v2/ path across the api/faults, api/projects, api/uptime, api/check-ins, api/comments, api/alarms, api/environments, api/teams, api/accounts, api/insights, api/dashboards, api/status-pages and api/streams doc pages.
 
@@ -6604,7 +6604,7 @@ Note: Jamf publishes no downloadable OpenAPI on developer.jamf.com (ReadMe-hoste
 
 ## Jellyfish — gaps
 
-Today (15): `allocations_by_investment_category`, `allocations_by_person`, `allocations_by_team`, `allocations_by_work_category`, `allocations_by_work_category_person`, `allocations_by_work_category_team`, `company_metrics`, `deliverable_scope_and_effort_history`, `deliverables`, `engineers`, `person_metrics`, `team_metrics`, `teams`, `unlinked_pull_requests`, `work_categories`
+Today (25): `ai_company_adoption_analytics`, `ai_company_impact_analytics`, `ai_person_adoption`, `ai_team_adoption_analytics`, `ai_team_impact_analytics`, `allocations_by_investment_category`, `allocations_by_investment_category_person`, `allocations_by_investment_category_team`, `allocations_by_person`, `allocations_by_team`, `allocations_by_work_category`, `allocations_by_work_category_person`, `allocations_by_work_category_team`, `allocations_summary_by_investment_category`, `allocations_summary_by_work_category`, `company_metrics`, `deliverable_scope_and_effort_history`, `deliverables`, `engineers`, `person_metrics`, `team_metrics`, `team_sprint_summary`, `teams`, `unlinked_pull_requests`, `work_categories`
 
 Diffed against: <https://raw.githubusercontent.com/Jellyfish-AI/jellyfish-mcp/main/README.md>
 
@@ -6612,10 +6612,10 @@ Diffed against: <https://raw.githubusercontent.com/Jellyfish-AI/jellyfish-mcp/ma
 - [x] `metrics/team_metrics` — per-team metrics for the teams we already sync — the main breakdown dimension (high)
 - [x] `allocations/details/work_category (+ by_person, by_team)` — allocation split by work category; we sync the work_categories lookup and investment-category allocations but not the work-category allocations themselves (high)
 - [x] `delivery/deliverable_scope_and_effort_history` — scope and effort change history for the deliverables we sync — the state-transition record behind delivery risk (high)
-- [ ] `metrics/team_sprint_summary` — sprint-level throughput and commitment per team (medium)
-- [ ] `allocations/details/investment_category_person and investment_category_team` — finer-grained investment-category breakdown than the flat allocations table we have (medium)
-- [ ] `allocations/summary/investment_category and summary/work_category` — prebuilt allocation rollups for dashboards without re-aggregating detail rows (medium)
-- [ ] `ai/company_adoption_analytics, company_impact_analytics, team_adoption_analytics, team_impact_analytics, person_adoption` — AI-assisted engineering adoption and impact — Jellyfish's current headline metric family, entirely unsynced (medium)
+- [x] `metrics/team_sprint_summary` — sprint-level throughput and commitment per team (medium). Added as `team_sprint_summary`, fanned out over every team.
+- [x] `allocations/details/investment_category_person and investment_category_team` — finer-grained investment-category breakdown than the flat allocations table we have (medium). Added as `allocations_by_investment_category_person` and `allocations_by_investment_category_team`.
+- [x] `allocations/summary/investment_category and summary/work_category` — prebuilt allocation rollups for dashboards without re-aggregating detail rows (medium). The export paths are `allocations/summary_filtered/by_investment_category` and `by_work_category`. Added as `allocations_summary_by_investment_category` and `allocations_summary_by_work_category`.
+- [x] `ai/company_adoption_analytics, company_impact_analytics, team_adoption_analytics, team_impact_analytics, person_adoption` — AI-assisted engineering adoption and impact — Jellyfish's current headline metric family, entirely unsynced (medium). The export paths are under `ai_impact/`. Added as `ai_company_adoption_analytics`, `ai_company_impact_analytics`, `ai_team_adoption_analytics`, `ai_team_impact_analytics` and `ai_person_adoption`.
 - [ ] `devex/insights_by_team` — developer experience survey insights per team (medium)
 - [ ] `people/search_people` — broader people roster than list_engineers (non-engineer contributors, managers) (medium)
 - [ ] `allocations/filter_fields` — dimension/filter-field lookup describing what allocations can be sliced by (low)
@@ -6894,8 +6894,8 @@ Diffed against: <https://kestra.io/kestra.yml>
 - [x] `Flow revisions (GET /api/v1/{tenant}/flows/{namespace}/{id}/revisions)` — resolve flowRevision in executions and compare outcomes across workflow versions (high)
 - [x] `Execution metrics (GET /api/v1/{tenant}/metrics/{executionId})` — analyze task counters and measured values, such as processed rows and bytes (high)
 - [x] `Logs (GET /api/v1/{tenant}/logs/search)` — investigate recurring failures and warnings across executions and tasks (medium)
-- [ ] `Task outputs (GET /api/v1/{tenant}/outputs/tasks/{executionId}; GET /api/v1/{tenant}/outputs/tasks/{executionId}/{taskRunId})` — connect workflow results to execution performance and downstream processing (medium)
-- [ ] `Instance usage (GET /api/v1/{tenant}/usages/all)` — track aggregate execution and flow usage for capacity planning (medium)
+- [x] `Task outputs (GET /api/v1/{tenant}/outputs/tasks/{executionId}; GET /api/v1/{tenant}/outputs/tasks/{executionId}/{taskRunId})` — connect workflow results to execution performance and downstream processing (medium)
+- [x] `Instance usage (GET /api/v1/{tenant}/usages/all)` — track aggregate execution and flow usage for capacity planning (medium)
 
 Note: Located and parsed the official OpenAPI specification through the API reference renderer. Execution search returns ApiLightExecution, while execution detail contains task runs and attempts. Task runs, revisions, metrics, and outputs require requests for each execution or flow. Settings, secrets, file operations, plugins, and execution actions were excluded; instance versions can differ from this specification.
 
@@ -8765,12 +8765,12 @@ Diffed against: <https://raw.githubusercontent.com/openai/openai-openapi/master/
 - [x] `/chat/completions (list stored completions)` — per-request log with model, tokens and metadata - the finest-grained usage fact table available (high). Added as `chat_completions`; only completions created with `store: true` are listed, and there is no server-side time filter, so it is full refresh
 - [x] `/organization/groups and /organization/groups/{id}/users` — group membership table resolving which users belong to which group (high)
 - [x] `/organization/roles and /organization/users/{id}/roles` — role assignments for the users we already sync (medium)
-- [ ] `/organization/projects/{id}/groups` — project-to-group membership, complements the project_users table we sync (medium)
+- [x] `/organization/projects/{id}/groups` — project-to-group membership, complements the project_users table we sync (medium). Added as `project_groups`
 - [x] `/batches` — batch job records with request counts and completion status (medium). Added as `batches`
-- [ ] `/fine_tuning/jobs (+ /events, /checkpoints)` — training job history, cost and status over time (medium)
+- [x] `/fine_tuning/jobs (+ /events, /checkpoints)` — training job history, cost and status over time (medium). Added as `fine_tuning_jobs`, `fine_tuning_job_events` and `fine_tuning_job_checkpoints`
 - [x] `/evals, /evals/{id}/runs, /evals/{id}/runs/{id}/output_items` — eval run results - the analytical object for model quality tracking (medium). Added as `evals`, `eval_runs` and `eval_run_output_items`
-- [ ] `/chat/completions/{id}/messages` — message-level detail behind each stored completion (low)
-- [ ] `/vector_stores` — lookup resolving the vector store IDs in usage_vector_stores (low)
+- [x] `/chat/completions/{id}/messages` — message-level detail behind each stored completion (low). Added as `chat_completion_messages`
+- [x] `/vector_stores` — lookup resolving the vector store IDs in usage_vector_stores (low). Added as `vector_stores`
 
 Note: Current coverage is exactly the Administration + Usage API surface and is complete there (only certificates, data_retention, spend_alerts/spend_limit and permission endpoints are missing, all config). The gaps listed come from the platform API, which this source does not touch at all.
 
@@ -11176,10 +11176,10 @@ Diffed against: <https://apidocs.simplecast.com/api/collections/10068189/T1DsAGJ
 - [x] `analytics/downloads (GET)` — downloads over time, the headline metric of the entire product (high)
 - [x] `analytics/episodes (GET, plus /average_downloads, /hours_listened, /listeners, /top_10)` — per-episode download and listening figures — the grain every podcast analysis starts from (high)
 - [x] `analytics/listeners (GET, plus /last_7 and analytics/podcasts/listeners)` — unique listener counts, the audience-size metric distinct from downloads (high)
-- [ ] `podcasts/{podcast_id}/seasons (GET) and seasons/{season_id}/episodes (GET)` — lookup resolving the season an episode belongs to, needed for any season-over-season comparison (medium)
-- [ ] `analytics/technology/* (GET: applications, browsers, devices, device_class, listening_methods, network_types, operating_systems, providers, web_players)` — listening-platform breakdown dimensions — which apps and devices the audience uses (medium)
-- [ ] `analytics/location (GET)` — geographic breakdown of the audience (medium)
-- [ ] `distribution_channels (GET) and podcasts/{podcast_id}/distribution_channels (GET)` — lookup for the platforms a show is distributed to, needed to attribute downloads by channel (medium)
+- [x] `podcasts/{podcast_id}/seasons (GET) and seasons/{season_id}/episodes (GET)` — lookup resolving the season an episode belongs to, needed for any season-over-season comparison (medium) Built as `seasons`; seasons/{season_id}/episodes not built because each `episodes` row already carries its season.
+- [x] `analytics/technology/* (GET: applications, browsers, devices, device_class, listening_methods, network_types, operating_systems, providers, web_players)` — listening-platform breakdown dimensions — which apps and devices the audience uses (medium)
+- [x] `analytics/location (GET)` — geographic breakdown of the audience (medium)
+- [x] `distribution_channels (GET) and podcasts/{podcast_id}/distribution_channels (GET)` — lookup for the platforms a show is distributed to, needed to attribute downloads by channel (medium)
 - [ ] `analytics/embed/* (GET: listens, avg_completion, heatmap, locations, speeds, episodes)` — web player engagement including completion rate and drop-off heatmap (medium)
 - [ ] `categories (GET) and podcasts/{podcast_id}/categories (+ /subcategories)` — lookup for show taxonomy used in benchmarking and rollups (medium)
 - [ ] `analytics/campaigns/{campaign_id} (GET)` — campaign-level performance for promoted episodes (medium)
@@ -12450,8 +12450,8 @@ Diffed against: <https://developers.tickettailor.com/sitemap.xml>
 - [x] `GET /v1/holds` — held/reserved seats per event, required to reconcile inventory against issued tickets (medium) → `holds` (full refresh)
 - [x] `GET /v1/stores` — lookup resolving the store a synced product belongs to, for per-store merch revenue (medium) → `stores` (full refresh)
 - [x] `GET /v1/event_series/{id}/waitlist_signups` — waitlist signups, the demand signal for sold-out events (medium) → `waitlist_signups` (full refresh, fan-out over `event_series`)
-- [ ] `GET /v1/checkout_forms (+ /v1/checkout_forms/{id}/elements)` — lookup that decodes the custom checkout answers stored on orders and issued tickets (medium)
-- [ ] `GET /v1/event_series/{id}/overrides` — per-occurrence overrides on a recurring series, explaining why an occurrence differs from its series (low)
+- [x] `GET /v1/checkout_forms (+ /v1/checkout_forms/{id}/elements)` — lookup that decodes the custom checkout answers stored on orders and issued tickets (medium) → `checkout_forms` (full refresh) + `checkout_form_elements` (full refresh, fan-out over `checkout_forms`)
+- [x] `GET /v1/event_series/{id}/overrides` — per-occurrence overrides on a recurring series, explaining why an occurrence differs from its series (low) → `event_series_overrides` (full refresh, fan-out over `event_series`)
 
 Note: The docs site is a Docusaurus shell that renders the OpenAPI client-side, so the sitemap was used to enumerate operations and individual pages were fetched to confirm paths. /v1/events already covers event occurrences, and ticket types/ticket groups have create/update/delete only (no list) — they come embedded in event objects, so neither is a real gap.
 
@@ -13637,12 +13637,12 @@ Diffed against: <https://developer.zendesk.com/api-reference/sales-crm/resources
 - [x] `deal_sources` — lookup table resolving deals.source_id; unlocks pipeline-by-source attribution (high)
 - [x] `lead_sources` — lookup table resolving leads.source_id; unlocks lead-source attribution (high)
 - [x] `lead_conversions` — the lead-to-contact/deal transition record - the only way to build a conversion funnel across the objects we already sync (high)
-- [ ] `custom_fields` — field-definition lookup that names and types the custom_fields blobs on contacts, deals and leads (medium)
-- [ ] `deal_unqualified_reasons` — lookup resolving the unqualified_reason_id on deals (medium)
-- [ ] `lead_unqualified_reasons` — lookup resolving the unqualified_reason_id on leads (medium)
-- [ ] `call_outcomes` — lookup resolving outcome_id on the calls table we already sync (medium)
-- [ ] `text_messages` — SMS activity alongside calls and notes, completing the rep-activity picture (medium)
-- [ ] `sequence_enrollments` — which contacts/leads entered which outreach sequence and their enrollment state (medium)
+- [x] `custom_fields` — field-definition lookup that names and types the custom_fields blobs on contacts, deals and leads (medium)
+- [x] `deal_unqualified_reasons` — lookup resolving the unqualified_reason_id on deals (medium)
+- [x] `lead_unqualified_reasons` — lookup resolving the unqualified_reason_id on leads (medium)
+- [x] `call_outcomes` — lookup resolving outcome_id on the calls table we already sync (medium)
+- [x] `text_messages` — SMS activity alongside calls and notes, completing the rep-activity picture (medium)
+- [x] `sequence_enrollments` — which contacts/leads entered which outreach sequence and their enrollment state (medium)
 
 Note: Zendesk Sell also ships a separate Firehose (incremental sync) API covering appointments, collaborations, visits, documents and sources. Those remain uncovered but were ranked below the cut; `sequences`, `visits`, `visit\_outcomes`, `collaborations` and `documents` are the next tier.
 
