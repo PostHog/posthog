@@ -933,6 +933,15 @@ class TestResolver(BaseTest):
             "WITH timestamp AS t, (SELECT t) AS u SELECT u FROM events LIMIT 50000",
         )
 
+    def test_nested_scalar_subqueries_wait_for_their_from_without_repeated_resolution(self):
+        query = "SELECT 1"
+        for index in range(18):
+            query = f"WITH (({query}), e{index}.timestamp) AS a{index} SELECT a{index} FROM events e{index}"
+        with patch("posthog.hogql.compilation.time.monotonic", side_effect=count(0, 0.01)):
+            resolved = resolve_types(self._select(query), self.context, dialect="clickhouse")
+        self.assertIsInstance(resolved.type, ast.SelectQueryType)
+        self.assertEqual(self.context.errors, [])
+
     def test_ctes_column_alias_referencing_joined_table(self):
         self.assertEqual(
             self._print_hogql(
@@ -990,7 +999,7 @@ class TestResolver(BaseTest):
                 join numbers(1) n5 on 1=1
                 """
             )
-            self.assertEqual(attempts.get("day"), 1)
+            self.assertEqual(attempts.get("day", 0), 0)
 
             attempts.clear()
             with self.assertRaises(QueryError) as e:
@@ -1011,7 +1020,7 @@ class TestResolver(BaseTest):
                     dialect="clickhouse",
                 )
             self.assertIn("Unable to resolve field: bad_alias", str(e.exception))
-            self.assertEqual(attempts.get("bad_alias"), 1)
+            self.assertEqual(attempts.get("bad_alias", 0), 0)
 
     def test_ctes_scalar_alias_resolved_in_later_joins(self):
         self.assertEqual(
@@ -1046,7 +1055,7 @@ class TestResolver(BaseTest):
                 """
             )
             self.assertIn("equals(v, n0.number)", printed)
-            self.assertEqual(attempts.get("v"), 2)
+            self.assertEqual(attempts.get("v"), 1)
 
     def test_ctes_failed_speculative_resolution_does_not_leak_scopes(self):
         with self.assertRaises(QueryError) as e:

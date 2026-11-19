@@ -1217,6 +1217,9 @@ class Resolver(CloningVisitor):
             current_level_ctes = {}
             for cte in node.ctes.values():
                 if cte.cte_type == "column":
+                    if _collect_field_root_names(cte.expr) - self.ctes.keys() - (self.context.globals or {}).keys():
+                        self._pending_scalar_ctes[-1]["pending"][cte.name] = cte
+                        continue
                     resolved_cte = self._try_resolve_scalar_cte(cte)
                     if resolved_cte is None:
                         self._pending_scalar_ctes[-1]["pending"][cte.name] = cte
