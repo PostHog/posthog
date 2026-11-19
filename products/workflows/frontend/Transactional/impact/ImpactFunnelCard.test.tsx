@@ -88,7 +88,8 @@ describe('ImpactFunnelCard', () => {
             patch: {
                 '/api/projects/:id/': async ({ request }) => {
                     const { workflows_config } = (await request.json()) as Pick<TeamType, 'workflows_config'>
-                    return [200, { ...teamWithLinkTagging(false), workflows_config }]
+                    const stored = teamWithLinkTagging(false)
+                    return [200, { ...stored, workflows_config: { ...stored.workflows_config, ...workflows_config } }]
                 },
             },
         })
