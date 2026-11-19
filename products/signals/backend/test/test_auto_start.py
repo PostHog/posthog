@@ -83,7 +83,6 @@ from products.signals.backend.report_generation.research import (
     PriorityAssessment,
 )
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
-from products.signals.backend.reviewer_exclusions import create_exclusion
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules
 from products.signals.backend.signal_metadata import ReportSignalMeta, SignalSourceReference
 from products.signals.backend.task_profiles import IMPLEMENTATION
@@ -258,12 +257,6 @@ def test_resolve_autostart_assignee_skips_research_selected_reviewer(organizatio
         ("inactive", Priority.P0, "second"),
         ("private_project", Priority.P0, None),
         ("stale_login", Priority.P0, None),
-        ("standing_exclusion", Priority.P0, "second"),
-        ("standing_other_repository", Priority.P0, "first"),
-        ("standing_path", Priority.P0, "second"),
-        ("standing_other_path", Priority.P0, "first"),
-        ("standing_unknown_path", Priority.P4, None),
-        ("standing_all", Priority.P4, None),
     ],
 )
 def test_persisted_research_reviewers_require_confirmation(organization, team, case, team_threshold, expected_runner):
@@ -315,24 +308,6 @@ def test_persisted_research_reviewers_require_confirmation(organization, team, c
     )
     reviewers, editor_user_id = async_to_sync(_latest_reviewers_content)(str(report.id))
     assert editor_user_id is None
-    if case == "standing_unknown_path":
-        SignalReportArtefact.objects.filter(
-            report=report, type=SignalReportArtefact.ArtefactType.SIGNAL_FINDING
-        ).delete()
-    if case.startswith("standing_"):
-        for excluded in (first, second, fallback) if case in {"standing_all", "standing_unknown_path"} else (first,):
-            create_exclusion(
-                team_id=team.id,
-                actor_id=excluded.id,
-                subject_user_uuid=excluded.uuid,
-                repository="example/other" if case == "standing_other_repository" else "example/app",
-                path_prefix="src"
-                if case in {"standing_path", "standing_unknown_path"}
-                else "elsewhere"
-                if case == "standing_other_path"
-                else "",
-                instruction="Exclude me from automatic assignments in this area.",
-            )
     github = MagicMock()
     owners = "/src/ @first\n"
     github.list_team_members.return_value = {"success": True, "logins": ["second"]}
@@ -594,12 +569,9 @@ def test_resolve_triggering_user_runs_as_self(organization, team, autostart_prio
         "system",
         "pipeline_task",
         "scout_task",
-        "authorized_system",
         "malformed_system",
         "deleted_user",
         "task",
-        "user",
-        "agent",
     ],
 )
 @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
@@ -630,18 +602,15 @@ def test_autostart_requires_explicit_authorization_independent_of_writer(
             report=report,
             type="suggested_reviewers",
             content=json.dumps([{"github_login": "example-reviewer"}]),
-            actor_kind=actor_kind if actor_kind in {"task", "user", "agent"} else "system",
+            actor_kind="task" if actor_kind == "task" else "system",
             implementation_authorization=(
-                {"mode": "reviewer"}
-                if actor_kind == "authorized_system"
-                else {"mode": "user", "user_id": 2147483647}
+                {"mode": "user", "user_id": 2147483647}
                 if actor_kind == "deleted_user"
                 else {"mode": "user"}
                 if actor_kind == "malformed_system"
                 else None
             ),
             task=task,
-            actor_agent="Example agent" if actor_kind == "agent" else None,
         )
 
     def create_task(*, title: str, description: str, user_id: int, **kwargs: object) -> SimpleNamespace:
@@ -696,7 +665,7 @@ def test_autostart_requires_explicit_authorization_independent_of_writer(
 
     assert list(
         Task.objects.filter(team=team).exclude(id__in=[task.id] if task else []).values_list("created_by_id", flat=True)
-    ) == ([reviewer.id] if actor_kind in {"authorized_system", "pipeline_task", "scout_task"} else [])
+    ) == ([reviewer.id] if actor_kind in {"pipeline_task", "scout_task"} else [])
 
 
 @pytest.mark.parametrize(

@@ -27,7 +27,9 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     ARTEFACT_CONTENT_SCHEMAS,
     ReportLink,
+    ReviewerProposal,
     StatusArtefactContent,
+    SuggestedReviewers,
     TaskRunArtefact,
 )
 from products.signals.backend.billing import system_billing_exempt_reason
@@ -114,7 +116,19 @@ def create_layer_reports(
         logger.info("signals.stack_plan.layers_skipped_for_own_pull_request", report_id=str(parent.id), team_id=team_id)
         return []
     judgments = _inherited_judgments(parent)
-    assignment = ReviewerRules.read_for_report(team_id=team_id, report_id=str(parent.id))
+    rules = ReviewerRules(team=parent.team, report_id=str(parent.id))
+    assignment = rules.read()
+    corrections = assignment.corrections
+    for index, (judgment, authorization) in enumerate(judgments):
+        if isinstance(judgment, SuggestedReviewers) and authorization is not None and authorization.mode == "reviewer":
+            update = rules.prepare(
+                judgment,
+                attribution=attribution,
+                proposal=ReviewerProposal(expected_state=assignment.state, source="stack_plan"),
+                edit=None,
+            )
+            judgments[index] = (update.reviewers, authorization)
+            corrections = update.corrections or assignment.corrections
     # A layer does the plan's work, so it keeps the plan's exemption. The scout policy matches only
     # the report the scout emitted, and a layer's id is never in that list.
     billing_exempt_reason = parent.billing_exempt_reason or system_billing_exempt_reason(team_id, parent.id)
@@ -146,12 +160,12 @@ def create_layer_reports(
                 attribution=attribution,
                 implementation_authorization=authorization,
             )
-        if assignment.state.corrections_id is not None or assignment.corrections.needs_review:
+        if assignment.state.corrections_id is not None or corrections.needs_review:
             # Keep routing pins from becoming execution authority when the reviewer version moves to a layer.
             SignalReportArtefact._create(
                 team_id=team_id,
                 report_id=child_id,
-                content=assignment.corrections,
+                content=corrections,
                 attribution=attribution,
             )
         SignalReportArtefact.add_log(

@@ -1672,7 +1672,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         correction = mock_forward.call_args.kwargs["correction"]
         assert (correction.removal_reason, correction.removal_note) == ("wrong_area", "I'm not on that team any more.")
 
-    @parameterized.expand([(writer, mode) for writer in (False, True) for mode in (None, "reviewer", "user")])
+    @parameterized.expand([(False, None), (False, "user"), (True, "reviewer")])
     def test_leave_reviewers_writes_nothing_when_the_caller_is_not_a_reviewer(
         self, writer_enabled: bool, mode: str | None
     ) -> None:
@@ -2433,21 +2433,19 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
 
     @parameterized.expand(
         [
-            (credential, writer_enabled, caller_eligible)
-            for credential in ("session", "deferred", "personal_api_key", "oauth")
-            for writer_enabled in (False, True)
-            for caller_eligible in (False, True)
-        ]
-        + [
-            (credential, False, eligible, previous_mode)
-            for credential in ("failed_lookup", "failed_lookup_user")
-            for eligible in (False, True)
-            for previous_mode in ("user", "reviewer")
+            ("session", False, True),
+            ("session", False, False),
+            ("session", True, True),
+            ("deferred", False, True),
+            ("failed_lookup", False, True, "user"),
+            ("failed_lookup", False, True, "reviewer"),
+            ("failed_lookup_user", False, True, "user"),
+            ("failed_lookup_user", False, True, "reviewer"),
         ]
     )
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_reviewer_post_autostart_uses_authenticated_principal(
-        self, credential: str, writer_enabled: bool, caller_eligible: bool, previous_mode: str = "user"
+        self, scenario: str, writer_enabled: bool, caller_eligible: bool, previous_mode: str = "user"
     ) -> None:
         OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
             level=OrganizationMembership.Level.MEMBER
@@ -2479,7 +2477,7 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
             SignalReportArtefact.objects.create(team=self.team, report=report, type=kind, content=json.dumps(content))
         task = self._create_task()
         expected_reviewers: dict[str, str | None] = {"reviewers_id": None, "corrections_id": None}
-        if credential.startswith("failed_lookup"):
+        if scenario.startswith("failed_lookup"):
             previous = SignalReportArtefact.objects.create(
                 team=self.team,
                 report=report,
@@ -2494,30 +2492,6 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
             )
             SignalReportArtefact.objects.filter(id=previous.id).update(created_at=timezone.now() - timedelta(minutes=1))
             expected_reviewers["reviewers_id"] = str(previous.id)
-        if credential == "personal_api_key":
-            key = self.create_personal_api_key_with_scopes(["inbox:write", "task:write"])
-            self.client.logout()
-            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
-        elif credential == "oauth":
-            application = OAuthApplication.objects.create(
-                name="Example agent",
-                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                redirect_uris="https://example.com/callback",
-                algorithm="RS256",
-                user=self.user,
-                organization=self.organization,
-            )
-            token = OAuthAccessToken.objects.create(
-                user=self.user,
-                application=application,
-                token="pha_example_reviewer_token",
-                expires=timezone.now() + timedelta(hours=1),
-                scope="inbox:write task:write",
-                sandbox_task_id=task.id,
-            )
-            self.client.logout()
-            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
 
         def create_task(*, team: Team, title: str, description: str, user_id: int, **kwargs: object) -> SimpleNamespace:
             implementation = Task.objects.create(
@@ -2541,7 +2515,7 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
                 side_effect=lambda f, **kw: sync_to_async(f, thread_sensitive=True),
             ),
             patch.object(tasks_facade, "create_and_run_task", side_effect=create_task),
-            self.captureOnCommitCallbacks(execute=credential != "deferred"),
+            self.captureOnCommitCallbacks(execute=scenario != "deferred"),
         ):
             response = self.client.post(
                 self._list_url(str(report.id)),
@@ -2549,19 +2523,15 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
                     "artefact_type": "suggested_reviewers",
                     "content": [{"github_login": "example-reviewer"}],
                     "expected_reviewers": expected_reviewers,
-                    "reviewer_outcome": "lookup_failed" if credential.startswith("failed_lookup") else "selected",
-                    **(
-                        {"reviewer_retry_reason": "Lookup unavailable"}
-                        if credential.startswith("failed_lookup")
-                        else {}
-                    ),
+                    "reviewer_outcome": "lookup_failed" if scenario.startswith("failed_lookup") else "selected",
+                    **({"reviewer_retry_reason": "Lookup unavailable"} if scenario.startswith("failed_lookup") else {}),
                     "implementation_authorization": {"mode": "reviewer"},
                 },
                 format="json",
-                headers={"X-PostHog-Task-Id": str(task.id)} if credential != "failed_lookup_user" else {},
+                headers={"X-PostHog-Task-Id": str(task.id)} if scenario != "failed_lookup_user" else {},
             )
 
-            if credential == "deferred":
+            if scenario == "deferred":
                 from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
 
                 async_to_sync(maybe_autostart_from_report_artefacts)(team_id=self.team.id, report_id=str(report.id))

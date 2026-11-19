@@ -265,17 +265,21 @@ class TestStackPlan(BaseTest):
 
     @parameterized.expand(
         [
-            ("writer_off", False, False, False),
-            ("writer_on", True, False, False),
-            ("needs_review", True, True, False),
-            ("confirmed_pin_overrides_standing_exclusion", True, False, True),
+            ("writer_off", False, False, False, True),
+            ("writer_on", True, False, False, True),
+            ("needs_review", True, True, False, True),
+            ("confirmed_pin_overrides_standing_exclusion", True, False, True, True),
+            ("automatic_exclusion_writer_off", False, False, True, False),
+            ("automatic_exclusion_writer_on", True, False, True, False),
         ]
     )
     def test_layers_preserve_reviewer_restrictions(
-        self, _name: str, writer_enabled: bool, needs_review: bool, standing_excluded: bool
+        self, _name: str, writer_enabled: bool, needs_review: bool, standing_excluded: bool, pinned: bool
     ) -> None:
         reviewer = SuggestedReviewerEntry(user_uuid=str(self.user.uuid))
-        corrections = ReviewerCorrections(pinned=(reviewer,), needs_review=needs_review, confirmed=standing_excluded)
+        corrections = ReviewerCorrections(
+            pinned=(reviewer,) if pinned else (), needs_review=needs_review, confirmed=standing_excluded and pinned
+        )
         with (
             patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=writer_enabled),
             patch("products.signals.backend.assignment_flags.assignment_side_effects_enabled", return_value=True),
@@ -286,17 +290,18 @@ class TestStackPlan(BaseTest):
                 content=SuggestedReviewers(root=[reviewer]),
                 attribution=ArtefactAttribution.system(),
                 implementation_authorization=ImplementationAuthorization(mode="user", user_id=self.user.id)
-                if standing_excluded
+                if standing_excluded and pinned
                 else ImplementationAuthorization(mode="reviewer"),
                 reevaluate_autostart=False,
                 reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="research"),
             )
-            SignalReportArtefact._create(
-                team_id=self.team.id,
-                report_id=str(self.parent.id),
-                content=corrections,
-                attribution=ArtefactAttribution.from_user(self.user.id),
-            )
+            if pinned:
+                SignalReportArtefact._create(
+                    team_id=self.team.id,
+                    report_id=str(self.parent.id),
+                    content=corrections,
+                    attribution=ArtefactAttribution.from_user(self.user.id),
+                )
             if standing_excluded:
                 create_exclusion(
                     team_id=self.team.id,
@@ -311,7 +316,7 @@ class TestStackPlan(BaseTest):
             for child_id in child_ids:
                 assignment = ReviewerRules.read_for_report(team_id=self.team.id, report_id=child_id)
                 assert assignment.corrections == corrections
-                assert assignment.reviewers == (reviewer,)
+                assert assignment.reviewers == (() if standing_excluded and not pinned else (reviewer,))
                 if not standing_excluded:
                     outcome = async_to_sync(maybe_autostart_from_report_artefacts)(
                         team_id=self.team.id, report_id=child_id

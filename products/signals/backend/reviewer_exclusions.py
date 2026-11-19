@@ -242,10 +242,6 @@ class StandingExclusions:
                 suppressing = exclusion
         return suppressing, unresolved
 
-    def allows_user(self, user_uuid: str) -> bool:
-        suppressing, unresolved = self._verdict(user_uuid)
-        return suppressing is None and not unresolved
-
     def review(self, candidates: tuple[SuggestedReviewerEntry, ...]) -> ExclusionReview:
         if not self.exclusions:
             return ExclusionReview(kept=candidates, suppressed=(), unresolved=False)

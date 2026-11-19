@@ -472,8 +472,7 @@ Incomplete history stops automatic changes until a person confirms the current l
 Reviewer attribution records who wrote the artefact and does not grant permission to start implementation.
 Each reviewer version carries separate, server-owned implementation authorization.
 Research, custom-agent, and scout workers authorize automatic selection of an eligible reviewer, subject to the existing autonomy and repository checks.
-Automatic implementation also checks current standing exclusions when selecting a reviewer or the fallback user, including for delayed stack layers.
-Stack layers inherit the parent reviewer version, authorization, and reviewer corrections without repeating automatic reviewer selection.
+Stack layers inherit the parent reviewer version, authorization, and reviewer corrections.
 After creation, each layer keeps its own reviewer state. Later plan edits do not replace an existing layer's reviewers or corrections.
 Reports filed by a person and their stack layers require an explicit implementation request.
 Reviewer API writes authorize only the authenticated caller, even when the write is attributed to a task.
