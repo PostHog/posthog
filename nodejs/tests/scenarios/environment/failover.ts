@@ -402,6 +402,13 @@ export async function failOver({
         if (StatusCode !== undefined && StatusCode !== 'Complete') {
             refuse(`${reader}'s capacity read came back ${StatusCode}, not Complete`)
         }
+        if (Values.length !== Timestamps.length) {
+            refuse(`${reader}'s capacity read has ${Timestamps.length} timestamps and ${Values.length} values`)
+        }
+        const unreadable = Timestamps.filter((_, i) => !Number.isFinite(Values[i]))
+        if (unreadable.length > 0) {
+            refuse(`${reader}'s capacity read has a value that is not a finite number at ${unreadable.join(', ')}`)
+        }
         const sorted = Timestamps.map((at, i) => ({ at: Date.parse(at), max: Values[i] })).sort((a, b) => a.at - b.at)
         let consecutive = sorted.length > 0 ? 1 : 0
         while (

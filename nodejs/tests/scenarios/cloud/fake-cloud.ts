@@ -127,7 +127,7 @@ export type FakeCloudOptions = {
     agent?: 'offline'
     readerAcu?: ReaderMinute[]
     averageStatuses?: string[]
-    shortAverageValues?: boolean
+    shortValuesOf?: 'Maximum' | 'Average'
     liveReaderAcu?: { maxima: (number | null)[]; lagMinutes?: number }
     failover?: { takesMs?: number; showsAfterMs?: number }
 }
@@ -596,7 +596,7 @@ export class FakeCloud implements Aws {
             Id,
             Label: Id,
             Timestamps: points.map(({ at }) => new Date(at).toISOString()),
-            Values: Stat === 'Average' && this.options.shortAverageValues ? values.slice(0, -1) : values,
+            Values: Stat === this.options.shortValuesOf ? values.slice(0, -1) : values,
             StatusCode: 'Complete',
         }
     }

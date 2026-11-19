@@ -1,10 +1,16 @@
 import { randomUUID } from 'crypto'
+import { mkdtempSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
 
+import { Controller } from '../cloud/admission'
 import { FakeCloud, FakeCloudOptions } from '../cloud/fake-cloud'
-import type { RunManifest } from '../cloud/lease'
+import { PROFILE } from '../cloud/fixtures'
+import { RunManifest, keyOf, lease, runManifestOf } from '../cloud/lease'
+import { CloudProfile } from '../cloud/profile'
 import type { WriterSample } from '../probe/writer-probe'
 import { FailoverActuation, FailoverOptions, SqlIdentity, failOver } from './failover'
 
@@ -113,6 +119,18 @@ describe('pg.failover', () => {
             /was above its 1.5 ACU idle limit in its last 5 minutes: 2 at /,
         ],
         [
+            'a capacity read with fewer values than timestamps',
+            { shortValuesOf: 'Maximum' },
+            () => undefined,
+            /-reader's capacity read has 5 timestamps and 4 values/,
+        ],
+        [
+            'a capacity read with a value that is not a finite number',
+            { liveReaderAcu: { maxima: [1, 1, Number.NaN, 1, 1] } },
+            () => undefined,
+            /-reader's capacity read has a value that is not a finite number at /,
+        ],
+        [
             'a run manifest without the reader idle limit',
             {},
             (run) => delete run.manifest.readerIdleMaxAcu,
@@ -142,6 +160,43 @@ describe('pg.failover', () => {
 
         await expect(failOverOn(run)).rejects.toThrow(new RegExp(`^pg.failover refused: .*${reason.source}`))
         expect(run.cloud.promotions).toEqual([])
+    })
+
+    it('judges the reader against the idle limit its cloud profile leases into the manifest the host reads', async () => {
+        const cloud = new FakeCloud({
+            now: () => new Date(),
+            failover: { takesMs: 20 },
+            liveReaderAcu: { maxima: [2, 2, 2, 2, 2] },
+        })
+        const controller = {
+            aws: cloud,
+            now: () => new Date(),
+            print: () => undefined,
+            warn: () => undefined,
+        } as unknown as Controller
+        const dir = mkdtempSync(path.join(tmpdir(), 'failover-manifest-'))
+        const hostRunUnder = async (idleMax: number): Promise<Run> => {
+            const profile = CloudProfile.parse({ ...PROFILE, readerAcu: { ...PROFILE.readerAcu, idleMax } })
+            const runner = { file: 'runner.yaml', bytes: Buffer.from(''), sha256: '' }
+            const { runId } = await lease(
+                controller,
+                { profile, runner, inputs: [runner], card: { id: 'cyclotron-failover-under-load', failsOver: true } },
+                { owner: 'scenario-tests', commit: 'abc123' }
+            )
+            const file = path.join(dir, `${runId}.json`)
+            writeFileSync(file, cloud.objects.get(keyOf(runId, 'input/manifest.json'))!)
+            const manifest = runManifestOf({ SCENARIO_RUN_MANIFEST: file })!
+            return { cloud, ...cloud.runCluster(runId), manifest }
+        }
+
+        const lower = await hostRunUnder(1.5)
+        await expect(failOverOn(lower)).rejects.toThrow(/was above its 1.5 ACU idle limit in its last 5 minutes: 2 at /)
+        expect(cloud.promotions).toEqual([])
+
+        const higher = await hostRunUnder(2.5)
+        const actuation = await failOverOn(higher)
+        await actuation.release()
+        expect(cloud.promotions.map(({ to }) => to)).toEqual([higher.reader, higher.writer])
     })
 
     it.each([

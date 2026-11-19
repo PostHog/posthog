@@ -1152,7 +1152,7 @@ describe('cloud controller', () => {
         ],
         [
             'a CloudWatch series with fewer values than timestamps',
-            { readerAcu: IDLE_THEN_PROMOTED, shortAverageValues: true },
+            { readerAcu: IDLE_THEN_PROMOTED, shortValuesOf: 'Average' },
             () => undefined,
             'invalid',
             'could not read the reader capacity',

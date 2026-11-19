@@ -264,6 +264,22 @@ describe('valves', () => {
             true,
             { error: expect.stringMatching(/^pg\.failover refused: .* was above its 2.5 ACU idle limit/) },
         ],
+        [
+            'records no intent for a failover whose capacity read has fewer values than timestamps',
+            { shortValuesOf: 'Maximum' },
+            true,
+            { error: expect.stringMatching(/^pg\.failover refused: .*'s capacity read has 5 timestamps and 4 values/) },
+        ],
+        [
+            'records no intent for a failover whose capacity read has a value that is not a finite number',
+            { liveReaderAcu: { maxima: [1, 1, Number.NaN, 1, 1] } },
+            true,
+            {
+                error: expect.stringMatching(
+                    /^pg\.failover refused: .*'s capacity read has a value that is not a finite number at /
+                ),
+            },
+        ],
         ['refuses a failover outside a run host', {}, false, { error: 'pg.failover runs only on a run host' }],
     ])('%s', async (_story, options, onRunHost, recorded) => {
         const valves = createValves({ pollMs: 5 })
