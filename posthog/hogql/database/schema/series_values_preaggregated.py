@@ -6,7 +6,6 @@ from posthog.hogql.database.models import (
     FieldOrTable,
     FloatDatabaseField,
     IntegerDatabaseField,
-    StringArrayDatabaseField,
     StringDatabaseField,
     Table,
 )
@@ -18,7 +17,7 @@ from posthog.clickhouse.preaggregation.series_values_preaggregated_sql import (
 
 class SeriesValuesPreaggregatedTable(Table):
     description: str = (
-        "Pre-aggregated insight series values, one finished value per series, breakdown value and time window, "
+        "Pre-aggregated insight series values, one finished value per series and time window,"
         "computed per precompute job and used internally by insight queries."
     )
     top_level_settings: HogQLQuerySettings | None = Field(
@@ -35,9 +34,6 @@ class SeriesValuesPreaggregatedTable(Table):
         ),
         "series_key": StringDatabaseField(
             name="series_key", description="Identifies the series within the job; empty for single-series jobs."
-        ),
-        "breakdown_value": StringArrayDatabaseField(
-            name="breakdown_value", description="Breakdown values for this row; empty when there is no breakdown."
         ),
         "value": FloatDatabaseField(name="value", description="Finished value for the series in this time window."),
     }

@@ -141,7 +141,7 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == jobs
         rows = sync_execute(
             """
-            SELECT toString(time_window_start), series_key, breakdown_value, value
+            SELECT toString(time_window_start), series_key, value
             FROM series_values_preaggregated
             WHERE team_id = %(team_id)s
             ORDER BY time_window_start
@@ -149,12 +149,12 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
             {"team_id": self.team.pk},
         )
         assert rows == [
-            ("2024-01-09 05:00:00.000000", "", [], 1.0),
-            ("2024-01-10 15:00:00.000000", "", [], 2.0),
-            ("2024-01-13 23:00:00.000000", "", [], 1.0),
-            ("2024-01-14 03:00:00.000000", "", [], 1.0),
-            ("2024-01-14 07:00:00.000000", "", [], 1.0),
-            ("2024-01-14 08:00:00.000000", "", [], 1.0),
+            ("2024-01-09 05:00:00.000000", "", 1.0),
+            ("2024-01-10 15:00:00.000000", "", 2.0),
+            ("2024-01-13 23:00:00.000000", "", 1.0),
+            ("2024-01-14 03:00:00.000000", "", 1.0),
+            ("2024-01-14 07:00:00.000000", "", 1.0),
+            ("2024-01-14 08:00:00.000000", "", 1.0),
         ]
 
     def test_day_built_before_late_events_settle_is_rebuilt(self) -> None:
