@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconEllipsis, IconExternal, IconWarning } from '@posthog/icons'
 import {
+    Button,
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
@@ -21,7 +22,7 @@ import { TODAY_PANES } from './todayRailItems'
 import { SEVERITY_TEXT_CLASS } from './todayRailSeverity'
 import { todayRailStatusLogic } from './todayRailStatusLogic'
 import { TodayRailTile } from './TodayRailTile'
-import { TodayRailPane, todayShellLogic } from './todayShellLogic'
+import { TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
 import { TodayTabBarTab } from './TodayTabBarTab'
 import { todayTourLogic } from './todayTourLogic'
 
@@ -43,7 +44,7 @@ export function TodayMoreMenu({
         useValues(todayRailStatusLogic)
     const { switchAvailable } = useValues(navSwitchLogic)
     const { tourActive } = useValues(todayTourLogic)
-    const { activePane } = useValues(todayShellLogic)
+    const { activePane, effectivePhaiView, featureFlags } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
     const overflowActive = overflowPanes.includes(activePane)
     const Tile = placement === 'tab-bar' ? TodayTabBarTab : TodayRailTile
@@ -72,17 +73,24 @@ export function TodayMoreMenu({
             <DropdownMenuContent side={placement === 'tab-bar' ? 'top' : 'right'} align="end" className="w-56">
                 {overflowPanes.length > 0 && (
                     <>
-                        {overflowPanes.map((pane) => (
-                            <DropdownMenuItem
-                                key={pane}
-                                onClick={() => clickRailPane(pane)}
-                                aria-current={activePane === pane ? 'page' : undefined}
-                                data-attr={`today-rail-${pane}`}
-                            >
-                                {TODAY_PANES[pane].icon}
-                                {TODAY_PANES[pane].label}
-                            </DropdownMenuItem>
-                        ))}
+                        {overflowPanes.map((pane) => {
+                            const href = railPaneHref(pane, effectivePhaiView, featureFlags)
+                            return (
+                                <DropdownMenuItem
+                                    key={pane}
+                                    render={href ? todayMenuLinkItem(href) : <Button size="row" left />}
+                                    onClick={(event) => {
+                                        event.preventDefault()
+                                        clickRailPane(pane)
+                                    }}
+                                    aria-current={activePane === pane ? 'page' : undefined}
+                                    data-attr={`today-rail-${pane}`}
+                                >
+                                    {TODAY_PANES[pane].icon}
+                                    {TODAY_PANES[pane].label}
+                                </DropdownMenuItem>
+                            )
+                        })}
                         <DropdownMenuSeparator />
                     </>
                 )}
