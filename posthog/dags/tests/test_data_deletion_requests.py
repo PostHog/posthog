@@ -72,6 +72,7 @@ from posthog.dags.data_deletion_requests import (
 )
 from posthog.dags.deletes import deletes_job
 from posthog.dags.tests.conftest import insert_flag_evaluations
+from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.data_deletion_request import (
     DataDeletionRequest,
     ExecutionMode,
@@ -81,6 +82,7 @@ from posthog.models.data_deletion_request import (
     count_remaining_for_request,
 )
 from posthog.models.deletion_targets import (
+    AI_EVENTS,
     EVENTS,
     EVENTS_JSON,
     DeletionTarget,
@@ -4072,6 +4074,46 @@ def test_native_property_removal_gate_checks_retained_copies(
         # gate's predicate.
         unsweepable = replace(EVENTS_JSON, accepts_property_rewrite=False)
         _refuse_property_removal_unsweepable(cluster, [unsweepable], request, marker, log=logging.getLogger(__name__))
+
+
+@pytest.mark.parametrize(
+    "properties,person_properties,marker_age,refuses",
+    [
+        (["$ai_input"], [], timedelta(0), True),
+        ([], ["email"], timedelta(0), True),
+        (["$ai_input"], [], timedelta(days=2), False),
+    ],
+    ids=["event_property", "person_property", "row_ingested_after_the_marker"],
+)
+@pytest.mark.django_db
+def test_property_removal_refuses_while_ai_events_holds_rows_in_its_window(
+    cluster: ClickhouseCluster,
+    properties: list[str],
+    person_properties: list[str],
+    marker_age: timedelta,
+    refuses: bool,
+) -> None:
+    # ai_events has no person_properties or inserted_at, and keeps $ai_input in its own column, so the
+    # presence predicate cannot run there.
+    now = datetime.now(UTC)
+    bulk_create_ai_events(
+        [
+            {
+                "event": "$ai_generation",
+                "distinct_id": "d",
+                "team_id": TEAM_ID,
+                "properties": {"$ai_input": "prompt"},
+                "timestamp": now - timedelta(days=1),
+            }
+        ]
+    )
+    marker = (now - marker_age).strftime("%Y-%m-%d %H:%M:%S.%f")
+    request = _property_removal_ctx(
+        events=["$ai_generation"], properties=properties, person_properties=person_properties
+    )
+
+    with pytest.raises(dagster.Failure, match="cannot be deleted") if refuses else nullcontext():
+        _refuse_property_removal_unsweepable(cluster, [AI_EVENTS], request, marker, log=logging.getLogger(__name__))
 
 
 @pytest.mark.parametrize(
