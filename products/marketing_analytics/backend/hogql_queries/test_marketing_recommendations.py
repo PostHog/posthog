@@ -12,6 +12,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     SEARCH_CONSOLE_URL,
     Ad,
     CampaignStats,
+    ExcludedSearch,
     KeywordTracking,
     OrganicQueryStats,
     PolicyAds,
@@ -541,7 +542,10 @@ class TestMarketingRecommendations(SimpleTestCase):
             _term("cheap but excluded", "c2", cost=40, conversions=1),
             _term("costly converter", "c2", cost=300, conversions=1),
         )
-        inputs = replace(_inputs((good, costly), terms), excluded_searches=frozenset({("cheap but excluded", "c2")}))
+        inputs = replace(
+            _inputs((good, costly), terms),
+            excluded_searches=frozenset({ExcludedSearch(term="cheap but excluded", campaign_id="c2")}),
+        )
 
         review = next(rec for rec in recommend(inputs) if rec.rule == "review_campaign")
 
@@ -1041,7 +1045,7 @@ class TestMarketingRecommendations(SimpleTestCase):
         )
 
         excluded = frozenset(
-            ("free analytics template", campaign_id)
+            ExcludedSearch(term="free analytics template", campaign_id=campaign_id)
             for campaign_id, status in zip(("c1", "c2"), term_statuses)
             if "EXCLUDED" in status
         )

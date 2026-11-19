@@ -34,6 +34,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     RECOMMENDATION_SOURCE_TYPES,
     Ad,
     CampaignStats,
+    ExcludedSearch,
     KeywordTracking,
     OrganicQueryStats,
     PolicyAds,
@@ -597,7 +598,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             if row[1]
         ]
 
-    def _excluded_searches(self, source: MarketingAnalyticsRecommendationsSource) -> frozenset[tuple[str, str]]:
+    def _excluded_searches(self, source: MarketingAnalyticsRecommendationsSource) -> frozenset[ExcludedSearch]:
         table = source.searchTermTable
         if not table or not self._readable(table) or not self._has_field(table, "search_term_view_status"):
             return frozenset()
@@ -618,7 +619,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             """,
             table,
         )
-        return frozenset((row[0], row[1]) for row in rows)
+        return frozenset(ExcludedSearch(term=row[0], campaign_id=row[1]) for row in rows)
 
     def _ads(self, source: MarketingAnalyticsRecommendationsSource) -> list[Ad]:
         if not source.adTable or not self._readable(source.adTable):
