@@ -16442,13 +16442,13 @@
         "feature_flag": "tasks"
     },
     "tasks-runs-session-logs-retrieve": {
-        "description": "Fetch session log events emitted by the agent for a specific run. Supports filtering by `event_types`, `exclude_types`, pagination with `limit`/`offset`, and `after` cursor. Use this instead of the streaming endpoint when invoking from an MCP client.",
+        "description": "Fetch session log events emitted by the agent for a specific run, in log order. A resumed run starts with the events of the runs it resumed from, oldest first. Supports filtering by `event_types`, `exclude_types` and an `after` timestamp, and pagination with `start`/`limit`. A page stops early when it reaches 16 MiB, so read the next page from `start` plus the number of events returned, and stop when a page comes back empty.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Get task run session logs",
         "title": "Get task run session logs",
         "required_scopes": ["task:read"],
-        "api_operations": ["GET /api/projects/{project_id}/tasks/{task_id}/runs/{id}/session_logs/"],
+        "api_operations": ["GET /api/projects/{project_id}/tasks/{task_id}/runs/{id}/log_entries/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

@@ -4352,6 +4352,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Get filtered task run session logs",
         description="Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.",
+        deprecated=True,
     )
     @action(
         detail=True,

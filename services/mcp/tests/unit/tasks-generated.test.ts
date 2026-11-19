@@ -1,10 +1,15 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { ApiClient } from '@/api/client'
 import { TasksCreateBody, TasksRunCreateBody } from '@/generated/tasks/api'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import type { Context } from '@/tools/types'
 
 describe('Generated task tools', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals()
+    })
+
     it('preserves failure details when listing tasks in a space', async () => {
         const latestRun = {
             id: 'run-id',
@@ -34,6 +39,40 @@ describe('Generated task tools', () => {
                 query: expect.objectContaining({ status: 'failed', internal: 'all', archived: 'all' }),
             })
         )
+    })
+
+    async function readLogPage(body: string, input: Record<string, unknown>): Promise<{ result: unknown; url: URL }> {
+        const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(body, { status: 200 }))
+        vi.stubGlobal('fetch', fetchMock)
+        const context = {
+            api: new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' }),
+            stateManager: { getProjectId: async () => '42' },
+        } as unknown as Context
+        const tool = GENERATED_TOOL_MAP['tasks-runs-session-logs-retrieve']!()
+        const result = await tool.handler(context, tool.schema.parse({ task_id: 'task-id', id: 'run-id', ...input }))
+        return { result, url: new URL(fetchMock.mock.calls[0]![0]) }
+    }
+
+    it('reads run log entries from a legacy offset', async () => {
+        const { url } = await readLogPage('', { offset: 200, event_types: 'agent_message' })
+
+        expect({ path: url.pathname, query: Object.fromEntries(url.searchParams) }).toEqual({
+            path: '/api/projects/42/tasks/task-id/runs/run-id/log_entries/',
+            query: { start: '200', limit: '100', event_types: 'agent_message' },
+        })
+    })
+
+    it.each([
+        { page: 'an empty page', body: '', entries: [] },
+        { page: 'a page of one entry', body: '{"type":"a"}\n', entries: [{ type: 'a' }] },
+        { page: 'a page of entries', body: '{"type":"a"}\n{"type":"b"}\n', entries: [{ type: 'a' }, { type: 'b' }] },
+        {
+            page: 'an unparseable entry',
+            body: '{"type":"a"\n{"type":"b"}\n',
+            entries: [{ unparseable_line: '{"type":"a"' }, { type: 'b' }],
+        },
+    ])('returns $page as one item per log entry', async ({ body, entries }) => {
+        expect((await readLogPage(body, {})).result).toEqual(entries)
     })
 
     it('does not expose run inputs on tasks-create', () => {

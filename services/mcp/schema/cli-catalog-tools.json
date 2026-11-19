@@ -49680,12 +49680,12 @@
     "tasks-runs-session-logs-retrieve": {
         "name": "tasks-runs-session-logs-retrieve",
         "kind": "http",
-        "requires": [],
-        "hooks": null,
+        "requires": ["hook:tasks/logEntriesHooks"],
+        "hooks": "tasks/logEntriesHooks",
         "uiApp": null,
         "request": {
             "method": "GET",
-            "path": "/api/projects/{project_id}/tasks/{task_id}/runs/{id}/session_logs/",
+            "path": "/api/projects/{project_id}/tasks/{task_id}/runs/{id}/log_entries/",
             "pathParams": ["id", "task_id"],
             "fallbacks": [],
             "query": [
@@ -49710,8 +49710,8 @@
                     "csv": false
                 },
                 {
-                    "param": "offset",
-                    "key": "offset",
+                    "param": "start",
+                    "key": "start",
                     "csv": false
                 }
             ],
@@ -49730,7 +49730,9 @@
             "textInclude": []
         },
         "input": {
-            "aliases": {},
+            "aliases": {
+                "start": ["offset"]
+            },
             "casts": {},
             "validators": []
         }
