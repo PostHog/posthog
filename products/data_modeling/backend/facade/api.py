@@ -156,6 +156,8 @@ _LAZY = {
     "assert_user_can_read_saved_query": "logic.read_access",
     "bind_window_start": "logic.incremental_filter",
     "parse_model_query": "logic.incremental_filter",
+    "narrow_to_incremental_window": "logic.incremental_filter",
+    "wrap_with_incremental_guard": "logic.incremental_filter",
     "WINDOW_START_PLACEHOLDER": "logic.incremental_filter",
     "EligibilityResult": "facade.contracts",
     "check_incremental_eligibility": "logic.incremental_eligibility",
