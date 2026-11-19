@@ -2,8 +2,8 @@
  * Tests for the generated `cohorts-replace-static-members` tool.
  *
  * The tool reuses the cohort partial-update endpoint but is destructive: it removes members the
- * query no longer matches. These tests pin what the YAML config decides and the backend can't
- * see: the only inputs are the cohort id and the query, and every request carries
+ * query no longer matches. These tests check what tools.yaml sets for this tool, which the PATCH
+ * endpoint can't enforce: the only inputs are the cohort id and the query, and every request carries
  * population_mode=replace.
  */
 import { describe, expect, it, vi } from 'vitest'
@@ -16,7 +16,7 @@ const PROJECT_ID = '2'
 const QUERY = { kind: 'HogQLQuery', query: 'SELECT person_id FROM events' }
 
 function getTool(): ToolBase<ZodObjectAny> {
-    return (GENERATED_TOOLS['cohorts-replace-static-members'] as () => ToolBase<ZodObjectAny>)()
+    return GENERATED_TOOLS['cohorts-replace-static-members']!()
 }
 
 describe('cohorts-replace-static-members', () => {

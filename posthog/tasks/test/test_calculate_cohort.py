@@ -107,6 +107,24 @@ QUERY_CH_INSERT_PATH = "products.cohorts.backend.models.util.insert_cohort_query
 FILTERS_CH_INSERT_PATH = "products.cohorts.backend.models.util.insert_cohort_filter_actors_into_ch"
 PG_SYNC_PATH = "products.cohorts.backend.models.util.insert_cohort_people_into_pg"
 COHORT_READ_PATH = "posthog.tasks.calculate_cohort.Cohort.objects.get"
+
+
+def _claim_replace(cohort: Cohort, claimed_at: datetime | None = None) -> None:
+    Cohort.objects.filter(pk=cohort.pk).update(
+        is_calculating=True,
+        pending_population_mode=CohortPopulationMode.REPLACE,
+        population_claimed_at=claimed_at if claimed_at is not None else timezone.now().replace(microsecond=0),
+    )
+
+
+def _static_cohort_rows(team_id: int, cohort_id: int) -> list[tuple[str, int]]:
+    rows = sync_execute(
+        "SELECT person_id, _offset FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+        {"team_id": team_id, "cohort_id": cohort_id},
+    )
+    return [(str(person_id), offset) for person_id, offset in rows]
+
+
 PERSON_EMAIL_FILTERS = {
     "properties": {
         "type": "AND",
@@ -1864,11 +1882,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         self.assertEqual(cohort.count, 3)
 
         claimed_at = timezone.now().replace(microsecond=0) + timedelta(seconds=10)
-        Cohort.objects.filter(pk=cohort.pk).update(
-            is_calculating=True,
-            pending_population_mode=CohortPopulationMode.REPLACE,
-            population_claimed_at=claimed_at,
-        )
+        _claim_replace(cohort, claimed_at=claimed_at)
         with time_machine.travel(claimed_at + timedelta(seconds=10), tick=False):
             insert_cohort_from_query(cohort.id, self.team.pk)
 
@@ -1979,11 +1993,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             query={"kind": "HogQLQuery", "query": "SELECT id FROM persons WHERE properties.tag = 'nobody has this'"},
         )
         cohort.insert_users_list_by_uuid([str(member.uuid)], team_id=self.team.pk)
-        Cohort.objects.filter(pk=cohort.pk).update(
-            is_calculating=True,
-            pending_population_mode=CohortPopulationMode.REPLACE,
-            population_claimed_at=timezone.now().replace(microsecond=0),
-        )
+        _claim_replace(cohort)
 
         # Past the member's row, so the marker mints without waiting out the second it was stamped in.
         with time_machine.travel(timezone.now() + timedelta(seconds=10), tick=False):
@@ -2035,11 +2045,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             query={"kind": "HogQLQuery", "query": f"SELECT toUUID('{unknown_uuid}') AS person_id FROM persons LIMIT 1"},
         )
         cohort.insert_users_list_by_uuid([str(member.uuid)], team_id=self.team.pk)
-        Cohort.objects.filter(pk=cohort.pk).update(
-            is_calculating=True,
-            pending_population_mode=CohortPopulationMode.REPLACE,
-            population_claimed_at=timezone.now().replace(microsecond=0),
-        )
+        _claim_replace(cohort)
 
         with (
             time_machine.travel(timezone.now() + timedelta(seconds=10), tick=False),
@@ -2094,11 +2100,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             cohort.insert_users_list_by_uuid([str(existing.uuid)], team_id=self.team.pk)
 
             clock.shift(10)
-            Cohort.objects.filter(pk=cohort.pk).update(
-                is_calculating=True,
-                pending_population_mode=CohortPopulationMode.REPLACE,
-                population_claimed_at=timezone.now().replace(microsecond=0),
-            )
+            _claim_replace(cohort)
 
             # Added after the replace was claimed, so it lands in the copied batch via the floor rule
             # while only unknown_uuid carries the replace marker.
@@ -2149,11 +2151,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             cohort.insert_users_list_by_uuid([str(concurrent_add.uuid)], team_id=self.team.pk)
             clock.shift(1)
             claimed_at = timezone.now().replace(microsecond=0)
-            Cohort.objects.filter(pk=cohort.pk).update(
-                is_calculating=True,
-                pending_population_mode=CohortPopulationMode.REPLACE,
-                population_claimed_at=claimed_at,
-            )
+            _claim_replace(cohort, claimed_at=claimed_at)
             clock.shift(10)
             insert_cohort_from_query(cohort.id, self.team.pk)
 
@@ -2221,11 +2219,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             query=PERSONS_HOGQL_QUERY,
         )
         cohort.insert_users_list_by_uuid([str(member.uuid)], team_id=self.team.pk)
-        Cohort.objects.filter(pk=cohort.pk).update(
-            is_calculating=True,
-            pending_population_mode=CohortPopulationMode.REPLACE,
-            population_claimed_at=timezone.now().replace(microsecond=0),
-        )
+        _claim_replace(cohort)
 
         with (
             patch("products.cohorts.backend.models.util.mint_population_marker") as mock_mint,
@@ -2274,11 +2268,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             query=PERSONS_HOGQL_QUERY,
         )
         cohort.insert_users_list_by_uuid([str(member.uuid)], team_id=self.team.pk)
-        Cohort.objects.filter(pk=cohort.pk).update(
-            is_calculating=True,
-            pending_population_mode=CohortPopulationMode.REPLACE,
-            population_claimed_at=timezone.now().replace(microsecond=0),
-        )
+        _claim_replace(cohort)
 
         with (
             patch(
@@ -2309,11 +2299,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             query=PERSONS_HOGQL_QUERY,
         )
         cohort.insert_users_list_by_uuid([str(member.uuid)], team_id=self.team.pk)
-        Cohort.objects.filter(pk=cohort.pk).update(
-            is_calculating=True,
-            pending_population_mode=CohortPopulationMode.REPLACE,
-            population_claimed_at=timezone.now().replace(microsecond=0),
-        )
+        _claim_replace(cohort)
 
         with (
             patch(QUERY_CH_INSERT_PATH, return_value=1) as mock_insert_ch,
@@ -2353,11 +2339,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         with time_machine.travel(start, tick=False) as clock:
             cohort.insert_users_list_by_uuid([str(stale.uuid)], team_id=self.team.pk)
             clock.shift(10)
-            Cohort.objects.filter(pk=cohort.pk).update(
-                is_calculating=True,
-                pending_population_mode=CohortPopulationMode.REPLACE,
-                population_claimed_at=timezone.now().replace(microsecond=0),
-            )
+            _claim_replace(cohort)
             clock.shift(10)
             insert_cohort_from_query.push_request(retries=0, called_directly=False, is_eager=True)
             try:
@@ -2403,11 +2385,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         with time_machine.travel(start, tick=False) as clock:
             cohort.insert_users_list_by_uuid([str(stale.uuid)], team_id=self.team.pk)
             clock.shift(10)
-            Cohort.objects.filter(pk=cohort.pk).update(
-                is_calculating=True,
-                pending_population_mode=CohortPopulationMode.REPLACE,
-                population_claimed_at=timezone.now().replace(microsecond=0),
-            )
+            _claim_replace(cohort)
             clock.shift(10)
             insert_cohort_from_query.push_request(retries=0, called_directly=False, is_eager=True)
             try:
@@ -2432,11 +2410,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             (False, None, CohortErrorCode.REPLACE_DISABLED),
         )
         self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [stale.id])
-        rows = sync_execute(
-            "SELECT person_id, _offset FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
-            {"team_id": self.team.pk, "cohort_id": cohort.pk},
-        )
-        self.assertEqual([(str(pid), offset) for pid, offset in rows], [(str(stale.uuid), 0)])
+        self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(stale.uuid), 0)])
 
     def test_sweep_redispatched_replace_stopped_when_flag_is_off(self) -> None:
         now = timezone.now().replace(microsecond=0)
@@ -2508,20 +2482,12 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
         start = timezone.now().replace(microsecond=0)
         cohort.insert_users_list_by_uuid([str(existing.uuid)], team_id=self.team.pk)
-        Cohort.objects.filter(pk=cohort.pk).update(
-            is_calculating=True,
-            pending_population_mode=CohortPopulationMode.REPLACE,
-            population_claimed_at=start,
-        )
+        _claim_replace(cohort, claimed_at=start)
 
         with time_machine.travel(start + timedelta(seconds=10), tick=False):
             insert_cohort_from_query(cohort.id, self.team.pk)
 
-        rows = sync_execute(
-            "SELECT person_id, _offset FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
-            {"team_id": self.team.pk, "cohort_id": cohort.pk},
-        )
-        self.assertEqual([(str(pid), offset) for pid, offset in rows], [(str(existing.uuid), 0)])
+        self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(existing.uuid), 0)])
         self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [existing.id])
 
     def test_pre_copy_kill_switch_stop_deletes_attempt_rows_from_clickhouse(self) -> None:
@@ -2540,20 +2506,12 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
         start = timezone.now().replace(microsecond=0)
         cohort.insert_users_list_by_uuid([str(existing.uuid)], team_id=self.team.pk)
-        Cohort.objects.filter(pk=cohort.pk).update(
-            is_calculating=True,
-            pending_population_mode=CohortPopulationMode.REPLACE,
-            population_claimed_at=start,
-        )
+        _claim_replace(cohort, claimed_at=start)
 
         with time_machine.travel(start + timedelta(seconds=10), tick=False):
             insert_cohort_from_query(cohort.id, self.team.pk)
 
-        rows = sync_execute(
-            "SELECT person_id, _offset FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
-            {"team_id": self.team.pk, "cohort_id": cohort.pk},
-        )
-        self.assertEqual([(str(pid), offset) for pid, offset in rows], [(str(existing.uuid), 0)])
+        self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(existing.uuid), 0)])
         self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [existing.id])
         history = CohortCalculationHistory.objects.filter(cohort=cohort).latest("started_at")
         self.assertEqual(history.error_code, CohortErrorCode.REPLACE_DISABLED)
@@ -2573,11 +2531,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
         start = timezone.now().replace(microsecond=0)
         cohort.insert_users_list_by_uuid([str(existing.uuid)], team_id=self.team.pk)
-        Cohort.objects.filter(pk=cohort.pk).update(
-            is_calculating=True,
-            pending_population_mode=CohortPopulationMode.REPLACE,
-            population_claimed_at=start,
-        )
+        _claim_replace(cohort, claimed_at=start)
 
         with (
             time_machine.travel(start + timedelta(seconds=10), tick=False),
@@ -2590,11 +2544,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         self.assertFalse(cohort.is_calculating)
         self.assertIsNone(cohort.pending_population_mode)
         self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [existing.id])
-        rows = sync_execute(
-            "SELECT person_id, _offset FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
-            {"team_id": self.team.pk, "cohort_id": cohort.pk},
-        )
-        self.assertEqual([(str(pid), offset) for pid, offset in rows], [(str(existing.uuid), 0)])
+        self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(existing.uuid), 0)])
 
     def test_entry_kill_switch_stop_after_failed_insert_deletes_earlier_attempts_rows(self) -> None:
         run = uuid4().hex[:8]
@@ -2611,11 +2561,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
         start = timezone.now().replace(microsecond=0)
         cohort.insert_users_list_by_uuid([str(existing.uuid)], team_id=self.team.pk)
-        Cohort.objects.filter(pk=cohort.pk).update(
-            is_calculating=True,
-            pending_population_mode=CohortPopulationMode.REPLACE,
-            population_claimed_at=start,
-        )
+        _claim_replace(cohort, claimed_at=start)
 
         real_insert = insert_cohort_query_actors_into_ch
 
@@ -2639,11 +2585,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             finally:
                 insert_cohort_from_query.pop_request()
 
-        rows = sync_execute(
-            "SELECT person_id, _offset FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
-            {"team_id": self.team.pk, "cohort_id": cohort.pk},
-        )
-        self.assertEqual([(str(pid), offset) for pid, offset in rows], [(str(existing.uuid), 0)])
+        self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(existing.uuid), 0)])
         self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [existing.id])
 
     def test_mid_copy_failure_keeps_clickhouse_rows_so_postgres_remains_a_subset(self) -> None:
@@ -2662,11 +2604,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-in'"},
         )
         start = timezone.now().replace(microsecond=0)
-        Cohort.objects.filter(pk=cohort.pk).update(
-            is_calculating=True,
-            pending_population_mode=CohortPopulationMode.REPLACE,
-            population_claimed_at=start,
-        )
+        _claim_replace(cohort, claimed_at=start)
 
         real_insert_batch = Cohort._insert_batch_via_personhog
         batch_calls = 0
@@ -2708,11 +2646,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-in'"},
         )
         start = timezone.now().replace(microsecond=0)
-        Cohort.objects.filter(pk=cohort.pk).update(
-            is_calculating=True,
-            pending_population_mode=CohortPopulationMode.REPLACE,
-            population_claimed_at=start,
-        )
+        _claim_replace(cohort, claimed_at=start)
 
         with time_machine.travel(start + timedelta(seconds=10), tick=False) as clock:
             insert_cohort_from_query.push_request(retries=0, called_directly=False, is_eager=True)
@@ -2751,11 +2685,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
 
         def claim_replace_concurrently(*args: Any, **kwargs: Any) -> None:
-            Cohort.objects.filter(pk=cohort.pk).update(
-                is_calculating=True,
-                pending_population_mode=CohortPopulationMode.REPLACE,
-                population_claimed_at=timezone.now().replace(microsecond=0),
-            )
+            _claim_replace(cohort)
 
         with (
             patch("posthog.tasks.calculate_cohort._tag_population_queries", side_effect=claim_replace_concurrently),
@@ -2862,11 +2792,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             # r was a member before the request and matches neither query.
             cohort.insert_users_list_by_uuid([str(r.uuid)], team_id=self.team.pk)
             clock.shift(10)
-            Cohort.objects.filter(pk=cohort.pk).update(
-                is_calculating=True,
-                pending_population_mode=CohortPopulationMode.REPLACE,
-                population_claimed_at=timezone.now(),
-            )
+            _claim_replace(cohort)
             clock.shift(10)
             cohort.insert_users_list_by_uuid([str(p.uuid)], team_id=self.team.pk, save_state=False)
             clock.shift(10)
@@ -2890,13 +2816,9 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort.refresh_from_db()
         self.assertFalse(cohort.is_calculating)
         self.assertEqual(set(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk)), {a.id, p.id, q.id})
-        rows = sync_execute(
-            "SELECT person_id, _offset FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
-            {"team_id": self.team.pk, "cohort_id": cohort.pk},
-        )
-        # One flagged row for the match, and the adds keep _offset 0: only the replace's insert sets the flag.
+                # One flagged row for the match, and the adds keep _offset 0: only the replace's insert sets the flag.
         self.assertEqual(
-            sorted((str(person_id), offset) for person_id, offset in rows),
+            sorted(_static_cohort_rows(self.team.pk, cohort.pk)),
             sorted([(str(a.uuid), REPLACE_ROW_OFFSET), (str(p.uuid), 0), (str(q.uuid), 0)]),
         )
 
@@ -2925,11 +2847,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         ):
             cohort.insert_users_list_by_uuid([str(p.uuid), str(s.uuid)], team_id=self.team.pk)
             clock.shift(10)
-            Cohort.objects.filter(pk=cohort.pk).update(
-                is_calculating=True,
-                pending_population_mode=CohortPopulationMode.REPLACE,
-                population_claimed_at=timezone.now(),
-            )
+            _claim_replace(cohort)
             clock.shift(10)
             insert_cohort_from_query(cohort.id, self.team.pk)
             cohort.refresh_from_db()
@@ -2982,11 +2900,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
         cohort.insert_users_list_by_uuid([str(kept.uuid), str(stale1.uuid), str(stale2.uuid)], team_id=self.team.pk)
         claimed_at = timezone.now().replace(microsecond=0) + timedelta(seconds=10)
-        Cohort.objects.filter(pk=cohort.pk).update(
-            is_calculating=True,
-            pending_population_mode=CohortPopulationMode.REPLACE,
-            population_claimed_at=claimed_at,
-        )
+        _claim_replace(cohort, claimed_at=claimed_at)
 
         real_delete = delete_cohort_members_by_person_ids
         delete_calls: list[list[int]] = []
@@ -3112,11 +3026,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             ),
         ):
             self.assertTrue(use_new_events_schema(self.team.pk))
-            Cohort.objects.filter(pk=cohort.pk).update(
-                is_calculating=True,
-                pending_population_mode=CohortPopulationMode.REPLACE,
-                population_claimed_at=timezone.now().replace(microsecond=0),
-            )
+            _claim_replace(cohort)
             clock.shift(10)
             insert_cohort_from_query(cohort.id, self.team.pk)
 
