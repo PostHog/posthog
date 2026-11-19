@@ -11137,11 +11137,13 @@ def _admin_change_url(instance: Model, *, build_url) -> str:
     return build_url(f"/admin/{meta.app_label}/{meta.model_name}/{instance.pk}/change/")
 
 
-def _slack_repo_research_dto(
-    team_id: int, state: dict, repo_research_runs_by_id: dict, *, build_task_view_url
-) -> contracts.SlackThreadContextRepoResearchDTO | None:
-    from posthog.storage import object_storage  # noqa: PLC0415
+def _task_run_log_entries_url(run: TaskRun, *, build_url) -> str:
+    return build_url(f"/api/projects/{run.team_id}/tasks/{run.task_id}/runs/{run.id}/log_entries/")
 
+
+def _slack_repo_research_dto(
+    team_id: int, state: dict, repo_research_runs_by_id: dict, *, build_url
+) -> contracts.SlackThreadContextRepoResearchDTO | None:
     research_task_id = state.get("repo_research_task_id")
     research_run_id = state.get("repo_research_run_id")
     if not research_task_id or not research_run_id:
@@ -11153,11 +11155,7 @@ def _slack_repo_research_dto(
     if research_run is not None:
         sandbox_url = (research_run.state if isinstance(research_run.state, dict) else {}).get("sandbox_url")
         run_status = research_run.status
-        try:
-            log_url = object_storage.get_presigned_url(research_run.log_url, expiration=3600)
-        except Exception:
-            logger.exception("slack_thread_context_research_log_presign_failed", extra={"run_id": research_run_id})
-            log_url = None
+        log_url = _task_run_log_entries_url(research_run, build_url=build_url)
     # Prefer the run's actual id (prefixed dispatches persist it); fall back to derived when the row is gone.
     workflow_id = (
         research_run.workflow_id
@@ -11171,9 +11169,7 @@ def _slack_repo_research_dto(
         task_processing_workflow_id=workflow_id,
         task_processing_workflow_url=_temporal_workflow_url(workflow_id),
         sandbox_url=sandbox_url,
-        task_view_url=build_task_view_url(
-            f"/project/{team_id}/tasks/{research_task_id}?runId={research_run_id}&ph_debug=true"
-        ),
+        task_view_url=build_url(f"/project/{team_id}/tasks/{research_task_id}?runId={research_run_id}&ph_debug=true"),
         log_url=log_url,
     )
 
@@ -11187,8 +11183,6 @@ def resolve_slack_thread_context(
     (``request.build_absolute_uri``) so the facade stays request-agnostic. The mapping is filtered
     through the backing task's visibility after the caller enforces the internal-debug gate.
     """
-    from posthog.storage import object_storage  # noqa: PLC0415
-
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
     )
@@ -11238,11 +11232,6 @@ def resolve_slack_thread_context(
         output = run.output if isinstance(run.output, dict) else {}
         task_processing_workflow_id = run.workflow_id
         mention_workflow_id = state.get("slack_mention_workflow_id")
-        try:
-            presigned_log_url = object_storage.get_presigned_url(run.log_url, expiration=3600)
-        except Exception:
-            logger.exception("slack_thread_context_log_presign_failed", extra={"run_id": str(run.id)})
-            presigned_log_url = None
         run_dtos.append(
             contracts.SlackThreadContextRunDTO(
                 id=str(run.id),
@@ -11257,9 +11246,9 @@ def resolve_slack_thread_context(
                 mention_workflow_id=mention_workflow_id,
                 mention_workflow_url=_temporal_workflow_url(mention_workflow_id),
                 task_view_url=build_url(f"/project/{task.team_id}/tasks/{task.id}?runId={run.id}&ph_debug=true"),
-                log_url=presigned_log_url,
+                log_url=_task_run_log_entries_url(run, build_url=build_url),
                 repo_research=_slack_repo_research_dto(
-                    task.team_id, state, repo_research_runs_by_id, build_task_view_url=build_url
+                    task.team_id, state, repo_research_runs_by_id, build_url=build_url
                 ),
                 admin_url=_admin_change_url(run, build_url=build_url),
             )

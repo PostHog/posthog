@@ -1491,7 +1491,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Resolve a Slack thread to its task, runs, and Temporal workflows",
         description=(
             "PostHog-internal debug tool. Resolves a Slack permalink to the linked task, its runs, "
-            "the task-processing and mention-dispatch Temporal workflow ids/URLs, and presigned log URLs."
+            "the task-processing and mention-dispatch Temporal workflow ids/URLs, and run log API URLs."
         ),
     )
     @action(

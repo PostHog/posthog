@@ -148,11 +148,7 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
 
     def test_happy_path_returns_task_and_runs(self):
         task, run, mapping = self._create_fixture()
-        with patch(
-            "posthog.storage.object_storage.get_presigned_url",
-            return_value="https://s3.example/presigned",
-        ):
-            response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
+        response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
         assert response.status_code == status.HTTP_200_OK, response.content
         body = response.json()
         assert body["thread"]["channel"] == "C0ACRAMJUAG"
@@ -184,19 +180,10 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
         assert run_payload["task_view_url"].endswith(
             f"/project/{self.team.id}/tasks/{task.id}?runId={run.id}&ph_debug=true"
         )
-        assert run_payload["log_url"] == "https://s3.example/presigned"
+        assert run_payload["log_url"] == (
+            f"http://testserver/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/log_entries/"
+        )
         assert run_payload["admin_url"].endswith(f"/admin/tasks/taskrun/{run.id}/change/")
-
-    def test_log_presign_failure_returns_200_with_null_log_url(self):
-        # Presign failures must degrade to a null log_url, not 500.
-        self._create_fixture()
-        with patch(
-            "posthog.storage.object_storage.get_presigned_url",
-            side_effect=Exception("boto signing error"),
-        ):
-            response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
-        assert response.status_code == status.HTTP_200_OK, response.content
-        assert response.json()["runs"][0]["log_url"] is None
 
     def test_reply_url_uses_thread_ts_query_param(self):
         self._create_fixture()
@@ -204,8 +191,7 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
             "https://posthog.slack.com/archives/C0ACRAMJUAG/p1779957091477899"
             "?thread_ts=1779956938.619299&cid=C0ACRAMJUAG"
         )
-        with patch("posthog.storage.object_storage.get_presigned_url", return_value=None):
-            response = self.client.get(self._url(reply_url))
+        response = self.client.get(self._url(reply_url))
         assert response.status_code == status.HTTP_200_OK, response.content
         body = response.json()
         # The reply's in-path ts (1779957091.477899) must NOT win — the thread_ts query
@@ -224,8 +210,7 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
                 "slack_mention_workflow_id": "posthog-code-mention-T_SLACK:Ev02",
             },
         )
-        with patch("posthog.storage.object_storage.get_presigned_url", return_value=None):
-            response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
+        response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         run_ids = [r["id"] for r in body["runs"]]
@@ -235,8 +220,7 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
     @override_settings(TEMPORAL_UI_HOST="")
     def test_temporal_url_null_when_ui_host_unset(self):
         self._create_fixture()
-        with patch("posthog.storage.object_storage.get_presigned_url", return_value=None):
-            response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
+        response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         run_payload = body["runs"][0]
@@ -246,8 +230,7 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
     @override_settings(TEMPORAL_UI_HOST="https://temporal.example.com", TEMPORAL_NAMESPACE="prod")
     def test_temporal_url_includes_workflow_id_when_configured(self):
         task, run, _ = self._create_fixture()
-        with patch("posthog.storage.object_storage.get_presigned_url", return_value=None):
-            response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
+        response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         run_payload = body["runs"][0]
@@ -264,8 +247,7 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
 
     def test_mention_workflow_id_null_for_old_runs(self):
         self._create_fixture(slack_mention_workflow_id=None)
-        with patch("posthog.storage.object_storage.get_presigned_url", return_value=None):
-            response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
+        response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["runs"][0]["mention_workflow_id"] is None
@@ -274,8 +256,7 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
     def test_repo_research_null_for_unambiguous_run(self):
         # The default fixture run has no repo_research_* state — it should report null.
         self._create_fixture()
-        with patch("posthog.storage.object_storage.get_presigned_url", return_value=None):
-            response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
+        response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["runs"][0]["repo_research"] is None
 
@@ -305,13 +286,7 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
         run.save(update_fields=["state"])
 
         with override_settings(TEMPORAL_UI_HOST="https://temporal.example.com", TEMPORAL_NAMESPACE="prod"):
-            with patch(
-                "posthog.storage.object_storage.get_presigned_url",
-                return_value="https://s3.example/research-log",
-            ):
-                response = self.client.get(
-                    self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299")
-                )
+            response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
 
         assert response.status_code == status.HTTP_200_OK, response.content
         research = response.json()["runs"][0]["repo_research"]
@@ -327,7 +302,9 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
         assert research["task_view_url"].endswith(
             f"/project/{self.team.id}/tasks/{research_task.id}?runId={research_run.id}&ph_debug=true"
         )
-        assert research["log_url"] == "https://s3.example/research-log"
+        assert research["log_url"] == (
+            f"http://testserver/api/projects/{self.team.id}/tasks/{research_task.id}/runs/{research_run.id}/log_entries/"
+        )
 
     def test_repo_research_handles_missing_research_run_row(self):
         # If the research run row is gone, still surface the ids/workflow without crashing.
@@ -338,8 +315,7 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
             "repo_research_run_id": "22222222-2222-2222-2222-222222222222",
         }
         run.save(update_fields=["state"])
-        with patch("posthog.storage.object_storage.get_presigned_url", return_value=None):
-            response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
+        response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
         assert response.status_code == status.HTTP_200_OK
         research = response.json()["runs"][0]["repo_research"]
         assert research is not None

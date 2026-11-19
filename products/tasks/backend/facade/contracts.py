@@ -694,7 +694,7 @@ class SlackThreadContextRunDTO:
     mention_workflow_id: str | None
     mention_workflow_url: str | None
     task_view_url: str
-    log_url: str | None
+    log_url: str
     admin_url: str
     repo_research: SlackThreadContextRepoResearchDTO | None = None
 
