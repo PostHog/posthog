@@ -3444,8 +3444,8 @@ def _test_sender_live_warning(team_id: int) -> dict[str, str]:
         "code": HogFlowWarningCode.TEST_SENDER_LIVE,
         "message": (
             "This live workflow has email steps on the PostHog test sender. They reach only verified members "
-            "of your organization, and everyone else is skipped. To reach your users, set up your sending "
-            f"domain and switch those steps to it: {setup_url}"
+            "of your organization, and everyone else is skipped. To reach your users, switch those steps to a "
+            f"verified sender. If you don't have one yet, set up your sending domain: {setup_url}"
         ),
     }
 
