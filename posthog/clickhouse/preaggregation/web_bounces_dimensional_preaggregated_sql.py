@@ -26,6 +26,19 @@ def SHARDED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE_ENGINE():
     return ReplacingMergeTree(TABLE_BASE_NAME, replication_scheme=ReplicationScheme.SHARDED, ver="computed_at")
 
 
+# Added by migration 0388. Migration 0272 creates the tables without them, so that on a new database
+# 0377 and 0388 change the sorting key in the same order as on an existing one. ClickHouse refuses to add
+# a column to the sorting key unless the same ALTER adds the column.
+RULE_COLUMNS_SQL = """    -- True when the row's events fail the team's test-account filters. Evaluated by the writer, so a
+    -- read with test-account filtering on keeps the rows where it is false.
+    is_test_account Bool,
+    -- The path columns with the team's path cleaning rules applied by the writer. Empty when the team
+    -- has no rules, because the raw columns already hold the answer.
+    entry_pathname_cleaned String,
+    end_pathname_cleaned String,"""
+RULE_SORTING_KEY_SQL = """,
+    is_test_account"""
+
 WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name}
 (
@@ -61,13 +74,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     mat_metadata_backend Nullable(String),
     mat_metadata_loggedIn Nullable(Bool),
     channel_type LowCardinality(String),
-    -- True when the row's events fail the team's test-account filters. Evaluated by the writer, so a
-    -- read with test-account filtering on keeps the rows where it is false.
-    is_test_account Bool,
-    -- The path columns with the team's path cleaning rules applied by the writer. Empty when the team
-    -- has no rules, because the raw columns already hold the answer.
-    entry_pathname_cleaned String,
-    end_pathname_cleaned String,
+{rule_columns}
 
     -- Aggregate states for bounce-rate and session-duration metrics.
     persons_uniq_state AggregateFunction(uniq, UUID),
@@ -86,7 +93,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
 """
 
 
-def SHARDED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE_SQL():
+def SHARDED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE_SQL(include_rule_columns: bool = True):
     # See the stats table for the partitioning / ORDER BY / nullable-key rationale.
     return (
         WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE_BASE_SQL
@@ -147,8 +154,7 @@ ORDER BY (
     has_fbclid,
     mat_metadata_backend,
     mat_metadata_loggedIn,
-    channel_type,
-    is_test_account
+    channel_type{rule_sorting_key}
 )
 TTL toDateTime(expires_at)
 SETTINGS index_granularity=8192, ttl_only_drop_parts = 1, allow_nullable_key = 1
@@ -156,12 +162,15 @@ SETTINGS index_granularity=8192, ttl_only_drop_parts = 1, allow_nullable_key = 1
     ).format(
         table_name=SHARDED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE(),
         engine=SHARDED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE_ENGINE(),
+        rule_columns=RULE_COLUMNS_SQL if include_rule_columns else "",
+        rule_sorting_key=RULE_SORTING_KEY_SQL if include_rule_columns else "",
     )
 
 
-def DISTRIBUTED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE_SQL():
+def DISTRIBUTED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE_SQL(include_rule_columns: bool = True):
     return WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE_BASE_SQL.format(
         table_name=DISTRIBUTED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE(),
+        rule_columns=RULE_COLUMNS_SQL if include_rule_columns else "",
         engine=Distributed(
             data_table=SHARDED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE(),
             sharding_key="sipHash64(job_id)",
