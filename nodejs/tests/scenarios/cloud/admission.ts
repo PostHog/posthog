@@ -26,13 +26,22 @@ type EstimateLine = { item: string; usd: number }
 const HOUR_S = 3600
 export const HOURS_PER_MONTH = 730
 const BYTES_PER_GB = 1e9
-const MONITORED_INSTANCES = 2
+const WRITER_MONITORING_INTERVAL_SECONDS = 1
 const CONTROLLER_ROLE = 'scenario-run-controller'
 
-export function estimateOf({ writerClass, readerAcu, host, baseline, admission }: CloudProfile): EstimateLine[] {
+export function estimateOf({
+    writerClass,
+    readerAcu,
+    readerMonitoringIntervalSeconds,
+    host,
+    baseline,
+    admission,
+}: CloudProfile): EstimateLine[] {
     const { rates, allowances } = admission
     const months = TTL_HOURS / HOURS_PER_MONTH
-    const logGbPerHour = (MONITORED_INSTANCES * HOUR_S * allowances.enhancedMonitoringEventBytes) / BYTES_PER_GB
+    const monitoringEventsPerHour =
+        HOUR_S / WRITER_MONITORING_INTERVAL_SECONDS + HOUR_S / readerMonitoringIntervalSeconds
+    const logGbPerHour = (monitoringEventsPerHour * allowances.enhancedMonitoringEventBytes) / BYTES_PER_GB
     const logGb = TTL_HOURS * logGbPerHour
     const fullInventoryPerHour =
         rates.writerPerHour +

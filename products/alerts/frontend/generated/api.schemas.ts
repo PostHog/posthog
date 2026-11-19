@@ -899,6 +899,7 @@ export interface PatchedAlertApi {
  * * `webhook` - Webhook
  * * `teams` - Microsoft Teams
  * * `pagerduty` - PagerDuty
+ * * `incident_io` - incident.io
  * * `email` - Email
  * * `in_app` - In-app notification
  */
@@ -910,6 +911,7 @@ export const DestinationTypeEnumApi = {
     Webhook: 'webhook',
     Teams: 'teams',
     Pagerduty: 'pagerduty',
+    IncidentIo: 'incident_io',
     Email: 'email',
     InApp: 'in_app',
 } as const
@@ -955,6 +957,7 @@ export interface AlertDestinationListItemApi {
      * * `webhook` - Webhook
      * * `teams` - Microsoft Teams
      * * `pagerduty` - PagerDuty
+     * * `incident_io` - incident.io
      * * `email` - Email
      * * `in_app` - In-app notification */
     type: DestinationTypeEnumApi
@@ -1095,6 +1098,11 @@ export interface AlertCreateUrlDestinationApi {
     type: AlertCreateUrlDestinationTypeEnumApi
     /** The https URL to send to. Its path and query are a credential, so reads show only the host. */
     webhook_url: string
+}
+
+export interface AlertTransferOwnershipApi {
+    /** New owner's user UUID. Must be an active organization member. Defaults to yourself. */
+    user_uuid?: string
 }
 
 /**

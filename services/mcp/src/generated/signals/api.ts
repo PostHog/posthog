@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 91 enabled ops
+ * PostHog API - MCP 92 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -312,10 +312,10 @@ export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
             'Only series, or insights, with at least one flagged bucket in the range. Set false to also list quiet ones.'
         ),
     order: zod
-        .enum(['unusual', 'recent'])
+        .enum(['unusual', 'recent', 'rate'])
         .default(signalsAnomaliesSearchRetrieveQueryOrderDefault)
         .describe(
-            '`unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.\n\n\* `unusual` - Unusual\n\* `recent` - Recent'
+            '`unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose newest flag is the fewest buckets ago first, so a flag in the latest hour ties a flag in the latest day, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.\n\n\* `unusual` - Unusual\n\* `recent` - Recent\n\* `rate` - Rate'
         ),
     search: zod
         .string()
@@ -612,6 +612,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .max(signalsReportsListQueryLimitMax)
         .optional()
         .describe('Number of results to return per page.'),
+    needs_you: zod
+        .boolean()
+        .optional()
+        .describe(
+            "'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking."
+        ),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod
         .string()
@@ -1033,7 +1039,7 @@ export const SignalsReportsPartialUpdateBody = () => zod
     )
 
 /**
- * List the actions on this report that start an agent run, read from the report's current state. `get_it_merged` is available only while the report has an open, approved pull request. `make_it_green` is available only while CI fails on the report's open pull request, or while it conflicts with its base branch. `resolve_conflicts` is available only while the report's open pull request conflicts with its base branch. `suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint.
+ * List the actions on this report that start an agent run, read from the report's current state. `get_it_merged` is available only while the report has an open, approved pull request. `make_it_green` is available only while CI fails on the report's open pull request, or while it conflicts with its base branch. `resolve_conflicts` is available only while the report's open pull request conflicts with its base branch. `implement` is available only while the report is ready and actionable, or waiting on input, has no pull request, is not a plan, has no implementation run in progress, and nobody else holds its claim. `suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint.
  * @summary List the report actions that start an agent run
  */
 export const SignalsReportsActionsListParams = () => zod.object({
@@ -1046,7 +1052,7 @@ export const SignalsReportsActionsListParams = () => zod.object({
 })
 
 /**
- * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
+ * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. `implement` starts the run the inbox's Implement button starts: it claims the report, and the pull request it opens is attached to the report. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
  * @summary Start a report action as a background agent run
  */
 export const SignalsReportsActionsRunCreateParams = () => zod.object({
@@ -1062,14 +1068,16 @@ export const signalsReportsActionsRunCreateBodySuggestedPromptIndexMin = 0
 
 export const signalsReportsActionsRunCreateBodyMessageMax = 2000
 
+export const signalsReportsActionsRunCreateBodyRepositoryMax = 140
+
 export const SignalsReportsActionsRunCreateBody = () => zod.object({
     action: zod
-        .enum(['get_it_merged', 'make_it_green', 'resolve_conflicts', 'suggested_prompt', 'ask'])
+        .enum(['get_it_merged', 'make_it_green', 'resolve_conflicts', 'implement', 'suggested_prompt', 'ask'])
         .describe(
-            '\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `resolve_conflicts` - Resolve conflicts\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
+            '\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `resolve_conflicts` - Resolve conflicts\n\* `implement` - Implement\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
         )
         .describe(
-            'The action to run. Use a value from the actions list, or `ask` to send your own `message`.\n\n\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `resolve_conflicts` - Resolve conflicts\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
+            'The action to run. Use a value from the actions list, or `ask` to send your own `message`.\n\n\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `resolve_conflicts` - Resolve conflicts\n\* `implement` - Implement\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
         ),
     suggested_prompt_index: zod
         .number()
@@ -1081,7 +1089,15 @@ export const SignalsReportsActionsRunCreateBody = () => zod.object({
         .max(signalsReportsActionsRunCreateBodyMessageMax)
         .optional()
         .describe(
-            "Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`."
+            "Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Optional for `implement`, where it is added to the prompt as extra instructions. Not accepted for `suggested_prompt`."
+        ),
+    repository: zod
+        .string()
+        .min(1)
+        .max(signalsReportsActionsRunCreateBodyRepositoryMax)
+        .optional()
+        .describe(
+            "Only for `implement`: the repository to implement in, in 'owner\/repo' format (case-insensitive). It must be connected to the project, and it becomes the report's repo selection. Omit it to use the report's own repository. A report whose repository cannot be resolved returns `report_implementation_repository_unresolved`."
         ),
 })
 
@@ -5355,6 +5371,26 @@ export const SignalsScoutScratchpadRememberBody = () => zod
             ),
     })
     .describe('Request body for `remember`.')
+
+/**
+ * Delete one scout memory by its exact key, so no scout reads it again. Use this to prune entries a skill change left stale. Returns `deleted=false` if no entry has that key. Requires editor access to skills, because the scratchpad steers the scout agents.
+ * @summary Delete a scratchpad entry by key
+ */
+export const SignalsScoutScratchpadDiscardParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsScoutScratchpadDiscardBodyKeyMax = 300
+
+export const SignalsScoutScratchpadDiscardBody = () => zod
+    .object({
+        key: zod.string().max(signalsScoutScratchpadDiscardBodyKeyMax).describe('Memory key to delete.'),
+    })
+    .describe('Request body for `forget`.')
 
 /**
  * Delete an entry by key. Returns `deleted=false` if no row matched.

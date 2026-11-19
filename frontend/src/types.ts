@@ -48,6 +48,7 @@ import type {
     SharingConfigurationApi,
     TeamFeatureFlagPolicyConfigApi,
     TeamRealtimeCohortsApi,
+    TeamWorkflowsConfigApi,
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
@@ -326,6 +327,7 @@ export enum AccessControlResourceType {
     Project = 'project',
     Organization = 'organization',
     Action = 'action',
+    Canvas = 'canvas',
     CustomerAnalytics = 'customer_analytics',
     CustomerTask = 'customer_task',
     DataCatalog = 'data_catalog',
@@ -953,30 +955,10 @@ export interface TeamType extends TeamBasicType {
     realtime_cohorts?: TeamRealtimeCohortsApi
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
-    workflows_config: WorkflowsConfig
+    workflows_config: TeamWorkflowsConfigApi
     // Optional so cached team objects from before this field shipped still typecheck.
     feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     business_model?: 'b2b' | 'b2c' | 'other' | null
-}
-
-export interface WorkflowsConfig {
-    capture_workflows_engagement_events: boolean
-    // Optional so cached team objects from before this field shipped still typecheck.
-    email_tracking_consent_mode?: 'off' | 'opt_out' | 'opt_in'
-    // Null uses the product default.
-    workflow_task_rate_limit_per_day?: number | null
-    workflow_task_team_rate_limit_per_day?: number | null
-    // Optional so cached team objects from before these fields shipped still typecheck.
-    email_utm_tags_enabled?: boolean
-    email_utm_params?: Partial<Record<'utm_source' | 'utm_medium' | 'utm_campaign' | 'utm_content', string>>
-    replay_vision_scan_rate_limit_per_day?: number | null
-    replay_vision_scan_team_rate_limit_per_day?: number | null
-    default_email_integration_id?: number | null
-    // Null on either disables the marketing frequency cap.
-    marketing_frequency_cap_max_messages?: number | null
-    marketing_frequency_cap_window_days?: number | null
-    // Null skips a capped marketing message at once instead of holding it for a free slot.
-    marketing_frequency_cap_hold_hours?: number | null
 }
 
 export interface ProductIntentType {
@@ -1166,6 +1148,7 @@ export enum SavedInsightsTabs {
     Home = 'home',
     All = 'all',
     Yours = 'yours',
+    Anomalies = 'anomalies',
     History = 'history',
     Alerts = 'alerts',
     Notifications = 'notifications',
@@ -1198,6 +1181,7 @@ export enum ActivityTab {
     ExploreEvents = 'events',
     LiveEvents = 'live',
     ExploreSessions = 'sessions',
+    ExploreFlagCalls = 'flag-calls',
 }
 
 export enum ProgressStatus {
@@ -1984,6 +1968,8 @@ export enum StepOrderValue {
 export enum PersonsTabType {
     PROFILE = 'profile',
     EVENTS = 'events',
+    // pinned: the value is the activeTab URL hash param. Renaming it breaks saved links.
+    FLAG_CALLS = 'flagCalls',
     EXCEPTIONS = 'exceptions',
     SURVEY_RESPONSES = 'surveyResponses',
     SESSION_RECORDINGS = 'sessionRecordings',
@@ -2746,6 +2732,7 @@ export interface EndpointType extends WithAccessControl {
     updated_at: string
     created_by: UserBasicType | null
     data_freshness_seconds: number
+    plan_refresh_floor_seconds: number | null
     is_materialized: boolean
     current_version: number
     current_version_id: string
@@ -4845,6 +4832,8 @@ export interface PreflightStatus {
     cohort_csv_upload_max_bytes?: number
     /** Whether the instance has an MCP server that the WebMCP proxy can reach. */
     webmcp_available?: boolean
+    /** Origin of the PostHog instance that issues CIMD verification tokens. Empty when this instance issues them. */
+    cimd_verification_token_issuer_url?: string
     object_storage: boolean
     wizard_cloud_run_available: boolean
     public_egress_ip_addresses?: string[]
@@ -5326,6 +5315,8 @@ export interface AppContext {
     /** The project the URL asked for, as an id or a token, when the server refused to switch to it. */
     project_access_denied?: string | null
     livestream_host?: string
+    /** Origin of `UPLOADED_MEDIA_PUBLIC_URL` when uploaded media is served from its own host. */
+    uploaded_media_origin?: string | null
     oauth_application?: OAuthApplicationPublicMetadata
     /** Server-resolved MCP scopes for OAuth consent when the client omits `scope`. */
     oauth_mcp_consent?: OAuthMcpConsentContext
@@ -6146,6 +6137,7 @@ export enum ActivityScope {
     ACTION = 'Action',
     ACCOUNT_VIEW = 'AccountView',
     ALERT_CONFIGURATION = 'AlertConfiguration',
+    SUBSCRIPTION = 'Subscription',
     ANNOTATION = 'Annotation',
     BATCH_EXPORT = 'BatchExport',
     BATCH_IMPORT = 'BatchImport',
@@ -6524,6 +6516,12 @@ export interface ExternalDataSource {
     /** Whether a table of this source uses webhook sync, but the source has no enabled webhook. */
     webhook_not_registered?: boolean
     supports_column_selection?: boolean
+    /** Whether tables can be added by path, which object storage sources support. */
+    supports_adding_tables?: boolean
+    /** False when the source reads a whole bucket, so there is nothing to discover. */
+    supports_table_discovery?: boolean
+    /** Where relative paths for a new table start, such as `my-bucket/exports/`. Null for other sources. */
+    table_root?: string | null
     api_version?: string | null
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
     connection_warning?: string | null
@@ -6682,6 +6680,9 @@ export interface ExternalDataSourceSyncSchema {
     /** True when only a full refresh keeps the table equal to the origin (e.g. file imports), so the
      *  wizard defaults it to `full_refresh` even though incremental or append is available. */
     prefers_full_refresh?: boolean
+    /** True when the source reads the table's key from the table's definition (e.g. a Custom source
+     *  manifest), so a table without `detected_primary_keys` has no key even though it lists no columns. */
+    declares_primary_keys?: boolean
     description?: string | null
     should_sync_default: boolean
     primary_key_columns: string[] | null
@@ -6792,6 +6793,8 @@ export interface ExternalDataSchemaSourceSummary {
     api_version?: string | null
     /** Vendor API versions the source type supports — the schema override picker's options */
     supported_api_versions?: string[]
+    /** False when the source reads a whole bucket, so there is nothing to discover. */
+    supports_table_discovery?: boolean
 }
 
 export interface ExternalDataSchemaWithSource extends ExternalDataSourceSchema {

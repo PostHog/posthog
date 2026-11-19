@@ -10,6 +10,7 @@ from django.db import transaction
 from django.utils import timezone
 
 import structlog
+from opentelemetry import trace
 from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.service import RPCError
@@ -17,7 +18,6 @@ from temporalio.service import RPCError
 from posthog.hogql.database.database import Database
 
 from posthog.models import User
-from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -35,6 +35,7 @@ from products.data_modeling.backend.graph import Graph
 from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS, humanize_cadence
 from products.data_modeling.backend.logic.incremental import TRINO_INCREMENTAL_SCOPE, clear_incremental_state
 from products.data_modeling.backend.logic.node_suspension import unsuspend_nodes
+from products.data_modeling.backend.logic.read_access import assert_user_can_read_saved_query
 from products.data_modeling.backend.models import (
     DataModelingJob,
     DataModelingJobEngine,
@@ -57,6 +58,7 @@ from products.data_modeling.backend.temporal.workflows.execute_dag import (
 from products.data_modeling.backend.temporal.workflows.materialize_view import MaterializeViewWorkflowInputs
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 RELATED_RUN_EDIT_ACCESS_REFUSAL = "You need edit access to every view in this run."
@@ -82,6 +84,7 @@ BUILDING_LOOKUP_CONCURRENCY = 20
 BUILDING_LOOKUP_TIMEOUT = timedelta(seconds=5)
 
 
+@tracer.start_as_current_span("data_modeling.start_node_materialization")
 def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_id: int | None = None) -> None:
     """Start a one-off materialization workflow for a single node.
 
@@ -212,7 +215,7 @@ def _assert_user_can_run_nodes(node: Node, node_ids: set[str], user: User) -> No
     for saved_query in saved_queries:
         if not access_control.check_access_level_for_object(saved_query, "editor"):
             raise MaterializationForbiddenError(RELATED_RUN_EDIT_ACCESS_REFUSAL)
-        assert_user_can_read_query(saved_query.query, node.team_id, user, database=database)
+        assert_user_can_read_saved_query(saved_query, user, database=database)
 
 
 def _related_node_ids(

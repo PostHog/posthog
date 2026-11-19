@@ -150,6 +150,7 @@ _AGENT_ON: Final = {
 # Rows draw first, then alerts with no insight row, each oldest first.
 _ROW_FIRST: Final = [("alert upper threshold", 100.0), ("sibling lower threshold", 5.0)]
 _SIBLING_FIRST: Final = [("sibling lower threshold", 5.0), ("alert upper threshold", 100.0)]
+_MOVED_FIRST: Final = [("sibling lower threshold", 5.0), ("alert upper threshold", 200.0)]
 
 
 class TestPlatformInsightEvaluation(APIBaseTest):
@@ -196,7 +197,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             alert,
             legacy_configuration_id=None,
             owner=PlatformAlertOwner.PLATFORM,
-            destinations_owner=PlatformAlertOwner.PLATFORM,
             created_by=self.user,
             source_config={
                 "insight_id": alert.insight_id,
@@ -435,13 +435,9 @@ class TestPlatformInsightEvaluation(APIBaseTest):
     @parameterized.expand(
         [
             ("a_row_with_a_slack_function", "row", "hog_function", [_ROW_FIRST]),
-            # Its row's threshold drifted from the copy's, which the platform owns.
-            (
-                "a_moved_alert_with_a_slack_function",
-                "copy",
-                "hog_function",
-                [[("sibling lower threshold", 5.0), ("alert upper threshold", 200.0)]],
-            ),
+            # Its row's threshold and creator were edited in a shell, and the copy's, which the platform owns, win.
+            ("a_moved_alert_with_a_slack_function", "copy", "hog_function", [_MOVED_FIRST]),
+            ("a_moved_alert_with_a_platform_slack_destination", "copy", "platform", [_MOVED_FIRST]),
             ("a_native_alert_with_a_slack_function", "native", "hog_function", [_SIBLING_FIRST]),
             ("a_native_alert_with_a_platform_slack_destination", "native", "platform", [_SIBLING_FIRST]),
             ("a_native_alert_without_slack", "native", None, []),
@@ -458,7 +454,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 enabled=enabled,
                 legacy_configuration_id=None,
                 owner=PlatformAlertOwner.PLATFORM,
-                destinations_owner=PlatformAlertOwner.PLATFORM,
                 source_config={
                     "insight_id": alert.insight_id,
                     SOURCE_CONDITION_KEY: {
@@ -467,10 +462,12 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                     },
                 },
             )
+        destination_owner_id = None
         if kind == "copy":
-            self._copy(
+            destination_owner_id = self._copy(
                 alert,
                 owner=PlatformAlertOwner.PLATFORM,
+                created_by=self.user,
                 source_config={
                     "insight_id": alert.insight_id,
                     SOURCE_CONDITION_KEY: {
@@ -478,8 +475,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                         "threshold": {"type": "absolute", "bounds": {"upper": 200.0}},
                     },
                 },
+            ).id
+            AlertConfiguration.objects.filter(id=alert.id).update(
+                owner=PlatformAlertOwner.PLATFORM,
+                created_by=User.objects.create_and_join(self.organization, "shell-edit@example.com", None),
             )
-            AlertConfiguration.objects.filter(id=alert.id).update(owner=PlatformAlertOwner.PLATFORM)
         chart_alert_id = self._native(alert).id if kind == "native" else alert.id
         if slack == "hog_function":
             HogFunction.objects.create(
@@ -500,7 +500,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         elif slack == "platform":
             create_alert_destinations(
                 team_id=self.team.id,
-                configuration_id=chart_alert_id,
+                configuration_id=destination_owner_id or chart_alert_id,
                 destinations=(
                     NewAlertDestination(
                         data=cast(

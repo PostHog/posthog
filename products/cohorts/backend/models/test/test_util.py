@@ -605,7 +605,7 @@ class TestCohortUtils(BaseTest):
         with (
             patch(
                 "products.cohorts.backend.models.util.sync_execute",
-                side_effect=[[], [(str(person.uuid), 1, 1)]],
+                side_effect=[[], [(str(person.uuid), 1, 1, 0)]],
             ),
             patch("products.cohorts.backend.models.util.time.sleep"),
         ):

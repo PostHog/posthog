@@ -67,9 +67,13 @@ def check(requests: Sequence[CheckRequest], context: Context | None) -> list[boo
 def reuse(access: UserAccessControl, permissions: UserPermissions | None = None) -> None:
     """Let the checks in the current session read rules and memberships that a view already loaded."""
     session = current()
-    if session is None or access.team is None or not isinstance(access.user, User) or not session.can_cache():
+    if session is None or not isinstance(access.user, User) or not session.can_cache():
         return
-    session.access.setdefault(_principal_key(access.user), access)
+    key = _principal_key(access.user)
+    if access.team is not None:
+        session.access.setdefault(key, access)
+    elif (membership := access.organization_membership) is not None:
+        session.organization_access.setdefault((key, str(membership.organization_id)), access)
     if permissions is not None and permissions.user.pk == access.user.pk:
         session.permissions.setdefault(access.user.pk, permissions)
 

@@ -212,6 +212,7 @@ class TestFakePersonHogClientCohorts:
         [
             ("subset", [10, 11], 2, {12}),
             ("skips_non_members_and_repeats", [10, 10, 99], 1, {11, 12}),
+            ("empty", [], 0, {10, 11, 12}),
         ]
     )
     def test_delete_cohort_members_by_person_ids(self, _name, person_ids, expected_deleted, expected_remaining):
@@ -235,13 +236,37 @@ class TestFakePersonHogClientCohorts:
         expected_memberships = {5, 6} if 10 in expected_remaining else {6}
         assert {m.cohort_id for m in memberships.memberships} == expected_memberships
 
-    def test_delete_cohort_members_by_person_ids_rejects_more_than_the_service_accepts(self):
+    @parameterized.expand(
+        [
+            (
+                "delete_distinct",
+                "delete_cohort_members_by_person_ids",
+                cohort_pb2.DeleteCohortMembersByPersonIdsRequest,
+                list(range(1, 10_002)),
+            ),
+            (
+                "delete_repeated",
+                "delete_cohort_members_by_person_ids",
+                cohort_pb2.DeleteCohortMembersByPersonIdsRequest,
+                [10] * 10_001,
+            ),
+            (
+                "insert_distinct",
+                "insert_cohort_members",
+                cohort_pb2.InsertCohortMembersRequest,
+                list(range(1, 10_002)),
+            ),
+            ("insert_repeated", "insert_cohort_members", cohort_pb2.InsertCohortMembersRequest, [10] * 10_001),
+        ]
+    )
+    def test_cohort_member_rpcs_reject_more_ids_than_the_service_accepts(
+        self, _name, method_name, request_cls, person_ids
+    ):
         # The service refuses the request, so a fake that accepted it would pass tests production fails.
         with pytest.raises(grpc.RpcError) as excinfo:
-            self.client.delete_cohort_members_by_person_ids(
-                cohort_pb2.DeleteCohortMembersByPersonIdsRequest(cohort_id=5, person_ids=list(range(1, 10_002)))
-            )
+            getattr(self.client, method_name)(request_cls(cohort_id=5, person_ids=person_ids))
         assert excinfo.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+        assert "Maximum 10000 person IDs per request" in (excinfo.value.details() or "")
 
 
 class TestCallTracking:

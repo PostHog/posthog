@@ -42,7 +42,6 @@ from products.product_analytics.backend.models.insight_explanation import Insigh
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 if TYPE_CHECKING:
-    from posthog.models.cohortmembership.query_rewrite import SavedQueryRewrite
     from posthog.models.user import User
 
 
@@ -227,6 +226,19 @@ def insight_short_ids_built_by(*, team: Team, user_id: int, since: datetime, lim
 
 def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Collection[int]) -> list[Insight]:
     return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
+
+
+def live_insight_ids_by_team(*, team_ids: Collection[int], insight_ids: Collection[int]) -> dict[int, set[int]]:
+    """Which of the given insights in these teams are not deleted, by team, in one query."""
+    live: dict[int, set[int]] = {}
+    if not team_ids or not insight_ids:
+        return live
+    # Every row stays inside `team_ids`, which the caller resolved; the ids only narrow that set.
+    # nosemgrep: idor-lookup-without-team
+    rows = Insight.objects.filter(team_id__in=list(team_ids), id__in=list(insight_ids))
+    for team_id, insight_id in rows.values_list("team_id", "id"):
+        live.setdefault(team_id, set()).add(insight_id)
+    return live
 
 
 def _visible_insight_rows(
@@ -560,11 +572,3 @@ def get_insight_series(
         wait_until=wait_until,
         raise_on_pending=raise_on_pending,
     )
-
-
-def rewrite_cohort_membership_queries(team_id: int, apply: bool) -> list["SavedQueryRewrite"]:
-    from posthog.models.cohortmembership.query_rewrite import (  # noqa: PLC0415 — keeps the HogQL parser off this facade's import path
-        rewrite_saved_rows,
-    )
-
-    return rewrite_saved_rows(Insight.objects_including_soft_deleted.filter(team_id=team_id), apply)

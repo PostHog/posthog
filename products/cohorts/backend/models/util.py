@@ -1518,7 +1518,8 @@ def insert_cohort_people_into_pg(
     `min_rows` is how many rows the caller just wrote to ClickHouse. Each query can land on a different replica, and
     a replica that has not received the write yet reads as a smaller cohort, so the copy repeats until it has seen them.
     `written_since` is a `_timestamp` from before that write. Only rows at or after it count, because a cohort's
-    existing members can otherwise reach `min_rows` on a replica that has none of the new rows.
+    existing members can otherwise reach `min_rows` on a replica that has none of the new rows. Passing it also
+    clears the removal marks of the members those rows add back, so a repair, which must keep the marks, leaves it out.
 
     With ``replace_marker``, the copy reads with sequential consistency and copies the rows the replace
     keeps (``REPLACE_KEEPS_ROW``): this attempt's rows at the marker, and members added at or after
@@ -1575,6 +1576,8 @@ def _copy_static_cohort_rows_to_pg(
     """
     from posthog.helpers.batch_iterators import CursorBatchIterator
 
+    from products.cohorts.backend.static_reconciliation import clear_static_cohort_member_removals_written_after
+
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
     # A replace reads the rows it keeps. An append after a replace reads the rows that replace kept: the ones it
     # removes can linger until its ClickHouse delete applies, and copying them would put pruned members back.
@@ -1621,7 +1624,7 @@ def _copy_static_cohort_rows_to_pg(
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         with _static_cohort_data_route():
             rows = sync_execute(
-                f"SELECT person_id, {kept}, {counted} FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id >= %(cursor)s ORDER BY person_id LIMIT %(limit)s",
+                f"SELECT person_id, {kept}, {counted}, toUnixTimestamp(_timestamp) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id >= %(cursor)s ORDER BY person_id LIMIT %(limit)s",
                 {
                     "cohort_id": cohort.pk,
                     "team_id": team_id,
@@ -1639,12 +1642,18 @@ def _copy_static_cohort_rows_to_pg(
         if not rows:
             exhausted = True
             return [], cursor
-        # Per person: whether any row is one to keep, and whether any kept row counts toward the caller's min_rows.
-        by_person: dict[str, tuple[bool, bool]] = {}
-        for person_id, is_kept, is_counted in rows:
+        # Per person: whether any row is one to keep, whether any kept row counts toward the caller's min_rows,
+        # and the newest unix timestamp among kept rows so populations can clear older removal marks.
+        by_person: dict[str, tuple[bool, bool, int]] = {}
+        for person_id, is_kept, is_counted, written_at in rows:
             key = str(person_id)
-            was_kept, was_counted = by_person.get(key, (False, False))
-            by_person[key] = (was_kept or bool(is_kept), was_counted or bool(is_kept and is_counted))
+            was_kept, was_counted, prev_written_at = by_person.get(key, (False, False, 0))
+            row_kept = bool(is_kept)
+            by_person[key] = (
+                was_kept or row_kept,
+                was_counted or (row_kept and bool(is_counted)),
+                max(prev_written_at, int(written_at)) if row_kept else prev_written_at,
+            )
         persons = list(by_person)
         if len(rows) < batch_size:
             exhausted = True
@@ -1654,6 +1663,11 @@ def _copy_static_cohort_rows_to_pg(
             # A person has a handful of rows, so one filling a whole page means something else is wrong.
             raise RuntimeError(f"A page of {batch_size} rows held only one person of static cohort {cohort.pk}")
         kept_persons = [person for person in persons if by_person[person][0]]
+        if (written_since is not None or replace_marker is not None) and kept_persons:
+            clear_static_cohort_member_removals_written_after(
+                cohort_id=cohort.pk,
+                written_at={person: by_person[person][2] for person in kept_persons},
+            )
         counted_persons = [person for person in kept_persons if by_person[person][1]]
         new_rows_read += len(counted_persons)
         counted_in_batch = {_normalize_uuid(person) for person in counted_persons}

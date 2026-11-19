@@ -644,6 +644,38 @@ class TestRESTClient:
         assert pages == [[{"id": 1}]]
         assert mock_session.send.call_count == 2
 
+    @pytest.mark.parametrize(
+        "make_error",
+        [
+            pytest.param(lambda: ReadTimeout("Read timed out."), id="read_timeout"),
+            pytest.param(lambda: ProxyError("Cannot connect to proxy."), id="connection_error"),
+        ],
+    )
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_send_request_retries_transient_error_from_prepare_request_then_succeeds(
+        self, MockSession, mock_sleep, make_error
+    ) -> None:
+        # A lazily-minted auth token (e.g. OAuth2Auth._obtain_token) makes its own HTTP call from
+        # inside `prepare_request`, before `send` is ever reached. A timeout or dropped connection
+        # there must retry through the same loop as one from `send`, not escape uncaught and fail
+        # the whole sync on one transient mint failure.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.side_effect = [make_error(), MagicMock(url="https://api.example.com/items")]
+
+        ok = _make_response({"results": [{"id": 1}]})
+        mock_session.send.return_value = ok
+
+        client = RESTClient(base_url="https://api.example.com")
+        pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
+
+        assert pages == [[{"id": 1}]]
+        assert mock_session.prepare_request.call_count == 2
+        assert mock_session.send.call_count == 1
+
     @patch("tenacity.nap.time.sleep")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

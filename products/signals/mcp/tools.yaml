@@ -107,7 +107,8 @@ tools:
             does not mean the scores are ready: rely on them only when `scored_history_ready` is true, that is when
             `scored_days` (distinct days with a scored daily bucket in the last 28 days, whatever the requested range)
             is 14 or more. Use `group_by: insight` for one row per insight. Rows come most unusual first; pass `order:
-            recent` for the newest flagged bucket first. Pass `search` to keep only insights whose name contains the
+            recent` for the series flagged the fewest buckets ago first, so an hourly series flagged in the latest hour
+            ties a daily series flagged in the latest day. Pass `search` to keep only insights whose name contains the
             text. When `has_more` is true, read the next page with `offset` set to `offset + limit`. A 404 means anomaly
             search is not available for this project.
         exclude_params:
@@ -608,7 +609,9 @@ tools:
             carry it. This read never builds a ranking; for a newer, focused, or refreshed list, use
             inbox-reports-for-me. For reports older than a cutoff, pass `created_before` instead of reading every page.
             For the next fixable work across the project, pass `view=actionable` with `use_priority_preference=true`,
-            `sort=priority`, and `limit=10`. For the work this agent claimed, pass `assignee=me`.
+            `sort=priority`, and `limit=10`. For the work this agent claimed, pass `assignee=me`. For the reports that
+            need the user, waiting on their input or claimed by them, pass `needs_you=true`, with `sort=personal` to
+            keep their personal order.
 
             Without `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with
             inbox-report-artefacts-list before you act on it.
@@ -1730,6 +1733,20 @@ tools:
             the derived `failure_reason` flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows
             queryable by `source_id = run:<run_id>:finding:<finding_id>` (one per id in `emitted_finding_ids`). Strictly
             team-scoped — a UUID belonging to another team returns 404.
+    scout-scratchpad-discard:
+        operation: signals_scout_scratchpad_discard
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a scout memory
+        description: >
+            Delete one scout scratchpad entry by its exact key, on behalf of the user. Use it to clean up memories that
+            are stale, wrong, or no longer match a skill, after finding the key with `scout-scratchpad-search`. Returns
+            `deleted=false` if no entry has that key. Requires editor access to skills, because the scratchpad steers
+            the scout agents. Confirm with the user before deleting entries they have not asked you to remove.
+        feature_flag: scout-scratchpad-discard-mcp
     scout-scratchpad-forget:
         operation: signals_scout_scratchpad_forget
         enabled: true

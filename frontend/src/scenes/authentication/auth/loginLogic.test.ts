@@ -3,9 +3,11 @@ import { router } from 'kea-router'
 import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import api from 'lib/api'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { handleLoginRedirect, redirectAfterLogin } from 'lib/utils/loginRedirect'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
+import { getRadarSignalsId, markRadarSignalsIdSent, startRadarSignals } from 'scenes/authentication/shared/radarSignals'
 
 import { initKea } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -15,6 +17,11 @@ import { CODE_RESEND_COOLDOWN_MS, loginLogic } from './loginLogic'
 
 jest.mock('@simplewebauthn/browser', () => ({ startAuthentication: jest.fn() }))
 jest.mock('posthog-js')
+jest.mock('scenes/authentication/shared/radarSignals', () => ({
+    startRadarSignals: jest.fn(),
+    getRadarSignalsId: jest.fn(() => Promise.resolve('signals_abc')),
+    markRadarSignalsIdSent: jest.fn(),
+}))
 
 // isWebKitBrowser() reads navigator.vendor: "Apple Computer, Inc." on WebKit, "Google Inc." on Chromium.
 const WEBKIT_VENDOR = 'Apple Computer, Inc.'
@@ -168,6 +175,21 @@ describe('loginLogic', () => {
             expect(beginHandler).toHaveBeenCalledTimes(1)
         })
 
+        it('does not auto-trigger the passkey prompt for an email once its password login is submitted', async () => {
+            useMocks({
+                post: {
+                    '/api/login': () => [401, { code: 'code_based_verification_required', detail: 'user@example.com' }],
+                },
+            })
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+            logic.actions.submitLogin()
+            logic.actions.precheck({ email: 'user@example.com' })
+            await expectLogic(logic)
+                .toDispatchActionsInAnyOrder(['precheckSuccess', 'submitLoginFailure'])
+                .toFinishAllListeners()
+            expect(beginHandler).not.toHaveBeenCalled()
+        })
+
         it('does not auto-trigger the passkey modal on WebKit (Safari)', async () => {
             setVendor(WEBKIT_VENDOR)
             logic.actions.precheck({ email: 'user@example.com' })
@@ -318,6 +340,81 @@ describe('loginLogic', () => {
                 expect.anything(),
                 expect.objectContaining({ extra: expect.objectContaining({ status: 502 }) })
             )
+        })
+    })
+
+    describe('radar signals', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        const originalVendor = window.navigator.vendor
+
+        afterEach(() => {
+            logic.unmount()
+            setVendor(originalVendor)
+            jest.restoreAllMocks()
+            jest.clearAllMocks()
+        })
+
+        it.each([
+            [
+                'sends the signals token when the precheck names a radar client',
+                { radar_client_id: 'client_123' },
+                [['client_123']],
+                { radar_signals_id: 'signals_abc' },
+                [['signals_abc']],
+            ],
+            ['sends no token when the precheck names none', {}, [], {}, []],
+        ])('%s', async (_name, precheckExtra, expectedStartCalls, expectedTokenField, expectedSentCalls) => {
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger
+            useMocks({
+                post: {
+                    '/api/login/precheck': () => [200, { saml_available: false, ...precheckExtra }],
+                    '/api/login': () => [400, { code: 'invalid_credentials', detail: 'Invalid email or password.' }],
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+            const createSpy = jest.spyOn(api, 'create')
+
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+            logic.actions.precheck({ email: 'user@example.com' })
+            await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+            logic.actions.submitLogin()
+            await expectLogic(logic).toDispatchActions(['submitLoginFailure'])
+
+            const loginBody = createSpy.mock.calls.find(([url]) => url === 'api/login')?.[1]
+            expect(jest.mocked(startRadarSignals).mock.calls).toEqual(expectedStartCalls)
+            expect(loginBody).toEqual({ email: 'user@example.com', password: 'a-password', ...expectedTokenField })
+            expect(jest.mocked(markRadarSignalsIdSent).mock.calls).toEqual(expectedSentCalls)
+        })
+
+        it('sends the login without a token when the token never arrives', async () => {
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger
+            jest.mocked(getRadarSignalsId).mockReturnValueOnce(new Promise(() => {}))
+            useMocks({
+                post: {
+                    '/api/login/precheck': () => [200, { saml_available: false, radar_client_id: 'client_123' }],
+                    '/api/login': () => [400, { code: 'invalid_credentials', detail: 'Invalid email or password.' }],
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+            logic.actions.precheck({ email: 'user@example.com' })
+            await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+            const createSpy = jest.spyOn(api, 'create')
+            jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+            logic.actions.submitLogin()
+            await jest.advanceTimersByTimeAsync(3000)
+            jest.useRealTimers()
+            await expectLogic(logic).toDispatchActions(['submitLoginFailure'])
+
+            const loginBody = createSpy.mock.calls.find(([url]) => url === 'api/login')?.[1]
+            expect(loginBody).toEqual({ email: 'user@example.com', password: 'a-password' })
         })
     })
 

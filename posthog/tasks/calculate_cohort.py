@@ -17,6 +17,7 @@ from celery.exceptions import MaxRetriesExceededError, Retry, SoftTimeLimitExcee
 from celery.utils.time import get_exponential_backoff_interval
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter, Gauge, Histogram
+from redis.exceptions import RedisError
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -25,6 +26,7 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
 from posthog.exceptions_capture import capture_exception
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.scoping import with_team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -75,6 +77,12 @@ from products.cohorts.backend.models.util import (
     sort_cohorts_topologically,
 )
 from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team
+from products.cohorts.backend.static_reconciliation import (
+    STATIC_COHORT_RECONCILE_COUNTER,
+    StaticCohortToReconcile,
+    reconcile_static_cohort,
+    run_reconciliation_pass,
+)
 
 COHORT_RECALCULATION_MAX_RETRIES = 6
 STATIC_POPULATION_MAX_RETRIES = 6
@@ -1827,3 +1835,52 @@ def finalize_cohort_backfill_runs() -> None:
     ``BEHAVIORAL_BACKFILL_FINALIZER_ENABLED`` (checked inside ``finalize_backfill_runs``, which
     returns before touching the DB when disabled)."""
     finalize_backfill_runs()
+
+
+@shared_task(ignore_result=True)
+@skip_team_scope_audit
+def dispatch_static_cohort_reconciliations() -> None:
+    """Dispatch a repair for the static cohorts whose Postgres membership lags ClickHouse."""
+    if not get_instance_setting("STATIC_COHORT_RECONCILIATION_ENABLED"):
+        return
+    run_reconciliation_pass(
+        now=timezone.now(),
+        dispatch=lambda cohort: reconcile_static_cohort_membership.delay(
+            team_id=cohort.team_id, cohort_id=cohort.cohort_id
+        ),
+    )
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    max_retries=STATIC_POPULATION_MAX_RETRIES,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS,
+)
+@with_team_scope()
+def reconcile_static_cohort_membership(self: Task, team_id: int, cohort_id: int) -> None:
+    if not get_instance_setting("STATIC_COHORT_RECONCILIATION_ENABLED"):
+        return
+    try:
+        reconcile_static_cohort(StaticCohortToReconcile(team_id=team_id, cohort_id=cohort_id))
+    except Exception as err:
+        # A retry starts the copy again from the first page. The read-back already waited for replicas, and a run
+        # that hit the time limit would hit it again.
+        retryable = (_is_transient_population_error(err) or isinstance(err, RedisError)) and not isinstance(
+            err, StaticCohortReadBackIncomplete | SoftTimeLimitExceeded
+        )
+        if not _is_final_attempt(self, retryable):
+            # Not _schedule_population_retry: it stamps last_error_at, and the retry would then skip the cohort as busy.
+            raise self.retry(
+                exc=err,
+                countdown=get_exponential_backoff_interval(
+                    factor=STATIC_POPULATION_RETRY_BACKOFF_SECONDS,
+                    retries=self.request.retries,
+                    maximum=STATIC_POPULATION_RETRY_BACKOFF_MAX_SECONDS,
+                    full_jitter=True,
+                ),
+            )
+        STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="failed").inc()
+        logger.exception("static_cohort_reconcile_failed", team_id=team_id, cohort_id=cohort_id)
+        capture_exception(err, additional_properties={"team_id": team_id, "cohort_id": cohort_id})

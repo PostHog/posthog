@@ -18,7 +18,6 @@ from pydantic import JsonValue
 
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
-from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
@@ -31,6 +30,7 @@ from products.tasks.backend.logic.services.startup_failure import (
     read_startup_failure,
 )
 from products.tasks.backend.models import Task, TaskRun, stamp_pending_user_message_id
+from products.tasks.backend.storage import read_run_log
 from products.tasks.backend.task_run_sync import sync_task_statuses_on_commit
 
 if TYPE_CHECKING:
@@ -1147,7 +1147,7 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
     `refused` flags a provider refusal (stopReason "refusal") — a terminal turn
     state: without it the poll loop would wait out its whole budget on a turn that already died.
     """
-    log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+    log_content = read_run_log(task_run.log)
     if not log_content.strip():
         return TurnLogState(
             agent_finished=False,

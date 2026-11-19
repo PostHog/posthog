@@ -6,6 +6,8 @@ rules:
           - '/admin/console/organization_sign_in_panels.py'
           - '/admin/test_organization_sign_in_panels.py'
       owners: team-platform-features
+    - match: ['/user_analytics_deletion.py', '/test/test_user_analytics_deletion.py']
+      owners: team-platform-features
     - match: '/caching/'
       owners: team-analytics-platform
     - match: '/clickhouse/hcl/'
@@ -43,14 +45,14 @@ rules:
           - '/management/commands/backfill_code_review_scopes.py'
           - '/management/commands/test/test_backfill_code_review_scopes.py'
       owners: team-devex
-    - match:
-          - '/management/commands/rewrite_cohort_membership_queries.py'
-          - '/management/commands/test/test_rewrite_cohort_membership_queries.py'
-      owners: team-feature-flags
     - match: '/queries/'
       owners: team-analytics-platform
     - match: '/rbac/'
       owners: team-platform-features
+    - match:
+          - '/request_log_signal_handlers.py'
+          - '/test/test_request_log_signal_handlers.py'
+      owners: team-apm
     - match: '/slack/'
       owners: team-devex
     - match: '/taxonomy/'
@@ -96,6 +98,8 @@ rules:
       owners: team-devex
     - match: '/test/repo_invariants/test_legacy_alert_configuration_reads.py'
       owners: team-apm
+    - match: '/test/repo_invariants/test_temporal_workflow_catalog.py'
+      owners: team-cloud-foundations
     - match:
           - '/security/test/test_*.py'
       owners: team-security

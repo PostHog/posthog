@@ -1,6 +1,7 @@
 import json
 import datetime
 import dataclasses
+from typing import Literal
 
 import pytest
 
@@ -19,12 +20,14 @@ from products.signals.backend.ranking.features import (
     REPORT_EMBEDDINGS_EXTRA,
     REPORT_EMBEDDINGS_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET,
+    REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
     REPORT_FACT_FEATURE_NAMES,
     REPORT_FACT_GROUPS,
     REPORT_SCORED_FACTS_EXTRA,
     REPORT_SOURCES_EXTRA,
     SOURCES_GROUP_FEATURE_NAMES,
+    Extras,
     report_fact_matrix,
 )
 from products.signals.backend.ranking.model_store import ONNX_OUTPUT_HEADS_KEY
@@ -63,7 +66,12 @@ from products.signals.dags.inbox_ranking.nn.examples import (
     examples_arrow,
     examples_from_arrow,
 )
-from products.signals.dags.inbox_ranking.nn.feature_backfill import BackfillBatchRows, fill_from_backfill
+from products.signals.dags.inbox_ranking.nn.feature_backfill import (
+    BackfillBatchRows,
+    fill_from_backfill,
+    scored_facts_rows,
+    with_scored_facts_sources,
+)
 from products.signals.dags.inbox_ranking.nn.model import (
     MIN_TRAINED_GROUP_SHARE,
     network_recipe,
@@ -103,6 +111,7 @@ from products.signals.dags.inbox_ranking.training.families import (
     NN_WITH_PRIO_FAMILY,
     NN_WITH_PRIO_ML_FEATURES_BACKFILL_MODEL_NAME,
     NN_WITH_PRIO_ML_FEATURES_MODEL_NAME,
+    NN_WITH_PRIO_ML_FEATURES_V2_FAMILY,
     NN_WITH_PRIO_MODEL_NAME,
     PAIR_GRAIN,
     PAIR_HEAD_NAMES,
@@ -119,7 +128,7 @@ from products.signals.dags.inbox_ranking.training.side_inputs import (
     load_side_inputs,
     rows_as_of,
 )
-from products.signals.dags.inbox_ranking.training.telemetry import experiment_comparison_events
+from products.signals.dags.inbox_ranking.training.telemetry import FAMILY_SKIPPED_EVENT, experiment_comparison_events
 
 PARTITION = "2026-10-20"
 PREFIX = settings.INBOX_RANKING_DATASET_S3_PREFIX
@@ -159,9 +168,24 @@ def _pair_experiment(
     )
 
 
+def _record_skips(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    skips: list[tuple[str, str]] = []
+
+    def capture(context, partition_key, events, **kwargs):
+        skips.extend(
+            (event.properties["model_name"], event.properties["reason"])
+            for event in events
+            if event.event == FAMILY_SKIPPED_EVENT
+        )
+
+    monkeypatch.setattr(nn_dag, "capture_training_events", capture)
+    return skips
+
+
 @pytest.mark.parametrize("examples_present", [True, False])
 def test_an_expired_experiment_and_a_day_without_examples_train_nothing(monkeypatch, examples_present):
     trained: list[str] = []
+    skips = _record_skips(monkeypatch)
 
     def train_candidate(context, client, bucket, partition_key, family):
         trained.append(family.name)
@@ -187,6 +211,10 @@ def test_an_expired_experiment_and_a_day_without_examples_train_nothing(monkeypa
     assert trained == (["last_day", "pair in the pair lane"] if examples_present else [])
     assert metadata["expired_skipped"].value == "expired on 2026-10-19"
     assert ("skipped" in metadata) is not examples_present
+    # A family that trains reports no skip, so each family is in one series or the other.
+    assert skips == [("expired", "expired")] + (
+        [] if examples_present else [("last_day", "missing_examples"), ("pair", "missing_examples")]
+    )
 
 
 def test_an_experiment_must_name_a_registered_serving_baseline_and_an_expiry():
@@ -877,19 +905,179 @@ def test_a_backfill_fills_only_unrecorded_values_from_the_same_report_and_team(
     assert [_hot(row, "already_addressed_") for row in matrix] == expected_addressed
 
 
-def test_a_backfill_family_must_be_a_report_experiment_whose_set_has_late_groups():
+def test_a_backfill_family_must_be_a_report_family_whose_set_has_late_groups():
     selection = FeatureBackfillSelection(batch_id="test-batch", provenances=AS_OF_PROVENANCES)
     ml_features = REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET
+    served = ModelFamily(name="served", feature_set=ml_features, feature_backfill=selection)
+    assert served in serving_families([served])
     for build in (
-        lambda: ModelFamily(name="served", feature_set=ml_features, feature_backfill=selection),
+        lambda: dataclasses.replace(_pair_experiment("pair"), feature_set=ml_features, feature_backfill=selection),
         lambda: dataclasses.replace(
             _experiment("no_late_groups", datetime.date(2026, 12, 31)), feature_backfill=selection
+        ),
+        lambda: ModelFamily(
+            name="served_no_late_groups", feature_set=REPORT_EMBEDDINGS_FEATURE_SET, feature_backfill=selection
         ),
     ):
         with pytest.raises(ValueError, match="reads a feature backfill"):
             build()
     with pytest.raises(ValueError, match="pick distinct provenances"):
         FeatureBackfillSelection(batch_id="test-batch", provenances=(Provenance.MISSING,))
+
+
+_MOMENT = datetime.datetime.combine(_BACKFILL_DAY + datetime.timedelta(days=1), datetime.time.min, tzinfo=datetime.UTC)
+# Report id: (the scored-facts row's chart_count and already_addressed and when it was scored, the
+# snapshot's own chart_count and already_addressed, the batch row's chart_count and provenance). A
+# scored or batch value of "absent" means that source has no row for the report.
+_Absent = Literal["absent"]
+_PRECEDENCE_CASES: dict[
+    str,
+    tuple[tuple[int | None, bool | None, str] | _Absent, tuple[int | None, bool | None], tuple[int, str] | _Absent],
+] = {
+    "scored_zero": ((0, False, "12:00"), (2, True), (2, "historical")),
+    "scored_null": ((None, None, "12:00"), (2, True), (2, "historical")),
+    "scored_after_moment": ((2, True, "next_day"), (0, False), (2, "historical")),
+    "snapshot_zero": ("absent", (0, False), (2, "historical")),
+    "backfill_zero": ("absent", (None, None), (0, "historical")),
+    "backfill_not_accepted": ("absent", (None, None), (2, "current_approximation")),
+    "unknown": ("absent", (None, None), "absent"),
+}
+
+
+def _content(chart_count: int | None) -> dict[str, object]:
+    return {
+        **{
+            name: (chart_count if name == "chart_count" else 0) if chart_count is not None else None
+            for name in CONTENT_COLUMNS
+        },
+        "user_authored": False if chart_count is not None else None,
+    }
+
+
+def _precedence_inputs() -> tuple[ExampleTable, BackfillBatchRows, Extras]:
+    ids = list(_PRECEDENCE_CASES)
+    table = ExampleTable(
+        rows=pd.DataFrame(
+            [
+                {
+                    "report_id": report_id,
+                    "snapshot_date": _BACKFILL_DAY,
+                    "report_team_id": 3,
+                    "priority": None,
+                    "report_created_at": pd.Timestamp("2026-09-01T10:00:00Z"),
+                    **_REPORT_FACTS,
+                    **_content(count),
+                    "already_addressed": addressed,
+                }
+                for report_id, (_, (count, addressed), _) in _PRECEDENCE_CASES.items()
+            ]
+        ),
+        labels=np.zeros((len(ids), len(NN_HEAD_NAMES)), dtype=np.float32),
+        holdout=np.zeros((len(ids), len(NN_HEAD_NAMES)), dtype=bool),
+    )
+    batch = BackfillBatchRows(
+        selection=FeatureBackfillSelection(batch_id="test-batch", provenances=AS_OF_PROVENANCES),
+        rows=[
+            {
+                "report_id": report_id,
+                "snapshot_date": _BACKFILL_DAY,
+                "report_team_id": 3,
+                **_content(count),
+                "content_provenance": provenance,
+                "already_addressed": count == 2,
+                "already_addressed_provenance": provenance,
+            }
+            for report_id, (_, _, backfill) in _PRECEDENCE_CASES.items()
+            if backfill != "absent"
+            for count, provenance in [backfill]
+        ],
+        birth_days=1,
+        days_read=1,
+    )
+    scored_on = {"12:00": _MOMENT - datetime.timedelta(hours=12), "next_day": _MOMENT + datetime.timedelta(hours=1)}
+    scored = pd.DataFrame(
+        [
+            {
+                "report_id": report_id,
+                "scored_at": scored_on[at],
+                **_REPORT_FACTS,
+                "report_created_at": pd.Timestamp("2026-09-01T10:00:00Z"),
+                "priority": None,
+                **_content(count),
+                "already_addressed": addressed,
+            }
+            for report_id, (row, _, _) in _PRECEDENCE_CASES.items()
+            if row != "absent"
+            for count, addressed, at in [row]
+        ]
+    )
+    scored["scored_at"] = pd.to_datetime(scored["scored_at"], utc=True)
+    extras = {
+        REPORT_EMBEDDINGS_EXTRA: pd.DataFrame(
+            {
+                "embedding_small": [np.zeros(EMBEDDING_DIMENSIONS, dtype=np.float32)] * len(ids),
+                "embedding_inserted_at": pd.to_datetime(["2026-09-01T09:00:00"] * len(ids), utc=True),
+            },
+            index=pd.Index(ids, name="report_id"),
+        ),
+        REPORT_SOURCES_EXTRA: pd.DataFrame(
+            columns=["team_id", "signal_id", "report_id", "source_product", "is_deleted", "embedding_inserted_at"]
+        ),
+        REPORT_SCORED_FACTS_EXTRA: scored,
+    }
+    return table, batch, extras
+
+
+def test_each_source_of_a_late_group_wins_over_the_ones_below_it_and_a_real_zero_survives():
+    table, batch, extras = _precedence_inputs()
+    feature_set = REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET
+
+    backfilled = fill_from_backfill(table, batch, ("content", "already_addressed"), consent_team_ids={3})
+    rows = backfilled.table.rows
+    scored = scored_facts_rows(rows, extras, feature_set)
+    sources = with_scored_facts_sources(backfilled.sources, scored)
+    matrix = pd.DataFrame(report_matrix(rows, extras, feature_set), columns=list(feature_set.feature_names))
+
+    facts = matrix[list(REPORT_FACT_FEATURE_NAMES)].to_numpy()
+    assert dict(zip(rows["report_id"], sources["content"].tolist())) == {
+        "scored_zero": "scored_facts",
+        "scored_null": "scored_facts",
+        "scored_after_moment": "snapshot",
+        "snapshot_zero": "snapshot",
+        "backfill_zero": "historical",
+        "backfill_not_accepted": "current_approximation_not_accepted",
+        "unknown": "not_recorded",
+    }
+    assert {
+        report_id: (_hot(row, "chart_count_"), _hot(row, "already_addressed_"), _hot(row, "content_recorded"))
+        for report_id, row in zip(rows["report_id"], facts)
+    } == {
+        "scored_zero": (["chart_count_0"], ["already_addressed_false"], ["content_recorded"]),
+        # The sweep read no content, so the served model reads none either, whatever the snapshot holds.
+        "scored_null": ([], [], []),
+        "scored_after_moment": (["chart_count_0"], ["already_addressed_false"], ["content_recorded"]),
+        "snapshot_zero": (["chart_count_0"], ["already_addressed_false"], ["content_recorded"]),
+        "backfill_zero": (["chart_count_0"], ["already_addressed_false"], ["content_recorded"]),
+        "backfill_not_accepted": ([], [], []),
+        "unknown": ([], [], []),
+    }
+
+
+def test_a_training_row_with_scored_facts_equals_the_serving_row_built_from_the_same_facts():
+    table, _, extras = _precedence_inputs()
+    feature_set = REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET
+    report_id = "scored_zero"
+    snapshot = table.rows.set_index("report_id").loc[[report_id], list(feature_set.state_columns)]
+    facts = extras[REPORT_SCORED_FACTS_EXTRA].set_index("report_id").loc[[report_id], list(feature_set.state_columns)]
+    served_extras = {key: extras[key] for key in (REPORT_EMBEDDINGS_EXTRA, REPORT_SOURCES_EXTRA)}
+
+    training = feature_set.build_matrix(snapshot, extras, as_of=_MOMENT)
+    serving = feature_set.build_matrix(facts, served_extras)
+
+    pd.testing.assert_frame_equal(training, serving)
+    assert not training.equals(
+        REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET.build_matrix(snapshot, extras, as_of=_MOMENT)
+    )
 
 
 def _report_facts_objects() -> tuple[NNExamples, dict[str, bytes], str]:
@@ -947,6 +1135,7 @@ def _backfill_objects(examples: NNExamples, batch_id: str) -> dict[str, bytes]:
 
 
 def test_a_backfill_family_skips_a_partition_its_batch_holds_no_birth_day_of(monkeypatch):
+    skips = _record_skips(monkeypatch)
     family = next(family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_ML_FEATURES_BACKFILL_MODEL_NAME)
     _, objects, day = _report_facts_objects()
     client = _S3(objects)
@@ -954,7 +1143,11 @@ def test_a_backfill_family_skips_a_partition_its_batch_holds_no_birth_day_of(mon
     with dagster.build_asset_context(partition_key=day) as context:
         metadata = nn_dag.train_candidate(context, client, "bucket", day, family)
 
-    assert metadata == {"skipped": dagster.MetadataValue.bool(True)}
+    assert metadata == {
+        "skipped": dagster.MetadataValue.bool(True),
+        "skip_reason": dagster.MetadataValue.text("backfill_batch_empty"),
+    }
+    assert skips == [(family.name, "backfill_batch_empty")]
     assert not [key for key in client.objects if f"/{family.name}/" in key]
 
 
@@ -996,6 +1189,48 @@ def test_a_backfill_family_trains_with_its_late_groups_and_records_readiness_per
     assert all(event.properties["content_fit_carried_share"] == 1.0 for event in events)
 
 
+def test_the_serving_ml_features_family_trains_without_its_batch_and_records_the_facts_mix(monkeypatch):
+    pytest.importorskip("torch")
+    monkeypatch.setattr(nn_dag, "capture_training_events", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        nn_dag, "NETWORK_CONFIG", NetworkConfig(projection_dim=8, trunk_dim=8, dropout=0.1, epochs=5, batch_size=64)
+    )
+    monkeypatch.setattr(nn_dag, "training_consent_team_ids", lambda: frozenset(TEAMS))
+    family = NN_WITH_PRIO_ML_FEATURES_V2_FAMILY
+    examples, objects, day = _report_facts_objects()
+    rows = examples.table.rows
+    # The sweep recorded the facts of every other report, at noon of its birth day.
+    scored = rows.iloc[::2]
+    facts = pa.Table.from_pylist(
+        [
+            {
+                "report_id": report_id,
+                "scored_at": datetime.datetime.combine(born, datetime.time(12), tzinfo=datetime.UTC),
+                **_REPORT_FACTS,
+                **dict.fromkeys(CONTENT_COLUMNS, 0),
+                "user_authored": False,
+            }
+            for report_id, born in zip(scored["report_id"], scored["snapshot_date"])
+        ],
+        schema=SCORED_FACTS_SCHEMA,
+    )
+    client = _S3({**objects, partition_object_key(PREFIX, SCORED_FACTS_TABLE, day): _parquet(facts)})
+
+    with dagster.build_asset_context(partition_key=day) as context:
+        nn_dag.train_candidate(context, client, "bucket", day, family)
+
+    metadata = json.loads(client.objects[model_object_key(PREFIX, family.name, day, METADATA_FILE)])
+    readiness = metadata["readiness"]
+    assert readiness["feature_backfill"]["days_read"] == 0
+    assert metadata["zeroed_feature_groups"] == readiness["zeroed_feature_groups"]
+    assert readiness["network_fit"]["facts_sources"].keys() == {"scored_facts", "snapshot"}
+    for name in NN_HEAD_NAMES:
+        for split in ("train", "holdout"):
+            head = readiness["heads"][name][split]
+            assert sum(head["facts_sources"].values()) == head["rows"]
+            assert head["sources"]["content"].get("scored_facts", 0) == head["facts_sources"].get("scored_facts", 0)
+
+
 def test_a_report_family_recipe_has_no_pair_keys_so_its_hash_stays_as_it_was():
     config = NetworkConfig()
     assert network_recipe(NN_WITH_PRIO_FAMILY, config, ("open",)) == model_recipe(
@@ -1017,6 +1252,14 @@ def test_a_report_family_recipe_has_no_pair_keys_so_its_hash_stays_as_it_was():
         dataclasses.replace(_pair_experiment("pair"), pair_training=PAIR_TRAINING), config, ("open",), PAIR_SETTINGS
     )
     assert cold_path_recipe["pair_training"] == dataclasses.asdict(PAIR_TRAINING)
+    # The serving ML features family adds no recipe key: its set's name is the only difference from the
+    # backfill experiment that reads the same batch, so no other family's hash moves.
+    backfill = next(family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_ML_FEATURES_BACKFILL_MODEL_NAME)
+    served, experiment = (
+        network_recipe(family, config, PROJECT_VECTOR_KINDS)
+        for family in (NN_WITH_PRIO_ML_FEATURES_V2_FAMILY, backfill)
+    )
+    assert {key for key in served if served[key] != experiment[key]} == {"feature_set"}
 
 
 def test_a_reference_score_is_broadcast_to_every_pair_of_its_report():

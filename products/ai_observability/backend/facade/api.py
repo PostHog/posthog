@@ -3,7 +3,7 @@ from contextlib import AbstractContextManager, nullcontext
 from datetime import date, datetime, timedelta
 from functools import partial
 from itertools import batched
-from typing import IO, Final
+from typing import IO, Any, Final
 
 from django.utils.timezone import now
 
@@ -924,6 +924,24 @@ def create_parser_recipe(team: Team, user: User, name: str, source: str) -> str:
     """Saves a parser recipe for the team and returns its id. Raises `RecipeCompileError` when it does not compile."""
     validate_parser_recipe_source(source)
     return save_team_recipe(team.pk, user, name=name, source=source)
+
+
+def eligible_clustering_team_ids(team_ids: list[int] | None = None) -> set[int]:
+    from ..logic.clustering.eligibility import eligible_clustering_team_ids as eligible
+
+    return eligible(team_ids)
+
+
+def is_current_clustering_job(team_id: int, job_id: str, job_scope: str) -> bool:
+    from ..logic.clustering.execution import is_current_job
+
+    return is_current_job(team_id, job_id, job_scope)
+
+
+def validate_clustering_filters(team_id: int, user: User, filters: list[dict[str, Any]]) -> None:
+    from ..logic.clustering.permissions import validate_clustering_filters as validate
+
+    validate(team_id, user, filters)
 
 
 def plan_eval_suggestions() -> contracts.EvalSuggestionsPlan:

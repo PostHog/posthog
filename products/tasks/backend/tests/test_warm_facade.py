@@ -2014,6 +2014,32 @@ class TestWarmRunRelease(APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.content
         deliver.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("signal_response_is_lost", []),
+            ("connect_fails_on_the_retry", [RuntimeError("connection refused")]),
+        ]
+    )
+    def test_release_with_unknown_signal_delivery_keeps_the_run_fenced(self, _name, retry_connect_errors) -> None:
+        run = self._run(awaiting=True)
+        lost_response = AsyncMock(side_effect=RPCError("deadline exceeded", RPCStatusCode.DEADLINE_EXCEEDED, b""))
+        with (
+            patch("products.tasks.backend.facade.api.send_cancel"),
+            patch("products.tasks.backend.facade.cancellation.sync_connect") as connect,
+        ):
+            connect.return_value.get_workflow_handle.return_value.signal = lost_response
+            response = self._release(run)
+            for connect_error in retry_connect_errors:
+                connect.side_effect = connect_error
+                response = self._release(run)
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        with (
+            patch("products.tasks.backend.temporal.client.signal_task_followup_message"),
+            self.assertRaises(facade.WarmRunActivationUnavailable),
+        ):
+            facade._deliver_warm_run_message(run, message="Continue the example task", artifact_ids=[])
+
     def test_release_does_not_cancel_if_its_claim_cannot_be_saved(self) -> None:
         run = self._run(awaiting=True)
         with (

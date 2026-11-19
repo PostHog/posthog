@@ -70,7 +70,7 @@ jobs:
                   filter: blob:none
                   sparse-checkout: |
                       .github/workflows/desktop-agent-tag.yml
-                      .github/scripts/desktop/wait-for-backend-deploy.sh
+                      .github/scripts/deploy/wait-for-backend-deploy.sh
                   sparse-checkout-cone-mode: false
                   token: ${{ steps.app-token.outputs.token }}
 
@@ -142,7 +142,7 @@ jobs:
                   INTERVAL_SECONDS: '120'
               run: |
                   STATUS=0
-                  .github/scripts/desktop/wait-for-backend-deploy.sh || STATUS=$?
+                  .github/scripts/deploy/wait-for-backend-deploy.sh || STATUS=$?
                   case "$STATUS" in
                     0)
                       exit 0

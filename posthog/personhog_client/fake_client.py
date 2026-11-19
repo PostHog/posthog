@@ -89,8 +89,8 @@ LIFECYCLE_DELETE_MAX_PERSON_IDS = 250
 # The replica's cap on person ids per GetPersons request (MAX_BATCH_LOOKUP_SIZE).
 GET_PERSONS_MAX_IDS = 250
 
-# The replica's cap on person ids per DeleteCohortMembersByPersonIds request.
-DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX = 10_000
+# The replica's cap on person ids per InsertCohortMembers or DeleteCohortMembersByPersonIds request.
+COHORT_MEMBERS_MAX_PERSON_IDS = 10_000
 
 # team_id is narrowed to i32 server-side.
 _MAX_TEAM_ID = 2**31 - 1
@@ -478,18 +478,23 @@ class FakePersonHogClient:
         self, request: cohort_pb2.DeleteCohortMembersByPersonIdsRequest, timeout: float | None = None
     ) -> cohort_pb2.DeleteCohortMembersByPersonIdsResponse:
         self.calls.append(_Call("delete_cohort_members_by_person_ids", request))
-        if len(request.person_ids) > DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX:
-            raise _FakeRpcError(
-                grpc.StatusCode.INVALID_ARGUMENT,
-                f"Maximum {DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX} person IDs per request",
-            )
+        self._validate_cohort_member_count(request.person_ids)
         deleted = sum(1 for pid in request.person_ids if self._remove_cohort_member(request.cohort_id, pid))
         return cohort_pb2.DeleteCohortMembersByPersonIdsResponse(deleted_count=deleted)
+
+    @staticmethod
+    def _validate_cohort_member_count(person_ids: Sequence[int]) -> None:
+        if len(person_ids) > COHORT_MEMBERS_MAX_PERSON_IDS:
+            raise _FakeRpcError(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                f"Maximum {COHORT_MEMBERS_MAX_PERSON_IDS} person IDs per request",
+            )
 
     def insert_cohort_members(
         self, request: cohort_pb2.InsertCohortMembersRequest, timeout: float | None = None
     ) -> cohort_pb2.InsertCohortMembersResponse:
         self.calls.append(_Call("insert_cohort_members", request))
+        self._validate_cohort_member_count(request.person_ids)
         inserted = 0
         for pid in request.person_ids:
             key = (request.cohort_id, pid)

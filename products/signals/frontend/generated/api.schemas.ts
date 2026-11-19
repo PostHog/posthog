@@ -626,12 +626,14 @@ export const AnomalyGroupByEnumApi = {
 /**
  * * `unusual` - Unusual
  * * `recent` - Recent
+ * * `rate` - Rate
  */
 export type AnomalyOrderEnumApi = (typeof AnomalyOrderEnumApi)[keyof typeof AnomalyOrderEnumApi]
 
 export const AnomalyOrderEnumApi = {
     Unusual: 'unusual',
     Recent: 'recent',
+    Rate: 'rate',
 } as const
 
 export interface AnomalyFlaggedPointApi {
@@ -647,6 +649,16 @@ export interface AnomalyFlaggedPointApi {
      * @nullable
      */
     score: number | null
+}
+
+export interface AnomalyDashboardApi {
+    /** The numeric id of the dashboard. */
+    id: number
+    /**
+     * The name of the dashboard. Null when it has none.
+     * @nullable
+     */
+    name: string | null
 }
 
 export interface AnomalySeriesPointApi {
@@ -728,6 +740,8 @@ export interface AnomalySeriesApi {
     last_flagged_bucket: string | null
     /** Up to 5 flagged buckets in the range, newest first. */
     flagged_points: AnomalyFlaggedPointApi[]
+    /** The dashboards the insight sits on that the caller may view, oldest tile first. Empty when none. */
+    dashboards: AnomalyDashboardApi[]
     /** Only with `include_points`. The newest 400 scored buckets of the series in the range, oldest first. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. Fewer points than `scored_buckets` means the cap left older buckets out. */
     points?: AnomalySeriesPointApi[]
 }
@@ -816,7 +830,8 @@ export interface AnomalySearchResponseApi {
     /** The applied order.
      *
      * * `unusual` - Unusual
-     * * `recent` - Recent */
+     * * `recent` - Recent
+     * * `rate` - Rate */
     order: AnomalyOrderEnumApi
     /** One row per series, in the requested `order`. Empty unless `group_by` is `series`. */
     series: AnomalySeriesApi[]
@@ -972,6 +987,69 @@ export interface SignalTeamConfigApi {
     readonly updated_at: string
 }
 
+/**
+ * * `not_started` - Not started
+ * * `in_progress` - In progress
+ * * `active` - Active
+ * * `paused` - Paused
+ * * `ai_disabled` - AI data processing disabled
+ */
+export type InboxSetupStateEnumApi = (typeof InboxSetupStateEnumApi)[keyof typeof InboxSetupStateEnumApi]
+
+export const InboxSetupStateEnumApi = {
+    NotStarted: 'not_started',
+    InProgress: 'in_progress',
+    Active: 'active',
+    Paused: 'paused',
+    AiDisabled: 'ai_disabled',
+} as const
+
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `no_data` - No data
+ * * `report_created` - Report created
+ * * `insufficient_data` - Insufficient data
+ * * `no_actionable_finding` - No actionable finding
+ * * `incomplete` - Incomplete
+ */
+export type FirstReportStatusEnumApi = (typeof FirstReportStatusEnumApi)[keyof typeof FirstReportStatusEnumApi]
+
+export const FirstReportStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    NoData: 'no_data',
+    ReportCreated: 'report_created',
+    InsufficientData: 'insufficient_data',
+    NoActionableFinding: 'no_actionable_finding',
+    Incomplete: 'incomplete',
+} as const
+
+export interface InboxStatusApi {
+    /** Current project setup state.
+     *
+     * * `not_started` - Not started
+     * * `in_progress` - In progress
+     * * `active` - Active
+     * * `paused` - Paused
+     * * `ai_disabled` - AI data processing disabled */
+    setup_state: InboxSetupStateEnumApi
+    /** Whether a report has surfaced in this project, including reports already handled or assigned to someone else. */
+    has_report_history: boolean
+    /** First investigation outcome, when known and the project has no report history. Does not expose scout run details.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `no_data` - No data
+     * * `report_created` - Report created
+     * * `insufficient_data` - Insufficient data
+     * * `no_actionable_finding` - No actionable finding
+     * * `incomplete` - Incomplete */
+    first_report_status: FirstReportStatusEnumApi | null
+    /** Whether the user has inbox and scout configuration access on the web. Integration and organization settings may require additional permissions. */
+    can_configure: boolean
+}
+
 export interface InboxSummaryPullRequestApi {
     /** GitHub repository in owner/name format. */
     repository: string
@@ -1010,27 +1088,6 @@ export interface InboxSummaryApi {
      */
     people: InboxSummaryPersonApi[] | null
 }
-
-/**
- * * `pending` - Pending
- * * `running` - Running
- * * `no_data` - No data
- * * `report_created` - Report created
- * * `insufficient_data` - Insufficient data
- * * `no_actionable_finding` - No actionable finding
- * * `incomplete` - Incomplete
- */
-export type FirstReportStatusEnumApi = (typeof FirstReportStatusEnumApi)[keyof typeof FirstReportStatusEnumApi]
-
-export const FirstReportStatusEnumApi = {
-    Pending: 'pending',
-    Running: 'running',
-    NoData: 'no_data',
-    ReportCreated: 'report_created',
-    InsufficientData: 'insufficient_data',
-    NoActionableFinding: 'no_actionable_finding',
-    Incomplete: 'incomplete',
-} as const
 
 export interface FirstReportStateApi {
     /** Scout run ID for inspecting the investigation through the scout API. */
@@ -2295,6 +2352,133 @@ export interface ReportSourceSuggestionApi {
     reason: string
 }
 
+/**
+ * * `user` - User
+ * * `task` - Task
+ * * `agent` - Agent
+ * * `system` - System
+ */
+export type SignalActorKindEnumApi = (typeof SignalActorKindEnumApi)[keyof typeof SignalActorKindEnumApi]
+
+export const SignalActorKindEnumApi = {
+    User: 'user',
+    Task: 'task',
+    Agent: 'agent',
+    System: 'system',
+} as const
+
+export interface _UserApi {
+    readonly id: number
+    readonly uuid: string
+    readonly first_name: string
+    readonly last_name: string
+    readonly email: string
+}
+
+export interface ReportDecisionSetByApi {
+    /** Who set the value. `user`: a person in PostHog. `agent`: a person's external coding agent. `task`: a PostHog agent task, such as report research. `system`: the pipeline, or an older row with no recorded attribution.
+     *
+     * * `user` - User
+     * * `task` - Task
+     * * `agent` - Agent
+     * * `system` - System */
+    kind: SignalActorKindEnumApi
+    /** The person who set the value, or whose external agent did. Null for task and system writes. */
+    user: _UserApi | null
+    /**
+     * External agent client name when kind is `agent`, otherwise null.
+     * @nullable
+     */
+    agent: string | null
+    /**
+     * PostHog task that set the value when kind is `task`.
+     * @nullable
+     */
+    task_id: string | null
+}
+
+export interface ReportRepositoryDecisionApi {
+    /**
+     * The reason stored with the value by whoever set it. Null when none was stored.
+     * @nullable
+     */
+    reason: string | null
+    /** Who set the current value. */
+    set_by: ReportDecisionSetByApi
+    /** When the current value was set. */
+    set_at: string
+    /**
+     * 'owner/repo' the report's work targets. Null when repository selection chose no repository.
+     * @nullable
+     */
+    value: string | null
+}
+
+export interface ReportPriorityDecisionApi {
+    /**
+     * The reason stored with the value by whoever set it. Null when none was stored.
+     * @nullable
+     */
+    reason: string | null
+    /** Who set the current value. */
+    set_by: ReportDecisionSetByApi
+    /** When the current value was set. */
+    set_at: string
+    /** Report priority, from P0 (critical) to P4.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    value: AutonomyPriorityEnumApi | null
+}
+
+export interface ReportActionabilityDecisionApi {
+    /**
+     * The reason stored with the value by whoever set it. Null when none was stored.
+     * @nullable
+     */
+    reason: string | null
+    /** Who set the current value. */
+    set_by: ReportDecisionSetByApi
+    /** When the current value was set. */
+    set_at: string
+    /**
+     * `immediately_actionable`, `requires_human_input`, or `not_actionable`: whether the report can be acted on now, needs a person's input first, or needs no action.
+     * @nullable
+     */
+    value: string | null
+}
+
+export interface ReportAlreadyAddressedDecisionApi {
+    /**
+     * The reason stored with the value by whoever set it. Null when none was stored.
+     * @nullable
+     */
+    reason: string | null
+    /** Who set the current value. */
+    set_by: ReportDecisionSetByApi
+    /** When the current value was set. */
+    set_at: string
+    /**
+     * Whether the issue is already fixed, or has a fix in flight that someone else is working on.
+     * @nullable
+     */
+    value: boolean | null
+}
+
+export interface ReportDecisionsApi {
+    /** From the latest repo_selection artefact. Null when there is none. */
+    repository: ReportRepositoryDecisionApi | null
+    /** From the latest priority_judgment artefact. Null when there is none. */
+    priority: ReportPriorityDecisionApi | null
+    /** From the latest actionability_judgment artefact. Null when there is none. */
+    actionability: ReportActionabilityDecisionApi | null
+    /** From the latest actionability_judgment artefact, so it shares the reason and the setter with actionability. Null when there is none. */
+    already_addressed: ReportAlreadyAddressedDecisionApi | null
+}
+
 export type SignalReportSuppressionSourceEnumApi =
     (typeof SignalReportSuppressionSourceEnumApi)[keyof typeof SignalReportSuppressionSourceEnumApi]
 
@@ -2381,23 +2565,6 @@ export const SignalReportPullRequestReviewDecisionEnumApi = {
     ChangesRequested: 'changes_requested',
     ReviewRequired: 'review_required',
 } as const
-
-export type SignalActorKindEnumApi = (typeof SignalActorKindEnumApi)[keyof typeof SignalActorKindEnumApi]
-
-export const SignalActorKindEnumApi = {
-    User: 'user',
-    Task: 'task',
-    Agent: 'agent',
-    System: 'system',
-} as const
-
-export interface _UserApi {
-    readonly id: number
-    readonly uuid: string
-    readonly first_name: string
-    readonly last_name: string
-    readonly email: string
-}
 
 export interface SignalReportPullRequestAttachedByApi {
     /** Kind of actor who attached the PR. Null when legacy attribution is unknown.
@@ -2938,6 +3105,8 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly already_addressed: boolean | null
+    /** The current value of each decision made about the report (repository, priority, actionability, already addressed), with the reason stored with it and who set it. Always null in list responses. */
+    readonly decisions: ReportDecisionsApi | null
     /**
      * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
      * @nullable
@@ -3581,6 +3750,8 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly already_addressed: boolean | null
+    /** The current value of each decision made about the report (repository, priority, actionability, already addressed), with the reason stored with it and who set it. Always null in list responses. */
+    readonly decisions: ReportDecisionsApi | null
     /**
      * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
      * @nullable
@@ -3721,6 +3892,7 @@ export interface SignalReportDeletionStatusApi {
  * * `get_it_merged` - Get it merged
  * * `make_it_green` - Make it green
  * * `resolve_conflicts` - Resolve conflicts
+ * * `implement` - Implement
  * * `suggested_prompt` - Suggested prompt
  * * `ask` - Ask
  */
@@ -3730,6 +3902,7 @@ export const ReportTaskActionKindEnumApi = {
     GetItMerged: 'get_it_merged',
     MakeItGreen: 'make_it_green',
     ResolveConflicts: 'resolve_conflicts',
+    Implement: 'implement',
     SuggestedPrompt: 'suggested_prompt',
     Ask: 'ask',
 } as const
@@ -3738,11 +3911,12 @@ export const ReportTaskActionKindEnumApi = {
  * One report action that starts an agent run, with whether the report offers it now.
  */
 export interface SignalReportTaskActionApi {
-    /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI and resolves merge conflicts on the report's open pull request, and stops without merging it. `resolve_conflicts` updates the report's open pull request from its base branch, resolves the conflicts, pushes, and stops without merging it or fixing unrelated CI. `suggested_prompt` sends one of the prompts the report suggests.
+    /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI and resolves merge conflicts on the report's open pull request, and stops without merging it. `resolve_conflicts` updates the report's open pull request from its base branch, resolves the conflicts, pushes, and stops without merging it or fixing unrelated CI. `implement` starts the run the inbox's Implement button starts: it claims the report, implements the fix, and opens a pull request that is attached to the report. `suggested_prompt` sends one of the prompts the report suggests.
      *
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
      * * `resolve_conflicts` - Resolve conflicts
+     * * `implement` - Implement
      * * `suggested_prompt` - Suggested prompt
      * * `ask` - Ask */
     action: ReportTaskActionKindEnumApi
@@ -3773,6 +3947,7 @@ export interface SignalReportTaskActionRunRequestApi {
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
      * * `resolve_conflicts` - Resolve conflicts
+     * * `implement` - Implement
      * * `suggested_prompt` - Suggested prompt
      * * `ask` - Ask */
     action: ReportTaskActionKindEnumApi
@@ -3782,10 +3957,16 @@ export interface SignalReportTaskActionRunRequestApi {
      */
     suggested_prompt_index?: number
     /**
-     * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
+     * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Optional for `implement`, where it is added to the prompt as extra instructions. Not accepted for `suggested_prompt`.
      * @maxLength 2000
      */
     message?: string
+    /**
+     * Only for `implement`: the repository to implement in, in 'owner/repo' format (case-insensitive). It must be connected to the project, and it becomes the report's repo selection. Omit it to use the report's own repository. A report whose repository cannot be resolved returns `report_implementation_repository_unresolved`.
+     * @minLength 1
+     * @maxLength 140
+     */
+    repository?: string
 }
 
 export interface SignalReportTaskActionRunResponseApi {
@@ -4254,6 +4435,15 @@ export interface SignalReportReingestionStatusApi {
     status: SignalReportReingestionStatusStatusEnumApi
     /** Report being re-ingested. */
     report_id: string
+}
+
+export interface SignalReportRepositoryUpdateApi {
+    /**
+     * Repository the report's work targets, in 'owner/repo' format (case-insensitive). It must be a repository the project's GitHub integration can reach. Later implementation runs use it.
+     * @minLength 1
+     * @maxLength 140
+     */
+    repository: string
 }
 
 /**
@@ -13044,10 +13234,11 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     only_flagged?: boolean
     /**
-     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose newest flag is the fewest buckets ago first, so a flag in the latest hour ties a flag in the latest day, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent
+     * * `rate` - Rate
      * @minLength 1
      */
     order?: SignalsAnomaliesSearchRetrieveOrder
@@ -13082,6 +13273,7 @@ export type SignalsAnomaliesSearchRetrieveOrder =
 export const SignalsAnomaliesSearchRetrieveOrder = {
     Unusual: 'unusual',
     Recent: 'recent',
+    Rate: 'rate',
 } as const
 
 export type SignalsProcessingListParams = {
@@ -13150,6 +13342,10 @@ export type SignalsReportsListParams = {
      * @maximum 1000
      */
     limit?: number
+    /**
+     * 'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking.
+     */
+    needs_you?: boolean
     /**
      * The initial index from which to return the results.
      */
@@ -13447,6 +13643,10 @@ export type SignalsReportsSectionCountsRetrieveParams = {
      * Include reports kept out of the shared inbox. A report is kept out when the scout that authored it turned off its `inbox` output destination. Defaults to false. Fetching a report by id always works, whatever this value is.
      */
     include_unlisted?: boolean
+    /**
+     * 'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking.
+     */
+    needs_you?: boolean
     /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */

@@ -1,5 +1,7 @@
+import json
 import datetime
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
@@ -11,8 +13,12 @@ from parameterized import parameterized
 
 from posthog.schema import IntervalType
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.models import Team
 
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID
 from products.signals.backend.anomaly_scores.read import FlaggedPoint, SeriesSummary, prior_rate, rank_series, rollup
@@ -40,22 +46,25 @@ def _summary(
     baseline_scored: int = 0,
     baseline_flagged: int = 0,
     last_flagged: datetime.datetime | None = None,
+    interval: IntervalType = IntervalType.DAY,
+    newest_bucket: datetime.datetime | None = None,
 ) -> SeriesSummary:
+    newest_bucket = newest_bucket or _day(22)
     return SeriesSummary(
         insight_id=1,
         series_key=key,
         series_label=key,
         breakdown_value=None,
-        interval=IntervalType.DAY,
+        interval=interval,
         detector="zscore",
         detector_version="v1",
         profile="default-v1",
-        newest_bucket=_day(22),
+        newest_bucket=newest_bucket,
         scored_buckets=scored,
         flagged_buckets=flagged,
         baseline_scored_buckets=baseline_scored,
         baseline_flagged_buckets=baseline_flagged,
-        scored_through=_day(22),
+        scored_through=newest_bucket,
         flagged_points=(FlaggedPoint(bucket_start=last_flagged, value=1.0, score=0.99),) if last_flagged else (),
     )
 
@@ -101,6 +110,52 @@ class TestAnomalyRanking(SimpleTestCase):
         ]
 
         ranked = rank_series(series, prior=prior_rate(series), importance={}, recent_first=recent_first)
+
+        assert [summary.series_key for summary in ranked] == expected
+
+    @parameterized.expand(
+        [
+            (
+                "latest_hour_ties_latest_day_and_lift_breaks_the_tie",
+                [
+                    _summary(
+                        "hourly_blip",
+                        scored=24,
+                        flagged=1,
+                        last_flagged=NOW - datetime.timedelta(hours=1),
+                        interval=IntervalType.HOUR,
+                        newest_bucket=NOW - datetime.timedelta(hours=1),
+                    ),
+                    _summary("daily_burst", scored=10, flagged=4, last_flagged=_day(22)),
+                ],
+                ["daily_burst", "hourly_blip"],
+            ),
+            (
+                "stopped_series_does_not_keep_its_last_flag_current",
+                [
+                    _summary("stopped", scored=4, flagged=3, last_flagged=_day(18), newest_bucket=_day(18)),
+                    _summary("live", scored=10, flagged=1, last_flagged=_day(21)),
+                ],
+                ["live", "stopped"],
+            ),
+        ]
+    )
+    def test_recent_order_counts_buckets_since_the_newest_flag(
+        self, _name: str, series: list[SeriesSummary], expected: list[str]
+    ) -> None:
+        ranked = rank_series(series, prior=prior_rate(series), importance={}, recent_first=True)
+
+        assert [summary.series_key for summary in ranked] == expected
+
+    @parameterized.expand(
+        [("unusual", False, ["three_of_ten", "one_of_one"]), ("rate", True, ["one_of_one", "three_of_ten"])]
+    )
+    def test_ranks_by_the_plain_rate_only_when_rate_first(
+        self, _name: str, rate_first: bool, expected: list[str]
+    ) -> None:
+        series = [_summary("three_of_ten", scored=10, flagged=3), _summary("one_of_one", scored=1, flagged=1)]
+
+        ranked = rank_series(series, prior=prior_rate(series), importance={}, rate_first=rate_first)
 
         assert [summary.series_key for summary in ranked] == expected
 
@@ -227,10 +282,50 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             (day, day == "2026-10-22") for day in expected_days
         ]
 
+    def test_search_returns_the_points_of_every_series_on_a_page_with_many_points(self) -> None:
+        hours = [NOW - datetime.timedelta(hours=hour) for hour in range(1, 61)]
+        for series_key in ("signups", "logins", "upgrades"):
+            for hour in hours:
+                self._score(hour, score=0.99, flag=1, series_key=series_key, interval="hour")
+
+        body = self._get("search", date_from="-3d", interval="hour", include_points=True).json()
+
+        assert {row["series_key"]: len(row["points"]) for row in body["series"]} == {
+            "signups": 60,
+            "logins": 60,
+            "upgrades": 60,
+        }
+
+    def test_search_links_the_insight_with_context_before_the_flags(self) -> None:
+        for day in (20, 22):
+            self._score(_day(day), score=0.99, flag=1, series_key="signups")
+
+        row = self._get("search", date_from="2026-10-15").json()["series"][0]
+
+        override = json.loads(parse_qs(urlparse(row["insight_url"]).query)["filters_override"][0])
+        assert override == {"date_from": "2026-09-26T00:00:00+00:00", "date_to": "2026-10-26T00:00:00+00:00"}
+
+    def test_search_names_the_live_dashboards_of_each_insight(self) -> None:
+        other = Insight.objects.create(team=self.team, name="Checkout", saved=True)
+        main = Dashboard.objects.create(team=self.team, name="Main")
+        removed = Dashboard.objects.create(team=self.team, name="Removed", deleted=True)
+        for dashboard in (main, removed):
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        self._score(_day(22), score=0.99, flag=1, series_key="signups")
+        self._score(_day(22), score=0.99, flag=1, series_key="checkout", insight=other)
+
+        body = self._get("search", date_from="2026-10-15").json()
+
+        assert {row["series_key"]: row["dashboards"] for row in body["series"]} == {
+            "signups": [{"id": main.id, "name": "Main"}],
+            "checkout": [],
+        }
+
     @parameterized.expand(
         [
             ("unusual", "unusual", ["burst", "steady", "blip"]),
             ("recent", "recent", ["blip", "steady", "burst"]),
+            ("rate", "rate", ["burst", "steady", "blip"]),
         ]
     )
     def test_search_pages_through_rows_in_the_requested_order(
@@ -249,6 +344,24 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         assert [(page["order"], page["has_more"], page["message"]) for page in pages] == [
             (order, True, None),
             (order, False, None),
+        ]
+
+    def test_search_recent_order_mixes_intervals_on_the_first_page(self) -> None:
+        for hours_ago in range(1, 25):
+            hour = NOW - datetime.timedelta(hours=hours_ago)
+            self._score(hour, score=0.5, flag=int(hours_ago == 1), series_key="hourly", interval="hour")
+        for series_key, days in {"daily": {21, 22}, "older": {19}}.items():
+            for day in range(15, 23):
+                self._score(_day(day), score=0.5, flag=int(day in days), series_key=series_key)
+
+        pages = [
+            self._get("search", date_from="2026-10-15", order="recent", limit=2, offset=offset).json()
+            for offset in (0, 2)
+        ]
+
+        assert [[(row["series_key"], row["interval"]) for row in page["series"]] for page in pages] == [
+            [("daily", "day"), ("hourly", "hour")],
+            [("older", "day")],
         ]
 
     @parameterized.expand(
@@ -301,6 +414,21 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         body = self._get("search").json()
 
         assert (body["scored_days"], body["scored_history_ready"]) == (13, False)
+
+    def test_search_reuses_the_cached_scored_days_of_the_team(self) -> None:
+        for day in range(18, 23):
+            self._score(_day(day), score=0.99, flag=1)
+        assert self._get("search", date_from="2026-10-19").json()["scored_days"] == 5
+        for day in range(9, 18):
+            self._score(_day(day), score=0.1, flag=0)
+
+        with patch(
+            "products.signals.backend.anomaly_scores.read.execute_hogql_query", wraps=execute_hogql_query
+        ) as query:
+            body = self._get("search", date_from="2026-10-19").json()
+
+        assert (len(body["series"]), body["scored_days"], body["scored_history_ready"]) == (1, 5, False)
+        assert "AnomalyScoresScoredDays" not in [call.kwargs["query_type"] for call in query.call_args_list]
 
     @parameterized.expand(
         [

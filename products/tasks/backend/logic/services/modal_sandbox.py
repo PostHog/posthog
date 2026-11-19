@@ -1079,7 +1079,7 @@ class ModalSandbox(AgentServerLaunchMixin):
 
     @classmethod
     def create(cls, config: SandboxConfig) -> ModalSandbox:
-        if config.agent_egress_probe:
+        if config.agent_egress_probe or config.agent_egress_observation:
             SandboxConfig.model_validate(config.model_dump())
         sb: modal.Sandbox | None = None
         try:
@@ -1215,7 +1215,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                 secret = modal.Secret.from_dict(env_dict)
                 secrets.append(secret)
 
-            sandbox_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
+            sandbox_name = config.name if config.agent_egress_probe else f"{config.name}-{uuid.uuid4().hex[:6]}"
 
             region = _get_modal_region()
 
@@ -1232,8 +1232,9 @@ class ModalSandbox(AgentServerLaunchMixin):
             if config.is_vm:
                 create_kwargs["experimental_options"] = {"vm_runtime": True}
 
-            if config.agent_egress_probe:
+            if config.agent_egress_probe or config.agent_egress_observation:
                 create_kwargs["experimental_options"] = {"vm_runtime": True, "vm_sidecar_memory_reserve_mib": 1024}
+            if config.agent_egress_probe:
                 create_kwargs["outbound_cidr_allowlist"] = []
 
             if config.block_network:

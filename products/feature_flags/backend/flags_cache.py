@@ -28,7 +28,7 @@ Manual operations:
 
 import sys
 from collections import defaultdict, deque
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
@@ -51,7 +51,8 @@ import posthoganalytics
 from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
-from posthog.kafka_client.routing import producer_scope
+from posthog.kafka_client.client import ProduceResult
+from posthog.kafka_client.routing import get_producer, producer_scope
 from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models.team import Team
@@ -1145,9 +1146,7 @@ def get_cache_stats() -> dict[str, Any]:
 # KAFKA-CUTOVER TRANSITIONAL CODE — remove at cutover.
 # Stages: producer (this block) at 0% → Rust consumer ships → ramp gate to 100%
 # → Kafka becomes primary, this block is deleted and the signal handlers call
-# the Kafka path directly. The Celery task `update_team_service_flags_cache`
-# outlives cutover — `cohort_changed_flags_cache` still calls it directly until
-# cohort invalidation gets its own topic. Throwaway code by design; don't polish.
+# the Kafka path directly. Throwaway code by design; don't polish.
 #
 # Transitional surface: KAFKA_ROUTING_FLAG, _evaluate_kafka_routing_flag,
 # _route_to_kafka, get_team_primary_flags_writer (and its config binding on
@@ -1335,16 +1334,14 @@ def publish_shadow_invalidation(team_id: int) -> None:
     content hash, but two invalidations that both land inside one stale window
     hash the same, which promotes pure Celery lag to a confirmed parity defect.
 
-    The Kafka-routing decision still applies, because this task also serves teams
-    Rust owns: `cohort_changed_flags_cache` and the cohort backfill finalizer
-    dispatch it for every team, and a shadow build for a Rust-owned team would
-    diff the Rust output against itself.
+    The Kafka-routing decision still applies, because the task can still run for
+    a team Rust owns: an operator can enqueue it by hand, and the routing gate can
+    flip between the enqueue and the run. A shadow build for a Rust-owned team
+    would diff the Rust output against itself.
 
-    It reads `_evaluate_kafka_routing_flag` rather than `_route_to_kafka` so those
-    callers do not start ticking the routing gate's cold-cache tombstone counter.
-    Neither of them consulted that gate before, so a backfill on a freshly booted
-    worker would otherwise spike a panel that means the flag polling thread is
-    wedged.
+    It reads `_evaluate_kafka_routing_flag` rather than `_route_to_kafka` so a
+    Celery build does not tick the routing gate's cold-cache tombstone counter a
+    second time for the same invalidation.
 
     Both steps swallow their own failures, so a shadow publish cannot fail the
     build that precedes it.
@@ -1401,23 +1398,28 @@ def _produce_invalidation(
     whose builder predates the field must not be sent anything but the default.
 
     `raise_on_error` belongs to the caller, not to the wire: it says whether a caller
-    is there to report the failure. The refresh sweep sets it so a team the `except`
-    below catches counts as failed instead of as a hand-off that never happened. It
-    reaches only that synchronous class, never a delivery failure, which arrives after
-    this function has returned. Signal handlers leave it off, because a flag edit has
-    nothing to report a produce failure to.
+    is there to report the failure. The refresh sweep and the coalesced cohort dispatch
+    set it so a team the `except` below catches counts as failed instead of as a
+    hand-off that never happened. It reaches only that synchronous class, never a
+    delivery failure, which arrives after this function has returned. Signal handlers
+    leave it off, because a save has nothing to report a produce failure to.
     """
+    tracked = _tracked_cohort_deliveries.get() if source == "cohort" else None
     try:
         msg = FlagsCacheInvalidation(team_id=team_id, emitted_at=datetime.now(UTC), shadow=shadow, source=source)
         with producer_scope(topic=KAFKA_FLAGS_CACHE_INVALIDATION, flush_timeout=0) as producer:
-            producer.produce(
+            result = producer.produce(
                 topic=KAFKA_FLAGS_CACHE_INVALIDATION,
                 data=msg.model_dump(mode="json"),
                 key=str(team_id),
                 # The key is only ever a team id, so it is safe to log.
                 log_key_on_delivery_failure=True,
             )
+        if tracked is not None:
+            tracked.append((team_id, result))
     except Exception as e:
+        if tracked is not None:
+            tracked.append((team_id, None))
         logger.warning(
             "flags_cache_invalidation_produce_failed",
             team_id=team_id,
@@ -1453,8 +1455,10 @@ def _enqueue_invalidation(
     `verify_and_fix_flags_cache_task` sweep (which includes teams whose flags
     are all soft-deleted), so worst-case staleness is one sweep interval plus
     the verification grace period, well under an hour rather than the cache
-    TTL. Celery's `.delay()` may raise when the flag is off, since it is the
-    sole path then and operators want broker failures loud.
+    TTL. That repair covers flag changes only. The verifier does not compare
+    cohorts, so a dropped `cohort` invalidation stays stale until the expiry
+    refresh rebuilds the team. Celery's `.delay()` may raise when the flag is
+    off, since it is the sole path then and operators want broker failures loud.
 
     Shadow parity messages are not produced here. They are produced after the
     Celery build writes the cache, in `publish_shadow_invalidation`, which
@@ -1511,15 +1515,18 @@ def defer_flags_cache_rebuild(team_id: int, cache: FlagsCacheName) -> bool:
 
 def _dispatch_flags_cache_rebuilds(team_id: int, caches: set[FlagsCacheName], failed_teams: set[int]) -> None:
     """Enqueue the recorded rebuilds for one team, recording the team when a publish fails."""
-    from products.feature_flags.backend.tasks import update_team_flags_cache, update_team_service_flags_cache
+    from products.feature_flags.backend.tasks import update_team_flags_cache
 
-    tasks = {"definitions": update_team_flags_cache, "service": update_team_service_flags_cache}
+    dispatchers: dict[FlagsCacheName, Callable[[int], object]] = {
+        "definitions": update_team_flags_cache.delay,
+        "service": partial(_enqueue_invalidation, source="cohort", raise_on_error=True),
+    }
 
     failed = False
     for cache in sorted(caches):
-        # One try per task, so a broker failure on one does not drop the other.
+        # One try per cache, so a publish failure on one does not drop the other.
         try:
-            tasks[cache].delay(team_id)
+            dispatchers[cache](team_id)
         except Exception:
             # The saves already committed, so raising would abort the rest of a fleet-wide run.
             # The caller reports the team instead.
@@ -1530,6 +1537,55 @@ def _dispatch_flags_cache_rebuilds(team_id: int, caches: set[FlagsCacheName], fa
         failed_teams.add(team_id)
     else:
         logger.info("coalesced_flags_cache_dispatch", team_id=team_id)
+
+
+COHORT_INVALIDATION_DELIVERY_TIMEOUT_SECONDS = 10.0
+
+_tracked_cohort_deliveries: ContextVar[list[tuple[int, ProduceResult | None]] | None] = ContextVar(
+    "tracked_cohort_invalidation_deliveries", default=None
+)
+
+
+def _acknowledged(result: ProduceResult | None) -> bool:
+    if result is None:
+        return False
+    try:
+        result.get(timeout=0)
+    except Exception:
+        return False
+    return True
+
+
+@contextmanager
+def awaited_cohort_invalidation_deliveries(
+    timeout: float = COHORT_INVALIDATION_DELIVERY_TIMEOUT_SECONDS,
+) -> Iterator[set[int]]:
+    """Wait at block exit until Kafka acknowledges the `cohort` invalidations produced inside the block.
+
+    A produce returns before the broker acknowledges the message. A short-lived process, such as a
+    management command, can exit while the message is still in the producer's memory. A rerun then
+    finds nothing left to change, and the verifier does not compare cohorts, so nothing repairs it.
+
+    Yields the ids of the teams whose invalidation failed or was not acknowledged within `timeout`.
+    The set fills when the block exits, including when an exception unwinds it. An invalidation
+    that waits for the commit of an outer transaction is produced after the block, so the block
+    does not wait for it. Invalidations routed to Celery are not tracked.
+    """
+    deliveries: list[tuple[int, ProduceResult | None]] = []
+    token = _tracked_cohort_deliveries.set(deliveries)
+    undelivered: set[int] = set()
+    try:
+        yield undelivered
+    finally:
+        _tracked_cohort_deliveries.reset(token)
+        if deliveries:
+            try:
+                get_producer(topic=KAFKA_FLAGS_CACHE_INVALIDATION).flush(timeout)
+            except Exception:
+                logger.exception("cohort_flags_cache_invalidation_flush_failed")
+            undelivered.update(team_id for team_id, result in deliveries if not _acknowledged(result))
+            if undelivered:
+                logger.error("cohort_flags_cache_invalidation_undelivered", team_ids=sorted(undelivered))
 
 
 @contextmanager
@@ -1662,11 +1718,8 @@ def cohort_changed_flags_cache(sender, instance: "Cohort", **kwargs):
     if update_fields is not None and frozenset(update_fields) <= _COHORT_RECALCULATION_FIELDS:
         return
 
-    if defer_flags_cache_rebuild(instance.team_id, "service"):
+    team_id = instance.team_id
+    if defer_flags_cache_rebuild(team_id, "service"):
         return
 
-    from products.feature_flags.backend.tasks import update_team_service_flags_cache
-
-    # Intentionally bypasses _enqueue_invalidation: cohort changes do not
-    # share the flag-invalidation Kafka topic.
-    transaction.on_commit(lambda: update_team_service_flags_cache.delay(instance.team_id))
+    transaction.on_commit(lambda: _enqueue_invalidation(team_id, source="cohort"))

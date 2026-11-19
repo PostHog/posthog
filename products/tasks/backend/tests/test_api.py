@@ -32,6 +32,7 @@ from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 from rest_framework.test import APIClient
 from rest_framework.views import APIView
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
@@ -8758,18 +8759,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         credential_target = self.create_organization_user("credential-target")
         task = self.create_task()
         system_prompt = {"type": "preset", "preset": "claude_code", "append": "Server-owned instructions"}
-        pending_external_followups = [
-            {
-                "message": "server queued message",
-                "artifact_ids": [],
-                "source": "user",
-                "actor_user_id": self.user.id,
-                "message_id": "server-message",
-                "context": {},
-                "steer": False,
-                "sequence": 0,
-            }
-        ]
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
@@ -8810,11 +8799,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "handoff_resume_idle": False,
                 "workflow_id": "wf-real",
                 "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
-                "pending_external_followups": pending_external_followups,
-                "pending_external_followups_generation": 7,
-                "task_management_ci_idle_skips": 1,
-                "task_management_ci_wait_checks": 10,
-                "pending_external_followups_checkpoint": {"generation": 8},
                 "sandbox_gone": False,
                 "ai_stage": "research",
                 "ai_agent_name": "signals-scout-errors",
@@ -8894,17 +8878,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "handoff_resume_idle": True,
                     "workflow_id": "wf-another-teams-workflow",
                     "pending_dispatch": {"workflow_id_prefix": "attacker", "posthog_mcp_scopes": ["*"]},
-                    "pending_external_followups": [
-                        {
-                            "message": "attacker message",
-                            "actor_user_id": credential_target.id,
-                            "context": {"interaction_origin": "slack"},
-                        }
-                    ],
-                    "pending_external_followups_generation": 999,
-                    "task_management_ci_idle_skips": 0,
-                    "task_management_ci_wait_checks": 0,
-                    "pending_external_followups_checkpoint": {"generation": 99},
                     "timed_out_inactivity": True,
                     "timed_out_wall_clock": True,
                     "sandbox_gone": True,
@@ -8983,11 +8956,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["ai_agent_name"] == "signals-scout-errors"
         assert run.state["workflow_id"] == "wf-real"
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
-        assert run.state["pending_external_followups"] == pending_external_followups
-        assert run.state["pending_external_followups_generation"] == 7
-        assert run.state["task_management_ci_idle_skips"] == 1
-        assert run.state["task_management_ci_wait_checks"] == 10
-        assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}
         assert "timed_out_inactivity" not in run.state  # caller cannot forge a timeout reason
         assert "timed_out_wall_clock" not in run.state
         assert "stopped_before_turn_closed" not in run.state
@@ -9058,11 +9026,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "handoff_resume_idle",
                     "workflow_id",
                     "pending_dispatch",
-                    "pending_external_followups",
-                    "pending_external_followups_generation",
-                    "task_management_ci_idle_skips",
-                    "task_management_ci_wait_checks",
-                    "pending_external_followups_checkpoint",
                     "sandbox_gone",
                     "runtime_adapter",
                     "provider",
@@ -9112,11 +9075,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["handoff_resume_idle"] is False
         assert run.state["workflow_id"] == "wf-real"  # protected key survives removal
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
-        assert run.state["pending_external_followups"] == pending_external_followups
-        assert run.state["pending_external_followups_generation"] == 7
-        assert run.state["task_management_ci_idle_skips"] == 1
-        assert run.state["task_management_ci_wait_checks"] == 10
-        assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}
         assert run.state["sandbox_gone"] is False  # protected key survives removal
         # Dropping the model posture is as good as repointing it: the processing context reads these
         # back with .get(), so an absent key silently falls back to the runtime's default rather than
@@ -9158,9 +9116,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "systemPrompt": "Caller-controlled instructions",
                     "scout_trial": {"version": 2},
                     "scout_trial_private": {"reports": {}},
-                    "task_management_ci_idle_skips": 0,
-                    "task_management_ci_wait_checks": 0,
-                    "pending_external_followups_checkpoint": {"generation": 99},
                     "slack_actor_slack_user_id": ["U_OTHER_ACTOR"],
                     "scratch": "ok",
                 }
@@ -9177,9 +9132,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["sandbox_oauth_token_ids"] == ["server-token-id"]
         assert run.state["scratch"] == ["ok"]
         assert run.state["include_live_context"] is False
-        assert run.state["task_management_ci_idle_skips"] == 1
-        assert run.state["task_management_ci_wait_checks"] == 10
-        assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}
         assert run.state["slack_actor_slack_user_id"] == "U_ORIGINAL_ACTOR"
         assert run.state["agent_egress_probe"] == egress_probe
 
@@ -13129,18 +13081,42 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
 
+    @parameterized.expand(
+        [
+            ("connect_fails", [(RuntimeError("connection refused"), None)], False),
+            (
+                "signal_response_is_lost",
+                [(None, RPCError("deadline exceeded", RPCStatusCode.DEADLINE_EXCEEDED, b""))],
+                True,
+            ),
+            (
+                "connect_fails_on_the_retry_of_a_lost_signal_response",
+                [
+                    (None, RPCError("deadline exceeded", RPCStatusCode.DEADLINE_EXCEEDED, b"")),
+                    (RuntimeError("connection refused"), None),
+                ],
+                True,
+            ),
+        ]
+    )
     @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
     @patch("products.tasks.backend.facade.api.send_cancel")
-    @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="unavailable")
-    def test_cancel_returns_503_when_temporal_unavailable(self, _mock_signal, _mock_send_cancel, _mock_token):
+    @patch("products.tasks.backend.facade.cancellation.sync_connect")
+    def test_cancel_returns_503_when_temporal_unavailable(
+        self, _name, attempts, keeps_marker, mock_connect, _mock_send_cancel, _mock_token
+    ):
         task = self.create_task()
         run = self._create_run(task)
 
-        response = self.client.post(self._cancel_url(task, run), {}, format="json")
+        for connect_error, signal_error in attempts:
+            mock_connect.side_effect = connect_error
+            mock_connect.return_value.get_workflow_handle.return_value.signal = AsyncMock(side_effect=signal_error)
+            response = self.client.post(self._cancel_url(task, run), {}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
+        self.assertEqual("cancel_requested_at" in run.state, keeps_marker)
 
     def test_cancel_unknown_run_returns_404(self):
         task = self.create_task()
@@ -19360,15 +19336,17 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
             [str(image.id)] if images_listed else [],
         )
 
-    def test_create_spawns_linked_builder_task_with_vm_override(self):
+    @parameterized.expand([("repository_omitted", {}), ("repository_blank", {"repository": ""})])
+    def test_create_spawns_linked_builder_task_with_vm_override(self, _name, repository_payload):
         response = self.client.post(
             self.base_url,
-            {"name": "ML tools", "description": "install pytorch and flox"},
+            {"name": "ML tools", "description": "install pytorch and flox", **repository_payload},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
         self.assertEqual(data["status"], "draft")
+        self.assertEqual(SandboxCustomImage.objects.for_team(self.team.id).get(id=data["id"]).repository, "")
         self.assertIsNotNone(data["builder_task_id"])
 
         task = Task.objects.get(id=data["builder_task_id"])
@@ -20071,7 +20049,11 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
         expected_status: int,
         _mock_publish_stream_state_event: MagicMock,
     ) -> None:
-        task, run = self._create_run(origin_product=origin_product)
+        task, run = self._create_run(
+            origin_product=origin_product,
+            conversation_type="public_channel",
+            with_mapping=origin_product == Task.OriginProduct.SLACK,
+        )
 
         url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
         if method == "patch":
@@ -20105,6 +20087,8 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
         artifact_id = uuid.uuid4().hex
         task, run = self._create_run(
             origin_product=origin_product,
+            conversation_type="public_channel",
+            with_mapping=origin_product == Task.OriginProduct.SLACK,
             artifacts=[
                 {
                     "id": artifact_id,
@@ -20122,18 +20106,17 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, expected_status)
 
-    # The widened read exists so everyone in a Slack thread can follow the agent's links. A DM
-    # has no such audience, so it must not be widened. The `unclassified` case pins the
-    # fail-open direction the backfill relies on: it leaves every non-DM thread NULL, so a gate
-    # that asked "is this known-shared" instead of "is this known-private" would 404 every
-    # thread that predates the column.
+    # Only a public channel is open to every member of the workspace, so only its task is
+    # widened. A private channel, a group DM and a DM have a closed membership, and an
+    # unclassified thread (NULL or UNKNOWN) may be any of them, so those stay with the creator.
     @parameterized.expand(
         [
             ("dm_thread_hidden", "im", status.HTTP_404_NOT_FOUND),
             ("public_channel_thread_readable", "public_channel", status.HTTP_200_OK),
-            ("private_channel_thread_readable", "private_channel", status.HTTP_200_OK),
-            ("group_dm_thread_readable", "mpim", status.HTTP_200_OK),
-            ("unclassified_thread_readable", None, status.HTTP_200_OK),
+            ("private_channel_thread_hidden", "private_channel", status.HTTP_404_NOT_FOUND),
+            ("group_dm_thread_hidden", "mpim", status.HTTP_404_NOT_FOUND),
+            ("unknown_thread_hidden", "unknown", status.HTTP_404_NOT_FOUND),
+            ("unclassified_thread_hidden", None, status.HTTP_404_NOT_FOUND),
         ]
     )
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
@@ -20153,6 +20136,31 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
 
         self.assertEqual(response.status_code, expected_status)
+
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_non_creator_cannot_read_slack_run_with_a_private_thread(
+        self, _mock_publish_stream_state_event: MagicMock
+    ) -> None:
+        task, run = self._create_run(
+            origin_product=Task.OriginProduct.SLACK,
+            conversation_type="public_channel",
+            with_mapping=True,
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=Integration.objects.get(team=self.team, kind="slack"),
+            slack_workspace_id="T_SLACK",
+            channel="C456",
+            thread_ts="2345.6789",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+            conversation_type="private_channel",
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_non_creator_cannot_patch_shared_slack_run(self, _mock_publish_stream_state_event: MagicMock) -> None:
@@ -20177,7 +20185,8 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
         [
             ("dm_thread_hidden", "im", status.HTTP_404_NOT_FOUND),
             ("public_channel_thread_readable", "public_channel", status.HTTP_200_OK),
-            ("unclassified_thread_readable", None, status.HTTP_200_OK),
+            ("private_channel_thread_hidden", "private_channel", status.HTTP_404_NOT_FOUND),
+            ("unclassified_thread_hidden", None, status.HTTP_404_NOT_FOUND),
         ]
     )
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")

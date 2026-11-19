@@ -8,7 +8,7 @@ import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { renderColumn } from './renderColumn'
+import { getPersonForDeleteColumn, renderColumn } from './renderColumn'
 import { defaultDataTableColumns } from './utils'
 
 const select = defaultDataTableColumns(NodeKind.EventsQuery)
@@ -136,6 +136,40 @@ describe('renderColumn', () => {
 
         expect(screen.getByText('someone@example.com')).toBeInTheDocument()
         expect(screen.queryByText('Unknown')).toBeNull()
+    })
+
+    const personUUID = 'c3b1f6a2-0000-0000-0000-000000000000'
+    const displayNameCell = { display_name: 'someone@example.com', id: personUUID }
+    const personCell = { id: personUUID, distinct_ids: ['the-distinct-id'], properties: {} }
+
+    it.each<[string, string[] | undefined, unknown[], unknown]>([
+        [
+            'the ID column comes before the Person column',
+            ['id', 'person_display_name -- Person', 'created_at', 'person.$delete'],
+            [personUUID, displayNameCell, '2024-01-01T00:00:00Z', null],
+            displayNameCell,
+        ],
+        [
+            'the person column is not first',
+            ['created_at', 'person', 'person.$delete'],
+            ['2024-01-01T00:00:00Z', personCell, null],
+            personCell,
+        ],
+        [
+            'only the ID column identifies the person',
+            ['created_at', 'id', 'person.$delete'],
+            ['2024-01-01T00:00:00Z', personUUID, null],
+            { id: personUUID, distinct_ids: [], properties: {} },
+        ],
+        ['the query has no select', undefined, [personCell, personUUID, null], personCell],
+        ['no column identifies the person', ['created_at', 'person.$delete'], ['2024-01-01T00:00:00Z', null], null],
+    ])('delete column finds the person when %s', (_case, columns, row, expectedPerson) => {
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.ActorsQuery, select: columns },
+        }) as DataTableNode
+
+        expect(getPersonForDeleteColumn(row, query)).toEqual(expectedPerson)
     })
 
     it.each([

@@ -525,17 +525,17 @@ async fn test_delete_cohort_members_by_person_ids(
 }
 
 #[rstest]
-#[case::repeat_in_second_chunk(55, 50, 1, 0)]
-#[case::partial_overlap_in_second_chunk(80, 50, 10, 20)]
+#[case::repeat_in_second_chunk(55, 1, 0)]
+#[case::partial_overlap_in_second_chunk(80, 10, 20)]
 #[tokio::test]
 async fn test_delete_cohort_members_by_person_ids_with_repeats_across_chunks(
     #[case] members: usize,
-    #[case] first_chunk: usize,
     #[case] repeated_from_first: usize,
     #[case] extra_distinct: usize,
 ) {
     let ctx = TestContext::new().await;
     let cohort_id: i64 = 7712;
+    let first_chunk = common::BULK_CHUNK_SIZE;
 
     let mut person_ids = Vec::with_capacity(members);
     for i in 0..members {

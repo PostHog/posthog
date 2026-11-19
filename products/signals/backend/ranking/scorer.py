@@ -32,6 +32,9 @@ set's `build_matrix` buckets them, so training and serving share every step afte
 creation time is not a fact, so `report_created_at` comes from the report row. A failed facts read
 skips those models with `no_report_facts`.
 
+A model whose set has late feature groups gets zero in each group its `metadata.json` lists under
+`zeroed_feature_groups`, because its fit zeroed them and their weights were never trained.
+
 A call that persists also records the facts of each report it scores, so training can later read the
 values the sweep saw. When a model of the call read the facts, the events come from that same read.
 Otherwise the call reads them once after scoring, for the scored reports only. A failed facts read
@@ -63,6 +66,7 @@ from products.signals.backend.ranking.features import (
     REPORT_CREATED_AT_COLUMN,
     REPORT_EMBEDDINGS_EXTRA,
     REPORT_LIVE_SOURCES_COLUMNS,
+    REPORT_SCORED_FACTS_EXTRA,
     REPORT_SOURCES_EXTRA,
     SIGNAL_COUNT_COLUMN,
     SUMMARY_CHARS_COLUMN,
@@ -71,8 +75,9 @@ from products.signals.backend.ranking.features import (
     FeatureSet,
     ProjectInputs,
     ReportEmbeddingsFeatureSet,
+    zero_feature_groups,
 )
-from products.signals.backend.ranking.model_contract import head_lifts
+from products.signals.backend.ranking.model_contract import head_lifts, zeroed_feature_groups
 from products.signals.backend.ranking.model_store import (
     LoadedModel,
     ProjectVectors,
@@ -101,8 +106,10 @@ NO_REPORT_FACTS = "no_report_facts"
 RENDERING_BY_EXTRA: Mapping[str, str] = {
     REPORT_EMBEDDINGS_EXTRA: EMBEDDING_RENDERING_TITLE_SUMMARY,
 }
-# The side inputs a set may read after its report vector, which the scorer reads at scoring time.
-SERVED_SIDE_INPUTS = frozenset({REPORT_SOURCES_EXTRA})
+# The side inputs a set may read after its report vector, which the scorer reads at scoring time. The
+# scored facts are the `ReportFacts` this pass reads into the state rows, so a set that reads them in
+# training reads `rows` alone at serving and gets no frame for them.
+SERVED_SIDE_INPUTS = frozenset({REPORT_SOURCES_EXTRA, REPORT_SCORED_FACTS_EXTRA})
 # The report-state columns the scorer fills from `ReportFacts`. Each one is the `ReportFacts` field of
 # the same name, so a fact read another way moves both sides at once.
 FACT_STATE_COLUMNS = (
@@ -303,6 +310,7 @@ def _score_model(
     if not buildable.any():
         return _ModelScores(model=model, by_report={}, skip_reason=None)
     matrix = model.feature_set.build_matrix(rows, extras, as_of=None).loc[buildable]
+    matrix = zero_feature_groups(matrix, model.feature_set, zeroed_feature_groups(model.metadata))
     project = None
     if team_project is not None:
         project = ProjectInputs(
