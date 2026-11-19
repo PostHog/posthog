@@ -26,7 +26,7 @@ export interface OperationRoute {
  * attribute must not set an earlier one, even to an empty value, or it belongs to the earlier attribute's endpoint.
  * Mirrors ROUTE_ATTRIBUTES in products/apm/backend/logic/health/sources.py.
  */
-const ROUTE_ATTRIBUTES = ['http.route', 'url.template']
+const ROUTE_ATTRIBUTES = ['http.route', 'url.template', 'db.system', 'server.address', 'net.peer.name']
 
 /**
  * Filter group scoping a spans query to one operation, optionally to a duration range.
