@@ -41,7 +41,8 @@ function accessLabel(scopes: readonly string[]): string {
         return 'Every scope'
     }
     if (data.length <= LISTED_SCOPES) {
-        return data.length ? data.join(', ') : 'No data scopes'
+        // The scopes come from the host's token response, so escape sequences in them must not reach the terminal.
+        return data.length ? data.map(escapeControls).join(', ') : 'No data scopes'
     }
     const writes = data.filter((scope) => scope.endsWith(':write')).length
     const reads = data.length - writes

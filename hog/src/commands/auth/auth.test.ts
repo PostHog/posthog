@@ -722,17 +722,34 @@ describe('hog auth login', () => {
         }
     )
 
-    test('status escapes terminal control characters in the project name', async () => {
+    test.each([
+        ['the project name', KEYCHAIN_LOGIN, '\u001b]52;c;eA==\u0007Shop', 'Project   \\x1b]52;c;eA==\\x07Shop (42)'],
+        [
+            'a scope',
+            {
+                files: {
+                    [SETTINGS_FILE]: settingsJson(EU, {
+                        ...OAUTH_RECORD,
+                        scopes: ['\u001b]52;c;eA==\u0007query:read'],
+                    }),
+                },
+                keychain: OAUTH_LOGIN.keychain,
+            },
+            'Shop',
+            'Access    \\x1b]52;c;eA==\\x07query:read',
+        ],
+    ])('status escapes terminal control characters in %s', async (_name, login, projectName, shown) => {
         const result = await runHog(['auth', 'status'], {
             stdoutIsTTY: true,
             env: { NO_COLOR: '1' },
-            ...KEYCHAIN_LOGIN,
+            ...login,
             respond: (url) =>
                 url.endsWith('/api/users/@me/')
                     ? { status: 200, body: { email: 'ana@example.com' } }
-                    : { status: 200, body: { name: '\u001b]52;c;eA==\u0007Shop' } },
+                    : { status: 200, body: { name: projectName } },
         })
-        expect(result.stdout).toContain('Project   \\x1b]52;c;eA==\\x07Shop (42)')
+
+        expect(result.stdout).toContain(shown)
         expect(result.stdout).not.toContain('\u001b')
     })
 
