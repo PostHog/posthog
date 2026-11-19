@@ -21,6 +21,18 @@ _RUN_INCREMENTAL_FIELDS: list[IncrementalField] = [
     },
 ]
 
+# Run-child tables (history, artifact lineage) have no timestamp of their own that the API
+# filters on, so they inherit the parent run's `heartbeatAt`: an incremental sync re-reads only
+# the runs that were active since the last sync, through the same verified `runs(filters:)`.
+_RUN_CHILD_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "runHeartbeatAt",
+        "type": IncrementalFieldType.DateTime,
+        "field": "runHeartbeatAt",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+
 
 @dataclass(frozen=False)
 class WeightsAndBiasesEndpointConfig:
@@ -28,7 +40,8 @@ class WeightsAndBiasesEndpointConfig:
     # key stays unique even though fan-out endpoints aggregate rows from every project.
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
-    partition_key: str = "createdAt"
+    # None for tables with no stable datetime column to partition on.
+    partition_key: str | None = "createdAt"
     description: str | None = None
 
 
@@ -48,6 +61,57 @@ WANDB_ENDPOINTS: dict[str, WeightsAndBiasesEndpointConfig] = {
         description=(
             "One row per artifact version across every project, walked per artifact type and "
             "collection. Projects with many run-history artifacts can make this table large"
+        ),
+    ),
+    "artifact_types": WeightsAndBiasesEndpointConfig(
+        description="One row per artifact type (model, dataset, ...) in each project",
+    ),
+    "artifact_collections": WeightsAndBiasesEndpointConfig(
+        description="One row per artifact collection in each project, the named sequence each artifact version belongs to",
+    ),
+    "members": WeightsAndBiasesEndpointConfig(
+        partition_key=None,
+        description="Members of the entity. Join runs, sweeps and reports to it on the username",
+    ),
+    "run_artifacts": WeightsAndBiasesEndpointConfig(
+        primary_keys=["runId", "direction", "artifactId"],
+        incremental_fields=_RUN_CHILD_INCREMENTAL_FIELDS,
+        partition_key="runCreatedAt",
+        description=(
+            "Run-to-artifact lineage: one row per artifact version a run used (input) or logged (output). "
+            "Incremental syncs re-read the runs active since the last sync"
+        ),
+    ),
+    "run_history": WeightsAndBiasesEndpointConfig(
+        primary_keys=["runId", "step"],
+        incremental_fields=_RUN_CHILD_INCREMENTAL_FIELDS,
+        partition_key="runCreatedAt",
+        description=(
+            "The metrics each run logged, one row per step, with the logged values in a JSON metrics column. "
+            "This table can be very large. Incremental syncs re-read the history of the runs active since the last sync"
+        ),
+    ),
+    "entities": WeightsAndBiasesEndpointConfig(
+        partition_key=None,
+        description="The configured entity (user or team) itself, with its type, plan flags and storage use",
+    ),
+    "run_files": WeightsAndBiasesEndpointConfig(
+        primary_keys=["runId", "name"],
+        incremental_fields=_RUN_CHILD_INCREMENTAL_FIELDS,
+        partition_key="runCreatedAt",
+        description=(
+            "One row per file a run uploaded, with its size and type. "
+            "Incremental syncs re-read the files of the runs active since the last sync"
+        ),
+    ),
+    "run_system_metrics": WeightsAndBiasesEndpointConfig(
+        primary_keys=["runId", "timestamp"],
+        incremental_fields=_RUN_CHILD_INCREMENTAL_FIELDS,
+        partition_key="runCreatedAt",
+        description=(
+            "The CPU, GPU, memory, disk and network samples each run recorded, one row per sample, with the values "
+            "in a JSON metrics column. W&B returns at most 5,000 evenly spaced samples per run. "
+            "Incremental syncs re-read the samples of the runs active since the last sync"
         ),
     ),
 }

@@ -1,16 +1,18 @@
 import { useActions, useValues } from 'kea'
 
 import * as chartPng from '@posthog/brand/hoggies/png/chart'
-import { IconChevronDown, IconPlus } from '@posthog/icons'
+import { IconChevronDown, IconCode, IconPlus } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { Link } from 'lib/lemon-ui/Link'
 import {
     reportDashboardEmptyAddChartClicked,
     reportDashboardEmptyWebAnalyticsClicked,
+    reportDashboardEmptyWriteSqlClicked,
 } from 'scenes/dashboard/dashboardEvents'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from 'scenes/dashboard/DashboardHeader'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -88,6 +90,22 @@ function DashboardEmptyActions({
                             minAccessLevel={AccessControlLevel.Editor}
                             userAccessLevel={dashboard.user_access_level}
                         >
+                            <LemonButton
+                                data-attr="dashboard-write-sql"
+                                type="secondary"
+                                icon={<IconCode />}
+                                to={urls.sqlEditor({ dashboard: dashboard.id })}
+                                onClick={() => reportDashboardEmptyWriteSqlClicked(dashboard.id)}
+                                disabledReason={canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
+                            >
+                                Write SQL
+                            </LemonButton>
+                        </AccessControlAction>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Dashboard}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={dashboard.user_access_level}
+                        >
                             {({ disabledReason }) => (
                                 <LemonMenu
                                     placement="bottom-start"
@@ -112,13 +130,9 @@ function DashboardEmptyActions({
                         </AccessControlAction>
                     </>
                 )}
-                <LemonButton
-                    type="secondary"
-                    to={urls.webAnalytics()}
-                    onClick={() => reportDashboardEmptyWebAnalyticsClicked(dashboard?.id)}
-                >
+                <Link to={urls.webAnalytics()} onClick={() => reportDashboardEmptyWebAnalyticsClicked(dashboard?.id)}>
                     or View Web Analytics
-                </LemonButton>
+                </Link>
             </div>
         </div>
     )

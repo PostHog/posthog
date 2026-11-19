@@ -112,8 +112,13 @@ def blocks_for(message: AlertMessage) -> list[dict[str, Any]]:
     return blocks
 
 
+# Slack refuses the whole message for a picture it cannot show, and for a native chart it cannot
+# draw, so both are what the retry leaves out.
+_PICTURE_BLOCK_TYPES: Final = frozenset({"image", "data_visualization"})
+
+
 def _without_images(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [block for block in blocks if block.get("type") != "image"]
+    return [block for block in blocks if block.get("type") not in _PICTURE_BLOCK_TYPES]
 
 
 def content_for(*, team_id: int, message: AlertMessage) -> SlackMessageContent:
@@ -198,6 +203,10 @@ _MISCONFIGURED_ERRORS: Final = {
     "account_inactive": (
         "The Slack connection is no longer active.",
         "Reconnect Slack in the project's integrations, or pick another destination for the alert.",
+    ),
+    "is_archived": (
+        "This channel is archived.",
+        "Unarchive the channel in Slack, or pick another channel for the alert.",
     ),
 }
 

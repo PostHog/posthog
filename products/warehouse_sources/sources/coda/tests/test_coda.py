@@ -63,17 +63,67 @@ class TestGetRows:
         assert [(c["id"], c["_doc_id"], c["_table_id"]) for c in result.rows] == [("c-1", "doc1", "grid-1")]
         assert result.paths[2] == "/apis/v1/docs/doc1/tables/grid-1/columns"
 
-    def test_doc_analytics_lifts_nested_doc_id(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, item, key, expected_id, expected_path",
+        [
+            (
+                "doc_analytics",
+                {"doc": {"id": "doc1", "title": "Roadmap"}, "metrics": [{"date": "2026-01-01", "views": 5}]},
+                "doc_id",
+                "doc1",
+                "/apis/v1/analytics/docs",
+            ),
+            (
+                "pack_analytics",
+                {
+                    "pack": {"id": 1003, "name": "Geometry helpers", "createdAt": "2026-01-01T00:00:00Z"},
+                    "metrics": [{"date": "2026-01-01", "docInstalls": 4, "revenueUsd": "12.50"}],
+                },
+                "pack_id",
+                1003,
+                "/apis/v1/analytics/packs",
+            ),
+        ],
+    )
+    def test_analytics_lifts_nested_subject_id(
+        self, endpoint: str, item: dict[str, Any], key: str, expected_id: Any, expected_path: str
+    ) -> None:
+        result = _driver().run(endpoint, [_response([item])])
+
+        assert result.raised is None
+        # The subject id is nested under `doc` / `pack`; it must surface top-level to key the merge.
+        assert result.rows[0][key] == expected_id
+        assert result.rows[0]["metrics"] == item["metrics"]
+        assert result.paths == [expected_path]
+
+    @pytest.mark.parametrize(
+        "item",
+        [
+            {"metrics": []},
+            {"pack": None, "metrics": []},
+            {"pack": {"name": "No id"}, "metrics": []},
+        ],
+    )
+    def test_pack_analytics_without_nested_id_gets_no_key(self, item: dict[str, Any]) -> None:
+        result = _driver().run("pack_analytics", [_response([item])])
+
+        assert result.raised is None
+        assert "pack_id" not in result.rows[0]
+
+    def test_pack_analytics_walks_pages_until_no_token(self) -> None:
         result = _driver().run(
-            "doc_analytics",
-            [_response([{"doc": {"id": "doc1", "title": "Roadmap"}, "metrics": [{"date": "2026-01-01", "views": 5}]}])],
+            "pack_analytics",
+            [
+                ScriptedResponse(json={"items": [{"pack": {"id": 1}, "metrics": []}], "nextPageToken": "t-2"}),
+                ScriptedResponse(json={"items": [], "nextPageToken": "t-3"}),
+                _response([{"pack": {"id": 2}, "metrics": []}]),
+            ],
         )
 
         assert result.raised is None
-        # The doc id is nested under `doc`; it must surface as a top-level `doc_id` to key the merge.
-        assert result.rows[0]["doc_id"] == "doc1"
-        assert result.rows[0]["metrics"][0]["views"] == 5
-        assert result.paths[0] == "/apis/v1/analytics/docs"
+        assert result.params("pageToken") == [None, "t-2", "t-3"]
+        assert result.params("limit") == ["100", "100", "100"]
+        assert [row["pack_id"] for row in result.rows] == [1, 2]
 
     def test_page_analytics_fan_out_and_lifts_page_id(self) -> None:
         result = _driver().run(
@@ -88,18 +138,44 @@ class TestGetRows:
         assert [(p["page_id"], p["_doc_id"]) for p in result.rows] == [("page-1", "doc1")]
         assert result.paths[1] == "/apis/v1/analytics/docs/doc1/pages"
 
-    def test_pages_fan_out_over_docs(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, child_rows",
+        [
+            ("pages", [{"id": "canvas-1", "name": "Launch", "parent": {"id": "canvas-0"}}]),
+            ("controls", [{"id": "ctrl-1", "type": "control", "name": "Cost", "parent": {"id": "canvas-1"}}]),
+            ("formulas", [{"id": "f-1", "type": "formula", "name": "Sum of expenses", "parent": {"id": "canvas-1"}}]),
+        ],
+    )
+    def test_doc_objects_fan_out_over_docs(self, endpoint: str, child_rows: list[dict[str, Any]]) -> None:
         result = _driver().run(
-            "pages",
+            endpoint,
             [
-                _response([{"id": "doc1"}]),  # docs
-                _response([{"id": "canvas-1", "name": "Launch", "parent": {"id": "canvas-0"}}]),  # pages for doc1
+                _response([{"id": "doc1"}, {"id": "doc2"}]),  # docs
+                _response(child_rows),  # children of doc1
+                _response([]),  # doc2 has none
             ],
         )
 
         assert result.raised is None
-        assert [(p["id"], p["_doc_id"]) for p in result.rows] == [("canvas-1", "doc1")]
-        assert result.paths[1] == "/apis/v1/docs/doc1/pages"
+        assert result.paths == ["/apis/v1/docs", f"/apis/v1/docs/doc1/{endpoint}", f"/apis/v1/docs/doc2/{endpoint}"]
+        assert [(row["id"], row["_doc_id"]) for row in result.rows] == [(child_rows[0]["id"], "doc1")]
+        assert all("_docs_id" not in row for row in result.rows)
+
+    @pytest.mark.parametrize("endpoint", ["controls", "formulas"])
+    def test_doc_objects_page_within_a_doc(self, endpoint: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _response([{"id": "doc1"}]),  # docs
+                ScriptedResponse(json={"items": [{"id": "a"}], "nextPageToken": "t-2"}),
+                _response([{"id": "b"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths[1:] == [f"/apis/v1/docs/doc1/{endpoint}"] * 2
+        assert result.params("pageToken") == [None, None, "t-2"]
+        assert [(row["id"], row["_doc_id"]) for row in result.rows] == [("a", "doc1"), ("b", "doc1")]
 
     @pytest.mark.parametrize(
         "endpoint, parents, denied_status, expected_paths, child_row, key",

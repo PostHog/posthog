@@ -15,6 +15,8 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { MessagingTabActions } from '../../MessagingTabActions'
+import { SendingDomainRow } from '../../Transactional/sendFromCode/SendingDomainRow'
 import { EmailSetupModal } from '../EmailSetup/EmailSetupModal'
 import { MessageChannels } from '../MessageChannels'
 import { FakeEmailDomainBackend } from './__mocks__/fakeEmailDomainBackend'
@@ -70,13 +72,34 @@ describe('email domain setup entry points', () => {
         jest.restoreAllMocks()
     })
 
-    it('starts from the email card in the channel catalog', async () => {
-        await renderInApp(<MessageChannels />)
-        expect(screen.queryByText(LEGACY_MODAL_TITLE)).not.toBeInTheDocument()
-        fireEvent.click(element('workflows-channel-catalog-connect-email'))
-        await flush()
+    it.each([
+        [
+            'the email card in the channel catalog',
+            <MessageChannels key="catalog" />,
+            ['workflows-channel-catalog-connect-email'],
+        ],
+        [
+            'the new channel menu in the header',
+            <MessagingTabActions key="header" tab="channels" channelsUrl={urls.workflows('channels')} />,
+            ['new-channel-button', 'Email'],
+        ],
+        ['the transactional sending domain row', <SendingDomainRow key="row" />, ['send-from-code-set-up-domain']],
+    ])('starts a new domain from %s', async (_from, ui, clicks) => {
+        await renderInApp(ui)
+        for (const target of clicks) {
+            fireEvent.click(document.querySelector(`[data-attr="${target}"]`) ?? screen.getByText(target))
+            await flush()
+        }
         expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain('new')}$`))
         expect(screen.queryByText(LEGACY_MODAL_TITLE)).not.toBeInTheDocument()
+    })
+
+    it('sends a domain still waiting for its DNS records from the transactional row to its setup page', async () => {
+        const pending = backend.addSender({ email: `hello@${DOMAIN}` })
+        await renderInApp(<SendingDomainRow />)
+        fireEvent.click(element('send-from-code-check-dns-records'))
+        await flush()
+        expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(pending.id)}$`))
     })
 
     it('adds another sender from the email card once a domain exists', async () => {
@@ -164,6 +187,22 @@ describe('email domain setup entry points', () => {
             expect(onClose).not.toHaveBeenCalled()
         }
     )
+
+    it('opens the existing sender when the new address already has one', async () => {
+        const existing = backend.addSender({ email: `hello@${DOMAIN}` })
+        await renderInApp(<EmailSetupModal onClose={jest.fn()} onComplete={jest.fn()} />)
+
+        fireEvent.change(document.getElementById('email-domain-another-domain') as HTMLInputElement, {
+            target: { value: 'acme.com' },
+        })
+        fireEvent.click(element('email-domain-use-custom-domain'))
+        await flush()
+        fireEvent.click(screen.getByText('Open it'))
+        await flush()
+
+        expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(existing.id)}$`))
+    })
+
     describe('adding a sender to an existing domain', () => {
         const OTHER_DOMAIN = 'news.example.com'
 

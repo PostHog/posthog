@@ -6,6 +6,8 @@ import { LemonBanner, LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
+
 import { buildAiEventSpans } from '../../aiEventSpans'
 import type { ErrorScope } from '../../errorCorrelation'
 import { useKeepMountedWhileOpen } from '../../hooks/useKeepMountedWhileOpen'
@@ -133,6 +135,7 @@ export function TraceDrawer({
             isFullscreen={isFullscreen}
             onToggleFullscreen={onToggleFullscreen}
             shortcuts={<TraceViewShortcuts closeLabel="Close" />}
+            titleAction={<TodayScenePinButton />}
             headerActions={
                 <LemonButton
                     size="xsmall"

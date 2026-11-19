@@ -785,7 +785,7 @@ export function AIObservabilityTag({ id }: { id?: string }): JSX.Element {
 
     return (
         <SceneContent>
-            <TaggersDeprecationBanner />
+            <TaggersDeprecationBanner migratedToEvaluationId={tagger?.migrated_to_evaluation_id} />
             <div className="space-y-6">
                 {/* Header */}
                 <div className="flex justify-between items-start pb-4 border-b">

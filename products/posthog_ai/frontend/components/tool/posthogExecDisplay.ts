@@ -58,28 +58,43 @@ export function parseExecCall(callBody: string): {
     forceJson: boolean
     confirmed: boolean
 } {
-    let rest = callBody.trim()
+    const leading = stripLeadingCallFlags(callBody)
+    const { head: subTool, rest } = splitFirstToken(leading.rest)
+    if (!subTool || subTool.startsWith('-')) {
+        return { subTool: null, args: rest, forceJson: leading.forceJson, confirmed: leading.confirmed }
+    }
+    const body = stripLeadingCallFlags(rest)
+    let args = body.rest
+    let forceJson = leading.forceJson || body.forceJson
+    let confirmed = leading.confirmed || body.confirmed
+    for (let match = TRAILING_CALL_FLAG.exec(args); match; match = TRAILING_CALL_FLAG.exec(args)) {
+        forceJson ||= match[1] === '--json'
+        confirmed ||= match[1] === '--confirm'
+        args = args.slice(0, match.index).trimEnd()
+    }
+    return { subTool, args, forceJson, confirmed }
+}
+
+// The backend also accepts flags after the tool name, before or after the JSON body
+// (`parseCallBodyFlags`), so they are stripped there too.
+const TRAILING_CALL_FLAG = /(?:^|\s)(--json|--confirm)$/
+
+function stripLeadingCallFlags(text: string): { rest: string; forceJson: boolean; confirmed: boolean } {
+    let rest = text.trim()
     let forceJson = false
     let confirmed = false
     while (rest) {
         const { head, rest: next } = splitFirstToken(rest)
         if (head === '--json') {
             forceJson = true
-            rest = next
-            continue
-        }
-        if (head === '--confirm') {
+        } else if (head === '--confirm') {
             confirmed = true
-            rest = next
-            continue
+        } else {
+            break
         }
-        break
+        rest = next
     }
-    const { head: subTool, rest: args } = splitFirstToken(rest)
-    if (!subTool || subTool.startsWith('-')) {
-        return { subTool: null, args, forceJson, confirmed }
-    }
-    return { subTool, args, forceJson, confirmed }
+    return { rest, forceJson, confirmed }
 }
 
 export interface PostHogExecDisplay {

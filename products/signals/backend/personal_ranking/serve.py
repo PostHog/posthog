@@ -38,7 +38,12 @@ from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, cons
 from products.signals.backend.models import PersonalInboxRanking
 from products.signals.backend.personal_ranking.build_budget import DAILY_BUILD_COST, spend_shared_build
 from products.signals.backend.personal_ranking.candidates import Candidate, gather_candidates, stored_candidates
-from products.signals.backend.personal_ranking.config import PersonalRankingConfig, list_limit, read_config
+from products.signals.backend.personal_ranking.config import (
+    PersonalRankingConfig,
+    config_for_user,
+    list_limit,
+    read_config,
+)
 from products.signals.backend.personal_ranking.inbox_activity import read_inbox_activity
 from products.signals.backend.personal_ranking.logic import (
     RETRYABLE_FALLBACK_REASONS,
@@ -375,7 +380,7 @@ def serve_personal_ranking(
     max_age_minutes: int | None = None,
     config: PersonalRankingConfig | None = None,
 ) -> ServedRanking:
-    config = config or read_config()
+    config = config_for_user(config or read_config(), user.id)
     if not config.enabled:
         return UNAVAILABLE
     limit = list_limit(config, limit)

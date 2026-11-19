@@ -123,6 +123,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/annotations': ['Annotations', 'annotations'],
     '/data-management/annotations/:id': ['Annotations', 'annotation'],
     '/application-observability': ['ApplicationObservability', 'applicationObservability'],
+    '/application-observability/service': ['ApplicationObservabilityService', 'applicationObservabilityService'],
     '/autoresearch': ['Autoresearch', 'autoresearch'],
     '/autoresearch/new': ['AutoresearchNew', 'autoresearchNew'],
     '/autoresearch/:id': ['AutoresearchPipeline', 'autoresearchPipeline'],
@@ -131,6 +132,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/bi/:insightShortId': ['BusinessIntelligence', 'businessIntelligenceWorksheet'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
+    '/business-knowledge/usage': ['BusinessKnowledgeUsage', 'businessKnowledgeUsage'],
     '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/playground/:chatId': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/:id': ['BusinessKnowledgeSource', 'businessKnowledgeSource'],
@@ -300,7 +302,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskTracker', 'taskDetail'],
     '/pulse': ['Pulse', 'pulse'],
-    '/releases': ['ReleaseCalendar', 'releases'],
+    '/releases': ['ReleaseAll', 'releases'],
+    '/releases/calendar': ['ReleaseCalendar', 'releaseCalendar'],
     '/releases/list': ['Releases', 'releaseList'],
     '/releases/:id': ['Release', 'release'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
@@ -331,10 +334,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/skills/community': ['CommunitySkills', 'communitySkills'],
     '/skills/:name': ['Skill', 'skill'],
     '/integrations/slack/:integrationId/setup': ['SlackAppWorkspaceSetup', 'slackAppWorkspaceSetup'],
-    '/stamphog': ['Stamphog', 'stamphog'],
-    '/stamphog/runs': ['StamphogRuns', 'stamphogRuns'],
-    '/stamphog/digests': ['StamphogDigests', 'stamphogDigests'],
-    '/stamphog/install/callback': ['Stamphog', 'stamphogCallback'],
+    '/stamphog/install/callback': ['CodeReview', 'stamphogCallback'],
     '/streamlit-apps': ['StreamlitApps', 'streamlitApps'],
     '/streamlit-apps/new': ['StreamlitAppEdit', 'streamlitAppNew'],
     '/streamlit-apps/:id': ['StreamlitApp', 'streamlitApp'],
@@ -619,11 +619,24 @@ export const productRedirects: Record<
         combineUrl(urls.skills(), searchParams, hashParams).url,
     '/llm-analytics/skills/:name': (params, searchParams, hashParams) =>
         combineUrl(urls.skill(params.name), searchParams, hashParams).url,
+    '/stamphog': (_params, searchParams, hashParams): string =>
+        combineUrl(urls.codeReview(), { ...searchParams, tab: 'approval_settings' }, hashParams).url,
+    '/stamphog/runs': (_params, searchParams, hashParams): string =>
+        combineUrl(urls.codeReview(), { ...searchParams, tab: 'approval_history' }, hashParams).url,
+    '/stamphog/area': (_params, searchParams, hashParams): string =>
+        combineUrl(urls.codeReview(), { ...searchParams, tab: 'code_you_own' }, hashParams).url,
+    '/stamphog/digests': (_params, { page, ...searchParams }, hashParams): string =>
+        combineUrl(
+            urls.codeReview(),
+            { ...searchParams, tab: 'approval_settings', digests: '1', digests_page: page },
+            hashParams
+        ).url,
     '/spaces/new': (_params, searchParams, hashParams): string => combineUrl('/ai/new', searchParams, hashParams).url,
     '/visual_review': (_params, searchParams, hashParams): string =>
         combineUrl(urls.visualReviewRuns(), searchParams, hashParams).url,
     '/visual_review/*': ({ _ }, searchParams, hashParams): string =>
         combineUrl(`/visual-review/${_}`, searchParams, hashParams).url,
+    '/elt': (_params, searchParams, hashParams) => combineUrl(urls.etlOverview(), searchParams, hashParams).url,
     '/web/content-autopilot': (_, searchParams) => combineUrl(urls.webAnalyticsContentAutopilot(), searchParams).url,
     '/web/content-autopilot/prompts/:promptId': ({ promptId }, searchParams) =>
         combineUrl(urls.webAnalyticsContentAutopilotPrompt(promptId ?? ''), searchParams).url,
@@ -794,6 +807,14 @@ export const productConfiguration: Record<string, any> = {
         description: 'Whether your application is OK, one row per service, from the signals you already send.',
         iconType: 'tracing',
     },
+    ApplicationObservabilityService: {
+        name: 'Service',
+        projectBased: true,
+        layout: 'app-container',
+        activityScope: 'Tracing',
+        description: 'Requests, errors, latency and endpoints for one service.',
+        iconType: 'tracing',
+    },
     Autoresearch: {
         name: 'Autoresearch',
         projectBased: true,
@@ -824,6 +845,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         iconType: 'business_knowledge',
     },
+    BusinessKnowledgeUsage: { name: 'Business knowledge usage', projectBased: true, iconType: 'business_knowledge' },
     BusinessKnowledgeSettings: {
         name: 'Business knowledge settings',
         projectBased: true,
@@ -1188,6 +1210,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'One row for each release, with its flags, experiments and early access.',
     },
     Releases: { name: 'Releases', projectBased: true },
+    ReleaseAll: { name: 'View all', projectBased: true },
     Release: { name: 'Release', projectBased: true },
     ReplayVision: {
         name: 'Replay vision',
@@ -1251,9 +1274,6 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'llm_prompts',
     },
     SlackAppWorkspaceSetup: { projectBased: true, name: 'Slack app setup', layout: 'plain' },
-    Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog', activityScope: 'StamphogRepoConfig' },
-    StamphogRuns: { projectBased: true, name: 'Stamphog runs', iconType: 'stamphog' },
-    StamphogDigests: { projectBased: true, name: 'Stamphog digests', iconType: 'stamphog' },
     StreamlitApps: {
         name: 'Streamlit apps',
         description: 'Build and share custom Python apps that run on your PostHog data.',
@@ -1494,6 +1514,29 @@ export const productUrls = {
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     applicationObservability: (): string => '/application-observability',
+    applicationObservabilityService: (
+        serviceName: string,
+        params?: {
+            range?: string | null
+            environment?: string | null
+            version?: string | null
+            operation?: string | null
+        }
+    ): string => {
+        const asText = (value: string): string | string[] =>
+            /^(true|false)$/i.test(value) || (value.trim() !== '' && !Number.isNaN(Number(value))) ? [value] : value
+        const query: Record<string, string | string[]> = { service: asText(serviceName) }
+        if (params?.range && params.range !== '-1h') {
+            query.range = params.range
+        }
+        for (const key of ['environment', 'version', 'operation'] as const) {
+            const value = params ? params[key] : null
+            if (value || (key === 'environment' && value === '')) {
+                query[key] = asText(value)
+            }
+        }
+        return combineUrl('/application-observability/service', query).url
+    },
     autoresearch: (): string => '/autoresearch',
     autoresearchNew: (): string => '/autoresearch/new',
     autoresearchPipeline: (id: string): string => `/autoresearch/${id}`,
@@ -1525,6 +1568,7 @@ export const productUrls = {
     },
     businessKnowledge: (): string => '/business-knowledge',
     businessKnowledgeSettings: (): string => '/business-knowledge/settings',
+    businessKnowledgeUsage: (): string => '/business-knowledge/usage',
     businessKnowledgePlayground: (chatId?: string): string =>
         chatId ? `/business-knowledge/playground/${chatId}` : '/business-knowledge/playground',
     businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
@@ -1835,6 +1879,7 @@ export const productUrls = {
     legalDocumentNew: (type: 'BAA' | 'DPA'): string => `/legal/new/${type.toLowerCase()}`,
     organizationLegalDocuments: (): string => '/organization/legal',
     logs: (activeTab?: LogsSceneActiveTab): string => (activeTab ? `/logs?activeTab=${activeTab}` : '/logs'),
+    logsSavedView: (shortId: string): string => combineUrl('/logs', { savedView: shortId }).url,
     logsAlertDetail: (id: string, tab?: string): string =>
         tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
     logsAlertNotificationDetail: (alertId: string, hogFunctionId: string): string =>
@@ -1950,6 +1995,7 @@ export const productUrls = {
     productTour: (id: string): string => `/product_tours/${id}`,
     pulse: (): string => '/pulse',
     releases: (): string => '/releases',
+    releaseCalendar: (): string => '/releases/calendar',
     releaseList: (): string => '/releases/list',
     release: (id: string): string => `/releases/${id}`,
     replay: (
@@ -1992,7 +2038,8 @@ export const productUrls = {
     replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
     replayVisionScannerBudget: (id: string): string => `/replay-vision/${id}/budget`,
     replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
-    codeReview: (): string => '/code-review',
+    codeReview: (tab?: 'approval_history' | 'code_you_own' | 'settings' | 'approval_settings'): string =>
+        tab ? `/code-review?tab=${tab}` : '/code-review',
     inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
     inboxActivate: (): string => '/inbox/activate',
     inboxActivateWithoutGithub: (): string => '/inbox/activate/without-github',
@@ -2017,9 +2064,6 @@ export const productUrls = {
     ): string => combineUrl(`/skills/${name}`, params).url,
     communitySkills: (): string => '/skills/community',
     slackAppWorkspaceSetup: (integrationId: number | string): string => `/integrations/slack/${integrationId}/setup`,
-    stamphog: (): string => '/stamphog',
-    stamphogRuns: (): string => '/stamphog/runs',
-    stamphogDigests: (): string => '/stamphog/digests',
     stamphogCallback: (): string => '/stamphog/install/callback',
     streamlitApps: (): string => '/streamlit-apps',
     streamlitApp: (id: string): string => `/streamlit-apps/${id}`,
@@ -2049,12 +2093,17 @@ export const productUrls = {
         dateRange?: {
             date_from?: string | null
             date_to?: string | null
-        }
+        },
+        route?: {
+            attribute: string
+            value: string
+        } | null
     ): string =>
         combineUrl('/tracing/operation', {
             service: serviceName,
             name: spanName,
             ...(dateRange ? { dateRange: JSON.stringify(dateRange) } : {}),
+            ...(route ? { route_attribute: route.attribute, route: route.value } : {}),
         }).url,
     tracingRetentionNew: (): string => '/tracing/retention-rules/new',
     tracingRetentionDetail: (id: string): string => `/tracing/retention-rules/${id}`,
@@ -2522,7 +2571,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: '/application-observability',
         flag: FEATURE_FLAGS.APPLICATION_OBSERVABILITY,
         sceneKey: 'ApplicationObservability',
-        sceneKeys: ['ApplicationObservability'],
+        sceneKeys: ['ApplicationObservability', 'ApplicationObservabilityService'],
     },
     {
         path: 'Apps',
@@ -2602,6 +2651,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: [
             'BusinessKnowledge',
             'BusinessKnowledgePlayground',
+            'BusinessKnowledgeUsage',
             'BusinessKnowledgeSettings',
             'BusinessKnowledgeSource',
         ],
@@ -2762,6 +2812,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
                     FEATURE_FLAGS.DATA_MODELING_USAGE,
                 ],
                 searchKeywords: ['bytes read', 'cpu'],
+            },
+            {
+                name: 'Governance',
+                href: urls.dataCatalog('governance'),
+                requiredFlags: [
+                    FEATURE_FLAGS.TODAY_RAIL_NAV,
+                    FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
+                    FEATURE_FLAGS.DATA_CATALOG_USAGE,
+                ],
+                searchKeywords: ['agent topics', 'proposed metrics', 'metric usage'],
             },
             { name: 'Relationships', href: urls.dataCatalog('relationships') },
             { name: 'Certifications', href: urls.dataCatalog('certifications') },

@@ -13,13 +13,16 @@ const FALLBACK_FORMATS = ['MM/DD/YYYY', 'YYYYMMDD', 'MM/DD/YYYY HH:mm']
 
 const MAX_FUTURE_MS = 365 * 24 * 60 * 60 * 1000
 
-export function parseTimestampInput(input: string): Dayjs | null {
+const UTC_OFFSET = /(Z|[+-]\d{2}:?\d{2})$/i
+
+export function parseTimestampInput(input: string, timezone?: string): Dayjs | null {
     const trimmed = input.trim()
     if (!trimmed) {
         return null
     }
 
     let parsed: Dayjs | null = null
+    let isUnixTimestamp = false
 
     // Numeric-only: unix timestamps (require at least 9 digits for seconds)
     if (/^\d+(\.\d+)?$/.test(trimmed)) {
@@ -35,8 +38,10 @@ export function parseTimestampInput(input: string): Dayjs | null {
             const num = parseFloat(trimmed)
             if (trimmed.includes('.') || (trimmed.length >= 9 && trimmed.length <= 10)) {
                 parsed = dayjs(num * 1000)
+                isUnixTimestamp = true
             } else if (trimmed.length >= 11) {
                 parsed = dayjs(num)
+                isUnixTimestamp = true
             }
         }
     }
@@ -62,6 +67,11 @@ export function parseTimestampInput(input: string): Dayjs | null {
 
     if (!parsed?.isValid()) {
         return null
+    }
+
+    // dayjs reads a timestamp without an offset in the browser timezone, so read its wall time in the given one.
+    if (timezone && !isUnixTimestamp && !UTC_OFFSET.test(trimmed)) {
+        parsed = dayjs.tz(parsed.format('YYYY-MM-DDTHH:mm:ss.SSS'), timezone)
     }
 
     // Reject dates before year 2000 (no useful data that old)

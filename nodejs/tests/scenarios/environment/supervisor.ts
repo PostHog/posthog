@@ -45,7 +45,6 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
     const restarts = new Set<NodeJS.Timeout>()
     const recorded: RoleExit[] = []
     const killedByValve = new WeakSet<ChildProcess>()
-    const freezes = new Map<number, number>()
     let stopping = false
 
     const runningChild = (id: RoleId): ChildProcess & { pid: number } => {
@@ -159,8 +158,6 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
         freeze(id, withinMs) {
             const { pid } = runningChild(id)
             process.kill(-pid, 'SIGSTOP')
-            freezes.set(pid, (freezes.get(pid) ?? 0) + 1)
-            let released = false
             return {
                 observed: async () => {
                     const deadline = Date.now() + withinMs
@@ -173,16 +170,7 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
                     return true
                 },
                 release: () => {
-                    if (!released) {
-                        released = true
-                        const left = freezes.get(pid)! - 1
-                        if (left > 0) {
-                            freezes.set(pid, left)
-                        } else {
-                            freezes.delete(pid)
-                            signal(-pid, 'SIGCONT')
-                        }
-                    }
+                    signal(-pid, 'SIGCONT')
                     return Promise.resolve()
                 },
             }

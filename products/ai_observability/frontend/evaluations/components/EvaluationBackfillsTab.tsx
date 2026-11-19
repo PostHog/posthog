@@ -33,6 +33,7 @@ import type {
 } from '../../generated/api.schemas'
 import {
     backfillCoveredCount,
+    backfillIsWaitingForProgress,
     backfillLateArrivalCount,
     backfillLiveCoveredCount,
     backfillRangeDateFormat,
@@ -305,14 +306,17 @@ export function EvaluationBackfillsTab({
                 const measured = backfill.status === 'completed' && backfill.remaining_count !== null
                 const covered = backfillCoveredCount(backfill)
                 const total = backfillTotalCount(backfill)
+                const waitingForProgress = backfillIsWaitingForProgress(backfill)
                 return (
                     <Tooltip
                         title={
-                            backfill.completed_count != null
-                                ? `${backfill.completed_count.toLocaleString('en-US')} evaluated, ${backfill.evaluation_skipped_count.toLocaleString('en-US')} skipped, ${backfill.skipped_count.toLocaleString('en-US')} already handled, ${backfill.failed_count.toLocaleString('en-US')} failed.`
-                                : measured
-                                  ? `Estimated coverage when this run ended. This older backfill did not track execution outcomes.`
-                                  : `How many ${backfillUnitPlural(backfill)} this backfill has started evaluating or skipped because the evaluation already had them. It does not track which of them have finished.`
+                            waitingForProgress
+                                ? 'No progress reported yet. Evaluations may already be running.'
+                                : backfill.completed_count != null
+                                  ? `${backfill.completed_count.toLocaleString('en-US')} evaluated, ${backfill.evaluation_skipped_count.toLocaleString('en-US')} skipped, ${backfill.skipped_count.toLocaleString('en-US')} already handled, ${backfill.failed_count.toLocaleString('en-US')} failed.`
+                                  : measured
+                                    ? `Estimated coverage when this run ended. This older backfill did not track execution outcomes.`
+                                    : `How many ${backfillUnitPlural(backfill)} this backfill has started evaluating or skipped because the evaluation already had them. It does not track which of them have finished.`
                         }
                     >
                         <div className="min-w-24">
@@ -328,6 +332,7 @@ export function EvaluationBackfillsTab({
                                         : `${backfill.dispatched_count.toLocaleString('en-US')} started`}
                                 </span>
                             )}
+                            {waitingForProgress && <div className="text-muted">Waiting for progress</div>}
                             <LemonProgress
                                 className="mt-1"
                                 percent={total > 0 ? (covered / total) * 100 : 0}
