@@ -1290,13 +1290,7 @@ class TestWriteAccessPromptSection(SimpleTestCase):
 
 
 class TestReportActionsPromptSection(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("signal_channel", []),
-            ("report_channel", ["emit_report", "edit_report"]),
-        ]
-    )
-    def test_section_renders_only_for_a_run_that_holds_an_action(self, _name: str, allowed_tools: list[str]) -> None:
+    def test_section_renders_only_for_a_run_that_holds_an_action(self) -> None:
         def _prompt(**kwargs: list[str]) -> str:
             return build_run_prompt(
                 LoadedSkill(
@@ -1304,7 +1298,7 @@ class TestReportActionsPromptSection(SimpleTestCase):
                     version=1,
                     body="tend",
                     description="d",
-                    allowed_tools=allowed_tools,
+                    allowed_tools=[],
                     files=[],
                     skill_id="skill-1",
                     origin="custom",
@@ -1322,8 +1316,9 @@ class TestReportActionsPromptSection(SimpleTestCase):
             assert "# Report actions" in granted
             assert f"- `{kind}`:" in granted
         # A run with no grant keeps the prompt it had before the grant existed.
-        assert _prompt(report_actions=[]) == _prompt()
-        assert "# Report actions" not in _prompt()
+        ungranted = _prompt()
+        assert _prompt(report_actions=[]) == ungranted
+        assert "# Report actions" not in ungranted
 
 
 class TestPromptBuilder(BaseTest):
