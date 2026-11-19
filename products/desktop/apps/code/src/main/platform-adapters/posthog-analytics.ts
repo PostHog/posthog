@@ -62,8 +62,8 @@ class PosthogNodeAnalytics implements IAnalytics {
         app_version: getAppVersion(),
         os_platform: process.platform,
         os_arch: process.arch,
-        $process_person_profile: !!this.currentUserId,
       },
+      options: { process_person_profile: !!this.currentUserId },
     });
   }
 
@@ -93,13 +93,16 @@ class PosthogNodeAnalytics implements IAnalytics {
     }
 
     const distinctId = this.currentUserId || "anonymous-app-event";
-    this.client.captureException(error, distinctId, {
-      team: "posthog-code",
-      ...additionalProperties,
-      ...(this.sessionId ? { $session_id: this.sessionId } : {}),
-      app_version: getAppVersion(),
-      os_platform: process.platform,
-      os_arch: process.arch,
+    this.client.captureException(error, {
+      distinctId,
+      properties: {
+        team: "posthog-code",
+        ...additionalProperties,
+        ...(this.sessionId ? { $session_id: this.sessionId } : {}),
+        app_version: getAppVersion(),
+        os_platform: process.platform,
+        os_arch: process.arch,
+      },
     });
   }
 
