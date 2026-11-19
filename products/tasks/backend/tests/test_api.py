@@ -12349,6 +12349,21 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # chain should contain exactly 3 entries (leaf + 2 ancestors).
         self.assertEqual(len(chain), 3)
 
+    @parameterized.expand([("unresumed_run", 0), ("twice_resumed_run", 2)])
+    def test_walk_resume_chain_reads_one_row_per_ancestor(self, _name: str, depth: int):
+        task = self.create_task()
+        for _ in range(5):
+            TaskRun.objects.create(task=task, team=self.team)
+        run = TaskRun.objects.create(task=task, team=self.team)
+        for _ in range(depth):
+            run = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(run.id)})
+        run = TaskRun.objects.select_related("task").get(id=run.id)
+
+        with self.assertNumQueries(depth):
+            chain = run.get_resume_chain()
+
+        self.assertEqual(len(chain), depth + 1)
+
     def test_walk_resume_chain_does_not_cross_tasks(self):
         task_a = self.create_task(title="A")
         task_b = self.create_task(title="B")
@@ -12533,19 +12548,60 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual((response["X-Log-Offset"], response["X-Log-Count"]), expected_headers)
-        self.assertEqual(response["Access-Control-Expose-Headers"], "X-Log-Offset, X-Log-Count")
+        self.assertEqual(response["X-Log-Origin"], str(ancestor.id))
+        self.assertEqual(response["Access-Control-Expose-Headers"], "X-Log-Offset, X-Log-Count, X-Log-Origin")
         self.assertEqual(response.content.decode("utf-8").splitlines(), [lines[index] for index in expected_indexes])
+
+    @patch("posthog.storage.object_storage.read", return_value=None)
+    def test_log_entries_endpoint_loads_each_chained_run_once(self, _mock_read):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team)
+        self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/log_entries/?limit=10")
+        query_counts: list[int] = []
+        for _ in range(3):
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.get(
+                    f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/log_entries/?limit=10"
+                )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            query_counts.append(len(queries))
+            run = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(run.id)})
+
+        self.assertEqual([later - earlier for earlier, later in zip(query_counts, query_counts[1:])], [1, 1])
+
+    @patch("posthog.storage.object_storage.read")
+    def test_log_entries_endpoint_returns_a_json_page(self, mock_read):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team)
+        content = '{"type":"a"}\n{"type":\n{"type":"c"}\n'
+        mock_read.side_effect = lambda path, missing_ok=False: content if path == run.log_url else None
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/log_entries/?output=json&start=1&limit=2"
+        )
+
+        self.assertEqual(
+            (response.status_code, response.json()),
+            (
+                status.HTTP_200_OK,
+                {"entries": [{"unparseable_line": '{"type":'}, {"type": "c"}], "offset": 1, "count": 3},
+            ),
+        )
 
     @parameterized.expand(
         [
-            ("live_gated_run_is_marked", TaskRun.Status.IN_PROGRESS, True, True),
-            ("finished_gated_run_is_not_marked", TaskRun.Status.COMPLETED, True, False),
-            ("live_ungated_run_is_not_marked", TaskRun.Status.IN_PROGRESS, False, False),
+            ("live_gated_run_is_marked", TaskRun.Status.IN_PROGRESS, True, "", True),
+            ("finished_gated_run_is_not_marked", TaskRun.Status.COMPLETED, True, "", False),
+            ("live_ungated_run_is_not_marked", TaskRun.Status.IN_PROGRESS, False, "", False),
+            ("live_gated_catch_up_read_is_marked", TaskRun.Status.IN_PROGRESS, True, "?start=0", True),
+            ("live_gated_page_read_is_not_marked", TaskRun.Status.IN_PROGRESS, True, "?limit=10", False),
+            ("live_gated_filtered_read_is_not_marked", TaskRun.Status.IN_PROGRESS, True, "?event_types=x", False),
+            ("live_gated_json_read_is_not_marked", TaskRun.Status.IN_PROGRESS, True, "?output=json", False),
         ]
     )
     @patch("posthog.storage.object_storage.read")
     def test_logs_endpoint_marks_live_gated_stream_watched(
-        self, _name: str, run_status: str, gated: bool, expected_watched: bool, mock_read
+        self, _name: str, run_status: str, gated: bool, query: str, expected_watched: bool, mock_read
     ):
         task = self.create_task()
         run = TaskRun.objects.create(
@@ -12553,7 +12609,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
         mock_read.side_effect = lambda path, missing_ok=False: '{"line":"x"}\n' if path == run.log_url else None
 
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/logs/")
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/logs/{query}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         watched_key = get_task_run_stream_watched_key(get_task_run_stream_key(str(run.id)))
@@ -12581,6 +12637,13 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 -1,
                 "?start=1&limit=2",
                 [(None, None, "earlier"), ("pi_run_started", "target", None)],
+            ),
+            (
+                "page_of_a_lone_run_keeps_its_marker",
+                "other",
+                -1,
+                "?start=0&limit=2",
+                [("pi_run_started", "target", None), (None, None, "target")],
             ),
         ]
     )
@@ -13575,6 +13638,49 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
         assert "analytics_query_context" not in detail.json()["latest_run"]["state"]
         if route == "session_logs":
             assert detail.json()["latest_run"]["task_summary"] == "Protected metric findings"
+
+    @parameterized.expand(
+        [
+            ("pi_session_log_entries", True, "log_entries/?start=0"),
+            ("pi_session_logs", True, "logs/"),
+            ("pi_session_stream", True, "stream/"),
+            ("resume_chain_log_entries", False, "log_entries/"),
+            ("resume_chain_session_logs", False, "session_logs/"),
+        ]
+    )
+    def test_log_reads_check_the_analytics_context_of_every_run_in_the_chain(
+        self, _name: str, pi_session: bool, route: str
+    ) -> None:
+        protected = {"analytics_query_context": [TASK_ANALYTICS_QUERY]}
+        if pi_session:
+            task = self.create_task(runtime=Task.Runtime.PI)
+            session = TaskSession.create_for_task(task)
+            TaskRun.objects.create(
+                task=task,
+                team=self.team,
+                active_task_session=session,
+                state=protected,
+                created_at=django_timezone.now() - timedelta(hours=1),
+            )
+            run = TaskRun.objects.create(task=task, team=self.team, active_task_session=session)
+        else:
+            task = self.create_task()
+            ancestor = TaskRun.objects.create(task=task, team=self.team, state=protected)
+            run = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(ancestor.id)})
+        raw_key = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(
+            label="Log reader", user=self.user, secure_value=hash_key_value(raw_key), scopes=["task:read"]
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/{route}"
+
+        denied = self.client.get(url)
+        key.scopes = ["task:read", "query:read", "event_definition:read"]
+        key.save(update_fields=["scopes"])
+        allowed = self.client.get(url)
+
+        self.assertEqual((denied.status_code, allowed.status_code), (status.HTTP_403_FORBIDDEN, status.HTTP_200_OK))
 
     def test_failure_detail_of_a_protected_run_stays_hidden_once_a_newer_run_exists(self) -> None:
         task = self.create_task()
