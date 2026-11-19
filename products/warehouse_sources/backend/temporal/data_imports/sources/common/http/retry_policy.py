@@ -74,13 +74,14 @@ def raise_for_retryable_status(response: requests.Response, *, vendor: str, url:
     """Raise `RetryableHTTPError` for a 408, a 429 or a 5xx. Do nothing for any other status.
 
     The message holds the scheme, the host and the path of `url` (default: `response.url`), but never
-    the query string, which can hold a credential.
+    the query string, which can hold a credential. It keeps the `(retryable): status=` marker that the
+    job finalizer matches to show the customer the temporary-failure message.
     """
     status = response.status_code
     if not is_retryable_status(status):
         return
     raise RetryableHTTPError(
-        f"{vendor} API error (retryable): HTTP {status} for {safe_url(url or response.url or '')}",
+        f"{vendor} API error (retryable): status={status}, url={safe_url(url or response.url or '')}",
         status=status,
         retry_after=parse_retry_after(response),
     )

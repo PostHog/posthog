@@ -82,7 +82,7 @@ class TestVendorRetry:
 
         assert network.requests == 5
         assert raised.value.status == 503
-        assert str(raised.value) == "Example API error (retryable): HTTP 503 for https://api.example.com/items"
+        assert str(raised.value) == "Example API error (retryable): status=503, url=https://api.example.com/items"
 
     def test_a_retry_after_over_the_limit_fails_at_once(self) -> None:
         with scripted_network(always(_status(429, retry_after=120))) as network, pytest.raises(RetryableHTTPError):
