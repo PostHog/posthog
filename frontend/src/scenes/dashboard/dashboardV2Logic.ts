@@ -167,8 +167,11 @@ export interface BoardStreamOutcome<T extends InsightTile> {
     leftTiles: T[]
     /** The refresh was cancelled while the stream ran. */
     aborted: boolean
-    /** For the per-tile events of `leftTiles`. */
-    fallbackEventProperties: Record<string, unknown>
+    /**
+     * How the per-tile path loads `leftTiles`: one request each, because the stream already waited for query capacity
+     * and the per-tile retries would wait again.
+     */
+    fallback: { eventProperties: Record<string, unknown>; maxAttempts?: number }
     /** For the `dashboard refreshed` event. */
     refreshEventProperties: Record<string, unknown>
 }
@@ -301,7 +304,7 @@ function boardStreamOutcome<T extends InsightTile>(
         settledTileIds,
         leftTiles,
         aborted,
-        fallbackEventProperties: { stream_fallback: true },
+        fallback: { eventProperties: { stream_fallback: true }, maxAttempts: 1 },
         refreshEventProperties: { board_stream: true, stream_fallback: leftTiles.length > 0, stream_failed: failed },
     }
 }

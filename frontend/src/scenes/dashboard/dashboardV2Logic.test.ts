@@ -319,6 +319,7 @@ describe('dashboardV2Logic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(loadedShortIds()).toEqual(firstScreen.slice(2).map((tile) => tile.insight!.short_id))
+            expect(refreshInsight.mock.calls.map((call) => call[9])).toEqual(firstScreen.slice(2).map(() => 1))
             expect(resultOf(firstScreen[0].id)).toEqual(['fresh'])
             expect(resultOf(firstScreen[1].id)).toEqual(['computed'])
             const tileEvents = capturedEvents(capture, 'dashboard insight refreshed')
@@ -344,6 +345,7 @@ describe('dashboardV2Logic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(loadedShortIds()).toEqual([firstScreen[0].insight!.short_id])
+            expect(refreshInsight.mock.calls[0][9]).toEqual(1)
             expect(resultOf(firstScreen[1].id)).toEqual(['computed'])
         })
 
@@ -381,6 +383,7 @@ describe('dashboardV2Logic', () => {
 
             expect(boardStream).not.toHaveBeenCalled()
             expect(loadedShortIds()).toEqual(tiles.map((tile) => tile.insight!.short_id))
+            expect(refreshInsight.mock.calls.map((call) => call[9])).toEqual(tiles.map(() => undefined))
             for (const name of ['dashboard refreshed', 'dashboard insight refreshed']) {
                 for (const properties of capturedEvents(capture, name)) {
                     expect(properties).not.toHaveProperty('stream_fallback')

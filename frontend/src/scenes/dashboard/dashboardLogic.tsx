@@ -341,6 +341,7 @@ interface InsightTileRefresh {
     tileLoads: TileLoads<TileLoadRefresh>
     dashboardV2Ui: boolean
     eventProperties?: Record<string, unknown>
+    maxAttempts?: number
 }
 
 /** One queue for every insight and widget load, so a dashboard never sends more than the cap at the same time. */
@@ -402,6 +403,7 @@ async function refreshInsightTile(
         tileLoads,
         dashboardV2Ui,
         eventProperties,
+        maxAttempts,
     }: InsightTileRefresh
 ): Promise<InsightTileRefreshOutcome> {
     const insight = tile.insight
@@ -430,7 +432,8 @@ async function refreshInsightTile(
                 },
                 filters,
                 variables,
-                tile.filters_overrides
+                tile.filters_overrides,
+                maxAttempts
             )
         }, signal)
 
@@ -6356,7 +6359,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 const fallbackRefresh: InsightTileRefresh = boardStream
-                    ? { ...tileRefresh, eventProperties: boardStream.fallbackEventProperties }
+                    ? { ...tileRefresh, ...boardStream.fallback }
                     : tileRefresh
                 const fetchSyncInsightFunctions = sortedTilesToRefresh
                     .filter((tile) => !streamedTiles.has(tile.id))
