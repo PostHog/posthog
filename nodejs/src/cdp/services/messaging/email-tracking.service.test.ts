@@ -535,6 +535,15 @@ describe('EmailTrackingService', () => {
                     )
                 })
 
+                it('is refused when the parser nests repaired formatting tags past it', () => {
+                    // Each `</b>` ends a bold and an italic tag that two blocks opened inside, and the parser
+                    // rebuilds both tags around the blocks, so each repeat nests three levels.
+                    const repaired = (count: number): string =>
+                        `<body>${tags}${'<b><i><div><div></b>'.repeat(count)}${link}</body>`
+                    expect(sesTrack(repaired(80))).toContain('phl:0')
+                    expect(() => sesTrack(repaired(90))).toThrow(EmailNestingTooDeepError)
+                })
+
                 it('is sent with a plain comment one level below its deepest element', () => {
                     // html and body take two levels, so the comment sits one past the limit.
                     const around = MIN_NESTING_LIMIT - 2

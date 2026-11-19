@@ -133,7 +133,6 @@ export class EmailFormattingTooCostlyError extends EmailHtmlTooComplexError {
     }
 }
 
-type ParentNode = DefaultTreeAdapterMap['parentNode']
 type FormattingList = Parser<DefaultTreeAdapterMap>['activeFormattingElements']
 
 // The formatting elements still open since the last table cell, caption or similar boundary, which the parser compares
@@ -146,27 +145,19 @@ const openFormattingCount = (list: FormattingList | undefined): number => {
     return count
 }
 
-// Stops a parse when an element nests deeper than the limit, or when the parse builds more elements or formatting work
-// than the email's budget. A template's content counts from the template.
+// Stops a parse that builds more elements or formatting work than the email's budget.
 const boundedAdapter = (
     bounds: ParseBounds,
     formattingList: () => FormattingList | undefined
 ): TreeAdapter<DefaultTreeAdapterMap> => {
-    const depths = new WeakMap<Node, number>()
-    const templates = new WeakMap<Node, Node>()
     const attributeNames = new WeakMap<Element, Set<string>>()
     // A rebuilt copy shares its tag's attribute list, so a list seen before marks a copy.
     const tagAttributes = new WeakSet<Element['attrs']>()
     const opened = new WeakSet<Element>()
-    const place = (parent: ParentNode, node: Node): void => {
+    const place = (node: Node): void => {
         // A comment holds no elements, so it adds no nesting.
         if (!('attrs' in node)) {
             return
-        }
-        const owner = templates.get(parent)
-        const depth = (depths.get(parent) ?? (owner ? depths.get(owner) : undefined) ?? 0) + 1
-        if (depth > bounds.depth) {
-            throw new EmailNestingTooDeepError(bounds.depth)
         }
         if (opened.delete(node)) {
             bounds.formattingLeft -= (openFormattingCount(formattingList()) + 1) * (node.attrs.length + 1)
@@ -174,7 +165,6 @@ const boundedAdapter = (
                 throw new EmailFormattingTooCostlyError()
             }
         }
-        depths.set(node, depth)
     }
     return {
         ...defaultTreeAdapter,
@@ -190,16 +180,12 @@ const boundedAdapter = (
             return element
         },
         appendChild(parent, node) {
-            place(parent, node)
+            place(node)
             defaultTreeAdapter.appendChild(parent, node)
         },
         insertBefore(parent, node, reference) {
-            place(parent, node)
+            place(node)
             defaultTreeAdapter.insertBefore(parent, node, reference)
-        },
-        setTemplateContent(template, content) {
-            templates.set(content, template)
-            defaultTreeAdapter.setTemplateContent(template, content)
         },
         // Each repeated `<html>` or `<body>` tag adds its new attributes to the first one. The default adapter
         // collects the names already there on every merge, which grows with the square of the input.
@@ -216,6 +202,20 @@ const boundedAdapter = (
                 }
             }
         },
+    }
+}
+
+// Stops a parse when its stack of open elements grows deeper than the limit. The stack is what the parser looks back
+// through, and it can run deeper than the tree position an element was placed at: a formatting tag the parser rebuilds
+// takes in children before it joins the tree.
+const limitNesting = (parser: Parser<DefaultTreeAdapterMap>, bounds: ParseBounds): void => {
+    const stack = parser.openElements
+    const push = stack.push.bind(stack)
+    stack.push = (element, tagID) => {
+        push(element, tagID)
+        if (stack.stackTop + 1 > bounds.depth) {
+            throw new EmailNestingTooDeepError(bounds.depth)
+        }
     }
 }
 
@@ -381,6 +381,7 @@ const scanComment = (
             ...PARSE_OPTIONS,
             treeAdapter: boundedAdapter(bounds, () => parser?.activeFormattingElements),
         })
+        limitNesting(parser, bounds)
         parser.tokenizer.write(comment.content, true)
         fragment = parser.getFragment()
     } catch (error) {
@@ -432,6 +433,7 @@ const scanHtml = (html: string): Scan => {
         ...PARSE_OPTIONS,
         treeAdapter: boundedAdapter(bounds, () => parser?.activeFormattingElements),
     })
+    limitNesting(parser, bounds)
     parser.tokenizer.write(html, true)
     const anchors = new Map<number, ScannedTag>()
     const comments: CommentNode[] = []
