@@ -181,6 +181,7 @@ const linkedReports: SignalReport[] = [
             started_at: '2026-06-10T20:00:00Z',
             ends_at: '2026-06-13T20:00:00Z',
             lead_check: null,
+            checks: [],
         },
         link_summary: linkSummary({ kind: 'part_of', plan: cohortPlan }),
     }),
