@@ -1,3 +1,4 @@
+import re
 import dataclasses
 from collections.abc import Callable, Sequence
 from contextvars import ContextVar
@@ -139,6 +140,11 @@ def _contains_raw_bytes(value: object) -> bool:
     if isinstance(value, dict):
         return any(_contains_raw_bytes(key) or _contains_raw_bytes(item) for key, item in value.items())
     return False
+
+
+def columns_with_type(names: Sequence[str], column_types: Sequence[str], wanted_type: str) -> list[str]:
+    whole_type = re.compile(rf"(?<!\w){re.escape(wanted_type)}(?!\w)")
+    return [name for name, column_type in zip(names, column_types) if whole_type.search(column_type)]
 
 
 def _raise_for_raw_bytes_in_string_results(
@@ -1203,9 +1209,7 @@ class HogQLQueryExecutor:
             return None
         if not error.unreadable_type or len(column_types) != len(self.print_columns):
             return None
-        unreadable_names = [
-            name for name, column_type in zip(self.print_columns, column_types) if error.unreadable_type in column_type
-        ]
+        unreadable_names = columns_with_type(self.print_columns, column_types, error.unreadable_type)
         if not unreadable_names:
             return None
         return unknown_type_error(error.unreadable_type, unreadable_names, code=error.code)

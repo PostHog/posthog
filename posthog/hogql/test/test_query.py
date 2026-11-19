@@ -19,7 +19,7 @@ from unittest import mock
 from unittest.mock import patch
 
 from django.conf import settings
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -46,7 +46,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.property_access_types import RestrictedProperty
-from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
+from posthog.hogql.query import HogQLQueryExecutor, columns_with_type, execute_hogql_query
 from posthog.hogql.query_stats import query_stats_scope, record
 from posthog.hogql.sharing_rules import CountFusionRule, SameAggregationTopNRule
 from posthog.hogql.test.utils import (
@@ -2747,3 +2747,11 @@ class TestQueryStatsRecording(BaseTest):
                     execute_hogql_query("select count() from events", team=self.team, query_type="test")
         assert len(killed_stats.executions) == 1
         assert killed_stats.executions[0].rows_read == 90
+
+
+class TestColumnsWithType(SimpleTestCase):
+    def test_matches_whole_type_names_only(self) -> None:
+        names = ["clock", "timestamp", "precise_timestamp", "clocks"]
+        column_types = ["Time", "DateTime", "DateTime64(3)", "Array(Time)"]
+
+        self.assertEqual(columns_with_type(names, column_types, "Time"), ["clock", "clocks"])
