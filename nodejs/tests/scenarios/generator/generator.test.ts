@@ -293,6 +293,66 @@ describe('drive', () => {
         }
     })
 
+    it('counts a transactional unit for the gate of a step that stops on a break once it was sent, before cdp-api answers', async () => {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+        const held: http.ServerResponse[] = []
+        let arrive = (): void => undefined
+        const arrived = new Promise<void>((resolve) => (arrive = resolve))
+        const server = http.createServer((request, response) => {
+            request.resume()
+            if (held.length === 2) {
+                response.writeHead(202).end('{}')
+                return
+            }
+            held.push(response)
+            if (held.length === 2) {
+                arrive()
+            }
+        })
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        const { port } = server.address() as AddressInfo
+        const loaded = rampedCard(
+            20,
+            [
+                { scale: 1, for: '100ms' },
+                { scale: 1, for: '100ms' },
+            ],
+            '200ms',
+            true
+        )
+        const transactional = {
+            ...loaded,
+            card: {
+                ...loaded.card,
+                drive: { ...loaded.card.drive, traffic: [{ name: 'transactional_email', params: {} }] },
+            },
+            profile: { ...loaded.profile, traffic: { transactional_email: { ratePerSecond: 20 } } },
+        } satisfies LoadedCard
+        let offered = (): number => -1
+        const gate: StepGate = (_step, offeredSoFar) => {
+            offered = offeredSoFar
+            return Promise.resolve()
+        }
+        try {
+            const { driving } = startDrive(transactional, ACKNOWLEDGED, {
+                cdpApi: { ...CDP_API, url: `http://127.0.0.1:${port}` },
+                gate,
+            })
+
+            await jest.advanceTimersByTimeAsync(50)
+            await arrived
+            await jest.advanceTimersByTimeAsync(60)
+            const live = offered()
+            held.forEach((response) => response.writeHead(202).end('{}'))
+            await jest.advanceTimersByTimeAsync(200)
+
+            expect({ live, summary: await driving }).toMatchObject({ live: 2, summary: { offeredUnits: 4 } })
+        } finally {
+            server.closeAllConnections()
+            await new Promise<void>((resolve) => server.close(() => resolve()))
+        }
+    })
+
     it('stops waiting for acknowledgements on an interrupt and leaves the pending units out of the summary and the journal', async () => {
         const kafka = heldKafka()
         const interrupt = new AbortController()
@@ -314,25 +374,31 @@ describe('drive', () => {
         })
     })
 
-    it('stops offering at a halt, still journals the units in flight, and counts only the units due before it', async () => {
-        const kafka = heldKafka()
-        const halt = new AbortController()
-        const { driving, journal } = startDrive(cardWith({ ratePerSecond: 10, driveFor: '1s' }), kafka.produce, {
-            halt: halt.signal,
-        })
-        let summary: Summary | undefined
-        void driving.then((ended) => (summary = ended))
+    it.each([
+        ['between two units', 450],
+        ['in the millisecond its last unit was offered', 400],
+    ])(
+        'stops offering at a halt %s, still journals the units in flight, and counts only the units due before it',
+        async (_story, haltAtMs) => {
+            const kafka = heldKafka()
+            const halt = new AbortController()
+            const { driving, journal } = startDrive(cardWith({ ratePerSecond: 10, driveFor: '1s' }), kafka.produce, {
+                halt: halt.signal,
+            })
+            let summary: Summary | undefined
+            void driving.then((ended) => (summary = ended))
 
-        await jest.advanceTimersByTimeAsync(450)
-        halt.abort()
-        kafka.acknowledge()
-        await jest.advanceTimersByTimeAsync(0)
+            await jest.advanceTimersByTimeAsync(haltAtMs)
+            halt.abort()
+            kafka.acknowledge()
+            await jest.advanceTimersByTimeAsync(0)
 
-        expect({ summary, journaled: journal.length }).toMatchObject({
-            summary: { targetUnits: 5, offeredUnits: 5 },
-            journaled: 5,
-        })
-    })
+            expect({ summary, journaled: journal.length }).toMatchObject({
+                summary: { targetUnits: 5, offeredUnits: 5 },
+                journaled: 5,
+            })
+        }
+    )
 
     it.each<[string, true | undefined, object]>([
         [
@@ -388,6 +454,110 @@ describe('drive', () => {
             overdueOfferedAtMs: journal
                 .filter(({ step, offeredAt }) => step === 0 && offeredAt - startedAt >= 1000)
                 .map(({ offeredAt }) => offeredAt - startedAt),
+        }).toEqual(expected)
+    })
+
+    it('waits for a step gate still pending when the last step ends, and fails the drive when that gate fails', async () => {
+        let fail = (_error: Error): void => undefined
+        const gate: StepGate = () => new Promise<void>((_resolve, reject) => (fail = reject))
+        const ramped = rampedCard(
+            2,
+            [
+                { scale: 1, for: '1s' },
+                { scale: 2, for: '1s' },
+            ],
+            '2s',
+            true
+        )
+        const { driving } = startDrive(ramped, ACKNOWLEDGED, { gate })
+        const failure = driving.then(
+            () => 'the drive returned',
+            (error: Error) => error.message
+        )
+
+        await jest.advanceTimersByTimeAsync(2500)
+        fail(new Error('the live judge failed'))
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(await failure).toBe('the live judge failed')
+    })
+
+    it('counts no acknowledgement for a step that stops on a break once that step ended, live or in the summary', async () => {
+        const kafka = heldKafka()
+        const offered: (() => number)[] = []
+        const gate: StepGate = (_step, offeredSoFar) => {
+            offered.push(offeredSoFar)
+            return Promise.resolve()
+        }
+        const ramped = rampedCard(
+            4,
+            [
+                { scale: 1, for: '1s' },
+                { scale: 1, for: '1s' },
+            ],
+            '2s',
+            true
+        )
+        const { driving } = startDrive(ramped, kafka.produce, { gate })
+
+        await jest.advanceTimersByTimeAsync(1100)
+        kafka.acknowledge()
+        await jest.advanceTimersByTimeAsync(800)
+        kafka.acknowledge()
+        await jest.advanceTimersByTimeAsync(200)
+        const { steps } = await driving
+
+        expect({ live: offered.map((count) => count()), steps: steps.map(({ offeredUnits }) => offeredUnits) }).toEqual(
+            {
+                live: [0],
+                steps: [0, 4],
+            }
+        )
+    })
+
+    it.each<[string, (startedAt: number) => Promise<void>, object]>([
+        [
+            'the gate answered in its second extra cycle',
+            () => jest.advanceTimersByTimeAsync(3500),
+            { targetUnits: 19, offeredUnits: 19, held: { dueUnits: 11, offeredUnits: 11 }, burst: 1 },
+        ],
+        [
+            'the event loop stalled across two extra cycles',
+            async (startedAt) => {
+                await jest.advanceTimersByTimeAsync(2100)
+                jest.setSystemTime(startedAt + 4600)
+                await jest.advanceTimersByTimeAsync(200)
+            },
+            { targetUnits: 24, offeredUnits: 17, held: { dueUnits: 16, offeredUnits: 9 }, burst: 4 },
+        ],
+    ])('while a step holds for the gate of the step before it, %s', async (_story, wait, expected) => {
+        let answer = (): void => undefined
+        const gate: StepGate = ({ index }) =>
+            index === 0 ? new Promise<void>((resolve) => (answer = resolve)) : Promise.resolve()
+        const ramped = rampedCard(
+            4,
+            [
+                { scale: 1, for: '1s' },
+                { scale: 1, for: '1s' },
+                { scale: 1, for: '1s' },
+            ],
+            '3s',
+            true
+        )
+        const startedAt = Date.now()
+        const { driving, journal } = startDrive(ramped, ACKNOWLEDGED, { gate })
+
+        await wait(startedAt)
+        answer()
+        await jest.advanceTimersByTimeAsync(2000)
+        const { targetUnits, offeredUnits, steps } = await driving
+        const heldOfferedAt = journal.filter(({ step }) => step === 1).map(({ offeredAt }) => offeredAt)
+
+        expect({
+            targetUnits,
+            offeredUnits,
+            held: { dueUnits: steps[1].dueUnits, offeredUnits: steps[1].offeredUnits },
+            burst: Math.max(...heldOfferedAt.map((at) => heldOfferedAt.filter((other) => other === at).length)),
         }).toEqual(expected)
     })
 

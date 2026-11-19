@@ -118,6 +118,7 @@ export async function drive(
     const chance = new Chance(card.seed)
     let attempted = 0
     const counted: { step: DrivenStep; answeredAt: number }[] = []
+    const answeredAts = new Map<DrivenStep, number[]>()
     const steps: DrivenStep[] = []
     const offers: Promise<void>[] = []
     const followUps: Promise<unknown>[] = []
@@ -139,6 +140,9 @@ export async function drive(
         attempted += 1
         const unitId = `${context.runId}-${attempted}`
         const offeredAt = Date.now()
+        if (kind.intake !== 'event') {
+            answeredAts.get(step)?.push(-Infinity)
+        }
         const offer = kind.offer({ unitId, teamId, flowId }, context).then(async (answer) => {
             const answeredAt = kind.intake === 'event' ? Date.now() : -Infinity
             const counts = kind.intake !== 'event' || answer.accepted
@@ -147,6 +151,9 @@ export async function drive(
             }
             if (counts) {
                 step.offeredUnits += 1
+            }
+            if (counts && kind.intake === 'event') {
+                answeredAts.get(step)?.push(answeredAt)
             }
             let followUp: FollowUpAnswer | undefined
             if (kind.followUp && followUpFlowId !== undefined && answer.accepted) {
@@ -185,17 +192,20 @@ export async function drive(
         until: AbortSignal,
         step: DrivenStep,
         late: (now: number) => boolean
-    ): Promise<void> => {
+    ): Promise<number> => {
+        let sent = 0
         for (const { kind, atMs } of slots) {
             const waitMs = fromAt + atMs - Date.now()
             if (waitMs > 0) {
                 await untilAborted(elapse(waitMs), until)
             }
             if (until.aborted || late(Date.now())) {
-                return
+                return sent
             }
             offerUnit(kind, step)
+            sent += 1
         }
+        return sent
     }
 
     const fixedSteps = card.drive.stopOnBreak === true
@@ -211,9 +221,10 @@ export async function drive(
         const lastsMs = toMs - fromMs
         const step: DrivenStep = { index, scale, startedAt, endedAt: startedAt + lastsMs, dueUnits: 0, offeredUnits: 0 }
         steps.push(step)
+        answeredAts.set(step, [])
         const slots = schedules[index]
         const late = fixedSteps ? (now: number) => now >= step.endedAt : (now: number) => now > driveEnd
-        await offerSlots(slots, startedAt, halted, step, late)
+        let sent = await offerSlots(slots, startedAt, halted, step, late)
         while (!halted.aborted && Date.now() < step.endedAt) {
             await pause(step.endedAt - Date.now(), halted)
         }
@@ -229,15 +240,18 @@ export async function drive(
             const until = AbortSignal.any([halted, verdict.signal])
             for (; !until.aborted; cycles++) {
                 const cycleAt = startedAt + cycles * lastsMs
-                await offerSlots(slots, cycleAt, until, step, () => false)
+                sent += await offerSlots(slots, cycleAt, until, step, (now) => now >= cycleAt + lastsMs)
                 await pause(cycleAt + lastsMs - Date.now(), until)
             }
             step.endedAt = Date.now()
             stretchedMs += step.endedAt - (startedAt + lastsMs)
         }
-        step.dueUnits = Array.from({ length: cycles }, (_, cycle) => startedAt + cycle * lastsMs).reduce(
-            (due, cycleAt) => due + slots.filter(({ atMs }) => cycleAt + atMs < step.endedAt).length,
-            0
+        step.dueUnits = Math.max(
+            sent,
+            Array.from({ length: cycles }, (_, cycle) => startedAt + cycle * lastsMs).reduce(
+                (due, cycleAt) => due + slots.filter(({ atMs }) => cycleAt + atMs < step.endedAt).length,
+                0
+            )
         )
         if (halted.aborted || context.gate === undefined || index === planned.length - 1) {
             continue
@@ -245,7 +259,7 @@ export async function drive(
         const window = { index, scale, startedAt, endedAt: step.endedAt, dueUnits: step.dueUnits }
         const entry = { settled: false, done: Promise.resolve() }
         entry.done = context
-            .gate(window, () => step.offeredUnits)
+            .gate(window, () => answeredAts.get(step)!.filter((answeredAt) => answeredAt <= step.endedAt).length)
             .catch((error: unknown) => failed.abort(error))
             .finally(() => (entry.settled = true))
         judged[index] = entry
@@ -254,17 +268,24 @@ export async function drive(
     const end = steps.at(-1)?.endedAt ?? -Infinity
     try {
         await untilAborted(Promise.all(offers), stop)
+        await untilAborted(Promise.all(Object.values(judged).map(({ done }) => done)), stop)
     } finally {
         await Promise.allSettled(followUps)
     }
     if (failed.signal.aborted) {
         throw failed.signal.reason
     }
-    const onTime = counted.filter(({ answeredAt }) => answeredAt <= end)
     for (const step of steps) {
-        step.offeredUnits = onTime.filter((unit) => unit.step === step).length
+        step.offeredUnits = 0
     }
-    const offeredUnits = onTime.length
-    const targetUnits = stoppedEarly ? steps.reduce((sum, { dueUnits }) => sum + dueUnits, 0) : schedules.flat().length
+    let offeredUnits = 0
+    for (const { step, answeredAt } of counted) {
+        if (answeredAt <= (fixedSteps ? step.endedAt : end)) {
+            step.offeredUnits += 1
+            offeredUnits += 1
+        }
+    }
+    const targetUnits =
+        stoppedEarly || fixedSteps ? steps.reduce((sum, { dueUnits }) => sum + dueUnits, 0) : schedules.flat().length
     return { targetUnits, offeredUnits, steps }
 }
