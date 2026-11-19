@@ -782,14 +782,23 @@ class TestAdminConsoleViews(BaseTest):
         self.user.save()
         self.client.force_login(self.user)
 
-    def test_staff_login_is_required(self) -> None:
+    @parameterized.expand([("team_page", "/admin/console/teams/{team}/"), ("tools_index", "/admin/console/tools/")])
+    def test_staff_login_is_required(self, _name: str, path: str) -> None:
         self.user.is_staff = False
         self.user.save()
 
-        response = self.client.get(f"/admin/console/teams/{self.team.pk}/")
+        response = self.client.get(path.format(team=self.team.pk))
 
         assert response.status_code == 302
         assert response["Location"].startswith("/admin/login/")
+
+    def test_the_tools_page_links_every_registered_tool(self) -> None:
+        response = self.client.get("/admin/console/tools/")
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        for tool in console.tools():
+            assert f'href="/admin/console/tools/{tool.key}/"' in content, f"{tool.key} is missing from the tools page"
 
     def test_operations_need_a_csrf_token_even_with_an_api_key_parameter(self) -> None:
         client = Client(enforce_csrf_checks=True)
@@ -855,6 +864,18 @@ class TestAdminConsoleViews(BaseTest):
     def _record(self, record: str) -> Model:
         if record == "deletion-request":
             return DataDeletionRequest.objects.create(team_id=self.team.pk, request_type=RequestType.EVENT_REMOVAL)
+        if record == "oauth-application":
+            return OAuthApplication.objects.create(
+                name="Console app",
+                client_id="console_app_client_id",
+                client_secret="secret",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                is_provisioning_partner=True,
+            )
         return {"team": self.team, "organization": self.organization, "project": self.project, "user": self.user}[
             record
         ]
@@ -894,7 +915,14 @@ class TestAdminConsoleViews(BaseTest):
 
         home = self.client.get("/admin/console/").content.decode()
         assert "Recently opened" in home
-        assert f"/admin/console/teams/{self.team.pk}/" in home
+        opened_pages = (
+            f"/admin/console/teams/{self.team.pk}/",
+            f"/admin/console/organizations/{self.organization.pk}/",
+            f"/admin/console/projects/{self.project.pk}/",
+            f"/admin/console/users/{self.user.pk}/",
+        )
+        for opened_page in opened_pages:
+            assert opened_page in home, f"home misses {opened_page}, which was opened before"
 
     @parameterized.expand([("team",), ("project",), ("user",)])
     def test_django_admin_page_points_moved_actions_to_registered_panels(self, record: str) -> None:

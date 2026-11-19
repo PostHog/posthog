@@ -395,7 +395,7 @@ class TestTransactionalEmail(APIBaseTest):
                 {},
                 {"X-PostHog-Integration": "symfony-mailer/7.3.0"},
                 202,
-                {"client": "symfony-mailer", "source": "api"},
+                {"client": "symfony-mailer", "source": "api", "sender_kind": "own_domain"},
             ),
             (
                 "refused_send",
@@ -643,6 +643,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.json()["code"] == expected_code
         setup_url = f"{settings.SITE_URL}/project/{self.team.id}/workflows/channels/email/new"
         assert (setup_url in response.json()["detail"]) == pipeline_code.startswith("sandbox_")
+        assert ("PostHog test sender" in response.json()["detail"]) == pipeline_code.startswith("sandbox_")
 
     @parameterized.expand(
         [
@@ -774,7 +775,15 @@ class TestTransactionalEmail(APIBaseTest):
         key = TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).get(key="welcome")
         assert queue.call_args_list == ([call(args=(self.team.id, str(key.id)), retry=False)] if detection_on else [])
 
-    def test_each_environment_of_a_project_keeps_its_own_workflow_for_a_key(self, mock_post, _flag, _capture):
+    @parameterized.expand(
+        [
+            ("project_path", "/api/projects/{team_id}/messaging/send/email/"),
+            ("key_scoped_path", "/api/messaging/send/email/"),
+        ]
+    )
+    def test_each_environment_of_a_project_keeps_its_own_workflow_for_a_key(
+        self, mock_post, _flag, _capture, _name, path
+    ):
         self._cdp_accepts(mock_post)
         env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
         env_sender = Integration.objects.create(
@@ -787,15 +796,33 @@ class TestTransactionalEmail(APIBaseTest):
         }
 
         for team_id in (self.team.id, env.id, self.team.id, env.id):
-            response = clients[team_id].post(
-                f"/api/projects/{team_id}/messaging/send/email/", self._code_send(), format="json"
-            )
+            response = clients[team_id].post(path.format(team_id=team_id), self._code_send(), format="json")
             assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
 
         workflow_ids = [call.args[0].split("/hog_flows/")[1].split("/")[0] for call in mock_post.call_args_list]
         assert workflow_ids[0] == workflow_ids[2]
         assert workflow_ids[1] == workflow_ids[3]
         assert workflow_ids[0] != workflow_ids[1]
+
+    @parameterized.expand(
+        [
+            ("send_session", "post", "/api/messaging/send/email/", "session"),
+            ("send_personal_api_key", "post", "/api/messaging/send/email/", "personal_api_key"),
+            ("uploads_session", "post", "/api/messaging/attachments/uploads/", "session"),
+            ("status_session", "get", "/api/messaging/emails/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b/", "session"),
+            ("preferences_session", "post", "/api/messaging/preferences/", "session"),
+        ]
+    )
+    def test_key_scoped_routes_refuse_credentials_that_name_no_project(
+        self, mock_post, _flag, _capture, _name, method, route, credential
+    ):
+        client = self._sender_client("personal_api_key") if credential == "personal_api_key" else APIClient()
+        if credential == "session":
+            client.force_login(self.user)
+
+        response = getattr(client, method)(route, self._code_send(), format="json")
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_a_known_key_keeps_sending_at_the_key_limit_while_a_new_key_is_refused(self, mock_post, _flag, capture):
         self._cdp_accepts(mock_post)
@@ -1274,6 +1301,8 @@ class TestTransactionalEmail(APIBaseTest):
     ):
         unverified = self._without_a_verified_sender(unverified_sender=unverified_sender)
         mock_post.return_value = MagicMock(status_code=202, json=lambda: pipeline_body)
+        analytics = FakeAnalytics()
+        capture.side_effect = analytics.capture
         fallbacks_before = _sandbox_fallbacks("sandbox")
 
         with capture_logs() as logs:
@@ -1287,7 +1316,8 @@ class TestTransactionalEmail(APIBaseTest):
         assert (sandbox.integration_id, sandbox.created_by_id) == ("posthog-managed-sandbox", None)
         assert json.loads(mock_post.call_args.kwargs["data"])["send"]["from"] == {"integrationId": sandbox.id}
         queued = {"message_id": pipeline_body["invocation_id"], "replayed": pipeline_body.get("replayed", False)}
-        reported = capture.call_args.kwargs["properties"]
+        (reported,) = analytics.properties_of("transactional email api send")
+        assert reported["sender_kind"] == "sandbox"
         if not warned:
             assert response.json() == queued
             assert "warning_codes" not in reported
@@ -1390,8 +1420,10 @@ class TestTransactionalEmail(APIBaseTest):
         ]
     )
     def test_a_send_retried_with_the_same_key_replays_the_first_send(
-        self, mock_post, _flag, _capture, _name, starts_on_the_sandbox, change, retry_warned
+        self, mock_post, _flag, capture, _name, starts_on_the_sandbox, change, retry_warned
     ):
+        analytics = FakeAnalytics()
+        capture.side_effect = analytics.capture
         own_sender_id = self.sender.id
         if starts_on_the_sandbox:
             self._without_a_verified_sender(unverified_sender=False)
@@ -1419,6 +1451,11 @@ class TestTransactionalEmail(APIBaseTest):
         }
         first_sender = self._sandbox_senders()[0].id if starts_on_the_sandbox else own_sender_id
         assert [email["from"] for email in cdp.emails()] == [{"integrationId": first_sender}]
+        first_kind = "sandbox" if starts_on_the_sandbox else "own_domain"
+        assert [event["sender_kind"] for event in analytics.properties_of("transactional email api send")] == [
+            first_kind,
+            first_kind,
+        ]
 
     @parameterized.expand(
         [
@@ -1449,11 +1486,41 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("from", {"from": "Example <hello@example.org>"}, "`from`"),
+            ("reply_to", {"reply_to": ["help@example.com"]}, "`reply_to`"),
+            (
+                "both",
+                {"from": "hello@example.org", "reply_to": ["help@example.com"]},
+                "`from` and `reply_to`",
+            ),
+        ]
+    )
+    def test_a_sandbox_code_send_ignores_its_own_sender_and_names_what_it_ignored(
+        self, mock_post, _flag, _capture, _name, fields, named
+    ):
+        self._without_a_verified_sender(unverified_sender=False)
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(**fields), format="json"
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        (sandbox,) = self._sandbox_senders()
+        (queued,) = pipeline.queued
+        assert queued["send"]["from"] == {"integrationId": sandbox.id}
+        assert "replyTo" not in queued["send"]
+        (warning,) = response.json()["warnings"]
+        assert warning["code"] == "sandbox_sender"
+        assert f"ignored {named}" in warning["message"]
+        assert f"ignored {named}" in warning["agent_action"]
+
+    @parameterized.expand(
+        [
             ("cc", {"cc": ["copy@example.com"]}),
             ("bcc", {"bcc": "hidden@example.com"}),
-            ("reply_to", {"reply_to": ["help@example.com"]}),
             ("attachments", {"attachments": TWO_FILES}),
-            ("from", {"from": "Example <hello@example.org>"}),
         ]
     )
     def test_refuses_what_the_sandbox_sender_cannot_send_before_setting_it_up(

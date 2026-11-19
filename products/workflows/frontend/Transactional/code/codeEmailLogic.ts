@@ -38,10 +38,10 @@ export interface CodeEmailLogicProps {
     id: string
 }
 
-export type CodeEmailTab = 'metrics' | 'sends' | 'runs' | 'api'
+export type CodeEmailTab = 'impact' | 'metrics' | 'sends' | 'runs' | 'api'
 
 // pinned: values of the `tab` URL search param - renaming breaks shared links
-const CODE_EMAIL_TABS: CodeEmailTab[] = ['metrics', 'sends', 'runs', 'api']
+const CODE_EMAIL_TABS: CodeEmailTab[] = ['impact', 'metrics', 'sends', 'runs', 'api']
 
 export type CodeEmailLoadState = 'loading' | 'loaded' | 'not-found' | 'failed'
 

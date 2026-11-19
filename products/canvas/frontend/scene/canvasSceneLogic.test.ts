@@ -30,6 +30,7 @@ describe('canvasSceneLogic', () => {
         const spaces = {
             'space-1': { id: 'space-1', name: 'me', system_role: 'personal', channel_type: 'personal' },
             'space-team': { id: 'space-team', name: 'general', system_role: 'general', channel_type: 'public' },
+            'space-private': { id: 'space-private', name: 'growth', system_role: null, channel_type: 'private' },
         }
         useMocks({
             get: {
@@ -123,6 +124,46 @@ describe('canvasSceneLogic', () => {
         expect(logic.values.visibility).toEqual(visibility)
         expect(logic.values.visibilityChanging).toBe(false)
         expect(logic.values.makePublicOpen).toBe(false)
+    })
+
+    it.each([
+        ['a manager of a public canvas can manage access and edit', 'space-team', 'manager', true, false],
+        ['a viewer of a public canvas can neither manage access nor edit', 'space-team', 'viewer', false, true],
+        ['an owner of a private canvas has no access rules to manage', 'space-1', 'manager', false, false],
+        [
+            'a manager of a canvas in a private space has no access rules to manage',
+            'space-private',
+            'manager',
+            false,
+            false,
+        ],
+        ['a caller with no per-user level is not restricted', 'space-team', null, false, false],
+    ])('access: %s', async (_, channel, userAccessLevel, canManageAccess, editBlocked) => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/canvases/:id/view/': {
+                    canvas: {
+                        id: CANVAS_ID,
+                        name: 'Team board',
+                        kind: 'freeform',
+                        channel,
+                        user_access_level: userAccessLevel,
+                    },
+                    published_build: null,
+                    current_version_id: null,
+                    has_active_build: false,
+                    source: null,
+                    layout: null,
+                    sandbox_document_url: null,
+                },
+            },
+        })
+        const logic = canvasSceneLogic({ id: CANVAS_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadViewSuccess', 'loadSpaceSuccess'])
+
+        expect(logic.values.canManageAccess).toBe(canManageAccess)
+        expect(logic.values.editAccessDisabledReason !== null).toBe(editBlocked)
     })
 
     it.each([

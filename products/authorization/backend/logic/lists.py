@@ -100,6 +100,12 @@ def _list_projects(session: Session, resource: Resource, action: Action, subject
     if action != Action.VIEW:
         raise NotImplementedError("The current access rules list projects only for VIEW.")
     principal = _principal(session, subject)
+    if resource.organization_id is None:
+        # Without an organization, list the projects of every organization the user belongs to, in one lookup.
+        if not isinstance(principal, User):
+            return _NOTHING
+        team_ids = _user_permissions(session, principal).team_ids_visible_for_user
+        return ObjectIds(ids=frozenset(str(team_id) for team_id in team_ids), complete=True)
     access = _list_access(session, resource, principal)
     if access is None:
         return _NOTHING
@@ -131,7 +137,10 @@ def _list_access(session: Session, resource: Resource, principal: Any) -> UserAc
 
 
 def _organization_access(session: Session, user: User, organization_id: str) -> UserAccessControl:
-    access = session.access.get(_principal_key(user))
+    key = _principal_key(user)
+    if (organization_access := session.organization_access.get((key, organization_id))) is not None:
+        return organization_access
+    access = session.access.get(key)
     # A project list reads the organization's rules, which an instance for any of its teams already holds.
     if access is not None and access.team is not None and str(access.team.organization_id) == organization_id:
         return access
