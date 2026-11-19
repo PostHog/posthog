@@ -288,9 +288,11 @@ class TestSandboxEmailSteps(APIBaseTest):
 
         detail = self.client.get(self._url(str(flow.id))).json()
         listed = self.client.get(self._url()).json()["results"][0]
+        listed_for_mcp = self.client.get(self._url(), HTTP_X_POSTHOG_CLIENT="mcp").json()["results"][0]
 
         assert [warning["code"] for warning in detail["warnings"]] == expected
         assert listed["warnings"] == detail["warnings"]
+        assert listed_for_mcp["warnings"] == detail["warnings"]
         for warning in detail["warnings"]:
             assert "switch those steps to a verified sender" in warning["message"]
             assert ("new Liquid email step" in warning["message"]) == names_hog_steps

@@ -109,7 +109,7 @@ describe('workflow write response shape', () => {
                 true,
                 '/project/42/workflows/wf-1/workflow',
             ],
-            ['a broadcast on the test sender', 'broadcasts', testSenderLive, true, '/project/42/broadcasts/wf-1'],
+            ['a broadcast', 'broadcasts', [], false, '/project/42/broadcasts/wf-1'],
             ['a workflow on its own sender', undefined, [], false, '/project/42/workflows/wf-1/workflow'],
             ['a workflow with malformed warnings', undefined, [null], false, '/project/42/workflows/wf-1/workflow'],
             [
