@@ -810,6 +810,18 @@ describe('Hono MCP analytics contexts', () => {
             ],
             ['executing an email send', 'workflows-send-email-execute', { confirmation: 'confirm' }, false],
             [
+                'preparing a push send',
+                'workflows-send-push-prepare',
+                { distinct_id: 'ada', message_data: { code: '123456' } },
+                false,
+            ],
+            [
+                'a push send through exec',
+                'exec',
+                { command: 'call workflows-send-push-prepare {"distinct_id":"ada","message_data":{"code":"123456"}}' },
+                false,
+            ],
+            [
                 'an email send through exec',
                 'exec',
                 { command: 'call workflows-send-email-prepare {"to":"ada@example.com","html":"<p>code 123456</p>"}' },
