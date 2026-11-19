@@ -27,6 +27,14 @@ describe('the activity log logic', () => {
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent("edited this person's properties")
         })
 
+        it('describes a bulk deletion request without claiming completion', async () => {
+            const logic = await personTestSetup('', 'bulk_delete_requested', null)
+            const actual = logic.values.humanizedActivity
+
+            expect(actual).toHaveLength(1)
+            expect(render(<>{actual[0].description}</>).container).toHaveTextContent('requested bulk person deletion')
+        })
+
         it('can handle merging people', async () => {
             const logic = await personTestSetup('test person', 'people_merged_into', null, {
                 type: ActivityScope.PERSON,

@@ -20,7 +20,6 @@ from ee.hogai.utils.asgi import SyncIterableToAsync
 
 from .models import MCPAuditEvent, MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, TokenRefreshRejectedError, is_token_expiring, refresh_installation_token
-from .oauth_credentials import oauth_credentials_source_is_allowed
 from .policy import GatewayCaller, PolicyContext, legacy_state_for_caller
 from .url_policy import resolve_mcp_url_policy, trust_environment_proxy
 
@@ -28,6 +27,7 @@ logger = structlog.get_logger(__name__)
 
 UPSTREAM_TIMEOUT = 180
 MAX_PROXY_BODY_SIZE = 1_048_576  # 1 MB
+MAX_UPSTREAM_RESPONSE_SIZE = 8 * 1024 * 1024
 MAX_LOGGED_MISSING_TOOLS = 20
 REDIRECT_STATUS_CODES = {301, 302, 307, 308}
 
@@ -119,10 +119,6 @@ def send_mcp_request_with_same_origin_redirect(
 
 
 def build_upstream_auth_headers(installation: MCPServerInstallation) -> dict[str, str]:
-    if installation.template and not oauth_credentials_source_is_allowed(
-        installation.template.oauth_credentials_source, installation.team_id
-    ):
-        raise TokenRefreshRejectedError("OAuth app is not available for this project")
     sensitive = installation.sensitive_configuration or {}
 
     if installation.auth_type == "api_key":
@@ -153,12 +149,7 @@ def validate_installation_auth(
 
     Returns (True, None) if auth is valid, or (False, error_response) if not.
     """
-    if not installation.is_enabled or (
-        installation.template
-        and not oauth_credentials_source_is_allowed(
-            installation.template.oauth_credentials_source, installation.team_id
-        )
-    ):
+    if not installation.is_enabled:
         logger.warning(
             "Proxy auth failed: server is disabled",
             installation_id=str(installation.id),
@@ -630,6 +621,8 @@ def proxy_mcp_request(
         installation.url,
         verdict.pinned_ips,
         timeout=UPSTREAM_TIMEOUT,
+        total_timeout=UPSTREAM_TIMEOUT,
+        max_response_bytes=MAX_UPSTREAM_RESPONSE_SIZE,
         trust_env=trust_environment_proxy(installation.url, installation.team_id),
     )
     try:
@@ -665,6 +658,9 @@ def proxy_mcp_request(
             content_type="application/json",
             status=502,
         )
+    except httpx.DecodingError:
+        client.close()
+        return _rejected_upstream_response(installation.url)
     except Exception:
         client.close()
         raise
@@ -674,9 +670,17 @@ def proxy_mcp_request(
     if "text/event-stream" in content_type:
         return _build_sse_response(upstream_response, client)
 
-    # Read body then close to avoid memory leaks from buffered responses
     try:
         upstream_response.read()
+    except httpx.TimeoutException:
+        logger.warning("Upstream MCP server timed out", url=upstream_url)
+        return HttpResponse(
+            '{"error": "Upstream MCP server timed out"}',
+            content_type="application/json",
+            status=502,
+        )
+    except httpx.DecodingError:
+        return _rejected_upstream_response(upstream_url)
     finally:
         client.close()
 
@@ -701,9 +705,21 @@ def proxy_mcp_request(
     return response
 
 
+def _rejected_upstream_response(url: str) -> HttpResponse:
+    # The bounded transport raises DecodingError for bodies over the size limit and for compressed bodies.
+    logger.warning("Upstream MCP response rejected", url=url)
+    return HttpResponse(
+        '{"error": "Upstream MCP response rejected"}',
+        content_type="application/json",
+        status=502,
+    )
+
+
 def _stream_upstream(upstream_response: httpx.Response, client: httpx.Client) -> Iterator[bytes]:
     try:
         yield from upstream_response.iter_bytes(4096)
+    except (httpx.TimeoutException, httpx.DecodingError):
+        logger.warning("Upstream MCP stream ended at the response limit", url=str(upstream_response.url))
     finally:
         upstream_response.close()
         client.close()

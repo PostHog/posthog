@@ -1,4 +1,9 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -124,6 +129,41 @@ describe('transactionalEmailLogEntryLogic', () => {
         expect(logic.values.emailFailed).toBe(false)
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.email).toEqual(SEND)
+    })
+
+    it.each([
+        ['without the flag', undefined, { code_email_id: 'code-1', template_id: null }, null],
+        ['with the flag off', false, { code_email_id: 'code-1', template_id: null }, null],
+        [
+            'with the flag off',
+            false,
+            { code_email_id: null, template_id: 'tpl-1' },
+            urls.transactionalTemplate('tpl-1'),
+        ],
+        [
+            'with the flag on',
+            true,
+            { code_email_id: 'code-1', template_id: null },
+            `${urls.transactionalCodeEmail('code-1')}?tab=sends&status=bounced`,
+        ],
+        [
+            'with the flag on',
+            true,
+            { code_email_id: null, template_id: 'tpl-1' },
+            `${urls.transactionalTemplate('tpl-1')}?tab=sends&status=bounced`,
+        ],
+        ['with the flag on', true, { code_email_id: null, template_id: null }, null],
+    ])('links a send opened from bounced sends %s from %j to %s', async (_name, sendLinks, email, emailPageUrl) => {
+        if (sendLinks !== undefined) {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(sendLinks ? [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS] : [], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]: sendLinks,
+            })
+        }
+        sends['msg-1'] = { ...SEND, ...email }
+        router.actions.push(urls.transactionalEmailLogEntry('msg-1'), { status: 'bounced' })
+        await open('msg-1')
+        expect(logic.values.emailPageUrl).toEqual(emailPageUrl)
     })
 
     it.each(PANELS)('marks only the %s panel failed, and a retry clears it', async (panel) => {

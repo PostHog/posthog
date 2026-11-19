@@ -12,7 +12,12 @@ import {
 } from '~/common/personhog/identity'
 import { errorClassLabel } from '~/common/personhog/metrics'
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
-import { PersonIdentity, PersonhogFencedError, PersonhogPropertiesSizeError } from '~/common/personhog/persons'
+import {
+    PersonIdentity,
+    PersonhogFencedError,
+    PersonhogPropertiesDepthError,
+    PersonhogPropertiesSizeError,
+} from '~/common/personhog/persons'
 import { personResolveKeysPerCallHistogram } from '~/common/persons/metrics'
 import { PersonMessage } from '~/common/persons/person-message'
 import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/person-repository'
@@ -22,7 +27,7 @@ import { logger } from '~/common/utils/logger'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
+import { InternalPerson } from '~/types'
 
 import { MergeMode, PersonMergeCallFailedError, PersonMergeNotAppliedError } from './person-merge-types'
 import { EventOps, applyEventPropertyUpdates, computeOpsScalarUpdates, foldOps, refineEventOps } from './person-update'
@@ -518,7 +523,7 @@ export class PersonhogPersonsStore implements PersonsStore {
 
     /** Identity's answer without properties, for reads the leader cannot serve. */
     private identityDocument(identity: PersonIdentity): InternalPerson {
-        return { ...identity, properties: {}, properties_last_updated_at: {}, properties_last_operation: null }
+        return { ...identity, properties: {} }
     }
 
     private resolveDistinctIds(
@@ -625,8 +630,6 @@ export class PersonhogPersonsStore implements PersonsStore {
     async createPerson(
         createdAt: DateTime,
         properties: Properties,
-        _propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        _propertiesLastOperation: PropertiesLastOperation,
         teamId: number,
         _isUserId: number | null,
         isIdentified: boolean,
@@ -1419,6 +1422,18 @@ export class PersonhogPersonsStore implements PersonsStore {
                         // the leader's per-team-throttled customer warning.
                         personhogStoreFlushCounter.inc({ outcome: 'size_violation' })
                         logger.warn('🤔', 'leader refused a write on properties size; the ops are discarded', {
+                            team_id: entry.teamId,
+                            person_id: entry.personId,
+                            distinct_id: entry.distinctId,
+                        })
+                        entry.segments.shift()
+                        progress.remaining -= 1
+                        continue
+                    }
+                    if (error instanceof PersonhogPropertiesDepthError) {
+                        // As above: the segment can never succeed.
+                        personhogStoreFlushCounter.inc({ outcome: 'depth_violation' })
+                        logger.warn('🤔', 'leader refused a write on properties nesting; the ops are discarded', {
                             team_id: entry.teamId,
                             person_id: entry.personId,
                             distinct_id: entry.distinctId,

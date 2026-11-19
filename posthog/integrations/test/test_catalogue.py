@@ -59,6 +59,7 @@ FROZEN_KIND_DEFAULTS: dict[str, str] = {
     "linear": "oauth",
     "linkedin-ads": "oauth",
     "meta-ads": "oauth",
+    "motherduck": "credentials",
     "pardot": "oauth",
     "pinterest-ads": "oauth",
     "postgresql": "credentials",

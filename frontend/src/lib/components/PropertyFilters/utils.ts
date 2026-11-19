@@ -387,6 +387,17 @@ export function isPropertyGroupFilterLike(
     return filter?.type === FilterLogicalOperator.And || filter?.type === FilterLogicalOperator.Or
 }
 
+export function isPropertyFilterAwaitingValue(filter: PropertyFilterRow | undefined): boolean {
+    return (
+        !!filter &&
+        !isPropertyGroupFilterLike(filter) &&
+        !!filter.key &&
+        'operator' in filter &&
+        (!filter.operator || !isOperatorFlag(filter.operator)) &&
+        (filter.value === undefined || filter.value === null || filter.value === '')
+    )
+}
+
 /** Inlines a nested group into flat rows only when its operator matches the parent's — a different
  * operator must stay one row, since flattening it would change what the insight returns. */
 export function inlineEquivalentPropertyGroups(

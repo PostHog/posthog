@@ -19,16 +19,25 @@ import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../Workflows/hogflows/filters/HogFlowFilters'
 import { RealtimeCohortAudienceNotice } from '../../Workflows/hogflows/steps/components/RealtimeCohortAudienceNotice'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
+import { broadcastAudienceCohortsLogic } from '../audience/broadcastAudienceCohortsLogic'
 import { broadcastAudienceListLogic } from '../audience/broadcastAudienceListLogic'
 import { BroadcastAudienceListModal } from '../audience/BroadcastAudienceListModal'
 import { broadcastWizardLogic, rateLimitedReachSentence } from '../broadcastWizardLogic'
 import { BroadcastChannelPicker } from './BroadcastChannelPicker'
 import { BroadcastRateLimitSuggestion } from './BroadcastRateLimitSuggestion'
 
+function AudienceSizeErrorDetails({ reason }: { reason: string | null }): JSX.Element | null {
+    if (!reason) {
+        return null
+    }
+    return <div className="mt-1 text-muted">Details: {reason}</div>
+}
+
 function AudienceSizePreview(): JSX.Element | null {
     const {
         blastRadius,
         blastRadiusLoading,
+        blastRadiusError,
         channel,
         channelReach,
         emailRateLimit,
@@ -43,9 +52,12 @@ function AudienceSizePreview(): JSX.Element | null {
 
     if (!blastRadius) {
         return (
-            <div className="text-warning text-xs flex items-center gap-1 mt-1">
+            <div className="text-warning text-xs flex items-start gap-1 mt-1">
                 <IconWarning className="text-base shrink-0" />
-                <span>Couldn't estimate the audience size. Check your filters and try again.</span>
+                <div>
+                    <div>Couldn't estimate the audience size. Check your filters and try again.</div>
+                    <AudienceSizeErrorDetails reason={blastRadiusError} />
+                </div>
             </div>
         )
     }
@@ -188,6 +200,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
     const { setAudienceProperties, sendToEveryoneAfterRejectedLink } = useActions(broadcastWizardLogic)
     const { props } = useMountedLogic(broadcastWizardLogic)
     const { openListModal } = useActions(broadcastAudienceListLogic(props))
+    const { editableAudience } = useValues(broadcastAudienceCohortsLogic(props))
     const [audienceListOpen, setAudienceListOpen] = useState(false)
 
     return (
@@ -231,7 +244,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
             <AudienceListModal isOpen={audienceListOpen} onClose={() => setAudienceListOpen(false)} />
             <PropertyFilters
                 pageKey="broadcast-wizard-recipients"
-                propertyFilters={audienceProperties}
+                propertyFilters={editableAudience}
                 addText="Add condition"
                 allowNew={!realtimeCohortAlone}
                 orFiltering

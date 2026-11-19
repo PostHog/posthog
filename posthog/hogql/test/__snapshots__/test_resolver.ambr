@@ -253,6 +253,7 @@
                         hidden: False,
                         inherit_profile_spill: False,
                         name: None,
+                        person_id_pushdown_default: False,
                         top_level_settings: None,
                         workload: None
                       }
@@ -439,6 +440,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -517,6 +519,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -595,6 +598,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -673,6 +677,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -751,6 +756,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -829,6 +835,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -907,6 +914,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -985,6 +993,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -1781,6 +1790,7 @@
                                     hidden: False,
                                     inherit_profile_spill: False,
                                     name: None,
+                                    person_id_pushdown_default: False,
                                     top_level_settings: None,
                                     workload: None
                                   },
@@ -1869,6 +1879,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -2544,6 +2555,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -2778,6 +2790,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -2869,6 +2882,7 @@
                         hidden: False,
                         inherit_profile_spill: False,
                         name: None,
+                        person_id_pushdown_default: False,
                         top_level_settings: None,
                         workload: None
                       },
@@ -3237,6 +3251,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3334,6 +3349,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3431,6 +3447,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3528,6 +3545,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3625,6 +3643,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3722,6 +3741,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3819,6 +3839,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3916,6 +3937,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -4135,10 +4157,6 @@
                       description: "Earliest snapshot timestamp across the session (in UTC).",
                       hidden: False
                     },
-                    surfacing_score: {
-                      description: "AI-computed score ranking how worth surfacing the recording is.",
-                      hidden: False
-                    },
                     team_id: {
                       description: None,
                       hidden: False
@@ -4147,6 +4165,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 }
@@ -4562,26 +4581,6 @@
         }
       },
       {
-        alias: "surfacing_score"
-        expr: {
-          chain: [
-            "e",
-            "surfacing_score"
-          ]
-          from_asterisk: True
-          type: {
-            name: "surfacing_score"
-            table_type: <recursion ...>
-          }
-        }
-        from_asterisk: False
-        hidden: True
-        type: {
-          alias: "surfacing_score"
-          type: <recursion ...>
-        }
-      },
-      {
         alias: "start_time"
         expr: {
           chain: [
@@ -4845,6 +4844,7 @@
                         hidden: False,
                         inherit_profile_spill: False,
                         name: None,
+                        person_id_pushdown_default: False,
                         top_level_settings: None,
                         workload: None
                       }
@@ -4931,8 +4931,7 @@
         size: <recursion ...>,
         snapshot_library: <recursion ...>,
         snapshot_source: <recursion ...>,
-        start_time: <recursion ...>,
-        surfacing_score: <recursion ...>
+        start_time: <recursion ...>
       }
       ctes: {}
       is_lambda_type: False
@@ -5557,6 +5556,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           }
@@ -5743,6 +5743,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -5821,6 +5822,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -5899,6 +5901,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -5977,6 +5980,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6055,6 +6059,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6133,6 +6138,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6211,6 +6217,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6289,6 +6296,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6601,6 +6609,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           }
@@ -6787,6 +6796,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6865,6 +6875,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6943,6 +6954,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -7021,6 +7033,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -7099,6 +7112,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -7177,6 +7191,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -7255,6 +7270,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -7333,6 +7349,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -8132,6 +8149,7 @@
                                       hidden: False,
                                       inherit_profile_spill: False,
                                       name: None,
+                                      person_id_pushdown_default: False,
                                       top_level_settings: None,
                                       workload: None
                                     },
@@ -8220,6 +8238,7 @@
                               hidden: False,
                               inherit_profile_spill: False,
                               name: None,
+                              person_id_pushdown_default: False,
                               top_level_settings: None,
                               workload: None
                             },
@@ -8784,6 +8803,7 @@
                                           hidden: False,
                                           inherit_profile_spill: False,
                                           name: None,
+                                          person_id_pushdown_default: False,
                                           top_level_settings: None,
                                           workload: None
                                         },
@@ -8872,6 +8892,7 @@
                                   hidden: False,
                                   inherit_profile_spill: False,
                                   name: None,
+                                  person_id_pushdown_default: False,
                                   top_level_settings: None,
                                   workload: None
                                 },
@@ -9778,6 +9799,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -10012,6 +10034,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -10103,6 +10126,7 @@
                         hidden: False,
                         inherit_profile_spill: False,
                         name: None,
+                        person_id_pushdown_default: False,
                         top_level_settings: None,
                         workload: None
                       },
@@ -10471,6 +10495,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -10568,6 +10593,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -10665,6 +10691,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -10762,6 +10789,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -10859,6 +10887,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -10956,6 +10985,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -11053,6 +11083,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -11150,6 +11181,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -11477,6 +11509,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 }
@@ -11712,6 +11745,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -11803,6 +11837,7 @@
                         hidden: False,
                         inherit_profile_spill: False,
                         name: None,
+                        person_id_pushdown_default: False,
                         top_level_settings: None,
                         workload: None
                       },
@@ -12171,6 +12206,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12268,6 +12304,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12365,6 +12402,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12462,6 +12500,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12559,6 +12598,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12656,6 +12696,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12753,6 +12794,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12850,6 +12892,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -13178,6 +13221,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   }
@@ -13488,6 +13532,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   }
@@ -13583,6 +13628,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   }
@@ -14138,6 +14184,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -14480,6 +14527,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 }
@@ -14826,6 +14874,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   }
@@ -15212,6 +15261,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           }
@@ -15604,6 +15654,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -15674,6 +15725,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -15968,6 +16020,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 }
@@ -16040,6 +16093,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -16333,6 +16387,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -16388,6 +16443,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 },
@@ -16681,6 +16737,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 }
@@ -16738,6 +16795,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 },
@@ -16821,6 +16879,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -17143,6 +17202,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 }
@@ -17446,6 +17506,7 @@
                       hidden: False,
                       inherit_profile_spill: False,
                       name: None,
+                      person_id_pushdown_default: False,
                       top_level_settings: None,
                       workload: None
                     }
@@ -17771,6 +17832,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -17834,6 +17896,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -17925,6 +17988,7 @@
                         hidden: False,
                         inherit_profile_spill: False,
                         name: None,
+                        person_id_pushdown_default: False,
                         top_level_settings: None,
                         workload: None
                       },

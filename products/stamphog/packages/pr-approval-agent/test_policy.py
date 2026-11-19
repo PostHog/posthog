@@ -21,6 +21,7 @@ from familiarity import AuthorFamiliarity  # noqa: E402
 from github import PRData  # noqa: E402
 from policy import (  # noqa: E402
     Attestation,
+    BotAuthor,
     EffectivePolicy,
     PolicyError,
     ScopeBudget,
@@ -86,7 +87,7 @@ OLD_DENY_PATTERN_DEFS = {
         "paths": [
             "k8s",
             "dockerfile",
-            "docker-compose",
+            "docker-compose(?!\\.(dev-full|playwright|sandbox)\\.yml$)",
             "\\.(github|depot)/workflows/(ci-security|codeql|auto-assign-reviewers)",
             "\\.github/pr-deploy",
             "iam",
@@ -103,6 +104,15 @@ OLD_DENY_PATTERN_DEFS = {
             "\\.depot/workflows",
         ]
     },
+    "dev_stack": {"paths": ["docker-compose\\.(dev-full|playwright|sandbox)\\.yml$"]},
+    "request_boundaries": {
+        "paths": [
+            "^posthog/egress/(limiter|observability|transport)/",
+            "^posthog/ingress/(dispatch|observability|verify)/",
+            "^posthog/ingress/views\\.py$",
+        ]
+    },
+    "ownership_files": {"paths": ["(?:^|/)product\\.yaml$"], "edit_paths": ["(?:^|/)owners\\.yaml$"]},
     "billing": {"any": ["billing", "payment", "stripe", "invoice", "pricing"]},
     "public_api": {"any": ["openapi", "api_schema", "swagger", "public_api"]},
     "deps_toolchain": {
@@ -132,9 +142,6 @@ OLD_DENY_PATTERN_DEFS = {
             "^\\.semgrep/rules/security/prefer-codegen-api\\.",
             "^frontend/src/lib/api-ratchet-baseline\\.txt$",
             "^posthog/(egress|ingress)/agents\\.md$",
-            "^posthog/egress/(limiter|observability|transport)/",
-            "^posthog/ingress/(dispatch|observability|verify)/",
-            "^posthog/ingress/views\\.py$",
             "^posthog/management/migration_analysis/",
             "^posthog/migration_helpers/",
             "^posthog/product_urls\\.py$",
@@ -167,6 +174,15 @@ OLD_DENY_PATTERN_DEFS = {
             "^products/workflows/backend/(facade|presentation|models)/",
             "^products/messaging/backend/(api|models)/",
             "^nodejs/src/cdp/[\\s\\S]*(?<!\\.test\\.ts)\\Z",
+        ]
+    },
+    "mcp_core": {
+        "paths": [
+            "^services/mcp/src/tools/exec(-learn)?\\.ts$",
+            "^services/mcp/src/hono/instructions\\.ts$",
+            "^services/mcp/src/lib/instructions-formatter\\.ts$",
+            "^services/mcp/src/hono/guidance/",
+            "^services/mcp/src/templates/sections/(cli-[^/]*|exec-[^/]*|basic-functionality|compact-instructions|skills-first|tool-search)\\.md$",
         ]
     },
 }
@@ -340,6 +356,18 @@ def _set_attestations(d: dict, *, raw: object) -> None:
                 ("invalid-regex", [{**_ATTESTATION, "paths": ["migrations/("]}]),
                 ("sibling-with-directory", [{**_ATTESTATION, "sibling_files": ["migrations/max_migration.txt"]}]),
                 ("publisher-file-escapes-repo", [{**_ATTESTATION, "publisher_files": ["../ci.yml"]}]),
+                (
+                    "issuer-and-publisher-files",
+                    [{**_ATTESTATION, "issuer": "tools/proof/issuer.yml", "publisher_files": ["ci.yml"]}],
+                ),
+                ("issuer-escapes-repo", [{**_ATTESTATION, "issuer": "../issuer.yml"}]),
+                ("issuer-is-a-directory", [{**_ATTESTATION, "issuer": "tools/proof/"}]),
+                ("issuer-glob", [{**_ATTESTATION, "issuer": "tools/*/issuer.yml"}]),
+                ("issuer-not-yaml", [{**_ATTESTATION, "issuer": "tools/proof/yaml.py"}]),
+                ("issuer-beside-the-engine", [{**_ATTESTATION, "issuer": "tools/pr-approval-agent/x.yml"}]),
+                ("issuer-percent-escape", [{**_ATTESTATION, "issuer": "%2e%2e/x.yml"}]),
+                ("title-invalid-regex", [{**_ATTESTATION, "title": "^Revert ("}]),
+                ("issuer-outside-self-governance", [{**_ATTESTATION, "issuer": "tools/proof/issuer.yml"}]),
             ]
         ],
         _unknown_top_level_key,
@@ -491,6 +519,53 @@ def test_load_effective_policy(
     assert loaded.size_gate.max_lines == (overlay or {}).get("size_gate", {}).get("max_lines", 1200)
 
 
+_ISSUER = "tools/proof/issuer.yml"
+
+
+@pytest.mark.parametrize(
+    "manifest, expected",
+    [
+        pytest.param("paths:\n  - tools/proof/\n  - .nvmrc\n", ("tools/proof/", ".nvmrc"), id="valid"),
+        pytest.param(None, (), id="missing"),
+        pytest.param("paths:\n  - .nvmrc\n", (), id="does-not-cover-itself"),
+        pytest.param("paths:\n  - tools/proof/\nextra: 1\n", (), id="extra-key"),
+        pytest.param("paths:\n  - tools/proof/\n  - tools/proof/\n", (), id="duplicate-path"),
+        pytest.param("paths:\n  - tools/proof/\n  - ../x\n", (), id="path-escapes-repo"),
+        pytest.param("paths:\n  - tools/proof/\n  - '*.yml'\n", (), id="glob"),
+        pytest.param(
+            "paths:\n  - tools/proof/\n" + "".join(f"  - f{index}\n" for index in range(32)), (), id="too-many"
+        ),
+        pytest.param("# " + "x" * 16384 + "\npaths:\n  - tools/proof/\n", (), id="too-large"),
+        pytest.param("paths: [unclosed\n", (), id="does-not-parse"),
+    ],
+)
+def test_an_issuer_entry_reads_its_paths_from_the_manifest_in_the_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, manifest: str | None, expected: tuple[str, ...]
+) -> None:
+    (tmp_path / ".stamphog").mkdir()
+    (tmp_path / ".stamphog" / "policy.yml").write_text(
+        yaml.safe_dump(
+            {
+                "deny": {"stamphog_policy": {"match": {"extend_paths": ["^tools/proof/"]}}},
+                "attestations": [{**_ATTESTATION, "lifts": ["migrations"], "issuer": _ISSUER}],
+            }
+        )
+    )
+    if manifest is not None:
+        (tmp_path / "tools" / "proof").mkdir(parents=True)
+        (tmp_path / _ISSUER).write_text(manifest)
+    monkeypatch.setattr(policy, "repo_root", lambda: tmp_path)
+
+    (attestation,) = load_effective_policy(
+        lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS
+    ).attestations
+
+    assert attestation.issuer == _ISSUER
+    assert attestation.pins_publisher
+    assert attestation.issuer_paths == expected
+    assert attestation.usable == bool(expected)
+
+
 def test_attestations_load_with_defaults_and_are_absent_by_default(tmp_path: Path) -> None:
     data = _valid_policy_dict()
     data["attestations"] = [{**_ATTESTATION, "sibling_files": ["max_migration.txt"]}]
@@ -547,6 +622,18 @@ def test_deny_exception_keyword_requires_effective_path_literal(
     path.write_text(yaml.safe_dump(data))
     with pytest.raises(PolicyError, match="path-capable literal pattern"):
         load_policy(path, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+
+
+def test_deny_exception_keyword_accepts_an_edit_paths_literal(tmp_path: Path) -> None:
+    data = _valid_policy_dict()
+    data["deny"]["billing"]["match"] = {"edit_paths": ["billing"]}
+    data["deny_exceptions"] = {"billing": [{"keyword": "billing", "path_prefixes": ["apps/"]}]}
+    path = tmp_path / "policy.yml"
+    path.write_text(yaml.safe_dump(data))
+
+    loaded = load_policy(path, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+
+    assert [rule.keyword for rule in loaded.deny_exceptions["billing"]] == ["billing"]
 
 
 # ── 3. Folder-override resolution ──
@@ -1017,3 +1104,32 @@ def test_explicit_repo_root_wins_over_a_nearer_stamphog_dir(tmp_path: Path, monk
     finally:
         monkeypatch.delenv("STAMPHOG_REPO_ROOT")
         policy.repo_root.cache_clear()
+
+
+_BOT_AUTHOR = {"name": "renovate", "login": "renovate[bot]", "id": 29139614}
+
+
+@pytest.mark.parametrize(
+    "entries, error",
+    [
+        pytest.param([_BOT_AUTHOR], None, id="valid"),
+        pytest.param([{**_BOT_AUTHOR, "login": "renovate"}], r"login: must end with \[bot\]", id="not-an-app-login"),
+        pytest.param([{"name": "renovate", "login": "renovate[bot]"}], "keys must be", id="missing-id"),
+        pytest.param([{**_BOT_AUTHOR, "id": 0}], r"\.id", id="zero-id"),
+        pytest.param(
+            [_BOT_AUTHOR, {**_BOT_AUTHOR, "name": "again"}], "duplicate 'renovate\\[bot\\]'", id="duplicate-login"
+        ),
+    ],
+)
+def test_bot_authors_name_one_app_account_each(tmp_path: Path, entries: list[dict], error: str | None) -> None:
+    data = _valid_policy_dict()
+    data["bot_authors"] = entries
+    policy_file = tmp_path / "policy.yml"
+    policy_file.write_text(yaml.safe_dump(data))
+
+    if error is not None:
+        with pytest.raises(PolicyError, match=error):
+            load_policy(policy_file, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+        return
+    loaded = load_policy(policy_file, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+    assert loaded.bot_authors == (BotAuthor(name="renovate", login="renovate[bot]", id=29139614),)

@@ -143,6 +143,8 @@ export interface PluginServerCapabilities {
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
     cdpSesWebhooks?: boolean
+    cdpIntakeTransactionalEmail?: boolean
+    cdpIntakeWorkflowWebhook?: boolean
     cdpLegacyOnEvent?: boolean
     cdpCyclotronWorkerBatchResolve?: boolean
     cdpCyclotronWorker?: boolean
@@ -496,8 +498,6 @@ export interface BasePerson {
     is_user_id: number | null
     is_identified: boolean
     uuid: string
-    properties_last_updated_at: PropertiesLastUpdatedAt
-    properties_last_operation: PropertiesLastOperation | null
 }
 
 /** Raw Person row from database. */
@@ -517,8 +517,6 @@ export interface InternalPerson extends BasePerson {
 /** Mutable fields that can be updated on a Person via updatePerson. */
 export interface PersonUpdateFields {
     properties: Properties
-    properties_last_updated_at: PropertiesLastUpdatedAt
-    properties_last_operation: PropertiesLastOperation | null
     is_identified: boolean
     created_at: DateTime
     version?: number // Optional: allows forcing a specific version

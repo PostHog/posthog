@@ -2,12 +2,20 @@ import datetime as dt
 
 import pytest
 import time_machine
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events, materialized
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_flag_evaluations,
+    flush_persons_and_events,
+    materialized,
+)
 from unittest.mock import patch
 
 from django.core.cache import cache
 
 import dagster
+from parameterized import parameterized
 
 from posthog.dags.daily_rollups import DailyRollupConfig
 from posthog.models.health_issue import HealthIssue
@@ -112,6 +120,27 @@ class TestRollupFillAndPublish(ClickhouseTestMixin, BaseTest):
 
         rows = set(SdkVersionsDaily.objects.for_team(self.team.id).values_list("lib", "lib_version", "event_count"))
         assert rows == {("web", "1.200.0", 2), ("posthog-java", "", 1), ("posthog-node", "4.0.0-beta.1", 1)}
+
+    @parameterized.expand([("only_in_flag_evaluations", False), ("in_both_tables", True)])
+    def test_sdk_fill_counts_each_flag_call_once(self, _name: str, call_in_events: bool) -> None:
+        sdk = {"$lib": "posthog-python", "$lib_version": "6.0.0"}
+        with materialized("events", "$lib"), materialized("events", "$lib_version"):
+            self._capture_sdk_events(self.team, [("web", "1.0.0")], NOON_YESTERDAY)
+            if call_in_events:
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id="user",
+                    timestamp=NOON_YESTERDAY,
+                    properties={**sdk, "$feature_flag": "beta"},
+                )
+            flush_persons_and_events()
+            _create_flag_evaluations(self.team.id, "beta", timestamp=NOON_YESTERDAY, properties=sdk)
+
+            run_rollup_day(SdkVersionsDailyRollup, RollupDay(day=YESTERDAY, mode="publish"))
+
+        rows = set(SdkVersionsDaily.objects.for_team(self.team.id).values_list("lib", "lib_version", "event_count"))
+        assert rows == {("web", "1.0.0", 1), ("posthog-python", "6.0.0", 1)}
 
     @patch.object(host_proxy, "MAX_HOSTS_PER_TEAM_DAY", 1)
     def test_host_fill_keeps_the_proxied_row_of_a_busy_unproxied_host(self) -> None:

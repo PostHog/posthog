@@ -16,7 +16,7 @@ use axum::{
 use bytes::Bytes;
 use capture_logs::authorizer::{Authorizer, Signal};
 use capture_logs::kafka::KafkaSink;
-use capture_logs::metric_record::{flatten_metric, KafkaMetricRow};
+use capture_logs::metric_record::{flatten_metric, sum_kafka_metric_row_bytes, KafkaMetricRow};
 use capture_logs::service::{export_success_response, parse_otel_metrics_message};
 use common_compression::{decompress_gzip_capped, has_gzip_magic_header, CompressionError};
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
@@ -26,6 +26,7 @@ use serde_json::json;
 use tracing::{debug, error, instrument};
 
 use crate::k8s_resource_attributes::K8sResourceAttributes;
+use crate::label_cardinality::{LabelCardinality, Source};
 use crate::series_label_gate::SeriesLabelGate;
 
 #[derive(Clone)]
@@ -35,7 +36,9 @@ pub struct MetricsService {
     pub(crate) max_request_body_size_bytes: usize,
     pub(crate) remote_write_max_expanded_bytes: u64,
     pub(crate) series_label_gate: Arc<SeriesLabelGate>,
+    pub(crate) label_cardinality: Arc<LabelCardinality>,
     pub(crate) k8s_resource_attributes: Arc<K8sResourceAttributes>,
+    pub(crate) keep_stale_markers: bool,
 }
 
 #[derive(Deserialize)]
@@ -44,13 +47,16 @@ pub struct QueryParams {
 }
 
 impl MetricsService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         kafka_sink: KafkaSink,
         authorizer: Authorizer,
         max_request_body_size_bytes: usize,
         remote_write_max_expanded_bytes: u64,
         series_label_gate: Arc<SeriesLabelGate>,
+        label_cardinality: Arc<LabelCardinality>,
         k8s_resource_attributes: Arc<K8sResourceAttributes>,
+        keep_stale_markers: bool,
     ) -> Self {
         Self {
             sink: kafka_sink,
@@ -58,7 +64,9 @@ impl MetricsService {
             max_request_body_size_bytes,
             remote_write_max_expanded_bytes,
             series_label_gate,
+            label_cardinality,
             k8s_resource_attributes,
+            keep_stale_markers,
         }
     }
 }
@@ -172,7 +180,14 @@ pub async fn export_metrics_http(
         }
     }
 
-    let (labelled, records_bytes) = service.series_label_gate.decide_metered(token, &mut rows);
+    let source = Source::otlp();
+    let detector = &service.label_cardinality;
+    detector.observe(token, &rows, &source);
+    let records_bytes = sum_kafka_metric_row_bytes(&rows);
+    let gate = &service.series_label_gate;
+    let labelled = gate.classify(token, &rows);
+    detector.note_new_series(token, &rows, labelled.new_series_rows(), &source);
+    gate.strip_repeats(&mut rows, &labelled);
 
     let row_count = rows.len();
     if let Err(e) = service

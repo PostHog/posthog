@@ -83,6 +83,7 @@ from products.stamphog.backend.logic.engine_pregate import (
     ENGINE_DIR,
     GateAttestation,
     PregateOutcome,
+    check_outside_engine_tree,
     engine_source_files,
     fetch_folder_policy_files,
     fetch_manifest_contents,
@@ -101,6 +102,7 @@ from products.stamphog.backend.logic.gateway_tokens import (
     revoke_scoped_token,
 )
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
+from products.stamphog.backend.logic.issuer_manifests import issuer_manifest_paths
 from products.stamphog.backend.logic.refusal_summary import summarize_refusal
 from products.stamphog.backend.logic.review_trigger import trigger_for_run
 from products.stamphog.backend.logic.reviewer import (
@@ -113,7 +115,12 @@ from products.stamphog.backend.logic.reviewer import (
 from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
-from products.stamphog.backend.tasks.tasks import queue_routing_after_verdict, request_rereview_after_external_review
+from products.stamphog.backend.tasks.tasks import (
+    queue_routing_after_verdict,
+    request_rereview_after_external_review,
+    rereview_once_attestations_reported,
+    waits_on_attestations,
+)
 from products.stamphog.backend.temporal.constants import (
     ACTIVITY_RETRY_POLICY,
     CLONE_STEP_TIMEOUT_SECONDS,
@@ -561,6 +568,15 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
             content = future.result()
             if content is not None:
                 policy_files[path] = content
+        # The policy names these manifests, so they can only be read once the policy is in. Like the
+        # policy, each comes from the default branch, and an absent one leaves its entry unusable.
+        # Each is read as the blob at its path, so a symlink reads as its link text and the entry
+        # is unusable, rather than as a target that self-governance and the pins never cover.
+        with timer.step("issuer_manifests"):
+            for path in issuer_manifest_paths(policy_files.get(STAMPHOG_POLICY_ENTRYPOINT)):
+                content = client.get_default_branch_blob_text(repo, path)
+                if content is not None:
+                    policy_files[path] = content
         history: ReviewHistory = history_future.result()
 
         context = {
@@ -902,6 +918,7 @@ def _review_invocation(run: ReviewRun, merge_base_sha: str | None) -> ReviewerIn
         # Read as a description rather than a permission: the reviewer is told why it was asked,
         # and decides for itself what that means for this diff.
         review_trigger=trigger_for_run(output=output, review_mode=run.pull_request.repo_config.review_mode),
+        admitted_bot=str((output.get("bot_admission") or {}).get("login") or ""),
     )
 
 
@@ -1400,7 +1417,7 @@ def review_in_sandbox(input: ReviewSandboxInput) -> dict:
             result = _run_reviewer(sandbox, run, input.merge_base_sha, gateway_token, [token], timer, deadline)
         except Exception as exc:
             # Give the type only. Every step in this phase touches the sandbox, and anyone with
-            # stamphog:read can read run.error without access to the repository.
+            # code_review_approval:read can read run.error without access to the repository.
             raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
         finally:
             # A destroy failure must not mask a completed review, because the verdict still has to be
@@ -1477,7 +1494,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
             raise
         except Exception as exc:
             # Give the type only. Every step in this phase touches the sandbox, and anyone with
-            # stamphog:read can read run.error without access to the repository. The setup phase above
+            # code_review_approval:read can read run.error without access to the repository. The setup phase above
             # keeps its text, because it fails on our own infrastructure and must stay diagnosable.
             raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
         finally:
@@ -2002,7 +2019,16 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Computed before the branch chain because two things must agree on it: the trigger label is only
     # stripped for a refusal, and only then may the review tell the author to re-add it.
     is_refusal = parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE)
-    strips_label = repo_config.review_mode == ReviewMode.LABEL and is_refusal and run.may_publish(parsed.verdict)
+    # Same reading the reviewer got, from the same stamp, so the handoff can't disagree with what
+    # the run was told it was.
+    trigger = trigger_for_run(output=output, review_mode=repo_config.review_mode)
+    # No label requested an admitted bot's review, and a label added to its PR starts none.
+    strips_label = (
+        repo_config.review_mode == ReviewMode.LABEL
+        and is_refusal
+        and run.may_publish(parsed.verdict)
+        and trigger != ReviewTrigger.BOT_ADMISSION.value
+    )
 
     relabel_label = repo_config.trigger_label if strips_label else None
 
@@ -2060,10 +2086,6 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Keyed off parsed.verdict, not run.verdict: the gate-blocked branch overrides run.verdict to WAIT,
     # but both the label-strip and the ReviewHog handoff below treat a gate-blocked refusal the same
     # as an engine-refused one.
-    # Same reading the reviewer got, from the same stamp, so the handoff can't disagree with what
-    # the run was told it was.
-    trigger = trigger_for_run(output=output, review_mode=repo_config.review_mode)
-
     # Action parity: in label-triggered mode a refused/escalated verdict strips the trigger label, so
     # the author re-requests the next review by re-adding it.
     # A failure here raises on purpose: the activity retries and the sticky upsert above is idempotent.
@@ -2139,7 +2161,21 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
     # Nobody saw a WAIT that was not published, so the external review finishing has nothing to update.
     waited = _waited_on_external_review(run) and run.verdict_posted_at is not None
-    return {"verdict": str(parsed.verdict), "waited_on_external_review": waited}
+    return {
+        "verdict": str(parsed.verdict),
+        "waited_on_external_review": waited,
+        "waits_on_attestations": waits_on_attestations(run),
+    }
+
+
+@activity.defn
+@asyncify
+def poll_pending_attestations(input: StamphogReviewInput) -> dict:
+    """Queue a re-review once every check this WAIT is pending on has reported.
+
+    ``done`` tells the workflow to stop polling. An error raises, so Temporal retries the poll.
+    """
+    return {"done": rereview_once_attestations_reported(_load_run(input))}
 
 
 def _notify_finished_review(
@@ -2223,7 +2259,7 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
         _sweep_orphan_approvals_at_terminal(client, run, input.team_id)
         return
     # Persist only the first line, truncated: run.error is returned by the serializer to anyone with
-    # stamphog:read, and raw exception text can embed repository file content (a yaml.YAMLError over
+    # code_review_approval:read, and raw exception text can embed repository file content (a yaml.YAMLError over
     # .stamphog/policy.yml echoes the offending source lines on its continuation lines). Full detail is
     # already in the worker logs — the workflow logs the complete error before calling this activity.
     # Conditional like every terminal save (the load-time guard above can race an in-flight
@@ -2483,7 +2519,7 @@ def _checked_repo_policy_yaml(repo: str, repo_text: str) -> str:
         overlay = yaml.safe_load(repo_text)
     except yaml.YAMLError as exc:
         # PyYAML puts the bad tag on the first line, and run.error keeps that line. Anyone with
-        # stamphog:read can read it without access to the repository, so log the parser text instead.
+        # code_review_approval:read can read it without access to the repository, so log the parser text instead.
         activity.logger.error(f"Malformed YAML in .stamphog/policy.yml for {repo}: {exc}")
         raise RuntimeError(f"repo {repo} has malformed YAML in .stamphog/policy.yml") from exc
     if not isinstance(overlay, dict):
@@ -2509,6 +2545,9 @@ def _effective_policy_files(repo: str, policy_files: dict[str, str]) -> dict[str
     }
     if STAMPHOG_POLICY_ENTRYPOINT in effective:
         effective[STAMPHOG_POLICY_ENTRYPOINT] = _checked_repo_policy_yaml(repo, effective[STAMPHOG_POLICY_ENTRYPOINT])
+    for path in issuer_manifest_paths(effective.get(STAMPHOG_POLICY_ENTRYPOINT)):
+        if path in policy_files:
+            effective[path] = policy_files[path]
     return effective
 
 
@@ -2518,6 +2557,7 @@ def _review_payload_archive(policy_files: dict[str, str], context_json: str) -> 
     Each ``write_file`` and ``execute`` call is one round trip to the sandbox provider, and the engine
     alone is some twenty files. One archive and one extract command replace them.
     """
+    check_outside_engine_tree(policy_files)
     members = {
         **policy_files,
         **{f"{_ENGINE_RELATIVE_DIR}/{name}": content for name, content in engine_source_files().items()},
@@ -2537,7 +2577,7 @@ def _review_payload_archive(policy_files: dict[str, str], context_json: str) -> 
     return buffer.getvalue()
 
 
-def _review_payload_command() -> str:
+def _review_payload_command(issuer_paths: tuple[str, ...] = ()) -> str:
     """Wipe the PR head's copies of everything the archive carries, then extract the archive.
 
     Written AFTER checkout, so the trusted default-branch policy and review norms win over whatever
@@ -2547,7 +2587,9 @@ def _review_payload_command() -> str:
 
     Every policy path's PR-head copy is deleted first, required AND optional: an uninjected optional
     file (a repo with no steering.md) must not leave the PR head's planted copy behind for the engine
-    to load, any more than a missing policy.yml would.
+    to load, any more than a missing policy.yml would. The issuer manifests the policy names are wiped
+    the same way, so a manifest the default branch lacks leaves its attestation entry unusable rather
+    than read from the PR head.
 
     The engine and owners directories are wiped whole: the PR head's checkout may carry
     attacker-controlled files beside our engine (e.g. tools/pr-approval-agent/yaml.py), which Python
@@ -2559,8 +2601,9 @@ def _review_payload_command() -> str:
     a parent path, so the trusted files would land wherever the PR points, beside files the PR chose.
     """
     repo_dir = shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)
-    policy_paths = " ".join(shlex.quote(path) for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS))
-    destinations = (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS, _ENGINE_RELATIVE_DIR, _OWNERS_RELATIVE_DIR)
+    wiped = (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS, *issuer_paths)
+    policy_paths = " ".join(shlex.quote(path) for path in wiped)
+    destinations = (*wiped, _ENGINE_RELATIVE_DIR, _OWNERS_RELATIVE_DIR)
     parent_dirs = sorted({parent.as_posix() for path in destinations for parent in PurePosixPath(path).parents} - {"."})
     no_symlinked_parents = " && ".join(f"test ! -L {shlex.quote(parent)}" for parent in parent_dirs)
     return (
@@ -2580,7 +2623,8 @@ def _ship_review_payload(
     from the checkout root. We always run our version, not the PR's.
     """
     sandbox.write_file(STAMPHOG_SANDBOX_PAYLOAD_PATH, _review_payload_archive(policy_files, context_json))
-    result = sandbox.execute(_review_payload_command(), timeout_seconds=_step_timeout(deadline, 60))
+    issuer_paths = issuer_manifest_paths(policy_files.get(STAMPHOG_POLICY_ENTRYPOINT))
+    result = sandbox.execute(_review_payload_command(issuer_paths), timeout_seconds=_step_timeout(deadline, 60))
     if result.exit_code != 0:
         # The reviewer reads an untrusted PR head, so tar's stderr can name repository paths. Keep it
         # in the worker log only.

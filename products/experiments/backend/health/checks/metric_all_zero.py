@@ -21,6 +21,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthValueKey,
 )
+from products.experiments.backend.health.checks.change_wording import duration
 from products.experiments.backend.health.checks.events_received import joined, quoted
 from products.experiments.backend.health.context import HealthContext, ZeroMetric
 from products.experiments.backend.health.skips import (
@@ -116,7 +117,7 @@ def metric_all_zero(ctx: HealthContext) -> CheckOutcome:
         subcode=worded[0].cause,
         severity=_severity(worded, ctx),
         title=f"{count} metrics read zero in every variant" if count > 1 else "A metric reads zero in every variant",
-        detail=_detail(worded),
+        detail=_detail(worded, hours_of_data=hours_of_data, has_ended=ctx.has_ended),
         evidence=_evidence(worded),
         # No action opens a given metric.
         actions=(),
@@ -236,10 +237,17 @@ def _bound(hidden: int, exposures: int) -> str:
     )
 
 
-def _detail(worded: list[_Worded]) -> str:
+def _detail(worded: list[_Worded], *, hours_of_data: float, has_ended: bool) -> str:
     sentences = [item.detail for item in worded]
     without_a_cause = [item.metric for item in worded if item.cause is None]
     if without_a_cause:
+        # The stored zero can't tell an outcome that hasn't happened yet from one that PostHog can't match to the
+        # exposures, so the words name both. After the end, a later outcome no longer counts.
+        if not has_ended:
+            sentences.append(
+                f"The results cover {duration(hours_of_data * _SECONDS_PER_HOUR)} since the start date. An outcome that "
+                "comes days after exposure, such as a trial that converts when it ends, reads 0 until it happens."
+            )
         sentences.extend(_usual_causes(without_a_cause))
     return " ".join(dict.fromkeys(sentences))
 

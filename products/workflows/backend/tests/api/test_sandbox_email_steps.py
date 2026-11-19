@@ -158,7 +158,7 @@ class TestSandboxEmailSteps(APIBaseTest):
             assert flow.status == status
             assert flow.actions[1]["type"] == "email_sandbox"
         else:
-            assert "sandbox sender isn't available" in response.json()["detail"]
+            assert "PostHog test sender isn't available" in response.json()["detail"]
 
     def test_a_saved_hog_step_sends_its_own_template_not_client_bytecode(self) -> None:
         with _flag(True), _runtime(True):
@@ -220,7 +220,7 @@ class TestSandboxEmailSteps(APIBaseTest):
             response = self._try_to_run(path)
 
         assert response.status_code == 400, response.json()
-        assert "The sandbox sender can't send from workflows yet" in response.json()["detail"]
+        assert "The PostHog test sender can't send from workflows yet" in response.json()["detail"]
         assert not HogFlow.objects.filter(status="active", actions__contains=[{"type": "email_sandbox"}]).exists()
 
     @parameterized.expand([("live", False), ("staged_draft", True)])
@@ -267,19 +267,19 @@ class TestSandboxEmailSteps(APIBaseTest):
                 )
 
         assert response.status_code == 400, response.json()
-        assert "Only workflows can use the sandbox sender" in response.json()["detail"]
+        assert "Only workflows can use the PostHog test sender" in response.json()["detail"]
         assert not HogFlow.objects.filter(actions__contains=[{"type": "email_sandbox"}]).exists()
 
     @parameterized.expand(
         [
-            ("new_value_on_publish", None, "active", 400),
-            ("stored_value_on_publish", "live", "active", 200),
-            ("value_only_in_the_staged_draft", "draft", "active", 400),
-            ("new_value_in_a_web_draft_save", None, "draft", 400),
+            ("new_value_on_publish", None, "active", "This sender can't send email from a workflow"),
+            ("stored_value_on_publish", "live", "active", "email sender can't be found"),
+            ("value_only_in_the_staged_draft", "draft", "active", "This sender can't send email from a workflow"),
+            ("new_value_in_a_web_draft_save", None, "draft", "This sender can't send email from a workflow"),
         ]
     )
     def test_an_email_step_cannot_newly_send_from_the_sandbox_row(
-        self, _name: str, stored_in: str | None, saved_status: str, expected: int
+        self, _name: str, stored_in: str | None, saved_status: str, error: str
     ) -> None:
         sync_template_to_db(_email_function_template())
         sandbox_row = Integration.objects.create(
@@ -303,9 +303,8 @@ class TestSandboxEmailSteps(APIBaseTest):
             format="json",
         )
 
-        assert response.status_code == expected, response.json()
-        if expected == 400:
-            assert "This sender can't send email from a workflow" in response.json()["detail"]
+        assert response.status_code == 400, response.json()
+        assert error in response.json()["detail"]
 
 
 class TestSandboxEmailStepsOverTheApi(APIBaseTest):
@@ -414,8 +413,8 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_off", False, False, OWN_EMAIL_STEP_ID, "sandbox sender isn't available"),
-            ("organization_blocked", True, True, OWN_EMAIL_STEP_ID, "can't use the sandbox sender"),
+            ("flag_off", False, False, OWN_EMAIL_STEP_ID, "PostHog test sender isn't available"),
+            ("organization_blocked", True, True, OWN_EMAIL_STEP_ID, "can't use the PostHog test sender"),
             ("step_id_the_provider_cannot_tag", True, False, "welcome:email", "Add a new email step"),
         ]
     )

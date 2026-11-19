@@ -1,6 +1,7 @@
 import json
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
+from types import ModuleType
 from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union, cast
 from uuid import UUID
 
@@ -22,6 +23,7 @@ from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging import activity_log_config_registry
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
     ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
@@ -151,6 +153,8 @@ ActivityScope = Literal[
     "DataWarehouseJoin",
     "Billing",
     "Loop",
+    "SandboxEnvironment",
+    "SandboxCustomImage",
     "StamphogRepoConfig",
     "ReviewRepository",
     "ReviewProjectSettings",
@@ -453,6 +457,7 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     ],
     "IdentityProviderConfig": [
         "scim_bearer_token",
+        "scim_token_digest",
         "oidc_credentials",
         "saml_x509_cert",
     ],
@@ -476,6 +481,8 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     # The rubric API is limited to staff, so saved criteria and generated suggestions must not be
     # readable through activity_log:read. Record that the rubrics changed, never their contents.
     "SignalScoutConfig": ["rubrics"],
+    "SandboxEnvironment": ["environment_variables"],
+    "SandboxCustomImage": ["spec"],
 }
 
 field_name_overrides: dict[AuditableScope, dict[str, str]] = {
@@ -538,9 +545,6 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "scout_instructions": "scout instructions",
         "research_instructions": "research instructions",
         "implementation_instructions": "implementation instructions",
-    },
-    "OAuthApplication": {
-        "_provisioning_config": "provisioning config",
     },
     "OrganizationIPRestrictions": {
         "ip_restrictions": "IP allowlist",
@@ -620,6 +624,18 @@ platform_alert_runtime_fields = [
     "updated_at",
 ]
 
+sandbox_custom_image_machine_fields = [
+    "status",
+    "version",
+    "modal_image_name",
+    "base_image_reference",
+    "base_image_refresh_reference",
+    "scan_result",
+    "error",
+    "build_log",
+    "builder_task",
+]
+
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
     "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
@@ -685,6 +701,7 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     ],
     # Inserts bump these on every use. They are not a settings edit.
     "TicketMacro": ["usage_count", "last_used_at"],
+    "SandboxCustomImage": [*sandbox_custom_image_machine_fields, "updated_at"],
 }
 
 # Activity visibility restrictions - controls which users can see certain activity logs
@@ -913,16 +930,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "widget_instances",
         "widget_snapshots",
     ],
-    "FeatureFlag": [
-        "experiment",
-        "featureflagoverride",
-        "usage_dashboard",
-        "analytics_dashboards",
-        "flag_evaluation_contexts",
-        # FeatureFlagCodeAnalysis is team-scoped, so reading this relation for a diff hits the
-        # fail-closed manager. A code analysis does not change the flag, so the diff skips it.
-        "code_analyses",
-    ],
     "Experiment": [
         "feature_flag",
         "feature_flag_auto_archived",
@@ -958,8 +965,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "persondistinctid",
         "cohort",
         "cohortpeople",
-        "properties_last_updated_at",
-        "properties_last_operation",
         "version",
         "is_user",
     ],
@@ -1212,25 +1217,34 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Reverse relations auto-managed by FK creates, not user-initiated config changes.
         "runs",
     ],
-    "OAuthApplication": [
-        # Secrets — never diff these, even masked.
-        "client_secret",
-        "hash_client_secret",
-        # Reverse token relations can hold tens of thousands of rows; reading
-        # through them in `changes_between` would scan the token tables.
-        "oauthaccesstoken",
-        "oauthidtoken",
-        "oauthrefreshtoken",
-        "oauthgrant",
-        # Bookkeeping timestamps and FKs, not scope-ceiling intent.
-        "created",
-        "updated",
-        "cimd_metadata_last_fetched",
-        "dcr_client_id_issued_at",
-        "organization",
-        "user",
-    ],
+    "SandboxCustomImage": sandbox_custom_image_machine_fields,
 }
+
+
+# A scope's tuning lives next to the model it configures, in a data-only module, so the team that
+# owns the model owns its tuning. The registry lists those modules; the registries above keep the
+# scopes whose model has no product owner. Merging here rather than in the registry keeps the
+# duplicate check in this reviewed file.
+_SCOPE_CONFIG_REGISTRIES: dict[str, dict[Any, Any]] = {
+    "FIELD_EXCLUSIONS": field_exclusions,
+    "FIELD_NAME_OVERRIDES": field_name_overrides,
+    "FIELD_WITH_MASKED_CONTENTS": field_with_masked_contents,
+    "SIGNAL_EXCLUSIONS": signal_exclusions,
+}
+
+
+def _merge_scope_configs(registries: Mapping[str, dict[Any, Any]], modules: Iterable[ModuleType]) -> None:
+    for module in modules:
+        for attribute, registry in registries.items():
+            for scope, value in getattr(module, attribute, {}).items():
+                if scope in registry:
+                    raise RuntimeError(
+                        f"{attribute}: {scope} is tuned twice, so {module.__name__} cannot tune it again"
+                    )
+                registry[scope] = value
+
+
+_merge_scope_configs(_SCOPE_CONFIG_REGISTRIES, activity_log_config_registry.MODULES)
 
 
 def describe_change(m: Any) -> Union[str, dict]:
@@ -1567,19 +1581,31 @@ def log_activity(
     # for that connection's commit and is dropped when it rolls back. `None` uses the default one.
     using: str | None = None,
     strict: bool = False,
+    # The actor belongs to an organization other than the row's, and the row's organization must
+    # not learn who acted. The row stores no user, no impersonation flag and nothing the request
+    # recorded. `is_system=False` keeps it from reading as a change that PostHog made.
+    external_actor: bool = False,
 ) -> ActivityLog | None:
-    if client is None:
-        client = activity_storage.get_client()
-    if ip_address is None:
-        ip_address = activity_storage.get_ip_address()
-    credential = activity_storage.get_credential()
-    if credential is None and activity_storage.is_request_scoped():
-        # The request was anonymous, or an authentication class that records no credential verified
-        # it. Say so, so that the row does not read like one written outside a request.
-        credential = ActivityCredential(type="unattributed")
-    if detail.trigger is None:
-        # A product that sets its own trigger already says what drove the write.
-        detail = _with_request_trigger(detail)
+    credential: ActivityCredential | None
+    if external_actor:
+        user = None
+        was_impersonated = False
+        client = None
+        ip_address = None
+        credential = None
+    else:
+        if client is None:
+            client = activity_storage.get_client()
+        if ip_address is None:
+            ip_address = activity_storage.get_ip_address()
+        credential = activity_storage.get_credential()
+        if credential is None and activity_storage.is_request_scoped():
+            # The request was anonymous, or an authentication class that records no credential verified
+            # it. Say so, so that the row does not read like one written outside a request.
+            credential = ActivityCredential(type="unattributed")
+        if detail.trigger is None:
+            # A product that sets its own trigger already says what drove the write.
+            detail = _with_request_trigger(detail)
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -1606,7 +1632,7 @@ def log_activity(
             "team_id": team_id,
             "user": user,
             "was_impersonated": was_impersonated,
-            "is_system": user is None,
+            "is_system": user is None and not external_actor,
             "item_id": str(item_id) if item_id is not None else None,
             "scope": scope,
             "activity": activity,
@@ -1670,6 +1696,7 @@ class LogActivityEntry(TypedDict, total=False):
     client: Optional[str]
     ip_address: Optional[str]
     force_save: bool
+    external_actor: bool
 
 
 def update_activity_context(row: ActivityLog, **fields: Any) -> None:

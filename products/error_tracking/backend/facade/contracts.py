@@ -183,6 +183,16 @@ class ErrorTrackingIssueTag:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingIssueTagCorrection:
+    tag: ErrorTrackingIssueTag
+    # The answer that the correction replaced. Source and probability are None when the issue had no answer.
+    previous_source: str | None
+    previous_applied: bool
+    previous_probability: float | None
+    changed: bool
+
+
+@dataclass(frozen=True)
 class ErrorTrackingIssue:
     id: UUID
     status: str
@@ -237,6 +247,7 @@ class ErrorTrackingSettings:
     project_rate_limit_bucket_size_minutes: int | None
     per_issue_rate_limit_value: int | None
     per_issue_rate_limit_bucket_size_minutes: int | None
+    ai_issue_summaries_enabled: bool
     ingestion_enabled: bool
 
 
