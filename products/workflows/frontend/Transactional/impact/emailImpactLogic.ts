@@ -75,9 +75,6 @@ export interface emailImpactLogicActions {
         payload?: any
     } // teamLogic
     refreshCurrentTeam: () => any // teamLogic
-    linkTaggingSettingsOpened: () => {
-        value: true
-    }
     loadImpact: (_: void) => void
     loadImpactFailure: (
         error: string,
@@ -174,7 +171,6 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
         setEvent: (event: string | null) => ({ event }),
         setDays: (days: number) => ({ days }),
         setAlwaysSensitive: (alwaysSensitive: boolean) => ({ alwaysSensitive }),
-        linkTaggingSettingsOpened: true,
     }),
     reducers(({ props }) => ({
         // A selector that reads props keeps its result while the store is unchanged, so a template's new
@@ -273,23 +269,7 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             (currentTeam: TeamType | TeamPublicType | null): boolean => !!currentTeam?.session_recording_opt_in,
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
-        linkTaggingSettingsOpened: () => {
-            // A Cmd-click or middle-click opens the setting in another tab, so reload the team once when this tab
-            // gets focus back. A plain click leaves this page, and the unmount drops the listener.
-            cache.disposables.add(
-                () => {
-                    const onFocus = (): void => {
-                        cache.disposables.dispose('refreshTeamOnReturn')
-                        actions.refreshCurrentTeam()
-                    }
-                    window.addEventListener('focus', onFocus)
-                    return () => window.removeEventListener('focus', onFocus)
-                },
-                'refreshTeamOnReturn',
-                { pauseOnPageHidden: false }
-            )
-        },
+    listeners(({ actions, values }) => ({
         setEvent: () => actions.loadImpact(),
         setDays: () => actions.loadImpact(),
         loadCurrentTeamSuccess: () => {
@@ -313,5 +293,19 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             actions.setAlwaysSensitive(!!props.alwaysSensitive)
         }
     }),
-    afterMount(({ actions }) => actions.loadImpact()),
+    afterMount(({ actions, cache }) => {
+        actions.loadImpact()
+        // The link tagging setting can change in another tab, including one opened from this tab's settings link,
+        // so reload the team whenever this tab gets focus back. A later focus also repairs a reload that ran
+        // before the save finished or that failed.
+        cache.disposables.add(
+            () => {
+                const onFocus = (): void => actions.refreshCurrentTeam()
+                window.addEventListener('focus', onFocus)
+                return () => window.removeEventListener('focus', onFocus)
+            },
+            'refreshTeamOnFocus',
+            { pauseOnPageHidden: false }
+        )
+    }),
 ])

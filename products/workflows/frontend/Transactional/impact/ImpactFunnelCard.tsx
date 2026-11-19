@@ -22,7 +22,7 @@ export function ImpactFunnelCard(): JSX.Element {
 
 function FunnelBody(): JSX.Element {
     const { funnelState, impact, impactError, steps, untrackedNote } = useValues(emailImpactLogic)
-    const { loadImpact, linkTaggingSettingsOpened } = useActions(emailImpactLogic)
+    const { loadImpact } = useActions(emailImpactLogic)
 
     if (funnelState === 'error') {
         return (
@@ -47,7 +47,7 @@ function FunnelBody(): JSX.Element {
     }
     return (
         <>
-            <ImpactFunnel steps={steps} onSettingsLinkOpened={linkTaggingSettingsOpened} />
+            <ImpactFunnel steps={steps} />
             {untrackedNote && <p className="text-secondary text-sm m-0">{untrackedNote}</p>}
             <ImpactLiftLine />
         </>

@@ -114,27 +114,22 @@ describe('ImpactFunnelCard', () => {
         expect(screen.queryByText('Needs link tagging')).not.toBeInTheDocument()
     })
 
-    it.each([
-        ['a Cmd-click', (link: HTMLElement) => fireEvent.click(link, { metaKey: true })],
-        [
-            'a middle-click',
-            (link: HTMLElement) => fireEvent(link, new MouseEvent('auxclick', { bubbles: true, button: 1 })),
-        ],
-    ])(
-        'shows the setting saved in another tab after %s on the link, once this tab has focus again',
-        async (_, open) => {
-            initKeaTests(true, teamWithLinkTagging(false))
-            const savedTeam = teamWithLinkTagging(true)
-            useMocks({ get: { '/api/environments/:id/': savedTeam, '/api/projects/:id/': savedTeam } })
-            answer = [200, IMPACT]
-            renderCard()
+    it('shows the setting saved in another tab once this tab has focus again, and keeps checking on later focus', async () => {
+        initKeaTests(true, teamWithLinkTagging(false))
+        let stored = teamWithLinkTagging(false)
+        useMocks({ get: { '/api/projects/:id/': () => [200, stored] } })
+        answer = [200, IMPACT]
+        renderCard()
+        await screen.findByText('Needs link tagging')
 
-            open(await screen.findByText('Needs link tagging'))
-            fireEvent(window, new Event('focus'))
+        fireEvent(window, new Event('focus'))
+        await waitFor(() => expect(screen.getByText('Needs link tagging')).toBeInTheDocument())
 
-            expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
-        }
-    )
+        stored = teamWithLinkTagging(true)
+        fireEvent(window, new Event('focus'))
+
+        expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
+    })
 
     it("shows a template's new sensitivity on a mounted Impact tab", async () => {
         initKeaTests(true, teamWithLinkTagging(false))
