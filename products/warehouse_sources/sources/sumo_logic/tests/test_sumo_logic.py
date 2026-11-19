@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.sources.sdk import WorkerShuttingDownError
 from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
@@ -520,6 +521,36 @@ class TestLogSearchJobs:
 
         assert isinstance(result.raised, ValueError)
         assert "cancelled" in str(result.raised)
+
+    @pytest.mark.parametrize(
+        ("shutting_down", "expected_error", "expected_message"),
+        [
+            (False, sl.SumoLogicRetryableError, "did not complete within 1800s"),
+            (True, WorkerShuttingDownError, "import_data_activity"),
+        ],
+    )
+    def test_a_job_that_the_poll_leaves_is_deleted(
+        self, shutting_down: bool, expected_error: type[Exception], expected_message: str
+    ) -> None:
+        deleted: list[str] = []
+
+        def handler(request: RecordedRequest) -> ScriptedResponse:
+            if request.method == "POST":
+                return _response({"id": "7"})
+            if request.method == "DELETE":
+                deleted.append(request.path)
+                return _response(None, status=204)
+            return _response({"state": "GATHERING RESULTS"})
+
+        def safe_point() -> None:
+            if shutting_down:
+                raise WorkerShuttingDownError("activity-1", "import_data_activity", "queue", 1, None, None)
+
+        with scripted_network(handler), pytest.raises(expected_error, match=expected_message):
+            fetch = sl._make_fetch(sl._make_session("id", "key"), mock.MagicMock())
+            sl._submit_and_poll_search_job(fetch, base_url("us1"), "*", 0, 60_000, mock.MagicMock(), safe_point)
+
+        assert deleted == ["/api/v1/search/jobs/7"]
 
     def test_watermark_in_future_yields_nothing(self) -> None:
         api = FakeSearchJobApi(message_count_per_job=[])
