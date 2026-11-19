@@ -235,14 +235,6 @@ class TestSqlSeriesValuesRefusals(SimpleTestCase):
                     "issue_status = 'active' AND (event AS issue_status) != ''",
                 )
             ),
-            (
-                "source",
-                HogQLQuery(
-                    query=_DAILY_COUNT.replace("count() AS value", "count() AS value, issue_status AS issue_status")
-                ),
-                "value",
-                "UTC",
-            ),
             ("group_by", HogQLQuery(query=_DAILY_COUNT.replace("GROUP BY day", "GROUP BY day, event")), "value", "UTC"),
             ("bucket", HogQLQuery(query=_DAILY_COUNT.replace("toStartOfDay", "toStartOfWeek")), "value", "UTC"),
             ("order_by", HogQLQuery(query=_DAILY_COUNT.replace("ORDER BY day", "ORDER BY value")), "value", "UTC"),

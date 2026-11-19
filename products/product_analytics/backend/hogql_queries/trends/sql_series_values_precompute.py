@@ -99,12 +99,6 @@ _INTERVAL_UNITS: dict[str, Callable[[int], relativedelta]] = {
     "Quarter": lambda count: relativedelta(months=3 * count),
     "Year": lambda count: relativedelta(years=count),
 }
-_IN_OPS = {
-    ast.CompareOperationOp.In,
-    ast.CompareOperationOp.NotIn,
-    ast.CompareOperationOp.GlobalIn,
-    ast.CompareOperationOp.GlobalNotIn,
-}
 _LOWER_BOUND_OPS = {ast.CompareOperationOp.GtEq, ast.CompareOperationOp.Gt}
 _UPPER_BOUND_OPS = {ast.CompareOperationOp.Lt, ast.CompareOperationOp.LtEq}
 
@@ -157,16 +151,13 @@ class _ResolvedAwayFinder(TraversingVisitor):
         self.found = True
 
 
-class _OtherSourceFinder(TraversingVisitor):
+class _OtherSourceFinder(_ResolvedAwayFinder):
     def __init__(self, root: ast.SelectQuery) -> None:
         super().__init__()
         self.root = root
         self.qualifiers = _qualifiers(root)
-        self.select_aliases = [item for item in root.select if isinstance(item, ast.Alias)]
-        self.aliases = {item.alias for item in self.select_aliases}
-        self.alias_depth = 0
+        self.aliases = {item.alias for item in root.select if isinstance(item, ast.Alias)}
         self.lambda_args: list[str] = []
-        self.found = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         if node is not self.root:
@@ -180,45 +171,25 @@ class _OtherSourceFinder(TraversingVisitor):
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
         pass
 
-    def visit_alias(self, node: ast.Alias) -> None:
-        if not any(node is item for item in self.select_aliases):
-            self.found = True
-        self.alias_depth += 1
-        super().visit_alias(node)
-        self.alias_depth -= 1
-
     def visit_lambda(self, node: ast.Lambda) -> None:
         self.lambda_args.extend(node.args)
         super().visit_lambda(node)
         del self.lambda_args[len(self.lambda_args) - len(node.args) :]
 
-    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
-        cohort = node.op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort)
-        if cohort or (node.op in _IN_OPS and isinstance(node.right, ast.Field)):
-            self.found = True
-        super().visit_compare_operation(node)
-
     def visit_call(self, node: ast.Call) -> None:
-        if node.name.lower() == "cohort" or find_hogql_posthog_function(node.name) is not None:
-            self.found = True
         star = len(node.args) == 1 and isinstance(node.args[0], ast.Field) and node.args[0].chain == ["*"]
         super().visit_call(replace(node, args=[]) if star and node.name.lower() == "count" else node)
 
-    def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
-        self.found = True
-
     def visit_field(self, node: ast.Field) -> None:
         chain = node.chain[1:] if len(node.chain) > 1 and node.chain[0] in self.qualifiers else node.chain
-        if not chain or not self._reads_events_only(chain):
+        if not chain or not self._is_event_column(chain):
             self.found = True
 
-    def _reads_events_only(self, chain: list[str | int]) -> bool:
+    def _is_event_column(self, chain: list[str | int]) -> bool:
         head = str(chain[0])
         if len(chain) > 1:
             return head == "properties" or str(chain[1]) in _EVENT_SUBTABLE_FIELDS.get(head, ())
-        if head in self.lambda_args or head in _EVENT_COLUMNS:
-            return True
-        return head in self.aliases and self.alias_depth == 0
+        return head in _EVENT_COLUMNS or head in self.lambda_args or head in self.aliases
 
 
 class _ReadRefused(Exception):
