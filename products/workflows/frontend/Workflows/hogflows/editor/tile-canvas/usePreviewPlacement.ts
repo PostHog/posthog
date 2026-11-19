@@ -1,3 +1,4 @@
+import { useStore } from '@xyflow/react'
 import { RefObject, useEffect, useState } from 'react'
 
 import { FIT_MARGIN } from './tileCanvasModel'
@@ -9,13 +10,10 @@ export interface PreviewPlacement {
     above: boolean
 }
 
-/**
- * Keeps a card that hangs below a step inside the canvas: it shifts sideways off the canvas edges, and moves
- * above the step when the room below, clear of the controls over the canvas bottom, is too short. A card that
- * moved above stays there, so one that grows as its preview opens does not flip back and forth.
- */
+/** Once above the step a card stays there, so one that grows as its preview opens does not flip back and forth. */
 export function usePreviewPlacement(ref: RefObject<HTMLElement>, stepHeight: number): PreviewPlacement {
     const [placement, setPlacement] = useState<PreviewPlacement>({ x: 0, above: false })
+    const viewport = useStore((state) => state.transform)
     useEffect(() => {
         const card = ref.current
         if (!card) {
@@ -47,6 +45,6 @@ export function usePreviewPlacement(ref: RefObject<HTMLElement>, stepHeight: num
         observer.observe(card)
         measure()
         return () => observer.disconnect()
-    }, [ref, stepHeight])
+    }, [ref, stepHeight, viewport])
     return placement
 }
