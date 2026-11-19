@@ -288,8 +288,16 @@ class TestCollectStaleLiveRuns(TestCase):
         run.refresh_from_db()
         assert run.status == TaskRun.Status.IN_PROGRESS
 
-    def test_sweep_ends_a_run_with_no_writes_for_a_day_even_if_its_workflow_runs(self) -> None:
-        run = self._run(profile=USER.key, quiet_for=timedelta(seconds=5), no_write_for=timedelta(hours=25))
+    @parameterized.expand(
+        [
+            ("that_still_heartbeats", timedelta(seconds=5)),
+            ("that_went_silent", timedelta(hours=25)),
+        ]
+    )
+    def test_sweep_ends_a_run_with_no_writes_for_a_day_even_if_its_workflow_runs(
+        self, _name: str, quiet_for: timedelta
+    ) -> None:
+        run = self._run(profile=USER.key, quiet_for=quiet_for, no_write_for=timedelta(hours=25))
         self.describe_workflow.side_effect = None
         self.describe_workflow.return_value = SimpleNamespace(status=WorkflowExecutionStatus.RUNNING)
 
