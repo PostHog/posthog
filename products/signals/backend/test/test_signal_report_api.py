@@ -88,6 +88,7 @@ from products.signals.backend.report_assignments import create_claim
 from products.signals.backend.report_checks import CheckComparison
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
+from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
 from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
 from products.signals.backend.report_repository import INBOX_REPOSITORY_REASON
 from products.signals.backend.scout_harness.profile.builders import _recent_reviewer_corrections
@@ -1673,6 +1674,91 @@ class TestSignalReportListAPI(APIBaseTest):
         assert summary["ends_at"] == (started_at + timedelta(days=7)).isoformat().replace("+00:00", "Z")
         assert summary["lead_check"]["check_id"] == str(check.id)
         assert [reading["matches"] for reading in summary["lead_check"]["readings"]] == [False if readable else None]
+
+    def test_monitoring_recent_lists_reports_that_left_monitoring_with_how_it_ended(self) -> None:
+        now = timezone.now()
+        started_at = now - timedelta(days=5)
+
+        def ended(
+            report_status: str, *, title: str, aggregation: str | None, assessed: bool = False, days_ago: int = 1
+        ) -> SignalReport:
+            report = self._create_report(
+                status=report_status,
+                title=title,
+                monitoring_started_at=started_at,
+                monitoring_ended_at=now - timedelta(days=days_ago),
+            )
+            SignalReportMonitoringAttempt.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                report=report,
+                monitoring_started_at=started_at,
+                check_versions={},
+                aggregation_state=aggregation,
+                assessment_requested_at=now if assessed else None,
+            )
+            return report
+
+        monitoring = self._create_report(status=SignalReport.Status.MONITORING, monitoring_started_at=started_at)
+        passed = ended(SignalReport.Status.RESOLVED, title="Checks passed", aggregation=MonitoringAggregation.PASSED)
+        check = SignalReportCheck.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            report=passed,
+            title="An agent confirms the fix",
+            kind=SignalReportCheck.Kind.AGENT,
+            config={"instructions": "Look again."},
+            soak_minutes=3 * 1440,
+            status=SignalReportCheck.Status.PASSED,
+            next_run_at=started_at + timedelta(days=3),
+            expires_at=now + timedelta(days=30),
+        )
+        SignalReportMonitoringAttempt.objects.for_team(self.team.id).filter(report=passed).update(
+            check_versions={str(check.id): check_definition_version(check)}
+        )
+        assessed = ended(
+            SignalReport.Status.RESOLVED, title="Assessed", aggregation=MonitoringAggregation.PASSED, assessed=True
+        )
+        manual = ended(
+            SignalReport.Status.RESOLVED, title="Resolved by hand", aggregation=MonitoringAggregation.WAITING
+        )
+        closed = ended(SignalReport.Status.CLOSED, title="Not shown to work", aggregation=MonitoringAggregation.FAILED)
+        follow_up = self._create_report(title="Still failing after the fix")
+        SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(follow_up.id),
+            content=ReportLink(kind=ReportLinkKind.FOLLOW_UP_OF, report_id=str(closed.id)),
+            attribution=ArtefactAttribution.system(),
+        )
+        ended(
+            SignalReport.Status.RESOLVED, title="Ended weeks ago", aggregation=MonitoringAggregation.PASSED, days_ago=15
+        )
+        self._create_report(status=SignalReport.Status.RESOLVED, title="Never monitored")
+
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            response = self.client.get(self._list_url(view="monitoring_recent"))
+
+        assert response.status_code == status.HTTP_200_OK
+        rows = {row["id"]: row for row in response.json()["results"]}
+        outcomes = {
+            report.id: rows[str(report.id)]["monitoring_outcome"]
+            for report in (monitoring, passed, assessed, manual, closed)
+        }
+        assert set(rows) == {str(report_id) for report_id in outcomes}
+        assert {report_id: outcome and outcome["kind"] for report_id, outcome in outcomes.items()} == {
+            monitoring.id: None,
+            passed.id: "resolved",
+            assessed.id: "resolved_by_assessment",
+            manual.id: "resolved_manually",
+            closed.id: "closed",
+        }
+        assert outcomes[closed.id]["follow_up"] == {
+            "report_id": str(follow_up.id),
+            "title": "Still failing after the fix",
+            "status": "ready",
+        }
+        assert outcomes[passed.id]["follow_up"] is None
+        assert [(c["check_id"], c["state"]) for c in rows[str(passed.id)]["monitoring_summary"]["checks"]] == [
+            (str(check.id), "passed")
+        ]
 
     def test_monitoring_reads_do_not_evaluate_missing_flags_remotely(self) -> None:
         report = self._create_report(status=SignalReport.Status.MONITORING)

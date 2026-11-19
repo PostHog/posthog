@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.db.models import TextChoices
@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from posthog.dataclasses import frozen
 
 from products.signals.backend.artefact_schemas import CheckObservation
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -27,7 +28,12 @@ from products.signals.backend.report_checks import (
     monitoring_window_end,
     parse_check_config,
 )
+from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
 from products.signals.backend.report_monitoring_attempts import check_definition_version
+from products.signals.backend.typed_report_links import incoming_links_by_report
+
+# How long a report that left Monitoring stays on the inbox Monitoring page.
+MONITORING_RECENT_WINDOW = timedelta(days=14)
 
 
 class MonitoringSummaryState(TextChoices):
@@ -37,6 +43,24 @@ class MonitoringSummaryState(TextChoices):
     READINGS_HIDDEN = "readings_hidden", "Readings hidden"
     FINAL_CHECK_ONLY = "final_check_only", "Final check only"
     WINDOW_ENDED = "window_ended", "Window ended"
+
+
+class MonitoringCheckState(TextChoices):
+    PASSED = "passed", "Passed"
+    FAILED = "failed", "Failed"
+    CANCELLED = "cancelled", "Cancelled"
+    NOT_ON_TRACK = "not_on_track", "Not on track"
+    ON_TRACK = "on_track", "On track"
+    AWAITING_READING = "awaiting_reading", "Awaiting first reading"
+    READINGS_HIDDEN = "readings_hidden", "Readings hidden"
+    FINAL_CHECK_ONLY = "final_check_only", "Final check only"
+
+
+class MonitoringOutcomeKind(TextChoices):
+    RESOLVED = "resolved", "Resolved"
+    RESOLVED_BY_ASSESSMENT = "resolved_by_assessment", "Resolved by assessment"
+    RESOLVED_MANUALLY = "resolved_manually", "Resolved manually"
+    CLOSED = "closed", "Closed"
 
 
 @frozen
@@ -64,11 +88,35 @@ class MonitoringLeadCheck:
 
 
 @frozen
+class MonitoringCheckSummary:
+    check_id: UUID
+    title: str
+    kind: str
+    state: MonitoringCheckState
+    ends_at: datetime
+
+
+@frozen
 class ReportMonitoringSummary:
     state: MonitoringSummaryState
     started_at: datetime
     ends_at: datetime
     lead_check: MonitoringLeadCheck | None
+    checks: tuple[MonitoringCheckSummary, ...]
+
+
+@frozen
+class MonitoringFollowUp:
+    report_id: UUID
+    title: str | None
+    status: str
+
+
+@frozen
+class ReportMonitoringOutcome:
+    kind: MonitoringOutcomeKind
+    ended_at: datetime
+    follow_up: MonitoringFollowUp | None
 
 
 _READING_DUE_STATES = frozenset(
@@ -123,6 +171,21 @@ class _OpenCheck:
             return self.final_verdict
         return next((reading.matches for reading in reversed(self.readings) if reading.matches is not None), None)
 
+    @property
+    def state(self) -> MonitoringCheckState:
+        if self.final_verdict is not None:
+            return MonitoringCheckState.PASSED if self.final_verdict else MonitoringCheckState.FAILED
+        if self.check.status == SignalReportCheck.Status.CANCELLED:
+            return MonitoringCheckState.CANCELLED
+        if not self.takes_interim_readings:
+            return MonitoringCheckState.FINAL_CHECK_ONLY
+        if not self.is_visible:
+            return MonitoringCheckState.READINGS_HIDDEN
+        verdict = self.latest_verdict
+        if verdict is None:
+            return MonitoringCheckState.AWAITING_READING
+        return MonitoringCheckState.ON_TRACK if verdict else MonitoringCheckState.NOT_ON_TRACK
+
 
 def _metric_config(check: SignalReportCheck) -> MetricThresholdConfig | None:
     if check.kind != SignalReportCheck.Kind.METRIC_THRESHOLD:
@@ -159,12 +222,25 @@ def monitoring_summaries(
     team_id: int,
     now: datetime,
     may_read_values: Callable[[Mapping[str, object]], bool],
+    ended_since: datetime | None = None,
 ) -> dict[str, ReportMonitoringSummary]:
-    """Summarize each Monitoring report on a list page for its row, in three queries for the whole page."""
+    """Summarize each Monitoring report on a list page for its row, in three queries for the whole page.
+
+    With `ended_since`, reports whose Monitoring ended at or after it are summarized too, so a row can
+    show how each check finished.
+    """
     monitored = {
         report.id: report
         for report in reports
-        if report.status == SignalReport.Status.MONITORING and report.monitoring_started_at is not None
+        if report.monitoring_started_at is not None
+        and (
+            report.status == SignalReport.Status.MONITORING
+            or (
+                ended_since is not None
+                and report.monitoring_ended_at is not None
+                and report.monitoring_ended_at >= ended_since
+            )
+        )
     }
     if not monitored:
         return {}
@@ -282,7 +358,76 @@ def summarize_monitoring(
         started_at=started_at,
         ends_at=ends_at,
         lead_check=_lead_check(lead, report) if lead else None,
+        checks=tuple(
+            MonitoringCheckSummary(
+                check_id=member.check.id,
+                title=member.check.title,
+                kind=member.check.kind,
+                state=member.state,
+                ends_at=member.ends_at,
+            )
+            for member in members
+        ),
     )
+
+
+def monitoring_outcomes(reports: Sequence[SignalReport], *, team_id: int) -> dict[str, ReportMonitoringOutcome]:
+    """How Monitoring ended for each report on a list page that left it, in at most three queries.
+
+    The kind comes from the period's attempt: a passed aggregation resolved the report automatically,
+    through a report-level assessment when one was requested. A resolved report whose attempt did not
+    pass was resolved by a person. A closed report links the follow-up report its research produced,
+    once grouping has created one.
+    """
+    ended = {
+        report.id: report
+        for report in reports
+        if report.monitoring_started_at is not None
+        and report.monitoring_ended_at is not None
+        and report.status in (SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED)
+    }
+    if not ended:
+        return {}
+    attempts = {
+        attempt.report_id: attempt
+        for attempt in SignalReportMonitoringAttempt.objects.for_team(team_id).filter(report_id__in=ended.keys())
+        if attempt.monitoring_started_at == ended[attempt.report_id].monitoring_started_at
+    }
+    # Links come back oldest first, so the last one is the newest follow-up.
+    follow_up_ids = {
+        target_id: edges[-1].source_id
+        for target_id, edges in incoming_links_by_report(
+            team_id=team_id, report_ids=[str(report_id) for report_id in ended], kinds=(ReportLinkKind.FOLLOW_UP_OF,)
+        ).items()
+    }
+    follow_ups = {
+        str(report.id): MonitoringFollowUp(report_id=report.id, title=report.title, status=report.status)
+        for report in SignalReport.objects.filter(team_id=team_id, id__in=follow_up_ids.values())
+        .exclude(status=SignalReport.Status.DELETED)
+        .only("id", "title", "status")
+    }
+    outcomes: dict[str, ReportMonitoringOutcome] = {}
+    for report_id, report in ended.items():
+        if report.monitoring_ended_at is None:
+            continue
+        attempt = attempts.get(report_id)
+        if report.status == SignalReport.Status.CLOSED:
+            kind = MonitoringOutcomeKind.CLOSED
+        elif attempt is not None and attempt.aggregation_state == MonitoringAggregation.PASSED:
+            kind = (
+                MonitoringOutcomeKind.RESOLVED_BY_ASSESSMENT
+                if attempt.assessment_requested_at is not None
+                else MonitoringOutcomeKind.RESOLVED
+            )
+        else:
+            kind = MonitoringOutcomeKind.RESOLVED_MANUALLY
+        follow_up_id = follow_up_ids.get(str(report_id))
+        outcomes[str(report_id)] = ReportMonitoringOutcome(
+            kind=kind,
+            ended_at=report.monitoring_ended_at,
+            follow_up=follow_ups.get(follow_up_id) if follow_up_id else None,
+        )
+    return outcomes
 
 
 def _lead_check(member: _OpenCheck, report: SignalReport) -> MonitoringLeadCheck:
