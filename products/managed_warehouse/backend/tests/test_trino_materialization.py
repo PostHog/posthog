@@ -218,6 +218,13 @@ class TestTrinoShadowMaterialization(BaseTest):
                 ("hits", "one"),
             ),
             (
+                "union_by_name_unaliased_expression",
+                "SELECT event, max(timestamp) FROM events GROUP BY event "
+                "UNION ALL BY NAME SELECT max(timestamp), event FROM events GROUP BY event",
+                None,
+                ("max(toTimeZone(timestamp, 'UTC'))",),
+            ),
+            (
                 "resolved_calls",
                 "SELECT max(timestamp), toStartOfDay(timestamp), toDate(timestamp), timestamp AS ts "
                 "FROM events GROUP BY timestamp",

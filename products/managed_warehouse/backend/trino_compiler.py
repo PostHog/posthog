@@ -385,7 +385,12 @@ def compile_hogql_to_trino_sql(
         )
 
     if select_transform is not None:
-        if preserve_clickhouse_output_names:
+        # Only the first branch of a union names the output, so a BY NAME union keeps its own names:
+        # pinning one branch would stop it matching the others.
+        joins_by_name = isinstance(parsed, ast.SelectSetQuery) and any(
+            sub.set_operator.endswith(" BY NAME") for sub in parsed.subsequent_select_queries
+        )
+        if preserve_clickhouse_output_names and not joins_by_name:
             # A transform can re-select the output through `*`, which keeps one column per HogQL name,
             # and HogQL names `a.event` and `a.event AS event` both `event`. Pinning the ClickHouse
             # names first keeps every column through the re-select.
