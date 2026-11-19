@@ -109365,6 +109365,16 @@ export namespace Schemas {
       Ga: 'ga',
     } as const;
 
+    export interface RememberConflict {
+      /** Why nothing was written. */
+      detail: string;
+      /**
+         * The stored entry's current ISO-8601 `updated_at`, or null when no entry has this key.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
     /**
      * Request body for `remember`.
      */
@@ -109389,6 +109399,8 @@ export namespace Schemas {
          * @nullable
          */
       expires_at?: string | null;
+      /** Optional precondition: the `updated_at` you read for this key from `scout-scratchpad-search`, sent back unchanged. The write happens only when the stored entry still has this `updated_at`. When the entry changed since you read it, or no entry has this key, nothing is written and the call returns 409 with the entry's current `updated_at`. Read the entry again and decide. Omit it to overwrite unconditionally. A value that can't be parsed is rejected, not dropped. */
+      if_updated_at?: string;
     }
 
     export interface RemoveOptOutRequest {
