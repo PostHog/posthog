@@ -11,6 +11,7 @@ import {
     FieldLabel,
     InputGroup,
     InputGroupAddon,
+    InputGroupButton,
     InputGroupInput,
     InputGroupText,
     Popover,
@@ -21,7 +22,6 @@ import {
     SelectItem,
     SelectTrigger,
     SelectValue,
-    cn,
 } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -66,35 +66,42 @@ function HeaderField({
     label,
     error,
     description,
-    actions,
-    className,
+    stacked,
     children,
 }: {
     label: string
     error?: string | null
     description?: ReactNode
-    /** Small links on the label's row, for the optional extras that belong to this field. */
-    actions?: ReactNode
-    className?: string
+    stacked?: boolean
     children: ReactNode
 }): JSX.Element {
-    return (
-        <Field data-invalid={error ? true : undefined} className={cn('min-w-0', className)}>
-            <div className="flex min-h-5 items-center justify-between gap-2">
+    const note = error ? (
+        <FieldError>{readableFieldError(error)}</FieldError>
+    ) : description ? (
+        <FieldDescription>{description}</FieldDescription>
+    ) : null
+    if (stacked) {
+        return (
+            <Field data-invalid={error ? true : undefined} className="min-w-0">
                 <FieldLabel>{label}</FieldLabel>
-                {actions ? <div className="flex items-center gap-3">{actions}</div> : null}
-            </div>
-            {children}
-            {error ? (
-                <FieldError>{readableFieldError(error)}</FieldError>
-            ) : description ? (
-                <FieldDescription>{description}</FieldDescription>
-            ) : null}
+                {children}
+                {note}
+            </Field>
+        )
+    }
+    return (
+        <Field
+            data-invalid={error ? true : undefined}
+            className="grid min-w-0 grid-cols-[6rem_minmax(0,1fr)] items-start gap-x-3 gap-y-1"
+        >
+            <FieldLabel className="flex h-7 items-center">{label}</FieldLabel>
+            <div className="min-w-0">{children}</div>
+            {note ? <div className="col-start-2">{note}</div> : null}
         </Field>
     )
 }
 
-const LabelAction = React.forwardRef<HTMLButtonElement, React.ComponentProps<typeof Button>>(function LabelAction(
+const LinkAction = React.forwardRef<HTMLButtonElement, React.ComponentProps<typeof Button>>(function LinkAction(
     { children, ...props },
     ref
 ) {
@@ -111,11 +118,13 @@ function LiquidInput({
     onChange,
     placeholder,
     invalid,
+    trailing,
 }: {
     value: string
     onChange: (value?: string) => void
     placeholder?: string
     invalid?: boolean
+    trailing?: ReactNode
 }): JSX.Element {
     const { logicProps } = useValues(emailTemplaterLogic)
     return (
@@ -129,6 +138,7 @@ function LiquidInput({
                     plain
                 />
             </div>
+            {trailing ? <InputGroupAddon align="inline-end">{trailing}</InputGroupAddon> : null}
         </InputGroup>
     )
 }
@@ -164,18 +174,28 @@ function useOptionalFields(): {
     }
 }
 
-/** A link on a field's label row that adds an optional field, shown only while that field is hidden. */
-function AddFieldAction({ field }: { field: OptionalFieldKey }): JSX.Element | null {
+function AddFieldButtons({ fields }: { fields: OptionalFieldKey[] }): JSX.Element | null {
     const { supports, isShown, reveal } = useOptionalFields()
-    if (!supports(field) || isShown(field)) {
+    const hidden = fields.filter((field) => supports(field) && !isShown(field))
+    if (!hidden.length) {
         return null
     }
     return (
-        // pinned: data-attr values feed autocapture dashboards
-        <LabelAction onClick={() => reveal(field)} data-attr={`email-header-add-${field}`}>
-            <IconPlus />
-            {OPTIONAL_FIELDS[field].label}
-        </LabelAction>
+        <>
+            {hidden.map((field) => (
+                // pinned: data-attr values feed autocapture dashboards
+                <InputGroupButton
+                    key={field}
+                    size="xs"
+                    onClick={() => reveal(field)}
+                    aria-label={`Add ${OPTIONAL_FIELDS[field].label}`}
+                    data-attr={`email-header-add-${field}`}
+                >
+                    <IconPlus />
+                    {OPTIONAL_FIELDS[field].label}
+                </InputGroupButton>
+            ))}
+        </>
     )
 }
 
@@ -197,6 +217,7 @@ function CustomSenderForm({ senders, onDone }: { senders: EmailSender[]; onDone:
         <div className="flex flex-col gap-3">
             <HeaderField
                 label="Display name"
+                stacked
                 description={
                     single?.config?.name
                         ? `Leave empty to use ${single.config.name}.`
@@ -211,6 +232,7 @@ function CustomSenderForm({ senders, onDone }: { senders: EmailSender[]; onDone:
             </HeaderField>
             <HeaderField
                 label="Address"
+                stacked
                 error={addressError}
                 description={
                     mixedDomains
@@ -292,25 +314,29 @@ function SenderField(): JSX.Element {
     }
     const placeholder = rotation ? 'Choose senders' : 'Choose a sender'
 
+    const customize =
+        selected.length || custom ? (
+            <Popover open={customOpen} onOpenChange={setCustomOpen}>
+                <PopoverTrigger render={<LinkAction />} data-attr="email-from-custom-sender">
+                    {custom ? 'Edit' : 'Change name or address'}
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-96 p-3">
+                    <CustomSenderForm senders={senders} onDone={() => setCustomOpen(false)} />
+                </PopoverContent>
+            </Popover>
+        ) : null
+
     return (
         <HeaderField
             label="From"
             error={error}
-            description={custom ? `Sends as ${custom}` : undefined}
-            actions={
-                <>
-                    <AddFieldAction field="replyTo" />
-                    {selected.length || custom ? (
-                        <Popover open={customOpen} onOpenChange={setCustomOpen}>
-                            <PopoverTrigger render={<LabelAction />} data-attr="email-from-custom-sender">
-                                {custom ? 'Edit name and address' : 'Change name or address'}
-                            </PopoverTrigger>
-                            <PopoverContent align="end" className="w-96 p-3">
-                                <CustomSenderForm senders={senders} onDone={() => setCustomOpen(false)} />
-                            </PopoverContent>
-                        </Popover>
-                    ) : null}
-                </>
+            description={
+                customize ? (
+                    <span className="flex flex-wrap items-baseline gap-x-2">
+                        {custom ? <span className="min-w-0 truncate">Sends as {custom}</span> : null}
+                        {customize}
+                    </span>
+                ) : undefined
             }
         >
             <Select
@@ -356,34 +382,32 @@ function OptionalField({ field }: { field: OptionalFieldKey }): JSX.Element {
     const { label, placeholder, description } = OPTIONAL_FIELDS[field]
     const error = field === 'preheader' ? logicProps.fieldErrors?.preheader : undefined
     return (
-        <HeaderField
-            label={label}
-            error={error}
-            description={description}
-            actions={
-                <LabelAction
-                    aria-label={`Remove ${label}`}
-                    onClick={() => {
-                        setEmailTemplateValue(field, '')
-                        hideAdvancedField(field)
-                    }}
-                >
-                    <IconX />
-                    Remove
-                </LabelAction>
-            }
-        >
+        <HeaderField label={label} error={error} description={description}>
             <LiquidInput
                 value={((emailTemplate as EmailTemplate)[field] as string | undefined) ?? ''}
                 onChange={(value) => setEmailTemplateValue(field, value ?? '')}
                 placeholder={placeholder}
                 invalid={!!error}
+                trailing={
+                    <InputGroupButton
+                        size="icon-xs"
+                        aria-label={`Remove ${label}`}
+                        tooltip={`Remove ${label}`}
+                        onClick={() => {
+                            setEmailTemplateValue(field, '')
+                            hideAdvancedField(field)
+                        }}
+                        data-attr={`email-header-remove-${field}`}
+                    >
+                        <IconX />
+                    </InputGroupButton>
+                }
             />
         </HeaderField>
     )
 }
 
-/** The sender, recipients and subject, in the redesigned look. Optional fields are added from links next to the field they belong to. */
+/** Optional fields are added from buttons inside the field they belong to, and appear right below it. */
 export function QuillEmailHeaderFields(): JSX.Element {
     const { emailTemplate, logicProps } = useValues(emailTemplaterLogic)
     const { setEmailTemplateValue } = useActions(emailTemplaterLogic)
@@ -394,40 +418,27 @@ export function QuillEmailHeaderFields(): JSX.Element {
     const to = emailTemplate.to as unknown as { email?: string; name?: string } | undefined
 
     return (
-        <div data-quill className="flex flex-col gap-4 border-b p-4" data-attr="email-header-fields">
-            <div className="grid grid-cols-1 items-start gap-4 @lg:grid-cols-2">
-                <div className="flex min-w-0 flex-col gap-4">
-                    <SenderField />
-                    {shown('replyTo') ? <OptionalField field="replyTo" /> : null}
-                </div>
-                <div className="flex min-w-0 flex-col gap-4">
-                    <HeaderField
-                        label="To"
-                        error={errors?.to}
-                        actions={
-                            <>
-                                <AddFieldAction field="cc" />
-                                <AddFieldAction field="bcc" />
-                            </>
-                        }
-                    >
-                        <LiquidInput
-                            value={to?.email ?? ''}
-                            onChange={(email) => setEmailTemplateValue('to', { ...to, email: email ?? '' })}
-                            placeholder="Who receives this email"
-                            invalid={!!errors?.to}
-                        />
-                    </HeaderField>
-                    {shown('cc') ? <OptionalField field="cc" /> : null}
-                    {shown('bcc') ? <OptionalField field="bcc" /> : null}
-                </div>
-            </div>
-            <HeaderField label="Subject" error={errors?.subject} actions={<AddFieldAction field="preheader" />}>
+        <div data-quill className="flex flex-col gap-3 border-b p-4" data-attr="email-header-fields">
+            <SenderField />
+            <HeaderField label="To" error={errors?.to}>
+                <LiquidInput
+                    value={to?.email ?? ''}
+                    onChange={(email) => setEmailTemplateValue('to', { ...to, email: email ?? '' })}
+                    placeholder="Who receives this email"
+                    invalid={!!errors?.to}
+                    trailing={<AddFieldButtons fields={['cc', 'bcc', 'replyTo']} />}
+                />
+            </HeaderField>
+            {shown('cc') ? <OptionalField field="cc" /> : null}
+            {shown('bcc') ? <OptionalField field="bcc" /> : null}
+            {shown('replyTo') ? <OptionalField field="replyTo" /> : null}
+            <HeaderField label="Subject" error={errors?.subject}>
                 <LiquidInput
                     value={emailTemplate.subject ?? ''}
                     onChange={(subject) => setEmailTemplateValue('subject', subject ?? '')}
                     placeholder="What's this email about?"
                     invalid={!!errors?.subject}
+                    trailing={<AddFieldButtons fields={['preheader']} />}
                 />
             </HeaderField>
             {shown('preheader') ? <OptionalField field="preheader" /> : null}
