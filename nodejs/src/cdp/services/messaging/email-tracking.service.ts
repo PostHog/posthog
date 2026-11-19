@@ -35,9 +35,11 @@ import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tr
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
 
-// Attribute values are read as a browser reads them, so a `>` inside quotes does not end the tag. An unclosed quote
-// ends at the next `>`, as the plain cut did.
-const OPENING_TAG = /^<a\b(?:=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)|[^>=])*>/i
+// Attributes are read as a browser reads them, so a `>` inside a quoted value does not end the tag. A quote that never
+// closes falls back to the next `>`, as the plain cut did. Each token has one reading, so a match stays linear even
+// when it fails.
+const OPENING_TAG =
+    /^<a\b(?:[\s/]+(?![\s/])|[^\s/>][^\s/>=]*(?![^\s/>=])(?:\s*=\s*(?!\s)(?:"[^"]*"|'[^']*'|(?!"[^"]*")(?!'[^']*')[^\s>]*(?![^\s>]))|(?!\s*=)))*>/i
 
 // Matches an existing `ses:tags` attribute so our link tag can be merged into its value.
 const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+))/i
