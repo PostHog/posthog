@@ -3,7 +3,8 @@ import re
 import json
 import asyncio
 import dataclasses
-from collections.abc import AsyncGenerator, Iterable
+from collections.abc import AsyncGenerator, Callable, Iterable, Iterator
+from contextlib import contextmanager
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import parse_qs, quote, urlparse
@@ -430,6 +431,14 @@ def _log_entry_objects(content: str) -> list[object]:
             except ValueError:
                 entries.append({"unparseable_line": line})
     return entries
+
+
+@contextmanager
+def _run_context_denied() -> Iterator[None]:
+    try:
+        yield
+    except tasks_contracts.TaskRunContextUnreadable:
+        raise PermissionDenied("The analytics data in this task run is not available to you.")
 
 
 def _log_filter(query: dict) -> tasks_contracts.TaskRunLogFilter:
@@ -2249,6 +2258,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskRunDetailSerializer
     _authorized_task_id: str | None = None
+    _sandbox_run_request = False
 
     def initial(self, request: Request, *args: object, **kwargs: object) -> None:
         super().initial(request, *args, **kwargs)
@@ -2369,7 +2379,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "artifacts_preview",
     )
     _VISIBILITY_ONLY_ACTIONS = ("analyze",)
-    _LOG_READ_ACTIONS = ("logs", "log_entries", "session_logs", "stream")
 
     def _one_shot_analysis_response(self, task_id: str) -> Response | None:
         """Refuse to add runs to a server-created analysis task; see the facade reader."""
@@ -2418,18 +2427,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 UUID(run_id)
             except (ValueError, TypeError):
                 raise NotFound("Task run not found")
-        if not run_context.is_sandbox_run_request(
+        self._sandbox_run_request = run_context.is_sandbox_run_request(
             request=self.request,
             team_id=self.team_id,
             task_id=task_id,
             run_id=run_id,
             include_resume_sources=is_read_only,
-        ) and not run_context.may_read_task_run_context(
-            request=self.request,
-            team_id=self.team_id,
-            task_id=task_id,
-            run_id=run_id,
-            include_chain=self.action in self._LOG_READ_ACTIONS,
+        )
+        if not self._sandbox_run_request and not run_context.may_read_task_run_context(
+            request=self.request, team_id=self.team_id, task_id=task_id, run_id=run_id
         ):
             raise PermissionDenied("The analytics data in this task run is not available to you.")
         if (
@@ -2439,6 +2445,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ):
             raise NotFound("Task run not found")
         return task_id
+
+    def _log_context_reader(self) -> Callable[[object], bool] | None:
+        if self._sandbox_run_request:
+            return None
+        return run_context.analytics_context_reader(request=self.request, team_id=self.team_id)
 
     def _get_run_or_404(self, pk) -> tasks_contracts.TaskRunDetailDTO:
         task_id = self._ensure_task_accessible()
@@ -3737,7 +3748,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 tasks_facade.mark_task_run_stream_watched(pk, task_id, self.team_id)
         log_headers: dict[str, str] = {}
         log_page: tasks_contracts.TaskRunLogPageDTO | None = None
-        with timer("s3_read"):
+        reader = self._log_context_reader()
+        with timer("s3_read"), _run_context_denied():
             if "tail_bytes" in query:
                 log_slice = tasks_facade.read_task_run_conversation_log_slice(
                     pk,
@@ -3746,6 +3758,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     tail_bytes=query["tail_bytes"],
                     before=query.get("before"),
                     start=query.get("start"),
+                    reader=reader,
                 )
                 log_content = log_slice.content if log_slice else None
                 if log_slice is not None and log_slice.sliced:
@@ -3764,6 +3777,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     start=query.get("start", 0),
                     limit=query.get("limit"),
                     log_filter=_log_filter(query),
+                    reader=reader,
                 )
                 log_content = log_page.content if log_page else None
                 if log_page is not None:
@@ -3773,7 +3787,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         "X-Log-Origin": log_page.origin,
                     }
             else:
-                log_content = tasks_facade.read_task_run_conversation_logs(pk, task_id, self.team_id)
+                log_content = tasks_facade.read_task_run_conversation_logs(pk, task_id, self.team_id, reader=reader)
         if log_content is None:
             raise NotFound()
         if query["view"] == TaskRunLogsView.THREAD:
@@ -4401,8 +4415,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = self._ensure_task_accessible()
         timer = ServerTimingsGathered()
 
-        with timer("s3_read"):
-            log_content = tasks_facade.read_task_run_logs(pk, task_id, self.team_id)
+        with timer("s3_read"), _run_context_denied():
+            log_content = tasks_facade.read_task_run_logs(pk, task_id, self.team_id, reader=self._log_context_reader())
         if log_content is None:
             raise NotFound()
 
@@ -4619,12 +4633,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         thin_tail = run_stream_thin_tail(stream_info.state) and not start_latest
         backlog_serve_after: int | None = None
         backlog_logs: list[tasks_facade.TaskRunLog] = []
+        reader = self._log_context_reader()
         if thin_tail:
             if not last_event_id:
                 backlog_serve_after = -1
             else:
                 backlog_serve_after = parse_log_cursor(last_event_id)
-            backlog_logs = tasks_facade.get_task_run_logs(pk, task_id, self.team_id) or []
+            with _run_context_denied():
+                backlog_logs = tasks_facade.get_task_run_logs(pk, task_id, self.team_id, reader=reader) or []
+        else:
+            with _run_context_denied():
+                tasks_facade.check_task_run_history_context(pk, task_id, self.team_id, reader=reader)
 
         async def async_stream() -> AsyncGenerator[bytes]:
             redis_stream = TaskRunRedisStream(stream_key, use_dedicated_stream)

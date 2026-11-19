@@ -89,6 +89,14 @@ def _log(*entry_groups: list[dict]) -> str:
     return "\n".join(json.dumps(entry) for group in entry_groups for entry in group)
 
 
+def _log_entries_page(lines: list[str], *, offset: int, count: int) -> httpx.Response:
+    return httpx.Response(
+        200,
+        text="".join(f"{line}\n" for line in lines),
+        headers={"X-Log-Offset": str(offset), "X-Log-Count": str(count)},
+    )
+
+
 def _case(**overrides: object) -> dict:
     return {
         "case_id": "web-sessions-daily",
@@ -165,11 +173,12 @@ def _batch_client(
         runs_match = re.fullmatch(r".*/tasks/([^/]+)/runs/", path)
         if runs_match:
             return httpx.Response(200, json={"results": runs_by_task[runs_match.group(1)]})
-        log_match = re.fullmatch(r".*/tasks/[^/]+/runs/([^/]+)/session_logs/", path)
+        log_match = re.fullmatch(r".*/tasks/[^/]+/runs/([^/]+)/log_entries/", path)
         assert log_match, path
         if log_match.group(1) in unreadable_logs:
             return httpx.Response(500, json={"error": "session log unavailable"})
-        return httpx.Response(200, json=logs_by_run[log_match.group(1)], headers={"X-Has-More": "false"})
+        entries = logs_by_run[log_match.group(1)]
+        return _log_entries_page([json.dumps(entry) for entry in entries], offset=0, count=len(entries))
 
     return CanaryApiClient(
         host="https://us.posthog.test", project_id=2, api_key="key", transport=httpx.MockTransport(handler)
@@ -470,19 +479,15 @@ class TestCliArguments:
 
 
 class TestCanaryApiClient:
-    def test_reads_every_page_before_scoring(self) -> None:
-        pages = [[{"page": 0}, {"page": 1}], [{"page": 2}]]
-        seen_offsets: list[str | None] = []
+    def test_reads_every_page_and_skips_unparseable_entries_before_scoring(self) -> None:
+        lines = ['{"page": 0}', '{"page": 1', '{"page": 2}']
+        seen_starts: list[str] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
-            offset = request.url.params.get("offset")
-            seen_offsets.append(offset)
-            index = int(offset or 0) // 2
-            return httpx.Response(
-                200,
-                json=pages[index],
-                headers={"X-Has-More": "true" if index + 1 < len(pages) else "false"},
-            )
+            start = request.url.params["start"]
+            seen_starts.append(start)
+            offset = int(start)
+            return _log_entries_page(lines[offset : offset + 2], offset=offset, count=len(lines))
 
         with CanaryApiClient(
             host="https://us.posthog.test",
@@ -492,8 +497,8 @@ class TestCanaryApiClient:
         ) as client:
             raw_log = client.read_full_log("task-1", "run-1")
 
-        assert seen_offsets == ["0", "2"]
-        assert raw_log.splitlines() == ['{"page": 0}', '{"page": 1}', '{"page": 2}']
+        assert seen_starts == ["0", "2"]
+        assert raw_log.splitlines() == ['{"page": 0}', '{"page": 2}']
 
     def test_retries_a_page_that_times_out_on_read(self) -> None:
         attempts = 0
@@ -503,7 +508,7 @@ class TestCanaryApiClient:
             attempts += 1
             if attempts == 1:
                 raise httpx.ReadTimeout("slow page", request=request)
-            return httpx.Response(200, json=[{"page": 0}], headers={"X-Has-More": "false"})
+            return _log_entries_page(['{"page": 0}'], offset=0, count=1)
 
         with CanaryApiClient(
             host="https://us.posthog.test", project_id=2, api_key="key", transport=httpx.MockTransport(handler)

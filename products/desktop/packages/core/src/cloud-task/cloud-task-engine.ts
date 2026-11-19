@@ -1,3 +1,7 @@
+import {
+  parseLogEntriesPage,
+  type TaskRunSessionLogsPage,
+} from "@posthog/api-client/log-entries";
 import type { RootLogger, ScopedLogger } from "@posthog/di/logger";
 import type { IAnalytics } from "@posthog/platform/analytics";
 import {
@@ -74,12 +78,6 @@ const MCP_RELAY_METHODS_WITHOUT_APPROVAL = new Set([
 // The client stops on it without consulting run status.
 const STREAM_END_EVENT_NAME = "stream-end";
 const END_EVENT_NAME = "end";
-
-interface SessionLogsPage {
-  entries: StoredLogEntry[];
-  hasMore: boolean;
-  matchingCount: number | null;
-}
 
 interface SessionLogsWindow {
   entries: StoredLogEntry[];
@@ -2696,12 +2694,12 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     watcher: WatcherState,
     offset: number,
     limit: number = SESSION_LOG_PAGE_LIMIT,
-  ): Promise<SessionLogsPage | null> {
+  ): Promise<TaskRunSessionLogsPage | null> {
     const url = new URL(
-      `${watcher.apiHost}/api/projects/${watcher.teamId}/tasks/${watcher.taskId}/runs/${watcher.runId}/session_logs/`,
+      `${watcher.apiHost}/api/projects/${watcher.teamId}/tasks/${watcher.taskId}/runs/${watcher.runId}/log_entries/`,
     );
     url.searchParams.set("limit", limit.toString());
-    url.searchParams.set("offset", offset.toString());
+    url.searchParams.set("start", offset.toString());
 
     const timeout = createBootstrapTimeout();
     try {
@@ -2730,18 +2728,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       }
 
       const raw = await authedResponse.text();
-      // Number(null) is 0, so an absent header must stay null.
-      const matchingHeader = authedResponse.headers.get("X-Matching-Count");
-      const matchingCount =
-        matchingHeader === null ? null : Number(matchingHeader);
-      return {
-        entries: JSON.parse(raw) as StoredLogEntry[],
-        hasMore: authedResponse.headers.get("X-Has-More") === "true",
-        matchingCount:
-          matchingCount !== null && Number.isFinite(matchingCount)
-            ? matchingCount
-            : null,
-      };
+      return parseLogEntriesPage(raw, authedResponse.headers, offset);
     } catch (error) {
       this.log.warn("Cloud task session logs fetch error", {
         taskId: watcher.taskId,
