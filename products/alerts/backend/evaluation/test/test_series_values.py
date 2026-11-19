@@ -7,11 +7,20 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 from parameterized import parameterized
+from temporalio.exceptions import CancelledError
 
+from posthog.schema import TrendsQuery
+
+from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import CHQueryErrorQueryWasCancelled
 
 from products.alerts.backend.evaluation.dispatcher import check_alert_for_insight
-from products.alerts.backend.evaluation.series_values_shadow import SHADOW_BUILD_BUDGET_SECONDS, SHADOW_COMPARISON_EVENT
+from products.alerts.backend.evaluation.series_values_shadow import (
+    SHADOW_BUILD_BUDGET_SECONDS,
+    SHADOW_COMPARISON_EVENT,
+    compare_series_values_shadow,
+)
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.product_analytics.backend.facade.models import Insight
@@ -171,6 +180,42 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
 
         assert shadowed == live
         assert (properties["outcome"], properties["reason"]) == ("error", "RuntimeError")
+
+    @parameterized.expand(
+        [
+            ("killed_query", CHQueryErrorQueryWasCancelled("killed", code=394)),
+            ("cancelled_activity", CancelledError()),
+        ]
+    )
+    def test_a_cancelled_check_stops_in_the_shadow_step(self, _name: str, cancellation: Exception) -> None:
+        alert = self._alert(detector=_THRESHOLD_DETECTOR)
+
+        with (
+            self._enrolled(),
+            patch(f"{_SHADOW}.closed_series_values", side_effect=cancellation),
+            patch(f"{_SHADOW}.posthoganalytics.capture") as capture,
+            self.assertRaises(type(cancellation)),
+        ):
+            check_alert_for_insight(alert)
+
+        assert _shadow_events(capture) == []
+
+    @parameterized.expand([("no_results", None), ("empty_results", [])])
+    def test_an_empty_live_result_builds_nothing(self, _name: str, live: list | None) -> None:
+        alert = self._alert(detector=None)
+
+        with self._enrolled(), patch(f"{_SHADOW}.posthoganalytics.capture") as capture:
+            compare_series_values_shadow(
+                alert,
+                TrendsQuery.model_validate(_trends_query("day")),
+                None,
+                InsightResult(result=live, last_refresh=None, cache_key=None, is_cached=False, timezone=None),
+                alert_kind="threshold",
+            )
+
+        [properties] = _shadow_events(capture)
+        assert (properties["outcome"], properties["reason"]) == ("unavailable", "no_live_result")
+        assert self._jobs() == 0
 
     @parameterized.expand(
         [
