@@ -16,7 +16,7 @@ from posthog.models import Team, User
 from posthog.storage import object_storage
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.cohorts.backend.facade.api import replace_static_cohort_members
+from products.cohorts.backend.facade.api import find_cohort_ref_by_description, replace_static_cohort_members
 from products.workflows.backend.facade.contracts import (
     ContactChunkOutcome,
     ContactsCohortFilled,
@@ -53,6 +53,10 @@ class ContactsCaptureFailed(Exception):
     """Capture didn't acknowledge every event of a part. Sending the part again is safe."""
 
 
+class ContactsCleanupFailed(Exception):
+    """Object storage kept some of the parts an import stored."""
+
+
 def stage_provider_contacts(
     team_id: int,
     user_id: int | None,
@@ -74,7 +78,8 @@ def stage_provider_contacts(
     such as contacts who unsubscribed. `import_key` names the import run and list, so a retried save overwrites its
     own parts. `source` names the list in a note, such as 'the Resend segment "VIPs"'.
     """
-    if not rows:
+    # An empty list empties the cohort an earlier import filled, and makes no new one.
+    if not rows and find_cohort_ref_by_description(team_id=team_id, description=cohort_description) is None:
         return ProviderContactsResult(status="skipped", notes=("No contacts to import.",))
     creator = _check_creator(team_id, user_id)
     if isinstance(creator, ProviderContactsResult):
@@ -110,8 +115,7 @@ def stage_provider_contacts(
                 if person["properties"]["email"].lower() in non_members:
                     person["member"] = False
                 people.append(person)
-        if people:
-            mark_cohort_filling(team_id, cohort.cohort_id)
+        mark_cohort_filling(team_id, cohort.cohort_id)
     except PeopleImportInvalid as error:
         return ProviderContactsResult(
             status="failed", cohort_id=cohort.cohort_id, cohort_name=cohort.name, notes=(str(error),)
@@ -133,7 +137,7 @@ def stage_provider_contacts(
         skipped_new_people=skipped_new_people,
         dropped=dropped,
         person_emails=tuple(sorted(person_emails)),
-        storage_prefix=storage_prefix if people else "",
+        storage_prefix=storage_prefix,
         chunks=chunks,
     )
 
@@ -210,18 +214,26 @@ def import_contact_chunk(team_id: int, storage_prefix: str, chunk: int, *, send_
 
 
 def _send(team: Team, people: list[StagedPerson], key: str) -> None:
-    events = set_events(people, key)
+    # Capture ingests an acknowledged event again when it's resent, so what it acknowledged outlasts a retry.
+    acknowledged_key = f"{key.removesuffix('.json')}.acknowledged.json"
+    acknowledged = set(json.loads(object_storage.read(acknowledged_key, missing_ok=True) or "[]"))
+    events = [event for event in set_events(people, key) if event["event_uuid"] not in acknowledged]
     for _ in range(CAPTURE_ATTEMPTS):
+        if not events:
+            return
         result = capture_batch_internal(
             events=events, token=team.api_token, event_source=EVENT_SOURCE, process_person_profile=True
         )
         # Capture can ack part of a batch, so the next try sends only the rest. A dropped event can't be delivered,
         # and the cohort reports its person as unmatched.
         unacknowledged = {*result.retried, *result.unaccounted}
-        if not unacknowledged:
-            return
+        sent = {str(event["event_uuid"]) for event in events} - unacknowledged
+        if sent and unacknowledged:
+            acknowledged |= sent
+            object_storage.write(acknowledged_key, json.dumps(sorted(acknowledged)))
         events = [event for event in events if event["event_uuid"] in unacknowledged]
-    raise ContactsCaptureFailed(f"Capture didn't acknowledge {len(events)} events.")
+    if events:
+        raise ContactsCaptureFailed(f"Capture didn't acknowledge {len(events)} events.")
 
 
 def fill_contacts_cohort(team_id: int, cohort_id: int, storage_prefix: str, chunks: int) -> ContactsCohortFilled:
@@ -244,8 +256,11 @@ def fail_contacts_cohort(team_id: int, cohort_id: int) -> None:
 def discard_staged_contacts(team_id: int, import_key: str) -> None:
     """Delete every part an import stored, including those of a save that rolled back."""
     keys = list(object_storage.iter_keys(f"{_STORAGE_FOLDER}/team-{team_id}/{import_key}/"))
+    failed: list[str] = []
     for start in range(0, len(keys), 1000):
-        object_storage.delete_objects(keys[start : start + 1000])
+        failed += object_storage.delete_objects(keys[start : start + 1000])
+    if failed:
+        raise ContactsCleanupFailed(f"{len(failed)} stored parts weren't deleted.")
 
 
 def _chunk_key(storage_prefix: str, chunk: int) -> str:

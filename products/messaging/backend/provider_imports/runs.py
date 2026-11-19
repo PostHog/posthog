@@ -38,7 +38,7 @@ from products.messaging.backend.provider_imports.base import (
 from products.messaging.backend.provider_imports.registry import get_provider
 from products.messaging.backend.temporal.client import RUN_EXECUTION_TIMEOUT, start_provider_import_workflow
 from products.workflows.backend.facade.api import can_edit_workflows
-from products.workflows.backend.facade.people_import import discard_staged_contacts
+from products.workflows.backend.facade.people_import import discard_staged_contacts, fail_contacts_cohort
 
 logger = logging.getLogger(__name__)
 
@@ -187,12 +187,10 @@ def _check_required_steps(provider: ImportProvider, run: ProviderImportRun, step
 
 def finish_run(team_id: int, run_id: UUID) -> None:
     """Fail the steps that did not complete, and set the run's final status. A run that already ended stays as it is."""
+    # Before the run closes, so a storage error retries the finish. It also removes what a save that rolled back, or
+    # a step that failed, stored.
+    discard_staged_contacts(team_id, str(run_id))
     _close_run(team_id, run_id)
-    try:
-        # Also removes what a save that rolled back, or a step that failed, stored.
-        discard_staged_contacts(team_id, str(run_id))
-    except Exception:
-        logger.exception("Failed to delete the contacts a provider import stored", extra={"run_id": str(run_id)})
 
 
 def record_people_import(team_id: int, run_id: UUID, step: str, outcome: Mapping[str, int]) -> None:
@@ -221,7 +219,7 @@ def close_stale_runs() -> int:
         .values_list("team_id", "id")
     )
     for team_id, run_id in stale:
-        _close_run(team_id, run_id)
+        _close_stale_run(team_id, run_id)
     return len(stale)
 
 
@@ -282,7 +280,16 @@ def _fail_stale_runs(team_id: int) -> None:
         .values_list("id", flat=True)
     )
     for run_id in stale_ids:
-        _close_run(team_id, run_id)
+        _close_stale_run(team_id, run_id)
+
+
+def _close_stale_run(team_id: int, run_id: UUID) -> None:
+    try:
+        discard_staged_contacts(team_id, str(run_id))
+    except Exception:
+        # A run that never closes would block every later import, so it closes anyway.
+        logger.exception("Failed to delete the contacts a provider import stored", extra={"run_id": str(run_id)})
+    _close_run(team_id, run_id)
 
 
 def _close_run(team_id: int, run_id: UUID) -> None:
@@ -290,8 +297,13 @@ def _close_run(team_id: int, run_id: UUID) -> None:
         run = _runs(team_id).select_for_update().get(id=run_id)
         if run.status not in ACTIVE_IMPORT_STATUSES:
             return
+        unfinished_cohorts: list[int] = []
         for step in run.steps:
             progress = run.progress.setdefault(step, _new_step_progress())
+            if progress.get("people_imports") and "people_import" not in progress:
+                # The workflow ended before it sent the step's contacts, so their cohorts can't finish.
+                unfinished_cohorts += [plan["cohort_id"] for plan in progress["people_imports"]]
+                progress.update(status=ImportStepStatus.FAILED.value, last_error=PEOPLE_IMPORT_FAILED_MESSAGE)
             if progress["status"] != ImportStepStatus.COMPLETED:
                 progress["status"] = ImportStepStatus.FAILED
         completed = all(run.progress[step]["status"] == ImportStepStatus.COMPLETED for step in run.steps)
@@ -300,6 +312,8 @@ def _close_run(team_id: int, run_id: UUID) -> None:
         run.temporary_api_key = None
         run.save(update_fields=["progress", "status", "finished_at", "temporary_api_key"])
 
+    for cohort_id in unfinished_cohorts:
+        fail_contacts_cohort(team_id, cohort_id)
     _report_finished(run)
 
 

@@ -237,7 +237,8 @@ def _import(
 
 
 def _plan(result: ProviderContactsResult, *, send_events: bool) -> PeopleImportPlan | None:
-    if result.cohort_id is None or not result.chunks:
+    # A list with no people left still empties its cohort, unless staging failed.
+    if result.status == "failed" or result.cohort_id is None:
         return None
     return PeopleImportPlan(
         cohort_id=result.cohort_id, storage_prefix=result.storage_prefix, chunks=result.chunks, send_events=send_events

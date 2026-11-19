@@ -685,6 +685,23 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
             assert run.progress["contact_properties"]["status"] == "completed"
             assert not any(re.fullmatch(r"/contacts/[^/]+", call) for call in self.resend.calls)
 
+    def test_a_run_whose_workflow_never_sent_its_contacts_fails_their_cohort_and_deletes_them(self) -> None:
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts", "new_people"], API_KEY, self.user.id)
+        for step in run.steps:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+        ProviderImportRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            created_at=timezone.now() - runs.STALE_RUN_AGE * 2
+        )
+
+        assert runs.close_stale_runs() == 1
+
+        run.refresh_from_db()
+        [plan] = run.progress["contacts"]["people_imports"]
+        cohort = Cohort.objects.get(id=plan["cohort_id"])
+        assert (run.status, run.progress["contacts"]["status"]) == ("failed", "failed")
+        assert (cohort.is_calculating, cohort.errors_calculating) == (False, 1)
+        assert self.people.stored == {}
+
     @parameterized.expand(
         [
             (
@@ -712,13 +729,13 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         with self.captureOnCommitCallbacks(execute=True):
             for step in run.steps:
                 runs.run_step(self.team.id, run.id, step, attempt=1)
-        runs.finish_run(self.team.id, run.id)
         run.refresh_from_db()
-
         # The workflow sends the stored list once the step completes. A contact who unsubscribed becomes a person but
         # stays out of the cohort.
         [plan] = run.progress["contacts"]["people_imports"]
         people = self.people.people(plan)
+        runs.finish_run(self.team.id, run.id)
+        run.refresh_from_db()
         assert (Cohort.objects.get(id=plan["cohort_id"]).name, plan["send_events"]) == ("Resend contacts", True)
         assert [(person["distinct_id"], person.get("member", True)) for person in people] == staged
         assert people[-1]["properties"] == {"email": "happy@example.com", "first_name": "Hal", "last_name": "Happy"}

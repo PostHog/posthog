@@ -1678,6 +1678,50 @@ def delete_cohort_member(team_id: int, cohort_id: int, person_id: int) -> bool:
     )
 
 
+# GetPersonsRequest takes up to 250 IDs.
+_GET_PERSONS_MAX_IDS = 250
+_REMOVE_MEMBERS_CHUNK_SIZE = 10_000
+
+
+def remove_static_cohort_members(team_id: int, cohort_id: int, person_ids: Sequence[int]) -> None:
+    """Remove people from a static cohort, from ClickHouse first and then Postgres.
+
+    Postgres keeps them until ClickHouse no longer does, so a retry after a failure finds them again.
+    """
+    from posthog.personhog_client.client import get_personhog_client, personhog_call
+    from posthog.personhog_client.proto import DeleteCohortMembersByPersonIdsRequest, GetPersonsRequest
+
+    from products.cohorts.backend.models.cohort import Cohort
+
+    if not person_ids or not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        return
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    def person_uuids() -> list[uuid.UUID]:
+        uuids: list[uuid.UUID] = []
+        for start in range(0, len(person_ids), _GET_PERSONS_MAX_IDS):
+            ids = list(person_ids[start : start + _GET_PERSONS_MAX_IDS])
+            response = client.get_persons(GetPersonsRequest(team_id=team_id, person_ids=ids))
+            uuids.extend(uuid.UUID(person.uuid) for person in response.persons)
+        return uuids
+
+    uuids = personhog_call("get_persons", person_uuids)
+    for start in range(0, len(uuids), _REMOVE_MEMBERS_CHUNK_SIZE):
+        remove_people_from_static_cohort(uuids[start : start + _REMOVE_MEMBERS_CHUNK_SIZE], cohort_id, team_id=team_id)
+
+    def delete_members() -> None:
+        for start in range(0, len(person_ids), _REMOVE_MEMBERS_CHUNK_SIZE):
+            ids = list(person_ids[start : start + _REMOVE_MEMBERS_CHUNK_SIZE])
+            client.delete_cohort_members_by_person_ids(
+                DeleteCohortMembersByPersonIdsRequest(cohort_id=cohort_id, person_ids=ids)
+            )
+
+    personhog_call("delete_cohort_members_by_person_ids", delete_members)
+
+
 _DELETE_BULK_MAX_ITERATIONS = 10_000
 
 

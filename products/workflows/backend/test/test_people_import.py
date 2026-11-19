@@ -19,7 +19,6 @@ from posthog.test.persons import add_cohort_members, create_person
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
-from products.cohorts.backend.facade import api as cohorts_api
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import list_cohort_member_ids
 from products.event_definitions.backend.models import PropertyDefinition
@@ -269,45 +268,53 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
             **kwargs,
         )
 
-    @parameterized.expand([("first_try", False), ("after_a_clickhouse_failure", True)])
-    def test_a_rerun_keeps_the_cohort_to_exactly_the_list(self, _name: str, clickhouse_fails_once: bool) -> None:
-        ada, bea, cy = (
-            create_person(team=self.team, distinct_ids=[f"user-{name}"], properties={"email": f"{name}@example.com"})
-            for name in ("ada", "bea", "cy")
-        )
-        flush_persons_and_events()
-        first = self._stage(["ada@example.com", "bea@example.com", "cy@example.com"])
-        assert first.cohort_id is not None
-        add_cohort_members(Cohort.objects.get(id=first.cohort_id), [ada, bea, cy])
-
-        # Cy left the list and Bea unsubscribed. Two parts, so the cohort fills from both.
-        with patch.object(provider_contacts, "CONTACT_CHUNK_SIZE", 1):
-            again = self._stage(["ada@example.com", "bea@example.com"], non_members={"bea@example.com"})
-        assert again.cohort_id is not None
-        if clickhouse_fails_once:
+    @parameterized.expand(
+        [
+            # Cy left the list and Bea unsubscribed.
+            ("first_try", ["ada", "bea"], False, ["ada"]),
             # A retry must still find the members to remove, so Postgres can't drop them before ClickHouse does.
+            ("after_a_clickhouse_failure", ["ada", "bea"], True, ["ada"]),
+            ("list_emptied", [], False, []),
+        ]
+    )
+    def test_a_rerun_keeps_the_cohort_to_exactly_the_list(
+        self, _name: str, still_listed: list[str], clickhouse_fails_once: bool, members: list[str]
+    ) -> None:
+        people = {
+            name: create_person(
+                team=self.team, distinct_ids=[f"user-{name}"], properties={"email": f"{name}@example.com"}
+            )
+            for name in ("ada", "bea", "cy")
+        }
+        flush_persons_and_events()
+        first = self._stage([f"{name}@example.com" for name in people])
+        assert first.cohort_id is not None
+        add_cohort_members(Cohort.objects.get(id=first.cohort_id), list(people.values()))
+
+        # One person per part, so the cohort fills from several.
+        with patch.object(provider_contacts, "CONTACT_CHUNK_SIZE", 1):
+            again = self._stage([f"{name}@example.com" for name in still_listed], non_members={"bea@example.com"})
+        assert again.cohort_id == first.cohort_id
+        if clickhouse_fails_once:
             with (
-                patch.object(
-                    cohorts_api, "remove_people_from_static_cohort", side_effect=ConnectionError("clickhouse is busy")
+                patch(
+                    "products.cohorts.backend.models.util.remove_people_from_static_cohort",
+                    side_effect=ConnectionError("clickhouse is busy"),
                 ),
                 self.assertRaises(ConnectionError),
             ):
                 provider_contacts.fill_contacts_cohort(
-                    self.team.id, again.cohort_id, again.storage_prefix, again.chunks
+                    self.team.id, first.cohort_id, again.storage_prefix, again.chunks
                 )
         filled = provider_contacts.fill_contacts_cohort(
-            self.team.id, again.cohort_id, again.storage_prefix, again.chunks
+            self.team.id, first.cohort_id, again.storage_prefix, again.chunks
         )
 
-        assert (again.cohort_id, again.chunks) == (first.cohort_id, 2)
-        assert list_cohort_member_ids(self.team.id, again.cohort_id) == [ada.id]
-        assert filled == ContactsCohortFilled(members=1, removed=2)
+        assert list_cohort_member_ids(self.team.id, first.cohort_id) == [people[name].id for name in members]
+        assert filled == ContactsCohortFilled(members=len(members), removed=3 - len(members))
 
-    @parameterized.expand([("resends_the_rest", 2, 2), ("gives_up_for_a_temporal_retry", 4, None)])
     @patch.object(provider_contacts, "capture_batch_internal")
-    def test_a_part_resends_only_what_capture_didnt_acknowledge(
-        self, _name: str, failures: int, found: int | None, capture: MagicMock
-    ) -> None:
+    def test_a_part_resends_only_what_capture_didnt_acknowledge(self, capture: MagicMock) -> None:
         for name in ("ada", "bea"):
             create_person(team=self.team, distinct_ids=[f"user-{name}"], properties={"email": f"{name}@example.com"})
         flush_persons_and_events()
@@ -317,19 +324,18 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
         def acknowledge_all_but_the_last(*, events: list[dict[str, Any]], **_: Any) -> CaptureInternalResult:
             sent.append([str(event["distinct_id"]) for event in events])
             uuids = [str(event["event_uuid"]) for event in events]
-            if len(sent) < failures:
+            if len(sent) < 4:
                 return CaptureInternalResult(status_code=200, ok=uuids[:-1], retried=uuids[-1:])
             return CaptureInternalResult(status_code=200, ok=uuids)
 
         capture.side_effect = acknowledge_all_but_the_last
-        if found is None:
-            with self.assertRaises(provider_contacts.ContactsCaptureFailed):
-                provider_contacts.import_contact_chunk(self.team.id, staged.storage_prefix, 0, send_events=True)
-            assert sent == [["user-ada", "user-bea"], ["user-bea"], ["user-bea"]]
-        else:
-            outcome = provider_contacts.import_contact_chunk(self.team.id, staged.storage_prefix, 0, send_events=True)
-            assert sent == [["user-ada", "user-bea"], ["user-bea"]]
-            assert outcome == ContactChunkOutcome(people=2, found=found)
+        with self.assertRaises(provider_contacts.ContactsCaptureFailed):
+            provider_contacts.import_contact_chunk(self.team.id, staged.storage_prefix, 0, send_events=True)
+        # Temporal's retry of the part sends only what capture never acknowledged.
+        outcome = provider_contacts.import_contact_chunk(self.team.id, staged.storage_prefix, 0, send_events=True)
+
+        assert sent == [["user-ada", "user-bea"], ["user-bea"], ["user-bea"], ["user-bea"]]
+        assert outcome == ContactChunkOutcome(people=2, found=2)
 
 
 class TestPeopleImportTasks(_StorageMixin, BaseTest):

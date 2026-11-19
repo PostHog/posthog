@@ -15,19 +15,14 @@ from typing import Any, Literal
 from django.db import connection, router
 
 from posthog.dataclasses import frozen
-from posthog.models.person.util import get_person_by_id, get_persons_by_distinct_ids
+from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.tasks.calculate_cohort import insert_cohort_from_query, schedule_static_cohort_count_refresh
 
 from products.cohorts.backend.models.cohort import Cohort, CohortType, ImportResolution
-from products.cohorts.backend.models.util import (
-    delete_cohort_member,
-    list_cohort_member_ids,
-    remove_people_from_static_cohort,
-)
+from products.cohorts.backend.models.util import list_cohort_member_ids, remove_static_cohort_members
 
 _MEMBER_LOOKUP_CHUNK_SIZE = 1000
-_MEMBER_REMOVE_CHUNK_SIZE = 10_000
 
 
 def cohort_exists_for_team(*, team_id: int, cohort_id: int) -> bool:
@@ -129,19 +124,14 @@ def replace_static_cohort_members(*, team_id: int, cohort_id: int, distinct_ids:
         )
         keep.update(person.id for person in persons)
     stale = sorted(set(list_cohort_member_ids(team_id, cohort_id)) - keep)
-    removed_uuids = [
-        person.uuid for person_id in stale if (person := get_person_by_id(team_id, person_id, distinct_id_limit=0))
-    ]
-    # ClickHouse first: a retry finds the stale members in Postgres again only while they are still there.
-    for start in range(0, len(removed_uuids), _MEMBER_REMOVE_CHUNK_SIZE):
-        remove_people_from_static_cohort(
-            removed_uuids[start : start + _MEMBER_REMOVE_CHUNK_SIZE], cohort_id, team_id=team_id
-        )
-    for person_id in stale:
-        delete_cohort_member(team_id=team_id, cohort_id=cohort_id, person_id=person_id)
+    remove_static_cohort_members(team_id, cohort_id, stale)
     resolution = ImportResolution()
     # Finishes the cohort's calculation and recounts it on success.
     cohort.insert_users_by_list(list(distinct_ids), team_id=team_id, raise_on_error=True, import_resolution=resolution)
+    # The cohort shows how many of the list it couldn't match.
+    Cohort.objects.filter(team_id=team_id, id=cohort_id).update(
+        last_import_total_count=resolution.total, last_import_unmatched_count=resolution.unmatched
+    )
     return StaticCohortReplaced(
         matched=len(resolution.matched_inputs), unmatched=resolution.unmatched, removed=len(stale)
     )
