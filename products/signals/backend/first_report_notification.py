@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from django.core.exceptions import ImproperlyConfigured
@@ -57,20 +57,40 @@ def _eligible_recipient(user: User | None, team: Team) -> bool:
     )
 
 
-def _visible_reports(team_id: int) -> QuerySet[SignalReport]:
+def _visible_report_states(team_id: int) -> tuple[Q, Q]:
     return (
-        SignalReport.objects.filter(
-            Q(status=SignalReport.Status.READY, latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value)
-            | Q(
-                status=SignalReport.Status.PENDING_INPUT,
-                latest_actionability=ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
-                scout_idempotency_key=f"first-report:{team_id}",
-            ),
-            team_id=team_id,
-            latest_already_addressed=False,
-        )
+        Q(status=SignalReport.Status.READY, latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value),
+        Q(
+            status=SignalReport.Status.PENDING_INPUT,
+            latest_actionability=ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
+            scout_idempotency_key=f"first-report:{team_id}",
+        ),
+    )
+
+
+def _visible_reports(team_id: int, state: Q | None = None) -> QuerySet[SignalReport]:
+    if state is None:
+        ready, needs_input = _visible_report_states(team_id)
+        state = ready | needs_input
+    return (
+        SignalReport.objects.filter(state, team_id=team_id, latest_already_addressed=False)
         .exclude(title="")
         .exclude(summary="")
+    )
+
+
+def _earliest_visible_report(team_id: int, since: datetime) -> SignalReport | None:
+    # One query per state: under an OR of states, Postgres cannot read the
+    # (team, status, latest_actionability, first_visible_at) index in order, and walks the
+    # team's visible reports instead.
+    candidates = [
+        _visible_reports(team_id, state).filter(first_visible_at__gte=since).order_by("first_visible_at", "id").first()
+        for state in _visible_report_states(team_id)
+    ]
+    return min(
+        (report for report in candidates if report is not None),
+        key=lambda report: (report.first_visible_at, report.id),
+        default=None,
     )
 
 
@@ -104,7 +124,7 @@ def _claim(team_id: int) -> SignalFirstReportNotification | None:
         if notification.message_data:
             report = reports.filter(id=notification.report_id).first() if notification.report_id else None
         else:
-            report = reports.order_by("first_visible_at", "id").first()
+            report = _earliest_visible_report(report_team.id, notification.activated_at)
         if report is None:
             if notification.message_data and (
                 notification.report_id is None
