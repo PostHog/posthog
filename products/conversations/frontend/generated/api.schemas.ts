@@ -479,6 +479,137 @@ export interface TicketAssignmentApi {
     readonly role: TicketAssignmentApiRole
 }
 
+/**
+ * * `ai_conversation` - PostHog AI conversation
+ * * `dashboard` - Dashboard
+ * * `experiment` - Experiment
+ * * `feature_flag` - Feature flag
+ * * `insight` - Insight
+ * * `project` - Project
+ * * `replay` - Replay
+ * * `survey` - Survey
+ * * `external` - External link
+ * * `other` - Other
+ */
+export type TicketBriefItemKindEnumApi = (typeof TicketBriefItemKindEnumApi)[keyof typeof TicketBriefItemKindEnumApi]
+
+export const TicketBriefItemKindEnumApi = {
+    AiConversation: 'ai_conversation',
+    Dashboard: 'dashboard',
+    Experiment: 'experiment',
+    FeatureFlag: 'feature_flag',
+    Insight: 'insight',
+    Project: 'project',
+    Replay: 'replay',
+    Survey: 'survey',
+    External: 'external',
+    Other: 'other',
+} as const
+
+export interface TicketBriefAffectedItemApi {
+    /** What the link points at: ai_conversation, dashboard, experiment, feature_flag, insight, project, replay, survey, external, or other.
+     *
+     * * `ai_conversation` - PostHog AI conversation
+     * * `dashboard` - Dashboard
+     * * `experiment` - Experiment
+     * * `feature_flag` - Feature flag
+     * * `insight` - Insight
+     * * `project` - Project
+     * * `replay` - Replay
+     * * `survey` - Survey
+     * * `external` - External link
+     * * `other` - Other */
+    kind: TicketBriefItemKindEnumApi
+    /**
+     * Link the customer sent or was on, so the engineer can open it without a search.
+     * @maxLength 2000
+     */
+    url: string
+    /**
+     * Short name for the link, such as the object id from its path or the page it points at.
+     * @maxLength 120
+     */
+    label: string
+}
+
+export interface TicketBriefApi {
+    /**
+     * What the customer needs from PostHog, in one or two sentences. The line to read first.
+     * @maxLength 400
+     */
+    ask: string
+    /**
+     * What the customer is trying to achieve behind the ask, in their own terms. Omitted when they did not say, because a guessed purpose sends the reply to the wrong problem.
+     * @maxLength 300
+     * @nullable
+     */
+    purpose?: string | null
+    /**
+     * Product area the ticket is about, such as 'Feature flags' or 'Session replay'.
+     * @maxLength 80
+     */
+    area: string
+    /**
+     * Each question the customer asks, quoted in their own words from one of their messages. Empty when the customer asks nothing explicit.
+     * @maxItems 3
+     * @items.maxLength 200
+     */
+    questions: string[]
+    /**
+     * What an AI assistant already told the customer before they reached support. Omitted when no assistant worked on the problem first.
+     * @maxLength 300
+     * @nullable
+     */
+    already_answered?: string | null
+    /**
+     * The steps the customer says they already took to fix or diagnose the problem.
+     * @maxItems 5
+     * @items.maxLength 160
+     */
+    tried?: string[]
+    /**
+     * The first thing an AI assistant could not determine, so the engineer starts there. Omitted when no assistant worked on the problem first.
+     * @maxLength 300
+     * @nullable
+     */
+    where_stopped?: string | null
+    /**
+     * What the customer cannot see or change from outside PostHog, which is why a person has to act. Omitted when the ticket does not say.
+     * @maxLength 300
+     * @nullable
+     */
+    support_reason?: string | null
+    /**
+     * Details the engineer needs to act on, such as region, plan, versions, and ids. One per line.
+     * @maxItems 3
+     * @items.maxLength 160
+     */
+    facts?: string[]
+    /**
+     * Links to what the ticket is about: the page the customer was on, then the links they sent.
+     * @maxItems 5
+     */
+    affected_items?: TicketBriefAffectedItemApi[]
+    /**
+     * Replay of the session the ticket came from. Null when the ticket has no session.
+     * @maxLength 2000
+     * @nullable
+     */
+    replay_url?: string | null
+    /**
+     * Images the customer attached, in the order they sent them.
+     * @maxItems 5
+     * @items.maxLength 2000
+     */
+    screenshot_urls?: string[]
+    /**
+     * The error the customer reported, copied exactly. Omitted when the ticket reports no error.
+     * @maxLength 600
+     * @nullable
+     */
+    error_message?: string | null
+}
+
 export type TicketPersonApiProperties = { [key: string]: unknown }
 
 /**
@@ -541,6 +672,8 @@ export interface TicketApi {
     escalation_reason?: string | null
     /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, verdict, blocker, sources). Retrieve hydrates sources from citations. */
     readonly ai_triage: unknown
+    /** Structured summary of the ticket for the support engineer. Null until support triage writes it. */
+    readonly ticket_brief: TicketBriefApi | null
     readonly created_at: string
     readonly updated_at: string
     readonly message_count: number
@@ -922,6 +1055,18 @@ export interface TicketReplyRequestApi {
     is_private?: boolean
     /** Optional TipTap rich content JSON for formatted messages. */
     rich_content?: unknown
+}
+
+/**
+ * Outcome of writing a ticket brief on demand.
+ */
+export interface WriteTicketBriefResponseApi {
+    /** Whether a brief was stored on the ticket. */
+    written: boolean
+    /** Why no brief was stored. Empty when one was. One of: ai_not_approved, disabled, gate_failed, llm_failed, truncated, not_an_object, invalid, store_failed, ticket_gone. */
+    reason: string
+    /** The brief that was stored. Null when none was. Lets a caller show it without refetching the ticket. */
+    brief?: TicketBriefApi | null
 }
 
 export interface BulkUpdateStatusRequestApi {

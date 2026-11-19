@@ -40,6 +40,7 @@ import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { MacroPicker } from '../../components/Macros/MacroPicker'
 import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
 import { SupportTicketSidebarWidgets } from '../../components/SupportTicketSidebarWidgets/SupportTicketSidebarWidgets'
+import { TicketBriefPanel } from '../../components/TicketBriefPanel/TicketBriefPanel'
 import { TicketTags } from '../../components/TicketTags'
 import {
     type Ticket,
@@ -373,6 +374,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
 
                 {/* Sidebar with all metadata */}
                 <div className="space-y-4 flex-1 min-w-[300px] @min-[48rem]/main-content:h-full @min-[48rem]/main-content:pl-2 @min-[48rem]/main-content:min-h-0 @min-[48rem]/main-content:overflow-y-auto">
+                    {/* The brief leads the sidebar: it is what an engineer reads before the thread. */}
+                    {ticket?.ticket_brief && <TicketBriefPanel brief={ticket.ticket_brief} />}
+
                     <LemonCard hoverEffect={false} className="p-3">
                         {/* Customer */}
                         {ticket?.distinct_id && (
