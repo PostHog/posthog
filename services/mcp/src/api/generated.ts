@@ -15105,6 +15105,8 @@ export namespace Schemas {
       readonly llm_detector_available: boolean | null;
       /** Whether this alert can open PagerDuty incidents. Add one with destinations/pagerduty. */
       readonly pagerduty_available: boolean;
+      /** How many active notification destinations the alert sends to, such as Slack channels and webhooks, each counted once. Subscribed users are not included. */
+      readonly destination_count: number;
       /**
          * Human-readable name for the alert.
          * @maxLength 255
@@ -15279,6 +15281,16 @@ export namespace Schemas {
       webhook_url: string;
     }
 
+    export interface AlertCreatedDestinationResponse {
+      /**
+         * The new destination's ID, the `id` that listing the alert's destinations shows. Delete the destination by passing it in `destination_ids`. Null when the alert is not on the alerts platform, in which case `hog_function_ids` identifies the destination.
+         * @nullable
+         */
+      id: string | null;
+      /** HogFunction IDs of the new destination. Empty when the alerts platform checks the alert, since the platform sends the destination's message itself until someone customizes it. */
+      hog_function_ids: string[];
+    }
+
     export interface AlertCustomizeDestination {
       /**
          * The destination's `id` from the destinations list. Use it for a destination with no HogFunctions.
@@ -15299,7 +15311,7 @@ export namespace Schemas {
          */
       hog_function_ids?: string[];
       /**
-         * Destination IDs from the destinations list, to delete with their HogFunctions.
+         * Destination IDs from the destinations list or from creating the destination, to delete with their HogFunctions.
          * @maxItems 100
          */
       destination_ids?: string[];
@@ -15350,7 +15362,7 @@ export namespace Schemas {
       type: DestinationTypeEnum;
       /** Whether the destination sends. */
       enabled: boolean;
-      /** Whether the destination's HogFunctions hear the firing event, which a test delivery sends. */
+      /** Whether a test delivery reaches the destination, through its HogFunctions or natively. */
       hears_firing: boolean;
       /** Whether someone edited the destination's message, so it no longer sends the standard one. */
       message_customized: boolean;
@@ -15786,7 +15798,7 @@ export namespace Schemas {
     } as const;
 
     export interface AlertTestDeliveryResponse {
-      /** Number of active destinations queued for test delivery. */
+      /** Number of active destinations queued for test delivery or sent a test message. */
       destination_count: number;
       /** Number of subscribed users sent a test email. */
       email_recipient_count: number;
@@ -89053,6 +89065,8 @@ export namespace Schemas {
       readonly llm_detector_available?: boolean | null;
       /** Whether this alert can open PagerDuty incidents. Add one with destinations/pagerduty. */
       readonly pagerduty_available?: boolean;
+      /** How many active notification destinations the alert sends to, such as Slack channels and webhooks, each counted once. Subscribed users are not included. */
+      readonly destination_count?: number;
       /**
          * Human-readable name for the alert.
          * @maxLength 255
