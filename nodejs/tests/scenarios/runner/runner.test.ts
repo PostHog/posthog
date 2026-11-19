@@ -301,7 +301,7 @@ describe('runner', () => {
 
         expect(() =>
             createRunner(environment, { ...processEnv, XDG_CACHE_HOME: cacheHome, SCENARIO_RUN_MANIFEST: manifest })
-        ).toThrow(`The run manifest at ${manifest} does not name a run and its stack, so it is not used.`)
+        ).toThrow(`The run manifest at ${manifest} has no valid readerMinAcu, so it is not used.`)
     })
 
     it('saves the verdict with the event it publishes once, before publication, and leaves it as written', async () => {

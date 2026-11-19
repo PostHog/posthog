@@ -210,6 +210,10 @@ export function runManifestOf(env: NodeJS.ProcessEnv): RunManifest | undefined {
         return undefined
     }
     const parsed = HostManifest.safeParse(parseJSON(readFileSync(file, 'utf8')))
+    const malformed = parsed.success ? [] : parsed.error.issues.map(({ path }) => path.join('.'))
+    if (malformed.length > 0 && malformed.every((field) => field === 'readerMinAcu')) {
+        throw new LeaseError(`The run manifest at ${file} has no valid readerMinAcu, so it is not used.`)
+    }
     if (!parsed.success || parsed.data.stackName !== stackNameOf(parsed.data.runId)) {
         throw new LeaseError(`The run manifest at ${file} does not name a run and its stack, so it is not used.`)
     }

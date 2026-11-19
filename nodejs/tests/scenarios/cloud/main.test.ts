@@ -1126,7 +1126,7 @@ describe('cloud controller', () => {
             },
             () => undefined,
             'invalid',
-            'reader above its 2.5 ACU idle limit before T0',
+            'reader above its 2.5 ACU idle limit before T0 ({-2})',
         ],
         [
             'a minute before T0 above the idle limit whose average CloudWatch left out',
@@ -1141,7 +1141,7 @@ describe('cloud controller', () => {
             },
             () => undefined,
             'invalid',
-            'reader above its 2.5 ACU idle limit before T0',
+            'reader above its 2.5 ACU idle limit before T0 ({-2})',
         ],
         [
             'a minute before T0 under the idle limit whose maximum CloudWatch left out',
@@ -1156,7 +1156,7 @@ describe('cloud controller', () => {
             },
             () => undefined,
             'invalid',
-            'no reader maximum before T0 to show the reader under its 2.5 ACU idle limit',
+            'no reader maximum before T0 to show the reader under its 2.5 ACU idle limit ({-2})',
         ],
         [
             'a minute before T0 below the reader minimum whose maximum CloudWatch left out',
@@ -1171,7 +1171,7 @@ describe('cloud controller', () => {
             },
             () => undefined,
             'invalid',
-            'no reader maximum before T0 to show the reader under its 2.5 ACU idle limit',
+            'no reader maximum before T0 to show the reader under its 2.5 ACU idle limit ({-2})',
         ],
         [
             'a minute before T0 above the idle limit whose maximum CloudWatch left out',
@@ -1186,7 +1186,7 @@ describe('cloud controller', () => {
             },
             () => undefined,
             'invalid',
-            'reader above its 2.5 ACU idle limit before T0',
+            'reader above its 2.5 ACU idle limit before T0 ({-2})',
         ],
         [
             'no capacity for the minute before T0',
@@ -1253,7 +1253,7 @@ describe('cloud controller', () => {
             },
             () => undefined,
             'invalid',
-            'reader above its 2.5 ACU idle limit before T0',
+            'reader above its 2.5 ACU idle limit before T0 ({-2})',
         ],
         [
             'a maximum before T0 under the reader minimum',
@@ -1264,7 +1264,7 @@ describe('cloud controller', () => {
             },
             () => undefined,
             'invalid',
-            'reader capacity under its 1 ACU minimum before T0',
+            'reader capacity under its 1 ACU minimum before T0 ({-3})',
         ],
         [
             'an average before T0 under the reader minimum',
@@ -1275,7 +1275,7 @@ describe('cloud controller', () => {
             },
             () => undefined,
             'invalid',
-            'reader capacity under its 1 ACU minimum before T0',
+            'reader capacity under its 1 ACU minimum before T0 ({-3})',
         ],
         [
             'an average before T0 above its maximum, both under the idle limit',
@@ -1286,7 +1286,19 @@ describe('cloud controller', () => {
             },
             () => undefined,
             'invalid',
-            'reader average above its maximum before T0',
+            'reader average above its maximum before T0 ({-3})',
+        ],
+        [
+            'a failed runner scorecard with an average before T0 above its maximum',
+            {
+                card: { exitCode: 1 },
+                readerAcu: IDLE_THEN_PROMOTED.map((minute) =>
+                    minute.minute === -3 ? { ...minute, avg: 1.2 } : minute
+                ),
+            },
+            () => undefined,
+            'invalid',
+            'reader average above its maximum before T0 ({-3}); the runner saved a failed scorecard: the card ended failed',
         ],
         [
             'a reader above the idle limit while the failover waits for its offset',
@@ -1301,7 +1313,7 @@ describe('cloud controller', () => {
             },
             () => undefined,
             'invalid',
-            'reader above its 2.5 ACU idle limit before T0',
+            'reader above its 2.5 ACU idle limit before T0 ({-10})',
         ],
         [
             'a failover entry without the instant of its request',
@@ -1345,7 +1357,12 @@ describe('cloud controller', () => {
         await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(status === 'passed' ? 0 : 2)
 
         expect(published()).toMatchObject({ run_id: leasedRunId(), status })
-        expect(published().status_reason).toContain(reason)
+        const t0Minute = Date.parse(String(published().t0_at)) - (Date.parse(String(published().t0_at)) % 60_000)
+        expect(published().status_reason).toContain(
+            reason.replace(/\{(-?\d+)\}/g, (_, minute: string) =>
+                new Date(t0Minute + Number(minute) * 60_000).toISOString()
+            )
+        )
         if (status === 'passed') {
             expect(published()).toMatchObject({
                 acu_pre_t0_max: 2,

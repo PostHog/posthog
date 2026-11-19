@@ -266,6 +266,10 @@ export async function report(
     const cost = costOf(profile, (to - from) / HOUR_MS, capacity)
     const costItems = cost.map(([item, usd]) => `${item}: ${dollars(usd)}`)
     const status: Status = reasons.length > 0 || !host ? 'invalid' : host.event.status
+    const hostReason =
+        host && host.event.status !== 'passed' && host.event.status_reason
+            ? [`the runner saved a ${host.event.status} scorecard: ${host.event.status_reason}`]
+            : []
     const environment = environmentOf(profile, card, manifest, host?.event.fingerprint)
     const properties: ScorecardProperties = {
         schema_version: SCHEMA_VERSION,
@@ -279,7 +283,8 @@ export async function report(
         target: TARGET,
         started_at: manifest.createdAt,
         status,
-        status_reason: reasons.length > 0 ? reasons.join('; ') : String(host?.event.status_reason ?? ''),
+        status_reason:
+            reasons.length > 0 ? [...reasons, ...hostReason].join('; ') : String(host?.event.status_reason ?? ''),
         ended_at: iso(to),
         duration_s: (to - from) / 1000,
         evidence_dir: `s3://${evidence.name}/${keyOf(runId, 'evidence/')}`,
