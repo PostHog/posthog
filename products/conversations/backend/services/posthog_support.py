@@ -20,8 +20,6 @@ DRAFT_TTL_SECONDS = 24 * 60 * 60
 # Renders as a horizontal line. It needs the blank lines, because `---` right under text turns that
 # text into a Markdown heading. The support form finds sections by this string to place images.
 SECTION_SEPARATOR = "\n\n---\n\n"
-# A person reviews each draft by hand, so a long list of open drafts means an agent is looping.
-MAX_OPEN_DRAFTS_PER_USER = 5
 
 
 class FilingReason(models.TextChoices):
@@ -37,14 +35,6 @@ class FilingReason(models.TextChoices):
 class DraftedVia(models.TextChoices):
     MCP = "mcp", "Drafted by an AI agent through the PostHog MCP"
     API = "api", "Drafted through the PostHog API"
-
-
-class TooManyOpenDrafts(Exception):
-    pass
-
-
-class DraftCreateInProgress(Exception):
-    pass
 
 
 @frozen
@@ -133,42 +123,6 @@ class SupportDraftStore:
         mcp_session_id: str | None = None,
         mcp_conversation_id: str | None = None,
     ) -> SupportTicketDraft:
-        # The cap check and the index write must not interleave, or parallel calls each pass the
-        # check and the last index write drops the others' drafts from the count.
-        lock_key = f"posthog_support_drafts_lock:{self._user_id}"
-        if not self._cache.add(lock_key, 1, timeout=10):
-            raise DraftCreateInProgress()
-        try:
-            return self._create(
-                message=message,
-                filing_reason=filing_reason,
-                drafted_via=drafted_via,
-                mcp_session_id=mcp_session_id,
-                mcp_conversation_id=mcp_conversation_id,
-            )
-        finally:
-            self._cache.delete(lock_key)
-
-    def _create(
-        self,
-        *,
-        message: str,
-        filing_reason: FilingReason,
-        drafted_via: DraftedVia,
-        mcp_session_id: str | None,
-        mcp_conversation_id: str | None,
-    ) -> SupportTicketDraft:
-        # The index can name drafts that were sent or expired. Only unclaimed live ones count.
-        indexed = self._cache.get(self._index_key()) or []
-        found = self._cache.get_many(
-            [self._key(draft_id) for draft_id in indexed] + [self._claim_key(draft_id) for draft_id in indexed]
-        )
-        open_ids = [
-            draft_id for draft_id in indexed if self._key(draft_id) in found and self._claim_key(draft_id) not in found
-        ]
-        if len(open_ids) >= MAX_OPEN_DRAFTS_PER_USER:
-            raise TooManyOpenDrafts()
-
         draft = SupportTicketDraft(
             id=str(uuid.uuid4()),
             message=message,
@@ -178,9 +132,7 @@ class SupportDraftStore:
             mcp_session_id=mcp_session_id,
             mcp_conversation_id=mcp_conversation_id,
         )
-        self._cache.set_many(
-            {self._key(draft.id): asdict(draft), self._index_key(): [*open_ids, draft.id]}, DRAFT_TTL_SECONDS
-        )
+        self._cache.set(self._key(draft.id), asdict(draft), DRAFT_TTL_SECONDS)
         return draft
 
     def get(self, draft_id: str, *, claimant: str | None = None) -> SupportTicketDraft | None:
@@ -213,9 +165,6 @@ class SupportDraftStore:
 
     def _claim_key(self, draft_id: str) -> str:
         return f"posthog_support_draft_claim:{self._user_id}:{draft_id}"
-
-    def _index_key(self) -> str:
-        return f"posthog_support_drafts:{self._user_id}"
 
     def _key(self, draft_id: str) -> str:
         return f"posthog_support_draft:{self._user_id}:{draft_id}"

@@ -26,12 +26,10 @@ from posthog.rate_limit import PostHogSupportDraftCreateThrottle
 
 from products.conversations.backend.permissions import SessionAuthenticationOnly
 from products.conversations.backend.services.posthog_support import (
-    DraftCreateInProgress,
     DraftedVia,
     FilingReason,
     SupportDraftStore,
     SupportTicketDraft,
-    TooManyOpenDrafts,
     compose_ticket_message,
 )
 
@@ -210,24 +208,13 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         mcp_session_id = _mcp_id(request.headers.get("X-Posthog-Mcp-Session-Id"))
         mcp_conversation_id = _mcp_id(request.headers.get("X-Posthog-Mcp-Conversation-Id"))
         drafted_via = DraftedVia.MCP if get_event_source(request) in MCP_TRANSPORT_EVENT_SOURCES else DraftedVia.API
-        try:
-            draft = self._draft_store().create(
-                message=data["message"],
-                filing_reason=data["filing_reason"],
-                drafted_via=drafted_via,
-                mcp_session_id=mcp_session_id,
-                mcp_conversation_id=mcp_conversation_id,
-            )
-        except DraftCreateInProgress:
-            return Response(
-                {"detail": "Another draft is being saved. Try again in a few seconds."},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
-        except TooManyOpenDrafts:
-            return Response(
-                {"detail": "This person already has several drafts waiting for review. Ask them to send those first."},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
+        draft = self._draft_store().create(
+            message=data["message"],
+            filing_reason=data["filing_reason"],
+            drafted_via=drafted_via,
+            mcp_session_id=mcp_session_id,
+            mcp_conversation_id=mcp_conversation_id,
+        )
         report_user_action(
             self._user,
             "posthog support draft created",

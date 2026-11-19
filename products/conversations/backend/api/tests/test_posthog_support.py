@@ -10,7 +10,6 @@ from rest_framework.test import APIClient
 from posthog.models.user import User
 
 from products.conversations.backend.api.posthog_support import PostHogSupportDraftCreateSerializer
-from products.conversations.backend.services.posthog_support import MAX_OPEN_DRAFTS_PER_USER
 
 DRAFT_BODY = {
     "title": "Test events from staging in the live project",
@@ -101,15 +100,6 @@ class TestPostHogSupportAPI(APIBaseTest):
         teammate_client = APIClient()
         teammate_client.force_login(teammate)
         assert teammate_client.get(f"{self.base}/drafts/{draft_id}/").status_code == status.HTTP_404_NOT_FOUND
-
-    def test_open_drafts_are_capped_per_user_until_one_is_sent(self) -> None:
-        draft_ids = [self._create_draft()["id"] for _ in range(MAX_OPEN_DRAFTS_PER_USER)]
-
-        over_cap = self.client.post(f"{self.base}/drafts/", DRAFT_BODY, format="json")
-        assert over_cap.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-
-        assert self.client.post(f"{self.base}/drafts/{draft_ids[0]}/claim/").status_code == status.HTTP_204_NO_CONTENT
-        self._create_draft()
 
 
 class TestPostHogSupportDraftCreateSerializer(SimpleTestCase):
