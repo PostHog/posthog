@@ -36,25 +36,21 @@ class TestAIGatewayReload(BaseTest):
 
     def test_asks_billing_to_reload_the_organization(self, manager: MagicMock, license: MagicMock):
         reload = manager.return_value.reload_ai_balance
-        reload.return_value = {"result": "charged", "amount_usd": "45.90"}
+        reload.return_value = {"result": "accepted"}
 
         response = self._reload()
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"result": "charged", "amount_usd": "45.90"})
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.json(), {"result": "accepted"})
         manager.assert_called_once_with(license.return_value)
         reload.assert_called_once_with(self.organization, idempotency_key="low-balance-1", balance_usd="4.104512")
 
-    def test_passes_back_only_the_reason_of_a_decline(self, manager: MagicMock, license: MagicMock):
-        manager.return_value.reload_ai_balance.return_value = {
-            "result": "declined",
-            "reason": "card_declined",
-            "detail": "billing's own words",
-        }
+    def test_passes_back_only_the_result(self, manager: MagicMock, license: MagicMock):
+        manager.return_value.reload_ai_balance.return_value = {"result": "accepted", "detail": "billing's own words"}
 
         response = self._reload()
 
-        self.assertEqual(response.json(), {"result": "declined", "reason": "card_declined"})
+        self.assertEqual(response.json(), {"result": "accepted"})
 
     def test_needs_an_idempotency_key(self, manager: MagicMock, license: MagicMock):
         response = self._reload(self._headers(key=None))
@@ -64,7 +60,6 @@ class TestAIGatewayReload(BaseTest):
 
     @parameterized.expand(
         [
-            ("reload_running", 409, status.HTTP_409_CONFLICT),
             ("organization_does_not_buy", 403, status.HTTP_403_FORBIDDEN),
             ("charge_did_not_finish", 503, status.HTTP_503_SERVICE_UNAVAILABLE),
             ("billing_failed", 500, status.HTTP_503_SERVICE_UNAVAILABLE),

@@ -1197,9 +1197,10 @@ class BillingManager:
     ) -> dict[str, Any]:
         """Ask billing to reload the organization's AI balance, for the AI gateway's low-balance call.
 
-        Billing answers 200 with `charged` or `declined`. Any other status raises
-        `BillingServiceResponseError`. Its status code tells a running reload (409) from a refusal (403)
-        and from a charge that couldn't finish (503). The same idempotency key gets billing's first answer.
+        Billing starts its reload and answers 202 `accepted` before it charges anything. It sends the
+        outcome later on its queue, and PostHog relays that to the gateway. Any other status raises
+        `BillingServiceResponseError`, whose status code tells a refusal (403) from a failure. The same
+        idempotency key starts nothing new.
         """
         headers = self.get_auth_headers(organization, service_action="ai_credit_reload")
         headers["Idempotency-Key"] = idempotency_key
@@ -1207,11 +1208,9 @@ class BillingManager:
             f"{BILLING_SERVICE_URL}/api/ai-credits/reload",
             headers=headers,
             json={"balance_usd": balance_usd},
-            # Billing charges the card inside the request, and it waits up to 30 seconds for Anrok
-            # to tax the invoice before it pays.
-            timeout=60,
+            timeout=10,
         )
-        handle_billing_service_error(res, valid_codes=(200,))
+        handle_billing_service_error(res, valid_codes=(202,))
         return res.json()
 
     def open_external_credit_pool(self, organization: Organization, *, grant_id: str, cents: int, day: str) -> None:

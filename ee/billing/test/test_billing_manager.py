@@ -2329,16 +2329,14 @@ class TestReloadAIBalance(BaseTest):
 
     @patch(
         "ee.billing.billing_manager.http_session.post",
-        return_value=MagicMock(
-            status_code=200, json=MagicMock(return_value={"result": "charged", "amount_usd": "45.90"})
-        ),
+        return_value=MagicMock(status_code=202, json=MagicMock(return_value={"result": "accepted"})),
     )
     def test_posts_the_reload_with_the_service_action_and_the_key(self, billing_post_request_mock: MagicMock):
         result = BillingManager(self._license()).reload_ai_balance(
             self.organization, idempotency_key="low-balance-1", balance_usd="4.10"
         )
 
-        assert result == {"result": "charged", "amount_usd": "45.90"}
+        assert result == {"result": "accepted"}
         call_args = billing_post_request_mock.call_args
         assert call_args[0][0].endswith("/api/ai-credits/reload")
         assert call_args[1]["json"] == {"balance_usd": "4.10"}
@@ -2350,8 +2348,8 @@ class TestReloadAIBalance(BaseTest):
         assert "organization_role" not in decoded
         assert "distinct_id" not in decoded
 
-    @parameterized.expand([("reload_running", 409), ("not_deployed", 404), ("auth_failure", 401)])
-    def test_raises_on_any_answer_but_200(self, _name, status_code):
+    @parameterized.expand([("synchronous_answer", 200), ("refused", 403), ("not_deployed", 404), ("auth_failure", 401)])
+    def test_raises_on_any_answer_but_202(self, _name, status_code):
         response = MagicMock(status_code=status_code, json=MagicMock(return_value={"detail": "nope"}), ok=False)
         with patch("ee.billing.billing_manager.http_session.post", return_value=response):
             with self.assertRaises(BillingServiceResponseError) as context:
