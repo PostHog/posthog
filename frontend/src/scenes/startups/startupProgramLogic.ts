@@ -443,7 +443,6 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
         },
     })),
     selectors({
-        // Shown as soon as an answer rules the company out, instead of only after a submit attempt
         // Checked apart from form validation, which reports only the missing paid plan until one is added
         eligibilityError: [
             (s) => [s.startupProgram, s.isYC],

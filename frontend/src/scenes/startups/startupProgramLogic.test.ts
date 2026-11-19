@@ -271,7 +271,6 @@ describe('startupProgramLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.submitStartupProgram()
-                // An answer changed while the request is in flight must not turn the API failure into a validation block
                 logic.actions.setStartupProgramValues({ raised: '5000000' })
             }).toFinishAllListeners()
 
