@@ -44,7 +44,7 @@ export const INBOX_EVENTS = {
     VALUE_SUMMARY_VIEWED: 'Inbox value summary viewed',
     VALUE_SUMMARY_DISMISSED: 'Inbox value summary dismissed',
     PANEL_LOAD_TIMED_OUT: 'Inbox panel load timed out',
-    // Cloud-only for now: the desktop inbox does not retry a failed list load on its own.
+    // Sent by the cloud inbox only, because the desktop inbox does not retry a failed list load.
     REPORT_LIST_RETRY_RECOVERED: 'Inbox report list retry recovered',
     WRITE_TIMED_OUT: 'Inbox write timed out',
     QUERY_CHANGED: 'Inbox query changed',
@@ -1005,10 +1005,7 @@ export function captureSignalSourceToggleFailed(params: {
     })
 }
 
-/**
- * An automatic retry loaded a report list after the first request failed. Without it, a list that
- * recovered looks the same as one that never failed, so the backoff cannot be judged.
- */
+/** An automatic retry loaded the report list. Without this event, a recovered list looks like one that never failed. */
 export function captureInboxReportListRetryRecovered(params: {
     sectionKey: InboxReportSectionKey
     retryCount: number

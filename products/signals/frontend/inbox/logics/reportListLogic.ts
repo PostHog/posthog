@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, CountedPaginatedResponse } from 'lib/api'
-import { ApiError, NetworkError, ResponseBodyReadError, shouldReportApiFailure } from 'lib/api-error'
+import { ApiError, shouldReportApiFailure } from 'lib/api-error'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { derivePrState } from 'lib/signals/prState'
@@ -65,13 +65,13 @@ const REPORT_LIST_RETRY_DELAYS_MS = [1000, 3000]
 // The refresh endpoint's own id cap per call.
 const METRIC_REFRESH_PAGE_SIZE = 20
 
-// A 504 is not retried: the gateway already waited its full timeout, so a retry doubles the wait.
-// A 500 is an application bug that a retry does not fix.
+// A status-less `ApiError` is a dropped connection or a truncated or malformed 2xx body. A 504 is
+// not retried because the gateway already waited its full timeout, and a 500 is an application bug.
 function isRetryableReportListError(error: unknown): boolean {
-    if (error instanceof NetworkError || error instanceof ResponseBodyReadError) {
-        return true
-    }
-    return error instanceof ApiError && (error.status === 408 || error.status === 502 || error.status === 503)
+    return (
+        error instanceof ApiError &&
+        (error.status === undefined || error.status === 408 || error.status === 502 || error.status === 503)
+    )
 }
 
 /** The row fields the list leaves empty (`include_source_metadata=false`) and `source_metadata` fills in. */

@@ -57,8 +57,6 @@ function makeReport(id: string): SignalReport {
 }
 
 describe('reportListLogic', () => {
-    // The first page retries after about 1s and again after about 3s, so a connection drop that
-    // lasts a few seconds recovers without a click. A 504 already waited out the gateway timeout.
     test.each([
         {
             name: 'two dropped connections',
@@ -71,6 +69,12 @@ describe('reportListLogic', () => {
             failures: [new ResponseBodyReadError('body stream failed')],
             attempts: 2,
             recovered: { retry_count: 1, error_type: 'ResponseBodyReadError', status: null },
+        },
+        {
+            name: 'a malformed 200 body',
+            failures: [new ApiError('Malformed JSON response')],
+            attempts: 2,
+            recovered: { retry_count: 1, status: null },
         },
         {
             name: 'a 503',
@@ -845,7 +849,6 @@ describe('reportListLogic', () => {
             expect(logic.values.reports[0].scout_name).toEqual('signals-scout-billing')
         })
 
-        // The rows already render without the source line, so a gateway failure is not a defect to file.
         test.each([
             { status: 500, reported: true },
             { status: 504, reported: false },
