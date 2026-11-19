@@ -10,6 +10,7 @@ from posthog.permissions import get_authenticator_scoped_organization_ids, get_a
 from posthog.synthetic_user import SyntheticUser
 
 _SCOPE_RESOLUTION_ATTR = "_posthog_scope_resolution"
+_FLAT_ROUTE_ATTR = "_posthog_flat_route"
 
 
 class ScopeSource(StrEnum):
@@ -43,6 +44,14 @@ def note_user_scope(request: Request) -> None:
     # A project secret API key authenticates as a synthetic user whose team is the key's own project.
     principal: object = request.user
     note_scope_source(request, ScopeSource.CREDENTIAL if isinstance(principal, SyntheticUser) else ScopeSource.USER)
+
+
+def note_flat_route(request: Request) -> None:
+    setattr(getattr(request, "_request", request), _FLAT_ROUTE_ATTR, True)
+
+
+def is_flat_route(request: HttpRequest) -> bool:
+    return getattr(request, _FLAT_ROUTE_ATTR, False)
 
 
 def scope_resolution(request: HttpRequest) -> ScopeResolution | None:
