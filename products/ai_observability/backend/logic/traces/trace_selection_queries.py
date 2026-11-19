@@ -18,8 +18,8 @@ from posthog.hogql_queries.ai.ai_column_rewriter import EVENTS_FALLBACK_PROPERTY
 from posthog.hogql_queries.ai.utils import filled_property_filters
 from posthog.models import Team, User
 
-from .trace_expressions import EVENTS_COLUMNS, grouped, trace_errored
-from .trace_queries import FEEDBACK_EVENT_NAMES, TRACE_EVENT_NAMES
+from .trace_expressions import EVENTS_COLUMNS, TRACE_EVENT_NAMES, grouped, trace_errored
+from .trace_queries import FEEDBACK_EVENT_NAMES
 from .trace_selection import (
     InvalidTraceSelectionError,
     QuickFilter,

@@ -36,10 +36,8 @@ from .error_text import error_text, is_truthy_json, parse_json
 from .events_fallback import FallbackWindow, events_filter, fallback_window, unhinted_window
 from .person import trace_distinct_id
 from .tool_calls import called_tool_names
-from .trace_expressions import AI_EVENTS_COLUMNS, over_trace, trace_latency
+from .trace_expressions import AI_EVENTS_COLUMNS, NODE_EVENT_NAMES, TRACE_EVENT_NAMES, over_trace, trace_latency
 
-NODE_EVENT_NAMES = ("$ai_span", "$ai_generation", "$ai_embedding")
-TRACE_EVENT_NAMES = ("$ai_trace", *NODE_EVENT_NAMES)
 _HEAVY_COLUMNS = ("input", "output", "output_choices", "input_state", "output_state", "tools")
 NODE_COLUMNS = ("uuid", "event", "timestamp", "properties", *_HEAVY_COLUMNS)
 # The largest result HogQL returns; without an explicit limit it returns 100 rows.

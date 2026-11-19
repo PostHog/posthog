@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
@@ -22,8 +23,10 @@ from products.ai_observability.backend.logic.traces.trace_expressions import (
     event_identified,
     grouped,
     over_trace,
+    trace_cost,
     trace_errored,
     trace_latency,
+    trace_person_id,
 )
 
 CASES_PATH = Path(__file__).parents[4] / "shared" / "trace_expression_cases.json"
@@ -38,6 +41,14 @@ def case_on_each_layout() -> list[tuple[str, dict[str, Any], str]]:
     return [(f"{case['name']}_{layout}", case, layout) for case in CASES for layout in LAYOUTS]
 
 
+def person_id_of(distinct_id: str) -> str:
+    return str(uuid5(NAMESPACE_URL, distinct_id))
+
+
+def expected_person(case: dict[str, Any], layout: str) -> str:
+    return case["person"] if layout == "ai_events" else person_id_of(case["person"])
+
+
 def seed(team: Any, events: list[dict[str, Any]]) -> None:
     rows = []
     for index, event in enumerate(events):
@@ -48,14 +59,17 @@ def seed(team: Any, events: list[dict[str, Any]]) -> None:
             ("is_error", "$ai_is_error"),
             ("error", "$ai_error"),
             ("ingestion_source", "$ai_ingestion_source"),
+            ("total_cost", "$ai_total_cost_usd"),
         ):
             if event.get(key) is not None:
                 properties[property_name] = event[key]
+        distinct_id = event.get("distinct_id", "user-1")
         rows.append(
             {
                 "event": event["event"],
                 "event_uuid": f"00000000-0000-4000-8000-{index:012d}",
-                "distinct_id": event.get("distinct_id", "user-1"),
+                "distinct_id": distinct_id,
+                "person_id": person_id_of(distinct_id),
                 "team": team,
                 "timestamp": T0 + timedelta(seconds=index),
                 "properties": properties,
@@ -119,3 +133,17 @@ class TestTraceExpressions(ClickhouseTestMixin, BaseTest):
         )
 
         assert [bool(identified) for _, identified in rows] == case["identified"]
+
+    @parameterized.expand(case_on_each_layout())
+    def test_trace_cost_cases(self, _name: str, case: dict[str, Any], layout: str) -> None:
+        seed(self.team, case["events"])
+
+        assert self._grouped(layout, trace_cost) == [(case["cost"],)]
+
+    @parameterized.expand(case_on_each_layout())
+    def test_trace_person_id_cases(self, _name: str, case: dict[str, Any], layout: str) -> None:
+        seed(self.team, case["events"])
+
+        [(person,)] = self._grouped(layout, trace_person_id)
+
+        assert str(person) == expected_person(case, layout)

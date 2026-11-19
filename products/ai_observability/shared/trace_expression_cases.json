@@ -8,7 +8,9 @@
         ],
         "latency": 4.0,
         "errored": false,
-        "identified": [true, true, true]
+        "identified": [true, true, true],
+        "cost": null,
+        "person": "user-1"
     },
     {
         "name": "root_without_latency_falls_through",
@@ -19,7 +21,9 @@
         ],
         "latency": 3.0,
         "errored": false,
-        "identified": [true, true, true]
+        "identified": [true, true, true],
+        "cost": null,
+        "person": "user-1"
     },
     {
         "name": "generations_only_sum",
@@ -29,7 +33,9 @@
         ],
         "latency": 3.5,
         "errored": false,
-        "identified": [true, true]
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-1"
     },
     {
         "name": "spans_use_top_level_sum",
@@ -39,7 +45,9 @@
         ],
         "latency": 5.0,
         "errored": false,
-        "identified": [true, true]
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-1"
     },
     {
         "name": "parent_equal_to_trace_id_is_top_level",
@@ -49,7 +57,9 @@
         ],
         "latency": 5.0,
         "errored": false,
-        "identified": [true, true]
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-1"
     },
     {
         "name": "empty_parent_and_null_parent_are_alike",
@@ -60,7 +70,9 @@
         ],
         "latency": 5.0,
         "errored": false,
-        "identified": [true, true, true]
+        "identified": [true, true, true],
+        "cost": null,
+        "person": "user-1"
     },
     {
         "name": "no_positive_latency_is_null",
@@ -70,7 +82,9 @@
         ],
         "latency": null,
         "errored": false,
-        "identified": [true, true]
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-1"
     },
     {
         "name": "rounds_to_two_decimals",
@@ -80,7 +94,9 @@
         ],
         "latency": 3.23,
         "errored": false,
-        "identified": [true, true]
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-1"
     },
     {
         "name": "error_flag_true_errors",
@@ -90,14 +106,18 @@
         ],
         "latency": 2.0,
         "errored": true,
-        "identified": [true, true]
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-1"
     },
     {
         "name": "error_text_without_flag_does_not_error",
         "events": [{ "event": "$ai_generation", "latency": 1.0, "parent_id": null, "error": "rate limited" }],
         "latency": 1.0,
         "errored": false,
-        "identified": [true]
+        "identified": [true],
+        "cost": null,
+        "person": "user-1"
     },
     {
         "name": "trace_id_as_distinct_id_is_not_identified",
@@ -107,7 +127,9 @@
         ],
         "latency": 2.0,
         "errored": false,
-        "identified": [false, true]
+        "identified": [false, true],
+        "cost": null,
+        "person": "trace-a"
     },
     {
         "name": "otel_is_not_identified",
@@ -117,13 +139,79 @@
         ],
         "latency": 2.0,
         "errored": false,
-        "identified": [false, true]
+        "identified": [false, true],
+        "cost": null,
+        "person": "user-1"
     },
     {
         "name": "real_user_is_identified",
         "events": [{ "event": "$ai_generation", "latency": 1.0, "parent_id": null, "distinct_id": "user-2" }],
         "latency": 1.0,
         "errored": false,
-        "identified": [true]
+        "identified": [true],
+        "cost": null,
+        "person": "user-2"
+    },
+    {
+        "name": "root_event_person_wins_over_an_earlier_generation",
+        "events": [
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "distinct_id": "user-generation" },
+            { "event": "$ai_trace", "latency": null, "parent_id": null, "distinct_id": "user-root" }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-root"
+    },
+    {
+        "name": "earliest_person_wins_without_a_root_event",
+        "events": [
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "distinct_id": "user-early" },
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "distinct_id": "user-late" }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-early"
+    },
+    {
+        "name": "empty_distinct_id_is_skipped",
+        "events": [
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "distinct_id": "" },
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "distinct_id": "user-2" }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-2"
+    },
+    {
+        "name": "feedback_and_metric_events_carry_no_person",
+        "events": [
+            { "event": "$ai_metric", "latency": null, "parent_id": null, "distinct_id": "user-metric" },
+            { "event": "$ai_feedback", "latency": null, "parent_id": null, "distinct_id": "user-feedback" },
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "distinct_id": "user-generation" }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true, true],
+        "cost": null,
+        "person": "user-generation"
+    },
+    {
+        "name": "cost_sums_generations_and_embeddings_only",
+        "events": [
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "total_cost": 0.5 },
+            { "event": "$ai_embedding", "latency": null, "parent_id": null, "total_cost": 0.25 },
+            { "event": "$ai_span", "latency": null, "parent_id": null, "total_cost": 9 }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true, true],
+        "cost": 0.75,
+        "person": "user-1"
     }
 ]

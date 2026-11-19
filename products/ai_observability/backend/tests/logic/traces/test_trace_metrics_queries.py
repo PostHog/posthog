@@ -168,18 +168,33 @@ class TestTraceMetricsQueries(ClickhouseTestMixin, BaseTest):
                 {"event": "$ai_generation", "trace_id": "spanning", "minutes": -5},
                 {"event": "$ai_generation", "trace_id": "spanning", "minutes": 5, "properties": {"$ai_is_error": True}},
                 {"event": "$ai_generation", "trace_id": "current", "minutes": 30},
+                # Each period reads only 10 minutes past its own bounds, so the previous read sees only the -30 event.
+                {
+                    "event": "$ai_generation",
+                    "trace_id": "spanning-wide",
+                    "minutes": -30,
+                    "properties": {"$ai_is_error": True},
+                },
+                {"event": "$ai_generation", "trace_id": "spanning-wide", "minutes": 20},
+                {"event": "$ai_generation", "trace_id": "rated-after-start", "minutes": -40},
+                {"event": "$ai_feedback", "trace_id": "rated-after-start", "minutes": 5},
             ],
         )
 
         metrics = self._load()
 
-        assert (metrics.current.traces, metrics.current.errored, metrics.previous.traces) == (2, 1, 1)
+        assert (
+            metrics.current.traces,
+            metrics.current.errored,
+            metrics.previous.traces,
+            metrics.previous.errored,
+        ) == (3, 1, 2, 0)
 
     @parameterized.expand(
         [
             # The window starts at 16:00:00.123 in Kolkata, and the spanning trace starts at 15:50 there.
-            ("hourly", BucketSize.HOUR, [1, 1]),
-            ("daily", BucketSize.DAY, [2]),
+            ("hourly", BucketSize.HOUR, [1, 2]),
+            ("daily", BucketSize.DAY, [3]),
         ]
     )
     def test_metrics_bucket_by_first_timestamp_clamped_to_window_start(
@@ -192,16 +207,18 @@ class TestTraceMetricsQueries(ClickhouseTestMixin, BaseTest):
                 {"event": "$ai_generation", "trace_id": "spanning", "minutes": 20},
                 {"event": "$ai_generation", "trace_id": "spanning", "minutes": 35},
                 {"event": "$ai_generation", "trace_id": "later", "minutes": 100},
+                {"event": "$ai_generation", "trace_id": "later-too", "minutes": 110},
             ],
         )
         selection = self._selection(date_from=30, date_to=150)
 
-        buckets = self._load(selection, size).buckets
+        metrics = self._load(selection, size)
 
         starts = bucket_starts(selection.window, size)
-        assert {start: totals.traces for start, totals in buckets.items()} == dict(
+        assert {start: totals.traces for start, totals in metrics.buckets.items()} == dict(
             zip(starts, expected_traces, strict=False)
         )
+        assert metrics.current.traces == sum(expected_traces)
 
     def test_metrics_empty_range(self) -> None:
         metrics = self._load()

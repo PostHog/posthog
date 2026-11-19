@@ -19,7 +19,16 @@ from posthog.errors import (
 from posthog.hogql_queries.ai.ai_column_rewriter import EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES
 from posthog.models import Team, User
 
-from .trace_expressions import EVENTS_COLUMNS, event_identified, grouped, trace_errored, trace_latency
+from .trace_expressions import (
+    EVENTS_COLUMNS,
+    event_identified,
+    event_is_otel,
+    grouped,
+    trace_cost,
+    trace_errored,
+    trace_latency,
+    trace_person_id,
+)
 from .trace_metrics import BucketSize, PeriodTotals, bucket_starts
 from .trace_selection import TraceSelection, TraceWindow, shift
 from .trace_selection_queries import grouped_traces
@@ -63,31 +72,36 @@ def _per_trace_values(in_current: bool) -> dict[str, ast.Expr]:
     return {
         "in_current": ast.Constant(value=in_current),
         "trace_latency_s": trace_latency(EVENTS_COLUMNS, grouped),
-        "trace_cost": parse_expr(
-            "sumIf(toFloat(properties.$ai_total_cost_usd), event IN ('$ai_generation', '$ai_embedding'))"
-        ),
+        "trace_cost": trace_cost(EVENTS_COLUMNS, grouped),
         "has_error": trace_errored(EVENTS_COLUMNS, grouped),
         "session_id": parse_expr("any(properties.$ai_session_id)"),
-        "trace_person_id": parse_expr("argMinIf(person_id, timestamp, distinct_id != '')"),
+        "trace_person_id": trace_person_id(EVENTS_COLUMNS, grouped),
         "trace_identified_events": ast.Call(name="countIf", args=[event_identified(EVENTS_COLUMNS)]),
         "trace_non_otel_generations": parse_expr(
-            "countIf(event = '$ai_generation' AND ifNull(properties.$ai_ingestion_source, '') != 'otel')"
+            "countIf(event = '$ai_generation' AND NOT {otel})", placeholders={"otel": event_is_otel(EVENTS_COLUMNS)}
         ),
     }
 
 
-def _period_traces(team: Team, selection: TraceSelection) -> ast.SelectQuery | ast.SelectSetQuery:
+def _period_traces(team: Team, selection: TraceSelection) -> ast.SelectQuery:
     # Each period reads its traces exactly as the list reads that range, so the current Traces and Errors equal the
     # list's counts. One read over both ranges would also see a current trace's events from before the current read
     # bounds, which the list never reads, and count that trace or its error where the list does not.
+    # A trace in both reads keeps only its current row, so the periods never share a trace.
     previous = replace(selection, window=previous_window(selection.window))
-    return ast.SelectSetQuery.create_from_queries(
+    both_periods = ast.SelectSetQuery.create_from_queries(
         [
             grouped_traces(team, selection, _per_trace_values(in_current=True)),
             grouped_traces(team, previous, _per_trace_values(in_current=False)),
         ],
         "UNION ALL",
     )
+    query = parse_select(
+        "SELECT * FROM {both_periods} ORDER BY in_current DESC LIMIT 1 BY trace_id",
+        placeholders={"both_periods": both_periods},
+    )
+    assert isinstance(query, ast.SelectQuery)
+    return query
 
 
 def _metrics_query(team: Team, selection: TraceSelection, size: BucketSize) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -107,7 +121,7 @@ def _metrics_query(team: Team, selection: TraceSelection, size: BucketSize) -> a
     # Each period yields one row per bucket and one total row, the one `grouping(bucket)` marks. p95, sessions and
     # users do not add up across buckets, so the totals come from that row.
     most_rows = len(bucket_starts(previous, size)) + len(bucket_starts(current, size)) + 2
-    # The WHERE keeps a trace that reaches into the current window out of the previous period.
+    # Totals sort first, so the LIMIT can only ever cut a bucket row.
     return parse_select(
         """
         SELECT
@@ -126,12 +140,11 @@ def _metrics_query(team: Team, selection: TraceSelection, size: BucketSize) -> a
             sum(trace_identified_events) AS identified_events,
             sum(trace_non_otel_generations) AS non_otel_generations
         FROM {traces}
-        WHERE in_current OR last_timestamp < {current_start}
         GROUP BY GROUPING SETS ((in_current), (in_current, bucket))
+        ORDER BY is_period_total DESC
         LIMIT {most_rows}
         """,
         placeholders={
-            "current_start": current_start,
             "bucket": bucket,
             "most_rows": ast.Constant(value=most_rows),
             "traces": _period_traces(team, selection),
@@ -168,7 +181,10 @@ def _totals(row: dict[str, Any]) -> PeriodTotals:
 
 
 def load_trace_metrics(team: Team, user: User | None, selection: TraceSelection, size: BucketSize) -> TraceMetricsRows:
-    rows = _execute(team, user, _metrics_query(team, selection, size))
+    # ClickHouse floors buckets in the project's zone, and bucket_starts floors in the window's zone.
+    zone = team.timezone_info
+    window = TraceWindow(start=selection.window.start.astimezone(zone), end=selection.window.end.astimezone(zone))
+    rows = _execute(team, user, _metrics_query(team, replace(selection, window=window), size))
     periods = {bool(row["in_current"]): _totals(row) for row in rows if row["is_period_total"]}
     return TraceMetricsRows(
         current=periods.get(True, _NO_TRACES),

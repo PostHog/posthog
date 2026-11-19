@@ -4,40 +4,54 @@ from posthog.hogql import ast
 
 from posthog.dataclasses import frozen
 
+NODE_EVENT_NAMES = ("$ai_span", "$ai_generation", "$ai_embedding")
+TRACE_EVENT_NAMES = ("$ai_trace", *NODE_EVENT_NAMES)
+BILLED_EVENT_NAMES = ("$ai_generation", "$ai_embedding")
+
 
 @frozen
 class TraceColumns:
     event: ast.Expr
+    timestamp: ast.Expr
     latency: ast.Expr
     parent_id: ast.Expr
     trace_id: ast.Expr
     is_error: ast.Expr
     distinct_id: ast.Expr
+    person: ast.Expr
     ingestion_source: ast.Expr
+    total_cost: ast.Expr
 
 
 def _field(*chain: str) -> ast.Field:
     return ast.Field(chain=list(chain))
 
 
+# On ai_events a trace's person is named by its distinct id, which the list resolves to a person.
 AI_EVENTS_COLUMNS = TraceColumns(
     event=_field("event"),
+    timestamp=_field("timestamp"),
     latency=_field("latency"),
     parent_id=_field("parent_id"),
     trace_id=_field("trace_id"),
     is_error=ast.Call(name="if", args=[_field("is_error"), ast.Constant(value="true"), ast.Constant(value="false")]),
     distinct_id=_field("distinct_id"),
+    person=_field("distinct_id"),
     ingestion_source=_field("properties", "$ai_ingestion_source"),
+    total_cost=_field("total_cost_usd"),
 )
 
 EVENTS_COLUMNS = TraceColumns(
     event=_field("event"),
+    timestamp=_field("timestamp"),
     latency=ast.Call(name="toFloat", args=[_field("properties", "$ai_latency")]),
     parent_id=_field("properties", "$ai_parent_id"),
     trace_id=_field("properties", "$ai_trace_id"),
     is_error=_field("properties", "$ai_is_error"),
     distinct_id=_field("distinct_id"),
+    person=_field("person_id"),
     ingestion_source=_field("properties", "$ai_ingestion_source"),
+    total_cost=ast.Call(name="toFloat", args=[_field("properties", "$ai_total_cost_usd")]),
 )
 
 Aggregate = Callable[[str, list[ast.Expr]], ast.Expr]
@@ -60,6 +74,12 @@ def _constant(value: str | int | None) -> ast.Constant:
 
 def _compare(op: ast.CompareOperationOp, left: ast.Expr, right: ast.Expr) -> ast.CompareOperation:
     return ast.CompareOperation(op=op, left=left, right=right)
+
+
+def _event_in(columns: TraceColumns, names: tuple[str, ...]) -> ast.CompareOperation:
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.In, left=columns.event, right=ast.Tuple(exprs=[_constant(name) for name in names])
+    )
 
 
 def _if(condition: ast.Expr, then: ast.Expr, otherwise: ast.Expr) -> ast.Call:
@@ -105,10 +125,36 @@ def trace_errored(columns: TraceColumns, aggregate: Aggregate) -> ast.Expr:
     return _compare(ast.CompareOperationOp.Gt, aggregate("countIf", [flagged]), _constant(0))
 
 
+def trace_cost(columns: TraceColumns, aggregate: Aggregate) -> ast.Expr:
+    """The trace's cost in USD over its billed events, NULL when none of them reports a cost."""
+    return aggregate("sumIf", [columns.total_cost, _event_in(columns, BILLED_EVENT_NAMES)])
+
+
+def trace_person_id(columns: TraceColumns, aggregate: Aggregate) -> ast.Expr:
+    """The person the traces list shows for a trace: from the events with a distinct id, the root `$ai_trace` event's,
+    else the earliest one's. Feedback and metric events never name it. NULL when no trace event has a distinct id."""
+    has_person = ast.And(
+        exprs=[
+            _event_in(columns, TRACE_EVENT_NAMES),
+            _compare(ast.CompareOperationOp.NotEq, columns.distinct_id, _constant("")),
+        ]
+    )
+    not_root = _compare(ast.CompareOperationOp.NotEq, columns.event, _constant("$ai_trace"))
+    return _if(
+        _compare(ast.CompareOperationOp.Gt, aggregate("countIf", [has_person]), _constant(0)),
+        aggregate("argMinIf", [columns.person, ast.Tuple(exprs=[not_root, columns.timestamp]), has_person]),
+        _constant(None),
+    )
+
+
+def event_is_otel(columns: TraceColumns) -> ast.Expr:
+    return _compare(ast.CompareOperationOp.Eq, _if_null(columns.ingestion_source, ""), _constant("otel"))
+
+
 def event_identified(columns: TraceColumns) -> ast.Expr:
     return ast.And(
         exprs=[
             _compare(ast.CompareOperationOp.NotEq, columns.distinct_id, _if_null(columns.trace_id, "")),
-            _compare(ast.CompareOperationOp.NotEq, _if_null(columns.ingestion_source, ""), _constant("otel")),
+            ast.Not(expr=event_is_otel(columns)),
         ]
     )
