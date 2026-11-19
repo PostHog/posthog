@@ -690,6 +690,8 @@ def invalidate_thread_messages_cache(integration_id: int, channel: str, thread_t
 # Query param a link we compose can carry to tell our own unfurler to leave it alone
 # (honoured by `parse_posthog_resource_link`).
 UNFURL_OPT_OUT_PARAM = "unfurl"
+# Run state key holding the `ts` of the run's progress card.
+SLACK_PROGRESS_MESSAGE_TS_KEY = "slack_progress_message_ts"
 
 
 @dataclass(frozen=True)
@@ -720,6 +722,9 @@ class RunFooter:
     chart_links: bool = False
     # Model spend of the thread's task so far. Sandbox compute is not billed, so it is not included.
     thread_cost_usd: Decimal | None = None
+    # Where the run's progress card lives, so the handler edits or deletes it without searching
+    # the thread. Read once to seed the handler, which owns it from then on. Not rendered.
+    progress_message_ts: str | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -848,32 +853,27 @@ def load_run_footer(
             ),
             plan=plan,
             chart_links=bool((run.state or {}).get("slack_chart_links")),
+            progress_message_ts=(run.state or {}).get(SLACK_PROGRESS_MESSAGE_TS_KEY),
             # A run on someone's own plan is not paid with PostHog credits, so its cost says nothing.
-            thread_cost_usd=_thread_cost(run, integration_id=integration_id)
-            if include_thread_cost and plan is None
-            else None,
+            thread_cost_usd=_thread_cost(run) if include_thread_cost and plan is None else None,
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
         return RunFooter()
 
 
-def _thread_cost(run: "TaskRunDTO", *, integration_id: int | None) -> Decimal | None:
-    """What the thread's task spent on models so far, or `None` outside the rollout or when unknown.
+def _thread_cost(run: "TaskRunDTO") -> Decimal | None:
+    """What the thread's task spent on models so far, or `None` when unknown.
 
     Reads the same task usage that PostHog Desktop shows, which sums the task's `$ai_generation`
     events. Those events arrive with a short delay and the usage is cached for a minute, so the
     newest requests can be missing here. A later reply's total then includes them.
     """
-    from products.slack_app.backend.feature_flags import is_slack_app_footer_cost_enabled  # noqa: PLC0415
     from products.tasks.backend.facade.billing import get_task_usage  # noqa: PLC0415
 
-    if integration_id is None or run.task_created_at is None:
+    if run.task_created_at is None:
         return None
     try:
-        integration = IntegrationManager.slack.oauth.get(run.team_id, integration_id)
-        if not is_slack_app_footer_cost_enabled(integration, run.created_by_distinct_id):
-            return None
         return get_task_usage(
             team_id=run.team_id, task_id=run.task_id, task_created_at=run.task_created_at
         ).token_cost_usd
@@ -894,8 +894,7 @@ def _run_context_segments(footer: RunFooter) -> list[str]:
     """What the run is, as footer segments: the model, the thread cost, the plan that pays for
     it, then the project it answered from.
 
-    Shared by the reply footer and the progress message so the two cannot describe one
-    run differently, and so the escaping below has a single home.
+    Kept apart from the links so the escaping below has a single home.
     """
     segments: list[str] = []
     if footer.model:
@@ -910,17 +909,6 @@ def _run_context_segments(footer: RunFooter) -> list[str]:
         # rather than on the way in, so `RunFooter.project` stays the plain name.
         segments.append(f"Project: *{escape_slack_mrkdwn(footer.project)}*")
     return segments
-
-
-def run_context_block(footer: RunFooter) -> dict[str, Any] | None:
-    """The run's project and model as a standalone `context` block, or `None` when
-    neither is known.
-
-    What a message that is still working can say about its run: the links the reply
-    footer carries lead to an answer that does not exist yet.
-    """
-    segments = _run_context_segments(footer)
-    return context_block(" · ".join(segments)) if segments else None
 
 
 def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> dict[str, Any] | None:

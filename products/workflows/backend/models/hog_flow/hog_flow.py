@@ -17,7 +17,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import ActionSaved
 from products.workflows.backend.facade.enums import (
     HogFlowEmailSendingPausedBy,
     HogFlowExitCondition,
@@ -36,6 +36,8 @@ logger = structlog.get_logger(__name__)
 # A type absent here has no handler, so the run dies on reaching it with "Action type 'x' not
 # supported" - and unless that step sets on_error: continue, everything downstream never happens.
 # Ordered longest-lived first so the generated API/MCP enum reads in a sensible order.
+SANDBOX_EMAIL_ACTION_TYPE: Final = "email_sandbox"
+
 SUPPORTED_ACTION_TYPES: Final[list[str]] = [
     "trigger",
     "function",
@@ -48,6 +50,7 @@ SUPPORTED_ACTION_TYPES: Final[list[str]] = [
     "conditional_branch",
     "random_cohort_branch",
     "exit",
+    SANDBOX_EMAIL_ACTION_TYPE,
 ]
 
 # The trigger's own kinds, which live in the workflow's `trigger` field rather than on an action.
@@ -106,6 +109,7 @@ MESSAGING_ACTION_TYPES: Final[list[str]] = [
     "function_email",
     "function_sms",
     "function_push",
+    SANDBOX_EMAIL_ACTION_TYPE,
 ]
 
 # Action types that read person data and therefore cannot be used in person-less ("row-scoped")
@@ -306,6 +310,8 @@ class HogFlow(Taggable, UUIDTModel):
     # a draft's secrets are promoted to `encrypted_inputs` on publish and dropped on discard, without
     # touching the live values.
     draft_encrypted_inputs: EncryptedJSONStringField = EncryptedJSONStringField(null=True, blank=True)
+    # Distinguish workflows disabled from live so MCP content edits still stage while status is draft.
+    disabled_from_active = models.BooleanField(default=False, db_default=False)
 
     # Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained
     # by the API whenever a live graph edit deletes actions, so runs parked on a deleted step can
@@ -407,11 +413,10 @@ def hog_flow_deleted(sender, instance: HogFlow, **kwargs):
     transaction.on_commit(lambda: _reload_batch_on_workers(team_id, [hog_flow_id]))
 
 
-@receiver(post_save, sender=Action)
-def action_saved_for_hog_flows(sender, instance: Action, created, **kwargs):
+def action_saved_for_hog_flows(event: ActionSaved) -> None:
     from products.workflows.backend.tasks.hog_flows import refresh_affected_hog_flows  # noqa: PLC0415
 
-    refresh_affected_hog_flows.delay(action_id=instance.id)
+    refresh_affected_hog_flows.delay(action_id=event.action_id)
 
 
 @receiver(post_save, sender=Team)

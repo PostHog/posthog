@@ -12,8 +12,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.feature_flags.backend.cleanup_blockers import excluded_flag_ids
-from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.facade.flags import reads_flag_calls_from_flag_evaluations
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
@@ -93,7 +92,7 @@ def list_flags_created_by(team_id: int, user_id: int, *, limit: int) -> list[Cre
 
 
 def summarize_flag_calls(team: Team, user: User) -> FlagCallSummary:
-    from_events = get_flag_evaluations_read_mode(team.organization_id) == FlagEvaluationsMode.EVENTS
+    from_events = not reads_flag_calls_from_flag_evaluations(team)
     result = execute_hogql_query(
         CALLS_FROM_EVENTS if from_events else CALLS_FROM_EVALUATIONS,
         team,

@@ -10,22 +10,27 @@ from posthog.ph_client import feature_enabled_or_false
 logger = structlog.get_logger(__name__)
 
 
-def _project_flag_options(team_id: int) -> dict[str, Any]:
+def _project_flag_options(team_id: int, *, only_evaluate_locally: bool = False) -> dict[str, Any]:
     return {
         "groups": {"project": str(team_id)},
         "group_properties": {"project": {"id": str(team_id)}},
-        "only_evaluate_locally": False,
+        "only_evaluate_locally": only_evaluate_locally,
         "send_feature_flag_events": False,
     }
 
 
-def team_flag_enabled(flag: str, team_id: int) -> bool:
-    """Evaluate a project-level rollout flag. Fails closed when the evaluation raises."""
+def team_flag_enabled(flag: str, team_id: int, *, only_evaluate_locally: bool = False) -> bool:
+    """Evaluate a project-level rollout flag. Fails closed when the evaluation raises.
+
+    A caller on every page load passes `only_evaluate_locally`, so that a page never waits on a remote flag call.
+    """
     # The analytics SDK is disabled in local dev, so the flag always reads as off there.
     if settings.DEBUG:
         return True
     try:
-        return feature_enabled_or_false(flag, str(team_id), **_project_flag_options(team_id))
+        return feature_enabled_or_false(
+            flag, str(team_id), **_project_flag_options(team_id, only_evaluate_locally=only_evaluate_locally)
+        )
     except Exception:
         logger.exception("error_tracking_flag_check_failed", flag=flag, team_id=team_id)
         return False
@@ -42,3 +47,12 @@ def team_flag_explicitly_off(flag: str, team_id: int) -> bool:
     except Exception:
         logger.exception("error_tracking_flag_check_failed", flag=flag, team_id=team_id)
         return False
+
+
+def team_flag_payload(flag: str, team_id: int) -> object:
+    """Return the project flag payload, or None when the lookup fails or the SDK is disabled in local dev."""
+    try:
+        return posthoganalytics.get_feature_flag_payload(flag, str(team_id), **_project_flag_options(team_id))
+    except Exception:
+        logger.exception("error_tracking_flag_payload_failed", flag=flag, team_id=team_id)
+        return None

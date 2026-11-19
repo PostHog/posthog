@@ -24,7 +24,8 @@ from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.property_access import restricted_property_names
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import list_actions
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.event_definitions.backend.models.property_definition import (
     PropertyDefinition,
     PropertyType,
@@ -343,8 +344,8 @@ class TaxonomyAgentToolkit:
         """
         try:
             response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
-        except Action.DoesNotExist:
-            project_actions = Action.objects.filter(team__project_id=self._team.project_id, deleted=False)
+        except ActionNotFound:
+            project_actions = list_actions(project_id=self._team.project_id)
             if not project_actions:
                 return "No actions exist in the project."
             return f"Action {event_name_or_action_id} does not exist in the taxonomy. Verify that the action ID is correct and try again."

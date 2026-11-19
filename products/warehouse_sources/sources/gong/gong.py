@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.gong.settings import GONG_ENDPOINTS, Gon
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     frozen,
     make_tracked_session,
     retry_with_deadline,
@@ -46,12 +47,6 @@ class GongResumeConfig:
     # them quickly), so on resume we restart the in-progress window from scratch and let
     # primary-key merge semantics dedupe any re-yielded rows.
     window_start: Optional[str] = None
-
-
-def _format_datetime(value: datetime) -> str:
-    """ISO-8601 with a `Z` suffix, which Gong accepts for `fromDateTime`/`toDateTime`."""
-    utc_value = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-    return utc_value.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
 
 
 def _to_datetime(value: Any) -> Optional[datetime]:
@@ -126,8 +121,8 @@ def _extensive_body(
     """
     body: dict[str, Any] = {
         "filter": {
-            "fromDateTime": _format_datetime(window_start),
-            "toDateTime": _format_datetime(window_end),
+            "fromDateTime": format_datetime(window_start, "iso_z"),
+            "toDateTime": format_datetime(window_end, "iso_z"),
         },
         "contentSelector": config.extensive_content_selector,
     }
@@ -136,18 +131,22 @@ def _extensive_body(
     return body
 
 
-def _flatten_extensive_call(call: dict[str, Any], row_keys: tuple[str, ...]) -> dict[str, Any]:
+def _flatten_extensive_call(
+    call: dict[str, Any], row_keys: tuple[str, ...], row_columns: Optional[dict[str, str]] = None
+) -> dict[str, Any]:
     """Lift the `metaData` block of an extensive call row to the top level.
 
     `/v2/calls/extensive` nests the core call fields under `metaData` and returns the requested
     enrichment blocks as siblings. Flattening `metaData` up keeps `id` and `started` available at
     the top level for primary-key merge and datetime partitioning, while preserving each
-    enrichment block as a nested column.
+    enrichment block as a nested column, renamed through `row_columns` where its key clashes with
+    a `metaData` field.
     """
     meta = call.get("metaData") or {}
     flattened = dict(meta)
+    columns = row_columns or {}
     for key in row_keys:
-        flattened[key] = call.get(key)
+        flattened[columns.get(key, key)] = call.get(key)
     return flattened
 
 
@@ -323,7 +322,7 @@ def _iter_windowed_rows(
             yield from _iter_call_rows(config, fetch_page, window_start, window_end)
 
         window_start = window_end
-        resumable_source_manager.save_state(GongResumeConfig(window_start=_format_datetime(window_start)))
+        resumable_source_manager.save_state(GongResumeConfig(window_start=format_datetime(window_start, "iso_z")))
         # Daily stats windows can all come back empty, and the pipeline checks for shutdown only when rows arrive.
         resumable_source_manager.safe_point()
 
@@ -341,12 +340,13 @@ def _iter_call_rows(
                 json_body=_extensive_body(config, window_start, window_end, cursor),
             )
             rows = [
-                _flatten_extensive_call(row, config.extensive_row_keys) for row in data.get(config.response_key, [])
+                _flatten_extensive_call(row, config.extensive_row_keys, config.extensive_row_columns)
+                for row in data.get(config.response_key, [])
             ]
         else:
             params: dict[str, Any] = {
-                "fromDateTime": _format_datetime(window_start),
-                "toDateTime": _format_datetime(window_end),
+                "fromDateTime": format_datetime(window_start, "iso_z"),
+                "toDateTime": format_datetime(window_end, "iso_z"),
             }
             if cursor:
                 params["cursor"] = cursor
@@ -414,8 +414,8 @@ def _iter_transcript_rows(
 
     while True:
         params: dict[str, Any] = {
-            "fromDateTime": _format_datetime(window_start),
-            "toDateTime": _format_datetime(window_end),
+            "fromDateTime": format_datetime(window_start, "iso_z"),
+            "toDateTime": format_datetime(window_end, "iso_z"),
         }
         if cursor:
             params["cursor"] = cursor
@@ -468,8 +468,8 @@ def _iter_transcripts_for_calls(
     while True:
         body: dict[str, Any] = {
             "filter": {
-                "fromDateTime": _format_datetime(window_start),
-                "toDateTime": _format_datetime(window_end),
+                "fromDateTime": format_datetime(window_start, "iso_z"),
+                "toDateTime": format_datetime(window_end, "iso_z"),
                 "callIds": list(started_by_call_id),
             }
         }

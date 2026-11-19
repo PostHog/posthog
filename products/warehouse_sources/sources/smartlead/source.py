@@ -91,8 +91,8 @@ Find or create your API key under **Settings → Smartlead API key** in your Sma
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every INCREMENTAL_FIELDS entry is empty today (see settings.py for why), so every
-        # endpoint comes back full refresh.
+        # Only the day-wise analytics endpoint advertises an incremental field (see settings.py
+        # for why); every other endpoint comes back full refresh.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(

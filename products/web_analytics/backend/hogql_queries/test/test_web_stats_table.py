@@ -45,7 +45,8 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.models import Element
 from posthog.models.utils import uuid7
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.test.first_pageview_attribution_test_base import (
@@ -1739,7 +1740,7 @@ class TestWebStatsTableQueryRunner(
             ]
         )
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Visited Bar",
             steps_json=[{"event": "$pageview", "url": "https://www.example.com/bar", "url_matching": "regex"}],
@@ -1771,7 +1772,7 @@ class TestWebStatsTableQueryRunner(
             ]
         )
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Visited Foo",
             steps_json=[
@@ -1838,7 +1839,7 @@ class TestWebStatsTableQueryRunner(
             event="custom_event",
         )
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Did Custom Event",
             steps_json=[
@@ -1875,7 +1876,7 @@ class TestWebStatsTableQueryRunner(
             event="$autocapture",
         )
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Paid $10",
             steps_json=[
@@ -1930,7 +1931,7 @@ class TestWebStatsTableQueryRunner(
             ]
         )
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Visited Foo",
             steps_json=[
@@ -2142,7 +2143,7 @@ class TestWebStatsTableQueryRunner(
             ]
         )
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Visited Foo",
             steps_json=[{"event": "$pageview", "url": "/foo", "url_matching": "regex"}],
@@ -2181,7 +2182,7 @@ class TestWebStatsTableQueryRunner(
             ]
         )
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Visited Foo",
             steps_json=[{"event": "$pageview", "url": "/foo", "url_matching": "regex"}],

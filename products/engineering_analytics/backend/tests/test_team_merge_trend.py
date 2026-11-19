@@ -29,8 +29,6 @@ def _member_row(member_id: int, login: str, team_slug: str) -> dict:
 
 class TestTeamMergeTrendAPI(ClickhouseTestMixin, APIBaseTest):
     def test_degrades_without_membership_snapshot_and_requires_owner_team(self):
-        # The source resolves (pull_requests + workflow_runs) but has no team_members schema:
-        # the endpoint must answer has_membership_data=false instead of querying a missing table.
         connect_github_source_without_data(self.team, prefix="mt", repository="PostHog/posthog")
 
         response = self.client.get(
@@ -54,23 +52,19 @@ class TestTeamMergeTrendQuery(ClickhouseTestMixin, BaseTest):
         )
 
     def test_membership_join_bot_exclusion_and_window(self):
-        # Guards the freshly written HogQL: the daily median/average must cover exactly the
-        # slug's members' merges, bots and non-members must stay out, and the window must
-        # bound merged_at.
         curated = self._curated(
             self.team,
             pr_rows=[
-                # 2026-01-12, alice (team-replay): 2h + 4h + 30h merges, a skew that separates
-                # the median (4h) from the average (12h).
+                # Merges of 2h, 4h and 30h separate the median (4h) from the average (12h).
                 _pr_row(1, "alice", "closed", 0, "2026-01-12 08:00:00", merged_at="2026-01-12 10:00:00"),
                 _pr_row(2, "alice", "closed", 0, "2026-01-12 08:00:00", merged_at="2026-01-12 12:00:00"),
                 _pr_row(3, "alice", "closed", 0, "2026-01-11 08:00:00", merged_at="2026-01-12 14:00:00"),
-                # Same day: a non-member and a bot merge too; neither may move the team's numbers.
+                # A non-member and a bot merge on the same day.
                 _pr_row(4, "bob", "closed", 0, "2026-01-11 10:00:00", merged_at="2026-01-12 10:00:00"),
                 _pr_row(5, "dependabot[bot]", "closed", 0, "2026-01-12 09:00:00", merged_at="2026-01-12 10:00:00"),
-                # 2026-01-14: only the non-member merges, so no team row for the day.
+                # Only the non-member merges on this day, so the team has no row for it.
                 _pr_row(6, "bob", "closed", 0, "2026-01-14 00:00:00", merged_at="2026-01-14 10:00:00"),
-                # Outside the window / never merged: excluded entirely.
+                # One merge outside the window and one open pull request.
                 _pr_row(7, "alice", "closed", 0, "2026-01-30 10:00:00", merged_at="2026-02-01 10:00:00"),
                 _pr_row(8, "alice", "open", 0, "2026-01-11 10:00:00"),
             ],

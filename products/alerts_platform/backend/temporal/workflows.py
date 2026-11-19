@@ -1,6 +1,6 @@
 import asyncio
 import datetime as dt
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
 
 from temporalio import activity, workflow
@@ -42,7 +42,10 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.schedule import a_describe_schedule
 
     from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
+    from products.alerts_platform.backend.delivery.handoff import deliver_handoff
+    from products.alerts_platform.backend.delivery.routing import deliver_routes
     from products.alerts_platform.backend.delivery.thread_store import PENDING_CLAIM_TTL, ThreadBusy
+    from products.alerts_platform.backend.delivery.transport import RefusedEverywhere
     from products.alerts_platform.backend.facade.contracts import (
         AlertBatchKey,
         AlertDeliveryRequest,
@@ -90,7 +93,10 @@ SOURCE_DISPATCH_HEADROOM = dt.timedelta(seconds=1)
 NOOP_EVALUATION_TIMEOUT = dt.timedelta(seconds=75)
 
 THREAD_BUSY = "AlertsPlatformThreadBusy"
-DELIVERY_START_TO_CLOSE = dt.timedelta(seconds=10)
+# One attempt can wait up to 3s for a lagging announcement (`read_announcement`) and then spend up to
+# 8s on a webhook's connect and read timeouts (`wire.py`). Below that sum, Temporal times the attempt
+# out while the send still runs, and the retry finds the thread claimed.
+DELIVERY_START_TO_CLOSE = dt.timedelta(seconds=15)
 DELIVERY_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=30)
 # The workflow waits out a held thread because the activity's retries end inside
 # DELIVERY_SCHEDULE_TO_CLOSE, which is shorter than PENDING_CLAIM_TTL. A claim that a dead
@@ -107,6 +113,9 @@ NO_TRANSITION_EVENTS_PATCH = "alerts-platform-no-transition-events"
 # at most SOURCE_DISPATCH_TIMEOUT, so a deploy later the sequential branch can go and the check can
 # become `workflow.deprecate_patch(CONCURRENT_EVALUATION_STARTS_PATCH)`.
 CONCURRENT_EVALUATION_STARTS_PATCH = "alerts-platform-concurrent-evaluation-starts"
+# A delivery run that recorded this sends to the team's routed receivers after every part's own
+# sends. Older runs replay without the routes activity.
+ROUTED_DELIVERY_PATCH = "alerts-platform-routed-delivery"
 # From the first busy result to the start of a later attempt. An attempt that starts this late
 # finds every claim the first one saw already stale, so a thread still held is a newer send's.
 BUSY_WAIT_LIMIT = PENDING_CLAIM_TTL + BUSY_RETRY_DELAY
@@ -180,12 +189,28 @@ async def alerts_platform_emit_transitions_activity(request: AlertDeliveryReques
     enabled the event was never on, so the run gets the result it always got."""
 
 
+async def _log_refused_everywhere(request: AlertDeliveryRequest, error: RefusedEverywhere) -> None:
+    """Ends the send without raising, because only the destination's owner can fix the refusal.
+
+    A retry is refused the same way. Each send already counts as `misconfigured` and the alert's
+    creator was told, so a failed activity would only fail the workflow and page the platform for
+    a problem it cannot fix.
+    """
+    await LOGGER.ainfo(
+        "alerts_platform_delivery_refused_everywhere",
+        source=request.source.value,
+        configuration_id=request.configuration_id,
+        evaluation_key=request.evaluation_key,
+        error=str(error),
+    )
+
+
 @activity.defn
 async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest) -> None:
-    """Sends what one evaluation decided, once destinations are live for the team.
+    """Sends what one evaluation decided, for an alert the platform owns.
 
-    Until then it records what it would have sent and contacts nobody, which is the same shape
-    the activity has had since the PoC.
+    For an alert its source still owns it records a preview and contacts nobody, because the
+    source sends its own message.
 
     The delivery package is synchronous: it reads the history, resolves destinations through
     the ORM and posts over a blocking client. Django refuses an ORM call from a thread with a
@@ -203,6 +228,9 @@ async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest
         # Non-retryable so that the wait does not use the retries a provider failure needs, and
         # non-reportable because a held thread is expected contention. The workflow waits it out.
         raise NonReportableApplicationError(str(error), type=THREAD_BUSY, non_retryable=True) from error
+    except RefusedEverywhere as error:
+        await _log_refused_everywhere(request, error)
+        return
     if not outcome.live:
         await LOGGER.ainfo(
             "alerts_platform_delivery_preview",
@@ -223,6 +251,32 @@ async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest
         emitted_transitions=outcome.emitted_transitions,
         emitted_events=outcome.emitted_events,
     )
+
+
+@activity.defn
+async def alerts_platform_deliver_routes_activity(request: AlertDeliveryRequest) -> None:
+    """Sends what one evaluation decided to the team's routed receivers."""
+    try:
+        sent = await database_sync_to_async_pool(deliver_routes)(request)
+    except ThreadBusy as error:
+        await LOGGER.ainfo(
+            "alerts_platform_routed_delivery_thread_busy",
+            source=request.source.value,
+            configuration_id=request.configuration_id,
+            evaluation_key=request.evaluation_key,
+        )
+        raise NonReportableApplicationError(str(error), type=THREAD_BUSY, non_retryable=True) from error
+    except RefusedEverywhere as error:
+        await _log_refused_everywhere(request, error)
+        return
+    if sent:
+        await LOGGER.ainfo(
+            "alerts_platform_routed_delivered",
+            source=request.source.value,
+            configuration_id=request.configuration_id,
+            evaluation_key=request.evaluation_key,
+            sent=sent,
+        )
 
 
 @workflow.defn(name="alerts-platform-deliver-preview")
@@ -250,7 +304,14 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
                 await self._send(request)
             except ActivityError as error:
                 send_failures.append(error)
-        failures = [*send_failures, *emission_failures]
+        route_failures: list[ActivityError] = []
+        if workflow.patched(ROUTED_DELIVERY_PATCH):
+            for request in parts:
+                try:
+                    await self._send(request, alerts_platform_deliver_routes_activity)
+                except ActivityError as error:
+                    route_failures.append(error)
+        failures = [*send_failures, *emission_failures, *route_failures]
         if failures:
             raise failures[0]
 
@@ -263,28 +324,65 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-    async def _send(self, request: AlertDeliveryRequest) -> None:
-        busy_deadline: dt.datetime | None = None
-        while True:
-            started_at = workflow.now()
-            try:
-                await workflow.execute_activity(
-                    alerts_platform_deliver_preview_activity,
-                    request,
-                    start_to_close_timeout=DELIVERY_START_TO_CLOSE,
-                    schedule_to_close_timeout=DELIVERY_SCHEDULE_TO_CLOSE,
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-                return
-            except ActivityError as error:
-                cause = unwrap_temporal_cause(error)
-                if cause is None or cause.type != THREAD_BUSY:
-                    raise
-                if busy_deadline is None:
-                    busy_deadline = workflow.now() + BUSY_WAIT_LIMIT
-                elif started_at >= busy_deadline:
-                    raise
-            await workflow.sleep(BUSY_RETRY_DELAY)
+    async def _send(
+        self,
+        request: AlertDeliveryRequest,
+        send: Callable[[AlertDeliveryRequest], Awaitable[None]] = alerts_platform_deliver_preview_activity,
+    ) -> None:
+        await _send_waiting_out_busy_threads(request, send)
+
+
+async def _send_waiting_out_busy_threads(
+    request: AlertDeliveryRequest, send: Callable[[AlertDeliveryRequest], Awaitable[None]]
+) -> None:
+    busy_deadline: dt.datetime | None = None
+    while True:
+        started_at = workflow.now()
+        try:
+            await workflow.execute_activity(
+                send,
+                request,
+                start_to_close_timeout=DELIVERY_START_TO_CLOSE,
+                schedule_to_close_timeout=DELIVERY_SCHEDULE_TO_CLOSE,
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            return
+        except ActivityError as error:
+            cause = unwrap_temporal_cause(error)
+            if cause is None or cause.type != THREAD_BUSY:
+                raise
+            if busy_deadline is None:
+                busy_deadline = workflow.now() + BUSY_WAIT_LIMIT
+            elif started_at >= busy_deadline:
+                raise
+        await workflow.sleep(BUSY_RETRY_DELAY)
+
+
+@activity.defn
+async def alerts_platform_deliver_handoff_activity(request: AlertDeliveryRequest) -> None:
+    """Sends the incident actions an edit owes the incident managers it moved firings between."""
+    try:
+        await database_sync_to_async_pool(deliver_handoff)(request)
+    except ThreadBusy as error:
+        raise NonReportableApplicationError(str(error), type=THREAD_BUSY, non_retryable=True) from error
+    except RefusedEverywhere as error:
+        await _log_refused_everywhere(request, error)
+
+
+# A workflow of its own rather than a branch in the delivery workflow's activities: a worker that
+# predates handoffs does not know this type, so the task waits for one that does instead of reading
+# the request as an evaluation and finishing without a send.
+@workflow.defn(name="alerts-platform-hand-over")
+class AlertsPlatformHandOverWorkflow(PostHogWorkflow):
+    inputs_cls = AlertDeliveryRequest
+
+    @workflow.run
+    async def run(self, inputs: AlertDeliveryRequest) -> None:
+        await _send_waiting_out_busy_threads(inputs, alerts_platform_deliver_handoff_activity)
+
+
+def hand_over_workflow_id(request: AlertDeliveryRequest) -> str:
+    return f"alerts-hand-over-{request.configuration_id}:{request.evaluation_key}"
 
 
 def delivery_workflow_id(delivery: AlertDeliveryRequest) -> str:
@@ -294,7 +392,7 @@ def delivery_workflow_id(delivery: AlertDeliveryRequest) -> str:
 
 
 def delivery_execution_timeout(delivery: AlertDeliveryRequest) -> dt.timedelta:
-    return DELIVERY_EXECUTION_TIMEOUT * max(1, delivery.parts)
+    return 2 * DELIVERY_EXECUTION_TIMEOUT * max(1, delivery.parts)
 
 
 async def start_deliveries(
@@ -735,11 +833,14 @@ EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
 DELIVERY_WORKFLOWS: list[type[PostHogWorkflow]] = [
     AlertsPlatformDeliverWorkflow,
     AlertsPlatformDeliverPreviewWorkflow,
+    AlertsPlatformHandOverWorkflow,
     AlertsPlatformReleaseExpiredHoldsWorkflow,
 ]
 DELIVERY_ACTIVITIES: list[Callable[..., object]] = [
     alerts_platform_deliver_activity,
     alerts_platform_deliver_preview_activity,
+    alerts_platform_deliver_routes_activity,
+    alerts_platform_deliver_handoff_activity,
     alerts_platform_emit_transitions_activity,
     alerts_platform_find_expired_holds_activity,
     alerts_platform_release_expired_holds_activity,

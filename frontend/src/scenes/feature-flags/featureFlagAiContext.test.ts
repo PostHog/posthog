@@ -10,6 +10,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { contextItemPath } from 'products/posthog_ai/frontend/utils/contextItemLink'
 import { wrapWithPosthogContext } from 'products/posthog_ai/frontend/utils/posthogContextBlock'
 
 import {
@@ -73,6 +74,13 @@ describe('featureFlagAiContext', () => {
         }
         return item.value
     }
+
+    test.each(['test-flag', '12'])('links flag %s by ID and keeps its context key', (key) => {
+        const items = featureFlagContextItems({ ...baseFeatureFlag, key })
+
+        expect(contextItemPath(items[0])).toBe('/feature-flags/1')
+        expect(wrapWithPosthogContext('Review this flag', items)).toContain(`feature_flag ${key}`)
+    })
 
     it('renders the release conditions into the context block the agent reads', () => {
         const block = wrapWithPosthogContext(

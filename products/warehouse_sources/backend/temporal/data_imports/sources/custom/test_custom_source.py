@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import build_default_sync_settings
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -1107,15 +1108,28 @@ class TestCustomSourceGetSchemas(SimpleTestCase):
                 },
             }
         )
+        manifest["resources"].append(
+            {
+                "name": "events",
+                "endpoint": {
+                    "path": "/events",
+                    "data_selector": "data",
+                    "incremental": {"cursor_path": "seq", "cursor_type": "integer", "start_param": "after"},
+                },
+            }
+        )
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest))
         schemas = source.get_schemas(config, team_id=999)
-        assert {s.name for s in schemas} == {"users", "orders"}
+        assert {s.name for s in schemas} == {"users", "orders", "events"}
 
         orders = next(s for s in schemas if s.name == "orders")
         assert orders.supports_incremental
         assert orders.incremental_fields[0]["field"] == "updated_at"
         assert orders.detected_primary_keys == ["order_id", "line_no"]
+        assert build_default_sync_settings(orders)["sync_type"] == "incremental"
+        events = next(s for s in schemas if s.name == "events")
+        assert build_default_sync_settings(events) == {"sync_type": "full_refresh"}
 
     def test_filters_by_names(self):
         source = CustomSource()
@@ -2521,6 +2535,88 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
             "/forms/f1/responses",
             "/forms/f2/responses",
         ]
+
+
+class TestCustomSourceLiteralQueryBraces(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "field_expansion",
+                "/page/posts?limit=100&fields=id,attachments{media_type},insights.metric(a,b)",
+                None,
+                "fields",
+                "id,attachments{media_type},insights.metric(a,b)",
+            ),
+            (
+                "nested_field_expansion",
+                "/page/posts?fields=insights{values{value}}",
+                None,
+                "fields",
+                "insights{values{value}}",
+            ),
+            ("already_escaped", "/page/posts?fields=a{{b}}", None, "fields", "a{b}"),
+            ("unbalanced_brace", "/page/posts?q=a}", None, "q", "a}"),
+            ("empty_braces", "/page/posts?filter={}", None, "filter", "{}"),
+            ("declared_param_still_binds", "/page/posts?since={since}&fields=a{b}", {"since": "2024"}, "since", "2024"),
+        ]
+    )
+    def test_query_braces_reach_request(self, _name, path, params, query_param, expected):
+        manifest = _minimal_manifest()
+        endpoint = manifest["resources"][0]["endpoint"]
+        endpoint.update({"path": path, "paginator": {"type": "single_page"}})
+        if params:
+            endpoint["params"] = params
+
+        result = SourceDriver(CustomSource(), CustomSourceConfig(manifest_json=json.dumps(manifest))).run(
+            "users", [ScriptedResponse(json={"data": [{"id": 1}]})], team_id=999
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/page/posts"]
+        assert result.requests[0].param(query_param) == expected
+
+    def test_fanout_child_query_braces_reach_request(self):
+        manifest = _fanout_manifest()
+        for resource in manifest["resources"]:
+            resource["endpoint"]["paginator"] = {"type": "single_page"}
+        manifest["resources"][1]["endpoint"]["path"] = "/forms/{form_id}/responses?fields=answers{value}"
+
+        result = SourceDriver(CustomSource(), CustomSourceConfig(manifest_json=json.dumps(manifest))).run(
+            "responses",
+            [ScriptedResponse(json={"items": [{"id": "f1"}]}), ScriptedResponse(json={"items": []})],
+            team_id=999,
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/forms", "/forms/f1/responses"]
+        assert result.requests[1].param("fields") == "answers{value}"
+
+    def test_validate_credentials_accepts_query_braces(self):
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["path"] = "/page/posts?fields=attachments{media_type}"
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        with scripted_network([ScriptedResponse(json={})]):
+            ok, err = CustomSource().validate_credentials(config, team_id=999)
+        assert ok, err
+
+    @parameterized.expand(
+        [
+            ("path_segment", "/accounts/{account_id}/users", "{account_id}"),
+            ("path_segment_with_query_braces", "/accounts/{account_id}/users?fields=a{b}", "{account_id}"),
+            ("empty_placeholder", "/accounts/{}/users", "{}"),
+        ]
+    )
+    def test_unbound_path_placeholder_names_table_not_path(self, _name, path, placeholder):
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["path"] = path
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+
+        ok, err = CustomSource().validate_credentials(config, team_id=999)
+
+        assert ok is False
+        assert err is not None
+        assert "'users'" in err and placeholder in err
+        assert "/accounts/" not in err
 
 
 class TestCustomSourceFanoutSchemasAndProbe(SimpleTestCase):

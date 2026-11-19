@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 from requests_oauthlib import OAuth1
+from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.sources.sdk import (
     IntegrationRecord,
@@ -17,6 +18,8 @@ from products.warehouse_sources.sources.sdk import (
 )
 from products.warehouse_sources.sources.twitter_ads.settings import (
     API_VERSION,
+    CONVERSION_ATTRIBUTIONS,
+    CONVERSION_METRICS,
     ENTITY_TABLES,
     MAX_STATS_BACKFILL_DAYS,
     MISSING_APP,
@@ -25,8 +28,12 @@ from products.warehouse_sources.sources.twitter_ads.settings import (
     PARTITION_KEYS,
     PLACEMENTS,
     PRIMARY_KEYS,
+    STATS_METRIC_GROUPS,
     STATS_TABLES,
     UNSORTABLE_TABLES,
+    VIDEO_AND_CONVERSION_METRIC_GROUPS,
+    VIDEO_METRICS,
+    conversion_column,
 )
 
 
@@ -38,11 +45,13 @@ class TwitterAdsResumeConfig:
     complete: bool = False
 
 
-# X rejects a stats window wider than this.
-MAX_STATS_WINDOW = timedelta(days=7)
+# X caps a stats window at 7 days but rejects some exact weeks: one with a fall-back hour, and every week on a
+# half-hour-offset account, which X reports as a misleading INVALID_PARAMETER (entity) error.
+STATS_WINDOW = timedelta(days=6)
 
 # Cap on how much of X's error body rides along in the exception message.
 _MAX_ERROR_DETAIL = 300
+_MAX_LOGGED_BODY = 2000
 
 
 def _account_midnight(day: date, account_timezone: ZoneInfo) -> datetime:
@@ -58,6 +67,33 @@ def _account_midnight(day: date, account_timezone: ZoneInfo) -> datetime:
 
 def _utc_param(moment: datetime) -> str:
     return moment.isoformat().replace("+00:00", "Z")
+
+
+def _day_value(values: object, offset: int) -> object:
+    return values[offset] if isinstance(values, list) and offset < len(values) else None
+
+
+def _day_count(values: object, offset: int, column: str) -> int:
+    value = _day_value(values, offset)
+    if value is None:
+        return 0
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return int(value)
+    raise ValueError(f"X Ads returned a non-numeric value for {column}")
+
+
+def _video_and_conversion_counts(metrics: dict[str, Any], offset: int) -> dict[str, int]:
+    # X sends null for a day without delivery. Zero-fill these columns, because a batch where every
+    # row is null makes the warehouse type the column as text for good.
+    counts = {key: _day_count(metrics.get(key), offset, key) for key in VIDEO_METRICS}
+    for metric in CONVERSION_METRICS:
+        attributions = metrics.get(metric)
+        if not isinstance(attributions, dict):
+            attributions = {}
+        for attribution in CONVERSION_ATTRIBUTIONS:
+            column = conversion_column(metric, attribution)
+            counts[column] = _day_count(attributions.get(attribution), offset, column)
+    return counts
 
 
 def _error_detail(response: requests.Response) -> str:
@@ -147,6 +183,7 @@ class TwitterAdsClient:
         placement: str,
         currencies: dict[str, str],
         account_id: str,
+        include_video_and_conversions: bool,
     ) -> list[dict[str, Any]]:
         rows = []
         for entity in payload["data"]:
@@ -156,10 +193,13 @@ class TwitterAdsClient:
                     raise ValueError("X Ads returned segmented data for an unsegmented report")
                 metrics = daily["metrics"]
                 for offset in range((end - start).days):
-                    row = {
-                        key: values[offset] if isinstance(values, list) and offset < len(values) else None
+                    row: dict[str, Any] = {
+                        key: _day_value(values, offset)
                         for key, values in metrics.items()
+                        if not key.startswith(("video_", "conversion_"))
                     }
+                    if include_video_and_conversions:
+                        row.update(_video_and_conversion_counts(metrics, offset))
                     for required in ("billed_charge_local_micro", "impressions", "clicks"):
                         row.setdefault(required, None)
                     rows.append(
@@ -181,7 +221,12 @@ class TwitterAdsClient:
         manager: ResumableSourceManager[TwitterAdsResumeConfig],
         state: TwitterAdsResumeConfig,
         incremental_since: str | date | datetime | None,
+        logger: FilteringBoundLogger,
+        include_video_and_conversions: bool,
     ) -> Iterator[list[dict[str, Any]]]:
+        metric_groups = STATS_METRIC_GROUPS
+        if include_video_and_conversions:
+            metric_groups = f"{STATS_METRIC_GROUPS},{VIDEO_AND_CONVERSION_METRIC_GROUPS}"
         account_path = f"accounts/{quote(account_id, safe='')}"
         account = self.get(account_path, {"with_deleted": "true"})["data"]
         account_timezone = ZoneInfo(account["timezone"])
@@ -209,34 +254,45 @@ class TwitterAdsClient:
             start = date.fromisoformat(state.next_date)
         end = date.fromisoformat(state.end_date) if state.end_date else account_now.date()
         while start < end:
-            window_end = min(start + timedelta(days=7), end)
+            window_end = min(start + STATS_WINDOW, end)
             # X checks for whole hours in the account's timezone, not UTC, so local midnight on a
             # half-hour offset (18:30Z for UTC+5:30) is valid and a whole UTC hour (19:00Z) is not.
             start_time = _account_midnight(start, account_timezone)
             end_time = _account_midnight(window_end, account_timezone)
-            # A week containing a fall-back transition spans 169 hours, one over X's ceiling, so
-            # hand that window a day back rather than letting the request 400.
-            while end_time - start_time > MAX_STATS_WINDOW:
-                window_end -= timedelta(days=1)
-                end_time = _account_midnight(window_end, account_timezone)
             for batch_start in range(0, len(entity_ids), 20):
                 for placement in PLACEMENTS:
-                    payload = self.get(
-                        f"stats/{account_path}",
-                        {
-                            "entity": STATS_TABLES[table],
-                            "entity_ids": ",".join(entity_ids[batch_start : batch_start + 20]),
-                            # X's docs say a bare date means midnight in the account's timezone, but
-                            # X rejects bare dates for DAY windows on non-UTC accounts with
-                            # INVALID_TIME_WINDOW. Send local midnight as a UTC timestamp instead.
-                            "start_time": _utc_param(start_time),
-                            "end_time": _utc_param(end_time),
-                            "granularity": "DAY",
-                            "placement": placement,
-                            "metric_groups": "ENGAGEMENT,BILLING",
-                        },
+                    params: dict[str, str | int] = {
+                        "entity": STATS_TABLES[table],
+                        "entity_ids": ",".join(entity_ids[batch_start : batch_start + 20]),
+                        # X's docs say a bare date means midnight in the account's timezone, but
+                        # X rejects bare dates for DAY windows on non-UTC accounts with
+                        # INVALID_TIME_WINDOW. Send local midnight as a UTC timestamp instead.
+                        "start_time": _utc_param(start_time),
+                        "end_time": _utc_param(end_time),
+                        "granularity": "DAY",
+                        "placement": placement,
+                        "metric_groups": metric_groups,
+                    }
+                    try:
+                        payload = self.get(f"stats/{account_path}", params)
+                    except requests.HTTPError as error:
+                        if error.response is not None:
+                            # The exception message keeps a short summary; the body also echoes how X parsed the request.
+                            logger.warning(
+                                "twitter_ads_stats_rejected",
+                                params=params,
+                                body=error.response.text[:_MAX_LOGGED_BODY],
+                            )
+                        raise
+                    rows = self.stats_rows(
+                        payload,
+                        start,
+                        window_end,
+                        placement,
+                        currencies,
+                        account_id,
+                        include_video_and_conversions,
                     )
-                    rows = self.stats_rows(payload, start, window_end, placement, currencies, account_id)
                     if batch_start + 20 >= len(entity_ids) and placement == PLACEMENTS[-1]:
                         manager.save_state(
                             TwitterAdsResumeConfig(
@@ -253,6 +309,8 @@ def twitter_ads_source(
     table: str,
     manager: ResumableSourceManager[TwitterAdsResumeConfig],
     incremental_since: str | date | datetime | None,
+    logger: FilteringBoundLogger,
+    include_video_and_conversions: bool = False,
 ) -> SourceResponse:
     if table not in ENTITY_TABLES and table not in STATS_TABLES:
         raise ValueError("Unknown X Ads table")
@@ -262,7 +320,9 @@ def twitter_ads_source(
         if state.complete:
             return
         if table in STATS_TABLES:
-            yield from client.stats(account_id, table, manager, state, incremental_since)
+            yield from client.stats(
+                account_id, table, manager, state, incremental_since, logger, include_video_and_conversions
+            )
         else:
             for page in client.pages(f"accounts/{quote(account_id, safe='')}/{table}", state.cursor):
                 cursor = page.get("next_cursor")

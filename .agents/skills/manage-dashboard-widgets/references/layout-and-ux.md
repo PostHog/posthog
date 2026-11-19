@@ -17,12 +17,12 @@ DASHBOARD_WIDGET_CATALOG[].defaultLayout     ← you edit this
         ↓
 tileLayouts.ts :: calculateLayouts()         ← reads catalog per tile.widget.widget_type
         ↓
-react-grid-layout minW / minH on each item   ← enforced while resizing in edit mode
+react-grid-layout minW / minH on each item   ← enforced while resizing a tile
 ```
 
 - Grid is **12 columns** wide (`w` / `minW` are column counts).
 - Height is in **row units** (`h` / `minH`), not columns — users may say “3 rows tall” or “3 grid rows”.
-- **Row height:** `BASE_ROW_HEIGHT = 80` px in `frontend/src/scenes/dashboard/DashboardItems.tsx`. Example: `minH: 3` → 240 px minimum tile height (plus margins).
+- **Row height:** `BASE_ROW_HEIGHT = 80` px in `products/dashboards/frontend/DashboardItems.tsx`. Example: `minH: 3` → 240 px minimum tile height (plus margins).
 
 ### Single source of truth
 
@@ -40,7 +40,7 @@ defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
 
 ### How mins reach the grid
 
-1. `calculateLayouts(tiles)` in `frontend/src/scenes/dashboard/tileLayouts.ts` runs on every dashboard load / tile change.
+1. `calculateLayouts(tiles)` in `products/dashboards/frontend/tileLayouts.ts` runs on every dashboard load / tile change.
 2. For widget tiles it calls `getWidgetCatalogLayout(widget_type)` → `DASHBOARD_WIDGET_CATALOG[key].defaultLayout`.
 3. `getTileMinDimensions()` sets RGL `minW` / `minH` on each layout item.
 
@@ -70,9 +70,9 @@ If a new widget type omits `minH`, users can only shrink to **4 rows**, not 3. A
 ### Change checklist
 
 1. Edit `defaultLayout.minH` / `minW` in `widget_types/catalog.ts` for the `widget_type`.
-2. Extend `frontend/src/scenes/dashboard/tileLayouts.test.ts` — parameterized case with `expectedMinH` / `expectedMinW` for that `widget_type` (see `error_tracking_list` / `session_replay_list` examples).
-3. Run `hogli test frontend/src/scenes/dashboard/tileLayouts.test.ts`.
-4. Manually resize the tile in dashboard **edit mode** to confirm the floor.
+2. Extend `products/dashboards/frontend/tileLayouts.test.ts` — parameterized case with `expectedMinH` / `expectedMinW` for that `widget_type` (see `error_tracking_list` / `session_replay_list` examples).
+3. Run `hogli test products/dashboards/frontend/tileLayouts.test.ts`.
+4. Manually resize the tile on a dashboard you can edit (desktop width) to confirm the floor.
 5. Optional: add a `MinimumSize` story — frame height `minH * 80` px, limit demo data so content fits.
 
 ### Storybook vs dashboard

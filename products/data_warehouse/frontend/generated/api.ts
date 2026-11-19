@@ -37,6 +37,10 @@ import type {
     DeprovisionWarehouseResponseApi,
     FileUploadResponseApi,
     FixHogqlListParams,
+    HoglakeCredentialCreateRequestApi,
+    HoglakeCredentialIssuedApi,
+    HoglakeCredentialListResponseApi,
+    HoglakeCredentialRevokedApi,
     IncrementalEligibilityApi,
     InsightVariableApi,
     InsightVariablesListParams,
@@ -45,6 +49,8 @@ import type {
     ManagedWarehouseMonitoringSnapshotResponseApi,
     ManagedWarehouseSourceSchemasResponseApi,
     ManagedWarehouseTrinoMonitoringSnapshotResponseApi,
+    MyHoglakeCredentialCreateRequestApi,
+    MyHoglakeCredentialListResponseApi,
     OnboardWarehouseTeamRequestApi,
     OnboardWarehouseTeamResponseApi,
     PaginatedDataModelingJobListApi,
@@ -89,6 +95,7 @@ import type {
     SavedQueryRunApi,
     SavedQueryRunResponseApi,
     TableApi,
+    TableHistoryTableApi,
     UploadedFileApi,
     ViewLinkApi,
     ViewLinkValidationApi,
@@ -414,6 +421,89 @@ export const dataWarehouseDeprovisionCreate = async (
     })
 }
 
+export const getDataWarehouseHoglakeCredentialsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/hoglake_credentials/`
+}
+
+/**
+ * The organization's live hoglake OAuth credentials (never their secrets), and where to use them.
+ * @summary List hoglake credentials
+ */
+export const dataWarehouseHoglakeCredentialsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<HoglakeCredentialListResponseApi> => {
+    return apiMutator<HoglakeCredentialListResponseApi>(getDataWarehouseHoglakeCredentialsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataWarehouseHoglakeCredentialsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/hoglake_credentials/`
+}
+
+/**
+ * Create an OAuth client credential for the managed hoglake catalog. The secret is in this response only.
+ * @summary Create a hoglake credential
+ */
+export const dataWarehouseHoglakeCredentialsCreate = async (
+    projectId: string,
+    hoglakeCredentialCreateRequestApi: HoglakeCredentialCreateRequestApi,
+    options?: RequestInit
+): Promise<HoglakeCredentialIssuedApi> => {
+    return apiMutator<HoglakeCredentialIssuedApi>(getDataWarehouseHoglakeCredentialsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hoglakeCredentialCreateRequestApi),
+    })
+}
+
+export const getDataWarehouseHoglakeCredentialsDestroyUrl = (projectId: string, credentialId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/hoglake_credentials/${credentialId}/`
+}
+
+/**
+ * Revoke the credential now: new tokens are refused and its S3 vends stop.
+ * @summary Revoke a hoglake credential
+ */
+export const dataWarehouseHoglakeCredentialsDestroy = async (
+    projectId: string,
+    credentialId: string,
+    options?: RequestInit
+): Promise<HoglakeCredentialRevokedApi> => {
+    return apiMutator<HoglakeCredentialRevokedApi>(
+        getDataWarehouseHoglakeCredentialsDestroyUrl(projectId, credentialId),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
+}
+
+export const getDataWarehouseHoglakeCredentialsRotateCreateUrl = (projectId: string, credentialId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/hoglake_credentials/${credentialId}/rotate/`
+}
+
+/**
+ * Replace the credential's secret; the old one stops working. The new secret is in this response only.
+ * @summary Rotate a hoglake credential's secret
+ */
+export const dataWarehouseHoglakeCredentialsRotateCreate = async (
+    projectId: string,
+    credentialId: string,
+    options?: RequestInit
+): Promise<HoglakeCredentialIssuedApi> => {
+    return apiMutator<HoglakeCredentialIssuedApi>(
+        getDataWarehouseHoglakeCredentialsRotateCreateUrl(projectId, credentialId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
 export const getDataWarehouseJobStatsRetrieveUrl = (
     projectId: string,
     params?: DataWarehouseJobStatsRetrieveParams
@@ -617,6 +707,89 @@ export const dataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieve = as
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getDataWarehouseMyHoglakeCredentialsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/my_hoglake_credentials/`
+}
+
+/**
+ * Your own live hoglake OAuth credentials (never their secrets), the projects you can put in one, and where to use them.
+ * @summary List your hoglake credentials
+ */
+export const dataWarehouseMyHoglakeCredentialsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MyHoglakeCredentialListResponseApi> => {
+    return apiMutator<MyHoglakeCredentialListResponseApi>(getDataWarehouseMyHoglakeCredentialsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataWarehouseMyHoglakeCredentialsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/my_hoglake_credentials/`
+}
+
+/**
+ * Create an OAuth client credential owned by you and limited to the projects you name. Each token it gets carries your current access on each project. The secret is in this response only.
+ * @summary Create a hoglake credential of your own
+ */
+export const dataWarehouseMyHoglakeCredentialsCreate = async (
+    projectId: string,
+    myHoglakeCredentialCreateRequestApi: MyHoglakeCredentialCreateRequestApi,
+    options?: RequestInit
+): Promise<HoglakeCredentialIssuedApi> => {
+    return apiMutator<HoglakeCredentialIssuedApi>(getDataWarehouseMyHoglakeCredentialsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(myHoglakeCredentialCreateRequestApi),
+    })
+}
+
+export const getDataWarehouseMyHoglakeCredentialsDestroyUrl = (projectId: string, credentialId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/my_hoglake_credentials/${credentialId}/`
+}
+
+/**
+ * Revoke your credential now: new tokens are refused and its S3 vends stop.
+ * @summary Revoke one of your hoglake credentials
+ */
+export const dataWarehouseMyHoglakeCredentialsDestroy = async (
+    projectId: string,
+    credentialId: string,
+    options?: RequestInit
+): Promise<HoglakeCredentialRevokedApi> => {
+    return apiMutator<HoglakeCredentialRevokedApi>(
+        getDataWarehouseMyHoglakeCredentialsDestroyUrl(projectId, credentialId),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
+}
+
+export const getDataWarehouseMyHoglakeCredentialsRotateCreateUrl = (projectId: string, credentialId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/my_hoglake_credentials/${credentialId}/rotate/`
+}
+
+/**
+ * Replace your credential's secret; the old one stops working. The new secret is in this response only.
+ * @summary Rotate one of your hoglake credentials
+ */
+export const dataWarehouseMyHoglakeCredentialsRotateCreate = async (
+    projectId: string,
+    credentialId: string,
+    options?: RequestInit
+): Promise<HoglakeCredentialIssuedApi> => {
+    return apiMutator<HoglakeCredentialIssuedApi>(
+        getDataWarehouseMyHoglakeCredentialsRotateCreateUrl(projectId, credentialId),
+        {
+            ...options,
+            method: 'POST',
         }
     )
 }
@@ -2313,12 +2486,50 @@ export const warehouseTablesDestroy = async (projectId: string, id: string, opti
     })
 }
 
+export const getWarehouseTablesCopyAccessRulesToHistoryTableCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/copy_access_rules_to_history_table/`
+}
+
+/**
+ * Replace the access rules of the table's history table with the table's own rules. Requires the right to manage access to both tables.
+ * @summary Copy the table's access rules to its history table
+ */
+export const warehouseTablesCopyAccessRulesToHistoryTableCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TableHistoryTableApi> => {
+    return apiMutator<TableHistoryTableApi>(getWarehouseTablesCopyAccessRulesToHistoryTableCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWarehouseTablesHistoryTableRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/history_table/`
+}
+
+/**
+ * The history table of a table that keeps the past versions of its rows. The history table is a table of its own, so access rules set on this table don't apply to it.
+ * @summary Get the table's history table
+ */
+export const warehouseTablesHistoryTableRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TableHistoryTableApi> => {
+    return apiMutator<TableHistoryTableApi>(getWarehouseTablesHistoryTableRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getWarehouseTablesRefreshSchemaCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_tables/${id}/refresh_schema/`
 }
 
 /**
- * Re-introspect a self-managed (manually linked) warehouse table's schema from its underlying source files and overwrite its stored column list. Use when the source schema has evolved (e.g. new columns in the underlying Delta/Parquet/CSV files) but queries still can't see the new columns, because PostHog serves a cached column snapshot until the table is refreshed. Not for tables managed by an external data source sync — those refresh on their own schedule.
+ * Re-introspect an existing direct-read warehouse table's schema from its underlying source files and overwrite its stored column list. Use when the source schema has evolved (e.g. new columns in the underlying Delta/Parquet/CSV files) but queries still can't see the new columns, because PostHog serves a cached column snapshot until the table is refreshed. This applies only to existing direct-read tables. New direct-read tables cannot be created. Tables managed by an external data source sync refresh on their own schedule.
  * @summary Refresh table schema from source
  */
 export const warehouseTablesRefreshSchemaCreate = async (
@@ -2380,17 +2591,17 @@ export const getWarehouseTablesCreateFromUploadCreateUrl = (projectId: string) =
 }
 
 /**
- * Turn a previously uploaded file into a self-managed warehouse table.
+ * Turn a previously uploaded file into a warehouse table with a FileUpload source.
  *
  * The file already sits in PostHog's own bucket (see `upload_file`), so the table points straight
- * at it and is read in place — no import pipeline and no recurring sync, the same shape as a linked
- * S3/GCS bucket. The read location is always derived from the caller's own team, so a client-supplied
+ * at it for the initial direct read. The source imports it on its first sync. The read location
+ * is always derived from the caller's own team, so a client-supplied
  * `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
  * fall back to the node role, never a user-supplied key).
  *
  * For a team with object storage sources, the table also gets a file upload source. Its first
  * sync imports the file and turns the same table row into a managed table.
- * @summary Create a self-managed warehouse table from an uploaded file
+ * @summary Create a warehouse table and FileUpload source from an uploaded file
  */
 export const warehouseTablesCreateFromUploadCreate = async (
     projectId: string,
@@ -2441,12 +2652,12 @@ export const getWarehouseTablesUploadFileCreateUrl = (projectId: string) => {
 }
 
 /**
- * Store an uploaded file in object storage so a self-managed table can be created from it.
+ * Store an uploaded file for a new warehouse table and FileUpload source.
  *
  * Uploading is a separate first step from `create_from_upload` so the create call stays JSON-only:
  * this returns an `upload_id` the caller passes back to build the table. The file is written under
  * a team-scoped prefix, so a table can only ever read back its own team's uploads.
- * @summary Upload a file for a new self-managed warehouse table
+ * @summary Upload a file for a new warehouse table and FileUpload source
  */
 export const warehouseTablesUploadFileCreate = async (
     projectId: string,

@@ -21,14 +21,27 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 from products.warehouse_sources.sources.zoho_crm._config import ZohoCRMSourceConfig
-from products.warehouse_sources.sources.zoho_crm.settings import ENDPOINTS, INCREMENTAL_FIELDS, SHOULD_SYNC_DEFAULT
+from products.warehouse_sources.sources.zoho_crm.settings import (
+    CUSTOM_MODULE_SCHEMA_PREFIX,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
+    custom_module_config,
+)
 from products.warehouse_sources.sources.zoho_crm.zoho_crm import (
     REFRESH_TOKEN_REJECTED_MESSAGE,
     TOKEN_ERROR_MESSAGES,
     TOKEN_REFRESH_FAILED_PREFIX,
     ZohoCRMResumeConfig,
+    discover_custom_modules,
     validate_credentials as validate_zoho_crm_credentials,
     zoho_crm_source,
+)
+
+SCOPE_MISMATCH_MESSAGE = (
+    "Your Zoho CRM token is missing a scope for this table. Territories need ZohoCRM.settings.territories.READ, "
+    "and pipelines need ZohoCRM.settings.pipeline.READ and ZohoCRM.settings.layouts.READ. Generate a new refresh "
+    "token with these scopes, or turn off this table in the source's schema settings."
 )
 
 
@@ -70,6 +83,8 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
         return {
             **{f"{TOKEN_REFRESH_FAILED_PREFIX}: {code}": message for code, message in TOKEN_ERROR_MESSAGES.items()},
             TOKEN_REFRESH_FAILED_PREFIX: REFRESH_TOKEN_REJECTED_MESSAGE,
+            # Zoho answers a missing scope with a 401, so this must come before the 401 entries.
+            "OAUTH_SCOPE_MISMATCH": SCOPE_MISMATCH_MESSAGE,
             "400 Client Error: Bad Request for url: https://accounts.zoho": "Zoho CRM rejected your OAuth credentials. Check that the client ID, client secret, and refresh token all belong to the same self client.",
             # Some responses carry no reason phrase (e.g. over HTTP/2, which has none), so
             # `requests.raise_for_status()` renders it blank instead of "Bad Request" — match that
@@ -82,6 +97,7 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
             "403 Client Error: Forbidden for url": "Your Zoho CRM token is missing a scope for this module. Re-authorize with the ZohoCRM.modules.ALL, ZohoCRM.settings.fields.READ, and ZohoCRM.settings.modules.READ scopes.",
             "403 Client Error:  for url": "Your Zoho CRM token is missing a scope for this module. Re-authorize with the ZohoCRM.modules.ALL, ZohoCRM.settings.fields.READ, and ZohoCRM.settings.modules.READ scopes.",
             "INVALID_MODULE": "Zoho CRM doesn't have this module enabled for your account. Turn off this table in the source's schema settings, or enable the module in Zoho CRM.",
+            "NO_PERMISSION": "Your Zoho CRM user's profile doesn't have permission to access this module. Turn off this table in the source's schema settings, or grant the profile access to the module in Zoho CRM.",
             "Non-JSON response from": "Zoho CRM returned a non-JSON response, for example an HTML error or login page, instead of data. Check that the data center you picked matches your Zoho account, then try again.",
         }
 
@@ -95,7 +111,7 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
             releaseStatus=ReleaseStatus.GA,
             caption="""Connect your Zoho CRM account to pull leads, contacts, deals, and your other modules into the PostHog Data warehouse.
 
-In the [Zoho API console](https://api-console.zoho.com), create a **Self Client** and generate a code for the scopes `ZohoCRM.modules.ALL`, `ZohoCRM.settings.fields.READ`, and `ZohoCRM.settings.modules.READ`. That code is not a refresh token and expires within minutes. Exchange it for a refresh token by sending a POST request to `/oauth/v2/token` on your data center's Zoho accounts domain, with `grant_type=authorization_code`, your client ID, client secret, and the code. Paste the client ID, client secret, and refresh token below, then pick the data center your Zoho account lives in.""",
+In the [Zoho API console](https://api-console.zoho.com), create a **Self Client** and generate a code for the scopes `ZohoCRM.modules.ALL`, `ZohoCRM.settings.fields.READ`, and `ZohoCRM.settings.modules.READ`. To sync territories, also add `ZohoCRM.settings.territories.READ`. To sync pipelines, also add `ZohoCRM.settings.pipeline.READ` and `ZohoCRM.settings.layouts.READ`. That code is not a refresh token and expires within minutes. Exchange it for a refresh token by sending a POST request to `/oauth/v2/token` on your data center's Zoho accounts domain, with `grant_type=authorization_code`, your client ID, client secret, and the code. Paste the client ID, client secret, and refresh token below, then pick the data center your Zoho account lives in.""",
             iconPath="/static/services/zoho_crm.png",
             docsUrl="https://posthog.com/docs/cdp/sources/zoho-crm",
             fields=cast(
@@ -158,11 +174,33 @@ In the [Zoho API console](https://api-console.zoho.com), create a **Self Client*
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(
+        schemas = build_endpoint_schemas(
             ENDPOINTS,
             INCREMENTAL_FIELDS,
             names,
             should_sync_default=SHOULD_SYNC_DEFAULT,
+        )
+        if names is not None and not any(name.startswith(CUSTOM_MODULE_SCHEMA_PREFIX) for name in names):
+            return schemas
+        # Custom and linking modules differ per org. Without credentials (the public-docs catalog
+        # path) there is nothing to discover.
+        if not (config.region and config.client_id and config.client_secret and config.refresh_token):
+            return schemas
+        # A discovery error must propagate: a schema missing from the result gets its sync paused.
+        custom_modules = discover_custom_modules(
+            region=config.region,
+            client_id=config.client_id,
+            client_secret=config.client_secret,
+            refresh_token=config.refresh_token,
+            api_version=self.resolve_api_version(api_version),
+        )
+
+        modules = [custom_module_config(name) for name in custom_modules]
+        return schemas + build_endpoint_schemas(
+            [module.name for module in modules],
+            {module.name: module.incremental_fields for module in modules},
+            names,
+            should_sync_default={module.name: module.should_sync_default for module in modules},
         )
 
     def validate_credentials(

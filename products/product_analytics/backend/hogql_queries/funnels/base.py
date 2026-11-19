@@ -28,7 +28,7 @@ from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.models.property.property import PropertyName
 from posthog.types import FunnelEntityNode
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action, get_action_names
 from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.hogql_queries.funnels.funnel_event_query import FunnelEventQuery
 from products.product_analytics.backend.hogql_queries.funnels.funnel_query_context import FunnelQueryContext
@@ -200,8 +200,8 @@ class FunnelBase(ABC):
             action_ids = [int(node.id) for node in step.nodes if isinstance(node, ActionsNode)]
             actions_by_id = {}
             if action_ids:
-                actions = Action.objects.filter(pk__in=action_ids, team__project_id=self.context.team.project_id)
-                actions_by_id = {action.pk: action.name or "Unnamed action" for action in actions}
+                action_names = get_action_names(project_id=self.context.team.project_id, action_ids=action_ids)
+                actions_by_id = {action_id: name or "Unnamed action" for action_id, name in action_names.items()}
 
             events = []
             for node in step.nodes:
@@ -211,7 +211,7 @@ class FunnelBase(ABC):
                     events.append(actions_by_id.get(int(node.id), "Unnamed action"))
             name = ", ".join(events)
         elif isinstance(step, ActionsNode):
-            action = Action.objects.get(pk=step.id, team__project_id=self.context.team.project_id)
+            action = get_action(action_id=int(step.id), project_id=self.context.team.project_id)
             name = action.name
         else:
             raise TypeError(f"Unsupported step type {type(step)}")

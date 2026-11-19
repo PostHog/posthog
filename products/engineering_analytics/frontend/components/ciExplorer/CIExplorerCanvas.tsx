@@ -86,7 +86,6 @@ function placeTiles(workflows: CIExplorerWorkflow[], rows: number): PlacedTile[]
     }))
 }
 
-/** The line that runs along the top and drops down the left of each column to reach every tile. */
 function railPaths(count: number, rows: number): { paths: string[]; dots: [number, number][] } {
     const columns = Math.ceil(count / rows)
     const paths: string[] = []
@@ -520,7 +519,6 @@ function CIExplorerCanvasContent(): JSX.Element {
     )
 }
 
-/** One pan and zoom canvas for a push: workflow tiles on a rail, each holding its job graph. */
 export function CIExplorerCanvas(): JSX.Element {
     return (
         <ReactFlowProvider>

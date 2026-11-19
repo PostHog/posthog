@@ -167,7 +167,7 @@ class DeprecateAcceptor(CertificationAcceptor):
     ) -> CreatedAsset:
         if not request.options.delete_view:
             return super().accept(suggestion, payload, request)
-        if suggestion.evidence.get("days_with_data", 0) < RULES.deprecate.min_days_with_data_to_delete:
+        if suggestion.evidence.get("days_with_data", 0) < RULES.window_days:
             raise AcceptOptionRefusedError(DELETE_VIEW_FIELD, DELETE_NEEDS_EVERY_DAY_OF_READS)
         blocker = _delete_blocker(suggestion.team_id, suggestion.subject_id)
         if blocker is not None:
@@ -331,7 +331,7 @@ class MaterializeAcceptor(Acceptor):
                 suggestion.team_id,
                 suggestion.subject_id,
                 user=request.user,
-                sync_frequency_interval=interval,
+                frequency_target=interval,
                 visible_blocker_names=_no_blocker_names,
                 was_impersonated=request.was_impersonated,
                 incremental_config=incremental_config,

@@ -2028,10 +2028,17 @@ export interface AssistantDataVisualizationChartSettings {
     goalLines?: AssistantDataVisualizationGoalLine[]
     /** Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`. */
     stackBars100?: boolean
+    /** Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts. */
+    colorBarsByCategory?: boolean
     /** Show the chart legend. */
     showLegend?: boolean
     /** Where the legend sits. Defaults to right for pie and donut, top for other charts. */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
+    /**
+     * Show annotations on the chart. Only applies to line, area, bar, and stacked bar charts
+     * whose X axis is a date or datetime column.
+     */
+    showAnnotations?: boolean
     /** Settings for `ActionsPie` and `ActionsDonut`. */
     pie?: PieChartSettings
     /** Settings for `Metric`. `summary` defaults to `latest`. */

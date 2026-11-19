@@ -62,6 +62,11 @@ const STARTER_SCOUTS: StarterScout[] = [
     },
 ]
 
+export function inboxSetupScoutCopy(skillName: string): { title: string; description: string } | undefined {
+    const starter = STARTER_SCOUTS.find((item) => item.name === skillName)
+    return starter && { title: starter.title, description: starter.description }
+}
+
 export function inboxSetupDefaultScouts(
     configs: SignalScoutConfigApi[],
     sources: InboxSetupSource[],
@@ -114,6 +119,17 @@ export function inboxSetupDefaultScouts(
             },
         ]
     })
+}
+
+const MAX_SETUP_SCOUTS = 5
+
+export interface InboxSetupScoutLimit {
+    limit: number
+    reason: string
+}
+
+export function inboxSetupScoutLimit(): InboxSetupScoutLimit {
+    return { limit: MAX_SETUP_SCOUTS, reason: 'Select up to five scouts' }
 }
 
 export function inboxSetupScoutChoices(

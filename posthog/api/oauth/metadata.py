@@ -10,7 +10,9 @@ from posthog.api import id_jag
 from posthog.api.oauth.claims import OIDC_CLAIMS
 from posthog.dataclasses import frozen
 from posthog.models.oauth import TokenEndpointAuthMethod
-from posthog.scopes import get_oauth_scopes_supported, get_scope_descriptions
+from posthog.scopes.exposure import get_scope_descriptions
+from posthog.scopes.oauth import AUTHORIZATION_SERVER_SCOPES_SUPPORTED, OAUTH_SCOPES_SUPPORTED
+from posthog.workload_identity.token_exchange import TOKEN_EXCHANGE_GRANT_TYPE
 
 type Document = dict[str, object]
 
@@ -18,6 +20,7 @@ SUPPORTED_GRANT_TYPES = [
     "authorization_code",
     "refresh_token",
     id_jag.JWT_BEARER_GRANT_TYPE,
+    TOKEN_EXCHANGE_GRANT_TYPE,
     AbstractApplication.GRANT_DEVICE_CODE,
 ]
 
@@ -44,7 +47,7 @@ def _shared_metadata(base_url: str) -> Document:
         "registration_endpoint": f"{base_url}/oauth/register/",
         "jwks_uri": f"{base_url}/.well-known/jwks.json",
         # Excludes the scopes an OAuth client cannot obtain self-serve, including `*`.
-        "scopes_supported": get_oauth_scopes_supported(),
+        "scopes_supported": list(OAUTH_SCOPES_SUPPORTED),
         # Only the authorization code flow is implemented.
         "response_types_supported": ["code"],
         "response_modes_supported": ["query"],
@@ -68,9 +71,21 @@ def openid_provider_metadata(base_url: str) -> Document:
 
 
 def authorization_server_metadata(base_url: str, region_info: Document | None = None) -> Document:
-    """OAuth 2.0 Authorization Server Metadata (RFC 8414)."""
+    """OAuth 2.0 Authorization Server Metadata (RFC 8414).
+
+    `scopes_supported` here is the only discovery list that includes `AUTHORIZATION_SERVER_ONLY_SCOPES`
+    (`ema_issuer:manage`). A client that offers automated EMA setup looks for that scope in this
+    document before it shows the option to an admin.
+
+    The OpenID discovery document and the protected resource metadata keep the plain
+    `OAUTH_SCOPES_SUPPORTED`. MCP clients request every scope the protected resource metadata lists,
+    so listing `ema_issuer:manage` there would put it in every MCP sign-in. A client that copies this
+    list into `/authorize` gets an ordinary grant without the scope, because `requests_ema_issuer`
+    only counts the scope requested alone or with identity scopes.
+    """
     return {
         **_shared_metadata(base_url),
+        "scopes_supported": list(AUTHORIZATION_SERVER_SCOPES_SUPPORTED),
         "authorization_grant_profiles_supported": [id_jag.ID_JAG_GRANT_PROFILE],
         # Client ID Metadata Document (draft-ietf-oauth-client-id-metadata-document-00)
         "client_id_metadata_document_supported": True,
@@ -102,7 +117,7 @@ def protected_resource_metadata(base_url: str) -> Document:
         "resource": base_url,
         # The same PostHog instance is its own authorization server
         "authorization_servers": [base_url],
-        "scopes_supported": get_oauth_scopes_supported(),
+        "scopes_supported": list(OAUTH_SCOPES_SUPPORTED),
         "bearer_methods_supported": ["header"],
         "resource_documentation": SERVICE_DOCUMENTATION,
     }
@@ -110,7 +125,7 @@ def protected_resource_metadata(base_url: str) -> Document:
 
 # Identity and token-management scopes have no entry in get_scope_descriptions(),
 # which only covers obj:action scopes. Every bare scope in
-# `get_oauth_scopes_supported()` needs a line here, or the manifest prints the
+# `OAUTH_SCOPES_SUPPORTED` needs a line here, or the manifest prints the
 # scope name where its description belongs.
 _IDENTITY_SCOPE_DESCRIPTIONS = {
     "openid": "Sign in and read your user identifier",
@@ -137,5 +152,5 @@ def client_manifest_scopes() -> list[ManifestScope]:
             if scope in descriptions
             else _IDENTITY_SCOPE_DESCRIPTIONS.get(scope, scope),
         )
-        for scope in get_oauth_scopes_supported()
+        for scope in OAUTH_SCOPES_SUPPORTED
     ]

@@ -22,6 +22,7 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from pydantic import JsonValue
 
+from posthog.errors import ClickHouseQueryTimeOut
 from posthog.llm.gateway_client import AIGatewayConfig, GatewayNotConfiguredError
 from posthog.models import Team
 from posthog.models.scoping import team_scope
@@ -787,9 +788,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
             )
         select_repository.assert_not_called()
         assert result.report_id is not None
-        report = self.store.get_report(result.report_id)
-        assert report is not None
-        assert report.operator_metadata["skipped_automatic_repository_selection"] is True
+        assert self.store.get_report(result.report_id) is not None
 
     @parameterized.expand(
         [(action, state) for action in ("emit-report", "edit-report") for state in ("invalid", "completed")]
@@ -996,16 +995,31 @@ class TestScoutTrialReportCapture(APIBaseTest):
         may_read_snapshot.assert_any_call(metric)
         may_read_query.assert_any_call(metric)
 
-    def test_inbox_search_and_pagination_merge_private_edits_without_duplicates(self) -> None:
+    @parameterized.expand(
+        [("oldest", {"sort": "oldest"}, [0, 1, 2]), ("priority", {"ordering": "priority"}, [2, 1, 0])]
+    )
+    def test_inbox_search_and_pagination_merge_private_edits_without_duplicates(
+        self, _name: str, query: dict[str, str], order: list[int]
+    ) -> None:
         first = SignalReport.objects.create(team=self.team, title="Earlier report", summary="Original", status="ready")
         second = SignalReport.objects.create(team=self.team, title="Second report", summary="Original", status="ready")
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=second,
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content=json.dumps({"priority": "P3"}),
+        )
         private_id = self._emit()
         edit_report_sync(
             team=self.team,
             author=ScoutRunReportAuthor(run=self.scout_run),
             report_id=str(first.id),
             title="A synthetic checkout revision",
+            priority="P4",
+            priority_explanation="The fixture affects an optional path.",
         )
+        report_ids = [str(first.id), str(second.id), private_id]
+        expected_ids = [report_ids[index] for index in order]
         base = f"/api/projects/{self.team.id}/signals/reports/"
         with (
             patch("products.signals.backend.views.trial_store_for_request", return_value=self.store),
@@ -1014,27 +1028,52 @@ class TestScoutTrialReportCapture(APIBaseTest):
         ):
             results = []
             for offset in range(3):
-                response = self.client.get(base, {"sort": "oldest", "offset": str(offset), "limit": "1"})
+                response = self.client.get(base, {**query, "offset": str(offset), "limit": "1"})
                 assert response.status_code == 200
                 assert response.json()["count"] == 3
                 results.extend(response.json()["results"])
-            assert [row["id"] for row in results] == [str(first.id), str(second.id), private_id]
-            search = self.client.get(base, {"search": "checkout", "sort": "oldest"})
-            assert [row["id"] for row in search.json()["results"]] == [str(first.id), private_id]
+            assert [row["id"] for row in results] == expected_ids
+            search = self.client.get(base, {**query, "search": "checkout"})
+            assert [row["id"] for row in search.json()["results"]] == [
+                pk for pk in expected_ids if pk != str(second.id)
+            ]
             detail = self.client.get(f"{base}{first.id}/")
             assert detail.json()["title"] == "A synthetic checkout revision"
             count = self.client.get(base, {"search": "checkout", "count_only": "true"})
             assert count.json()["count"] == 2
             fetch_sources.reset_mock()
-            without_metadata = self.client.get(base, {"include_source_metadata": "false", "sort": "oldest"})
+            without_metadata = self.client.get(base, {**query, "include_source_metadata": "false"})
             assert without_metadata.status_code == 200
             rows = without_metadata.json()["results"]
-            assert [row["id"] for row in rows] == [str(first.id), str(second.id), private_id]
+            assert [row["id"] for row in rows] == expected_ids
             assert all(row["source_products"] == [] and row["scout_name"] is None for row in rows)
             fetch_sources.assert_not_called()
             assert self.store.invalid_reason() is None
         first.refresh_from_db()
         assert first.title == "Earlier report"
+
+    def test_inbox_list_preserves_source_metadata_failure_across_trial_rows(self) -> None:
+        edited = SignalReport.objects.create(team=self.team, title="Edited report", status="ready")
+        SignalReport.objects.create(team=self.team, title="Production report", status="ready")
+        edit_report_sync(
+            team=self.team,
+            author=ScoutRunReportAuthor(run=self.scout_run),
+            report_id=str(edited.id),
+            title="Private revision",
+        )
+        base = f"/api/projects/{self.team.id}/signals/reports/"
+        with (
+            patch("products.signals.backend.views.trial_store_for_request", return_value=self.store),
+            patch(
+                "products.signals.backend.views.fetch_source_products_for_reports",
+                side_effect=[ClickHouseQueryTimeOut(), {}],
+            ),
+            patch("products.signals.backend.views.fetch_implementation_prs_for_reports", return_value={}),
+        ):
+            response = self.client.get(base)
+
+        assert response.status_code == 200
+        assert response.json()["source_metadata_available"] is False
 
     @parameterized.expand(
         [

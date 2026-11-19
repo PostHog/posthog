@@ -68,6 +68,10 @@ import {
   TASK_SERVICE,
   TaskService,
 } from "@posthog/core/task-detail/taskService";
+import {
+  WARM_TASK_SERVICE,
+  WarmTaskService,
+} from "@posthog/core/task-detail/warmTaskService";
 import { WorkspaceSetupSaga } from "@posthog/core/task-detail/workspaceSetupSaga";
 import {
   TASK_DELETION_HOST,
@@ -346,6 +350,7 @@ container.load(piRuntimeModule);
 container.bind(TASK_CREATION_EFFECTS).toConstantValue(taskCreationEffects);
 container.bind<TaskService>(RENDERER_TASK_SERVICE).to(TaskService);
 container.bind<TaskService>(TASK_SERVICE).toService(RENDERER_TASK_SERVICE);
+container.bind(WARM_TASK_SERVICE).to(WarmTaskService).inSingletonScope();
 container
   .bind<WorkspaceSetupSaga>(WORKSPACE_SETUP_SAGA)
   .to(WorkspaceSetupSaga)

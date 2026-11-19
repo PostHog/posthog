@@ -123,6 +123,7 @@ export interface ProductEmptyStateConfig {
      */
     hedgehogPlacement?: 'above' | 'beside'
     text: ProductEmptyStateTextByMode
+    WaitingForData?: ComponentType<{ onDocs: () => void }>
     /**
      * Install-command CTA. Omit for creation-first products (use `primaryAction`) or self-hosted-only flows.
      * One wizard covers every mode; pass a `ProductEmptyStateWizardByMode` map to show it in some only.
@@ -144,14 +145,21 @@ export interface ProductEmptyStateConfig {
     PrimaryAction?: ComponentType
     /** Product-specific installation options below the primary setup action. */
     SetupActions?: ComponentType<{ mode: ProductEmptyStateMode; preview: boolean }>
+    FooterActions?: ComponentType<{ children: ReactNode }>
+    /**
+     * A card that frames the call to action (the terminal card or primary action), passed as
+     * `children`, together with the product's other install routes. The card labels its own
+     * content, so the hint does not render when it is set.
+     */
+    SetupCard?: ComponentType<{ mode: ProductEmptyStateMode; preview: boolean; children: ReactNode }>
     docsUrl?: string
     /** Target of the small "Or configure manually" link; falls back to `docsUrl` */
     manualSetupUrl?: string
-    /** Rendered as "<previewLabel>" with a pulsing live dot, above the preview */
-    previewLabel: string
+    /** Rendered as "<previewLabel>" with a pulsing live dot, above the preview. Omit for a preview that labels itself. */
+    previewLabel?: string
     previewClassName?: string
     /** Self-animating signature preview populated with realistic fake data */
-    Preview: ComponentType<{ mode: ProductEmptyStateMode }>
+    Preview: ComponentType<{ mode: ProductEmptyStateMode; preview: boolean }>
     /** Product-specific live status line (e.g. a "listening for events" indicator), rendered under the command block */
     statusIndicator?: ReactNode
     /**

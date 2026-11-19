@@ -12,7 +12,6 @@ function sevenDayBuckets(): WorkflowHealthBucketApi[] {
     }))
 }
 
-/** A healthy workflow row. Pass the fields a story needs to differ; the rest stay plausible. */
 export function workflowHealthItem(
     overrides: Partial<WorkflowHealthItemApi> & { workflow_name: string }
 ): WorkflowHealthItemApi {

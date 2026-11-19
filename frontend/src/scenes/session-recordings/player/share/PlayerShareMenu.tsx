@@ -92,9 +92,13 @@ export function PlayerShareMenu(): JSX.Element {
             ]}
             buttonSize="xsmall"
         >
-            <LemonButton size="xsmall" icon={<IconShare />} data-attr="session-recording-share-button">
-                Share
-            </LemonButton>
+            <LemonButton
+                size="xsmall"
+                icon={<IconShare />}
+                tooltip="Share"
+                aria-label="Share"
+                data-attr="session-recording-share-button"
+            />
         </LemonMenu>
     )
 }

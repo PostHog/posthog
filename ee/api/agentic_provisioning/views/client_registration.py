@@ -37,7 +37,9 @@ from posthog.api.oauth.client_assertion import (
     describe_jwks,
     verify_client_assertion,
 )
+from posthog.api.oauth.provisioning_review import ORGANIZATION_LINK_REQUIRED_MESSAGE, ensure_review_running
 from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth_provisioning_review import CIMDProvisioningReview, ProvisioningReviewStatus
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
@@ -85,12 +87,12 @@ class ClientRegistrationView(ProvisioningAPIView):
                 "jwks_uri": app.jwks_uri,
                 "scopes": app.ceiling_scopes,
                 "provisioning": {
-                    "active": app.provisioning.active,
+                    "active": app.provisioning_allowed,
                     "can_create_accounts": app.provisioning.can_create_accounts,
                     "can_provision_resources": app.provisioning.can_provision_resources,
                 },
                 "capabilities": {
-                    "account_requests": app.provisioning.active
+                    "account_requests": app.provisioning_allowed
                     and app.provisioning.can_create_accounts
                     and not app.cannot_meet_provisioning_signature,
                     "unsigned_requests": not app.requires_provisioning_signature,
@@ -144,8 +146,8 @@ class ClientRegistrationView(ProvisioningAPIView):
         if not app.is_provisioning_partner:
             _record(checks, "provisioning_enabled", False, _not_a_partner_detail(app, document_read=document_read))
             return None
-        if not app.provisioning.active:
-            _record(checks, "provisioning_enabled", False, "Provisioning is deactivated for this client")
+        if not app.provisioning_allowed:
+            _record(checks, "provisioning_enabled", False, _inactive_detail(app))
             return None
         _record(checks, "provisioning_enabled", True, "Active")
         return app
@@ -167,7 +169,7 @@ class ClientRegistrationView(ProvisioningAPIView):
             return
 
         try:
-            key_ids = describe_jwks(app.jwks_uri)
+            key_ids = describe_jwks(app)
         except ClientAssertionError as exc:
             _record(checks, "jwks", False, str(exc))
             return
@@ -180,6 +182,20 @@ class ClientRegistrationView(ProvisioningAPIView):
             _record(checks, "client_assertion", False, str(exc))
             return
         _record(checks, "client_assertion", True, "Verified, and its jti is now consumed")
+
+
+def _inactive_detail(app: OAuthApplication) -> str:
+    """Why a registered partner cannot provision yet. A partner waiting on its review is told so,
+    rather than that it was deactivated, because it needs to wait rather than contact anyone."""
+    if app.provisioning.disabled:
+        return "Provisioning is blocked for this client. Contact PostHog support if that is unexpected."
+    if app.needs_organization_link:
+        return ORGANIZATION_LINK_REQUIRED_MESSAGE
+    if ensure_review_running(app) is not None:
+        return "PostHog is reviewing this client before it can provision. Register again in a few minutes to check."
+    if CIMDProvisioningReview.objects.filter(application=app, status=ProvisioningReviewStatus.NEEDS_HUMAN).exists():
+        return "PostHog staff are reviewing this client before it can provision. Register again later to check."
+    return "Provisioning is deactivated for this client"
 
 
 def _not_a_partner_detail(app: OAuthApplication, *, document_read: bool) -> str:

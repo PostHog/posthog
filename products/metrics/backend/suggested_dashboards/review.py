@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from django.db import transaction
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from pydantic import ValidationError
@@ -192,6 +193,17 @@ def approve(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboa
     return locked
 
 
+def _unused_suggestions(template: MetricsDashboardTemplate) -> QuerySet[MetricsDashboardSuggestion]:
+    """The suggestions of the template that no team acted on.
+
+    A dismissed suggestion is not one of them. The template keeps its id when it is approved again, so the row
+    must stay to keep the template out of the menu of the team that dismissed it.
+    """
+    return MetricsDashboardSuggestion.objects.unscoped().filter(
+        template_id=template.id, dashboard_id__isnull=True, dismissed_at__isnull=True
+    )
+
+
 def reject(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboardTemplate:
     with transaction.atomic():
         locked = MetricsDashboardTemplate.objects.select_for_update().get(id=template.id)
@@ -205,7 +217,7 @@ def reject(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboar
         locked.reviewed_at = timezone.now()
         locked.save()
         # Suggestions that a team has not acted on go away with the template.
-        MetricsDashboardSuggestion.objects.unscoped().filter(template_id=locked.id, dashboard_id__isnull=True).delete()
+        _unused_suggestions(locked).delete()
     _capture_reviewed(user, locked)
     return locked
 
@@ -252,7 +264,7 @@ def regenerate(*, template: MetricsDashboardTemplate, user: User) -> MetricsDash
         locked.reviewed_by = None
         locked.reviewed_at = None
         locked.save()
-        MetricsDashboardSuggestion.objects.unscoped().filter(template_id=locked.id, dashboard_id__isnull=True).delete()
+        _unused_suggestions(locked).delete()
     report_user_action(user, "metrics dashboard template regenerated", {"template_id": str(locked.id)})
     return locked
 

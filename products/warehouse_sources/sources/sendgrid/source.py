@@ -198,9 +198,10 @@ You can create an API key in your [SendGrid account settings](https://app.sendgr
 
 Grant the following read access (Restricted Access) so the key can reach the data you want to sync:
 - **Suppressions**: bounces, blocks, invalid emails, spam reports, global unsubscribes, unsubscribe groups and their members
-- **Stats**: global email statistics (daily requests, delivered, opens, clicks, bounces)
+- **Stats**: global email statistics (daily requests, delivered, opens, clicks, bounces), and daily breakdowns by country, mailbox provider, device, email client and browser
 - **Category Management**: categories and their daily statistics
-- **Marketing**: marketing lists, single sends, single send stats, and automation stats. This also needs an account with Marketing Campaigns enabled.
+- **Marketing**: marketing lists, segments, single sends, single send stats, and automation stats. This also needs an account with Marketing Campaigns enabled.
+- **Subusers**: subusers, their daily statistics and their sender reputations. Only a parent account with Subusers has this data.
 - **Template Engine**: templates
 - **Email Activity**: message activity. This table is off by default and also needs SendGrid's paid additional email activity history add-on.
 

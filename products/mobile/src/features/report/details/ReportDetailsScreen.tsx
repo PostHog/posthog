@@ -1,6 +1,7 @@
+import { BlurTargetView } from 'expo-blur'
 import { useIsFocused, useRouter } from 'expo-router'
 import { type ReactElement, useEffect, useRef, useState } from 'react'
-import { Text, View } from 'react-native'
+import { Text, View, type ViewInstance } from 'react-native'
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
 import { useDataMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
@@ -120,6 +121,7 @@ function DetailsBody({ report, refreshing, onBack }: DetailsBodyProps): ReactEle
     const styles = useStyles()
     const insets = useScreenInsets()
     const [headlineBottom, setHeadlineBottom] = useState(0)
+    const blurTarget = useRef<ViewInstance>(null)
     const scrollY = useSharedValue(0)
     const reading = useReportReadTracking(report.id, 'mobile_report_details_read')
     const { maxScrollY } = reading
@@ -129,37 +131,40 @@ function DetailsBody({ report, refreshing, onBack }: DetailsBodyProps): ReactEle
     })
     return (
         <>
-            <Animated.ScrollView
-                style={styles.scroll}
-                contentContainerStyle={[
-                    styles.content,
-                    {
-                        paddingTop: topOffset(insets, SCREEN_CONTENT_TOP),
-                        paddingBottom: bottomOffset(insets, CONTENT_BOTTOM),
-                    },
-                ]}
-                onScroll={onScroll}
-                onLayout={reading.onLayout}
-                onContentSizeChange={reading.onContentSizeChange}
-                scrollEventThrottle={16}
-                testID="report-details-scroll"
-            >
-                <DetailsHeader report={report} onHeadlineBottom={setHeadlineBottom} />
-                {hasReportDetail(report) ? (
-                    <>
-                        {report.summary ? <DetailsSummary summary={report.summary} reportId={report.id} /> : null}
-                        <ReportCharts charts={report.charts} reportId={report.id} accent={report.accent} />
-                        <SignalsSection signals={report.signals} reportId={report.id} />
-                    </>
-                ) : (
-                    <Text style={styles.empty} testID="report-details-empty">
-                        This report has no more detail yet.
-                    </Text>
-                )}
-                {report.webUrl ? <DetailsFooter webUrl={report.webUrl} reportId={report.id} /> : null}
-            </Animated.ScrollView>
+            <BlurTargetView ref={blurTarget} style={styles.scroll}>
+                <Animated.ScrollView
+                    style={styles.scroll}
+                    contentContainerStyle={[
+                        styles.content,
+                        {
+                            paddingTop: topOffset(insets, SCREEN_CONTENT_TOP),
+                            paddingBottom: bottomOffset(insets, CONTENT_BOTTOM),
+                        },
+                    ]}
+                    onScroll={onScroll}
+                    onLayout={reading.onLayout}
+                    onContentSizeChange={reading.onContentSizeChange}
+                    scrollEventThrottle={16}
+                    testID="report-details-scroll"
+                >
+                    <DetailsHeader report={report} onHeadlineBottom={setHeadlineBottom} />
+                    {hasReportDetail(report) ? (
+                        <>
+                            {report.summary ? <DetailsSummary summary={report.summary} reportId={report.id} /> : null}
+                            <ReportCharts charts={report.charts} reportId={report.id} accent={report.accent} />
+                            <SignalsSection signals={report.signals} reportId={report.id} />
+                        </>
+                    ) : (
+                        <Text style={styles.empty} testID="report-details-empty">
+                            This report has no more detail yet.
+                        </Text>
+                    )}
+                    {report.webUrl ? <DetailsFooter webUrl={report.webUrl} reportId={report.id} /> : null}
+                </Animated.ScrollView>
+            </BlurTargetView>
             <TopChrome
                 refreshing={refreshing}
+                blurTarget={blurTarget}
                 onBack={onBack}
                 withPager={false}
                 title={{

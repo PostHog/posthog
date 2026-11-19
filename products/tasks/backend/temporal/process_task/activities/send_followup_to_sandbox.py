@@ -8,7 +8,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound
 from posthog.models.user_integration import ReauthorizationRequired, UserIntegration
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import close_db_connections
@@ -37,6 +37,7 @@ from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     apply_github_credentials_to_sandbox,
     clear_github_credentials_from_sandbox,
+    clear_github_env_from_gitlab_sandbox,
     sandbox_credential_lock,
 )
 from products.tasks.backend.temporal.process_task.utils import (
@@ -49,11 +50,12 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_ph_mcp_configs,
     get_task_run_credential_user,
     get_user_mcp_server_configs,
+    include_personal_mcp_for_task,
     is_slack_interaction_state,
     loop_mcp_installation_allowlist,
     mark_sandbox_github_identity,
     mark_sandbox_mcp_session,
-    mcp_exclude_tools_from_state,
+    mcp_exclude_tools_for_task,
     record_delivered_message,
     sandbox_identity_scope,
     unmounted_mcp_installations_log_fields,
@@ -334,6 +336,14 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
                 reason=STEER_DECLINE_REASON_ACTOR_MISMATCH,
             )
             return STEER_DECLINED_OUTCOME
+
+    if (
+        input.actor_user_id is not None
+        and input.actor_user_id != task_run.task.created_by_id
+        and not (task_run.state or {}).get("agent_memory_locked")
+    ):
+        # A failed write raises so the delivery retries: a resumed run reads the lock from run state.
+        TaskRun.update_state_atomic(task_run.id, updates={"agent_memory_locked": True})
 
     if input.actor_user_id is not None and is_slack_interaction_state(state):
         # Deliveries are serialized by the workflow, so stamping here moves
@@ -631,13 +641,13 @@ def _refresh_sandbox_mcp(
         slack_reply_context=(state or {}).get("slack_reply_context") is True,
         task_id=str(task_run.task_id),
         origin_product=task_run.task.origin_product,
-        exclude_tools=mcp_exclude_tools_from_state(state),
+        exclude_tools=mcp_exclude_tools_for_task(task_run.task, state),
     )
     user_mcp = get_user_mcp_server_configs(
         token=access_token,
         team_id=task_run.team_id,
         user_id=actor_user.id,
-        include_personal=not task_run.task.internal,
+        include_personal=include_personal_mcp_for_task(task_run.task, state),
         interaction_origin=(state or {}).get("interaction_origin"),
         slack_reply_context=(state or {}).get("slack_reply_context") is True,
         allowed_installation_ids=loop_mcp_installation_allowlist(state),
@@ -645,6 +655,7 @@ def _refresh_sandbox_mcp(
         task_agent_key=task_run.task.mcp_builtin_agent_key,
         credential_owner_id=task_run.task.mcp_credential_owner_id,
         allowed_gateway_server_ids=task_run.task.mcp_gateway_server_allowlist,
+        profile=task_run.task.stored_profile,
     )
     if user_mcp.configs:
         mcp_configs = mcp_configs + user_mcp.configs
@@ -767,6 +778,26 @@ def _resolve_live_sandbox(state: dict[str, Any] | None) -> LiveSandboxLookup:
     return LiveSandboxLookup(stopped=True)
 
 
+def _clear_github_from_gitlab_sandbox(
+    run_id: str, actor_user: Any, state: dict[str, Any] | None
+) -> SandboxRebindFailure | None:
+    lookup = _resolve_live_sandbox(state)
+    if lookup.sandbox is None:
+        return SandboxRebindFailure.SANDBOX_NOT_RUNNING if lookup.stopped else SandboxRebindFailure.NO_SANDBOX_HANDLE
+    with sandbox_credential_lock(lookup.sandbox.id) as acquired:
+        if not acquired:
+            return SandboxRebindFailure.CREDENTIAL_LOCK_UNAVAILABLE
+        try:
+            cleared = clear_github_env_from_gitlab_sandbox(lookup.sandbox)
+        except Exception:
+            logger.warning("refresh_github_gitlab_clear_errored", run_id=run_id, user_id=actor_user.id, exc_info=True)
+            return SandboxRebindFailure.LOGOUT_ERRORED
+        if not cleared:
+            return SandboxRebindFailure.LOGOUT_UNCONFIRMED
+        mark_sandbox_github_identity(lookup.sandbox.id, actor_user.id)
+    return None
+
+
 def _refresh_sandbox_github(
     task_run: TaskRun, actor_user: Any, state: dict[str, Any] | None
 ) -> SandboxRebindFailure | None:
@@ -793,13 +824,16 @@ def _refresh_sandbox_github(
     if actor_user is None:
         return None
 
-    # Read-only runs use a team installation grant, not the message actor's identity.
-    # The periodic credential refresh rotates that grant without widening its permissions.
-    if (state or {}).get("github_read_access") is True:
-        return None
-
     run_id = str(task_run.id)
     task = task_run.task
+    # A provider change must clear even read-only GitHub credentials from the old checkout.
+    if task.repository_integration_id is not None:
+        return _clear_github_from_gitlab_sandbox(run_id, actor_user, state)
+
+    # Read-only runs use a team installation grant, not the message actor's identity.
+    # The periodic credential refresh rotates that grant without widening its permissions.
+    if (state or {}).get("github_read_access") is True or (state or {}).get("github_token_scope"):
+        return None
     # A run that started before its actor connected GitHub is bot-authored, and the agent may
     # have been the one that asked them to connect. Promote it so the turn that follows the
     # connection is the one that gets their identity.
@@ -842,7 +876,7 @@ def _refresh_sandbox_github(
     except (
         ReauthorizationRequired,
         CredentialUnavailableError,
-        Integration.DoesNotExist,
+        IntegrationNotFound,
         UserIntegration.DoesNotExist,
     ) as e:
         # The new actor has no usable GitHub credential for this repo: needs reauthorization,

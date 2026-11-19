@@ -207,7 +207,9 @@ function BatchExportLatestRuns({ id, context }: BatchExportRunsLogicProps): JSX.
                         },
                     },
                 ]}
-                emptyState={<BatchExportRunsEmptyState id={id} interval={batchExportConfig.interval} />}
+                emptyState={
+                    <BatchExportRunsEmptyState id={id} context={context} interval={batchExportConfig.interval} />
+                }
             />
         </>
     )
@@ -374,7 +376,7 @@ export function BatchExportRunsGrouped({
                         },
                     },
                 ]}
-                emptyState={<BatchExportRunsEmptyState id={id} interval={interval} />}
+                emptyState={<BatchExportRunsEmptyState id={id} context={context} interval={interval} />}
             />
         </>
     )

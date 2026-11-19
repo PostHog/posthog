@@ -11,7 +11,7 @@ vi.mock('@/resources', () => ({
     getPromptsFromManifest: vi.fn().mockResolvedValue([]),
 }))
 
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_TIME_SERIES_CHARTS_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
@@ -20,6 +20,7 @@ import { MCPClientProfile } from '@/lib/client-detection'
 import { PostHogApiError, PostHogPermissionError } from '@/lib/errors'
 import { buildToolDomainsCompact } from '@/lib/instructions'
 import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
+import { CHART_DATA_PREAMBLE } from '@/lib/time-series-chart-data'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
@@ -341,6 +342,7 @@ describe('ToolExecutor', () => {
                         capabilities: { supportsInstructions: true },
                         isCliModeEnabled: vi.fn(() => true),
                         isInlineExecUiHost: vi.fn(() => false),
+                        drawsTimeSeriesCharts: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => isClaudeChatHost),
                         isAnthropicConnector: vi.fn(() => isClaudeChatHost),
                     } as any,
@@ -597,6 +599,7 @@ describe('ToolExecutor', () => {
                             capabilities: { supportsInstructions },
                             isCliModeEnabled: vi.fn(() => true),
                             isInlineExecUiHost: vi.fn(() => false),
+                            drawsTimeSeriesCharts: vi.fn(() => false),
                             isClaudeChatHost: vi.fn(() => isClaudeChatHost),
                             isAnthropicConnector: vi.fn(() => isClaudeChatHost),
                         } as any,
@@ -619,6 +622,61 @@ describe('ToolExecutor', () => {
             }
         )
 
+        it.each([
+            { label: 'skills flag on', skillsEnabled: true, consumer: undefined, expectLearn: true },
+            {
+                label: 'plugin consumer with skills flag on',
+                skillsEnabled: true,
+                consumer: 'plugin',
+                expectLearn: false,
+            },
+            { label: 'skills flag off', skillsEnabled: false, consumer: undefined, expectLearn: false },
+        ])(
+            'offers and serves a learn tool in tools mode only when skills are available: $label',
+            async ({ skillsEnabled, consumer, expectLearn }) => {
+                const skills = new SkillCatalog([
+                    {
+                        name: 'sample-skill',
+                        description: 'A sample skill.',
+                        files: [makeSkillFile('SKILL.md', '# Sample skill')],
+                    },
+                ])
+                const instructionsBuilder = new InstructionsBuilder('')
+                const skillExecutor = new ToolExecutor(catalog, instructionsBuilder, {
+                    getCatalog: () => skills,
+                } as any)
+                const state = makeToolExecutorState([], {
+                    toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: skillsEnabled },
+                    ...(consumer
+                        ? {
+                              sessionContext: {
+                                  mcpClientName: 'cursor-vscode',
+                                  mcpClientVersion: '1.0',
+                                  mcpProtocolVersion: '2025-03-26',
+                                  mcpConsumer: consumer,
+                                  mcpVendorClient: undefined,
+                              },
+                          }
+                        : {}),
+                })
+
+                const listed = await skillExecutor.handleToolsList(state)
+                expect(listed.tools.some((tool) => tool.name === 'learn')).toBe(expectLearn)
+                expect(instructionsBuilder.build(state).includes('call the `learn` tool')).toBe(expectLearn)
+
+                const call = (command: string): Promise<{ content: { text: string }[]; isError?: boolean }> =>
+                    skillExecutor.handleToolCall({ name: 'learn', arguments: { command } }, state) as any
+                const result = await call('posthog:sample-skill')
+                if (!expectLearn) {
+                    expect(result.isError).toBe(true)
+                    expect(result.content[0]!.text).toBe('Tool learn not found')
+                    return
+                }
+                expect(result.content[0]!.text).toContain('# Sample skill')
+                expect((await call('learn posthog:sample-skill')).content[0]!.text).toContain('# Sample skill')
+            }
+        )
+
         it('serves multiple optional guidance topics through exec learn for Claude web/desktop', async () => {
             const state = makeToolExecutorState(
                 catalog
@@ -632,6 +690,7 @@ describe('ToolExecutor', () => {
                         capabilities: { supportsInstructions: true },
                         isCliModeEnabled: vi.fn(() => true),
                         isInlineExecUiHost: vi.fn(() => false),
+                        drawsTimeSeriesCharts: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => true),
                         isAnthropicConnector: vi.fn(() => true),
                     } as any,
@@ -666,7 +725,7 @@ describe('ToolExecutor', () => {
             expect(properties.tool_input!.description).toBeTruthy()
             expect(properties.context!.description).toBeTruthy()
             expect(properties.llm_model!.description).toBeTruthy()
-            expect(renderUiEntry.inputSchema.required).toEqual(['tool_name', 'context', 'llm_model'])
+            expect(renderUiEntry.inputSchema.required).toEqual(['tool_name', 'context'])
             expect(renderUiEntry.annotations).toEqual({
                 destructiveHint: false,
                 idempotentHint: true,
@@ -733,8 +792,9 @@ describe('ToolExecutor', () => {
                 } as any)
             }
 
-            async function renderSurvey(): Promise<any> {
+            async function renderSurvey(isCursor = false): Promise<any> {
                 const state = makeToolExecutorState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
+                vi.mocked(state.clientProfile.isCursor).mockReturnValue(isCursor)
                 return executor.handleToolCall(
                     { name: 'render-ui', arguments: { tool_name: 'survey-get', tool_input: { surveyId: 'abc' } } },
                     state
@@ -748,6 +808,16 @@ describe('ToolExecutor', () => {
 
                 expect(result._meta[APP_DATA_META_KEY]).toMatchObject({ id: 'abc', name: 'NPS' })
                 expect(result.structuredContent).not.toHaveProperty('name')
+                expect(result.structuredContent).not.toHaveProperty([APP_DATA_META_KEY])
+            })
+
+            it('carries the data in structuredContent instead of _meta for Cursor', async () => {
+                stubInnerTool(async () => ({ id: 'abc', name: 'NPS' }))
+
+                const result = await renderSurvey(true)
+
+                expect(result.structuredContent[APP_DATA_META_KEY]).toMatchObject({ id: 'abc', name: 'NPS' })
+                expect(result._meta).not.toHaveProperty([APP_DATA_META_KEY])
             })
 
             it('preloads query charts through exec as JSON, like the app does', async () => {
@@ -898,6 +968,42 @@ describe('ToolExecutor', () => {
                     results: [{ count: 28, label: '$pageview' }],
                 })
             }
+        })
+    })
+
+    describe('time series chart data', () => {
+        let getToolByNameSpy: MockInstance | undefined
+
+        afterEach(() => {
+            getToolByNameSpy?.mockRestore()
+            getToolByNameSpy = undefined
+        })
+
+        it.each([
+            { label: 'appends it when the flag is on', flagEnabled: true },
+            { label: 'leaves it out when the flag is off', flagEnabled: false },
+            { label: 'leaves it out when the flag is not evaluated', flagEnabled: undefined },
+        ])('$label', async ({ flagEnabled }) => {
+            getToolByNameSpy = vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                build() {
+                    return this.base
+                },
+                base: {
+                    schema: z.object({}),
+                    handler: async () => ({
+                        results: [{ label: '$pageview', days: ['2026-11-01', '2026-11-02'], data: [3, 5] }],
+                    }),
+                },
+            } as any)
+            const state = makeToolExecutorState([{ name: 'query-trends' }], {
+                toolFeatureFlags: { [MCP_TIME_SERIES_CHARTS_FLAG]: flagEnabled },
+            })
+            vi.mocked(state.clientProfile.drawsTimeSeriesCharts).mockReturnValue(true)
+
+            const result = (await executor.handleToolCall({ name: 'query-trends', arguments: {} }, state)) as any
+
+            const text = result.content.map((c: { text: string }) => c.text).join('\n')
+            expect(text.includes(CHART_DATA_PREAMBLE)).toBe(flagEnabled === true)
         })
     })
 

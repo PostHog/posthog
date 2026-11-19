@@ -9,6 +9,7 @@ import {
     toolResultAnalyticsProperties,
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
+import { isEmptyToolResult } from '@/lib/empty-tool-result'
 import {
     ExecCommandError,
     handleToolError,
@@ -23,14 +24,16 @@ import {
     findRecoverableApiError,
     hasTimeoutCause,
     isTimeoutError,
+    parseApiErrorIdentifiers,
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
+import { resolveMetricCatalogMode } from '@/lib/metric-catalog'
 import { challengeStepUpBeforeRun } from '@/lib/missing-scope'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
-import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
+import { hasSqlFilters, isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { UiAppKey } from '@/resources/ui-apps.generated'
 import {
     createExecTool,
@@ -50,6 +53,7 @@ import {
     type ExecInnerCallProperties,
     type ExecInnerCallTracker,
 } from '@/tools/exec'
+import { LEARN_TOOL_NAME } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import { skillAnalyticsProperties, skillLookupMissProperties } from '@/tools/skills/analytics'
@@ -66,6 +70,7 @@ import {
     trackToolsList,
     type ToolCallAnalyticsMeta,
 } from './analytics'
+import { MCP_TIME_SERIES_CHARTS_FLAG } from './constants'
 import {
     type GuidanceEngine,
     type GuidanceNotice,
@@ -79,6 +84,10 @@ import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
 import type { ToolCatalog } from './tool-catalog'
 
+function drawsTimeSeriesCharts(state: ResolvedState): boolean {
+    return state.toolFeatureFlags?.[MCP_TIME_SERIES_CHARTS_FLAG] === true && state.clientProfile.drawsTimeSeriesCharts()
+}
+
 interface ResolvedTool {
     name: string
     schema: ZodObjectAny
@@ -88,6 +97,8 @@ interface ResolvedTool {
 
 interface ExecMetricState {
     innerToolName: string | undefined
+    innerInput: Record<string, unknown> | undefined
+    innerResult: unknown
     innerOutputFormat: ExecInnerCallProperties['output_format'] | undefined
     /** What the agent asked for, merged onto the event whichever verb ran. */
     commandMeta: ExecCommandMeta | undefined
@@ -210,15 +221,18 @@ export class ToolExecutor {
         const nameSet = new Set(state.allTools.map((t) => t.name))
         const filteredTools = this.catalog.getPreBuiltEntries().filter((e) => nameSet.has(e.name))
 
-        return filteredTools.map((entry) => {
+        const tools = filteredTools.map((entry) => {
             if (entry.name === EXECUTE_SQL_TOOL_NAME) {
                 return {
                     ...entry,
-                    description: this.instructionsBuilder.formatExecuteSqlDescription(),
+                    description: this.instructionsBuilder.formatExecuteSqlDescription(state),
                 }
             }
             return entry
         })
+        return this.instructionsBuilder.isLearnToolEnabled(state)
+            ? [...tools, this.instructionsBuilder.buildLearnToolEntry()]
+            : tools
     }
 
     private findOriginalTool(toolName: string, state: ResolvedState): ListToolsResult['tools'][number] | undefined {
@@ -256,6 +270,9 @@ export class ToolExecutor {
         const carriedContextHandle =
             hooks?.carriedContextHandle ??
             Boolean(state.requestContext.mcpSessionId || state.requestContext.mcpConversationId)
+        const carriedContextSessionKey = carriedContextHandle
+            ? (state.requestContext.mcpConversationId ?? state.requestContext.mcpSessionId)
+            : undefined
         const { analyticsMeta, args, preparedCall } = this.extractAnalyticsMetadata(
             toolName,
             rawArgs,
@@ -278,6 +295,7 @@ export class ToolExecutor {
         }
         const callState = stateForToolCall(state, analyticsMeta.intent)
         callState.carriedContextHandle = carriedContextHandle
+        callState.carriedContextSessionKey = carriedContextSessionKey
         const callParams = { ...params, arguments: args }
 
         const targetToolName =
@@ -336,6 +354,20 @@ export class ToolExecutor {
             return this.callExecTool(callParams, state, analyticsMeta)
         }
 
+        // Tools mode has no `exec` tool, so it lists `learn` as a tool of its own (Cursor is the main
+        // tools-mode client). The call runs the `exec learn` path so that both modes serve one skill catalog.
+        if (toolName === LEARN_TOOL_NAME && this.instructionsBuilder.isLearnToolEnabled(state)) {
+            const command = String((callParams.arguments as Record<string, unknown> | undefined)?.command ?? '').trim()
+            return this.callExecTool(
+                {
+                    ...callParams,
+                    arguments: { command: /^learn(\s|$)/.test(command) ? command : `learn ${command}` },
+                },
+                state,
+                analyticsMeta
+            )
+        }
+
         if (toolName === 'render-ui') {
             // render-ui is only advertised to MCP Apps hosts; reject calls from others.
             if (!state.renderUiEnabled) {
@@ -349,7 +381,10 @@ export class ToolExecutor {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
             const scopeGatedTool = state.findScopeGatedTool(toolName)
             if (scopeGatedTool) {
-                const error = missingToolScopeError(scopeGatedTool, state.context, state.oauthClientId)
+                const error = missingToolScopeError(scopeGatedTool, state.context, {
+                    oauthClientId: state.oauthClientId,
+                    supportsStepUp: state.supportsStepUp && !state.viaMcpStore,
+                })
                 return handleToolError(error, toolName, state.distinctId, undefined, state.suppressAnalytics)
             }
             const text = getDeprecatedToolRedirect(toolName, state.allTools) ?? `Tool ${toolName} not found`
@@ -381,9 +416,9 @@ export class ToolExecutor {
     // from the catalog, on both the native tools/list path and exec's `info` output.
     // trackToolCall stamps the catalog text by default, so it needs the served text
     // for this tool or $mcp_tool_description records words the agent never saw.
-    private servedToolDescription(toolName: string): string | undefined {
+    private servedToolDescription(toolName: string, state: ResolvedState): string | undefined {
         if (toolName === EXECUTE_SQL_TOOL_NAME) {
-            return this.instructionsBuilder.formatExecuteSqlDescription()
+            return this.instructionsBuilder.formatExecuteSqlDescription(state)
         }
         return undefined
     }
@@ -467,7 +502,7 @@ export class ToolExecutor {
                     ...errorAnalyticsProperties(classifyToolError(rejection, tool.name), rejection),
                 },
                 analyticsMeta,
-                this.servedToolDescription(tool.name)
+                this.servedToolDescription(tool.name, state)
             )
             return {
                 content: [{ type: 'text', text: message }],
@@ -502,14 +537,14 @@ export class ToolExecutor {
             }
 
             toolCallsTotal.inc({ tool: tool.name, status: 'success' })
-            stop({ status: 'success' })
-
-            const duration = Date.now() - startMs
             const guidance = await this.guidanceFor(state, {
                 toolName: tool.name,
                 args: validation.data,
                 isError: false,
+                resultEmpty: isEmptyToolResult(handlerResult, tool.name),
             })
+            stop({ status: 'success' })
+            const duration = Date.now() - startMs
 
             let response: ToolResultPayload
             if (isToolCallPayload(handlerResult)) {
@@ -533,9 +568,11 @@ export class ToolExecutor {
                     distinctId,
                     mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext)
                         .mcpClientName,
+                    appendTimeSeriesChartData: drawsTimeSeriesCharts(state),
                 })
             }
 
+            const guided = attachGuidanceNotice(response, guidance)
             void trackToolCall(
                 tool.name,
                 duration,
@@ -545,12 +582,13 @@ export class ToolExecutor {
                     ...inputShape,
                     ...skillShape,
                     input_tokens: estimateTokens(validation.data),
-                    output_tokens: estimateResponseTokens(response),
+                    output_tokens:
+                        estimateResponseTokens(response) + (guidance?.text ? estimateTokens(guidance.text) : 0),
                     ...toolResultAnalyticsProperties(response),
                     ...guidanceAnalyticsProperties(guidance),
                 },
-                analyticsMeta,
-                this.servedToolDescription(tool.name)
+                { ...analyticsMeta, parameters: validation.data, response: handlerResult },
+                this.servedToolDescription(tool.name, state)
             )
 
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
@@ -567,10 +605,10 @@ export class ToolExecutor {
                 durationMs: duration,
                 isError: false,
                 input: validation.data,
-                output: response,
+                output: guided,
             })
 
-            return attachGuidanceNotice(response, guidance)
+            return guided
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: tool.name, status: 'error' })
             stop({ status: 'error' })
@@ -606,8 +644,8 @@ export class ToolExecutor {
                     ...(lookupMiss ? skillLookupMissProperties(lookupMiss.kind) : {}),
                     ...guidanceAnalyticsProperties(guidance),
                 },
-                analyticsMeta,
-                this.servedToolDescription(tool.name)
+                { ...analyticsMeta, parameters: validation.data },
+                this.servedToolDescription(tool.name, state)
             )
 
             const errorMessage = extractErrorMessage(error)
@@ -643,7 +681,9 @@ export class ToolExecutor {
                     tool.name,
                     state.distinctId,
                     sessionUuid,
-                    state.suppressAnalytics || isPrivateScoutTrialTool(tool.name)
+                    state.suppressAnalytics ||
+                        isPrivateScoutTrialTool(tool.name) ||
+                        hasSqlFilters(tool.name, validation.data)
                 ),
                 guidance
             )
@@ -657,6 +697,8 @@ export class ToolExecutor {
     ): Promise<unknown> {
         const execMetrics: ExecMetricState = {
             innerToolName: undefined,
+            innerInput: undefined,
+            innerResult: undefined,
             innerOutputFormat: undefined,
             commandMeta: undefined,
             innerFailure: undefined,
@@ -717,6 +759,18 @@ export class ToolExecutor {
         // it. Non-`call` verbs (tools/info/search/schema) resolve no inner tool and stay
         // attributed to `exec`.
         const execToolName = (): string => execMetrics.innerToolName ?? 'exec'
+        // The dispatcher can reject a `call` before any handler runs (malformed JSON, a
+        // gated tool, a dropped `call` prefix). Server metrics keep those on `exec`, but
+        // the analytics event names the tool the agent was reaching for, so its failure
+        // counts against that tool rather than hiding in the `exec` bucket.
+        const analyticsToolName = (): string => execMetrics.innerToolName ?? attemptedCallTarget(execShape) ?? 'exec'
+        // The inner tool's validated arguments and raw result. A command that never reached a
+        // handler has neither, so its raw string never reaches analytics.
+        const execAnalyticsMeta = (): ToolCallAnalyticsMeta => ({
+            ...analyticsMeta,
+            parameters: execMetrics.innerInput,
+            response: execMetrics.innerResult,
+        })
 
         // Which stored skill an exec-routed read returned. Success only, unlike the
         // verb above: that records what the agent attempted, this records what it got.
@@ -724,7 +778,6 @@ export class ToolExecutor {
 
         try {
             const handlerResult = await resolved.handler(state.context, validation.data)
-            const duration = Date.now() - startMs
 
             const response = isToolCallPayload(handlerResult)
                 ? handlerResult
@@ -750,10 +803,15 @@ export class ToolExecutor {
                 execVerb: typeof execShape.$mcp_exec_verb === 'string' ? execShape.$mcp_exec_verb : undefined,
                 args: execMetrics.innerToolName ? parseExecCallInnerArgs(validation.data.command) : validation.data,
                 isError: innerFailure !== undefined,
+                resultEmpty: execMetrics.resultEmpty,
+            })
+            const duration = Date.now() - startMs
+            const guided = attachGuidanceNotice(response, guidance, {
+                jsonOutput: execMetrics.innerOutputFormat === 'json',
             })
 
             void trackToolCall(
-                execToolName(),
+                analyticsToolName(),
                 duration,
                 failureShape !== undefined,
                 state,
@@ -765,19 +823,18 @@ export class ToolExecutor {
                         ? skillLookupMissProperties(execMetrics.skillLookupMissKind)
                         : {}),
                     input_tokens: estimateTokens(validation.data),
-                    output_tokens: estimateResponseTokens(response),
+                    output_tokens:
+                        estimateResponseTokens(response) + (guidance?.text ? estimateTokens(guidance.text) : 0),
                     ...execMetrics.commandMeta,
                     ...(execMetrics.resultEmpty ? { mcp_result_empty: true } : {}),
                     ...toolResultAnalyticsProperties(response),
                     ...guidanceAnalyticsProperties(guidance),
                 },
-                analyticsMeta,
-                this.servedToolDescription(execToolName())
+                execAnalyticsMeta(),
+                this.servedToolDescription(analyticsToolName(), state)
             )
 
-            return attachGuidanceNotice(response, guidance, {
-                jsonOutput: execMetrics.innerOutputFormat === 'json',
-            })
+            return guided
         } catch (error: unknown) {
             const metricTool = execToolName()
             const classification = classifyToolError(error, metricTool)
@@ -794,7 +851,7 @@ export class ToolExecutor {
             }
 
             void trackToolCall(
-                metricTool,
+                analyticsToolName(),
                 Date.now() - startMs,
                 true,
                 state,
@@ -805,8 +862,8 @@ export class ToolExecutor {
                     ...execMetrics.commandMeta,
                     ...guidanceAnalyticsProperties(guidance),
                 },
-                analyticsMeta,
-                this.servedToolDescription(metricTool)
+                execAnalyticsMeta(),
+                this.servedToolDescription(analyticsToolName(), state)
             )
 
             const sessionUuid = await sessionUuidForError(state)
@@ -822,7 +879,9 @@ export class ToolExecutor {
                     sessionUuid,
                     state.suppressAnalytics ||
                         isPrivateScoutTrialTool(metricTool) ||
-                        isPrivateScoutTrialTool(execShape.$mcp_exec_target_tool)
+                        isPrivateScoutTrialTool(execShape.$mcp_exec_target_tool) ||
+                        hasSqlFilters(metricTool, execMetrics.innerInput) ||
+                        hasSqlFilters('exec', validation.data)
                 ),
                 guidance
             )
@@ -878,6 +937,8 @@ export class ToolExecutor {
             // event (now relabelled to the inner tool name, with the inner tool's category
             // derived from it) already carries this call, so a second emit would double-count.
             execMetrics.innerToolName = toolName
+            execMetrics.innerInput = properties.input
+            execMetrics.innerResult = properties.result
             execMetrics.innerOutputFormat = properties.output_format
             if (!properties.success) {
                 execMetrics.innerFailure = { error: properties.error }
@@ -925,7 +986,7 @@ export class ToolExecutor {
             tool.name === EXECUTE_SQL_TOOL_NAME
                 ? {
                       ...tool,
-                      description: this.instructionsBuilder.formatExecuteSqlDescription(),
+                      description: this.instructionsBuilder.formatExecuteSqlDescription(state),
                   }
                 : tool
         )
@@ -940,6 +1001,7 @@ export class ToolExecutor {
             state.scopeGatedTools,
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
+                appendTimeSeriesChartData: drawsTimeSeriesCharts(state),
                 mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
                 learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
                     state,
@@ -949,6 +1011,9 @@ export class ToolExecutor {
                 ...(state.heldTools ? { heldTools: state.heldTools } : {}),
                 builtInSkillHint: this.builtInSkillHint(state),
                 oauthClientId: state.oauthClientId,
+                // Matches challengeStepUpForGatedTool: a call through the MCP store gets no challenge.
+                supportsStepUp: state.supportsStepUp && !state.viaMcpStore,
+                metricCatalogLookup: resolveMetricCatalogMode(state.metricCatalog) === 'lookup',
                 ...(state.gatewayToolsEnabled
                     ? {
                           gatewayToolsProvider: () => this.gatewayToolsFor(state),
@@ -1011,7 +1076,8 @@ export class ToolExecutor {
             state.context,
             getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
             (toolName, toolInput, appKey) =>
-                this.loadRenderUiAppData(toolName, toolInput, appKey, state, analyticsMeta ?? {})
+                this.loadRenderUiAppData(toolName, toolInput, appKey, state, analyticsMeta ?? {}),
+            { appDataInStructuredContent: state.clientProfile.isCursor() }
         )
         if (!renderUiTool) {
             return {
@@ -1053,7 +1119,11 @@ export class ToolExecutor {
             const handlerResult = await renderUiTool.handler(state.context, validation.data)
             toolCallsTotal.inc({ tool: 'render-ui', status: 'success' })
             stop({ status: 'success' })
-            void trackToolCall('render-ui', Date.now() - startMs, false, state, inputShape, analyticsMeta)
+            void trackToolCall('render-ui', Date.now() - startMs, false, state, inputShape, {
+                ...analyticsMeta,
+                parameters: validation.data,
+                response: handlerResult,
+            })
             // The handler always returns an exec-built payload (UI resourceUri + structuredContent).
             return handlerResult
         } catch (error: unknown) {
@@ -1182,7 +1252,15 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
         return { errorType: 'api_5xx', status: apiError.status }
     }
     if (apiError instanceof PostHogApiError) {
-        return { errorType: 'api_4xx', status: apiError.status }
+        // Only identifier-shaped values survive `parseApiErrorIdentifiers`, never the body's free text.
+        const { code, attr } = parseApiErrorIdentifiers(apiError.body)
+        const errorField = attr ? normalizeErrorField(attr) : undefined
+        return {
+            errorType: 'api_4xx',
+            status: apiError.status,
+            ...(code ? { errorCode: code } : {}),
+            ...(errorField ? { errorField } : {}),
+        }
     }
     return { errorType: 'internal' }
 }
@@ -1308,6 +1386,12 @@ function inputShapeAnalyticsProperties(
 function recordedTargetTool(execShape: Record<string, unknown>): string | undefined {
     const target = execShape.$mcp_exec_target_tool
     return typeof target === 'string' && target !== UNRECOGNIZED_EXEC_TOKEN ? target : undefined
+}
+
+/** The tool a `call`, or a command that dropped its `call` prefix, named. */
+function attemptedCallTarget(execShape: Record<string, unknown>): string | undefined {
+    const verb = execShape.$mcp_exec_verb
+    return verb === 'call' || verb === UNRECOGNIZED_EXEC_TOKEN ? recordedTargetTool(execShape) : undefined
 }
 
 /**

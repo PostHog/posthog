@@ -5,7 +5,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, CancelledError, TimeoutError, TimeoutType
@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     CANCELLED_RUN_MESSAGE,
+    IMPORT_ACTIVITY_TYPE,
     RAILWAY_PROXY_CONNECTION_MESSAGE,
     SYNC_RUN_STALLED_MESSAGE,
     SYNC_RUN_TOO_LONG_MESSAGE,
@@ -30,17 +31,39 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE,
     TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     UNEXPECTED_ERROR_MESSAGE,
+    Any_Source_Errors,
     UpdateExternalDataJobStatusInputs,
     _customer_facing_error,
     _is_app_db_failure,
+    _non_retryable_error_message,
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    OBJECT_STORE_TRANSIENT_MESSAGE,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.test_delta_errors import (
+    OWN_BUCKET,
+    OWN_BUCKET_LIST_FORBIDDEN,
+    OWN_BUCKET_REDIRECT_WITHOUT_LOCATION,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    ACCESS_DENIED_ERROR,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import (
+    _MONGO_NOT_AUTHORIZED_MESSAGE,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    XMIN_AS_INCREMENTAL_FIELD_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
+    _CUSTOM_ACCESS_DENIAL_ERROR,
+    PostgresSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
 from products.warehouse_sources.backend.types import ExternalDataJobStatus, ExternalDataSourceType
+from products.warehouse_sources.sources.amazon_s3.source import AmazonS3Source
 
 
 class TestCustomerFacingError(SimpleTestCase):
@@ -52,11 +75,12 @@ class TestCustomerFacingError(SimpleTestCase):
         cause = ApplicationError(message, type="OperationalError")
         assert _customer_facing_error(cause) == message
 
-    def test_retryable_rest_error_becomes_a_friendly_message(self) -> None:
+    @parameterized.expand([("rest_client", "RESTClientRetryableError"), ("vendor_retry", "RetryableHTTPError")])
+    def test_retryable_rest_error_becomes_a_friendly_message(self, _name: str, error_type: str) -> None:
         # A REST source that exhausts its retries on an HTTP 429/5xx surfaces as an ApplicationError
         # typed RESTClientRetryableError, whose message is a raw string like "HTTP 503 for <url>".
         # The customer must read a friendly message, not the raw HTTP status.
-        cause = ApplicationError("HTTP 503 for https://api.example.com/usage", type="RESTClientRetryableError")
+        cause = ApplicationError("HTTP 503 for https://api.example.com/usage", type=error_type)
         assert _customer_facing_error(cause) == TRANSIENT_SOURCE_ERROR_MESSAGE
 
     def test_falls_back_to_str_when_cause_has_no_message(self) -> None:
@@ -74,20 +98,40 @@ class TestCustomerFacingError(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("start_to_close", TimeoutType.START_TO_CLOSE, SYNC_RUN_TOO_LONG_MESSAGE),
-            ("schedule_to_close", TimeoutType.SCHEDULE_TO_CLOSE, SYNC_RUN_TOO_LONG_MESSAGE),
-            ("heartbeat", TimeoutType.HEARTBEAT, SYNC_RUN_STALLED_MESSAGE),
-            ("schedule_to_start", TimeoutType.SCHEDULE_TO_START, SYNC_RUN_STALLED_MESSAGE),
-            ("unknown", None, SYNC_RUN_STALLED_MESSAGE),
+            ("import_start_to_close", TimeoutType.START_TO_CLOSE, IMPORT_ACTIVITY_TYPE, SYNC_RUN_TOO_LONG_MESSAGE),
+            (
+                "import_schedule_to_close",
+                TimeoutType.SCHEDULE_TO_CLOSE,
+                IMPORT_ACTIVITY_TYPE,
+                SYNC_RUN_TOO_LONG_MESSAGE,
+            ),
+            ("import_heartbeat", TimeoutType.HEARTBEAT, IMPORT_ACTIVITY_TYPE, SYNC_RUN_STALLED_MESSAGE),
+            ("import_schedule_to_start", TimeoutType.SCHEDULE_TO_START, IMPORT_ACTIVITY_TYPE, SYNC_RUN_STALLED_MESSAGE),
+            ("import_unknown", None, IMPORT_ACTIVITY_TYPE, SYNC_RUN_STALLED_MESSAGE),
+            # Job creation and the billing check have a one-minute budget, so running past it is a slow
+            # step on our side, not a table too large to sync.
+            (
+                "create_job_start_to_close",
+                TimeoutType.START_TO_CLOSE,
+                "create_external_data_job_model_activity",
+                SYNC_RUN_STALLED_MESSAGE,
+            ),
+            (
+                "billing_check_schedule_to_close",
+                TimeoutType.SCHEDULE_TO_CLOSE,
+                "check_billing_limits_activity",
+                SYNC_RUN_STALLED_MESSAGE,
+            ),
+            ("no_activity_type", TimeoutType.START_TO_CLOSE, None, SYNC_RUN_STALLED_MESSAGE),
         ]
     )
     def test_timed_out_activity_does_not_surface_temporals_own_wording(
-        self, _name: str, timeout_type: TimeoutType | None, expected: str
+        self, _name: str, timeout_type: TimeoutType | None, activity_type: str | None, expected: str
     ) -> None:
         # Temporal's message for a timed-out activity is "activity <Budget> timeout", which names our
         # orchestration and gives the customer nothing to act on.
         cause = TimeoutError("activity StartToClose timeout", type=timeout_type, last_heartbeat_details=[])
-        result = _customer_facing_error(cause)
+        result = _customer_facing_error(cause, activity_type)
         assert result == expected
         assert "timeout" not in result
 
@@ -111,6 +155,56 @@ class TestIsAppDbFailure(SimpleTestCase):
         # str(ApplicationError) is what the workflow stores as internal_error, so build the input
         # the same way rather than hand-writing the prefix this depends on.
         assert _is_app_db_failure(str(ApplicationError(message, type=exc_type))) is expected
+
+
+class TestNonRetryableErrorMessage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Each class-name or broad key below has a None value and sits before the entry that
+            # carries the message, so a first-match pick showed the customer the raw driver text.
+            (
+                "postgres_table_permission",
+                PostgresSource,
+                "InsufficientPrivilege",
+                "permission denied for table orders",
+                "GRANT SELECT",
+            ),
+            (
+                "postgres_schema_permission",
+                PostgresSource,
+                "InsufficientPrivilege",
+                "permission denied for schema analytics",
+                "USAGE",
+            ),
+            (
+                "redshift_relation_permission",
+                RedshiftSource,
+                "InsufficientPrivilege",
+                "permission denied for relation orders",
+                "Redshift reported",
+            ),
+            (
+                "postgres_xmin_as_incremental_field",
+                PostgresSource,
+                "ValueError",
+                XMIN_AS_INCREMENTAL_FIELD_ERROR,
+                "choose a different incremental field",
+            ),
+        ]
+    )
+    def test_a_none_entry_does_not_hide_a_later_message(
+        self, _name: str, source_cls: type, exc_type: str, message: str, expected_fragment: str
+    ) -> None:
+        errors = {**Any_Source_Errors, **source_cls().get_non_retryable_errors()}
+        result = _non_retryable_error_message(errors, str(ApplicationError(message, type=exc_type)))
+        assert result is not None
+        assert expected_fragment in result
+        assert "orders" not in result and "analytics" not in result
+
+    def test_an_error_only_none_entries_match_keeps_no_message(self) -> None:
+        errors = {**Any_Source_Errors, **PostgresSource().get_non_retryable_errors()}
+        internal_error = str(ApplicationError("table orders is gone", type="NoSuchTableError"))
+        assert _non_retryable_error_message(errors, internal_error) is None
 
 
 class TestTriggerScheduleBufferOneActivity(BaseTest):
@@ -288,8 +382,18 @@ class TestUpdateExternalDataJobModelActivity(BaseTest):
 
 # transaction=True commits the fixture rows: the activity resolves the schema through
 # database_sync_to_async_pool, whose pool-thread connection can't see a test transaction.
+@parameterized.expand(
+    [
+        ("plain text", "could not create the sync job", "could not create the sync job"),
+        # Raw driver/vendor text can carry a NUL byte, which Postgres text columns reject
+        # outright and would otherwise crash this save with a DataError.
+        ("nul byte stripped", "could not create\x00 the sync job", "could not create the sync job"),
+    ]
+)
 @pytest.mark.django_db(transaction=True)
-def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
+def test_failed_finalization_with_no_job_resets_stale_running_schema(
+    _name: str, latest_error: str, expected_latest_error: str
+) -> None:
     # When an early activity fails before the job row is committed, no later finalization can
     # repaint the schema, so the Running status painted at trigger time would stick forever.
     org = Organization.objects.create(name="org")
@@ -307,7 +411,7 @@ def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
         source_id=str(source.id),
         status=ExternalDataJob.Status.FAILED,
         internal_error=None,
-        latest_error="could not create the sync job",
+        latest_error=latest_error,
         workflow_run_id="run-id-with-no-job",
     )
 
@@ -326,7 +430,7 @@ def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
     mock_capture_exception.assert_not_called()
     schema.refresh_from_db()
     assert schema.status == ExternalDataSchema.Status.FAILED
-    assert schema.latest_error == "could not create the sync job"
+    assert schema.latest_error == expected_latest_error
 
 
 # transaction=True for the same reason as the test above: the activity resolves the source through
@@ -386,6 +490,109 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
     assert mock_update_should_sync.called is expect_disabled
     customer_message = mock_update_job_status.call_args.kwargs["latest_error"] or ""
     assert ("tries to write to your database" in customer_message) is expect_disabled
+
+
+# transaction=True for the same reason as the tests above: the activity resolves the source through
+# database_sync_to_async_pool, and the pool thread's connection can't see a test transaction.
+@parameterized.expand(
+    [
+        # Our own bucket's 403 body says "not authorized", which the Postgres row-level security
+        # entry and the MongoDB role entry both match. Neither source caused it.
+        (
+            "postgres_own_bucket_forbidden",
+            ExternalDataSourceType.POSTGRES,
+            OWN_BUCKET_LIST_FORBIDDEN,
+            False,
+            OBJECT_STORE_TRANSIENT_MESSAGE,
+        ),
+        (
+            "mongodb_own_bucket_forbidden",
+            ExternalDataSourceType.MONGODB,
+            OWN_BUCKET_LIST_FORBIDDEN,
+            False,
+            OBJECT_STORE_TRANSIENT_MESSAGE,
+        ),
+        (
+            "postgres_own_bucket_redirect",
+            ExternalDataSourceType.POSTGRES,
+            OWN_BUCKET_REDIRECT_WITHOUT_LOCATION,
+            False,
+            OBJECT_STORE_TRANSIENT_MESSAGE,
+        ),
+        # The guard must leave a genuine source-side denial alone.
+        (
+            "postgres_row_level_security_raise",
+            ExternalDataSourceType.POSTGRES,
+            "RaiseException: Access denied: No user ID provided",
+            True,
+            _CUSTOM_ACCESS_DENIAL_ERROR,
+        ),
+        (
+            "mongodb_role_not_authorized",
+            ExternalDataSourceType.MONGODB,
+            'OperationFailure: not authorized on example_db to execute command { find: "orders" }',
+            True,
+            _MONGO_NOT_AUTHORIZED_MESSAGE,
+        ),
+        (
+            "amazon_s3_customer_bucket_denied",
+            ExternalDataSourceType.AMAZONS3,
+            f"ObjectStorageError: {ACCESS_DENIED_ERROR} 's3://acme-uploads/exports/'. Check the access key "
+            "and secret, and that the key can list and read objects in this bucket.",
+            True,
+            AmazonS3Source().get_non_retryable_errors()[ACCESS_DENIED_ERROR],
+        ),
+    ]
+)
+@override_settings(DATAWAREHOUSE_BUCKET=OWN_BUCKET, BUCKET_URL=f"s3://{OWN_BUCKET}")
+@pytest.mark.django_db(transaction=True)
+def test_warehouse_bucket_error_never_disables_the_schema_or_shows_source_copy(
+    _name: str,
+    source_type: ExternalDataSourceType,
+    internal_error: str,
+    expect_disabled: bool,
+    expected_message: str,
+) -> None:
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="team")
+    source = ExternalDataSource.objects.create(team=team, source_type=source_type.value)
+    schema = ExternalDataSchema.objects.create(team=team, source=source, name="table")
+    job = ExternalDataJob.objects.create(
+        team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+    )
+
+    env = ActivityEnvironment()
+    inputs = UpdateExternalDataJobStatusInputs(
+        team_id=team.id,
+        job_id=str(job.id),
+        schema_id=str(schema.id),
+        source_id=str(source.id),
+        status=ExternalDataJob.Status.FAILED,
+        internal_error=internal_error,
+        latest_error=internal_error,
+    )
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows", return_value=0
+        ),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.capture_exception"),
+        mock.patch("posthoganalytics.capture"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_should_sync"
+        ) as mock_update_should_sync,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
+        ) as mock_update_job_status,
+    ):
+        asyncio.run(env.run(update_external_data_job_model, inputs))
+
+    assert mock_update_should_sync.called is expect_disabled
+    status_kwargs = mock_update_job_status.call_args.kwargs
+    assert status_kwargs["latest_error"] == expected_message
+    # A PostHog-side failure must not count toward the source's failure streak either.
+    assert status_kwargs["counts_as_source_failure"] is False
 
 
 # transaction=True for the same reason as the tests above: the activity resolves the source through

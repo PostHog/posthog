@@ -6,11 +6,16 @@ import userEvent from '@testing-library/user-event'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
 import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
+import type {
+    AlertPatternPreviewResponseApi,
+    SourceFilterCatalogApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { ERROR_TRACKING_SIGNAL_SOURCE_TYPES } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../../types'
@@ -40,6 +45,10 @@ interface PanelState {
     eventDefinitionsUnavailable: boolean
     sourceConfigsUnavailable: boolean
     externalConnections: boolean
+    linearConnected: boolean
+    // Team config (signals/config)
+    anomalyScoringAvailable: boolean
+    anomalyScoringEnabled: boolean
 }
 
 function sourceConfig(
@@ -74,6 +83,14 @@ function sourceConfigsFor(state: PanelState): SignalSourceConfig[] {
                   },
               ]
             : []),
+        ...(state.linearConnected
+            ? [
+                  {
+                      ...sourceConfig(SignalSourceProduct.Linear, SignalSourceType.Issue, true),
+                      config: { hogql_filter: { expression: 'assignee_id IS NULL', catalog_version: 1 } },
+                  },
+              ]
+            : []),
         ...ERROR_TRACKING_SIGNAL_SOURCE_TYPES.map((sourceType) =>
             sourceConfig(SignalSourceProduct.ErrorTracking, sourceType, state.errorTrackingArmed)
         ),
@@ -84,9 +101,37 @@ function sourceConfigsFor(state: PanelState): SignalSourceConfig[] {
         ),
         sourceConfig(SignalSourceProduct.Conversations, SignalSourceType.Ticket, state.supportArmed),
         sourceConfig(SignalSourceProduct.LlmAnalytics, SignalSourceType.EvaluationReport, state.aiObservabilityArmed),
-        sourceConfig(SignalSourceProduct.Analytics, SignalSourceType.AnomalyInvestigation, state.productAnalyticsArmed),
+        {
+            ...sourceConfig(
+                SignalSourceProduct.Analytics,
+                SignalSourceType.AnomalyInvestigation,
+                state.productAnalyticsArmed
+            ),
+            config: { alert_allow_patterns: ['(?i)revenue|signup'], alert_block_patterns: ['(?i)test'] },
+        },
         sourceConfig(SignalSourceProduct.HealthChecks, SignalSourceType.HealthIssue, state.healthChecksArmed),
     ]
+}
+
+function connectedWarehouseSources(state: PanelState): string[] {
+    return [
+        ...(state.externalConnections ? ['Github', 'Jira', 'Sentry'] : []),
+        ...(state.linearConnected ? ['Linear'] : []),
+    ]
+}
+
+const LINEAR_FILTER_CATALOG: SourceFilterCatalogApi = {
+    source_product: 'linear',
+    source_type: 'issue',
+    catalog_version: 1,
+    filter_fields: [
+        {
+            name: 'assignee_id',
+            type: 'string',
+            description: 'ID of the user assigned to the issue. Null when the issue is unassigned.',
+        },
+    ],
+    starter_expressions: ['assignee_id IS NULL'],
 }
 
 /** Ten scanners, so the roster's per-scanner list renders on and off rows, the filter, and the cap. */
@@ -184,8 +229,47 @@ function eventDefinitionsFor(state: PanelState): { name: string; last_seen_at: s
     return names.map((name) => ({ name, last_seen_at: new Date().toISOString() }))
 }
 
+const ALERT_PATTERN_PREVIEW: AlertPatternPreviewResponseApi = {
+    alert_allow_patterns_error: null,
+    alert_block_patterns_error: null,
+    has_more: false,
+    alerts: [
+        {
+            id: 'alert-1',
+            name: 'Daily revenue below target',
+            insight_name: 'Revenue by plan',
+            insight_short_id: 'rev123',
+            outcome: 'passed',
+        },
+        {
+            id: 'alert-2',
+            name: 'Signups dropped',
+            insight_name: 'Weekly signups',
+            insight_short_id: 'sig123',
+            outcome: 'passed',
+        },
+        {
+            id: 'alert-3',
+            name: 'Revenue test alert',
+            insight_name: 'Revenue by plan',
+            insight_short_id: 'rev123',
+            outcome: 'blocked',
+        },
+        {
+            id: 'alert-4',
+            name: '',
+            insight_name: 'Pageview count',
+            insight_short_id: 'pv123',
+            outcome: 'not_allowed',
+        },
+    ],
+}
+
 function PanelHarness(state: PanelState): JSX.Element {
     useStorybookMocks({
+        post: {
+            '/api/projects/:team_id/signals/source_configs/alert_pattern_preview/': () => [200, ALERT_PATTERN_PREVIEW],
+        },
         get: {
             '/api/environments/:team_id/external_data_sources/wizard/': () => [
                 200,
@@ -228,6 +312,17 @@ function PanelHarness(state: PanelState): JSX.Element {
                     conversations_enabled: state.conversationsOn,
                 },
             ],
+            '/api/projects/:team_id/signals/config/': () => [
+                200,
+                {
+                    anomaly_scoring_available: state.anomalyScoringAvailable,
+                    anomaly_scoring_enabled: state.anomalyScoringEnabled,
+                },
+            ],
+            '/api/projects/:team_id/signals/source_configs/filter_catalogs/': () => [
+                200,
+                { results: state.linearConnected ? [LINEAR_FILTER_CATALOG] : [] },
+            ],
             '/api/projects/:team_id/signals/source_configs/': () =>
                 state.sourceConfigsUnavailable
                     ? [500, { detail: 'A server error occurred.' }]
@@ -251,11 +346,11 @@ function PanelHarness(state: PanelState): JSX.Element {
             '/api/environments/:team_id/external_data_sources/': () => [
                 200,
                 {
-                    count: state.externalConnections ? 3 : 0,
+                    count: connectedWarehouseSources(state).length,
                     next: null,
                     previous: null,
-                    results: state.externalConnections
-                        ? ['Github', 'Jira', 'Sentry'].map((source_type, index) => ({
+                    results: connectedWarehouseSources(state).length
+                        ? connectedWarehouseSources(state).map((source_type, index) => ({
                               id: `source-${index}`,
                               source_type,
                               status: 'Completed',
@@ -316,6 +411,9 @@ const meta: Meta<typeof PanelHarness> = {
         eventDefinitionsUnavailable: false,
         sourceConfigsUnavailable: false,
         externalConnections: false,
+        linearConnected: false,
+        anomalyScoringAvailable: true,
+        anomalyScoringEnabled: true,
     },
 }
 export default meta
@@ -440,9 +538,38 @@ export const ErrorTrackingExpanded: Story = {
     },
 }
 
+/**
+ * Product analytics opened with the all-alerts flag on: the alert scope choice, the allow and block patterns with a
+ * preview of the alerts they let through and drop, and the anomaly scoring switch.
+ */
+export const ProductAnalyticsAlertScope: Story = {
+    args: { productAnalyticsArmed: true },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SIGNALS_ANALYTICS_ALL_ALERTS],
+        testOptions: { snapshotBrowsers: [] },
+    },
+    play: async ({ canvasElement }) => {
+        const [expandButton] = await within(canvasElement).findAllByLabelText('Expand Product analytics')
+        await userEvent.click(expandButton)
+    },
+}
+
 /** Connected tools stay in the roster even when they are off. */
 export const ExternalSourcesConnected: Story = {
     args: { externalConnections: true },
+}
+
+/** Linear opened with source filters on: the teams line, then the button that opens the filter editor. */
+export const LinearSourceFilter: Story = {
+    args: { linearConnected: true },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SIGNALS_SOURCE_FILTERS],
+        testOptions: { snapshotBrowsers: [] },
+    },
+    play: async ({ canvasElement }) => {
+        const [expandButton] = await within(canvasElement).findAllByLabelText('Expand Linear')
+        await userEvent.click(expandButton)
+    },
 }
 
 export const SourceCatalogFiltered: Story = {

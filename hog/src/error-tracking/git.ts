@@ -226,7 +226,7 @@ function unescapeValue(value: string): string {
     return out
 }
 
-function parseRemoteUrls(config: string): [string, string][] {
+export function parseRemoteUrls(config: string): [string, string][] {
     const remotes: [string, string][] = []
     let current: string | undefined
     // Rust's `str::lines` splits on `\n` and drops one trailing `\r` per line.

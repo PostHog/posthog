@@ -59,7 +59,7 @@ describe('Suggested reviewer presentation', () => {
 
         expect(await screen.findByText(scoutName)).toBeInTheDocument()
     })
-    it('shows each reason before its indented reviewer and keeps actions visible', async () => {
+    it('shows each reason before its reviewer and keeps actions visible', async () => {
         const maya: EnrichedReviewer = {
             github_login: 'maya',
             github_name: 'Maya Rivera',
@@ -87,13 +87,9 @@ describe('Suggested reviewer presentation', () => {
         const reason = screen.getByText('Recently changed the affected transport.')
         const reviewer = screen.getByText('Maya Rivera')
         expect(reason.compareDocumentPosition(reviewer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-        expect(reviewer.closest('.pl-3')).toBeInTheDocument()
-        expect(screen.getByText('Quinn Foster').closest('.pl-3')).not.toBeInTheDocument()
-        const addButton = screen.getByText('Add Reviewer')
+        const addButton = screen.getByText('Add')
         expect(addButton).toBeVisible()
-        expect(
-            screen.getByText('Quinn Foster').compareDocumentPosition(addButton) & Node.DOCUMENT_POSITION_FOLLOWING
-        ).toBeTruthy()
+        expect(addButton.compareDocumentPosition(reviewer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 
         // The row shows no buttons. The name opens the reviewer's menu, and the picked reason travels with the removal.
         const row = screen.getByLabelText('Actions for Maya Rivera')
@@ -145,7 +141,6 @@ describe('Suggested reviewer presentation', () => {
         const reason = screen.getByText('Added by Avery Chen')
         const reviewer = screen.getByText('Quinn Foster')
         expect(reason.compareDocumentPosition(reviewer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-        expect(reviewer.closest('.pl-3')).toBeInTheDocument()
         expect(screen.queryByText('Added by teammate')).not.toBeInTheDocument()
     })
 })

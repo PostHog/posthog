@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -23,7 +23,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.models import Metric
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
 from products.data_quality.backend.facade import api
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
 from products.data_quality.backend.logic import checks as checks_logic
@@ -578,6 +578,11 @@ class TestDataQualityCheckAPI(APIBaseTest):
         self.url = f"/api/projects/{self.team.id}/data_quality_checks"
         self.suites_url = f"/api/projects/{self.team.id}/data_quality_runs"
         self.subject = {"subject_type": SubjectType.VIEW, "subject_uuid": str(self.view.id)}
+
+    def test_non_uuid_check_id_returns_404(self) -> None:
+        response = self.client.get(f"{self.url}/999999999/runs/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_model_history_includes_deleted_checks_without_other_models(self) -> None:
         check = self._create_check()
@@ -1155,6 +1160,8 @@ class TestDataQualityCheckAPI(APIBaseTest):
         rollups = response.json()
         assert [entry["health"] for entry in rollups] == ([expected] if states else [])
         assert sum(entry["checks_total"] for entry in rollups) == len(states)
+        failing = self.client.get(f"{self.url}/failing_count/")
+        assert failing.json() == {"count": sum(1 for _, last_status in states if last_status == CheckRunStatus.FAILED)}
 
     def test_health_ignores_disabled_checks(self) -> None:
         # A disabled failing check must not drive the verdict, or health would read 'failing' while
@@ -1304,6 +1311,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
         assert health.status_code == status.HTTP_200_OK, health.json()
         assert health.json() == []
+        assert self.client.get(f"{self.url}/failing_count/").json() == {"count": 0}
 
     @parameterized.expand([("pinned", True), ("recorded before pinning", False)])
     def test_editing_a_check_does_not_unlock_the_history_it_used_to_read(self, _name: str, pinned: bool) -> None:
@@ -1607,7 +1615,8 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_definition_that_names_a_table", "SELECT {index} FROM customers", 1),
+            ("a_definition_that_names_a_table_outside_the_warehouse", "SELECT {index} FROM events", 1),
+            ("a_definition_that_names_a_readable_view", "SELECT {index} FROM customers", 0),
             ("no_names_at_all", "SELECT {index}", 0),
         ]
     )
@@ -1657,13 +1666,49 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert listed.json()["results"] == []
         assert recreated.status_code == status.HTTP_403_FORBIDDEN
 
+    @parameterized.expand(
+        [
+            ("raw_trino", {"executionTarget": "managed_trino", "sendRawQuery": True}, False),
+            ("direct_connection", {"connectionId": "018f0000-0000-0000-0000-000000000001"}, False),
+            ("managed_viewset", {}, True),
+        ]
+    )
+    def test_a_readable_view_that_hogql_cannot_reference_blocks_authoring(
+        self, _name: str, engine_keys: dict[str, Any], in_managed_viewset: bool
+    ) -> None:
+        allowed = self._make_view("customers")
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="unreferenceable",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id", **engine_keys},
+            managed_viewset=(
+                DataWarehouseManagedViewSet.objects.create(team=self.team, kind="revenue_analytics")
+                if in_managed_viewset
+                else None
+            ),
+        )
+        self._deny_the_view()
+
+        response = self.client.post(
+            f"{self.url}/",
+            self._payload(
+                subject_uuid=str(allowed.id),
+                check_type=CheckType.CUSTOM_SQL,
+                column_name="",
+                config={"query": "SELECT 1 FROM unreferenceable"},
+            ),
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert DataQualityCheck.objects.for_team(self.team.id).count() == 0
+
     def test_a_database_build_that_fails_refuses_rather_than_500s(self) -> None:
         allowed = self._make_view("customers")
         self._create_check(
             subject_uuid=str(allowed.id),
             check_type=CheckType.CUSTOM_SQL,
             column_name="",
-            config={"query": "SELECT 1 FROM customers"},
+            config={"query": "SELECT 1 FROM events"},
         )
         self._deny_the_view()
 

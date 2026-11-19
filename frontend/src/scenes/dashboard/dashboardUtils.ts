@@ -10,7 +10,6 @@ import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import posthog from 'lib/posthog-typed'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectClean } from 'lib/utils/objects'
 import { isDeterministicClientError, shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
@@ -41,8 +40,8 @@ import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstan
 
 // The backend labels every transient capacity failure with this code, whatever its message: PostHog's
 // own per-org concurrency limit, and ClickHouse refusing the query because the cluster is busy.
-const RATE_LIMITED_ERROR_CODE = 'rate_limited'
-const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
+export const RATE_LIMITED_ERROR_CODE = 'rate_limited'
+export const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 const RATE_LIMIT_USER_MESSAGE = 'Too many queries are running right now.'
 
 export function getInsightQueryError(insight: InsightModel): ApiError | null {
@@ -352,17 +351,17 @@ interface TileLoad<Refresh> {
 export class TileLoads<Refresh> {
     private readonly loads = new Map<number, TileLoad<Refresh>>()
 
-    /** Starts one load of these tiles. Call `finish` once it settles, however it ends. */
+    /** Starts one load of these tiles. Call `release` as each tile arrives, and `finish` once the load settles. */
     start(
         tileIds: number[],
         refreshSignal: AbortSignal,
         refresh: Refresh
-    ): { signal: AbortSignal; finish: () => void } {
+    ): { signal: AbortSignal; release: (tileId: number) => void; finish: () => void } {
         const controller = new AbortController()
         const abort = (): void => controller.abort()
         let settle: () => void = () => {}
         const load: TileLoad<Refresh> = {
-            tileIds,
+            tileIds: [...tileIds],
             controller,
             refresh,
             settled: new Promise<void>((resolve) => (settle = resolve)),
@@ -382,7 +381,13 @@ export class TileLoads<Refresh> {
             }
             settle()
         }
-        return { signal: controller.signal, finish }
+        const release = (tileId: number): void => {
+            load.tileIds = load.tileIds.filter((id) => id !== tileId)
+            if (this.loads.get(tileId) === load) {
+                this.loads.delete(tileId)
+            }
+        }
+        return { signal: controller.signal, release, finish }
     }
 
     /**
@@ -837,15 +842,4 @@ export function getEffectiveDateOverride(
     const tileHasDate = tileFilters?.date_from != null || tileFilters?.date_to != null
     const source = tileHasDate ? tileFilters : dashboardFilters
     return { dateFromOverride: source?.date_from, dateToOverride: source?.date_to }
-}
-
-const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([
-    DashboardEventSource.SceneCommonButtons,
-    DashboardEventSource.CardEdgeHover,
-    DashboardEventSource.CardDragHandle,
-    DashboardEventSource.DashboardsList,
-])
-
-export function isLayoutEditEventSource(source: DashboardEventSource | null): boolean {
-    return source !== null && LAYOUT_EDIT_EVENT_SOURCES.has(source)
 }

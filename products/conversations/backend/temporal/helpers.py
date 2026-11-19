@@ -5,6 +5,7 @@ import structlog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 
+from products.conversations.backend.task_profiles import SUPPORT_REPLY
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -25,15 +26,16 @@ def get_or_create_support_sandbox_env(team_id: int) -> str:
     exfiltration channel that TRUSTED's broad allowlist would otherwise leave open. This agent
     only drafts text + calls read-only MCP tools; it has no reason to fetch from the internet.
     """
+    network = SUPPORT_REPLY.network
     return str(
         tasks_facade.upsert_internal_sandbox_env(
             team_id,
             CONVERSATIONS_SUPPORT_REPLY_ENV_NAME,
-            tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
+            tasks_facade.SandboxNetworkAccessLevel(network.levels[0]),
             private=False,
             internal=True,
-            allowed_domains=[],
-            include_default_domains=False,
+            allowed_domains=list(network.allowed_domains),
+            include_default_domains=network.include_default_domains,
         )
     )
 

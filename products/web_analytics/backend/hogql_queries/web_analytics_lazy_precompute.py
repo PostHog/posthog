@@ -34,6 +34,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     is_precompute_enabled_for_team,
     is_team_above_volume_floor,
     lazy_ttl_schedule,  # noqa: F401 — re-exported alongside the TTL constants below
+    range_reaches_retention_floor,
     set_lazy_precompute_ineligible_reason,
 )
 
@@ -208,6 +209,11 @@ class DateRangeOverMax(LazyPrecomputeIneligible):
         super().__init__(f"days={days} max={max_days}")
 
 
+class ReachesRetentionFloor(LazyPrecomputeIneligible):
+    """The range starts before the events-retention build floor. The executor builds no
+    windows there, so only the live query can serve it."""
+
+
 def can_use_lazy_precompute(
     runner: LazyPrecomputeRunner,
     *,
@@ -353,6 +359,13 @@ def check_common_eligible(
     days = (date_to - date_from).days
     if days > max_days:
         raise DateRangeOverMax(days, max_days)
+
+    compare_range = getattr(runner, "query_compare_to_date_range", None)
+    compare_date_from = compare_range.date_from() if compare_range is not None else None
+    if range_reaches_retention_floor(runner.team, date_from) or (
+        compare_date_from is not None and range_reaches_retention_floor(runner.team, compare_date_from)
+    ):
+        raise ReachesRetentionFloor()
 
 
 def is_constant_true(expr: ast.Expr) -> bool:

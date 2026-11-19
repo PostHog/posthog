@@ -83,7 +83,7 @@ from posthog.models.team.team import Team, WeekStartDay
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -99,7 +99,7 @@ def _flag_call_event_series(team: Team, flag_keys: list[str]) -> EventsNode:
 
 
 def _flag_call_action_series(team: Team, flag_keys: list[str]) -> ActionsNode:
-    action = Action.objects.create(
+    action = create_action(
         team=team,
         name="called a flag",
         steps_json=[
@@ -1092,6 +1092,46 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(1, len(response.results))
         self.assertNotIn("compare_label", response.results[0])
+
+    def test_metric_display_total_counts_unique_users_across_the_range(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-15",
+            "2020-01-19",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.DAU)],
+            TrendsFilter(display=ChartDisplayType.METRIC),
+        )
+
+        self.assertEqual([2, 0, 1, 0, 1], response.results[0]["data"])
+        self.assertEqual(
+            [("current", 2), ("previous", 3)],
+            [(result["compare_label"], result["count"]) for result in response.results],
+        )
+
+    def test_metric_display_total_skips_the_excluded_incomplete_week(self):
+        self._create_test_events()
+        self._create_events(
+            [
+                SeriesFixture(
+                    distinct_id="p5",
+                    events=[Series(event="$pageview", timestamps=["2020-01-20T12:00:00Z"])],
+                    properties={},
+                )
+            ]
+        )
+
+        with time_machine.travel("2020-01-21T12:00:00Z", tick=False):
+            query = TrendsQuery(
+                series=[EventsNode(event="$pageview", math=BaseMathType.DAU)],
+                dateRange=DateRange(date_from="-9d", excludeIncompletePeriods=True),
+                interval=IntervalType.WEEK,
+                trendsFilter=TrendsFilter(display=ChartDisplayType.METRIC),
+            )
+            response = TrendsQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual((["2020-01-12"], 4), (response.results[0]["days"], response.results[0]["count"]))
 
     def test_formula_with_compare_to_week(self):
         self._create_test_events()
@@ -6598,7 +6638,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._create_test_events()
         flush_persons_and_events()
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="viewed from chrome and left",
             steps_json=[
@@ -6625,7 +6665,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 1
         assert response.results[0]["data"] == [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="viewed from chrome or firefox",
             steps_json=[
@@ -7997,7 +8037,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Create an action for pageview
-        page_action = Action.objects.create(
+        page_action = create_action(
             team=self.team,
             name="Pageview Action",
             steps_json=[
@@ -8121,7 +8161,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Page Action combines both pageview and pageleave events
-        page_action = Action.objects.create(
+        page_action = create_action(
             team=self.team,
             name="Page Action",
             steps_json=[
@@ -8130,7 +8170,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        pageview_action = Action.objects.create(
+        pageview_action = create_action(
             team=self.team,
             name="Pageview Action",
             steps_json=[

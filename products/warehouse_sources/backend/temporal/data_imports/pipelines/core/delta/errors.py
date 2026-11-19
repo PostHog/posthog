@@ -1,6 +1,8 @@
 import re
 import errno
+from urllib.parse import urlparse
 
+from django.conf import settings
 from django.db import InterfaceError, InternalError, OperationalError
 
 import psycopg.errors
@@ -37,6 +39,9 @@ _EREMOTEIO = getattr(errno, "EREMOTEIO", errno.EIO)
 #   with a custom `endpoint_url` (e.g. Alibaba Cloud OSS's S3-compatible API, addressed virtual-hosted
 #   per products/data_warehouse/backend/s3_proxy.py) rather than AWS's own endpoints - that path never
 #   goes through s3fs/aiobotocore, so it can't surface as one of the typed botocore exceptions below.
+# - "Failed to flush response stream" is pyarrow's S3FileSystem (the AWS SDK for C++) reporting a
+#   GetObject response body that broke off while it was being read, under the SDK's client-side
+#   INTERNAL_FAILURE code. The object is intact, so a fresh read of the same range succeeds.
 # A retry (of the same idempotent operation) clears these, so they shouldn't be treated the same as a
 # bug in our logic.
 TRANSIENT_OBJECT_STORE_ERRORS = (
@@ -48,6 +53,7 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
     "The difference between the request time and the current time is too large.",
     "connection closed before message completed",
     "Connection timed out",
+    "Failed to flush response stream",
 )
 
 # pyarrow's S3FileSystem (the AWS SDK for C++) reports a response it can't classify as the fixed
@@ -78,6 +84,20 @@ def _is_oss_internal_error(error: BaseException) -> bool:
     # commit) wrap the identical underlying object-store error in `deltalake.exceptions.DeltaError`
     # instead - same split the S3 needles above already account for.
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and _OSS_INTERNAL_ERROR_NEEDLE in str(error)
+
+
+# delta-rs's Rust `object_store` crate raises this for a failure to even build the HTTP client —
+# e.g. "URL scheme is not allowed" when the endpoint is `http://` and `AWS_ALLOW_HTTP` isn't set,
+# or any other invalid builder config. Unlike every blip above, the client is rebuilt fresh from
+# the same storage options on every call, so a builder error is deterministic and can never clear
+# on retry.
+_OBJECT_STORE_BUILDER_ERROR_NEEDLE = "builder error"
+
+
+def _is_object_store_builder_error(error: BaseException) -> bool:
+    return isinstance(error, OSError | deltalake.exceptions.DeltaError) and _OBJECT_STORE_BUILDER_ERROR_NEEDLE in str(
+        error
+    )
 
 
 class TransientObjectStoreError(NonReportableError):
@@ -146,6 +166,14 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     OSS-specific error shape (see `_is_oss_internal_error`), already marked "(temporary)" by delta-rs's
     object-store layer before this classifier even runs.
 
+    Checked and excluded before the broad needle match: a failed client *construction* (see
+    `_is_object_store_builder_error`) is also prefixed "Generic S3 error" by delta-rs, but it is a
+    static config problem (e.g. a plain `http://` endpoint without `AWS_ALLOW_HTTP`), not a blip —
+    the same client is rebuilt from the same options on every retry, so it fails the identical way
+    forever. Same reasoning as the permission-denied carve-out `_capture_unless_transient` checks
+    ahead of this function: a definitive failure arriving under the shared "Generic S3 error" prefix
+    must not be hidden behind Temporal's retry policy.
+
     Deliberately does not cover `ensure_bucket_exists`'s own exhausted `HeadBucket` 403 retry (see
     `_is_exhausted_head_bucket_forbidden` below) — that check only runs under `USE_LOCAL_SETUP`,
     where the bucket credentials are operator-configured rather than our own IAM instance role, so an
@@ -174,9 +202,47 @@ def is_transient_object_store_error(error: BaseException) -> bool:
         return True
     if _is_oss_internal_error(error):
         return True
+    if _is_object_store_builder_error(error):
+        # Checked before the broad needle match below: delta-rs prefixes a failed *client
+        # construction* with the same "Generic S3 error" text the blips above use, so the needle
+        # would otherwise call this transient too. A builder error (e.g. "URL scheme is not
+        # allowed" for an http:// endpoint without AWS_ALLOW_HTTP) means the client itself is
+        # misconfigured — every retry builds the identical client and fails the identical way, so
+        # folding it into the blip list would retry it forever without ever telling anyone, same as
+        # the permission-denied refusal carved out above it in `_capture_unless_transient`.
+        return False
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
         needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
     )
+
+
+# Prefixes the object-store clients put on an error from a bucket: delta-rs's Rust `object_store`
+# crate ("Generic S3 error") and pyarrow's S3FileSystem ("AWS Error <CODE>").
+_OBJECT_STORE_ERROR_SHAPES = ("generic s3 error", "aws error ")
+
+
+def _warehouse_bucket_names() -> set[str]:
+    names = {settings.DATAWAREHOUSE_BUCKET, urlparse(settings.BUCKET_URL).netloc}
+    return {name.lower() for name in names if name}
+
+
+def is_warehouse_bucket_error(error_text: str) -> bool:
+    """True when an object-store error text names PostHog's own data-warehouse bucket.
+
+    Source error maps match on loose words such as "not authorized" or "forbidden", and a 403 or a
+    region redirect from our own bucket contains those words in its URL and XML body. The error is
+    then PostHog's to fix, so it must never select a source's non-retryable message or disable the
+    schema. Both signals are required: the object-store prefix and our bucket name as a whole token.
+    An object-storage source reads a customer's bucket, so its errors never name ours and keep their
+    own classification.
+
+    A builder error is excluded. It names a static client configuration that every retry rebuilds
+    the same way (see `_is_object_store_builder_error`), so it must not become an endless retry.
+    """
+    text = error_text.lower()
+    if not any(shape in text for shape in _OBJECT_STORE_ERROR_SHAPES) or _OBJECT_STORE_BUILDER_ERROR_NEEDLE in text:
+        return False
+    return any(re.search(rf"(?<![a-z0-9.-]){re.escape(name)}(?![a-z0-9-])", text) for name in _warehouse_bucket_names())
 
 
 def _is_exhausted_head_bucket_forbidden(error: BaseException) -> bool:

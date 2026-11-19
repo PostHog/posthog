@@ -40,13 +40,19 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import SimpleRateThrottle
+from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ErrorResponseSerializer
-from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TeamSecretTokenAuthentication
+from posthog.auth import (
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+    TeamSecretTokenAuthentication,
+    TeamSecretTokenUser,
+)
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models import Team
 from posthog.permissions import get_authenticator_scopes, is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
@@ -101,6 +107,16 @@ class ExternalAccountTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
 class ExternalAccountTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
     scope = "external_account_psak_team_sustained"
     rate = ExternalAccountSustainedThrottle.rate
+
+
+class ExternalAccountCreateBurstThrottle(_ExternalAccountThrottle):
+    scope = "external_account_create_burst"
+    rate = "240/minute"
+
+
+class ExternalAccountCreateTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "external_account_create_psak_team_burst"
+    rate = ExternalAccountCreateBurstThrottle.rate
 
 
 class ExternalAccountListBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
@@ -216,6 +232,7 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
     if not organization.is_active or organization.is_pending_deletion or not _customer_analytics_enabled(team):
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
+    enforce_ip_restrictions(request, TeamSecretTokenUser(team), TeamSecretTokenAuthentication())
     TeamSecretTokenAuthentication.record_activity_actor(None)
     return team, None
 
@@ -334,6 +351,16 @@ class ExternalAccountView(APIView):
     # Opts the route into the OpenAPI spec and generated types; the schema preprocessor drops
     # views without a scope_object. Authorization itself stays in the manual Bearer checks above.
     scope_object = "account"
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.request.method == "POST":
+            return [
+                ExternalAccountCreateBurstThrottle(),
+                ExternalAccountSustainedThrottle(),
+                ExternalAccountCreateTeamBurstThrottle(),
+                ExternalAccountTeamSustainedThrottle(),
+            ]
+        return super().get_throttles()
 
     @extend_schema(
         extensions=_INTERNAL_SCHEMA_EXTENSIONS,

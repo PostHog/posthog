@@ -80,9 +80,9 @@ def _result_for_run(task_run: TaskRun) -> dict[str, Any]:
 
 def _workflow_origin_key(task_run: TaskRun) -> str | None:
     task = task_run.task
-    if task.origin_product != Task.OriginProduct.WORKFLOW or not task.origin_key:
+    if task.origin_product != Task.OriginProduct.WORKFLOW or not task.stored_idempotency_key:
         return None
-    return task.origin_key
+    return task.stored_idempotency_key
 
 
 def _emit(task_run: TaskRun, origin_key: str, status: WorkflowStepResumeStatus) -> None:

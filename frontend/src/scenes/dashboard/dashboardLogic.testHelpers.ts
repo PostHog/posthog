@@ -1,7 +1,7 @@
 import { DashboardFilter } from '~/queries/schema/schema-general'
 import { DashboardTile, DashboardType, InsightModel } from '~/types'
 
-import _dashboardJson from './__mocks__/dashboard.json'
+import _dashboardJson from 'products/dashboards/frontend/__mocks__/dashboard.json'
 
 const dashboardJson = _dashboardJson as any as DashboardType
 

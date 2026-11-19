@@ -1,1 +1,1 @@
-0017_realtime_cohort_team_access
+0023_turn_on_realtime_for_processed_teams

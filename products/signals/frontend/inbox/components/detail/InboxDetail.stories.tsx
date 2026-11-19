@@ -1,3 +1,5 @@
+import { MOCK_SECOND_BASIC_USER } from 'lib/api.mock'
+
 import type { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { HttpResponse } from 'msw'
@@ -24,9 +26,11 @@ import {
 } from '../../__mocks__/inboxMocks'
 import { reportMetricQueryHandler, reportMetricsFixture } from '../../__mocks__/reportMetricMocks'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
-import { SignalReport, SignalReportStatus } from '../../types'
+import { SignalReport, SignalReportArtefact, SignalReportStatus } from '../../types'
 import { AgentRunDetail } from './AgentRunDetail'
+import { ArtefactLogList } from './ArtefactLogList'
 import { ReportDetail } from './ReportDetail'
+import { ReportNotesSection } from './ReportNotesSection'
 import { ReportStatusSection } from './ReportStatusSection'
 
 const mixedPrChecks = {
@@ -182,7 +186,7 @@ const meta: Meta = {
         mockDate: '2026-06-11',
         featureFlags: {
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
-            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
         },
     },
     decorators: [detailMocks],
@@ -198,10 +202,14 @@ function Frame({ children }: { children: React.ReactNode }): JSX.Element {
 export const StatusBlock: Story = {
     render: function RenderStatusBlock() {
         const [priority, setPriority] = useState<NonNullable<SignalReport['priority']>>('P1')
+        const [selectedPullRequestUrl, setSelectedPullRequestUrl] = useState(
+            'https://github.com/PostHog/posthog/pull/12002'
+        )
         const report = makeReport({
             status: SignalReportStatus.READY,
             priority,
             actionability: 'immediately_actionable',
+            repo_slug: 'posthog/posthog',
             implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12002',
             implementation_pr_state: 'open',
             pull_requests: [
@@ -241,6 +249,129 @@ export const StatusBlock: Story = {
         return (
             <Frame>
                 <div className="w-[26rem] border border-primary bg-surface-primary p-5">
+                    <ReportStatusSection
+                        report={report}
+                        onPriorityChange={setPriority}
+                        selectedPullRequestUrl={selectedPullRequestUrl}
+                        onSelectPullRequest={setSelectedPullRequestUrl}
+                    />
+                </div>
+            </Frame>
+        )
+    },
+}
+
+export const StatusBlockWithEditableDecisions: Story = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_EDITABLE_DECISIONS]: true },
+        testOptions: { snapshotBrowsers: [] },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/integrations/': {
+                    results: [
+                        { id: 1, kind: 'github', display_name: 'example-org', created_at: '2026-01-01T00:00:00Z' },
+                    ],
+                    next: null,
+                },
+                '/api/projects/:id/integrations/1/github_repos/': {
+                    repositories: [
+                        { id: 1, name: 'web-app', full_name: 'example-org/web-app' },
+                        { id: 2, name: 'api', full_name: 'example-org/api' },
+                        { id: 3, name: 'legacy', full_name: 'example-org/legacy', archived: true },
+                    ],
+                    has_more: false,
+                },
+            },
+        }),
+    ],
+    render: function RenderStatusBlockWithEditableDecisions() {
+        const [priority, setPriority] = useState<NonNullable<SignalReport['priority']>>('P1')
+        const [repository, setRepository] = useState('example-org/web-app')
+        const [actionability, setActionability] =
+            useState<NonNullable<SignalReport['actionability']>>('immediately_actionable')
+        const [alreadyAddressed, setAlreadyAddressed] = useState(false)
+        const report = makeReport({
+            status: SignalReportStatus.READY,
+            priority,
+            actionability,
+            already_addressed: alreadyAddressed,
+            repo_slug: repository,
+            pull_requests: [],
+        })
+        const agentJudgment = {
+            person: null,
+            agent: null,
+            setAt: '2026-06-09T09:00:00Z',
+            reason: 'The failing request path and the checkout handler are both named, and no open pull request covers them.',
+            previousValue: null,
+        }
+        return (
+            <Frame>
+                <div className="w-[26rem] border border-primary bg-surface-primary p-5">
+                    <ReportStatusSection
+                        report={report}
+                        onPriorityChange={setPriority}
+                        onRepositoryChange={setRepository}
+                        onActionabilityChange={(change) =>
+                            'actionability' in change
+                                ? setActionability(change.actionability)
+                                : setAlreadyAddressed(change.alreadyAddressed)
+                        }
+                        decisionAttributions={{
+                            repository: {
+                                person: null,
+                                agent: null,
+                                setAt: '2026-06-09T09:00:00Z',
+                                reason: 'The stack trace points at files under src/checkout/ in this repository.',
+                                previousValue: null,
+                            },
+                            priority: {
+                                person: { ...MOCK_SECOND_BASIC_USER, last_name: 'Dawson' },
+                                agent: null,
+                                setAt: '2026-06-10T08:00:00Z',
+                                reason: null,
+                                previousValue: 'P3',
+                            },
+                            actionability: agentJudgment,
+                            already_addressed: agentJudgment,
+                        }}
+                    />
+                </div>
+            </Frame>
+        )
+    },
+}
+
+export const StatusBlockWithOnePullRequest: Story = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_EDITABLE_DECISIONS]: true },
+        testOptions: { snapshotBrowsers: [] },
+    },
+    render: function RenderStatusBlockWithOnePullRequest() {
+        const [priority, setPriority] = useState<NonNullable<SignalReport['priority']>>('P2')
+        const report = makeReport({
+            status: SignalReportStatus.READY,
+            priority,
+            repo_slug: 'example-org/web-app',
+            pull_requests: [
+                {
+                    id: '019e64b8-0000-7000-8000-000000000201',
+                    url: 'https://github.com/example-org/web-app/pull/12004',
+                    state: 'draft',
+                    merged: false,
+                    review_decision: 'review_required',
+                    merged_at: null,
+                    claim_id: null,
+                    attached_at: null,
+                    attached_by: null,
+                },
+            ],
+        })
+        return (
+            <Frame>
+                <div className="w-[26rem] border border-primary bg-surface-primary p-5">
                     <ReportStatusSection report={report} onPriorityChange={setPriority} />
                 </div>
             </Frame>
@@ -258,11 +389,32 @@ export const Report: Story = {
 
 export const ReportReadyToImplement: Story = {
     decorators: [readyToImplementMocks],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION]: 'control' },
+    },
     render: () => (
         <Frame>
-            <ReportDetail report={reportTabReports[0]} />
+            <ReportDetail
+                report={{
+                    ...reportTabReports[0],
+                    summary: `${reportTabReports[0].summary}\n\n## Solution\n\nValidate each recipient before the form sends the invitation request. Show a field error for an empty email address.`,
+                }}
+            />
         </Frame>
     ),
+}
+
+export const ReportImplementButtonInHeader: Story = {
+    ...ReportReadyToImplement,
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION]: 'test' },
+        testOptions: { snapshotBrowsers: [] },
+    },
+}
+
+export const ReportViewTaskButtonInHeader: Story = {
+    ...ReportImplementButtonInHeader,
+    decorators: [],
 }
 
 export const ReportWithoutCodeAccess: Story = {
@@ -328,6 +480,120 @@ export const ReportClaimedByTeammate: Story = {
     ),
 }
 
+const NOTES_REPORT_ID = reportTabReports[0].id
+const NOTES_ROLE_ID = '0190f3a1-7d2e-7c41-9a3b-5e6f7a8b9c0d'
+
+// The active note is still listed; the retired one is gone from the list, so its entry reads inactive.
+const reportNotesMocks = mswDecorator({
+    get: {
+        '/api/projects/:id/signals/scout/notes/': () => [
+            200,
+            [
+                {
+                    id: 'note-active',
+                    skill_name: 'signals-scout-checkout',
+                    content: `Note on inbox report \`${NOTES_REPORT_ID}\`:\n\nThe checkout flow is being rebuilt next month.`,
+                    created_at: '2026-06-10T09:00:00Z',
+                    expires_at: null,
+                    created_by_name: 'Octo Cat',
+                    origin: 'human',
+                },
+            ],
+        ],
+        '/api/projects/:id/signals/scout/configs/': () => [
+            200,
+            [{ id: 'config-checkout', skill_name: 'signals-scout-checkout', display_name: 'Checkout watcher' }],
+        ],
+        '/api/organizations/:organization_id/roles/': () => [
+            200,
+            { results: [{ id: NOTES_ROLE_ID, name: 'Checkout team', members: [] }], count: 1 },
+        ],
+    },
+})
+
+const NOTE_AUTHOR = { id: 1, uuid: 'u-1', distinct_id: 'u-1', email: 'octo@example.com', first_name: 'Octo' }
+
+const noteArtefacts: SignalReportArtefact[] = [
+    {
+        id: 'artefact-scout-note-active',
+        type: 'scout_note_left',
+        content: {
+            note: 'The checkout flow is being rebuilt next month. Focus on the new flow instead.',
+            skill_name: 'signals-scout-checkout',
+            scout_note_id: 'note-active',
+        },
+        created_at: '2026-06-10T09:00:00Z',
+        created_by: NOTE_AUTHOR,
+        actor_kind: 'user',
+    },
+    {
+        id: 'artefact-scout-note-retired',
+        type: 'scout_note_left',
+        content: { note: 'Anything under /legacy is out of scope.', skill_name: '', scout_note_id: 'note-retired' },
+        created_at: '2026-06-09T09:00:00Z',
+        created_by: NOTE_AUTHOR,
+        actor_kind: 'user',
+    },
+    {
+        id: 'artefact-note',
+        type: 'note',
+        content: {
+            note: `Support confirmed two more customers hit this on Monday. @member:${MOCK_SECOND_BASIC_USER.id} @role:${NOTES_ROLE_ID} can you take a look?`,
+        },
+        created_at: '2026-06-08T09:00:00Z',
+        created_by: NOTE_AUTHOR,
+        actor_kind: 'user',
+    },
+    {
+        id: 'artefact-agent-note',
+        type: 'note',
+        content: { note: 'Confirmed the validation gap reproduces on an empty recipient row.' },
+        created_at: '2026-06-07T09:00:00Z',
+        task_id: 'task-research',
+        actor_kind: 'task',
+    },
+]
+
+// The notes under the report body. The agent's note stays out of the list, and the retired note reads inactive.
+export const ReportNotes: Story = {
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.SIGNALS_REPORT_NOTE_MENTIONS]: true },
+    },
+    decorators: [
+        reportNotesMocks,
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports/:reportId/artefacts': () => [
+                    200,
+                    { results: noteArtefacts, count: noteArtefacts.length },
+                ],
+            },
+        }),
+    ],
+    render: () => (
+        <Frame>
+            <div className="w-full max-w-[44rem] border border-primary bg-surface-primary p-5">
+                <ReportNotesSection report={{ ...reportTabReports[0], scout_name: 'signals-scout-checkout' }} />
+            </div>
+        </Frame>
+    ),
+}
+
+// The activity log alone at rail width: in the full detail it sits collapsed below the snapshot's fold.
+export const ActivityNotes: Story = {
+    decorators: [reportNotesMocks],
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.SIGNALS_REPORT_NOTES]: true },
+    },
+    render: () => (
+        <Frame>
+            <div className="w-[26rem] border border-primary bg-surface-primary p-5">
+                <ArtefactLogList reportId={NOTES_REPORT_ID} artefacts={noteArtefacts} />
+            </div>
+        </Frame>
+    ),
+}
+
 export const ReportWithMetrics: Story = {
     render: () => (
         <Frame>
@@ -356,7 +622,7 @@ export const ReportWithFollowUpMetric: Story = {
         mockDate: '2026-08-29',
         featureFlags: {
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
-            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
         },
     },
     render: () => (
@@ -387,9 +653,28 @@ export const ReportWithFollowUpMetricHidden: Story = {
         mockDate: '2026-08-29',
         featureFlags: {
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
-            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: false,
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false,
         },
     },
+}
+
+export const ReportReadyToMonitor: Story = {
+    parameters: {
+        mockDate: '2026-08-29',
+        testOptions: { snapshotBrowsers: [] },
+    },
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    title: 'Creating an API key does nothing when validation fails',
+                    metrics: reportMetricsFixture.slice(0, 1),
+                    monitoring_started_at: null,
+                })}
+            />
+        </Frame>
+    ),
 }
 
 export const ReportFollowUpPending: Story = {

@@ -1,4 +1,5 @@
 import re
+import itertools
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, datetime, timedelta
@@ -56,16 +57,16 @@ _RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504, *CLOUDFLARE_TRANSIENT_STATUS
 # Upper bound on a server-provided 429 wait, so a misreported Retry-After or reset header cannot
 # park a worker. Matches the default limit of the shared REST client.
 _MAX_RETRY_AFTER_SECONDS = 300.0
-# Safety bound for how many issues the issue_tag_values fan-out will skip while
-# fast-forwarding to a saved checkpoint issue. If the checkpoint issue was
+# Safety bound for how many issues past its saved position the issue_tag_values fan-out
+# will skip while fast-forwarding to a saved checkpoint issue. If the checkpoint issue was
 # deleted between runs, we'd otherwise skip every remaining issue and yield
-# nothing. Once this bound is exceeded we treat the checkpoint as stale and
-# fall through to fresh processing of the current and remaining issues.
+# nothing. Once this bound is exceeded we treat the checkpoint as stale, clear it and
+# fail the attempt, so the next attempt reads every issue without a cursor.
 _RESUME_ISSUE_SKIP_LIMIT = 5000
 logger = structlog.get_logger(__name__)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class SentryResumeConfig:
     """Resume state for Sentry endpoints.
 
@@ -73,9 +74,15 @@ class SentryResumeConfig:
     ``next_url`` returned by ``SentryPaginator``.
 
     ``issue_tag_values`` is a three-level hand-rolled fan-out
-    (issues -> tags-per-issue -> values-per-tag); its checkpoint is the
-    ``(issue_id, tag_key, values_next_url)`` triple pointing at the next
-    values page to fetch for that specific (issue, tag) combination.
+    (issues -> tags-per-issue -> values-per-tag). Its checkpoint is one of:
+
+    - ``issue_id`` with ``completed_tag_keys``, the tags of that issue already read in full,
+      plus ``tag_key`` and ``values_next_url`` when a tag stopped between two values pages.
+    - ``completed_issue_id``, the last issue whose tags were all read.
+
+    The finished tags are kept by key and not by position, because the tags listing order is not
+    guaranteed between attempts. ``issue_position`` is where the checkpoint issue sits in the
+    issue order, so a resume can tell a deleted checkpoint issue from one that is far down.
 
     Parent/child fan-out endpoints driven by ``build_dependent_resource``
     don't currently checkpoint — the framework does not expose a resume
@@ -86,6 +93,10 @@ class SentryResumeConfig:
     issue_id: Optional[str] = None
     tag_key: Optional[str] = None
     values_next_url: Optional[str] = None
+    # None on a checkpoint from code that predates it, which skips every tag listed before tag_key.
+    completed_tag_keys: Optional[list[str]] = None
+    completed_issue_id: Optional[str] = None
+    issue_position: Optional[int] = None
     # Which issue ordering the fan-out checkpoint above is a position in: None for the API's
     # `sort=date` listing, or the pinned Delta version when the parent came from the warehouse.
     # Resuming across a change here would fast-forward past issues the new order never reached.
@@ -284,6 +295,10 @@ SENTRY_RATE_LIMITED_MESSAGE = (
 
 class SentryRateLimitedError(Exception):
     """Sentry kept returning 429 until the request-level retry budget ran out."""
+
+
+class SentryStaleResumeCheckpointError(Exception):
+    """The issue_tag_values checkpoint issue is not in the listing, and this attempt cannot read the issues again without duplicates."""
 
 
 def _is_retryable_response(response: Response) -> bool:
@@ -496,9 +511,9 @@ def _usable_resume_state(
     A checkpoint is a position in an iteration order, so it only means anything to a run
     walking the same order: the API's `sort=date` listing, or one pinned Delta version.
     Applying one across that boundary fast-forwards past issues the new order never reached
-    while the watermark still advances, so the rows are lost until a reset. The full triple
-    has to be present — anything partial is treated as absent rather than applied to the
-    wrong (issue, tag) pair.
+    while the watermark still advances, so the rows are lost until a reset. The checkpoint
+    has to name a values page, a finished tag or a completed issue. Anything partial is
+    treated as absent rather than applied to the wrong (issue, tag) pair.
 
     Callers must also `clear_state()` when this returns None with state still stored: the
     pipeline reads `can_resume()` itself to pick replace-vs-append for chunk 0, so a source
@@ -507,11 +522,94 @@ def _usable_resume_state(
     if manager is None or not manager.can_resume():
         return None
     loaded = manager.load_state()
-    if loaded is None or not (loaded.issue_id and loaded.tag_key and loaded.values_next_url):
+    if loaded is None:
+        return None
+    in_values_page = bool(loaded.issue_id and loaded.tag_key and loaded.values_next_url)
+    after_finished_tags = bool(loaded.issue_id and loaded.completed_tag_keys)
+    if not (in_values_page or after_finished_tags or loaded.completed_issue_id):
         return None
     if loaded.parent_version != parent_version:
         return None
     return loaded
+
+
+@dataclasses.dataclass(frozen=True)
+class _ListedIssue:
+    position: int
+    issue: dict[str, Any]
+    is_checkpoint: bool
+
+
+def _resume_issue_order(
+    list_issues: Callable[[], Iterable[dict[str, Any]]],
+    checkpoint_issue_id: str | None,
+    checkpoint_issue_done: bool,
+    skip_limit: int,
+    listing_floor: datetime | None,
+    clear_checkpoint: Callable[[], None],
+) -> Iterator[_ListedIssue]:
+    """Yield each issue from the checkpoint on, with its position and whether it is the checkpoint issue.
+
+    This assumes the issue order of the earlier attempt, so the issues listed before the checkpoint
+    issue were read and are skipped. Sentry orders `sort=date` by last seen, so an issue with a new
+    event can move ahead of the checkpoint and get skipped. The checkpoint issue can also be deleted or
+    merged between attempts. `sentry_source` clears the checkpoint of a deleted or merged issue before
+    the attempt starts. When the checkpoint issue is still not found within `skip_limit` positions, or
+    before the listing ends or reaches `listing_floor`, the checkpoint is cleared and the attempt fails.
+    A resume that skips every issue would complete with no rows and report success. Reading the issues
+    again in this attempt would append the rows of the earlier attempt a second time, because a
+    resumed attempt appends whatever the sync type is. The next attempt has no cursor, so the
+    pipeline loads it the way it loads a new attempt.
+    """
+    positioned = enumerate(list_issues(), start=1)
+    if checkpoint_issue_id is not None:
+        found = False
+        for position, issue in positioned:
+            if str(issue["id"]) == checkpoint_issue_id:
+                found = True
+                if not checkpoint_issue_done:
+                    yield _ListedIssue(position=position, issue=issue, is_checkpoint=True)
+                break
+            if position > skip_limit:
+                break
+            if listing_floor is not None:
+                issue_last_seen = _parse_datetime_value(issue.get("lastSeen"))
+                if issue_last_seen is not None and issue_last_seen <= listing_floor:
+                    break
+        if not found:
+            logger.info("sentry_source.stale_resume_checkpoint", resume_issue_id=checkpoint_issue_id)
+            clear_checkpoint()
+            raise SentryStaleResumeCheckpointError(
+                "The resume checkpoint issue is no longer listed, so the sync starts again from the first issue."
+            )
+    for position, issue in positioned:
+        yield _ListedIssue(position=position, issue=issue, is_checkpoint=False)
+
+
+def _checkpoint_issue_is_gone(
+    base_api_url: str, headers: dict[str, str], organization_slug: str, issue_id: str
+) -> bool:
+    """Whether Sentry no longer has the checkpoint issue under its id.
+
+    An issue merged into another one can answer with the other issue, so a different id counts as
+    gone. Any other answer keeps the checkpoint, because the iterator still bounds its search. One
+    request with no retries, because it runs before the pipeline starts and a rate-limit wait would
+    hold the attempt there.
+    """
+    url = urljoin(f"{base_api_url}/", f"organizations/{organization_slug}/issues/{quote(issue_id, safe='')}/")
+    try:
+        response = make_tracked_session(retry=Retry(total=0)).get(url, headers=headers, timeout=_REQUEST_TIMEOUT)
+    except RequestException:
+        return False
+    if response.status_code == 404:
+        return True
+    if not response.ok:
+        return False
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+    return isinstance(payload, dict) and payload.get("id") is not None and str(payload["id"]) != issue_id
 
 
 def _iter_issue_tag_values_rows(
@@ -526,26 +624,25 @@ def _iter_issue_tag_values_rows(
     cutoff_last_seen = _parse_datetime_value(incremental_last_seen_max)
     use_warehouse_parent = issues_table is not None
 
-    issues: Iterator[dict[str, Any]]
-    if issues_table is not None:
-        # Streamed scan — the reader must never materialize the table. The incremental
-        # early-break below becomes a per-row filter in this mode (same issue set, no
-        # ordering requirement). Duplicate rows can't occur: append-mode parents take the
-        # API path instead of this one.
-        issues = (
-            row
-            for page in iter_parent_pages_from_warehouse(
-                table=issues_table,
-                parent_name="issues",
-                columns=_ISSUES_PARENT_COLUMNS,
-                page_size=100,
-                schema_name="issue_tag_values",
-                row_filter=_issues_parent_row_filter(cutoff_last_seen),
+    def list_issues() -> Iterator[dict[str, Any]]:
+        if issues_table is not None:
+            # Streamed scan — the reader must never materialize the table. The incremental
+            # early-break below becomes a per-row filter in this mode (same issue set, no
+            # ordering requirement). Duplicate rows can't occur: append-mode parents take the
+            # API path instead of this one.
+            return (
+                row
+                for page in iter_parent_pages_from_warehouse(
+                    table=issues_table,
+                    parent_name="issues",
+                    columns=_ISSUES_PARENT_COLUMNS,
+                    page_size=100,
+                    schema_name="issue_tag_values",
+                    row_filter=_issues_parent_row_filter(cutoff_last_seen),
+                )
+                for row in page
             )
-            for row in page
-        )
-    else:
-        issues = _iter_endpoint_rows(
+        return _iter_endpoint_rows(
             base_api_url=base_api_url,
             path=f"/organizations/{organization_slug}/issues/",
             headers=headers,
@@ -555,19 +652,43 @@ def _iter_issue_tag_values_rows(
     # A pinned Delta version enumerates its files in a fixed order, so a warehouse run
     # resumes like an API run — but only against a checkpoint written over the same pin.
     parent_version = issues_table.version if issues_table is not None else None
-    resume_issue_id: str | None = None
+    checkpoint_issue_id: str | None = None
+    checkpoint_issue_done = False
     resume_tag_key: str | None = None
     resume_values_next_url: str | None = None
+    resume_done_tag_keys: list[str] = []
+    resume_skips_to_tag = False
+    resume_skip_limit = _RESUME_ISSUE_SKIP_LIMIT
     loaded = _usable_resume_state(resumable_source_manager, parent_version)
     if loaded is not None:
-        resume_issue_id = loaded.issue_id
-        resume_tag_key = loaded.tag_key
-        resume_values_next_url = loaded.values_next_url
+        resume_skip_limit += loaded.issue_position or 0
+        if loaded.completed_issue_id:
+            checkpoint_issue_id = loaded.completed_issue_id
+            checkpoint_issue_done = True
+        else:
+            checkpoint_issue_id = loaded.issue_id
+            resume_tag_key = loaded.tag_key
+            resume_values_next_url = loaded.values_next_url
+            resume_done_tag_keys = list(loaded.completed_tag_keys or [])
+            resume_skips_to_tag = loaded.completed_tag_keys is None
+
+    def clear_checkpoint() -> None:
+        if resumable_source_manager is not None:
+            resumable_source_manager.clear_state()
 
     stale_issues: set[str] = set()
-    skipped_for_resume = 0
 
-    for issue in issues:
+    for listed in _resume_issue_order(
+        list_issues,
+        checkpoint_issue_id,
+        checkpoint_issue_done,
+        resume_skip_limit,
+        None if use_warehouse_parent else cutoff_last_seen,
+        clear_checkpoint=clear_checkpoint,
+    ):
+        issue = listed.issue
+        issue_position = listed.position
+        is_checkpoint_issue = listed.is_checkpoint
         if cutoff_last_seen is not None:
             issue_last_seen = _parse_datetime_value(issue.get("lastSeen"))
             if issue_last_seen is not None and issue_last_seen <= cutoff_last_seen:
@@ -580,30 +701,10 @@ def _iter_issue_tag_values_rows(
 
         issue_id = str(issue["id"])
 
-        # Fast-forward until we reach the saved checkpoint issue. We rely on
-        # the deterministic sort=date ordering to land back on the same issue.
-        # If the checkpoint issue has been deleted we could skip forever, so
-        # bound the skip count and fall through to a fresh run when exceeded.
-        if resume_issue_id is not None and issue_id != resume_issue_id:
-            skipped_for_resume += 1
-            if skipped_for_resume > _RESUME_ISSUE_SKIP_LIMIT:
-                logger.info(
-                    "sentry_source.stale_resume_checkpoint",
-                    resume_issue_id=resume_issue_id,
-                    skipped=skipped_for_resume,
-                )
-                resume_issue_id = None
-                resume_tag_key = None
-                resume_values_next_url = None
-                # Fall through: process the current issue and subsequent ones fresh.
-            else:
-                continue
-
-        # Mark that we've found the checkpoint issue. If the checkpoint tag has
-        # since disappeared, we still exit the middle loop with no match — clear
-        # outer fast-forward state at the end of this iteration so subsequent
-        # issues run fresh instead of being skipped forever.
-        matched_checkpoint_issue = resume_issue_id is not None
+        done_tag_keys = list(resume_done_tag_keys) if is_checkpoint_issue else []
+        pending_tag_key = resume_tag_key if is_checkpoint_issue else None
+        pending_values_url = resume_values_next_url if is_checkpoint_issue else None
+        skips_to_tag = resume_skips_to_tag and is_checkpoint_issue
 
         tags = _iter_endpoint_rows(
             base_api_url=base_api_url,
@@ -617,27 +718,33 @@ def _iter_issue_tag_values_rows(
             # schema last synced; their tags endpoint 404s. A fresh API parent pull would
             # simply not list them, so skip instead of failing the sync.
             tags = _skip_rows_on_stale_issue_404(tags, organization_slug, issue_id, stale_issues)
-        for tag in _skip_issue_on_tags_server_error(tags, organization_slug, issue_id):
+        listed_tags = _skip_issue_on_tags_server_error(tags, organization_slug, issue_id)
+        # The saved values page goes first, so a checkpoint for another tag cannot replace its cursor.
+        first_tag_key = pending_tag_key if pending_values_url and not skips_to_tag else None
+        tag_stream = itertools.chain([{"key": first_tag_key}], listed_tags) if first_tag_key else listed_tags
+        for tag in tag_stream:
             tag_key = tag.get("key") or tag.get("id")
             if not isinstance(tag_key, str) or not tag_key:
                 continue
 
-            if resume_issue_id is not None and resume_tag_key is not None and tag_key != resume_tag_key:
+            if tag_key in done_tag_keys:
+                continue
+            if skips_to_tag and pending_tag_key is not None and tag_key != pending_tag_key:
+                done_tag_keys.append(tag_key)
                 continue
 
             values_path = f"/organizations/{organization_slug}/issues/{issue_id}/tags/{quote(tag_key, safe='')}/values/"
-            if resume_issue_id is not None and resume_values_next_url:
-                values_url: str = resume_values_next_url
+            if pending_values_url and tag_key == pending_tag_key:
+                values_url: str = pending_values_url
                 values_params: dict[str, Any] | None = None
             else:
                 values_url = urljoin(f"{base_api_url}/", values_path.lstrip("/"))
                 values_params = {"limit": 100, "sort": "-date"}
             pages_read = 0
 
-            # Clear resume markers so the NEXT (issue, tag) pair runs fresh.
-            resume_issue_id = None
-            resume_tag_key = None
-            resume_values_next_url = None
+            if tag_key == pending_tag_key:
+                pending_tag_key = None
+                pending_values_url = None
 
             while values_url:
                 if pages_read >= _MAX_PAGES_PER_PARENT:
@@ -689,6 +796,15 @@ def _iter_issue_tag_values_rows(
                         stale_issues.add(issue_id)
                         logger.info(
                             "sentry_source.stale_warehouse_issue_skipped",
+                            organization_slug=organization_slug,
+                            issue_id=issue_id,
+                            tag_key=tag_key,
+                        )
+                        break
+                    # The saved page is read before the tags listing, so it 404s for a dropped tag.
+                    if response.status_code == 404 and tag_key == first_tag_key:
+                        logger.info(
+                            "sentry_source.resumed_tag_not_found",
                             organization_slug=organization_slug,
                             issue_id=issue_id,
                             tag_key=tag_key,
@@ -748,19 +864,38 @@ def _iter_issue_tag_values_rows(
                             issue_id=issue_id,
                             tag_key=tag_key,
                             values_next_url=urljoin(f"{base_api_url}/", next_url),
+                            completed_tag_keys=list(done_tag_keys),
+                            issue_position=issue_position,
                             parent_version=parent_version,
                         )
                     )
+                    resumable_source_manager.safe_point()
 
                 if not next_url:
                     break
                 values_url = urljoin(f"{base_api_url}/", next_url)
                 values_params = None
 
-        if matched_checkpoint_issue:
-            resume_issue_id = None
-            resume_tag_key = None
-            resume_values_next_url = None
+            done_tag_keys.append(tag_key)
+            if resumable_source_manager is not None:
+                resumable_source_manager.save_state(
+                    SentryResumeConfig(
+                        issue_id=issue_id,
+                        completed_tag_keys=list(done_tag_keys),
+                        issue_position=issue_position,
+                        parent_version=parent_version,
+                    )
+                )
+                resumable_source_manager.safe_point()
+
+        if resumable_source_manager is not None:
+            # Lets a resume skip this issue without listing its tags again.
+            resumable_source_manager.save_state(
+                SentryResumeConfig(
+                    completed_issue_id=issue_id, issue_position=issue_position, parent_version=parent_version
+                )
+            )
+            resumable_source_manager.safe_point()
 
     if use_warehouse_parent:
         # Stale issues are ones the snapshot still lists but Sentry has dropped, each costing
@@ -1469,7 +1604,17 @@ def sentry_source(
             # The pipeline reads this same Redis state to pick replace-vs-append for chunk 0,
             # so state the iterator will refuse has to go now, before it decides. Same
             # predicate as the iterator's, so the two can't disagree.
-            if _usable_resume_state(resumable_source_manager, issues_table.version if issues_table else None) is None:
+            loaded = _usable_resume_state(resumable_source_manager, issues_table.version if issues_table else None)
+            checkpoint_issue_id = (loaded.completed_issue_id or loaded.issue_id) if loaded is not None else None
+            if loaded is None:
+                resumable_source_manager.clear_state()
+            # A pinned Delta version cannot lose an issue, so only the live listing needs the check.
+            elif (
+                issues_table is None
+                and checkpoint_issue_id
+                and _checkpoint_issue_is_gone(base_api_url, headers, organization_slug, checkpoint_issue_id)
+            ):
+                logger.info("sentry_source.resume_checkpoint_issue_gone", resume_issue_id=checkpoint_issue_id)
                 resumable_source_manager.clear_state()
         return _make_source_response(
             endpoint_config,

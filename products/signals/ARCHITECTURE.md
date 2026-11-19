@@ -16,7 +16,7 @@ Signals ingestion uses a three-stage pipeline: **emitter → buffer → grouping
 
 The original `TeamSignalGroupingWorkflow` (v1) in `backend/temporal/grouping.py` is still registered but is no longer started by `emit_signal()`. Its shared activities and `_process_signal_batch()` implementation are still actively used by v2.
 
-Signals workflows and activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker (the `temporal-worker-video-export` fleet) by `posthog/management/commands/start_temporal_worker.py`.
+Signals workflows and activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker (the `temporal-worker-video-export` fleet) by the `TEMPORAL` declaration in `backend/facade/temporal.py`.
 The inbox ranking scoring sweep is the one exception. `SELF_DRIVING_WORKFLOWS` and `SELF_DRIVING_ACTIVITIES` register it only on `SELF_DRIVING_TASK_QUEUE`, which the `temporal-worker-self-driving` fleet polls. See the [self-driving Temporal worker runbook](../../docs/internal/self-driving-temporal-worker-runbook.md) for the fleet, its schedule, and its checks.
 If you add or remove a Signals workflow/activity from `backend/temporal/__init__.py`, you also need to update `posthog/temporal/tests/ai/test_module_integrity.py` (`TestSignalsProductModuleIntegrity`). That test intentionally snapshots the registered workflow/activity lists and will fail until its expected names are updated.
 
@@ -211,7 +211,7 @@ Bulk sync (`sync_full_cache`) fans the per-repo sync out via `run_parallel_with_
 
 **Eligibility filter:** Before invoking the agent, `select_repository_for_report` drops candidates that are archived or missing from the heavy cache (e.g., a row whose sync errored during a cold start). The prompt treats SQL hits as primary evidence, so a missing row would read as a false negative. If filtering leaves zero or one candidates, the activity short-circuits without running the agent.
 
-**Past corrections:** `select_repository_for_team` — the chokepoint every signals-side selection funnels through (report pipeline, custom agents, scout `emit_report`) — builds a "past selection corrections" block from the team's recent `wrong_repo` dismissals (`repo_corrections.wrong_repo_corrections_block`: newest first, one entry per report and per distinct selected→corrected lesson, capped at 20 within 180 days) and passes it to the tasks-side `select_repository`, which renders it into the prompt between the candidate list and the cache instructions. Caller-side injection rather than agent self-lookup is deliberate: the agent's SQL surface stays limited to the cache table, and an injected block is guaranteed in front of the agent on every run. Building the block is best-effort — on failure selection proceeds without it.
+**Past corrections:** `select_repository_for_team` — the chokepoint every signals-side selection funnels through (report pipeline, custom agents). Scout `emit_report` never calls it: the scout names the repository, and an omitted one gets only the linked-repository text match, which is never autostart eligible — builds a "past selection corrections" block from the team's recent `wrong_repo` dismissals (`repo_corrections.wrong_repo_corrections_block`: newest first, one entry per report and per distinct selected→corrected lesson, capped at 20 within 180 days) and passes it to the tasks-side `select_repository`, which renders it into the prompt between the candidate list and the cache instructions. Caller-side injection rather than agent self-lookup is deliberate: the agent's SQL surface stays limited to the cache table, and an injected block is guaranteed in front of the agent on every run. Building the block is best-effort — on failure selection proceeds without it.
 
 **Truncation caveat:** GitHub's recursive tree endpoint truncates at ~50k entries / 7MB. The `tree_truncated` flag marks affected rows; `tree_paths` is incomplete on those rows and will silently miss files in HogQL grep. Consumers must filter on `tree_truncated=False` and explicitly degrade for truncated repos. Affects <2% of repos; paginated subtree fetch is future work.
 
@@ -375,6 +375,18 @@ and neither feeds the failure-streak breaker whose threshold is sized on the sch
 share (enrolment kill switch, daily run budget, Signals quota, daily report limit, in-flight
 single-flight) live in `backend/scout_harness/run_gates.py`; the workflow path adds a 30-minute
 per-`(team, skill)` cooldown, a backstop that does not have to trust the workflow's masking config.
+
+A workflow fire that the cooldown or the in-flight gate turns away is queued as a
+`SignalScoutPendingTrigger` row (`backend/scout_harness/workflow_trigger_queue.py`), unless the step
+asked to skip it. A lane keeps at most `MAX_PENDING_WORKFLOW_TRIGGERS` fires, drops an exact duplicate
+note, and drops its oldest fire when full. Every other rejection (pause, enrolment, budget, quota,
+missing scout) still rejects, so a queued fire never gets around a gate. On each tick the coordinator
+hands a lane's pending trigger ids to its due scheduled run when no run is live and the spend gates
+allow it, and otherwise `drain_pending_workflow_triggers_activity` starts one workflow-triggered run
+per lane that passes the gates a live fire does, except the cooldown, which is one tick long, so a
+queued fire does not wait for both the cooldown and the next tick. Only ids travel through Temporal: the run claims
+(locks and deletes) the rows when it starts, so a failed dispatch or a run that skips before it starts
+leaves the fires queued. The claimed notes render as one coalesced section, one line per fire.
 
 Findings emitted during the run go through the harness's `emit_signal_*` tools,
 which call `emit_signal()` with `source_product="signals_scout"` and
@@ -558,7 +570,7 @@ Research authors its checks in the verification turn (`FixVerificationOutput.che
 
 Every metric uses an `InsightVizNode` around one `TrendsQuery` over event or action sources. Consumers derive a `BoldNumber` for the whole-window value and an `ActionsBar` for longitudinal buckets. An `affected_users` metric uses exactly one series with `math: dau`. An `affected_sessions` metric uses exactly one series with `math: unique_session`. Neither kind uses formulas or group math. The default daily window starts at `-13d`, which gives 14 inclusive buckets including today. A longer window keeps only the trailing 14 buckets in the strip, while the whole-window value uses the full window. New authoring omits comparisons until the server can keep equal adjacent windows live. Non-currency units are lowercase. Revenue uses an uppercase ISO currency code such as `USD`.
 
-Report list serialization returns snapshot-only metric metadata. It omits live query definitions and legacy comparisons, and it never runs a query. When a person opens the inbox list or a report, the frontend posts the visible ids to `refresh_metrics`. A snapshot measured in the last 15 minutes is served as is through a query-cache override. One call runs at most 40 source series and stops on a best-effort 20-second deadline. Refresh writes `value`, `value_at`, and `series`, and clears `comparison`. The endpoint allows 10 requests per minute for each team. There is no background job, so a report nobody opens costs no queries. Full metric-state compare-and-swap persistence prevents an old query result from overwriting a concurrent report edit. Snapshot refreshes leave `updated_at` unchanged so the inbox does not reorder reports.
+Report list serialization returns snapshot-only metric metadata. It omits live query definitions and legacy comparisons, and it never runs a query. When a person opens the inbox list or a report, the frontend posts the visible ids to `refresh_metrics`. A snapshot measured in the last 15 minutes is served as is through a query-cache override. One call runs at most 40 source series and stops on a best-effort 20-second deadline. Refresh writes `value`, `value_at`, `series`, and `series_buckets` (each bucket's Trends label, so a reader can date the buckets), and clears `comparison`. Ready and pending-input reports refresh, and so do Monitoring reports while Monitoring is enabled, because their inbox row draws the lead check's metric across the fix; that metric refreshes first on a Monitoring row. The endpoint allows 10 requests per minute for each team. There is no background job, so a report nobody opens costs no queries. Full metric-state compare-and-swap persistence prevents an old query result from overwriting a concurrent report edit. Snapshot refreshes leave `updated_at` unchanged so the inbox does not reorder reports.
 
 Snapshots are materialized without a requesting user under the team's default property rules. List and detail serialization re-check access before exposing data-bearing fields. Both response shapes omit legacy comparisons. An unsafe query definition is null on detail. Snapshot-only or queryless rows are legacy or malformed and are always redacted.
 
@@ -574,12 +586,15 @@ Claim content stores a server-generated `display_name`: a phase label for intern
 Unknown clients use "Alex's agent". The label is fixed at claim time and does not participate in ownership checks; older claims can omit it.
 
 **Claims and task association.** Agents use the claim endpoint to start or resume work, attach `pull_requests`, and release ownership.
-The returned `claim_id` identifies the work attempt; stale or foreign claims are rejected, and taking another actor's claim requires explicit `takeover=true`.
+The returned `claim_id` identifies the work attempt; stale or foreign claims are rejected, and taking another person's claim or a task claim requires explicit `takeover=true`.
+A person's claim, direct or through an external agent, covers all of their actors: the person, each of their agents, and tasks they started. Any of them resumes it without takeover, adds work to it, and can release it.
+On an API request the `X-PostHog-Task-Id` header is caller-supplied, so a task counts as its creator only when the creator authenticates the request, even when the task is already associated with the claim.
 The shared ownership helper derives the active owner from the latest `work_claim` artefact and its `work_release` entries.
 Internal task agents automatically receive a `task_run` association on claim; clients do not write task associations separately.
 When a person holds the claim and starts an implementation task themselves, the task works under that claim instead of replacing it, so the person stays the owner while the agent writes the PR.
+The task id header is caller-supplied, so a task counts as its creator only on requests the creator authenticates.
 A task started by anyone else is refused while a person holds the claim.
-That task can resume the person's claim and add pull requests and notes to it, but only the person can release it.
+An explicit takeover by another actor of the same person still moves the claim, for example when a person turns their agent's claim into their own.
 A takeover can name the claim it expects to replace in `takeover_claim_id`, and the server refuses it when a different claim is active.
 In the Inbox, a suggested reviewer claims a report from their own row, and the report shows who works on it under the title. Agent and task claims are not shown there, because a person still has to review the agent's work.
 Notes, commits, and PR links can reference the claim without mixing that context into actor attribution.
@@ -624,6 +639,8 @@ Notes:
 - `SignalReportGithubComment` holds one claim per report and issue, with a lowercase repository name. Completed claims prevent repeat comments. Pending claims expire after ten minutes.
 - A later settle checks existing comments for a stable marker before it retries an expired claim. An incomplete comment read leaves the claim pending. GitHub provides no atomic comment idempotency key, so this is best-effort recovery.
 - The worker checks the current issue state immediately before posting. Closed issues, locked issues, and pull requests receive no comment.
+- A report's `source_issue` artefacts count as source issues too. Scout and user-authored reports skip research, so their writeback runs from a Celery task queued after the write commits (`source_issues.py`). A source issue gets a comment only after the team's GitHub source ingests that issue; grouping queues the writeback again when the issue's signal joins the report.
+- Grouping attaches a GitHub issue signal to the oldest open report whose `source_issue` names the same issue, before similarity matching and without the specificity check. Resolved, suppressed, failed, closed, and deleted reports do not take it.
 - See [GitHub issue comments](../../docs/internal/signals-github-writeback.md) for recovery limits and diagnostic logs.
 
 ### `SignalUserAutonomyConfig`
@@ -678,9 +695,18 @@ Per-team configuration for which signal sources are enabled.
 - The product analytics source (`analytics` / `anomaly_investigation`) accepts `config.alert_scope`: `investigated_only` (the default when the key is absent) or `all_firing_alerts`. The serializer rejects any other value, and rejects the key on every other source (`contracts.ALERT_SCOPE_SOURCE`).
   Other products read the scope through `facade.source_configs.get_analytics_alert_scope(team_id=...)`, never the row. The read returns `investigated_only` unless the stored value is `all_firing_alerts` and the `signals-analytics-all-alerts` flag is on for the team's organization. The flag check fails closed.
   The read does not check `enabled`: the emitter still gates on `is_source_enabled`.
-  With `all_firing_alerts`, insight alert evaluation (`posthog/temporal/alerts/alert_firing_signal.py`) emits `analytics` / `alert_firing` when an alert that the investigation agent does not investigate starts a firing episode. It emits once per episode (source id and idempotency key `<alert id>:<first check id>`), and a failure never changes the check. The evaluation thread runs the gates after the check is committed. The activity awaits the emission on its event loop once that thread returns, because `emit_signal` needs the default executor that the thread runs on. A per-team token bucket caps it, and an unavailable bucket skips the signal. Each skip after a read logs `alert_firing.signal_skipped` with a reason. Alerts the agent investigates keep the verdict gate in both scopes.
+  With `all_firing_alerts`, insight alert evaluation (`posthog/temporal/alerts/alert_firing_signal.py`) emits `analytics` / `alert_firing` when an alert that the investigation agent does not investigate starts a firing episode.
+  It emits once per episode (source id and idempotency key `<alert id>:<first check id>`), and a failure never changes the check.
+  Both insight alert stacks emit it through those gates, cap and payload. The insight stack emits for the alerts it owns. The alerts platform emits for the alerts it owns (`products/alerts/backend/platform_firing_signal.py`): its evaluation marks the firing that starts an episode, and its evaluate workflow sends the signal after the outcome is recorded.
+  The platform reads the alert from its configuration and its insight, so an alert with no insight stack row signals too. It decides whether the agent investigates from the alert the check evaluates: the row, or one built from the platform alert. The agent takes only a check with one group, so a breakdown alert signals for every value whose firing starts its own episode.
+  Its source id is `<alert id>:<configuration id>:<episode start>`, with a digest of the breakdown value before the episode start for a breakdown alert. The evaluation thread runs the gates after the check is committed. The activity awaits the emission on its event loop once that thread returns, because `emit_signal` needs the default executor that the thread runs on. A per-team token bucket caps it, and an unavailable bucket skips the signal. Each skip after a read logs `alert_firing.signal_skipped` with the team and a reason. Alerts the agent investigates keep the verdict gate in both scopes.
+  The `posthog_insight_alerts_firing_signals_total` counter records one `outcome` per episode that passes the episode gates (`emitted`, `source_disabled`, `scope`, `filtered`, `filter_invalid`, `cap`, `cap_unavailable`, `not_dispatched`). It has no team label. A drop by the cap (`cap` or `cap_unavailable`) also captures `alert firing signal skipped` with `team_id`, `alert_id` and `reason`, which gives the per-team view for sizing the cap. A Redis key on the source id lets only the first attempt of an episode record, so an activity retry never counts it twice. A cancelled attempt records nothing. A failure to record never changes the check or the signal.
   `alert_firing` has no config row of its own: `is_source_enabled` checks the `anomaly_investigation` row for it, so the one product analytics toggle turns both off.
   Guidance written on that row filters both `anomaly_investigation` and `alert_firing`, through the direct steering gate.
+  The same row accepts `config.alert_allow_patterns` and `config.alert_block_patterns`: lists of RE2 patterns (at most `ALERT_PATTERNS_MAX_COUNT`, each at most `ALERT_PATTERN_MAX_LENGTH` characters) matched with search semantics against the alert name and the insight name. When allow patterns are set an alert must match one, and a block match drops the alert even when it also matches an allow pattern. The serializer rejects a pattern that does not compile, and rejects both keys on every other source.
+  Both signal paths read them through `facade.source_configs.get_analytics_alert_name_patterns(team_id=...)` and decide with the pure `evaluate_alert_filter`. The read ignores the patterns while the `signals-analytics-all-alerts` flag is off. It fails closed: a stored list that no longer validates, or a flag check that raises, drops every alert.
+  The inbox settings edit both lists under the same flag. Before a save, `POST source_configs/alert_pattern_preview/` runs `alert_patterns_problem` and `evaluate_alert_filter` over the team's enabled alerts (newest first, insights the caller can view), so the form shows the save's validation errors and which alerts each pattern set drops. It saves nothing.
+  `alert_firing` applies the filter after the scope and episode gates and before it charges the cap, so a filtered alert spends no token and makes no guidance call, and logs `filtered` or `filter_invalid`. The investigation workflow applies it after the verdict gate and before `emit_signal`, with the same two reasons on `anomaly_investigation.signal_skipped`. The filter decides only what reaches the inbox, not alert evaluation, notifications, or whether the agent runs.
 - The serializer exposes a computed `status` field:
   - data-import-backed sources (`github`, `linear`, `zendesk`) derive status from `ExternalDataSchema`
 - The `signals_scout` source variant pairs with `source_type=cross_source_issue` and is the emission channel used by the headless Signals agent's `emit_signal_*` tools. It is the only `(source_product, source_type)` pair the agent emits today.
@@ -1000,18 +1026,27 @@ Internal-only service-to-service endpoint authenticated via `X-Internal-Api-Secr
 
 Full CRUD for per-team signal source configurations. Uses `IsAuthenticated` + `APIScopePermission` with scope object **`task`**.
 
-| Method | Path                           | Description               |
-| ------ | ------------------------------ | ------------------------- |
-| GET    | `signals/source_configs/`      | List configs for the team |
-| POST   | `signals/source_configs/`      | Create a new config       |
-| GET    | `signals/source_configs/{id}/` | Retrieve a config         |
-| PATCH  | `signals/source_configs/{id}/` | Update a config           |
-| DELETE | `signals/source_configs/{id}/` | Delete a config           |
+| Method | Path                                      | Description                                                    |
+| ------ | ----------------------------------------- | -------------------------------------------------------------- |
+| GET    | `signals/source_configs/`                 | List configs for the team                                      |
+| POST   | `signals/source_configs/`                 | Create a new config                                            |
+| GET    | `signals/source_configs/{id}/`            | Retrieve a config                                              |
+| PATCH  | `signals/source_configs/{id}/`            | Update a config                                                |
+| DELETE | `signals/source_configs/{id}/`            | Delete a config                                                |
+| GET    | `signals/source_configs/filter_catalogs/` | Filter fields and starters for each source the team can filter |
+| POST   | `signals/source_configs/filter_preview/`  | Passing and excluded records for an unsaved filter             |
 
 Important side effects:
 
 - Creating an enabled `error_tracking / issue_created` config starts the error-tracking backfill workflow
 - Enabling data-import-backed sources can trigger external data syncs
+
+Source filters (`config.hogql_filter`) share one rollout gate, `source_filters.writable_sources`: a source appears in `filter_catalogs`, takes a preview, and accepts a saved filter only when its catalog is eligible and its rollout state lets the organization in.
+`filter_preview` (`source_filter_preview.py`) reads the records created in the last 7 days with emission's own window field, built-in conditions and saved scope allowlist, and binds the expression to the active catalog version the save would pin.
+Unlike emission, it runs as the requester under warehouse access control, so a user without access to the source table gets `access_denied` and no rows.
+It creates no signals, calls no AI, and moves no sync cursor.
+A source config with a saved filter also returns a read-only `filter_status`, built from its `SignalSourceFilterState` rows: `failing` while a fetch failed and no later fetch succeeded, with the error, the time it failed, and the earliest window still to read again.
+It counts only results recorded for the filter saved now (each state row stores a fingerprint of the filter that produced it), on warehouse schemas that this environment owns and that are not deleted.
 
 #### `SignalTeamConfigViewSet`
 
@@ -1206,6 +1241,7 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 **Lifecycle (in order):**
 
 - `signal_data_source_entered` / `signal_data_source_summarized` / `signal_data_source_filtered` — data-source pipeline only (`pipeline.py`)
+- `alert firing signal skipped` — the per-team cap stopped an `analytics` / `alert_firing` signal before `emit_signal()` (+ `team_id`, `alert_id`, `alert_check_id`, `reason`: `cap` | `cap_unavailable`)
 - `signal_emission_started` — `emit_signal()` past validation
 - `signal_emitted` — `emit_signal()` after Temporal dispatch succeeds
 - `signal_assigned_to_report` — grouping assigned the signal (+ `report_id`, `is_new_report`, `promoted`)
@@ -1217,7 +1253,7 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 - `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
 - `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`)
 - `signals_autostart_steering_attached` — an implementation task was created (+ `report_id`, `task_id`, `notes_attached`, `scratchpad_available`, `memory_protocol`, `nudge_rendered`). Fires on every auto-start, so the share carrying fleet steering is readable. See Auto-Start Flow
-- `signals_autostart_skipped` — an auto-start evaluation started nothing (+ `report_id`, `skip_reason`: `not_actionable` | `requires_human_input` | `already_addressed` | `no_priority` | `autostart_disabled` | `quota_exhausted` | `no_runner` | `free_trial` | `duplicate_of` | `blocked_by_dependency` | `plan_parent`, `linked_report_id` nullable). The idempotent "a task already exists" skip is deliberately not counted, because it fires on every re-evaluation of a report whose run already started. See Auto-Start Flow
+- `signals_autostart_skipped` — an auto-start evaluation started nothing (+ `report_id`, `skip_reason`: `not_actionable` | `requires_human_input` | `already_addressed` | `no_priority` | `autostart_disabled` | `quota_exhausted` | `no_runner` | `free_trial` | `duplicate_of` | `blocked_by_dependency` | `plan_parent`, `linked_report_id` nullable, `source_products`: the report's distinct signal source products, empty when the lookup fails). The idempotent "a task already exists" skip is deliberately not counted, because it fires on every re-evaluation of a report whose run already started. See Auto-Start Flow
 - `signals_report_linked` — a typed `report_link` was written (+ `report_id`, `linked_report_id`, `kind`, `has_reason`, `actor_kind`, `actor_agent`). Fired from the one write path every producer shares, so links get a denominator they do not otherwise have. See Typed report links
 
 **Tracing one signal:** filter on `properties.source_id = <id>` to follow it through the funnel, then pivot to `properties.report_id` from `signal_assigned_to_report` to see the report's lifecycle.
@@ -1366,7 +1402,7 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 **Guard clause** — all must pass:
 
 - Report actionability is `immediately_actionable`
-- Report is not `already_addressed` — which covers both a fix that has landed and one already in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Research is instructed to check for in-flight work and set the flag, so this gate is what keeps us off work a human or another agent already has going; the implementation prompt repeats the check as a pre-flight
+- Report is not `already_addressed` — which covers both a fix that has landed and one already in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). The issues a report was filed from never count: research lists them from GitHub issue signals and `source_issue` artefacts, so a requester who assigns their own issue does not block the work. Research is instructed to check for in-flight work and set the flag, so this gate is what keeps us off work a human or another agent already has going; the implementation prompt repeats the check as a pre-flight
 - Report has a `priority_judgment`
 - Report has suggested reviewers
 - No legacy `SignalReportTask` implementation row exists for the report (checked inside a `select_for_update` on the report row, so concurrent evaluations can't double-start)
@@ -1385,7 +1421,7 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 
 **Task creation:**
 
-1. `Task.create_and_run(origin_product=SIGNAL_REPORT, ...)`
+1. `Task.create_and_run(profile=<signals.implementation>, ...)`
 2. `record_implementation_task` writes the legacy `SignalReportTask` implementation gate row (in the same transaction) and appends an `implementation` `task_run` artefact
 3. Errors are caught and logged but do not fail the report workflow
 

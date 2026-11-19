@@ -26,7 +26,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.integrations import IntegrationKind, IntegrationRecord
+from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationRecord
 from posthog.models.integration import (
     SUPPORTED_EXTERNAL_ISSUE_PROVIDERS,
     GitHubIntegration,
@@ -91,10 +91,12 @@ class TrackerIssueTarget:
 
 def tracker_issue_target_for_team(team_id: int) -> TrackerIssueTarget | None:
     """The team's configured tracker, or ``None`` when the team does not want tracker issues."""
-    team_config = SignalTeamConfig.objects.select_related("issue_tracking_integration").filter(team_id=team_id).first()
-    if team_config is None:
+    team_config = SignalTeamConfig.objects.filter(team_id=team_id).first()
+    if team_config is None or team_config.issue_tracking_integration_id is None:
         return None
-    integration = team_config.issue_tracking_integration
+    integration = IntegrationManager.any.get_many(team_id, [team_config.issue_tracking_integration_id]).get(
+        team_config.issue_tracking_integration_id
+    )
     if integration is None or integration.kind not in SUPPORTED_EXTERNAL_ISSUE_PROVIDERS:
         return None
     config = team_config.issue_tracking_config if isinstance(team_config.issue_tracking_config, dict) else {}
@@ -178,6 +180,10 @@ def _claim_tracker_issue(
     report lock, so without this claim two evaluations would each open an issue for one report. The
     row is unique per report, so exactly one claim wins. A row that already holds an issue is
     returned as it is; a row left by a failed attempt is retried.
+
+    Every change to an existing row is a conditional update on the status this evaluation read. Two
+    evaluations can read the same FAILED row, and only the one whose update changes the row may call
+    the provider.
     """
     # for_team scopes the lookup; get_or_create still needs team_id in the defaults, because a
     # queryset filter does not propagate into the row it creates.
@@ -192,19 +198,32 @@ def _claim_tracker_issue(
     )
     if created:
         return claim
+
+    now = timezone.now()
+    row = SignalReportTrackerIssue.objects.for_team(team_id).filter(id=claim.id)
     if claim.status == SignalReportTrackerIssue.Status.PENDING:
-        if claim.updated_at <= timezone.now() - PENDING_CLAIM_TIMEOUT:
-            claim.status = SignalReportTrackerIssue.Status.FAILED
-            claim.failure_reason = ABANDONED_CLAIM_REASON
-            claim.save(update_fields=["status", "failure_reason", "updated_at"])
+        # The owner can still finish after the timeout, so its CREATED result must win over this.
+        row.filter(status=SignalReportTrackerIssue.Status.PENDING, updated_at__lte=now - PENDING_CLAIM_TIMEOUT).update(
+            status=SignalReportTrackerIssue.Status.FAILED, failure_reason=ABANDONED_CLAIM_REASON, updated_at=now
+        )
         return None
-    if claim.status == SignalReportTrackerIssue.Status.FAILED:
-        if claim.failure_reason == ABANDONED_CLAIM_REASON:
+    if claim.status == SignalReportTrackerIssue.Status.FAILED and claim.failure_reason != ABANDONED_CLAIM_REASON:
+        retried = (
+            row.filter(status=SignalReportTrackerIssue.Status.FAILED)
+            .exclude(failure_reason=ABANDONED_CLAIM_REASON)
+            .update(
+                status=SignalReportTrackerIssue.Status.PENDING,
+                integration_id=target.integration.id,
+                provider=target.integration.kind,
+                updated_at=now,
+            )
+        )
+        if not retried:
             return None
         claim.status = SignalReportTrackerIssue.Status.PENDING
         claim.integration_id = target.integration.id
         claim.provider = target.integration.kind
-        claim.save(update_fields=["status", "integration", "provider", "updated_at"])
+        claim.updated_at = now
         return claim
     return None
 
@@ -274,6 +293,13 @@ def issue_reference(tracker: SignalReportTrackerIssue) -> str | None:
     return f"#{number}" if number else None
 
 
+def _tracker_integration(tracker: SignalReportTrackerIssue) -> IntegrationRecord | None:
+    """The integration row a tracker issue was filed through, or None once the row is gone."""
+    if tracker.integration_id is None:
+        return None
+    return IntegrationManager.any.get_many(tracker.team_id, [tracker.integration_id]).get(tracker.integration_id)
+
+
 def _pr_body_reference(tracker: SignalReportTrackerIssue, *, pr_repository: str) -> str | None:
     """The line appended to the pull request body so the pull request names its tracker issue."""
     context = tracker.external_context or {}
@@ -301,12 +327,14 @@ def link_pull_request_to_tracker_issue(*, team_id: int, report_id: str, pr_url: 
     Edits the pull request description rather than trusting the agent to write the reference, and
     attaches the pull request to a Linear issue so the link reads in both directions. Returns
     whether the pull request now carries the reference. Never raises.
+
+    A closed issue is never linked. A restored report keeps the issue it had before, and a new pull
+    request that says "Closes" or "Tracked in" for a closed work item gives the auditor a false trail.
     """
     try:
         tracker = (
             SignalReportTrackerIssue.objects.for_team(team_id)
-            .select_related("integration")
-            .filter(report_id=report_id, status=SignalReportTrackerIssue.Status.CREATED)
+            .filter(report_id=report_id, status=SignalReportTrackerIssue.Status.CREATED, closed_at__isnull=True)
             .first()
         )
         if tracker is None or tracker.pr_linked_at is not None:
@@ -332,13 +360,12 @@ def link_pull_request_to_tracker_issue(*, team_id: int, report_id: str, pr_url: 
         if outcome != BodyEditOutcome.WRITTEN:
             return False
 
-        if tracker.provider == IntegrationKind.LINEAR and tracker.integration is not None:
+        linear = _tracker_integration(tracker) if tracker.provider == IntegrationKind.LINEAR else None
+        if linear is not None:
             # Best-effort: the description reference already links the two, and this attachment
             # needs a Linear scope the team may not have granted.
             try:
-                LinearIntegration(tracker.integration).create_attachment(
-                    str((tracker.external_context or {}).get("id")), pr_url
-                )
+                LinearIntegration(linear).create_attachment(str((tracker.external_context or {}).get("id")), pr_url)
             except Exception:
                 logger.warning("signals.tracker_issue_linear_attachment_failed", report_id=report_id, exc_info=True)
 
@@ -372,16 +399,15 @@ def _comment_before_close(
     not stop the close: an issue left open would grow the backlog this close exists to prevent,
     while a missing comment costs only the attribution.
     """
-    if (
-        tracker.provider != IntegrationKind.GITHUB
-        or tracker.integration is None
-        or tracker.close_comment_posted_at is not None
-    ):
+    if tracker.provider != IntegrationKind.GITHUB or tracker.close_comment_posted_at is not None:
+        return
+    integration = _tracker_integration(tracker)
+    if integration is None:
         return
     context = tracker.external_context or {}
     try:
         result = GitHubIntegration(
-            tracker.integration, source="signals_tracker_issues", priority=Priority.BATCH
+            integration, source="signals_tracker_issues", priority=Priority.BATCH
         ).comment_on_issue(
             context["repository"],
             int(context["number"]),
@@ -398,7 +424,7 @@ def _comment_before_close(
 
 
 def _close_provider_issue(tracker: SignalReportTrackerIssue, *, completed: bool, priority: Priority) -> None:
-    integration = tracker.integration
+    integration = _tracker_integration(tracker)
     if integration is None:
         raise ValueError("Tracker issue has no integration left to close it through")
     context = tracker.external_context or {}
@@ -486,7 +512,6 @@ def _close_tracker_issue_for_report(
                 )
         tracker = (
             SignalReportTrackerIssue.objects.for_team(team_id)
-            .select_related("integration")
             .filter(
                 report_id=report_id,
                 status__in=[SignalReportTrackerIssue.Status.PENDING, SignalReportTrackerIssue.Status.CREATED],

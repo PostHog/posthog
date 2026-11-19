@@ -5,11 +5,13 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
+import posthog from 'posthog-js'
 
 import * as hog from 'lib/hog'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { useMocks } from '~/mocks/jest'
 import {
     ConditionalFormattingRule,
     HogQLQueryResponse,
@@ -75,6 +77,85 @@ function mountResult(
 describe('SQL table rendering', () => {
     beforeEach(() => initKeaTests())
     afterEach(cleanup)
+
+    it.each([
+        [false, 'String', 'First line.\n' + 'The path follows the river. '.repeat(20)],
+        [true, 'String', 'First line.\n' + 'The path follows the river. '.repeat(20)],
+        [false, 'Map(String, String)', { location: 'Observatory', notes: 'First line.\nSecond line.' }],
+        [true, 'Map(String, String)', { location: 'Observatory', notes: 'First line.\nSecond line.' }],
+    ] as const)(
+        'opens the complete source value in a cell viewer, transpose=%s, type=%s',
+        async (transpose, type, value) => {
+            const result: HogQLQueryResponse = {
+                columns: ['notes'],
+                types: [['notes', type]],
+                results: [[value]],
+            }
+            const node: VisualizationNode = { ...query, tableSettings: { transpose } }
+            const { props, sourceProps } = mountResult(node, result)
+            render(
+                <BindLogic logic={dataNodeLogic} props={sourceProps}>
+                    <BindLogic logic={dataVisualizationLogic} props={props}>
+                        <Table query={node} uniqueKey={props.key} context={{}} cachedResults={result} />
+                    </BindLogic>
+                </BindLogic>
+            )
+            await userEvent.click(await screen.findByLabelText('View full value of notes'))
+            const dialog = await screen.findByRole('dialog')
+            expect(dialog.querySelector('pre')?.textContent).toBe(
+                typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+            )
+            expect(screen.getByText('Copy value')).toBeInTheDocument()
+            await userEvent.keyboard('{Escape}')
+            await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        }
+    )
+
+    it.each([false, true])('renders harness names and custom icons, transpose=%s', async (transpose) => {
+        const icon = 'data:image/png;base64,iVBORw0KGgo='
+        useMocks({
+            get: {
+                '/api/projects/:team_id/mcp_analytics/custom_harnesses/': [
+                    { id: 'example', name: 'Example harness', match_pattern: 'example', icon },
+                ],
+            },
+        })
+        const result: HogQLQueryResponse = {
+            columns: ['client', 'calls'],
+            types: [
+                ['client', 'String'],
+                ['calls', 'UInt64'],
+            ],
+            column_formats: ['mcp_harness', null],
+            results: [
+                ['Example harness', 7],
+                ['Claude Code', 3],
+            ],
+        }
+        const node: VisualizationNode = {
+            ...query,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'SELECT properties.$virt_mcp_harness AS client, count() AS calls FROM events GROUP BY client',
+            },
+            tableSettings: { transpose },
+        }
+        const { props, sourceProps } = mountResult(node, result)
+        render(
+            <BindLogic logic={dataNodeLogic} props={sourceProps}>
+                <BindLogic logic={dataVisualizationLogic} props={props}>
+                    <Table query={node} uniqueKey={props.key} context={{}} cachedResults={result} />
+                </BindLogic>
+            </BindLogic>
+        )
+        await waitFor(() => {
+            const label = screen.getByText('Example harness').closest('[data-attr="hogqlx-brand-mark-label"]')
+            expect(label).toBeInTheDocument()
+            expect(label?.querySelector('[style]')).toHaveStyle({ '--harness-icon': `url("${icon}")` })
+        })
+        expect(screen.getByText('Claude Code').closest('[data-attr="hogqlx-brand-mark-label"]')).toBeInTheDocument()
+        expect(screen.getByText('7').closest('[data-attr="hogqlx-brand-mark-label"]')).toBeNull()
+    })
 
     it.each([false, true])('inspects the original row after sorting or transposing, transpose=%s', (transpose) => {
         const node = { ...query, tableSettings: { ...query.tableSettings, transpose } }
@@ -190,6 +271,50 @@ describe('SQL table rendering', () => {
         act(() => userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, theme_mode: 'light' }))
         expect(screen.getByText('USD 10').closest('td')).toHaveStyle({ backgroundColor: '#CAFFBF' })
     })
+
+    it.each([
+        { bytecode: ['bad'], captureTelemetry: true },
+        { bytecode: ['_H', 1, 999], captureTelemetry: true },
+        { bytecode: ['_H', 1, 39, -2], captureTelemetry: true },
+        { bytecode: ['bad'], captureTelemetry: false },
+        { bytecode: ['_H', 1, 999], captureTelemetry: false },
+        { bytecode: ['_H', 1, 39, -2], captureTelemetry: false },
+    ])(
+        'bounds invalid formatting reports for $bytecode, telemetry=$captureTelemetry',
+        ({ bytecode, captureTelemetry }) => {
+            const captureException = jest.spyOn(posthog, 'captureException')
+            captureException.mockClear()
+            const rule: ConditionalFormattingRule = {
+                id: 'invalid',
+                templateId: 'equals',
+                columnName: 'value',
+                input: 'example-condition',
+                color: '#FFADAD',
+                bytecode,
+            }
+            const node = { ...query, tableSettings: { ...query.tableSettings, conditionalFormatting: [rule] } }
+            const { logic, props, sourceProps } = mountResult(node, response)
+            logic.actions.setHogVm(hog)
+            render(
+                <BindLogic logic={dataNodeLogic} props={sourceProps}>
+                    <BindLogic logic={dataVisualizationLogic} props={props}>
+                        <Table
+                            query={node}
+                            uniqueKey={props.key}
+                            context={{ dataTableCaptureQueryTelemetry: captureTelemetry }}
+                            cachedResults={response}
+                        />
+                    </BindLogic>
+                </BindLogic>
+            )
+
+            expect(screen.getByText('USD 10')).toBeVisible()
+            expect(screen.getByText('USD 0')).toBeVisible()
+            expect(captureException).toHaveBeenCalledTimes(captureTelemetry ? 1 : 0)
+            expect(JSON.stringify(captureException.mock.calls)).not.toContain('example-condition')
+            captureException.mockRestore()
+        }
+    )
 
     it('does not format cells on every sort comparison', () => {
         const localeFormat = jest.spyOn(Number.prototype, 'toLocaleString').mockImplementation(function (this: number) {

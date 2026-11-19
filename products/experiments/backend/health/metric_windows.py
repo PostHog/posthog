@@ -16,22 +16,26 @@ from products.experiments.backend.metric_resolution import build_metric
 from products.experiments.backend.models.experiment import Experiment
 
 
-def load_primary_metric_windows(experiment: Experiment) -> tuple[MetricWindow, ...] | None:
+def load_primary_metric_windows(
+    experiment: Experiment, *, can_read_flag_history: bool
+) -> tuple[MetricWindow, ...] | None:
     """
     The windows of the primary metrics of a launched experiment that hasn't ended, isn't archived and has
     `only_count_matured_users` on, or None. Never raises: the check that reads them then reports that it couldn't check.
     """
-    start_date = experiment.start_date
-    if start_date is None or experiment.is_stopped or experiment.archived or not experiment.only_count_matured_users:
+    if not experiment.is_running or experiment.archived or not experiment.only_count_matured_users:
         return None
     try:
-        return _load_primary_metric_windows(experiment, start_date)
+        launched_at = experiment.launched_at(read_activity_log=can_read_flag_history)
+        if launched_at is None:
+            return None
+        return _load_primary_metric_windows(experiment, launched_at)
     except Exception as error:
         capture_exception(error)
         return None
 
 
-def metric_window(*, name: str, definition: dict[str, Any], start_date: datetime) -> MetricWindow | None:
+def metric_window(*, name: str, definition: dict[str, Any], launched_at: datetime) -> MetricWindow | None:
     """The window of one metric definition. None when the definition doesn't parse, which `metric_cannot_compile`
     reports, so this captures nothing."""
     try:
@@ -41,11 +45,11 @@ def metric_window(*, name: str, definition: dict[str, Any], start_date: datetime
     return MetricWindow(
         name=name,
         window_seconds=window_seconds,
-        first_users_count_at=start_date + timedelta(seconds=window_seconds),
+        first_users_count_at=launched_at + timedelta(seconds=window_seconds),
     )
 
 
-def _load_primary_metric_windows(experiment: Experiment, start_date: datetime) -> tuple[MetricWindow, ...] | None:
+def _load_primary_metric_windows(experiment: Experiment, launched_at: datetime) -> tuple[MetricWindow, ...] | None:
     # Metrics that share a uuid share its first definition, so one window covers them.
     configs: dict[str, MetricCalculationConfig] = {}
     for calculation_config in build_primary_calculation_configs(experiment):
@@ -55,7 +59,7 @@ def _load_primary_metric_windows(experiment: Experiment, start_date: datetime) -
         window = metric_window(
             name=calculation_metric_name(experiment, calculation_config),
             definition=calculation_config.definition,
-            start_date=start_date,
+            launched_at=launched_at,
         )
         if window is None:
             return None

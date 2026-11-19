@@ -1,8 +1,13 @@
+import { useValues } from 'kea'
+
 import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     ExperimentMetric,
     isExperimentMeanMetric,
+    isExperimentQuantileMetric,
     isExperimentRatioMetric,
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
@@ -12,6 +17,7 @@ import {
     formatChanceToWinForGoal,
     formatDeltaPercent,
     formatMetricValue,
+    formatQuantileLevel,
     isBayesianResult,
 } from '~/scenes/experiments/MetricsView/shared/utils'
 
@@ -23,6 +29,7 @@ type NotebookCompactTableProps = {
 type TableRow = ExperimentVariantResult & { key: string; isBaseline: boolean }
 
 export function NotebookCompactTable({ result, metric }: NotebookCompactTableProps): JSX.Element {
+    const { baseCurrency } = useValues(teamLogic)
     const goal = 'goal' in metric ? metric.goal : undefined
 
     const columns: LemonTableColumns<TableRow> = [
@@ -33,9 +40,15 @@ export function NotebookCompactTable({ result, metric }: NotebookCompactTablePro
         },
         {
             key: 'value',
-            title: isExperimentMeanMetric(metric) ? 'Mean' : isExperimentRatioMetric(metric) ? 'Ratio' : 'Conversion',
+            title: isExperimentMeanMetric(metric)
+                ? 'Mean'
+                : isExperimentRatioMetric(metric)
+                  ? 'Ratio'
+                  : isExperimentQuantileMetric(metric)
+                    ? formatQuantileLevel(metric.quantile)
+                    : 'Conversion',
             render: (_, item) => {
-                const value = formatMetricValue(item, metric)
+                const value = formatMetricValue(item, metric, baseCurrency)
                 const delta = item.isBaseline ? null : formatDeltaPercent(item)
 
                 return (

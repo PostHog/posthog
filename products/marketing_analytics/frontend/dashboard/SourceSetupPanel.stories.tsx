@@ -58,27 +58,7 @@ const suggestions = ['GoogleAds', 'MetaAds'].map((kind) => ({
     event_volume: 12,
 }))
 const footer = <LemonButton>Browse integrations</LemonButton>
-export const Checking: Story = { args: { state: 'checking' } }
-export const Scanning: Story = { args: { state: 'scanning', footer } }
 export const DetectedPlatforms: Story = { args: { state: 'suggestions', suggestions, footer } }
-export const NoDetectedPlatforms: Story = { args: { state: 'empty', footer } }
-export const ScanFailed: Story = { args: { state: 'error', onRetry: () => {}, footer } }
-export const Connected: Story = {
-    args: {
-        state: 'waiting',
-        connections: [
-            {
-                id: 'demo-google',
-                name: 'Google Ads',
-                sourceType: 'GoogleAds',
-                status: 'Connected',
-                detail: 'Waiting for the first sync to finish.',
-            },
-        ],
-        suggestions: [suggestions[1]],
-        footer: <LemonButton>Browse integrations</LemonButton>,
-    },
-}
 export const Syncing: Story = {
     args: {
         state: 'waiting',
@@ -92,7 +72,7 @@ export const Syncing: Story = {
             },
         ],
         suggestions: [suggestions[1]],
-        footer: <LemonButton>Browse integrations</LemonButton>,
+        footer,
     },
 }
 export const Narrow: Story = {
@@ -195,8 +175,10 @@ export const GroupedConnectionErrors: Story = {
             'href',
             expect.stringContaining('managed-example-google-one')
         )
-        await userEvent.click(canvas.getByRole('button', { name: /TikTok Ads/ }))
+        const tiktokHeader = canvas.getByRole('button', { name: /TikTok Ads/ })
+        await userEvent.click(tiktokHeader)
         expect(await canvas.findByText('Example video')).toBeVisible()
+        tiktokHeader.blur()
     },
 }
 

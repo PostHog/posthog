@@ -37,10 +37,13 @@ from products.marketing_analytics.dags.marketing_precompute import (
     SELECTED_TEAM_IDS_ENV_VAR,
     SHARDS_ENV_VAR,
     TEAM_CONCURRENCY_ENV_VAR,
+    WALL_CLOCK_BUDGET_ENV_VAR,
     _recently_active_team_ids,
+    _WarmCounts,
     get_selected_team_ids,
     marketing_precompute_job,
     split_marketing_precompute_teams_op,
+    summarize_marketing_precompute_op,
     warm_selected_teams,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -53,10 +56,14 @@ _FF = "products.marketing_analytics.backend.hogql_queries.marketing_analytics_co
 _DB = "products.marketing_analytics.dags.marketing_precompute.Database"
 _FACTORY = "products.marketing_analytics.dags.marketing_precompute.MarketingSourceFactory"
 _DWT = "products.marketing_analytics.dags.marketing_precompute.DataWarehouseTable"
+_WARM_TEAM = "products.marketing_analytics.dags.marketing_precompute._warm_team"
+_TIME = "products.marketing_analytics.dags.marketing_precompute.time"
 # Patch chunking to a single chunk so call counts are deterministic in the op tests. Must exceed
 # PRECOMPUTE_WINDOW_DAYS + the team's attribution window (default 90) to collapse to one chunk.
 _SINGLE_CHUNK = "products.marketing_analytics.dags.marketing_precompute.PRECOMPUTE_CHUNK_DAYS"
 _BIG_CHUNK = 100000
+_TP = LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED
+_CONV = LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED
 
 # Converts cleanly but is_goal_precomputable() rejects it (schema_map remaps a tracked UTM field, which
 # the config-agnostic touchpoints table can't serve), so a team with only this goal warms touchpoints but
@@ -192,6 +199,14 @@ class TestShardSplit:
     def test_empty_audience_yields_no_shards(self):
         with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
             assert list(split_marketing_precompute_teams_op(dagster.build_op_context())) == []
+
+    def test_summary_sums_every_shard_key(self):
+        shards = [
+            {"teams": 3, "conversion_teams": 2, "costs_teams": 1, "failures": 1, "deferred": 0},
+            {"teams": 4, "conversion_teams": 1, "costs_teams": 0, "failures": 0, "deferred": 3},
+        ]
+        total = summarize_marketing_precompute_op(dagster.build_op_context(), shards)
+        assert total == {"teams": 7, "conversion_teams": 3, "costs_teams": 1, "failures": 1, "deferred": 3}
 
 
 class TestConversionWarming(APIBaseTest):
@@ -370,7 +385,7 @@ class TestConversionWarming(APIBaseTest):
         team = self._make_team("A", goals=None)
         with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
             result = warm_selected_teams(dagster.build_op_context())
-        assert result == {"teams": 1, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
+        assert result == {"teams": 1, "conversion_teams": 0, "costs_teams": 0, "failures": 0, "deferred": 0}
         ensure_mock.assert_not_called()
 
     @parameterized.expand([("database_built", False), ("database_build_fails", True)])
@@ -392,9 +407,123 @@ class TestConversionWarming(APIBaseTest):
                 database.create_for.side_effect = Exception("warehouse source broken")
             result = warm_selected_teams(dagster.build_op_context())
 
-        assert result == {"teams": 3, "conversion_teams": 3, "costs_teams": 0, "failures": 0}
+        assert result == {"teams": 3, "conversion_teams": 3, "costs_teams": 0, "failures": 0, "deferred": 0}
         assert ensure_mock.call_count > len(teams)
         assert database.create_for.call_count == len(teams)
+
+    @parameterized.expand([("budget_spent", "0", 2, 3), ("budget_generous", "3600", 5, 0)])
+    @patch(_WARM_TEAM, return_value=_WarmCounts(1, 0, 0))
+    def test_budget_defers_teams_not_yet_started(self, _name, budget, warmed, deferred, warm_team_mock):
+        # A shard that kept starting teams past the budget would run until Dagster kills it at max runtime.
+        # The first `concurrency` teams always start, and a started team always finishes.
+        teams = [self._make_team(name, goals=[_PRECOMPUTABLE_GOAL]) for name in ("A", "B", "C", "D", "E")]
+        ids = ",".join(str(team.pk) for team in teams)
+        with (
+            patch(_FF, _flag_fn(conversion=True)),
+            patch.dict(
+                os.environ,
+                {SELECTED_TEAM_IDS_ENV_VAR: ids, TEAM_CONCURRENCY_ENV_VAR: "2", WALL_CLOCK_BUDGET_ENV_VAR: budget},
+            ),
+            patch(_DB),
+        ):
+            result = warm_selected_teams(dagster.build_op_context())
+
+        assert result == {
+            "teams": 5,
+            "conversion_teams": warmed,
+            "costs_teams": 0,
+            "failures": 0,
+            "deferred": deferred,
+        }
+        assert warm_team_mock.call_count == warmed
+
+    @parameterized.expand(
+        [
+            ("runs_out_mid_backfill", "15", {}, {}, [[(_TP, 0), (_TP, 1)]]),
+            ("spent_before_warming", "0", {}, {}, [[(_TP, 0)]]),
+            ("spent_before_warming_newest_chunk_ready", "0", {(_TP, 0): "fresh"}, {}, [[(_TP, 1)]]),
+            ("spent_before_warming_newest_chunk_stale", "0", {(_TP, 0): "stale"}, {}, [[(_TP, 1)]]),
+            (
+                "spent_runs_advance_the_backfill",
+                "0",
+                {(_TP, 0): "stale"},
+                {},
+                [[(_TP, 1)], [(_TP, 2)], [(_TP, 3)]],
+            ),
+            ("spent_with_touchpoints_served_stale", "0", {}, {_TP: "stale"}, [[(_CONV, 0)]]),
+            ("spent_with_every_chunk_stale", "0", {}, {_TP: "stale", _CONV: "stale"}, [[(_TP, 0)]]),
+        ]
+    )
+    @patch(_ENSURE, new_callable=_ready_mock)
+    def test_budget_stops_a_started_team_between_chunks(
+        self, _name, budget, chunk_states, table_states, expected_built_per_run, ensure_mock
+    ):
+        # A cold team that starts just before the deadline must not run its whole backfill past it, and a
+        # team started after planning spent the budget must still materialize one chunk, or no run progresses.
+        # That chunk must be one reads cannot serve: the newest touchpoints chunk expires before every hourly
+        # run, and rebuilding it each time would stall the backfill. Chunks are keyed by table and index,
+        # newest first.
+        team = self._make_team("A", goals=[_PRECOMPUTABLE_GOAL])
+        clock = MagicMock()
+        chunk_days = timedelta(days=7)
+        newest_end = datetime(2024, 4, 2, 23, 59, 59, 999999, tzinfo=UTC)
+        states = dict(chunk_states)
+        built: list[tuple[LazyComputationTable, int]] = []
+
+        def fake_ensure(**kwargs):
+            clock.monotonic.return_value += 10.0
+            key = (kwargs["table"], (newest_end - kwargs["time_range_end"]) // chunk_days)
+            state = states.get(key, table_states.get(key[0]))
+            if state == "fresh":
+                return MagicMock(ready=True, freshly_built=False, stale=False)
+            if state == "stale" and kwargs["stale_while_revalidate_seconds"] is not None:
+                return MagicMock(ready=True, freshly_built=False, stale=True)
+            states[key] = "fresh"
+            built.append(key)
+            return MagicMock(ready=True, freshly_built=True, stale=False)
+
+        ensure_mock.side_effect = fake_ensure
+        built_per_run = []
+        for _run in expected_built_per_run:
+            clock.monotonic.return_value = 0.0
+            built.clear()
+            with (
+                time_machine.travel(datetime(2024, 4, 2, 12, 5, tzinfo=UTC), tick=False),
+                patch(_TIME, clock),
+                patch(_SINGLE_CHUNK, 7),
+                patch(_FF, _flag_fn(conversion=True)),
+                patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}", WALL_CLOCK_BUDGET_ENV_VAR: budget}),
+                patch(_DB),
+            ):
+                result = warm_selected_teams(dagster.build_op_context())
+            assert result["deferred"] == 0
+            built_per_run.append(list(built))
+            # The newest touchpoints chunk has a 15-minute TTL, so it has expired again by the next hourly run.
+            states[(_TP, 0)] = "stale"
+
+        assert built_per_run == expected_built_per_run
+
+    @patch(_WARM_TEAM, return_value=_WarmCounts(1, 0, 0))
+    def test_budget_spent_runs_start_with_a_different_team_each_hour(self, warm_team_mock):
+        teams = [self._make_team(name, goals=[_PRECOMPUTABLE_GOAL]) for name in ("A", "B", "C")]
+        ids = ",".join(str(team.pk) for team in teams)
+        started: set[int] = set()
+        for hour in range(len(teams)):
+            warm_team_mock.reset_mock()
+            with (
+                time_machine.travel(datetime(2024, 4, 2, hour, 5, tzinfo=UTC), tick=False),
+                patch(_FF, _flag_fn(conversion=True)),
+                patch.dict(
+                    os.environ,
+                    {SELECTED_TEAM_IDS_ENV_VAR: ids, TEAM_CONCURRENCY_ENV_VAR: "1", WALL_CLOCK_BUDGET_ENV_VAR: "0"},
+                ),
+                patch(_DB),
+            ):
+                warm_selected_teams(dagster.build_op_context())
+            assert warm_team_mock.call_count == 1
+            started.add(warm_team_mock.call_args.args[1].team.pk)
+
+        assert started == {team.pk for team in teams}
 
     @parameterized.expand([("utc", "UTC"), ("behind_utc", "America/Los_Angeles"), ("ahead_of_utc", "Asia/Jerusalem")])
     @patch(_ENSURE, new_callable=_ready_mock)
@@ -485,14 +614,14 @@ class TestConversionWarming(APIBaseTest):
     def test_empty_allowlist_is_a_noop(self, ensure_mock):
         with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
             result = warm_selected_teams(dagster.build_op_context())
-        assert result == {"teams": 0, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
+        assert result == {"teams": 0, "conversion_teams": 0, "costs_teams": 0, "failures": 0, "deferred": 0}
         ensure_mock.assert_not_called()
 
     @patch(_ENSURE, new_callable=_ready_mock)
     def test_missing_team_is_skipped(self, ensure_mock):
         with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: "999999999"}):
             result = warm_selected_teams(dagster.build_op_context())
-        assert result == {"teams": 0, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
+        assert result == {"teams": 0, "conversion_teams": 0, "costs_teams": 0, "failures": 0, "deferred": 0}
         ensure_mock.assert_not_called()
 
     def test_job_has_owner_and_runtime_tags(self):
@@ -528,7 +657,7 @@ class TestCostsWarming(APIBaseTest):
         team = self._make_team("A")
         with patch(_FF, _flag_fn(costs=False)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
             result = warm_selected_teams(dagster.build_op_context())
-        assert result == {"teams": 1, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
+        assert result == {"teams": 1, "conversion_teams": 0, "costs_teams": 0, "failures": 0, "deferred": 0}
         ensure_mock.assert_not_called()
 
     @patch(_ENSURE, new_callable=_ready_mock)

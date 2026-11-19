@@ -11,21 +11,19 @@ import { urls } from 'scenes/urls'
 
 import {
     createFileSource,
-    createLibrary,
     createTextSource,
     createUrlSource,
-    deleteLibrary,
     deleteSource,
     listLibraries,
     listSources,
     refreshSource,
-    updateLibrary,
     updateSource,
 } from '../../api'
 import type { CreateUrlSourcePayload, KnowledgeLibrary, RefreshIntervalOption } from '../../api'
 import type { KnowledgeLibraryApi, KnowledgeSourceApi } from '../../generated/api.schemas'
 import {
     DEFAULT_URL_SOURCE_FORM,
+    fileNameWithoutExtension,
     type CrawlMode,
     type KnowledgeSource,
     type TextSourceFormValues,
@@ -38,7 +36,6 @@ import {
 export type { KnowledgeSource, CrawlMode, TextSourceFormValues, UrlSourceFormValues }
 export type SourceTypeFilter = 'all' | 'text' | 'url' | 'file'
 export type AddedByFilter = 'all' | 'human' | 'learned'
-export type LibraryDialog = 'create' | 'rename' | 'repos'
 export const LIBRARY_SCOPE_ALL = 'all'
 export const LIBRARY_SCOPE_UNFILED = 'unfiled'
 
@@ -106,12 +103,10 @@ export interface businessKnowledgeLogicValues {
     isUrlSourceValid: boolean
     libraries: KnowledgeLibrary[]
     librariesLoading: boolean
-    libraryDialog: LibraryDialog | null
     libraryNamesById: Record<string, string>
     libraryScope: string
     readyCount: number
     refreshingIds: string[]
-    savingLibrary: boolean
     searchTerm: string
     selectedLibrary: KnowledgeLibrary | null
     showFileSourceErrors: boolean
@@ -146,20 +141,8 @@ export interface businessKnowledgeLogicActions {
     closeCreateModal: () => {
         value: true
     }
-    closeLibraryDialog: () => {
-        value: true
-    }
-    createLibrary: (name: string) => {
-        name: string
-    }
-    deleteSelectedLibrary: () => {
-        value: true
-    }
     deleteSource: (id: string) => {
         id: string
-    }
-    finishLibrarySave: () => {
-        value: true
     }
     loadLibraries: (_: void) => void
     loadLibrariesFailure: (
@@ -194,9 +177,6 @@ export interface businessKnowledgeLogicActions {
     openCreateModal: () => {
         value: true
     }
-    openLibraryDialog: (libraryDialog: LibraryDialog) => {
-        libraryDialog: LibraryDialog
-    }
     refreshSource: (id: string) => {
         id: string
     }
@@ -223,9 +203,6 @@ export interface businessKnowledgeLogicActions {
         payload?: {
             id: string
         }
-    }
-    renameLibrary: (name: string) => {
-        name: string
     }
     replaceSourceInList: ({ source }: { source: KnowledgeSource }) => {
         source: KnowledgeSource
@@ -257,9 +234,6 @@ export interface businessKnowledgeLogicActions {
     resetUrlSource: (values?: UrlSourceFormValues) => {
         values?: UrlSourceFormValues
     }
-    saveLibraryRepos: (repos: string[]) => {
-        repos: string[]
-    }
     setAddedByFilter: (addedByFilter: AddedByFilter) => {
         addedByFilter: AddedByFilter
     }
@@ -287,6 +261,9 @@ export interface businessKnowledgeLogicActions {
     }
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
+    }
+    setSourceFile: (file: File | null) => {
+        file: File | null
     }
     setSourceTypeFilter: (sourceTypeFilter: SourceTypeFilter) => {
         sourceTypeFilter: SourceTypeFilter
@@ -404,13 +381,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         setAddedByFilter: (addedByFilter: AddedByFilter) => ({ addedByFilter }),
         setLibraryScope: (libraryScope: string) => ({ libraryScope }),
         setCreateLibraryIds: (libraryIds: string[]) => ({ libraryIds }),
-        openLibraryDialog: (libraryDialog: LibraryDialog) => ({ libraryDialog }),
-        closeLibraryDialog: true,
-        createLibrary: (name: string) => ({ name }),
-        renameLibrary: (name: string) => ({ name }),
-        deleteSelectedLibrary: true,
-        saveLibraryRepos: (repos: string[]) => ({ repos }),
-        finishLibrarySave: true,
+        setSourceFile: (file: File | null) => ({ file }),
         deleteSource: (id: string) => ({ id }),
         refreshSource: (id: string) => ({ id }),
         refreshSourceDone: (id: string) => ({ id }),
@@ -470,24 +441,6 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             LIBRARY_SCOPE_ALL as string,
             {
                 setLibraryScope: (_, { libraryScope }) => libraryScope,
-            },
-        ],
-        libraryDialog: [
-            null as LibraryDialog | null,
-            {
-                openLibraryDialog: (_, { libraryDialog }) => libraryDialog,
-                closeLibraryDialog: () => null,
-            },
-        ],
-        savingLibrary: [
-            false,
-            {
-                createLibrary: () => true,
-                renameLibrary: () => true,
-                deleteSelectedLibrary: () => true,
-                saveLibraryRepos: () => true,
-                closeLibraryDialog: () => false,
-                finishLibrarySave: () => false,
             },
         ],
     })),
@@ -637,6 +590,14 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         openCreateModal: () => {
             actions.setCreateLibraryIds(isLibraryScope(values.libraryScope) ? [values.libraryScope] : [])
         },
+        setSourceFile: ({ file }) => {
+            const { name, file: previousFile } = values.fileSource
+            const nameIsDerived = !name.trim() || (!!previousFile && name === fileNameWithoutExtension(previousFile))
+            actions.setFileSourceValue('file', file)
+            if (file && nameIsDerived) {
+                actions.setFileSourceValue('name', fileNameWithoutExtension(file))
+            }
+        },
         submitTextSourceSuccess: () => {
             posthog.capture('business knowledge source created', { source_type: 'text' })
             actions.loadLibraries()
@@ -670,72 +631,6 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 unfiled: libraryScope === LIBRARY_SCOPE_UNFILED,
             })
             actions.loadSources()
-        },
-        createLibrary: async ({ name }) => {
-            try {
-                const library = await createLibrary(name)
-                posthog.capture('business knowledge library created')
-                actions.closeLibraryDialog()
-                // The scope check rejects ids missing from the list, and the refresh lands after it.
-                actions.loadLibrariesSuccess([...values.libraries, library])
-                actions.setLibraryScope(library.id)
-                actions.loadLibraries()
-            } catch (error: any) {
-                lemonToast.error(error?.detail || error?.data?.name?.[0] || 'Could not create the library.')
-            } finally {
-                actions.finishLibrarySave()
-            }
-        },
-        renameLibrary: async ({ name }) => {
-            const libraryId = values.libraryScope
-            if (!isLibraryScope(libraryId)) {
-                actions.finishLibrarySave()
-                return
-            }
-            try {
-                await updateLibrary(libraryId, { name })
-                posthog.capture('business knowledge library renamed')
-                actions.closeLibraryDialog()
-                actions.loadLibraries()
-            } catch (error: any) {
-                lemonToast.error(error?.detail || error?.data?.name?.[0] || 'Could not rename the library.')
-            } finally {
-                actions.finishLibrarySave()
-            }
-        },
-        deleteSelectedLibrary: async () => {
-            const libraryId = values.libraryScope
-            if (!isLibraryScope(libraryId)) {
-                actions.finishLibrarySave()
-                return
-            }
-            try {
-                await deleteLibrary(libraryId)
-                posthog.capture('business knowledge library deleted')
-                actions.setLibraryScope(LIBRARY_SCOPE_ALL)
-                actions.loadLibraries()
-            } catch (error: any) {
-                lemonToast.error(error?.detail || 'Could not delete the library.')
-            } finally {
-                actions.finishLibrarySave()
-            }
-        },
-        saveLibraryRepos: async ({ repos }) => {
-            const libraryId = values.libraryScope
-            if (!isLibraryScope(libraryId)) {
-                actions.finishLibrarySave()
-                return
-            }
-            try {
-                await updateLibrary(libraryId, { repos })
-                posthog.capture('business knowledge library repos changed')
-                actions.closeLibraryDialog()
-                actions.loadLibraries()
-            } catch (error: any) {
-                lemonToast.error(error?.detail || error?.data?.repos?.[0] || 'Could not save repositories.')
-            } finally {
-                actions.finishLibrarySave()
-            }
         },
         loadSourcesSuccess: ({ sources }) => {
             // URL ingestion runs in the background — poll while anything is still
@@ -817,11 +712,18 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        [urls.businessKnowledge()]: (_, searchParams) => {
+        [urls.businessKnowledge()]: (_, searchParams, hashParams) => {
             const raw = searchParams.library
             const next = typeof raw === 'string' && raw.length > 0 ? raw : LIBRARY_SCOPE_ALL
             if (next !== values.libraryScope) {
                 actions.setLibraryScope(next)
+            }
+            // pinned: a library page links here with `#new` to add a source to that library.
+            if (hashParams.new) {
+                actions.openCreateModal()
+                // Drop the flag, or a reload opens the modal again.
+                const { new: _new, ...restHashParams } = hashParams
+                router.actions.replace(urls.businessKnowledge(), searchParams, restHashParams)
             }
         },
     })),

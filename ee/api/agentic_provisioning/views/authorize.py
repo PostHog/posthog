@@ -25,6 +25,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.middleware import organization_block_page
 from posthog.models.oauth import OAuthApplication
 from posthog.models.team.team import Team
@@ -102,7 +103,7 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         # The confirm step puts this partner's project in an organization the partner pays
         # for, so no project of the user's is created, picked, or auto-approved here, and a
         # user without an organization can still connect.
-        if not paying_partner.provisioning.active:
+        if not paying_partner.provisioning_allowed:
             return _partner_deactivated_redirect(pending_key)
         return _consent_page_redirect(state)
 
@@ -129,7 +130,7 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
     # Re-check partner is still active (could have been deactivated since account_requests)
     is_trusted_partner = False
     if partner_app is not None:
-        if not partner_app.provisioning.active:
+        if not partner_app.provisioning_allowed:
             return _partner_deactivated_redirect(pending_key)
         # Fail closed: a partner-identified pending state missing the flag (e.g. created by an
         # older pod mid-deploy) must still require consent, never silently auto-approve.
@@ -194,6 +195,7 @@ class AuthorizePendingView(APIView):
 
 
 class AuthorizeConfirmView(APIView):
+    _ip_restrictions_use_view_scope = True
     permission_classes = [IsAuthenticated]
 
     def post(self, request: Request) -> Response:
@@ -246,7 +248,11 @@ class AuthorizeConfirmView(APIView):
                 capture_provisioning_event("authorize_confirm", "team_not_accessible", team_id=team_id)
                 return Response({"error": "team_not_accessible"}, status=403)
 
-        if confirm_partner is not None and not confirm_partner.provisioning.active:
+            enforce_ip_restrictions(
+                request, user, request.successful_authenticator, organization_id=str(team.organization_id)
+            )
+
+        if confirm_partner is not None and not confirm_partner.provisioning_allowed:
             cache.delete(pending_key)
             capture_provisioning_event("authorize_confirm", "partner_deactivated", partner=confirm_partner)
             return Response({"error": "partner_deactivated"}, status=403)
@@ -262,7 +268,12 @@ class AuthorizeConfirmView(APIView):
             # organization behind.
             try:
                 team, created = get_or_create_partner_organization_team(
-                    user, paying_partner, approved_organization_id=request.data.get("partner_organization_id")
+                    user,
+                    paying_partner,
+                    approved_organization_id=request.data.get("partner_organization_id"),
+                    authorize_organization=lambda organization: enforce_ip_restrictions(
+                        request, user, request.successful_authenticator, organization_id=str(organization.id)
+                    ),
                 )
             except PartnerOrganizationChanged:
                 return _consent_changed_response(confirm_partner)

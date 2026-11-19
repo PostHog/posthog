@@ -2,8 +2,7 @@
 
 Predicts, per cohort, the `class` label the processor reports in
 `cohort_eligibility_total` (single_leaf / stage2_composable / stage2_composable_ref /
-excluded_*), plus the max behavioral window in days (used by the classifier's soundness
-check and missed-emission probe cutoff).
+excluded_*), plus the max behavioral window in days.
 Mirrors `rust/cohort-stream-processor/src/filters/{leaf_classifier,tree,cohort_graph}.rs`
 and `src/stage1/pick_state.rs` + `src/stage2/eligibility.rs` — including known quirks
 (e.g. a string `time_value` reads as absent), because the screen must predict what the
@@ -20,8 +19,10 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal, Optional, Union
+
+from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
 
 SINGLE_LEAF = "single_leaf"
 STAGE2_COMPOSABLE = "stage2_composable"
@@ -122,7 +123,7 @@ def _is_absolute_datetime(raw: str) -> bool:
 
 # A resolved eviction window: kind is "days" (whole-day sliding), "seconds" (sub-day
 # sliding), or "explicit" (absolute calendar range, permanent membership). `days` is the
-# window length in days for the soundness check (fractional for "seconds", inf for "explicit").
+# window length in days (fractional for "seconds", inf for "explicit").
 @dataclass(frozen=True)
 class _Window:
     kind: Literal["days", "seconds", "explicit"]
@@ -220,6 +221,39 @@ def resolve_behavioral_window(node: Mapping[str, Any]) -> Optional[_Window]:
     if explicit_from is not None or explicit_to is not None:
         return _explicit_window(explicit_from, explicit_to)
     return _interval_window(node)
+
+
+def _written_date(raw: str) -> date:
+    """The calendar day an absolute bound names, as written: an offset never shifts it (``select.rs``
+    ``absolute_datetime_to_day``)."""
+    return datetime.fromisoformat(raw).date()
+
+
+def _history_days(leaf: Mapping[str, Any], today: date) -> float:
+    """How many days before ``today`` a backfill of the leaf has to start."""
+    window = resolve_behavioral_window(leaf)
+    if window is None or window.kind == "seconds":
+        return 0
+    if window.kind == "days":
+        return window.days
+    start = leaf.get("explicit_datetime")
+    if not isinstance(start, str):
+        # A range with only an end reaches back without limit, and the seeder plans it from the cap.
+        return math.inf
+    return (today - _written_date(start)).days
+
+
+def behavioral_history_over_limit(properties: object, *, limit_days: int, today: date) -> bool:
+    """Whether a behavioral leaf needs history from more than ``limit_days`` before ``today``.
+
+    Mirror of ``rust/cohort-seeder/src/app/prepare.rs`` ``lookback_was_truncated`` with the cap as
+    ``limit_days``: a cohort this holds for is one the seeder would backfill truncated.
+    """
+    return any(
+        _history_days(leaf, today) > limit_days
+        for leaf in walk_filter_leaves(properties)
+        if leaf.get("type") == "behavioral"
+    )
 
 
 def explain_unsupported_window(node: Mapping[str, Any]) -> str:

@@ -40,6 +40,7 @@ test('selection resolves source paths from the frontend package and retains the 
             files: [
                 'frontend/src/a.ts',
                 'products/example/frontend/a.tsx',
+                'packages/quill/packages/charts/src/a.ts',
                 'common/example/data.json',
                 'ee/frontend/a.js',
                 'frontend/src/a.scss',
@@ -52,10 +53,11 @@ test('selection resolves source paths from the frontend package and retains the 
             changedFiles: [
                 'src/a.ts',
                 '../products/example/frontend/a.tsx',
+                '../packages/quill/packages/charts/src/a.ts',
                 '../common/example/data.json',
                 '../ee/frontend/a.js',
             ],
-            changedFileCount: 7,
+            changedFileCount: 8,
         }
     )
 })

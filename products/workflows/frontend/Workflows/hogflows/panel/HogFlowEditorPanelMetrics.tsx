@@ -1,5 +1,5 @@
-import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
@@ -19,7 +19,6 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 
 export function HogFlowEditorPanelMetrics(): JSX.Element | null {
     const { selectedNode, workflow } = useValues(hogFlowEditorLogic)
-    const { loadActionMetricsById } = useActions(hogFlowEditorLogic)
     const actionId = selectedNode?.data.id
     const id = useMemo(() => {
         return actionId ? ([TRIGGER_NODE_ID, EXIT_NODE_ID].includes(actionId) ? '' : actionId) : undefined
@@ -58,7 +57,7 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
         },
     })
 
-    const { appMetricsTrendsLoading, appMetricsTrends, params, currentTeam, getDateRangeAbsolute } = useValues(logic)
+    const { appMetricsTrendsLoading, appMetricsTrends } = useValues(logic)
 
     const seriesOverrides = useMemo(() => {
         if (!appMetricsTrends) {
@@ -74,31 +73,6 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
             ])
         )
     }, [appMetricsTrends, isEmailAction, isPushAction])
-
-    useEffect(() => {
-        if (!shouldShowActionLevelMetrics) {
-            return
-        }
-        // Bit hacky - we load the values here from the logic as connecting the logics together was weirdly tricky
-        loadActionMetricsById(
-            {
-                appSource: params.appSource,
-                appSourceId: params.appSourceId,
-                dateFrom: getDateRangeAbsolute().dateFrom.toISOString(),
-                dateTo: getDateRangeAbsolute().dateTo.toISOString(),
-            },
-            currentTeam?.timezone ?? 'UTC'
-        )
-    }, [
-        shouldShowActionLevelMetrics,
-        params.appSource,
-        params.appSourceId,
-        params.dateFrom,
-        params.dateTo,
-        currentTeam?.timezone,
-        loadActionMetricsById,
-        getDateRangeAbsolute,
-    ])
 
     return (
         <>

@@ -9,6 +9,7 @@ from typing import Any
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+from rest_framework.fields import empty
 
 
 class OptionalBooleanField(serializers.BooleanField):
@@ -19,6 +20,10 @@ class OptionalBooleanField(serializers.BooleanField):
     def __init__(self, **kwargs):
         kwargs.setdefault("allow_null", True)
         super().__init__(**kwargs)
+
+
+class OmittableBooleanField(serializers.BooleanField):
+    default_empty_html = empty
 
 
 @extend_schema_field({"type": "string"})
@@ -100,3 +105,12 @@ class CoercedStringListField(serializers.Field):
         if self.max_items is not None and len(items) > self.max_items:
             self.fail("max_items", max_items=self.max_items)
         return items
+
+
+class LengthFirstListField(serializers.ListField):
+    # DRF checks max_length only after it validates every item, so an oversized list of bad items
+    # builds one error per item before it fails. Check the length first to reject it in constant time.
+    def to_internal_value(self, data: Any) -> list[Any]:
+        if self.max_length is not None and isinstance(data, list) and len(data) > self.max_length:
+            self.fail("max_length", max_length=self.max_length)
+        return super().to_internal_value(data)

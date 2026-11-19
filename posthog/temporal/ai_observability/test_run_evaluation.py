@@ -19,6 +19,7 @@ from asgiref.sync import async_to_sync, sync_to_async
 from google.genai import errors as genai_errors
 from parameterized import parameterized
 from pydantic import ValidationError as PydanticValidationError
+from structlog.testing import capture_logs
 from temporalio import activity
 from temporalio.api.enums.v1 import EventType
 from temporalio.exceptions import ApplicationError, CancelledError
@@ -67,16 +68,17 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from .evaluation_event_io import GENERATION_NOT_FOUND_RETRY_DELAY, GenerationNotFoundError, hydrate_event_reference
+from .evaluation_event_io import GenerationNotFoundError, hydrate_event_reference
 from .evaluation_llm_judge import (
     BACKFILL_ACTIVITY_RETRY_POLICY,
+    LLM_JUDGE_RETRY_POLICY,
     NumericWithNAEvalResult,
     TransientJudgeError,
     _build_errored_trace_result,
     _build_output_limit_skip_result,
-    _execute_llm_judge_activity,
     call_llm_judge,
     get_output_type_config,
+    run_generation_llm_judge,
 )
 from .evaluation_types import GENERATION_NOT_FOUND, build_generation_not_found_result, build_skipped_evaluation_result
 from .evaluation_workflow_activities import (
@@ -1294,6 +1296,64 @@ def test_unmapped_provider_rejection_on_a_posthog_key_still_raises() -> None:
             )
 
 
+@pytest.mark.parametrize(
+    "attempt,backfill,exhausted",
+    [(1, False, False), (3, False, True), (3, True, False), (5, True, True)],
+)
+@pytest.mark.parametrize("provider,is_byok", [("openai", False), ("openai", True), ("openai_compatible", True)])
+@pytest.mark.parametrize("status", [500, 503])
+@override_settings(OPENAI_API_KEY="example-token")
+def test_provider_server_failures_are_reported_only_when_retries_end(
+    attempt: int, backfill: bool, exhausted: bool, provider: str, is_byok: bool, status: int
+) -> None:
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(
+        env.info,
+        attempt=attempt,
+        retry_policy=BACKFILL_ACTIVITY_RETRY_POLICY if backfill else LLM_JUDGE_RETRY_POLICY,
+        schedule_to_close_timeout=None,
+    )
+    key = (
+        MagicMock(
+            provider=provider,
+            encrypted_config={"api_key": "example-token", "base_url": "https://llm.example.com/v1"},
+        )
+        if is_byok
+        else None
+    )
+    with (
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch(
+            "httpx.HTTPTransport.handle_request"
+            if provider == "openai"
+            else "httpx.AsyncHTTPTransport.handle_async_request",
+            return_value=httpx.Response(
+                status,
+                headers={"Content-Type": "application/json"},
+                stream=httpx.ByteStream(b'{"error": {"message": "Example provider is unavailable."}}'),
+            ),
+        ) as transport,
+        capture_logs() as logs,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider=provider, model="gpt-5-mini", provider_key=key, is_byok=is_byok
+        )
+        with pytest.raises(openai.InternalServerError if exhausted else TransientJudgeError) as raised:
+            env.run(
+                call_llm_judge,
+                evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+                system_prompt="",
+                user_prompt="Hello!",
+                allows_na=False,
+                backfill=backfill,
+            )
+
+    assert is_expected_activity_failure(raised.value) is (not exhausted)
+    assert any(log["event"] == "Unhandled error from LLM client" for log in logs) is exhausted
+    assert transport.call_count == 1
+
+
 def test_status_reason_detail_for_terminal_user_error_only_keeps_truncated_hog_errors():
     hog_spec = require_user_error_spec("hog_error")
     permission_spec = require_user_error_spec("permission_error")
@@ -1413,7 +1473,7 @@ class TestRunEvaluationWorkflow:
                 "verdict": True,
                 "reasoning": "The answer is grounded.",
                 "allows_na": False,
-                "model": "gpt-4.1-mini",
+                "model": "gpt-6-luna",
                 "provider": "openai",
             }
 
@@ -1580,18 +1640,17 @@ class TestRunEvaluationWorkflow:
             mock_client.complete.assert_called_once()
 
     @pytest.mark.parametrize(
-        ("flag_enabled", "evaluation_config", "attaches_image"),
+        ("evaluation_config", "attaches_image"),
         [
-            pytest.param(True, {"prompt": "Is the chart described correctly?"}, True, id="flag_on"),
-            pytest.param(False, {"prompt": "Is the chart described correctly?"}, False, id="flag_off"),
+            pytest.param({"prompt": "Is the chart described correctly?"}, True, id="default"),
             pytest.param(
-                True, {"prompt": "Is the chart described correctly?", "include_media": False}, False, id="eval_opts_out"
+                {"prompt": "Is the chart described correctly?", "include_media": False}, False, id="eval_opts_out"
             ),
         ],
     )
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_attaches_images_when_enabled(
-        self, flag_enabled, evaluation_config, attaches_image, setup_data, active_key_config
+        self, evaluation_config, attaches_image, setup_data, active_key_config
     ):
         team = setup_data["team"]
         evaluation = {
@@ -1631,10 +1690,6 @@ class TestRunEvaluationWorkflow:
         with (
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
             patch(
-                "posthog.temporal.ai_observability.judge_attachments.posthoganalytics.feature_enabled",
-                return_value=flag_enabled,
-            ) as feature_enabled,
-            patch(
                 "products.ai_observability.backend.ai_blobs.object_storage.get_presigned_url",
                 return_value="https://signed",
             ),
@@ -1647,9 +1702,6 @@ class TestRunEvaluationWorkflow:
             execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
         content = mock_client.complete.call_args.args[0].messages[0]["content"]
-        if "include_media" not in evaluation_config:
-            # Team ids repeat across regions, so the flag is checked against the project uuid.
-            assert feature_enabled.call_args.kwargs["groups"] == {"project": str(team.uuid)}
         if attaches_image:
             assert AttachmentPart(mime_type="image/jpeg", url="https://signed") in content
             assert "user: [image 1] What does this chart show?" in content[-1]["text"]
@@ -2334,7 +2386,7 @@ class TestRunEvaluationWorkflow:
             ),
         ):
             with pytest.raises(AssertionError, match="stop after hydration"):
-                _execute_llm_judge_activity(
+                run_generation_llm_judge(
                     ExecuteLLMJudgeInputs(
                         evaluation=_local_evaluation(
                             evaluation_type="llm_judge", evaluation_config={"prompt": "grade it"}
@@ -2347,15 +2399,15 @@ class TestRunEvaluationWorkflow:
 
     @pytest.mark.parametrize("live", [pytest.param(True, id="live"), pytest.param(False, id="backfill")])
     @pytest.mark.parametrize(
-        "attempt,retryable",
+        "attempt,retryable,live_delay",
         [
-            pytest.param(1, True, id="first attempt"),
-            pytest.param(2, True, id="second attempt"),
-            pytest.param(3, False, id="last attempt"),
+            pytest.param(1, True, timedelta(seconds=30), id="first attempt"),
+            pytest.param(2, True, timedelta(seconds=90), id="second attempt"),
+            pytest.param(3, False, None, id="last attempt"),
         ],
     )
     def test_a_missing_generation_gets_two_retries_before_it_fails_the_run(
-        self, attempt: int, retryable: bool, live: bool
+        self, attempt: int, retryable: bool, live_delay: timedelta | None, live: bool
     ):
         reference = {**THIN_REFERENCE, "awaiting_ingestion": True} if live else dict(THIN_REFERENCE)
         env = ActivityEnvironment()
@@ -2368,8 +2420,7 @@ class TestRunEvaluationWorkflow:
         assert raised.value.non_retryable is not retryable
         assert is_expected_activity_failure(raised.value) is (retryable or not live)
         assert isinstance(raised.value, GenerationNotFoundError) is (not retryable and not live)
-        expected_delay = GENERATION_NOT_FOUND_RETRY_DELAY if retryable and live else None
-        assert raised.value.next_retry_delay == expected_delay
+        assert raised.value.next_retry_delay == (live_delay if live else None)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -2401,7 +2452,7 @@ class TestRunEvaluationWorkflow:
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as call_judge,
         ):
             if evaluation_type == "llm_judge":
-                result = _execute_llm_judge_activity(
+                result = run_generation_llm_judge(
                     ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=dict(THIN_REFERENCE))
                 )
             else:
@@ -2549,7 +2600,7 @@ class TestRunEvaluationWorkflow:
                 "verdict": True,
                 "reasoning": "ok",
                 "allows_na": False,
-                "model": "gpt-4.1-mini",
+                "model": "gpt-6-luna",
                 "provider": "openai",
             }
 
@@ -4148,7 +4199,7 @@ class TestEvalResultModels:
                 parsed=schema.model_validate({"reasoning": "Resolution", "categories": categories}),
                 usage=MagicMock(input_tokens=100, output_tokens=20, total_tokens=120),
             )
-            result = _execute_llm_judge_activity(
+            result = run_generation_llm_judge(
                 ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=create_mock_event_data(1))
             )
         assert result["result_type"] == "categorical"
@@ -4198,7 +4249,7 @@ class TestEvalResultModels:
                 usage=MagicMock(input_tokens=100, output_tokens=20, total_tokens=120),
             )
             inputs = ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=create_mock_event_data(1))
-            result = _execute_llm_judge_activity(inputs)
+            result = run_generation_llm_judge(inputs)
             increment_errors.assert_not_called()
         assert result["result_type"] == "numeric"
         assert "verdict" not in result
@@ -4742,14 +4793,7 @@ class TestJudgePromptAssembly:
             },
         )
 
-        with (
-            patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as judge,
-            patch(
-                "posthog.temporal.ai_observability.judge_attachments.posthoganalytics.feature_enabled",
-                return_value=True,
-            ),
-            patch("posthog.temporal.ai_observability.judge_attachments._project_uuid", return_value="uuid"),
-        ):
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as judge:
             execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
         attachment_prompt = judge.call_args.kwargs["attachment_prompt"]

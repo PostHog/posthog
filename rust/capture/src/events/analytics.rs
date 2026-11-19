@@ -236,7 +236,10 @@ pub fn process_single_event(
         is_cookieless_mode: event
             .extract_is_cookieless_mode()
             .ok_or(CaptureError::InvalidCookielessMode)?,
-        historical_migration: metadata.data_type == DataType::AnalyticsHistorical,
+        // Only the sender's flag marks a migration.
+        // A timestamp reroute changes the topic, not the flag.
+        historical_migration: data_type == DataType::AnalyticsHistorical,
+        options: None,
     };
 
     Ok(ProcessedEvent { metadata, event })
@@ -912,46 +915,36 @@ mod tests {
         assert_eq!(processed.metadata.computed_timestamp, Some(expected));
     }
 
-    #[test]
-    fn test_process_single_event_with_historical_migration_false() {
+    #[rstest::rstest]
+    #[case::not_flagged(false, false, DataType::AnalyticsMain, false)]
+    #[case::flagged(true, false, DataType::AnalyticsHistorical, true)]
+    #[case::rerouted_by_timestamp(false, true, DataType::AnalyticsHistorical, false)]
+    fn test_process_single_event_historical_migration(
+        #[case] sender_flag: bool,
+        #[case] rerouting_enabled: bool,
+        #[case] expected_data_type: DataType,
+        #[case] expected_flag: bool,
+    ) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
 
         let mut context = create_test_context(now, None);
-        context.historical_migration = false;
+        context.historical_migration = sender_flag;
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
 
-        let result =
-            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
+        let result = process_single_event(
+            &event,
+            router::HistoricalConfig::new(rerouting_enabled, 1),
+            &context,
+        );
 
         assert!(result.is_ok());
         let processed = result.unwrap();
 
-        assert!(!processed.event.historical_migration);
-        assert_eq!(processed.metadata.data_type, DataType::AnalyticsMain);
-    }
-
-    #[test]
-    fn test_process_single_event_with_historical_migration_true() {
-        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
-
-        let mut context = create_test_context(now, None);
-        context.historical_migration = true;
-
-        let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
-
-        let result =
-            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
-
-        assert!(result.is_ok());
-        let processed = result.unwrap();
-
-        assert!(processed.event.historical_migration);
-        assert_eq!(processed.metadata.data_type, DataType::AnalyticsHistorical);
+        assert_eq!(processed.event.historical_migration, expected_flag);
+        assert_eq!(processed.metadata.data_type, expected_data_type);
     }
 
     // Mock sink for testing process_events with restrictions

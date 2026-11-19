@@ -34,7 +34,7 @@ from loginas.utils import is_impersonated_session
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, Throttled, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -68,6 +68,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.replay_vision.backend.api.cloud_only import ReplayVisionCloudOnly
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
@@ -104,13 +105,14 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_feed_dismissal import ReplayObservationFeedDismissal
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
-    SamplingMode,
+    ScannerDisabledReason,
     ScannerModel,
     ScannerProvider,
     ScannerType,
     apply_experiment_targeting,
     config_experiment_scope,
 )
+from products.replay_vision.backend.models.vision_alert import VisionAlertConfiguration
 from products.replay_vision.backend.prompt_questions import question_fields_for_save, scanner_question
 from products.replay_vision.backend.queries import (
     ESTIMATE_STALE_AFTER,
@@ -124,21 +126,21 @@ from products.replay_vision.backend.queries import (
 )
 from products.replay_vision.backend.queries.filter_errors import REDACTED_FILTER_ERROR, filter_error_message
 from products.replay_vision.backend.quota import (
+    FREE_CREDITS_USED_CODE,
     ScannerBudget,
     ScannerSpend,
     compute_scanner_budgets,
     credits_used_by_scanner,
     current_period_bounds,
     free_credits_ceiling,
+    free_credits_used_up,
     org_credit_cap,
     quota_state,
-    quota_state_for_cap,
     scanner_period_receipts,
     spend_projection,
 )
 from products.replay_vision.backend.scanner_access import (
     SCANNER_CREATOR_LOST_ACCESS_CODE,
-    UnrunnableReason,
     accessible_experiment_ids,
     accessible_observations,
     can_read_targeted_experiment,
@@ -148,7 +150,6 @@ from products.replay_vision.backend.scanner_access import (
     recording_viewer_access,
     scanner_experiment_scope_q,
     scanners_for_reading_observations,
-    unrunnable_reasons,
 )
 from products.replay_vision.backend.scanner_config import (
     MAX_PROMPT_LENGTH,
@@ -185,6 +186,7 @@ from products.replay_vision.backend.scanning import (
     scan_existing_scanner,
     scan_outcome_counts,
 )
+from products.replay_vision.backend.scope.load import experiment_id_of
 from products.replay_vision.backend.scout_writes import (
     check_scout_scanner_credit_limit,
     refuse_scout_scanner_delete,
@@ -194,7 +196,11 @@ from products.replay_vision.backend.search import parse_date_bound
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.metrics import record_estimate_outcome, record_scanner_limit_reached
-from products.replay_vision.backend.temporal.read_meter_types import current_sweep_throttle_factor
+from products.replay_vision.backend.temporal.read_meter_types import (
+    current_sweep_throttle_factor,
+    scheduled_sweep_throttle_factor,
+)
+from products.replay_vision.backend.temporal.sweep_cadence import SweepCadenceInputs, sweep_interval
 from products.replay_vision.backend.watch_rank import (
     ISSUE_CATEGORIES,
     feed_window,
@@ -307,11 +313,7 @@ def query_reference_error(
     for kind, ids in (("action", refs.actions), ("cohort", refs.cohorts)):
         if ids and kind not in kinds:
             return f"This recording filter uses {kind}s, which your access doesn't cover."
-    missing = unresolved_references(
-        query,
-        team,
-        can_read_action=lambda action: bool(user_access_control.check_access_level_for_object(action, "viewer")),
-    )
+    missing = unresolved_references(query, team, access_control=user_access_control)
     if missing:
         return f"This recording filter uses {', '.join(missing)}, which this project doesn't have."
     return None
@@ -374,7 +376,6 @@ def scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
         # The model's price, so experiments on the model picker can compare spend without joining a price table.
         "credits_per_observation": observation_credits_for_model(scanner.model),
         "sampling_rate": scanner.sampling_rate,
-        "sampling_mode": scanner.sampling_mode,
         "enabled": scanner.enabled,
         # An experiment scope narrows the population server-side, so it counts as filtered; the
         # separate flag keeps experiment-scoped scanners countable apart from hand-filtered ones.
@@ -580,11 +581,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "the sampling precision."
         ),
     )
-    sampling_mode = serializers.ChoiceField(
-        choices=SamplingMode.choices,
-        required=False,
-        help_text="Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).",
-    )
     credit_limit = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -690,6 +686,14 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "every N schedule intervals. Expensive filters raise it."
         ),
     )
+    sweep_interval_minutes = serializers.SerializerMethodField(
+        help_text=(
+            "How often, in minutes, the scheduled sweep checks this scanner for new recordings. Null when the "
+            "scanner is off or its sweep is paused because it cannot scan. Scanners that rarely find recordings, "
+            "or read a lot of data, are checked less often. Scanners created or edited in the last day, or with "
+            "an enabled alert, are checked as often as their read budget allows."
+        ),
+    )
     dashboard_id = serializers.SerializerMethodField(
         help_text=(
             "Dashboard created for this scanner with the create_dashboard action. Null when none was created "
@@ -703,12 +707,16 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "repeat the offer if the user declines."
         ),
     )
-    unrunnable_reason = serializers.SerializerMethodField(
+    disabled_reason = serializers.ChoiceField(
+        choices=ScannerDisabledReason.choices,
+        read_only=True,
+        allow_null=True,
         help_text=(
-            "Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not "
-            "approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, "
-            "which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. "
-            "The sweep turns an enabled scanner off when either applies."
+            "Why the scanner is off, or null when it is on or was created off. `manual`: a person turned it off. "
+            "`free_credits_used`: a `free_only` scanner stopped when the free credits ran out. `no_ai_consent`: the "
+            "organization has not approved AI data processing. `creator_lost_access`: the creator can no longer "
+            "view recordings, which the sweep reads as them, so turning the scanner on requires "
+            "`take_over_as_creator`. `experiment_deleted`: its experiment was deleted."
         ),
     )
     last_swept_at = serializers.DateTimeField(
@@ -737,7 +745,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "prompt_question",
             "query",
             "sampling_rate",
-            "sampling_mode",
             "credit_limit",
             "free_only",
             "provider",
@@ -756,11 +763,12 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "limit_from_free_credits",
             "limit_reached",
             "sweep_throttle_factor",
+            "sweep_interval_minutes",
             "dashboard_id",
             "dashboard_suggested",
             "last_swept_at",
             "filter_error",
-            "unrunnable_reason",
+            "disabled_reason",
             "created_at",
             "created_by",
             "updated_at",
@@ -780,6 +788,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "limit_from_free_credits",
             "limit_reached",
             "sweep_throttle_factor",
+            "sweep_interval_minutes",
             "dashboard_id",
             "dashboard_suggested",
             "last_swept_at",
@@ -867,6 +876,38 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             datetime.now(UTC),
         )
 
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_sweep_interval_minutes(self, scanner: ReplayScanner) -> int | None:
+        if not scanner.enabled:
+            return None
+        interval = sweep_interval(
+            SweepCadenceInputs(
+                created_at=scanner.created_at,
+                updated_at=scanner.updated_at,
+                last_found_candidates_at=scanner.last_found_candidates_at,
+                sweep_paused_until=scanner.sweep_paused_until,
+                # The stored factor, not the live one, so the interval shown is the one the schedule runs at.
+                throttle_factor=scheduled_sweep_throttle_factor(
+                    scanner.sweep_throttle_factor, scanner.sweep_throttle_factor_override
+                ),
+                has_enabled_alert=scanner.id in self._page_alerting_scanner_ids(scanner),
+            ),
+            datetime.now(UTC),
+        )
+        return None if interval is None else int(interval.total_seconds() // 60)
+
+    def _page_alerting_scanner_ids(self, scanner: ReplayScanner) -> set[UUID]:
+        # Shared across the list's children, so a page costs one query rather than one per scanner.
+        alerting = self.context.get("_scanner_alerting_ids")
+        if alerting is None:
+            alerting = set(
+                VisionAlertConfiguration.objects.for_team(scanner.team_id)
+                .filter(scanner_id__in=self._page_scanner_ids(scanner), enabled=True)
+                .values_list("scanner_id", flat=True)
+            )
+            self.context["_scanner_alerting_ids"] = alerting
+        return alerting
+
     def _page_dashboard_state(self, scanner: ReplayScanner) -> tuple[dict[UUID, int], set[UUID]]:
         # Shared across the list's children, so a page costs two queries rather than two per scanner.
         state = self.context.get("_scanner_dashboard_state")
@@ -888,16 +929,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     def get_dashboard_suggested(self, scanner: ReplayScanner) -> bool:
         # Readiness is only computed for scanners without a live dashboard.
         return scanner.id in self._page_dashboard_state(scanner)[1]
-
-    @extend_schema_field(serializers.ChoiceField(choices=UnrunnableReason.choices, allow_null=True))
-    def get_unrunnable_reason(self, scanner: ReplayScanner) -> UnrunnableReason | None:
-        # Shared across the list's children, so a page costs one access lookup rather than one per creator.
-        reasons = self.context.get("_scanner_unrunnable_reasons")
-        if reasons is None or scanner.id not in reasons:
-            page = self.root.instance if isinstance(self.root, serializers.ListSerializer) else None
-            reasons = unrunnable_reasons(list(page) if page is not None else [scanner])
-            self.context["_scanner_unrunnable_reasons"] = reasons
-        return reasons[scanner.id]
 
     @extend_schema_field(serializers.BooleanField())
     def get_limit_reached(self, scanner: ReplayScanner) -> bool:
@@ -953,6 +984,17 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 )
             self._check_can_take_over(self.instance)
             attrs["take_over_as_creator"] = True
+        if attrs.get("free_only", self.instance.free_only) and free_credits_used_up(
+            self.context["get_team"]().organization_id,
+            credits_per_observation=observation_credits_for_model(attrs.get("model", self.instance.model)),
+        ):
+            raise serializers.ValidationError(
+                {
+                    "enabled": "Your free credits for this billing period are used up. "
+                    'Turn off "Free credits only" to turn this scanner on.'
+                },
+                code=FREE_CREDITS_USED_CODE,
+            )
 
     def _check_can_take_over(self, scanner: ReplayScanner) -> None:
         # The creator scans as themselves and manages the scanner's access, so the new one needs all of it.
@@ -1197,9 +1239,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         if cached is not None:
             return cached
         page_ids = {
-            scope["experiment_id"]
+            experiment_id
             for scanner in self._page_scanners() or ()
-            if (scope := scanner.experiment_scope()) and isinstance(scope.get("experiment_id"), int)
+            if (experiment_id := experiment_id_of(scanner)) is not None
         }
         accessible = accessible_experiment_ids(self.user_access_control, team_id, page_ids) if page_ids else set()
         page_access = {experiment_id: experiment_id in accessible for experiment_id in page_ids}
@@ -1320,7 +1362,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 **source_kwargs,
             )
         # A pure enable/disable toggle is not a config edit. A save that also flips enabled fires both events.
-        if any(field != "enabled" for field in changed_fields):
+        if any(field not in ("enabled", "disabled_reason") for field in changed_fields):
             report_user_action(
                 user,
                 "replay_vision_scanner_edited",
@@ -1729,15 +1771,6 @@ class EstimateRequestSerializer(serializers.Serializer):
         max_value=1.0,
         help_text="0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).",
     )
-    sampling_mode = serializers.ChoiceField(
-        choices=SamplingMode.choices,
-        required=False,
-        default=SamplingMode.COMPREHENSIVE,
-        help_text=(
-            "Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. "
-            "Defaults to comprehensive (no filter)."
-        ),
-    )
     scanner_id = serializers.UUIDField(
         required=False,
         allow_null=True,
@@ -2029,8 +2062,7 @@ class EstimateResponseSerializer(serializers.Serializer):
 
     matched_sessions_in_window = serializers.IntegerField(
         help_text=(
-            "Distinct sessions matching the query within the scanned window (`window_days`), after the "
-            "sampling_mode quality filter but before random sampling."
+            "Distinct sessions matching the query within the scanned window (`window_days`), before random sampling."
         ),
     )
     window_days = serializers.IntegerField(
@@ -2041,7 +2073,7 @@ class EstimateResponseSerializer(serializers.Serializer):
     )
     estimated_observations_per_month = serializers.IntegerField(
         help_text=(
-            "Projected monthly observations: quality-filtered matched sessions scaled from `window_days` to 30 days, "
+            "Projected monthly observations: matched sessions scaled from `window_days` to 30 days, "
             "times sampling_rate."
         ),
     )
@@ -2090,7 +2122,7 @@ class DraftScannerRequestSerializer(serializers.Serializer):
         max_value=100_000_000,
         help_text=(
             "Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves "
-            "`sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets "
+            "`sampling_rate` so the projected spend lands on this number, and sets "
             "`credit_limit` to it as a hard cap. Ask the person for it rather than guessing. "
             "Required unless `free_only` is true, and not allowed with it."
         ),
@@ -2100,7 +2132,7 @@ class DraftScannerRequestSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "Draft a scanner that runs only on the organization's free monthly credits, so it never adds "
-            "to the bill and pauses when they run out. The draft is sized to those free credits and comes "
+            "to the bill and stops when they run out. The draft is sized to those free credits and comes "
             "back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`."
         ),
     )
@@ -2120,7 +2152,7 @@ class DraftScannerRequestSerializer(serializers.Serializer):
             "it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND "
             "its own page, event, action or cohort filters onto it. It keeps them only when the combined "
             "filter still matches recent recordings, returns them in `query_additions`, and sizes the "
-            "sampling dials against the combined `query`. `experiment_exposure` becomes the scanner's "
+            "sampling rate against the combined `query`. `experiment_exposure` becomes the scanner's "
             "experiment and variants, which the draft keeps as they are. `date_from`/`date_to` are dropped, "
             "because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session "
             "exposure are refused, because a scanner cannot apply them. A query with no filters starts from "
@@ -2173,20 +2205,13 @@ class DraftScannerResponseSerializer(serializers.Serializer):
             "was passed."
         ),
     )
-    sampling_mode = serializers.ChoiceField(
-        choices=SamplingMode.choices,
-        allow_null=True,
-        help_text=(
-            "The quality pre-filter the draft chose for the goal. Null when the costing estimate "
-            "failed, in which case the wizard keeps its defaults."
-        ),
-    )
     sampling_rate = serializers.FloatField(
         allow_null=True,
         help_text=(
             "The random sampling rate solved from `monthly_credit_budget`, 0..1. "
             "1.0 when the budget covers every matching recording. Floored at the minimum rate, so a "
-            "budget below that floor keeps the minimum. Null whenever `sampling_mode` is."
+            "budget below that floor keeps the minimum. Null when the costing estimate failed, in which "
+            "case the wizard keeps its defaults."
         ),
     )
     model = serializers.ChoiceField(
@@ -2208,9 +2233,9 @@ class DraftScannerResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Recordings a month the drafted scanner is projected to watch under "
-            "the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when "
+            "the solved rate. Its credit cost lands at or under `monthly_credit_budget`, except when "
             "the budget is below what the minimum sampling rate can reach, where this is the floor and "
-            "exceeds the budget. Null whenever `sampling_mode` is."
+            "exceeds the budget. Null whenever `sampling_rate` is."
         ),
     )
 
@@ -2386,6 +2411,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     """CRUD for Replay Vision scanners."""
 
     scope_object = "replay_scanner"
+    permission_classes = [ReplayVisionCloudOnly]
     # Custom actions must be listed explicitly or personal-API-key callers 403 silently.
     scope_object_read_actions = [
         "list",
@@ -2537,7 +2563,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             ):
                 experiment_targeting = None
         if source.scanner_type == ScannerType.EXPERIMENT:
-            scope_experiment_id = (source.experiment_scope() or {}).get("experiment_id")
+            scope_experiment_id = experiment_id_of(source)
             if scope_experiment_id is None or not is_experiment_accessible(
                 self.user_access_control, self.team_id, scope_experiment_id
             ):
@@ -2560,7 +2586,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     prompt_valence=source.prompt_valence,
                     query=source.query,
                     sampling_rate=source.sampling_rate,
-                    sampling_mode=source.sampling_mode,
                     credit_limit=source.credit_limit,
                     free_only=source.free_only,
                     provider=source.provider,
@@ -3085,6 +3110,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             request=self.request,
         )
 
+    def _impact_observations(self, scanner: ReplayScanner) -> QuerySet[ReplayObservation]:
+        # Same experiment gates as the observations endpoint: not-found for the scanner's current
+        # experiment, row-level for the experiments in each observation's snapshot.
+        if not can_read_targeted_experiment(self.user_access_control, self.team_id, scanner):
+            raise NotFound()
+        return accessible_observations(self.user_access_control, self.team_id, ReplayObservation.objects.all())
+
     @extend_schema(parameters=[ScannerImpactQuerySerializer], responses={200: ScannerImpactSerializer})
     @action(
         detail=True,
@@ -3099,6 +3131,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading scanner impact requires session_recording read access.")
         scanner = self.get_object()
+        observations = self._impact_observations(scanner)
         params = ScannerImpactQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         try:
@@ -3109,6 +3142,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 tag=params.validated_data["tag"],
                 min_score=params.validated_data["min_score"],
                 max_score=params.validated_data["max_score"],
+                observations=observations,
             )
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
@@ -3168,6 +3202,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         if not self.user_access_control.check_access_level_for_resource("cohort", required_level="editor"):
             raise PermissionDenied("Saving an affected cohort requires cohort edit access.")
         scanner = self.get_object()
+        observations = self._impact_observations(scanner)
         body = AffectedCohortRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         window_days: int = body.validated_data["window_days"]
@@ -3180,6 +3215,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 tag=body.validated_data["tag"],
                 min_score=body.validated_data["min_score"],
                 max_score=body.validated_data["max_score"],
+                observations=observations,
             )
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
@@ -3315,7 +3351,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             # The exposure filter's access check runs as the requesting user, so a preview can't
             # count exposed sessions of an experiment the caller is denied.
             user=cast(User, request.user),
-            sampling_mode=body.validated_data["sampling_mode"],
             budget=PREVIEW_ESTIMATE_BUDGET,
         )
         observations_per_month = project_monthly_observations(estimate, sampling_rate)
@@ -3396,8 +3431,15 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             cap = org_credit_cap(self.team.organization_id)
             # A free-only scanner is sized to what the organization can spend for free, which billing can lower.
             monthly_credit_budget = free_credits_ceiling(cap)
-            # A free-only draft saved after the free credits run out pauses before its first scan.
-            if quota_state_for_cap(self.team.organization_id, cap).credits_used >= monthly_credit_budget:
+            if monthly_credit_budget is None:
+                raise ValidationError(
+                    {
+                        "free_only": "Every credit is free for your organization, so set a monthly credit budget "
+                        "to size this scanner."
+                    }
+                )
+            # A free-only draft saved after the free credits run out turns off before its first scan.
+            if free_credits_used_up(self.team.organization_id, cap):
                 raise ValidationError(
                     {
                         "free_only": "Your organization has used its free credits for this billing period. "
@@ -3485,7 +3527,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "narrowing_refusal": drafted.narrowing_refusal,
                 "has_experiment_targeting": drafted.scanner_type == ScannerType.EXPERIMENT,
                 "experiment_picked": experiment_id is not None,
-                "sampling_mode": drafted.sampling_mode,
                 "sampling_rate": drafted.sampling_rate,
                 "model": drafted.model,
                 "credit_limit": drafted.credit_limit,
@@ -3505,7 +3546,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "rationale": drafted.rationale,
                     "query": drafted.query,
                     "query_additions": drafted.query_additions,
-                    "sampling_mode": drafted.sampling_mode,
                     "sampling_rate": drafted.sampling_rate,
                     "model": drafted.model,
                     "credit_limit": drafted.credit_limit,

@@ -142,7 +142,7 @@ EVERY_15_MINUTES_CADENCE_MINUTES = 15
 # The earliest offset gives ingestion time to deliver the interval that just closed.
 _CHECK_WINDOWS: dict[CalendarInterval, tuple[timedelta, timedelta]] = {
     CalendarInterval.EVERY_15_MINUTES: (timedelta(minutes=1), timedelta(minutes=3)),
-    CalendarInterval.HOURLY: (timedelta(minutes=2), timedelta(minutes=12)),
+    CalendarInterval.HOURLY: (timedelta(minutes=2), timedelta(minutes=56)),
     CalendarInterval.DAILY: (timedelta(minutes=2), timedelta(minutes=58)),
     CalendarInterval.WEEKLY: (timedelta(minutes=2), timedelta(minutes=58)),
     CalendarInterval.MONTHLY: (timedelta(minutes=2), timedelta(minutes=58)),
@@ -322,6 +322,18 @@ def _next_calendar_schedule_start_time(
     return candidate_utc
 
 
+def _offset_within_period(
+    start: datetime, offset: timedelta, team_timezone: BaseTzInfo, period_minutes: int
+) -> datetime:
+    """The alert's minute in the period that begins at `start`, kept inside that period.
+
+    A daylight saving change can shorten a local period (to 30 minutes on Lord Howe Island). An
+    offset past its end would land in the next period, and the period after that would be skipped.
+    """
+    period_end = next_local_period_start(start, team_timezone, period_minutes)
+    return min(start + offset, period_end - timedelta(minutes=1))
+
+
 def next_calendar_check_time(
     interval: CalendarInterval,
     *,
@@ -365,9 +377,11 @@ def next_calendar_check_time(
             cadence_minutes = EVERY_15_MINUTES_CADENCE_MINUTES if interval == CalendarInterval.EVERY_15_MINUTES else 60
             # The check runs at this alert's offset into the first local interval after the previous check,
             # which also moves an alert off the minute it was created on.
-            candidate = next_local_period_start(next_check_at or now, team_timezone, cadence_minutes) + offset
+            start = next_local_period_start(next_check_at or now, team_timezone, cadence_minutes)
+            candidate = _offset_within_period(start, offset, team_timezone, cadence_minutes)
             if candidate <= now:
-                candidate = next_local_period_start(now - offset, team_timezone, cadence_minutes) + offset
+                start = next_local_period_start(now - offset, team_timezone, cadence_minutes)
+                candidate = _offset_within_period(start, offset, team_timezone, cadence_minutes)
             return candidate
         case CalendarInterval.DAILY:
             return _calendar_anchor_utc(

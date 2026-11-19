@@ -22,7 +22,8 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
+import { streamEvents } from 'lib/api-stream'
 import { getSeriesColor } from 'lib/colors'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { commentsLogic } from 'lib/components/Comments/commentsLogic'
@@ -68,7 +69,10 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import { notebooksCollabPresenceCreate } from 'products/notebooks/frontend/generated/api'
+import {
+    getNotebooksCollabStreamRetrieveUrl,
+    notebooksCollabPresenceCreate,
+} from 'products/notebooks/frontend/generated/api'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 
 import type { Node } from '../../../queries/schema/schema-general'
@@ -353,6 +357,7 @@ export interface notebookLogicValues {
     markdownRemoteParticipants: NotebookRemoteParticipant[]
     markdownRemotePresence: Record<string, NotebookRemotePresenceState>
     mode: NotebookLogicMode
+    mountedEditorCount: number
     newNotebook: NotebookType | null
     newNotebookLoading: boolean
     nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>
@@ -508,6 +513,12 @@ export interface notebookLogicActions {
         payload?: {
             value: true
         }
+    }
+    notebookEditorMounted: () => {
+        value: true
+    }
+    notebookEditorUnmounted: () => {
+        value: true
     }
     notebookVariablesSaved: (variables: NotebookVariableApi[]) => {
         variables: NotebookVariableApi[]
@@ -748,7 +759,8 @@ export type notebookLogicType = MakeLogicType<
 export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
-    key(({ shortId, mode }) => `${shortId}-${mode}`),
+    // Keep the legacy suffix because scratchpad content is persisted under this key.
+    key(({ shortId, mode }) => `${shortId}-${mode === 'canvas' ? mode : undefined}`),
 
     connect((props: NotebookLogicProps) => ({
         values: [
@@ -791,6 +803,8 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
     })),
     actions({
+        notebookEditorMounted: true,
+        notebookEditorUnmounted: true,
         setAutosavePaused: (paused: boolean) => ({ paused }),
         setMarkdownEditorInteractionActive: (active: boolean) => ({ active }),
         setMarkdownAIPresenceActive: (active: boolean) => ({ active }),
@@ -856,6 +870,13 @@ export const notebookLogic = kea<notebookLogicType>([
         setAccessDeniedToNotebook: true,
     }),
     reducers(({ props }) => ({
+        mountedEditorCount: [
+            0,
+            {
+                notebookEditorMounted: (count) => count + 1,
+                notebookEditorUnmounted: (count) => Math.max(0, count - 1),
+            },
+        ],
         isShareModalOpen: [
             false,
             {
@@ -1693,6 +1714,7 @@ export const notebookLogic = kea<notebookLogicType>([
             cache.disposables.add(
                 () => {
                     const controller = new AbortController()
+                    let retryAttempt = 0
 
                     const onMessage = (msg: EventSourceMessage): void => {
                         if (msg.id) {
@@ -1753,14 +1775,19 @@ export const notebookLogic = kea<notebookLogicType>([
                         actions.handleMarkdownStreamEvent({ version, diff, baseCrc, clientId })
                     }
 
-                    const onError = (error: any): void => {
+                    const onError = (error: any): number | void => {
                         if (controller.signal.aborted) {
                             return
                         }
-                        const message = error instanceof Error ? error.message : String(error)
-                        posthog.captureException(error instanceof Error ? error : new Error(message), {
-                            action: 'notebook markdown stream',
-                        })
+                        if (retryAttempt === 0) {
+                            const message = error instanceof Error ? error.message : String(error)
+                            posthog.captureException(error instanceof Error ? error : new Error(message), {
+                                action: 'notebook markdown stream',
+                            })
+                        }
+                        const retryDelay = Math.min(1000 * 2 ** retryAttempt, 30_000)
+                        retryAttempt = Math.min(retryAttempt + 1, 5)
+                        return retryDelay
                     }
 
                     const onClose = (): void => {
@@ -1770,26 +1797,33 @@ export const notebookLogic = kea<notebookLogicType>([
                         actions.connectMarkdownUpdateStream()
                     }
 
-                    void api.notebooks
-                        .collabStream(values.shortId, {
+                    void streamEvents(
+                        getNotebooksCollabStreamRetrieveUrl(String(ApiConfig.getCurrentProjectId()), values.shortId),
+                        {
                             onMessage,
                             onError,
+                            onOpen: () => {
+                                retryAttempt = 0
+                            },
                             onClose,
                             signal: controller.signal,
-                            lastEventId: cache.markdownUpdateStreamLastEventId,
-                        })
-                        .catch((error) => {
-                            if (controller.signal.aborted) {
-                                return
-                            }
-                            onError(error)
-                            actions.connectMarkdownUpdateStream()
-                        })
+                            headers: {
+                                'Last-Event-ID':
+                                    cache.markdownUpdateStreamLastEventId ?? `${values.notebook?.version ?? 0}-1`,
+                            },
+                        }
+                    ).catch((error) => {
+                        if (controller.signal.aborted) {
+                            return
+                        }
+                        onError(error)
+                        actions.connectMarkdownUpdateStream()
+                    })
 
                     return () => controller.abort()
                 },
                 'markdownUpdateStream',
-                { pauseOnPageHidden: false }
+                { pauseOnPageHidden: true }
             )
 
             cache.disposables.add(() => {
@@ -2260,6 +2294,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 isLocalOnly: logic.values.isLocalOnly,
                 isEditable: logic.values.isEditable,
                 syncStatus: logic.values.syncStatus,
+                hasMountedEditor: logic.values.mountedEditorCount > 0,
                 currentPathname: router.values.location.pathname,
                 newPathname: newLocation?.pathname,
             }),

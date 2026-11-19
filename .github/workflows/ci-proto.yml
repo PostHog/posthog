@@ -24,7 +24,7 @@ jobs:
             pull-requests: read
         name: Determine need to run proto checks
         outputs:
-            proto: ${{ steps.filter.outcome == 'success' && steps.filter.outputs.proto || 'true' }}
+            proto: ${{ steps.decision.outputs.proto || 'true' }}
         steps:
             - name: Check push baseline
               id: baseline
@@ -51,6 +51,7 @@ jobs:
                       core.info(safe ? 'Compare the complete push range.' : 'Full checks: push baseline is not green.');
                       return safe;
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: github.event_name == 'pull_request' || (steps.baseline.outcome == 'success' && steps.baseline.outputs.result == 'true')
               with:
                   clean: false
                   sparse-checkout: .github/actions/paths-filter
@@ -77,7 +78,25 @@ jobs:
                   base: ${{ github.event.before }}
                   ref: ${{ github.sha }}
                   filters: |
+                      # A pull request and a merge queue run use only this list: the proto sources,
+                      # the generator configuration and versions, and the generated stubs.
+                      # A wider list runs the checks on pull requests that cannot change their result.
                       proto:
+                        - 'proto/**'
+                        - 'packages/personhog-proto/**'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - 'bin/generate_personhog_proto.sh'
+                        - 'nodejs/src/common/generated/personhog/**'
+                        - 'nodejs/src/common/generated/ingestion-worker/**'
+                        - 'nodejs/buf.gen.yaml'
+                        - 'nodejs/buf.gen.ingestion-worker.yaml'
+                        - 'nodejs/package.json'
+                        - 'pnpm-lock.yaml'
+                        - '.github/workflows/ci-proto.yml'
+                      # A push to master also runs the checks when it matches this wider list,
+                      # so a path that the list above misses still gets a full run there.
+                      push_backstop:
                         - '*'
                         - 'proto/**'
                         - 'packages/**'
@@ -89,6 +108,11 @@ jobs:
                         - 'patches/**'
                         - '.github/actions/**'
                         - '.github/workflows/ci-proto.yml'
+            - name: Decide whether the proto checks run
+              id: decision
+              env:
+                  RUN_CHECKS: ${{ steps.filter.outcome != 'success' || steps.filter.outputs.proto == 'true' || (github.event_name == 'push' && steps.filter.outputs.push_backstop == 'true') }}
+              run: echo "proto=$RUN_CHECKS" >> "$GITHUB_OUTPUT"
             - name: Capture proto selection to DevEx PostHog
               if: >-
                   !cancelled() && github.run_attempt == '1'
@@ -103,11 +127,11 @@ jobs:
                   event: 'posthog-ci-proto-selection'
                   properties: |
                       {
-                        "mode": ${{ toJSON(steps.filter.outcome == 'success' && steps.filter.outputs.proto == 'false' && 'skip' || 'full') }},
+                        "mode": ${{ toJSON(steps.decision.outputs.proto == 'false' && 'skip' || 'full') }},
                         "selection_eligible": ${{ github.event_name == 'pull_request' || steps.fetch-baseline.outcome == 'success' }},
-                        "matched_file_count": ${{ steps.filter.outcome == 'success' && steps.filter.outputs.proto_count || 'null' }},
-                        "selected_check_count": ${{ steps.filter.outcome == 'success' && steps.filter.outputs.proto == 'false' && '0' || '4' }},
-                        "selection_reason_category": ${{ toJSON(steps.filter.outcome == 'failure' && 'filter-failed' || steps.filter.outcome == 'success' && (steps.filter.outputs.proto == 'false' && 'no-matching-paths' || 'matching-paths') || github.event_name != 'push' && 'full-event' || steps.baseline.outcome == 'failure' && 'baseline-api-failed' || steps.baseline.outputs.result != 'true' && 'unsafe-baseline' || 'baseline-fetch-failed') }},
+                        "matched_file_count": ${{ steps.filter.outcome == 'success' && (github.event_name == 'push' && steps.filter.outputs.push_backstop_count || steps.filter.outputs.proto_count) || 'null' }},
+                        "selected_check_count": ${{ steps.decision.outputs.proto == 'false' && '0' || '4' }},
+                        "selection_reason_category": ${{ toJSON(steps.filter.outcome == 'failure' && 'filter-failed' || steps.filter.outcome == 'success' && (steps.decision.outputs.proto == 'false' && 'no-matching-paths' || 'matching-paths') || github.event_name != 'push' && 'full-event' || steps.baseline.outcome == 'failure' && 'baseline-api-failed' || steps.baseline.outputs.result != 'true' && 'unsafe-baseline' || 'baseline-fetch-failed') }},
                         "selection_reason_detail": ${{ toJSON(format('event={0}; baseline={1}/{2}; fetch={3}; filter={4}', github.event_name, steps.baseline.outcome, steps.baseline.outputs.result, steps.fetch-baseline.outcome, steps.filter.outcome)) }},
                         "pr_draft": ${{ toJSON(github.event.pull_request.draft) }},
                         "merge_queue": ${{ startsWith(github.head_ref, 'trunk-merge/') }},
@@ -118,10 +142,10 @@ jobs:
                       }
 
     validation:
-        name: Lint and check proto compatibility (depot-ubuntu-22.04-4)
+        name: Lint and check proto compatibility (depot-ubuntu-22.04)
         needs: changes
         if: needs.changes.outputs.proto == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        runs-on: depot-ubuntu-22.04
         timeout-minutes: 5
 
         steps:
@@ -156,10 +180,10 @@ jobs:
               run: buf breaking proto/ --against .proto-baseline/proto/
 
     python-codegen:
-        name: Check Python proto stubs are up to date (depot-ubuntu-22.04-4)
+        name: Check Python proto stubs are up to date (depot-ubuntu-22.04)
         needs: changes
         if: needs.changes.outputs.proto == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        runs-on: depot-ubuntu-22.04
         timeout-minutes: 10
 
         steps:
@@ -215,16 +239,31 @@ jobs:
                   echo "Generated Python proto stubs are up to date."
 
     node-codegen:
-        name: Check Node proto stubs are up to date (depot-ubuntu-22.04-4)
+        name: Check Node proto stubs are up to date (depot-ubuntu-22.04)
         needs: changes
         if: needs.changes.outputs.proto == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        runs-on: depot-ubuntu-22.04
         timeout-minutes: 10
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  sparse-checkout: |
+                      /*
+                      !/*/
+                      **/package.json
+                      /.github/actions/pnpm-install/
+                      /.github/actions/setup-pnpm/
+                      /bin/
+                      /common/
+                      /nodejs/
+                      /patches/
+                      /proto/
+                      /rust/common/hogvm/node/
+                      /rust/replay-anonymizer-node/
+                      /rust/ai-research/replay-core-v4-node/
+                  sparse-checkout-cone-mode: false
 
             - name: Install buf
               uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1.4.0

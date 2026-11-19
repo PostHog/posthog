@@ -5,10 +5,12 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.errors import CLICKHOUSE_ERROR_CODE_LOOKUP, InternalCHQueryError, wrap_clickhouse_query_error
+from posthog.models import Team
 from posthog.models.property import PropertyValidationError
 
 from products.feature_flags.backend.user_blast_radius import (
     UNEVALUABLE_FILTERS_MESSAGE,
+    replace_proxy_properties,
     unevaluable_filters_as_validation_errors,
 )
 
@@ -62,3 +64,19 @@ class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
         err = wrap_clickhouse_query_error(ServerException("Logical error: invariant violated", code=49))
         with self.assertRaises(InternalCHQueryError), unevaluable_filters_as_validation_errors():
             raise err
+
+
+class TestReplaceProxyProperties(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("boolean_list", [True, False], ["true", "false"]),
+            ("boolean", True, "true"),
+            ("number_list", [1, 2.5], ["1", "2.5"]),
+        ]
+    )
+    def test_person_values_become_the_strings_hogql_compares(self, _name, value, expected):
+        filters = {"properties": [{"key": "beta", "type": "person", "value": value, "operator": "exact"}]}
+
+        [prop] = replace_proxy_properties(Team(), filters).flat
+
+        self.assertEqual(prop.value, expected)

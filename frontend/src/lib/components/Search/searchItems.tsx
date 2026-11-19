@@ -45,7 +45,9 @@ export interface SearchItem {
     identityFields?: string[]
     isCurated?: boolean
     matchedSearchKeyword?: string | null
+    hideMatchedKeyword?: boolean
     parentName?: string
+    contextKeywords?: string[]
     record?: Record<string, unknown>
     rank?: number | null // PostgreSQL full-text search rank (from unified search API)
     rankKey?: number[]

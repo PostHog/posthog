@@ -186,6 +186,8 @@ def list_runs(params: ListWizardRunsInput, page: PageRequest) -> Page[WizardRunD
         runs = runs.filter(status__in=params.statuses)
     if params.created_after is not None:
         runs = runs.filter(created_at__gt=params.created_after)
+    if params.created_by_id is not None:
+        runs = runs.filter(created_by_id=params.created_by_id)
     rows = select_page(runs, page)
     results: list[WizardRunDTO] = []
     for run in rows.results:

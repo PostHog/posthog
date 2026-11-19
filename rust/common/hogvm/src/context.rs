@@ -50,6 +50,7 @@ pub struct ExecutionContext {
     /// by epoch, and `Eq` compare two temporals by epoch — the ClickHouse/Python-TS-aligned semantics
     /// the realtime-cohort evaluator needs. Set via [`ExecutionContext::with_coercing_comparisons`].
     pub(crate) coerce_comparisons: bool,
+    pub(crate) boolean_text_equality: bool,
     // `Arc`-shared so cloning a default context is a refcount bump, not a deep copy; mutators
     // copy-on-write via `Arc::make_mut`.
     native_fns: Arc<HashMap<String, NativeFunction>>,
@@ -90,6 +91,7 @@ impl ExecutionContext {
             max_heap_size,
             max_steps,
             coerce_comparisons: false,
+            boolean_text_equality: false,
             native_fns: Arc::new(native_fns),
             symbol_table: Arc::new(flatten_modules(&modules)),
             async_fns: HashSet::new(),
@@ -111,6 +113,7 @@ impl ExecutionContext {
             max_heap_size: 1024 * 1024,
             max_steps: 10_000,
             coerce_comparisons: false,
+            boolean_text_equality: false,
             native_fns: DEFAULT_NATIVE_FNS.clone(),
             symbol_table: DEFAULT_SYMBOL_TABLE.clone(),
             async_fns: HashSet::new(),
@@ -150,10 +153,18 @@ impl ExecutionContext {
     }
 
     /// Opt into coercing comparison semantics (cross-type ordering coercion + epoch ordering/equality
-    /// of temporals). Off by default; only the realtime-cohort evaluator opts in, so consumers like
-    /// `cymbal` keep strict behavior. See [`Self::coerce_comparisons`].
+    /// of temporals). Off by default; the realtime-cohort evaluator and the Node shadow binding opt
+    /// in, so consumers like `cymbal` keep strict behavior. See [`Self::coerce_comparisons`].
     pub fn with_coercing_comparisons(mut self) -> Self {
         self.coerce_comparisons = true;
+        self
+    }
+
+    /// Compare a boolean with a string as the boolean's text, case-sensitively, the way ClickHouse
+    /// compares a property it reads as text. Off by default because the Node shadow binding must
+    /// match the TS VM, where `false == "variant"` is true.
+    pub fn with_boolean_text_equality(mut self) -> Self {
+        self.boolean_text_equality = true;
         self
     }
 

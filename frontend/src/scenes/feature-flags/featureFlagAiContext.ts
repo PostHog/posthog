@@ -23,7 +23,7 @@ const MAX_DESCRIPTION_LENGTH = 400
 export function featureFlagContextItems(featureFlag: FeatureFlagType): AttachedContextItem[] {
     return [
         // `name` on a flag is the description, so the key is the only display name available here.
-        { type: 'feature_flag', key: featureFlag.key, label: featureFlag.key },
+        { type: 'feature_flag', key: featureFlag.key, pageId: featureFlag.id, label: featureFlag.key },
         { type: 'feature_flag_targeting', label: 'Release conditions', value: targetingValue(featureFlag) },
     ]
 }

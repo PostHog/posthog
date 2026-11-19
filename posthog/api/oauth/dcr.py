@@ -26,9 +26,15 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.oauth import OAuthApplication, TokenEndpointAuthMethod
+from posthog.models.oauth import (
+    OIDC_SIGNING_KEY_MISSING_MESSAGE,
+    OAuthApplication,
+    TokenEndpointAuthMethod,
+    oidc_signing_key_configured,
+)
 from posthog.rate_limit import IPThrottle
-from posthog.scopes import OIDC_SCOPES, filter_self_registered_ceiling
+from posthog.scopes.ceilings import filter_self_registered_ceiling
+from posthog.scopes.oauth import OIDC_SCOPES
 
 from .client_name import sanitize_client_name, validate_client_name
 from .logo_uri import MAX_LOGO_URI_LENGTH, usable_logo_uri
@@ -122,6 +128,12 @@ class DynamicClientRegistrationView(APIView):
     throttle_classes = [DCRBurstThrottle, DCRSustainedThrottle]
 
     def post(self, request: Request) -> Response:
+        if not oidc_signing_key_configured():
+            return Response(
+                {"error": "server_error", "error_description": OIDC_SIGNING_KEY_MISSING_MESSAGE},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
         # Validate request
         serializer = DCRRequestSerializer(data=request.data)
         if not serializer.is_valid():

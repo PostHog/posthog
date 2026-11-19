@@ -10,6 +10,7 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.facade.codebase_detection import Detection, NotDetectable
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import WebhookEvents
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
@@ -37,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_kind import (
     default_credential_kind,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.legacy_oauth import LegacyOAuthGrant
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import (
     OAuthPointer,
     PointerPath,
@@ -244,6 +246,11 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # still decided by `SourceSchema.supports_xmin` at discovery. The API branches on this flag
     # instead of naming the source type.
     supports_xmin: bool = False
+
+    # `False` for sources whose incremental sync can replace rows by origin (a file) instead of merging
+    # them on a key. A history table orders each key's versions, so the API offers it only where this
+    # stays `True`.
+    supports_incremental_history: bool = True
 
     # Direct-only connectors opt out so API clients cannot create a source that is accepted by
     # discovery but can never run a scheduled import.
@@ -614,6 +621,20 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return derive_credential_auth_type(self.get_source_config)
 
+    def has_legacy_oauth_tokens(self, job_inputs: Mapping[str, Any]) -> bool:
+        """Check for legacy OAuth tokens without network calls."""
+        return False
+
+    def legacy_oauth_keys(self) -> tuple[str, ...]:
+        return ()
+
+    def adopt_legacy_oauth(self, job_inputs: Mapping[str, Any]) -> LegacyOAuthGrant | None:
+        """Prepare a grant for storage. This method can make network calls and raise LegacyOAuthGrantUnusable.
+
+        None means the inputs hold no legacy OAuth tokens to move into a row.
+        """
+        return None
+
     def in_use_oauth_slot(self, job_inputs: Mapping[str, Any]) -> PointerPath | None:
         """Where ``job_inputs`` keep the OAuth pointer (`*_integration_id`) that the sync uses, or None.
 
@@ -649,11 +670,6 @@ class _BaseSource(ABC, Generic[ConfigType]):
         (Custom's ``auth_oauth2_integration_id``, GitHub's legacy ``repository``). Given both the
         incoming and existing inputs so a source can gate on context. Default: none."""
         return []
-
-    # Feature flag a team must have before the API lets it discover tables for or create a source of
-    # this type. `SourceConfig.featureFlag` only hides the source in the UI, so a source that must
-    # not be reachable through the API without the flag sets this as well.
-    requires_team_feature_flag: str | None = None
 
     # Top-level ``job_inputs`` keys that hold server-written runtime state, such as a pointer to an
     # uploaded file. They are neither credentials nor settings a person picks, so they stay in
@@ -840,6 +856,13 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
     @abstractmethod
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         raise NotImplementedError()
+
+    def webhook_events(self, schema_name: str) -> WebhookEvents | None:
+        """How one table's webhook rows fill the event columns, so the table can keep history.
+
+        None when the table has no change time to order its events by, or already keeps one row per event.
+        """
+        return None
 
     def create_webhook(
         self, config: ConfigType, webhook_url: str, team_id: int, api_version: str | None = None

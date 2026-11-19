@@ -21,10 +21,13 @@ import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
+import { buildTimeSeriesChartData } from '@/lib/time-series-chart-data'
+import { LearnLookupError } from '@/skills/skill-catalog'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { readParamAliases } from './cast-helpers'
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
+import { EXECUTE_SQL_TOOL_NAME } from './posthogAiTools/executeSql'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
@@ -127,7 +130,14 @@ function namesMatchingSearch(names: string[], term: string): string[] {
     return names.filter((name) => tokens.some((token) => name.toLowerCase().includes(token)))
 }
 
-function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], nameMatches: string[]): string | undefined {
+function catalogDiscoveryHint(
+    allTools: Tool<ZodObjectAny>[],
+    nameMatches: string[],
+    metricCatalogLookup: boolean
+): string | undefined {
+    if (!metricCatalogLookup) {
+        return undefined
+    }
     const availableToolNames = new Set(allTools.map((tool) => tool.name))
     const hasMetricCatalog =
         availableToolNames.has('metric-list') &&
@@ -171,6 +181,11 @@ export interface ExecInnerCallProperties {
     input_tokens?: number
     output_tokens?: number
     input?: Record<string, unknown>
+    /**
+     * The handler's result before formatting. Analytics redacts it by key, which the
+     * formatted text below would hide credential fields from.
+     */
+    result?: unknown
     /**
      * The payload returned to the client, exactly as serialized. Consumed by the
      * `$ai_span` capture for data-catalog-relevant calls, which needs the tool's
@@ -258,6 +273,7 @@ export interface ExecToolOptions {
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
+    appendTimeSeriesChartData?: boolean
     mcpClientName?: string | undefined
     /**
      * Resolves the caller's third-party MCP tools (see `lib/gateway-tools.ts`). Awaited
@@ -282,22 +298,28 @@ export interface ExecToolOptions {
      */
     builtInSkillHint?: BuiltInSkillHint
     oauthClientId?: string | undefined
+    supportsStepUp?: boolean | undefined
     /**
      * The tools a scout run with a picked tool list holds. A catalog or connected tool outside this
      * set is refused as `tool_not_granted`, so the agent does not search for another way to reach it.
      */
     heldTools?: ReadonlySet<string>
+    metricCatalogLookup?: boolean
 }
 
 const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
 
 /**
- * Plain errors out of the learn catalog are agent mistakes — unknown names, bad
- * line ranges, empty queries — so type them to keep them out of the `internal`
+ * Lookup misses and plain errors out of the learn catalog are agent mistakes, such as unknown
+ * names, bad line ranges and empty queries. Typing them keeps them out of the `internal`
  * bucket ops alerts on. Anything that already carries its own class (an API
  * failure, a source outage, an exec error) propagates untouched.
  */
 function classifyLearnError(error: unknown): unknown {
+    if (error instanceof LearnLookupError) {
+        return new ExecCommandError(error.message, 'unknown_learn_topic')
+    }
+
     if (!(error instanceof Error) || error.constructor !== Error) {
         return error
     }
@@ -309,6 +331,17 @@ function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodS
     return z.object({
         command: z.string().describe(commandReference),
     })
+}
+
+function unwrapStringifiedObject(value: unknown): unknown {
+    if (typeof value !== 'string' || !value.trimStart().startsWith('{')) {
+        return value
+    }
+    try {
+        return JSON.parse(value)
+    } catch {
+        return value
+    }
 }
 
 function parseCommand(input: string): { verb: string; rest: string } {
@@ -604,6 +637,12 @@ function isRecordableToolName(name: string, isKnownToolName: (name: string) => b
 // successor through `superseded_by` and is answered by `flagGatedToolMessage`
 // instead of by an entry here.
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
+    'notebooks-create': () =>
+        'Tool "notebooks-create" was removed. Use "notebooks-create-markdown" with title and optional markdown instead of content JSON. Add executable cells with "notebooks-add-cell".',
+    'notebooks-retrieve': () =>
+        'Tool "notebooks-retrieve" was removed. Use "notebooks-get" with the same short_id to read the notebook, cells, and kernel state. It requires notebook:read and query:read.',
+    'notebook-edit': () =>
+        'Tool "notebook-edit" was removed. Use "notebooks-get" to find cell node_ids, then "notebooks-update-cell" or "notebooks-add-cell" with notebook_id. Text replacement arguments are no longer supported.',
     // Removed in favor of SQL-based schema discovery via `system.information_schema.*`.
     'read-data-warehouse-schema': () =>
         'Tool "read-data-warehouse-schema" was removed in favor of SQL-based schema discovery. Use "execute-sql" against `system.information_schema.*` (`tables`, `columns`, `relationships`, `data_types`) — it scales to large catalogs and supports filtering/search (e.g. `WHERE description ILIKE \'%...%\'`). Consult the `querying-posthog-data` skill (a built-in local skill, when installed) for patterns.',
@@ -688,6 +727,37 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     ),
     'loops-run-create': () =>
         'Tool "loops-run-create" was removed. Loops run on workflows. "workflows-test-run" tests the graph one node at a time and mocks outbound calls by default; it does not start a real task run. To fire a loop for real, use Run now on an enabled schedule loop in PostHog Desktop, or wait for its trigger.',
+    'inbox-report-checks-create': () =>
+        'Tool "inbox-report-checks-create" was removed. A scout run writes a check with "scout-report-check-create", which takes the same arguments. Read a report\'s checks with "inbox-report-checks-list".',
+    // Self-managed tables (reading a bucket in place) can no longer be created.
+    'warehouse-tables-create': () =>
+        'Tool "warehouse-tables-create" was removed. PostHog no longer links tables that read your bucket directly. To import bucket files, add an Amazon S3, Google Cloud Storage, Azure Blob, or Cloudflare R2 source with "data-warehouse-source-setup". Run "external-data-sources-wizard" for the required fields. To import a local file, upload it in the PostHog app at /data-warehouse/new-source?kind=FileUpload. The upload creates a FileUpload source.',
+    ...Object.fromEntries(
+        [
+            ['review-hog-reviews-get', 'code-review-reviews-get'],
+            ['review-hog-reviews-list', 'code-review-reviews-list'],
+            ['review-hog-reviews-pr-status', 'code-review-reviews-pr-status'],
+            ['review-hog-reviews-trigger', 'code-review-reviews-trigger'],
+            ['stamphog-digest-runs-list', 'code-review-approvals-digests-list'],
+            // The digest retrieve tool is disabled: the list returns every field of each run.
+            ['stamphog-digest-runs-retrieve', 'code-review-approvals-digests-list'],
+            ['stamphog-pull-requests-get', 'code-review-approvals-pull-requests-get'],
+            ['stamphog-pull-requests-list', 'code-review-approvals-pull-requests-list'],
+            ['stamphog-repo-configs-delete', 'code-review-approvals-repositories-delete'],
+            ['stamphog-repo-configs-get', 'code-review-approvals-repositories-get'],
+            ['stamphog-repo-configs-list', 'code-review-approvals-repositories-list'],
+            ['stamphog-repo-configs-update', 'code-review-approvals-repositories-update'],
+            ['stamphog-review-runs-create', 'code-review-approvals-runs-create'],
+            ['stamphog-review-runs-get', 'code-review-approvals-runs-get'],
+            ['stamphog-review-runs-list', 'code-review-approvals-runs-list'],
+            ['stamphog-routing-runs-get', 'code-review-approvals-reviewer-routing-get'],
+            ['stamphog-routing-runs-list', 'code-review-approvals-reviewer-routing-list'],
+        ].map(([removed, replacement]) => [
+            removed,
+            () =>
+                `Tool "${removed}" was removed when the code review tools were renamed. Call "${replacement}" instead. Run "info ${replacement}" for its arguments.`,
+        ])
+    ),
     'loops-runs-retrieve': () =>
         'Tool "loops-runs-retrieve" was removed. Loops run on workflows. For run history, call "tasks-list" with the hog_flow_id of the loop and archived set to all, then "tasks-runs-retrieve" on a run for its branch and output.',
 }
@@ -1124,13 +1194,13 @@ function namedKeys(keys: readonly string[]): string {
         .join(', ')
 }
 
-/** Bound on the parameter description echoed back with a missing or wrong-type
- *  parameter rejection, so a tool with a long field description cannot inflate
+/** Bound on the parameter description echoed back with a missing, wrong-type or
+ *  too-long parameter rejection, so a tool with a long field description cannot inflate
  *  the analytics error message. */
 const MAX_PARAM_HINT = 200
 
 /**
- * The parameter's own description, appended to a missing or wrong-type rejection.
+ * The parameter's own description, appended to a missing, wrong-type or too-long rejection.
  *
  * A bare `missing required parameter: short_id` names the field to fill but not
  * what to fill it with, so a caller that never held the identifier retries the
@@ -1420,7 +1490,31 @@ export function formatInputValidationError(
             }
         }
         if (issue.code === 'unrecognized_keys') {
-            return `unexpected ${issue.keys.length > 1 ? 'properties' : 'property'}: ${issue.keys.join(', ')}`
+            // A bare rejection makes many agents stop instead of trying again, so the
+            // message says how to fix the call. A key that another variant of the
+            // object declares (`event_name` sent with `kind: "events"`) is a real field
+            // in the wrong variant, and dropping it answers a different question. Keep
+            // the `unexpected property: <keys>` prefix, because MCP failure buckets and
+            // saved analytics queries match on that text.
+            const location = path ? ` in "${path}"` : ''
+            const variantFields = schema && path ? wrapperFieldNames(schema, issue.path.map(String)) : new Set()
+            const misplaced = issue.keys.filter((key) => variantFields.has(key))
+            const unknown = issue.keys.filter((key) => !variantFields.has(key))
+            const mixed = misplaced.length > 0 && unknown.length > 0
+            const pronoun = (keys: string[]): string => (keys.length > 1 ? 'them' : 'it')
+            const subject = (keys: string[]): string => (mixed ? keys.join(', ') : pronoun(keys))
+            const advice: string[] = []
+            if (misplaced.length > 0) {
+                advice.push(
+                    `"${path}" accepts ${subject(misplaced)} only in another variant, so change its other fields to match that variant instead of removing ${pronoun(misplaced)}`
+                )
+            }
+            if (unknown.length > 0) {
+                advice.push(
+                    `this tool does not accept ${subject(unknown)}, so remove or rename ${pronoun(unknown)} and call the tool again`
+                )
+            }
+            return `unexpected ${issue.keys.length > 1 ? 'properties' : 'property'}: ${issue.keys.join(', ')}${location}; ${advice.join('; ')}`
         }
         // A too-long string names the limit and the input's actual length so the
         // agent knows how much to trim (zod's default names only the limit).
@@ -1429,7 +1523,7 @@ export function formatInputValidationError(
         // is only present under `reportInput: true`; without it, or for
         // non-string origins, fall through to zod's limit-naming default.
         if (issue.code === 'too_big' && issue.origin === 'string' && typeof issue.input === 'string') {
-            return `parameter "${path}" is too long: ${issue.input.length} characters (max ${issue.maximum})`
+            return `parameter "${path}" is too long: ${issue.input.length} characters (max ${issue.maximum})${parameterHint(issue.path, schema)}`
         }
         return path ? `parameter "${path}": ${issue.message}` : issue.message
     })
@@ -1719,9 +1813,17 @@ function flagGatedToolMessage(gated: FlagGatedTool, tools: Tool<ZodObjectAny>[])
     return `Tool "${gated.name}" is retired on this PostHog connection. Use ${successors} instead.${hint}`
 }
 
-function missingScopeRecovery(context: Context | undefined, oauthClientId: string | undefined): string {
-    if (isChatGptAppConnection(oauthClientId)) {
+export interface ScopeRecoveryConnection {
+    oauthClientId?: string | undefined
+    supportsStepUp?: boolean | undefined
+}
+
+function missingScopeRecovery(context: Context | undefined, connection: ScopeRecoveryConnection): string {
+    if (isChatGptAppConnection(connection.oauthClientId)) {
         return 'The PostHog app in ChatGPT and Codex does not request every PostHog scope, so reconnecting it adds these scopes only if the app asks for them. If the user already reconnected and approved all access, this tool is not available through the app yet. Continue with the other tools.'
+    }
+    if (connection.supportsStepUp) {
+        return 'Call the tool anyway: this client then asks the user to approve the missing scopes and retries the call. Reauthorizing the connection does not add them.'
     }
     switch (classifyAuthMethod(context?.api.config.apiToken)) {
         case 'oauth':
@@ -1736,10 +1838,10 @@ function missingScopeRecovery(context: Context | undefined, oauthClientId: strin
 export function missingToolScopeError(
     tool: ScopeGatedTool,
     context: Context | undefined,
-    oauthClientId: string | undefined
+    connection: ScopeRecoveryConnection
 ): ExecCommandError {
     return new ExecCommandError(
-        `Tool "${tool.name}" exists, but this MCP connection is missing the required scope(s): ${tool.missingScopes.join(', ')}. ${missingScopeRecovery(context, oauthClientId)} Logging in to PostHog in a browser does not update MCP permissions.`,
+        `Tool "${tool.name}" exists, but this MCP connection is missing the required scope(s): ${tool.missingScopes.join(', ')}. ${missingScopeRecovery(context, connection)} Logging in to PostHog in a browser does not update MCP permissions.`,
         'missing_scope'
     )
 }
@@ -1751,7 +1853,7 @@ function findTool(
     name: string,
     context: Context | undefined,
     isNotGranted: (name: string) => boolean,
-    oauthClientId: string | undefined
+    connection: ScopeRecoveryConnection
 ): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
@@ -1765,7 +1867,7 @@ function findTool(
         }
         const scopeGatedTool = scopeGatedTools.find((candidate) => candidate.name === name)
         if (scopeGatedTool) {
-            throw missingToolScopeError(scopeGatedTool, context, oauthClientId)
+            throw missingToolScopeError(scopeGatedTool, context, connection)
         }
         if (isNotGranted(name)) {
             throw new ExecCommandError(
@@ -1975,7 +2077,7 @@ export function createExecTool(
                             })),
                             hint:
                                 `These tools also match but are hidden because the API key is missing the ` +
-                                `required scope(s): ${requiredScopes.join(', ')}. ${missingScopeRecovery(context, options.oauthClientId)}`,
+                                `required scope(s): ${requiredScopes.join(', ')}. ${missingScopeRecovery(context, options)}`,
                         })
                     }
                     if (matches.length === 0) {
@@ -1991,7 +2093,8 @@ export function createExecTool(
                     if (truncatedFrom > 0) {
                         const catalogHint = catalogDiscoveryHint(
                             allTools,
-                            namesMatchingSearch(matchedNames, searchTerm)
+                            namesMatchingSearch(matchedNames, searchTerm),
+                            options.metricCatalogLookup !== false
                         )
                         return JSON.stringify({
                             matches,
@@ -2005,7 +2108,11 @@ export function createExecTool(
                                 .join(' '),
                         })
                     }
-                    const catalogHint = catalogDiscoveryHint(allTools, namesMatchingSearch(matchedNames, searchTerm))
+                    const catalogHint = catalogDiscoveryHint(
+                        allTools,
+                        namesMatchingSearch(matchedNames, searchTerm),
+                        options.metricCatalogLookup !== false
+                    )
                     const hint = [fallbackHint, catalogHint].filter(Boolean).join(' ')
                     if (hint) {
                         return JSON.stringify({ matches, hint })
@@ -2029,7 +2136,7 @@ export function createExecTool(
                         infoArgs,
                         context,
                         isNotGranted,
-                        options.oauthClientId
+                        options
                     )
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
                     // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
@@ -2082,7 +2189,7 @@ export function createExecTool(
                         schemaToolName,
                         context,
                         isNotGranted,
-                        options.oauthClientId
+                        options
                     )
                     // See the `info` command: `io: 'input'` keeps this in sync with the advertised
                     // schema and validation, so `.default()` fields aren't shown as required.
@@ -2151,7 +2258,7 @@ export function createExecTool(
                         toolName,
                         context,
                         isNotGranted,
-                        options.oauthClientId
+                        options
                     )
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(
@@ -2163,12 +2270,24 @@ export function createExecTool(
                     if (!jsonBody) {
                         input = {}
                     } else {
+                        let parsed: unknown
                         try {
-                            input = JSON.parse(jsonBody) as Record<string, unknown>
+                            parsed = unwrapStringifiedObject(JSON.parse(jsonBody))
                         } catch (err) {
                             const detail = err instanceof Error ? err.message : String(err)
                             throw new ExecCommandError(`Invalid JSON input: ${detail}`, 'invalid_json')
                         }
+                        if (typeof parsed === 'string' && tool.name === EXECUTE_SQL_TOOL_NAME) {
+                            parsed = { query: parsed }
+                        }
+                        if (typeof parsed !== 'object' || parsed === null) {
+                            const received = parsed === null ? 'null' : `a ${typeof parsed}`
+                            throw new ExecCommandError(
+                                `Invalid JSON input: expected a JSON object, got ${received}. Pass the parameters as an object, for example {"id": 1}.`,
+                                'invalid_json'
+                            )
+                        }
+                        input = parsed as Record<string, unknown>
                     }
 
                     // `output_format` is hidden from exec-mode schemas — `--json` owns output
@@ -2285,6 +2404,7 @@ export function createExecTool(
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateTokens(outputText),
                             input,
+                            result,
                             output: outputText,
                             ...resultShape,
                         })
@@ -2327,6 +2447,7 @@ export function createExecTool(
                                 mcpClientName: options.mcpClientName,
                                 includeUiResponseMeta: isInlineUiAppHost,
                                 includeRenderNote: isInlineUiAppHost,
+                                appendTimeSeriesChartData: options.appendTimeSeriesChartData,
                             })
                         )
                         trackInnerCall?.(tool.name, {
@@ -2336,6 +2457,7 @@ export function createExecTool(
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateResponseTokens(payload),
                             input,
+                            result,
                             output: payload,
                             ...resultShape,
                         })
@@ -2354,6 +2476,12 @@ export function createExecTool(
                         // and crowd it out — buildToolResultPayload makes the same choice for
                         // the non-exec path, this keeps exec consistent.
                         outputText = typeof formattedOverride === 'string' ? formattedOverride : formatResponse(result)
+                        const chartData = options.appendTimeSeriesChartData
+                            ? buildTimeSeriesChartData(result)
+                            : undefined
+                        if (chartData) {
+                            outputText = `${outputText}\n\n${chartData}`
+                        }
                     }
                     trackInnerCall?.(tool.name, {
                         duration_ms: durationMs,
@@ -2362,6 +2490,7 @@ export function createExecTool(
                         input_tokens: estimateTokens(input),
                         output_tokens: estimateTokens(outputText),
                         input,
+                        result,
                         output: outputText,
                         ...resultShape,
                     })

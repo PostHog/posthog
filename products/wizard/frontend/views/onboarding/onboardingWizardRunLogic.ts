@@ -43,6 +43,7 @@ export interface onboardingWizardRunLogicActions {
     acceptCreatedRun: (run: WizardRunApi) => { run: WizardRunApi }
     loadRunData: (run: WizardRunApi) => { run: WizardRunApi }
     watchRuns: (source: string, runIds: string[]) => { source: string; runIds: string[] }
+    awaitRuns: (source: string, waiting: boolean) => { source: string; waiting: boolean }
     clickArtifact: (
         artifact: WizardRunArtifactApi,
         clickSource: WizardOnboardingArtifactClickSource
@@ -61,7 +62,7 @@ export const onboardingWizardRunLogic: LogicWrapper<onboardingWizardRunLogicType
     path((key) => ['products', 'wizard', 'onboardingWizardRunLogic', key]),
     connect(({ projectId }: OnboardingWizardRunProps) => ({
         values: [wizardRunSyncLogic({ projectId }), ['userRuns']],
-        actions: [wizardRunSyncLogic({ projectId }), ['loadRunData', 'watchRuns']],
+        actions: [wizardRunSyncLogic({ projectId }), ['loadRunData', 'watchRuns', 'awaitRuns']],
     })),
     actions({
         initializeOnboarding: true,
@@ -135,6 +136,7 @@ export const onboardingWizardRunLogic: LogicWrapper<onboardingWizardRunLogicType
         syncRun: () => {
             const run = values.run
             actions.watchRuns('onboarding', run ? [run.id] : [])
+            actions.awaitRuns('onboarding', !run)
             if (!run) {
                 return
             }
@@ -157,7 +159,10 @@ export const onboardingWizardRunLogic: LogicWrapper<onboardingWizardRunLogicType
         }
         cache.disposables.add(() => {
             actions.syncRun()
-            return () => actions.watchRuns('onboarding', [])
+            return () => {
+                actions.watchRuns('onboarding', [])
+                actions.awaitRuns('onboarding', false)
+            }
         }, 'onboarding-run-watch')
     }),
 ])

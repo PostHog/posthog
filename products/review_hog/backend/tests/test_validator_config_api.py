@@ -22,7 +22,7 @@ class TestReviewValidatorConfigAPI(APIBaseTest):
         super().setUp()
         self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         sync_canonical_validation(self.team)
-        self.base = f"/api/projects/{self.team.id}/review_hog/validators"
+        self.base = f"/api/projects/{self.team.id}/code_review/validators"
 
     def _author_custom(self, created_by: User | None = None) -> None:
         LLMSkill.objects.create(
@@ -155,7 +155,7 @@ class TestReviewValidatorConfigAPI(APIBaseTest):
         # the URL made the canonicalized `for_team` filter and the raw-id create kwarg contradict,
         # so the second select 500ed on the unique constraint.
         env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
-        url = f"/api/projects/{env.id}/review_hog/validators/{REVIEW_HOG_VALIDATION_SKILL_NAME}/"
+        url = f"/api/projects/{env.id}/code_review/validators/{REVIEW_HOG_VALIDATION_SKILL_NAME}/"
 
         first = self.client.patch(url, {"active": True}, format="json")
         second = self.client.patch(url, {"active": True}, format="json")
@@ -174,7 +174,7 @@ class TestReviewValidatorConfigAPI(APIBaseTest):
         cold = Team.objects.create(organization=self.organization, name="cold")
 
         res = self.client.patch(
-            f"/api/projects/{cold.id}/review_hog/validators/{REVIEW_HOG_VALIDATION_SKILL_NAME}/",
+            f"/api/projects/{cold.id}/code_review/validators/{REVIEW_HOG_VALIDATION_SKILL_NAME}/",
             {"active": True},
             format="json",
         )

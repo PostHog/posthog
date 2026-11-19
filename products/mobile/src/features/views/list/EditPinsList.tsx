@@ -1,5 +1,5 @@
-import { type ReactElement, useCallback, useEffect, useMemo, useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { type ReactElement, type Ref, useCallback, useEffect, useMemo, useState } from 'react'
+import { type ScrollViewInstance, StyleSheet, Text, View } from 'react-native'
 import { Gesture, GestureDetector, ScrollView } from 'react-native-gesture-handler'
 import Animated, {
     type SharedValue,
@@ -19,7 +19,6 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useTheme } from '@/ui/theme'
 import { layout, motion, radii, type } from '@/ui/tokens'
 
-import { pinModes } from '../pinHooks'
 import { ModeSegment } from './ModeSegment'
 import { ViewIcon, viewTypeLabel } from './viewMeta'
 
@@ -38,6 +37,7 @@ function orderOf(positions: Positions): string[] {
 }
 
 interface EditPinsListProps {
+    scrollRef: Ref<ScrollViewInstance>
     pins: readonly PinView[]
     contentTop: number
     contentBottom: number
@@ -49,6 +49,7 @@ interface EditPinsListProps {
 
 /** "Edit pins": drag a handle to reorder, set each pin's mode, or remove it. Every change saves on this phone. */
 export function EditPinsList({
+    scrollRef,
     pins,
     contentTop,
     contentBottom,
@@ -75,6 +76,7 @@ export function EditPinsList({
 
     return (
         <ScrollView
+            ref={scrollRef}
             scrollEnabled={scrollEnabled}
             contentContainerStyle={[styles.content, { paddingTop: contentTop, paddingBottom: contentBottom }]}
             testID="edit-pins-sheet"
@@ -188,8 +190,7 @@ function EditRow({
     }))
     const liftStyle = useAnimatedStyle(() => ({ opacity: dragging.value ? 1 : 0 }))
 
-    const modes = pinModes(pin)
-    const key = `${pin.kind}-${pin.ref ?? pin.kind}`
+    const key = `${pin.kind}-${pin.ref}`
     return (
         <Animated.View style={[styles.rowSlot, rowStyle]}>
             <Animated.View style={[StyleSheet.absoluteFill, styles.lift, shadows.card, liftStyle]} />
@@ -213,12 +214,11 @@ function EditRow({
                         {pin.name}
                     </Text>
                     <Text style={styles.meta} numberOfLines={1}>
-                        {viewTypeLabel(pin.kind) ?? 'Opens on the web'}
+                        {viewTypeLabel(pin.kind)}
                     </Text>
                 </View>
                 <ModeSegment
                     value={pin.display.mode}
-                    available={modes}
                     onChange={(mode) => onMode(pin, mode)}
                     variant="icons"
                     name={pin.name}

@@ -26,6 +26,11 @@ export interface ShortcutInput {
 /** One page holds every pin the app shows. A longer list shows a note instead of a second page. */
 export const SHORTCUT_PAGE_SIZE = 100
 
+/** True when the page holds every starred row, so a pin missing from it is really gone. */
+export function isCompleteShortcutPage(page: PaginatedApi<FileSystemShortcutApi>): boolean {
+    return !page.next
+}
+
 export function fetchShortcuts(signal?: AbortSignal): Promise<PaginatedApi<FileSystemShortcutApi>> {
     return apiJson<PaginatedApi<FileSystemShortcutApi>>(projectPath('file_system_shortcut/'), {
         query: { limit: SHORTCUT_PAGE_SIZE },

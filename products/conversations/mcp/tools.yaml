@@ -24,7 +24,6 @@ tools:
             The body is markdown and may contain customer, agent, and ticket variables in double braces. Fill those in
             for the current ticket before sending the reply. shortcut is the slash command without the leading slash, or
             null when the macro has none.
-        feature_flag: support-macros
         response:
             include:
                 - id
@@ -54,7 +53,6 @@ tools:
         param_overrides:
             id:
                 description: UUID of the macro, as returned by conversations-macros-list.
-        feature_flag: support-macros
         response:
             include:
                 - id

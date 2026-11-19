@@ -13,7 +13,14 @@ from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 from requests.exceptions import ConnectTimeout, ReadTimeout
-from trino.exceptions import HttpError, TrinoConnectionError, TrinoExternalError, TrinoQueryError, TrinoUserError
+from trino.exceptions import (
+    Http503Error,
+    HttpError,
+    TrinoConnectionError,
+    TrinoExternalError,
+    TrinoQueryError,
+    TrinoUserError,
+)
 from trino.types import NamedRowTuple
 
 from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
@@ -38,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trin
     TRINO_CONNECT_TIMEOUT_ERROR,
     TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR,
     TRINO_DISCOVERY_TIMEOUT_ERROR,
+    TRINO_NOT_A_TRINO_ENDPOINT_ERROR,
     TRINO_READ_TIMEOUT_ERROR,
     DiscoveredTrinoTable,
     TrinoColumn,
@@ -310,6 +318,41 @@ def test_trino_error_to_message_preserves_tls_verification_action() -> None:
     error = ValueError(TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR)
 
     assert trino_error_to_message(error) == TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (HttpError("error 405"), TRINO_NOT_A_TRINO_ENDPOINT_ERROR),
+        (HttpError("error 405: b'<html>Method Not Allowed</html>'"), TRINO_NOT_A_TRINO_ENDPOINT_ERROR),
+        (HttpError("error 404: b'<html>Not Found</html>'"), TRINO_NOT_A_TRINO_ENDPOINT_ERROR),
+        # The page body must not pull the answer into the authentication branch.
+        (HttpError("error 405: b'Authentication is not supported here'"), TRINO_NOT_A_TRINO_ENDPOINT_ERROR),
+        (HttpError("error 401: b'Unauthorized'"), TRINO_AUTHENTICATION_ERROR),
+        # A 404 for a purged query is a transient Trino answer, not a wrong endpoint.
+        (
+            HttpError("error 404: b'Error 404 Not Found: Query not found'"),
+            "error 404: b'Error 404 Not Found: Query not found'",
+        ),
+        (HttpError("error 500: b'Internal Server Error'"), "error 500: b'Internal Server Error'"),
+        (Http503Error("error 503: service unavailable"), "error 503: service unavailable"),
+        # A 403 can be a real Trino permission answer, so it is left alone.
+        (HttpError("error 403: b'Forbidden'"), "error 403: b'Forbidden'"),
+    ],
+    ids=[
+        "405_bare",
+        "405_with_body",
+        "404_with_body",
+        "405_body_mentions_authentication",
+        "401_still_authentication",
+        "404_query_not_found_unchanged",
+        "500_unchanged",
+        "503_unchanged",
+        "403_unchanged",
+    ],
+)
+def test_trino_error_to_message_explains_a_host_that_is_not_trino(error: Exception, expected: str) -> None:
+    assert trino_error_to_message(error) == expected
 
 
 @pytest.mark.parametrize(
@@ -965,7 +1008,7 @@ def test_get_schemas_advertises_incremental_fields_per_table() -> None:
 
     by_name = {schema.name: schema for schema in schemas}
     assert set(by_name) == {"analytics.events", "lake.raw.events"}
-    assert [field["field"] for field in by_name["analytics.events"].incremental_fields] == ["id", "updated_at"]
+    assert [field["field"] for field in by_name["analytics.events"].incremental_fields] == ["updated_at", "id"]
     assert by_name["analytics.events"].supports_incremental is True
     assert by_name["analytics.events"].detected_primary_keys == ["id"]
     assert by_name["lake.raw.events"].supports_incremental is False
@@ -1011,6 +1054,9 @@ def _trino_user_error(name: str, message: str) -> TrinoUserError:
         # Deliberately retryable, not a regression: this depends on a worker's free disk at that
         # moment, shared by every query Trino schedules there, so it can clear on its own.
         (_trino_query_error("No free or healthy space available for spill"), False),
+        # A wrong endpoint is worded for the person who sets the source up, but a sync keeps retrying.
+        (HttpError("error 405: b'Method Not Allowed'"), False),
+        (HttpError("error 500: b'Internal Server Error'"), False),
     ],
     ids=[
         "access_denied",
@@ -1021,6 +1067,8 @@ def _trino_user_error(name: str, message: str) -> TrinoUserError:
         "connection_reset",
         "query_memory_limit",
         "spill_space_exhausted",
+        "not_a_trino_endpoint",
+        "server_error",
     ],
 )
 def test_sync_failures_are_classified_for_retry(error: Exception, is_permanent: bool) -> None:

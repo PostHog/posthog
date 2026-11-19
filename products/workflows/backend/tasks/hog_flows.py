@@ -15,7 +15,8 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_instance_region
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import find_action_team_id
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = get_logger(__name__)
@@ -33,12 +34,13 @@ def refresh_affected_hog_flows(team_id: Optional[int] = None, action_id: Optiona
     affected_hog_flows: list[HogFlow] = []
 
     if action_id:
-        action = Action.objects.get(id=action_id)
-        team_id = action.team_id
+        team_id = find_action_team_id(action_id=action_id)
+        if team_id is None:
+            raise ActionNotFound(f"Action {action_id} does not exist")
         # Find hog flows that reference this action in their trigger filters
         affected_hog_flows = list(
             HogFlow.objects.select_related("team")
-            .filter(team_id=action.team_id, status="active")
+            .filter(team_id=team_id, status="active")
             .filter(trigger__contains={"actions": [{"id": str(action_id)}]})
         )
     elif team_id:

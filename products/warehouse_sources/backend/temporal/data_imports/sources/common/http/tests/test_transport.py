@@ -111,7 +111,7 @@ class TestBoundedRetry:
         safe_point.assert_not_called()
 
 
-class TestOOBDomainDetection:
+class TestOOBDomainGuard:
     def _record(self, mocker):
         events: list[tuple[str, dict]] = []
         mocker.patch.object(transport, "is_cloud", return_value=True)
@@ -121,15 +121,35 @@ class TestOOBDomainDetection:
         mocker.patch("requests.adapters.HTTPAdapter.send", return_value=MagicMock())
         return events
 
-    def test_logs_a_listed_host(self, mocker):
+    def test_refuses_a_listed_host_and_logs_it(self, mocker):
         events = self._record(mocker)
+        sent = mocker.patch("requests.adapters.HTTPAdapter.send")
         adapter = transport.make_tracked_adapter()
 
-        adapter.send(requests.Request("GET", "https://abc.oast.live/x").prepare())
+        with pytest.raises(transport.OutOfBandDomainError):
+            adapter.send(requests.Request("GET", "https://abc.oast.live/x").prepare())
 
+        sent.assert_not_called()
         assert [event for event, _ in events] == ["security.oob_domain_seen"]
         assert events[0][1]["domain"] == "oast.live"
         assert events[0][1]["guard"] == "warehouse_http"
+
+    def test_the_refusal_pauses_the_schema_instead_of_being_retried(self, mocker):
+        # The host sits in the source's config, so every retry replays the refusal. It has to
+        # reach the non-retryable registry, and stay out of error tracking while it does.
+        from posthog.temporal.common.errors import NonReportableError
+
+        from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
+
+        self._record(mocker)
+        mocker.patch("requests.adapters.HTTPAdapter.send")
+        adapter = transport.make_tracked_adapter()
+
+        with pytest.raises(transport.OutOfBandDomainError) as raised:
+            adapter.send(requests.Request("GET", "https://classify.oast.live/x").prepare())
+
+        assert isinstance(raised.value, NonReportableError)
+        assert any(key in str(raised.value) for key in Any_Source_Errors)
 
     def test_a_matcher_failure_logs_the_host_and_never_the_url(self, mocker):
         events: list[tuple[str, dict]] = []
@@ -146,7 +166,7 @@ class TestOOBDomainDetection:
         assert [event for event, _ in events] == ["security.oob_domain_check_failed"]
         assert events[0][1] == {"host": "example.com"}
 
-    def test_logs_a_redirect_hop_to_a_listed_host(self, mocker):
+    def test_refuses_a_redirect_hop_to_a_listed_host(self, mocker):
         events: list[tuple[str, dict]] = []
         mocker.patch.object(transport, "is_cloud", return_value=True)
         mocker.patch.object(
@@ -164,7 +184,8 @@ class TestOOBDomainDetection:
         final.url = "https://abc.oast.live/hop"
         mocker.patch("requests.adapters.HTTPAdapter.send", side_effect=[redirect, final])
 
-        session.send(start, allow_redirects=True)
+        with pytest.raises(transport.OutOfBandDomainError):
+            session.send(start, allow_redirects=True)
 
         assert [fields["host"] for _, fields in events] == ["abc.oast.live"]
 

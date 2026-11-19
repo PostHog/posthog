@@ -14,6 +14,7 @@ use crate::common::*;
 
 use feature_flags::cohorts::cohort_models::CohortType;
 use feature_flags::config::DEFAULT_TEST_CONFIG;
+use feature_flags::team::team_models::RealtimeCohortLevel;
 use feature_flags::utils::test_utils::{
     insert_active_flags, insert_config_in_hypercache, insert_flags_for_team_in_redis,
     insert_flags_with_metadata_for_team_in_redis, insert_new_team_in_redis, setup_pg_reader_client,
@@ -6336,6 +6337,118 @@ async fn test_realtime_cohort_without_backfill_falls_through_to_dynamic_eval() -
     Ok(())
 }
 
+/// With REALTIME_COHORT_EVALUATION_TEAM_IDS at `none`, only the cached team's access level can
+/// route a backfilled realtime cohort to the `cohort_membership` table. The person is a member
+/// there but fails the cohort's person-property filters, so the flag is on only when the cohort
+/// routes to the table.
+#[rstest]
+#[case::serving_reads_the_membership_table(RealtimeCohortLevel::Serving, true)]
+#[case::processing_evaluates_dynamically(RealtimeCohortLevel::Processing, false)]
+#[tokio::test]
+async fn test_realtime_cohort_routing_follows_the_cached_team_access_level(
+    #[case] level: RealtimeCohortLevel,
+    #[case] expected_enabled: bool,
+) -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    team.realtime_cohort_level = level;
+    update_team_in_hypercache(client.clone(), &team).await?;
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    let cohort = context
+        .insert_cohort_with_type_and_condition_type(
+            team.id,
+            Some("Realtime Backfilled".to_string()),
+            json!({
+                "properties": {
+                    "type": "OR",
+                    "values": [{
+                        "type": "AND",
+                        "values": [{
+                            "key": "plan",
+                            "type": "person",
+                            "value": ["enterprise"],
+                            "operator": "exact",
+                            "negation": false
+                        }]
+                    }]
+                }
+            }),
+            false,
+            Some(CohortType::Realtime),
+            None,
+            Some(chrono::Utc::now()),
+            Some(json!({"behavioral": true})),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "realtime-level-flag",
+        "name": "Realtime Level Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "properties": [{
+                    "key": "id",
+                    "type": "cohort",
+                    "value": cohort.id,
+                    "operator": "in"
+                }],
+                "rollout_percentage": 100
+            }]
+        }
+    }]);
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    let distinct_id = "user_realtime_level".to_string();
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({ "plan": "free" })),
+        )
+        .await
+        .unwrap();
+    let person_uuid = context
+        .get_person_uuid_by_distinct_id(team.id, &distinct_id)
+        .await?;
+    context
+        .insert_cohort_membership(team.id, cohort.id, person_uuid, true)
+        .await?;
+
+    let server = ServerHandle::for_config(config).await;
+    let payload = json!({
+        "token": team.api_token,
+        "distinct_id": distinct_id,
+    });
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_json_include!(
+        actual: res.json::<Value>().await?,
+        expected: json!({
+            "flags": {
+                "realtime-level-flag": {
+                    "key": "realtime-level-flag",
+                    "enabled": expected_enabled
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn it_degrades_person_flags_when_the_persons_db_stops_answering() -> Result<()> {
     // Accepted connections sit in the listen backlog and never get a reply, like a frozen database.
@@ -6484,5 +6597,170 @@ async fn it_reports_errors_when_the_postgres_fallback_omits_a_flag_python_publis
     assert_eq!(keys, ["healthy-flag"]);
     assert!(body.flags["healthy-flag"].enabled);
 
+    Ok(())
+}
+
+async fn known_absent_server(
+    person_properties: Value,
+    flags: Value,
+    groups: &[(&str, &str, Value)],
+) -> Result<(ServerHandle, String)> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(redis.clone()).await?;
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await?;
+    context
+        .insert_person(
+            team.id,
+            "user_distinct_id".to_string(),
+            Some(person_properties),
+        )
+        .await?;
+    for (group_type, group_key, properties) in groups {
+        context
+            .create_group(team.id, group_type, group_key, properties.clone())
+            .await?;
+    }
+    let mut flags = flags;
+    for flag in flags.as_array_mut().unwrap() {
+        flag["team_id"] = json!(team.id);
+    }
+    insert_flags_for_team_in_redis(redis, team.id, Some(flags.to_string())).await?;
+    Ok((ServerHandle::for_config(config).await, team.api_token))
+}
+
+fn known_absent_is_not_set_flag(key: &str, filters: Value) -> Value {
+    json!({
+        "id": 1, "key": key, "name": key, "active": true, "deleted": false, "team_id": 0,
+        "filters": filters,
+    })
+}
+
+/// The group type is one the team doesn't have, so the limit applies to every listed group
+/// type, not only the ones the team can resolve.
+#[tokio::test]
+async fn test_known_absent_over_limit_in_form_body_returns_400() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(redis.clone()).await?;
+    insert_flags_for_team_in_redis(redis, team.id, Some("[]".to_string())).await?;
+    let server = ServerHandle::for_config(config).await;
+    let token = team.api_token;
+    let keys: Vec<String> = (0..1001).map(|i| format!("key{i}")).collect();
+    let payload = json!({
+        "token": token,
+        "distinct_id": "user_distinct_id",
+        "group_property_keys_known_absent": {"no_such_type": keys},
+    });
+    let body = format!(
+        "data={}",
+        general_purpose::STANDARD.encode(payload.to_string())
+    );
+
+    let res = reqwest::Client::new()
+        .post(format!("http://{}/flags?v=2", server.addr))
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(body)
+        .send()
+        .await?;
+
+    assert_eq!(StatusCode::BAD_REQUEST, res.status());
+    assert_eq!(
+        res.text().await?,
+        "group_property_keys_known_absent allows at most 1000 keys per group type"
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case::listed(Some(json!(["plan"])), true)]
+#[case::field_not_sent(None, false)]
+#[case::field_null(Some(Value::Null), false)]
+#[tokio::test]
+async fn test_known_absent_person_property_is_not_set(
+    #[case] listed: Option<Value>,
+    #[case] expected: bool,
+) -> Result<()> {
+    let (server, token) = known_absent_server(
+        json!({"plan": "pro"}),
+        json!([known_absent_is_not_set_flag(
+            "plan-not-set",
+            json!({"groups": [{
+                "properties": [{"key": "plan", "type": "person", "operator": "is_not_set", "value": "is_not_set"}],
+                "rollout_percentage": 100,
+            }]})
+        )]),
+        &[],
+    )
+    .await?;
+    let mut payload = json!({"token": token, "distinct_id": "user_distinct_id"});
+    if let Some(listed) = listed {
+        payload["person_property_keys_known_absent"] = listed;
+    }
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("1"), None)
+        .await;
+
+    assert_eq!(StatusCode::OK, res.status());
+    assert_json_include!(
+        actual: res.json::<Value>().await?,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {"plan-not-set": expected}
+        })
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case::listed(Some(json!({"organization": ["tier"]})), true)]
+#[case::field_not_sent(None, false)]
+#[case::unknown_group_type(Some(json!({"no_such_type": ["tier"]})), false)]
+#[tokio::test]
+async fn test_known_absent_group_property_is_not_set(
+    #[case] listed: Option<Value>,
+    #[case] expected: bool,
+) -> Result<()> {
+    let (server, token) = known_absent_server(
+        json!({}),
+        json!([known_absent_is_not_set_flag(
+            "tier-not-set",
+            json!({
+                "aggregation_group_type_index": 1,
+                "groups": [{
+                    "properties": [{
+                        "key": "tier", "type": "group", "group_type_index": 1,
+                        "operator": "is_not_set", "value": "is_not_set",
+                    }],
+                    "rollout_percentage": 100,
+                }],
+            })
+        )]),
+        &[("organization", "acme", json!({"tier": "enterprise"}))],
+    )
+    .await?;
+    let mut payload = json!({
+        "token": token,
+        "distinct_id": "user_distinct_id",
+        "groups": {"organization": "acme"},
+    });
+    if let Some(listed) = listed {
+        payload["group_property_keys_known_absent"] = listed;
+    }
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("1"), None)
+        .await;
+
+    assert_eq!(StatusCode::OK, res.status());
+    assert_json_include!(
+        actual: res.json::<Value>().await?,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {"tier-not-set": expected}
+        })
+    );
     Ok(())
 }

@@ -5,15 +5,13 @@ import { useBootGate } from '@/auth/bootGate'
 import { track } from '@/lib/analytics'
 import { useNow } from '@/lib/useNow'
 import type { InboxItem } from '@/model/types'
-import { INBOX_PANE_WIDTH } from '@/ui/adaptiveLayout'
 import { FilterIcon } from '@/ui/icons/FilterIcon'
-import { InboxIcon } from '@/ui/icons/InboxIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { LoadingView, StateView } from '@/ui/StateView'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout } from '@/ui/tokens'
 import { useAppLayout } from '@/ui/useAppLayout'
-import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { topOffset, useScreenInsets, useTabBottomOffset } from '@/ui/useScreenInsets'
 import { apiErrorKind } from '../report/reportAnalytics'
 import { TABS_HEADER_BOTTOM } from '../tabs/TabsHeader'
 import { useTabHeader } from '../tabs/tabHeaderStore'
@@ -22,12 +20,14 @@ import { ViewsReauthState } from '../views/ViewsReauthState'
 import type { RowAnchor } from './contextMenuPlacement'
 import { isDefaultInboxFilters } from './filters'
 import { useInboxItems, useSetReportRead } from './hooks'
+import { InboxEmptyState } from './InboxEmptyState'
 import { InboxFilterSheet } from './InboxFilterSheet'
 import { InboxListFooter } from './InboxListFooter'
 import { InboxRow } from './InboxRow'
 import { InboxRowActions, type RowMenuTarget } from './InboxRowActions'
 import { inboxFilterActions } from './inboxFilterActions'
 import { useInboxFilters } from './inboxFiltersStore'
+import { useInboxStatus } from './useInboxStatus'
 import { usePrefetchReports } from './usePrefetchReports'
 
 function keyFor(item: InboxItem): string {
@@ -36,10 +36,11 @@ function keyFor(item: InboxItem): string {
 
 export function InboxScreen(): ReactElement {
     const styles = useStyles()
-    const { paired } = useAppLayout()
+    const { paired, inboxExtent, paneAxis, paneGap } = useAppLayout()
     const colors = useColors()
     const router = useRouter()
     const insets = useScreenInsets()
+    const tabBottom = useTabBottomOffset()
     const now = useNow()
     const [focused, setFocused] = useState(false)
     useFocusEffect(
@@ -87,6 +88,7 @@ export function InboxScreen(): ReactElement {
     const refresh = (trigger: 'pull' | 'retry'): void => {
         track('mobile_inbox_refreshed', { trigger })
         void query.refetch()
+        if (isEmpty) void setupStatus.refetch()
     }
 
     const openFilters = (): void => {
@@ -98,6 +100,7 @@ export function InboxScreen(): ReactElement {
     const listFailed = query.isError
     const loaded = !query.isLoading && !query.isError
     const isEmpty = loaded && query.totalCount === 0
+    const setupStatus = useInboxStatus(isEmpty && focused && access.state === 'ok')
     // While the remaining pages load, a match may still arrive, so the footer spinner shows instead of this screen.
     const isFilteredEmpty = loaded && query.totalCount > 0 && query.matchedCount === 0 && !query.isLoadingMore
     // biome-ignore lint/correctness/useExhaustiveDependencies: one event each time the error screen appears.
@@ -124,6 +127,7 @@ export function InboxScreen(): ReactElement {
         }
     }, [isFilteredEmpty])
     useTabHeader('inbox', {
+        scrollToTop: () => listRef.current?.scrollToOffset({ offset: 0, animated: true }),
         refreshing: query.isRefetching,
         hint: null,
         status: null,
@@ -172,21 +176,16 @@ export function InboxScreen(): ReactElement {
                 testID="inbox-filtered-empty"
             />
         ) : query.totalCount > 0 ? null : (
-            <StateView
-                icon={<InboxIcon size={iconSizes.empty} color={colors.tertiary} />}
-                title="Nothing needs you right now"
-                message="New reports show up here when PostHog finds something worth a look."
-                testID="inbox-empty"
-            />
+            <InboxEmptyState status={setupStatus} onRefresh={() => void query.refetch()} />
         )
 
     return (
-        <View style={[styles.screen, { flexDirection: 'row' }]} testID="inbox-screen">
+        <View style={[styles.screen, { flexDirection: paneAxis, gap: paired ? paneGap : 0 }]} testID="inbox-screen">
             <View
                 style={{
                     flexGrow: paired ? 0 : 1,
                     flexShrink: paired ? 0 : 1,
-                    width: paired ? INBOX_PANE_WIDTH : undefined,
+                    ...(paired ? (paneAxis === 'row' ? { width: inboxExtent } : { height: inboxExtent }) : {}),
                     minWidth: 0,
                 }}
             >
@@ -195,7 +194,7 @@ export function InboxScreen(): ReactElement {
                     data={access.state === 'ok' ? (query.data ?? []) : []}
                     keyExtractor={keyFor}
                     renderItem={renderItem}
-                    ListEmptyComponent={empty}
+                    ListEmptyComponent={empty ?? undefined}
                     ListFooterComponent={
                         <InboxListFooter
                             isLoadingMore={query.isLoadingMore}
@@ -207,10 +206,7 @@ export function InboxScreen(): ReactElement {
                     onEndReachedThreshold={0.5}
                     onViewableItemsChanged={prefetch.onViewableItemsChanged}
                     viewabilityConfig={prefetch.viewabilityConfig}
-                    contentContainerStyle={[
-                        styles.content,
-                        { paddingTop: contentTop, paddingBottom: bottomOffset(insets, 120) },
-                    ]}
+                    contentContainerStyle={[styles.content, { paddingTop: contentTop, paddingBottom: tabBottom }]}
                     refreshControl={
                         <RefreshControl
                             refreshing={query.isRefetching}

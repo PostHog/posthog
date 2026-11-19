@@ -4,11 +4,12 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconCopy, IconEllipsis, IconPencil, IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
+import { IconCopy, IconEllipsis, IconPencil, IconPlus, IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import {
     DefinitionPopoverRenderer,
@@ -33,10 +34,12 @@ import { MathCategory, mathsLogic } from 'products/product_analytics/frontend/in
 import { ActionFilterRow, MathSelector } from '../ActionFilterRow/ActionFilterRow'
 import { taxonomicGroupTypeToSeriesNodeKind } from '../ActionFilterRow/actionFilterRowUtils'
 import { getDefaultMathHogQLExpression } from '../ActionFilterRow/mathUtils'
+import { QuillHogQLMathPopover } from '../ActionFilterRow/QuillHogQLMathPopover'
 import { MathAvailability } from '../ActionFilterRow/types'
 import { entityFilterLogic } from '../entityFilterLogic'
 import { actionFilterGroupLogic } from './actionFilterGroupLogic'
 import { nestedFilterLogic } from './nestedFilterLogic'
+import { QuillActionFilterGroupMenu } from './QuillActionFilterGroupMenu'
 
 interface ActionFilterGroupProps {
     node: GroupNode
@@ -109,7 +112,30 @@ export function ActionFilterGroup({
         setMathHogQL,
         setHogQLDropdownVisible,
     } = useActions(groupLogic)
+    const quillSurface = useQuillSurface()
     const defaultMathHogQLExpression = getDefaultMathHogQLExpression(insightType)
+
+    const onSplit = (): void => {
+        splitGroup(index)
+        posthog.capture('split_events', {
+            insight_type: insightType,
+            team_id: currentTeamId,
+        })
+    }
+    const onRename = (): void => {
+        selectSeries(index, groupNode ?? null, uuid)
+        showModal()
+    }
+    const onDuplicate = (): void => {
+        duplicateSeries(index)
+    }
+    const onDelete = (): void => {
+        removeSeries(index)
+    }
+    const onMathHogQLChange = (currentValue: string): void => {
+        setMathHogQL(currentValue)
+        setHogQLDropdownVisible(false)
+    }
 
     const mathCategory = mathDefinitions[node.math || BaseMathType.TotalCount]?.category
     const hasSecondaryMathDropdown =
@@ -174,7 +200,18 @@ export function ActionFilterGroup({
                             {showMath && !hasSecondaryMathDropdown && <MathSelector {...mathSelectorProps} />}
                         </div>
 
-                        {!readOnly && (
+                        {!readOnly && quillSurface && (
+                            <div className="flex shrink-0 self-start pt-0.75">
+                                <QuillActionFilterGroupMenu
+                                    index={index}
+                                    onSplit={onSplit}
+                                    onRename={onRename}
+                                    onDuplicate={onDuplicate}
+                                    onDelete={onDelete}
+                                />
+                            </div>
+                        )}
+                        {!readOnly && !quillSurface && (
                             <div className="flex shrink-0 self-start pt-0.75">
                                 <LemonMenu
                                     placement="bottom-end"
@@ -185,13 +222,7 @@ export function ActionFilterGroup({
                                                     label: 'Split events',
                                                     size: 'medium',
                                                     icon: <IconUndo />,
-                                                    onClick: () => {
-                                                        splitGroup(index)
-                                                        posthog.capture('split_events', {
-                                                            insight_type: insightType,
-                                                            team_id: currentTeamId,
-                                                        })
-                                                    },
+                                                    onClick: onSplit,
                                                     'data-attr': `group-filter-split-${index}`,
                                                 },
                                             ],
@@ -202,19 +233,14 @@ export function ActionFilterGroup({
                                                     label: 'Rename',
                                                     size: 'medium',
                                                     icon: <IconPencil />,
-                                                    onClick: () => {
-                                                        selectSeries(index, groupNode ?? null, uuid)
-                                                        showModal()
-                                                    },
+                                                    onClick: onRename,
                                                     'data-attr': `group-filter-rename-${index}`,
                                                 },
                                                 {
                                                     label: 'Duplicate',
                                                     size: 'medium',
                                                     icon: <IconCopy />,
-                                                    onClick: () => {
-                                                        duplicateSeries(index)
-                                                    },
+                                                    onClick: onDuplicate,
                                                     'data-attr': `group-filter-duplicate-${index}`,
                                                 },
                                                 {
@@ -222,7 +248,7 @@ export function ActionFilterGroup({
                                                     size: 'medium',
                                                     status: 'danger',
                                                     icon: <IconTrash />,
-                                                    onClick: () => removeSeries(index),
+                                                    onClick: onDelete,
                                                     'data-attr': `group-filter-delete-${index}`,
                                                 },
                                             ],
@@ -304,7 +330,18 @@ export function ActionFilterGroup({
                                     />
                                 </div>
                             )}
-                            {mathCategory === MathCategory.HogQLExpression && (
+                            {mathCategory === MathCategory.HogQLExpression && quillSurface && (
+                                <div className="min-w-0 flex-1">
+                                    <QuillHogQLMathPopover
+                                        open={isHogQLDropdownVisible}
+                                        onOpenChange={setHogQLDropdownVisible}
+                                        value={node.math_hogql || defaultMathHogQLExpression}
+                                        onChange={onMathHogQLChange}
+                                        data-attr={`math-hogql-select-${index}`}
+                                    />
+                                </div>
+                            )}
+                            {mathCategory === MathCategory.HogQLExpression && !quillSurface && (
                                 <div className="min-w-0 flex-1">
                                     <LemonDropdown
                                         visible={isHogQLDropdownVisible}
@@ -315,10 +352,7 @@ export function ActionFilterGroup({
                                             <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
                                                 <HogQLEditor
                                                     value={node.math_hogql || defaultMathHogQLExpression}
-                                                    onChange={(currentValue) => {
-                                                        setMathHogQL(currentValue)
-                                                        setHogQLDropdownVisible(false)
-                                                    }}
+                                                    onChange={onMathHogQLChange}
                                                 />
                                             </div>
                                         }
@@ -401,7 +435,7 @@ export function ActionFilterGroup({
                             data-attr={`add-group-event-${index}`}
                             groupType={TaxonomicFilterGroupType.Events}
                             value={null}
-                            icon={<IconPlusSmall />}
+                            icon={quillSurface ? <IconPlus /> : <IconPlusSmall />}
                             sideIcon={null}
                             enableKeywordShortcuts
                             onChange={(value, groupType, item) => {

@@ -51,7 +51,10 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import clean_type
-from products.warehouse_sources.backend.temporal.data_imports.naming_convention import fold_column_name
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import (
+    NamingConvention,
+    fold_column_name,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
 )
@@ -70,6 +73,11 @@ MAX_RECOMPUTE_INTERVAL = timedelta(days=int(os.getenv("WAREHOUSE_STATS_MAX_RECOM
 MAX_INCREMENTAL_COMMITS = int(os.getenv("WAREHOUSE_STATS_MAX_INCREMENTAL_COMMITS", "200"))
 # Files x columns cap for the Add-action scan: Arrow holds about 12 bytes per cell, so the default is ~300 MB.
 MAX_ADD_ACTION_CELLS = int(os.getenv("WAREHOUSE_STATS_MAX_ADD_ACTION_CELLS", "25000000"))
+
+# Matches WarehouseColumnStatistics.column_name's max_length. Source column names aren't bounded this way
+# (a deeply nested JSON schema can produce one far longer), so a name over the limit is trimmed with a
+# content hash rather than failing the whole table's stats write.
+COLUMN_NAME_DB_MAX_LENGTH = 400
 
 # Product-analytics events — query these to track statistics volume, columns profiled, skips, and errors.
 EVENT_STARTED = "data warehouse table statistics started"
@@ -839,7 +847,7 @@ def _upsert_statistics(
         defaults["full_scan_at"] = timezone.now()
     WarehouseColumnStatistics.objects.for_team(team.id).update_or_create(
         table=table,
-        column_name=column_name,
+        column_name=NamingConvention.normalize_identifier(column_name, max_length=COLUMN_NAME_DB_MAX_LENGTH),
         defaults=defaults,
     )
 

@@ -8,19 +8,28 @@ from parameterized import parameterized
 
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
+    ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
+    ExperimentHealthValueKey,
 )
-from products.experiments.backend.health.checks.conditions_changed import release_conditions_changed_mid_run
+from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
+from products.experiments.backend.health.checks.conditions_changed import (
+    release_conditions_changed_mid_run,
+    release_conditions_changed_rows,
+)
+from products.experiments.backend.health.checks.flag_change_findings import MAX_SAVED_CONDITIONS_LENGTH
+from products.experiments.backend.health.condition_changes import conditions_change_from_activity
 from products.experiments.backend.health.context import (
     ChangeWindow,
     ConditionSetTraffic,
+    FlagHistory,
     FlagHistoryNotCheckedReason,
     HealthContext,
     parse_flag_state,
 )
-from products.experiments.backend.health.skips import CheckSkip, not_checked
+from products.experiments.backend.health.skips import SPLIT_ASSIGNS_NOBODY, CheckSkip, not_applicable, not_checked
 from products.experiments.backend.health.test.factories import RUNNING_CONTEXT, flag_history
 from products.feature_flags.backend.facade.edits import ConditionsChange, parse_release_conditions
 
@@ -56,6 +65,8 @@ def _context(
     exposed_during_overrides: dict[ChangeWindow, bool | None] | None = None,
     variants: list[dict[str, Any]] = EVEN,
     exposed_units: int | None = None,
+    early_exit: bool = False,
+    exposed_before_first: bool | None = True,
 ) -> HealthContext:
     variant_keys = [variant["key"] for variant in variants]
     changes = [
@@ -68,10 +79,13 @@ def _context(
     ]
     return replace(
         RUNNING_CONTEXT,
-        flag=parse_flag_state(active=True, deleted=False, groups=now or conditions[-1], variants=variants),
+        flag=parse_flag_state(
+            active=True, deleted=False, groups=now or conditions[-1], variants=variants, early_exit=early_exit
+        ),
         flag_history=flag_history(
             changes,
-            launched_at=LAUNCHED_AT,
+            start_date=LAUNCHED_AT,
+            exposed_before_first=exposed_before_first,
             exposed_between={ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS: exposed_between},
             not_checked=not_checked,
             release_conditions=None if now is None else parse_release_conditions(now, variant_keys=variant_keys),
@@ -80,6 +94,58 @@ def _context(
         ),
         condition_set_traffic=None if people_by_set is None else _traffic(people_by_set),
     )
+
+
+def _before_exposure(ctx: HealthContext) -> HealthContext:
+    history = ctx.flag_history
+    assert isinstance(history, FlagHistory)
+    return replace(ctx, flag_history=replace(history, counted_since=None))
+
+
+def _saved_context(*conditions: list[dict[str, Any]], flag_aggregation: int | None = None) -> HealthContext:
+    changes = []
+    for index, (before, after) in enumerate(zip(conditions, conditions[1:])):
+        change = conditions_change_from_activity(
+            changed_at=FIRST_CHANGE_AT + timedelta(minutes=17 * index),
+            job_type=None,
+            before_groups=before,
+            after_groups=after,
+            before_aggregation=flag_aggregation,
+            after_aggregation=flag_aggregation,
+            before_variants=EVEN,
+            after_variants=EVEN,
+        )
+        assert change is not None
+        changes.append(change)
+    return replace(
+        RUNNING_CONTEXT,
+        flag=parse_flag_state(
+            active=True,
+            deleted=False,
+            groups=conditions[-1],
+            variants=EVEN,
+            aggregation_group_type_index=flag_aggregation,
+        ),
+        flag_history=flag_history(changes, start_date=LAUNCHED_AT),
+    )
+
+
+def _saved(groups: list[dict[str, Any]], flag_aggregation: int | None = None) -> dict[str, Any]:
+    return {"groups": groups, "aggregation_group_type_index": flag_aggregation}
+
+
+def _emails(prefix: str) -> dict[str, Any]:
+    # Each condition takes about 40% of the size limit, so the latest change's two sides fit and nothing else does.
+    emails = [f"{prefix}-{index}@example.com" for index in range(MAX_SAVED_CONDITIONS_LENGTH // 60)]
+    return {"properties": [{"key": "email", "value": emails, "operator": "exact", "type": "person"}]}
+
+
+def _filter(**changed: Any) -> dict[str, Any]:
+    return {"properties": [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person", **changed}]}
+
+
+def _group_filter(group_type_index: int) -> dict[str, Any]:
+    return _filter(type="group", group_type_index=group_type_index)
 
 
 def _traffic(people_by_set: dict[int, int]) -> ConditionSetTraffic:
@@ -100,6 +166,11 @@ WARNING = ExperimentHealthFindingSeverity.WARNING
 CHANGED_TITLE = "The release conditions changed after launch"
 OVERRIDE_TITLE = "A variant override was removed after launch"
 REORDERED_TITLE = "The order of the release conditions changed after launch"
+ROLLOUT_TITLE = "A release condition's rollout was lowered after launch"
+LOWERED_EFFECT = (
+    "Users it no longer serves get no variant, or the variant of a later condition. Their exposures stay in the "
+    "results, and their later events still count for the variant they got first."
+)
 OVERRIDE_MOVED = (
     'Users it matched got "test" while the override was in place and a random variant after, so those exposed while '
     'it was in place may have switched variants. Their exposures under "test" stay in the results.'
@@ -131,14 +202,15 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", WARNING, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} Since '
                 f'{TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" with the override in '
-                f"place (300 of about 1,650). Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+                f"place (300 of about 1,650). Reset the experiment, or move its start date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "override_removed_from_a_large_share_before_4_people",
                 _context([PRO_PINNED, EVERYONE], [PRO, EVERYONE], people_by_set={1: 300, 2: 2700}, exposed_units=4),
                 ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. The change came 3 hours after '
-                f"launch, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it. "
+                f"the start date, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it. "
                 f'Since {TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" with the '
                 "override in place (300 of about 1,650).",
             ),
@@ -148,7 +220,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", WARNING, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} Since '
                 f'{TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" with the override in '
-                f"place (300 of about 1,650). Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+                f"place (300 of about 1,650). Reset the experiment, or move its start date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "override_removed_without_a_measurement_before_4_people",
@@ -156,7 +229,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} PostHog '
                 "can't measure how many users Set 1 matches. Reset the experiment, or move its start date to "
-                f"{FIRST_CHANGE}.",
+                f"{FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
                 "not_measured",
             ),
             (
@@ -171,7 +245,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} Too few '
                 f"users called the flag since {TRAFFIC_SINCE} to measure how many users Set 1 matches. Reset the "
-                f"experiment, or move its start date to {FIRST_CHANGE}.",
+                f"experiment, or move its start date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
                 "too_few_people",
             ),
             (
@@ -180,7 +255,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} PostHog '
                 "can't measure how many users Set 1 matches. Reset the experiment, or move its start date to "
-                f"{FIRST_CHANGE}.",
+                f"{FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
                 "not_measured",
             ),
             (
@@ -197,7 +273,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 'those exposed while it was in place may have switched variants. Their exposures under "control" '
                 f"stay in the results. Since {TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "
                 f'"control" with the override in place (300 of about 1,650). Reset the experiment, or move its start '
-                f"date to {SECOND_CHANGE}.",
+                f"date to {SECOND_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "override_removed_set_back_and_removed_again",
@@ -216,7 +293,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", WARNING, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {THIRD_CHANGE}. {OVERRIDE_MOVED} Since '
                 f'{TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" with the override in '
-                f"place (300 of about 1,650). Reset the experiment, or move its start date to {THIRD_CHANGE}.",
+                f"place (300 of about 1,650). Reset the experiment, or move its start date to {THIRD_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "override_removed_with_its_rollout_set_to_zero",
@@ -224,7 +302,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} PostHog '
                 f"can't measure how many users the override matched. Reset the experiment, or move its start date to "
-                f"{FIRST_CHANGE}.",
+                f"{FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "overrides_removed_from_a_small_share_and_a_variant_at_zero_percent",
@@ -249,7 +328,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 f'override "test" of Set 1 was removed on {FIRST_CHANGE}. Users they matched got the override\'s '
                 "variant while it was in place and a random variant after, so those exposed while it was in place "
                 "may have switched variants. Their exposures stay in the results. PostHog can't measure how many "
-                f"users these conditions match. Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+                f"users these conditions match. Reset the experiment, or move its start date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
                 "not_measured",
             ),
             (
@@ -258,7 +338,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
                 f'A release condition with the variant override "test" was removed on {FIRST_CHANGE}. '
                 f"{OVERRIDE_MOVED} PostHog can't measure how many users the override matched. Reset the experiment, "
-                f"or move its start date to {FIRST_CHANGE}.",
+                f"or move its start date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "override_set_and_removed_again",
@@ -273,7 +354,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 f'The variant override "test" of Set 1 was set on {FIRST_CHANGE} and removed on {SECOND_CHANGE}. '
                 f'{OVERRIDE_MOVED} Since {TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" '
                 "with the override in place (300 of about 1,650). Reset the experiment, or move its start date to "
-                f"{SECOND_CHANGE}.",
+                f"{SECOND_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "override_removed_before_a_reorder_that_is_no_change",
@@ -286,7 +368,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", WARNING, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 2 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} Since '
                 f'{TRAFFIC_SINCE}, Set 2 matched about 18.2% of the users who would get "test" with the override in '
-                f"place (300 of about 1,650). Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+                f"place (300 of about 1,650). Reset the experiment, or move its start date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "override_removed_with_its_filters_edited",
@@ -294,7 +377,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} PostHog '
                 f"can't measure how many users the override matched. Reset the experiment, or move its start date to "
-                f"{FIRST_CHANGE}.",
+                f"{FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "override_removed_and_set_back",
@@ -310,7 +394,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 'Between these changes, users it matches did not get "test", so those exposed then may have '
                 f"switched variants. Their exposures stay in the results. Since {TRAFFIC_SINCE}, Set 1 matched about "
                 '18.2% of the users who would get "test" with the override in place (300 of about 1,650). Reset the '
-                f"experiment, or move its start date to {SECOND_CHANGE}.",
+                f"experiment, or move its start date to {SECOND_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "pinned_conditions_reordered",
@@ -348,6 +433,41 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 "Review the change in the flag history.",
             ),
             (
+                "rollout_lowered",
+                _context([EVERYONE], [{**EVERYONE, "rollout_percentage": 50}]),
+                ("rollout_reduced", INFO, ROLLOUT_TITLE, "A6"),
+                f"The rollout of Set 1 was lowered on {FIRST_CHANGE} and is at 50% now, down from 100%. {LOWERED_EFFECT} "
+                f"Move the start date to {FIRST_CHANGE} so the results count only exposures after it.",
+            ),
+            (
+                "rollouts_lowered",
+                _context([PRO, EVERYONE], [{**PRO, "rollout_percentage": 20}, {**EVERYONE, "rollout_percentage": 50}]),
+                ("rollout_reduced", INFO, ROLLOUT_TITLE, "A6"),
+                f"The rollouts of 2 release conditions were lowered on {FIRST_CHANGE}: Set 1 is at 20% now, down from "
+                "100%, and Set 2 is at 50% now, down from 100%. Users these conditions no longer serve get no variant, "
+                "or the variant of a later condition. Their exposures stay in the results, and their later events still "
+                f"count for the variant they got first. Move the start date to {FIRST_CHANGE} so the results count only "
+                "exposures after it.",
+            ),
+            (
+                "rollout_lowered_in_front_of_an_override_and_a_condition_that_serves_everyone",
+                _context([PRO, EU_CONTROL, EVERYONE], [{**PRO, "rollout_percentage": 20}, EU_CONTROL, EVERYONE]),
+                ("rollout_reduced", INFO, ROLLOUT_TITLE, "A6"),
+                None,
+            ),
+            (
+                "pinned_rollout_lowered_in_front_of_a_condition_that_serves_everyone",
+                _context([PRO_PINNED, EVERYONE], [{**PRO_PINNED, "rollout_percentage": 20}, EVERYONE]),
+                ("rollout_reduced", INFO, ROLLOUT_TITLE, "A6"),
+                None,
+            ),
+            (
+                "rollout_lowered_in_front_of_a_condition_that_serves_everyone_with_early_exit",
+                _context([PRO, EVERYONE], [{**PRO, "rollout_percentage": 20}, EVERYONE], early_exit=True),
+                ("rollout_reduced", INFO, ROLLOUT_TITLE, "A6"),
+                None,
+            ),
+            (
                 "set_back_with_exposures_in_between",
                 _context([PRO], [EVERYONE], [PRO], exposed_between=True),
                 ("reverted", INFO, "The release conditions changed and were set back", "A6"),
@@ -382,15 +502,44 @@ class TestReleaseConditionsChangedMidRun(TestCase):
         self.assertEqual(finding.reason, expected_reason)
         if expected_detail is not None:
             self.assertEqual(finding.detail, expected_detail)
+        names_start_date = "start date to" in finding.detail
+        self.assertEqual(ExperimentHealthFindingActionKind.MOVE_START_DATE in finding.actions, names_start_date)
+        self.assertEqual("suggested_start_date" in finding.evidence, names_start_date)
 
     @parameterized.expand(
         [
             ("no_change", _context([PRO]), None),
             ("set_back_with_nobody_in_between", _context([PRO], [EVERYONE], [PRO], exposed_between=False), None),
             (
+                "rollout_lowered_and_raised_back",
+                _context([EVERYONE], [{**EVERYONE, "rollout_percentage": 50}], now=[EVERYONE]),
+                None,
+            ),
+            (
+                "rollout_lowered_to_zero",
+                _context([PRO_PINNED, EVERYONE], [{**PRO_PINNED, "rollout_percentage": 0}, EVERYONE]),
+                None,
+            ),
+            # Every user it no longer serves gets the same variant from the next condition.
+            (
+                "rollout_lowered_in_front_of_a_condition_that_serves_everyone",
+                _context([PRO, EVERYONE], [{**PRO, "rollout_percentage": 20}, EVERYONE]),
+                None,
+            ),
+            (
+                "rollout_lowered_behind_a_condition_that_serves_everyone",
+                _context([EVERYONE, PRO], [EVERYONE, {**PRO, "rollout_percentage": 20}]),
+                None,
+            ),
+            (
                 "no_history_access",
                 _context([PRO], not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
                 not_checked("Couldn't check because you can't view the linked feature flag's history"),
+            ),
+            (
+                "list_of_a_pinned_set_edited_while_every_set_pins",
+                _context([PRO_PINNED, {**TEAM, "variant": "test"}], [PRO_OR_TEAM_PINNED, {**TEAM, "variant": "test"}]),
+                not_applicable(SPLIT_ASSIGNS_NOBODY),
             ),
             # The forced-variant check reports an override in place, with the time it was set.
             ("override_added", _context([PRO, EVERYONE], [PRO_PINNED, EVERYONE]), None),
@@ -409,3 +558,97 @@ class TestReleaseConditionsChangedMidRun(TestCase):
     )
     def test_reports_nothing(self, _name: str, ctx: HealthContext, expected: CheckSkip | None) -> None:
         self.assertEqual(release_conditions_changed_mid_run(ctx), expected)
+
+    @parameterized.expand(
+        [
+            ("saved_after_someone_was_exposed", _context([PRO], [PRO, EVERYONE], [EVERYONE]), [False, False]),
+            ("saved_before_anyone_was_exposed", _before_exposure(_context([PRO], [PRO, EVERYONE])), [True]),
+            (
+                "saved_when_the_exposure_answer_was_unknown",
+                _context([PRO], [PRO, EVERYONE], [EVERYONE], exposed_before_first=None),
+                [None, None],
+            ),
+            (
+                "a_history_not_compared_with_the_exposures",
+                _context([PRO], [PRO, EVERYONE], not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                [None],
+            ),
+        ]
+    )
+    def test_lists_each_change_with_whether_it_came_before_any_exposure(
+        self, _name: str, ctx: HealthContext, expected: list[bool | None]
+    ) -> None:
+        rows = release_conditions_changed_rows(ctx)
+
+        self.assertEqual([row[ExperimentHealthValueKey.BEFORE_EXPOSURE] for row in rows], expected)
+
+    def test_lists_each_change_with_the_conditions_before_and_after(self) -> None:
+        rows = release_conditions_changed_rows(
+            _context([PRO_PINNED, EVERYONE], [PRO, {**EVERYONE, "rollout_percentage": 50}])
+        )
+
+        self.assertEqual(
+            [(row[ExperimentHealthValueKey.BEFORE], row[ExperimentHealthValueKey.AFTER]) for row in rows],
+            [
+                (
+                    'Set 1: 100%, filters on plan, forces "test"\nSet 2: 100%',
+                    "Set 1: 100%, filters on plan\nSet 2: 50%",
+                )
+            ],
+        )
+
+    @parameterized.expand(
+        [
+            ("a_filter_value", [_filter()], [_filter(value=["team"])], None),
+            ("an_operator", [_filter()], [_filter(operator="is_not")], None),
+            ("the_type_of_a_filter_with_the_same_key", [_filter()], [_filter(type="event")], None),
+            ("the_group_type_of_a_group_filter", [_group_filter(0)], [_group_filter(1)], 0),
+            (
+                "one_cohort_for_another",
+                [{"properties": [{"key": "id", "value": 12, "type": "cohort"}]}],
+                [{"properties": [{"key": "id", "value": 34, "type": "cohort"}]}],
+                None,
+            ),
+            (
+                "the_value_of_a_flag_dependency",
+                [{"properties": [{"key": "41", "value": True, "operator": "flag_evaluates_to", "type": "flag"}]}],
+                [{"properties": [{"key": "41", "value": False, "operator": "flag_evaluates_to", "type": "flag"}]}],
+                None,
+            ),
+            (
+                "the_group_type_of_a_set_in_a_flag_that_mixes_group_types",
+                [{**EVERYONE, "aggregation_group_type_index": 0}, EVERYONE],
+                [{**EVERYONE, "aggregation_group_type_index": 1}, EVERYONE],
+                None,
+            ),
+        ]
+    )
+    def test_lists_each_change_with_the_conditions_as_saved(
+        self,
+        _name: str,
+        before: list[dict[str, Any]],
+        after: list[dict[str, Any]],
+        flag_aggregation: int | None,
+    ) -> None:
+        rows = release_conditions_changed_rows(_saved_context(before, after, flag_aggregation=flag_aggregation))
+
+        self.assertEqual(
+            [
+                (row[ExperimentHealthValueKey.BEFORE_FILTERS], row[ExperimentHealthValueKey.AFTER_FILTERS])
+                for row in rows
+            ],
+            [(_saved(before, flag_aggregation), _saved(after, flag_aggregation))],
+        )
+
+    def test_leaves_out_the_saved_conditions_of_earlier_changes_past_the_size_limit(self) -> None:
+        first, second = [_emails("first")], [_emails("second")]
+
+        rows = release_conditions_changed_rows(_saved_context([PRO], first, second))
+
+        self.assertEqual(
+            [
+                (row[ExperimentHealthValueKey.BEFORE_FILTERS], row[ExperimentHealthValueKey.AFTER_FILTERS])
+                for row in rows
+            ],
+            [(None, None), (_saved(first), _saved(second))],
+        )

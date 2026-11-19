@@ -15,6 +15,7 @@ from . import loggers, resources
 
 jobs = [
     oauth.oauth_clear_expired_oauth_tokens_job,
+    oauth.oauth_clear_stale_oauth_applications_job,
     github_sdk_versions.cache_github_sdk_versions_job,
     team_production_event_activation.detect_first_team_production_event_job,
     product_push_campaigns.product_push_campaigns_job,
@@ -25,6 +26,7 @@ jobs = [
 ]
 schedules = [
     oauth.oauth_clear_expired_oauth_tokens_schedule,
+    oauth.oauth_clear_stale_oauth_applications_schedule,
     github_sdk_versions.cache_github_sdk_versions_schedule,
     team_production_event_activation.detect_first_team_production_event_schedule,
     product_push_campaigns.product_push_campaigns_schedule,

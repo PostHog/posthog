@@ -11,7 +11,7 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { fileSystemShortcutBulkUpdateCreate } from '~/generated/core/api'
@@ -226,7 +226,7 @@ export interface navProductsTabLogicMeta {
             appRecommendationQuery: string,
             appRecommendationsEnabled: boolean
         ) => AppMatchGroups | null
-        allItems: (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null) => FileSystemImport[]
+        allItems: (featureFlags: FeatureFlagsSet) => FileSystemImport[]
         pinnedItems: (allItems: FileSystemImport[], search: string) => FileSystemImport[]
         groupedItems: (allItems: FileSystemImport[], search: string) => ProductsItemGroup[]
         configurableProducts: (allItems: FileSystemImport[]) => FileSystemImport[]
@@ -421,11 +421,7 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
         ],
         // pinned: persisted under this logic's path, so renaming the reducer resets everyone's choice.
         // Storybook starts open so visual snapshots cover the full list.
-        allProductsOpen: [
-            inStorybook() || inStorybookTestRunner(),
-            { persist: true },
-            { setAllProductsOpen: (_, { open }) => open },
-        ],
+        allProductsOpen: [inStorybook(), { persist: true }, { setAllProductsOpen: (_, { open }) => open }],
         // The browser's find-in-page opened the list to show a match. Not persisted, so the list
         // closes again on the next navigation instead of staying open for good.
         allProductsRevealedByFind: [
@@ -475,9 +471,8 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                     : null,
         ],
         allItems: [
-            (s) => [s.featureFlags, s.currentTeam],
-            (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null): FileSystemImport[] =>
-                getNavProductItems(featureFlags, currentTeam?.created_at),
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): FileSystemImport[] => getNavProductItems(featureFlags),
         ],
         pinnedItems: [
             (s) => [s.allItems, s.search],

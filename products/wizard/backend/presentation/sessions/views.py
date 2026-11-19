@@ -326,9 +326,10 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         workflow_id = query.validated_data["workflow_id"]
         skill_id = query.validated_data.get("skill_id") or None
 
-        # The generator is `async def` — WSGI can't consume an async iterator.
+        # The generator is `async def` — WSGI can't consume an async iterator. A 204
+        # tells EventSource to stop reconnecting, so the client winds down cleanly.
         if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
-            raise RuntimeError("wizard_sessions.stream requires ASGI.")
+            return HttpResponse(status=204)
 
         generator = _wizard_session_event_stream(
             team_id=self.team_id,

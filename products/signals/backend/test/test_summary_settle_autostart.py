@@ -18,6 +18,7 @@ from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.github_optional import RepositoryAccessTemporarilyUnavailable
 from products.signals.backend.models import SignalTeamConfig
@@ -32,6 +33,7 @@ from products.signals.backend.temporal.inbox_notification import (
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, SafetyJudgeOutput
 from products.signals.backend.temporal.signal_queries import FetchSignalsForReportInput, FetchSignalsForReportOutput
 from products.signals.backend.temporal.summary import (
+    CheckReportQuotaGateInput,
     ImplementationBufferInput,
     MarkReportInProgressInput,
     MarkReportReadyInput,
@@ -73,7 +75,7 @@ async def aorganization():
         name=f"SettleAutostartOrg-{random.randint(1, 99999)}",
     )
     yield organization
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 @pytest_asyncio.fixture
@@ -83,7 +85,7 @@ async def ateam(aorganization):
         name=f"SettleAutostartTeam-{random.randint(1, 99999)}",
     )
     yield team
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +148,8 @@ class _Recorder:
         self.spend_owners: list[str | None] = []
         self.work_owners: list[str | None] = []
         self.candidate_checks = 0
+        self.ready_result: bool | None = False
+        self.publications = 0
         # Auto-starts completed by the time the notification child made its first state check. The
         # child only waits for the implementation PR if the task already exists then, so a 0 here
         # means the card ships without the PR link.
@@ -183,7 +187,11 @@ async def _run_summary_workflow(
     recorder: _Recorder, *, requested_user_id: int | None = None, requested_after_run_count: int | None = None
 ) -> None:
     @activity.defn(name="check_report_quota_gate_activity")
-    async def fake_quota(input) -> bool:
+    async def fake_quota(input: CheckReportQuotaGateInput) -> bool:
+        # Simulate the limit being crossed during the first pass. Any further stage or
+        # buffered research must carry the original admission through implementation.
+        if recorder.researches > 0:
+            assert input.admitted
         return False
 
     @activity.defn(name="fetch_signals_for_report_activity")
@@ -227,17 +235,21 @@ async def _run_summary_workflow(
         )
 
     @activity.defn(name="mark_report_ready_activity")
-    async def fake_mark_ready(input: MarkReportReadyInput) -> bool:
+    async def fake_mark_ready(input: MarkReportReadyInput) -> bool | None:
         # No new signals arrived during the run itself; the buffer is what catches late signals.
-        return False
+        return recorder.ready_result
 
     @activity.defn(name="publish_report_completed_activity")
     async def fake_publish(input: PublishReportCompletedInput) -> None:
-        return None
+        recorder.publications += 1
 
     @activity.defn(name="publish_report_spend_activity")
     async def fake_publish_spend(input: SignalReportSummaryWorkflowInputs) -> None:
         recorder.spend_owners.append(input.signal_id)
+
+    @activity.defn(name="check_report_task_settlement_activity")
+    async def fake_task_settlement(input: SignalReportSummaryWorkflowInputs) -> None:
+        return None
 
     @activity.defn(name="implementation_buffer_seconds_activity")
     async def fake_buffer(input: ImplementationBufferInput) -> int:
@@ -276,6 +288,7 @@ async def _run_summary_workflow(
                 fake_mark_ready,
                 fake_publish,
                 fake_publish_spend,
+                fake_task_settlement,
                 fake_buffer,
                 fake_candidate,
                 fake_autostart,
@@ -299,12 +312,24 @@ async def _run_summary_workflow(
             )
             # The notification child is detached (ABANDON), so it can outlive the parent; wait for
             # it before asserting on what it saw.
-            await asyncio.wait_for(
-                env.client.get_workflow_handle(
-                    SignalReportInboxNotificationWorkflow.workflow_id_for(1, report_id)
-                ).result(),
-                timeout=30,
-            )
+            if recorder.ready_result is not None:
+                await asyncio.wait_for(
+                    env.client.get_workflow_handle(
+                        SignalReportInboxNotificationWorkflow.workflow_id_for(1, report_id)
+                    ).result(),
+                    timeout=30,
+                )
+
+
+@pytest.mark.asyncio
+async def test_skipped_ready_does_not_settle():
+    recorder = _Recorder(buffer_seconds=0, candidate_on_first_check=False)
+    recorder.ready_result = None
+    await _run_summary_workflow(recorder)
+    assert recorder.researches == 1
+    assert recorder.publications == 0
+    assert recorder.autostarts == 0
+    assert recorder.autostarts_at_notification == []
 
 
 @pytest.mark.asyncio

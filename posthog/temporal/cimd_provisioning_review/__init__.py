@@ -1,0 +1,5 @@
+from posthog.temporal.cimd_provisioning_review.activities import research_partner, settle_partner_review
+from posthog.temporal.cimd_provisioning_review.workflow import CIMDProvisioningReviewWorkflow
+
+CIMD_PROVISIONING_REVIEW_WORKFLOWS = [CIMDProvisioningReviewWorkflow]
+CIMD_PROVISIONING_REVIEW_ACTIVITIES = [research_partner, settle_partner_review]

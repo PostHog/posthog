@@ -138,6 +138,11 @@ export interface UserBasicApi {
  * A canvas document. Version/build content hangs off the source and build endpoints.
  */
 export interface CanvasApi {
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
     readonly id: string
     readonly name: string
     /** What the canvas is: 'freeform' (a standalone app), 'component' (a reusable widget grids place), or 'grid' (a composition of components).
@@ -879,6 +884,39 @@ export interface CanvasSourceInvalidApi {
     code: string
     /** The validation diagnostics, including at least one error. */
     diagnostics: CanvasDiagnosticApi[]
+}
+
+/**
+ * * `capability_widening_requires_creator` - Capability widening requires creator
+ * * `pinned_version_requires_creator` - Pinned version requires creator
+ * * `permission_denied` - Permission denied
+ */
+export type CanvasCreatorRequiredCodeEnumApi =
+    (typeof CanvasCreatorRequiredCodeEnumApi)[keyof typeof CanvasCreatorRequiredCodeEnumApi]
+
+export const CanvasCreatorRequiredCodeEnumApi = {
+    CapabilityWideningRequiresCreator: 'capability_widening_requires_creator',
+    PinnedVersionRequiresCreator: 'pinned_version_requires_creator',
+    PermissionDenied: 'permission_denied',
+} as const
+
+/**
+ * 403 body for a change that only a creator can make: renaming or adding capabilities to a canvas,
+ * or pinning a component version other than that component's live version.
+ */
+export interface CanvasCreatorRequiredApi {
+    /** Human-readable description of the refusal. */
+    detail: string
+    /** `capability_widening_requires_creator`: the change adds capabilities and the caller did not create the canvas. `pinned_version_requires_creator`: a grid layout pins a component version other than that component's live version and the caller did not create that component. `permission_denied`: a publish or edit supplied a name and the caller did not create the canvas.
+     *
+     * * `capability_widening_requires_creator` - Capability widening requires creator
+     * * `pinned_version_requires_creator` - Pinned version requires creator
+     * * `permission_denied` - Permission denied */
+    code: CanvasCreatorRequiredCodeEnumApi
+    /** Set for capability_widening_requires_creator. The capabilities the change adds, so the caller can ask the canvas creator to publish them. */
+    capability_widening?: CanvasCapabilityWideningApi
+    /** Set for pinned_version_requires_creator. IDs of the components whose placements must use the live version or `latest` instead. */
+    components?: string[]
 }
 
 /**

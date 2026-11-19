@@ -380,7 +380,8 @@ The accumulator evaluates a row only against the active conditions of the row's 
 
 HogVM equality coerces across types, so the property test is a superset of it.
 The test reads `replaceRegexpAll(JSONExtractRaw(properties, key), '^"|"$', '')`, the value's raw JSON text without its outer quotes.
-It admits the value itself, `true` and `false` (the VM equates a JSON boolean with a string), text holding a backslash (an escaped string), and text starting with `{` (the VM compares a temporal object by epoch).
+It admits the value itself, text holding a backslash (an escaped string), and text starting with `{` (the VM compares a temporal object by epoch).
+The value itself also covers a JSON boolean, because the cohort VM compares a boolean with a string as its text, `true` or `false`.
 A value that parses as a number is never filtered on, because the VM also equates it with a JSON number.
 The test also admits a blob that ClickHouse cannot parse, such as one holding an integer past 64 bits: ClickHouse then extracts '' for every key, while `serde_json` reads the blob.
 Ingestion writes event properties with `JSON.stringify` of a parsed object, so a key appears once and the first-value and last-value readings of ClickHouse and `serde_json` agree.
@@ -411,7 +412,7 @@ concat('{', '"$current_url":', if(isValidJSON(e.`mat_$current_url`), e.`mat_$cur
 
 That gives back every value except two kinds.
 A string whose text is JSON comes back typed (`"5"` becomes `5`), and an absent key comes back as `""`.
-HogVM equality gives the same answer for both only when the condition compares the key with a literal that is not empty, does not parse as a number, is not JSON text, and is not `true` or `false` in any case.
+HogVM equality gives the same answer for both only when the condition compares the key with a literal that is not empty, does not parse as a number, and is not JSON text.
 
 1. **Deciding per key.**
    The static pass that recognizes row filters also lists the keys each condition reads only through `properties.<key> == <literal>` with such a literal.
@@ -419,11 +420,7 @@ HogVM equality gives the same answer for both only when the condition compares t
 2. **Deciding per chunk.**
    The scan uses columns only when every projected key qualifies and has a column.
    One key left on the blob would read the whole blob again.
-   A column value that reads as `false` can be the boolean or the string `"false"`, and the VM equates the boolean with every literal that is not `true`.
-   An over-counted tile stays, because the processor applies the larger of the live and seeded counts.
-   So before it uses columns, the scan asks ClickHouse for one row of the chunk where such a column trims to `false`, which reads only the columns.
-   If one exists, the chunk keeps the rebuild.
-   The scan also keeps the rebuild when the column form makes the query too long to send by GET.
+   The scan keeps the rebuild when the column form makes the query too long to send by GET.
    When the column form and the row filter do not both fit, the row filter is dropped, because the columns keep ClickHouse off the blob for every row.
    The shadow compare's wide arm still reads the blob, so the compare checks the columns against it.
 
@@ -444,8 +441,7 @@ So check `system.parts_columns` for the lookback before a long run: an old parti
 
 `seeder_scan_properties_source_total{source,table}` reports, once for each table a scanned chunk reads, where `properties` came from.
 `columns` and `empty` keep ClickHouse off the blob.
-`rebuilt_inexact_key`, `rebuilt_no_column`, `rebuilt_ambiguous_value` and `rebuilt_too_long` name why a chunk kept the rebuild, and `rebuilt_no_column` includes a failed or timed-out lookup.
-A chunk that reads a key holding the boolean `false`, such as a flag response, counts under `rebuilt_ambiguous_value`.
+`rebuilt_inexact_key`, `rebuilt_no_column` and `rebuilt_too_long` name why a chunk kept the rebuild, and `rebuilt_no_column` includes a failed or timed-out lookup.
 
 ### ClickHouse settings
 

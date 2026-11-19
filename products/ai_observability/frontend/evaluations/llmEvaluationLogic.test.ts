@@ -10,13 +10,13 @@ import { HogQLQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ActivityScope } from '~/types'
 
-import type { TestHogResponseApi } from '../generated/api.schemas'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { EVALUATION_RUNS_QUERY_LIMIT, numericScorePasses } from './constants'
-import { evaluationReportLogic } from './evaluationReportLogic'
-import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
+import { draftFromReport, effectiveCooldownMinutes, evaluationReportLogic } from './evaluationReportLogic'
+import { DEFAULT_HOG_SOURCE, DEFAULT_JUDGE_PROMPT, llmEvaluationLogic } from './llmEvaluationLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
+import { takeBackfillStart } from './pendingBackfillStarts'
 import { EvaluationConfig, EvaluationReport, EvaluationRun } from './types'
 
 const mockProviderKeys: LLMProviderKey[] = [
@@ -243,6 +243,7 @@ describe('llmEvaluationLogic', () => {
         useMocks({
             get: {
                 '/api/llm_proxy/models/': [],
+                '/api/projects/:teamId/llm_analytics/provider_keys/:keyId/models/': [],
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
                     active_provider_key: null,
@@ -283,16 +284,6 @@ describe('llmEvaluationLogic', () => {
             await expectLogic(keysLogic).toFinishAllListeners()
             logic.actions.setEvaluationType(type)
             expect(logic.values.evaluation?.enabled).toBe(expected)
-        })
-
-        it('keeps a new evaluation paused once someone turned it off by hand', async () => {
-            await expectLogic(keysLogic).toFinishAllListeners()
-            logic.actions.setEvaluationType('hog')
-            logic.actions.setEvaluationEnabled(false)
-            // Through a judge and back, so canEnable changes and the default would turn it on again.
-            logic.actions.setEvaluationType('llm_judge')
-            logic.actions.setEvaluationType('hog')
-            expect(logic.values.evaluation?.enabled).toBe(false)
         })
 
         it.each([
@@ -1696,16 +1687,27 @@ return result`,
             })
         })
 
-        it('setEvaluationType switches back to llm_judge config shape', async () => {
+        it('switching method and back keeps the prompt and code already typed', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
+            logic.actions.setEvaluationPrompt('Is the answer polite?')
             logic.actions.setEvaluationType('hog')
+            logic.actions.setHogSource('return true;')
             logic.actions.setEvaluationType('llm_judge')
 
             await expectLogic(logic).toMatchValues({
                 evaluation: expect.objectContaining({
                     evaluation_type: 'llm_judge',
-                    evaluation_config: { prompt: '' },
+                    evaluation_config: { prompt: 'Is the answer polite?' },
+                }),
+            })
+
+            logic.actions.setEvaluationType('hog')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_type: 'hog',
+                    evaluation_config: { source: 'return true;' },
                 }),
             })
         })
@@ -1948,6 +1950,34 @@ return result`,
                                   ]
                                 : [],
                         ],
+                        '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => [
+                            200,
+                            params.key_id === keyId
+                                ? [
+                                      {
+                                          id: 'example/dual-model',
+                                          name: 'example/dual-model',
+                                          provider: displayName,
+                                          supports_decisions: true,
+                                          supports_chat: true,
+                                      },
+                                      {
+                                          id: 'example/chat-model',
+                                          name: 'example/chat-model',
+                                          provider: displayName,
+                                          supports_decisions: false,
+                                          supports_chat: true,
+                                      },
+                                      {
+                                          id: 'example/decision-model',
+                                          name: 'example/decision-model',
+                                          provider: displayName,
+                                          supports_decisions: true,
+                                          supports_chat: false,
+                                      },
+                                  ]
+                                : [],
+                        ],
                     },
                 })
                 await expectLogic(keysLogic, () => keysLogic.actions.loadProviderKeys()).toFinishAllListeners()
@@ -1965,7 +1995,10 @@ return result`,
                     model: 'example/dual-model',
                     provider_key_id: keyId,
                 })
-                expect(logic.values.evaluation?.evaluation_config).toEqual({ prompt: '', judge_method: method })
+                expect(logic.values.evaluation?.evaluation_config).toEqual({
+                    prompt: DEFAULT_JUDGE_PROMPT,
+                    judge_method: method,
+                })
                 expect(logic.values.judgeModelGroups.flatMap((group) => group.models.map((model) => model.id))).toEqual(
                     ['example/dual-model', method === 'llm' ? 'example/chat-model' : 'example/decision-model']
                 )
@@ -2087,169 +2120,8 @@ return result`,
         })
     })
 
-    describe('Hog sample testing', () => {
-        it.each([NaN, Infinity, -Infinity])('leaves scores ungraded for threshold %s', (threshold) => {
-            expect(numericScorePasses(7, { operator: 'gte', threshold })).toBeNull()
-        })
-
-        it.each(['numeric', 'categorical'] as const)(
-            'does not request a sample with an invalid %s config',
-            async (outputType) => {
-                const testSample = jest.fn(() => ({ results: [] }))
-                useMocks({ post: { '/api/projects/:teamId/evaluations/test_hog/': testSample } })
-                logic = llmEvaluationLogic({ evaluationId: 'new' })
-                logic.mount()
-                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-                logic.actions.setEvaluationType('hog')
-                logic.actions.setOutputType(outputType)
-                logic.actions.patchOutputConfig(
-                    outputType === 'numeric'
-                        ? { passing_rule: { operator: 'gte', threshold: NaN } }
-                        : {
-                              options: Array.from({ length: 101 }, (_, i) => ({
-                                  key: `category_${i}`,
-                                  label: `Category ${i}`,
-                              })),
-                          }
-                )
-
-                await expectLogic(logic, () => logic.actions.testHogOnSample()).toFinishAllListeners()
-
-                expect(testSample).not.toHaveBeenCalled()
-                expect(logic.values.hogTestResults).toBeNull()
-            }
-        )
-
-        it.each(['boolean', 'numeric', 'categorical'] as const)(
-            'sends %s output config and clears sample results after configuration changes',
-            async (outputType) => {
-                let requestBody: Record<string, unknown> | undefined
-                useMocks({
-                    post: {
-                        '/api/projects/:teamId/evaluations/test_hog/': async ({ request }) => {
-                            requestBody = (await request.json()) as Record<string, unknown>
-                            return {
-                                results: [
-                                    {
-                                        sample_id: 'trace-1',
-                                        sample_type: 'trace',
-                                        event_uuid: null,
-                                        trace_id: 'trace-1',
-                                        input_preview: 'hello',
-                                        output_preview: 'world',
-                                        result: true,
-                                        reasoning: null,
-                                        error: null,
-                                    },
-                                ],
-                            }
-                        },
-                    },
-                })
-                logic = llmEvaluationLogic({ evaluationId: 'new' })
-                logic.mount()
-                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-
-                logic.actions.setEvaluationType('hog')
-                logic.actions.setOutputType(outputType)
-                if (outputType === 'numeric') {
-                    logic.actions.patchOutputConfig({
-                        min: 0,
-                        max: 10,
-                        passing_rule: { operator: 'gte', threshold: 7 },
-                    })
-                }
-                logic.actions.setEvaluationTarget('trace')
-                logic.actions.patchTargetConfig({ window_seconds: 120 })
-                logic.actions.testHogOnSample()
-
-                await expectLogic(logic)
-                    .toDispatchActions(['testHogOnSampleSuccess'])
-                    .toMatchValues({
-                        hogTestResults: [expect.objectContaining({ sample_id: 'trace-1', sample_type: 'trace' })],
-                    })
-                expect(requestBody).toMatchObject({
-                    target: 'trace',
-                    output_type: outputType,
-                    output_config:
-                        outputType === 'numeric'
-                            ? { min: 0, max: 10, allows_na: false, passing_rule: { operator: 'gte', threshold: 7 } }
-                            : outputType === 'categorical'
-                              ? {
-                                    allows_na: false,
-                                    selection_mode: 'single',
-                                    options: [
-                                        { key: 'resolved', label: 'Resolved' },
-                                        { key: 'unresolved', label: 'Unresolved' },
-                                    ],
-                                }
-                              : { allows_na: false },
-                    target_config: { window_seconds: 120 },
-                })
-                expect(requestBody).not.toHaveProperty('allows_na')
-
-                if (outputType === 'numeric') {
-                    logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: 5 } })
-                    expect(logic.values.hogTestResults).not.toBeNull()
-                    logic.actions.patchOutputConfig({ max: 20 })
-                } else {
-                    logic.actions.patchTargetConfig({ window_seconds: 240 })
-                }
-                await expectLogic(logic).toMatchValues({ hogTestResults: null })
-            }
-        )
-
-        it.each(['target', 'passing_rule'])(
-            'handles a %s change while a preview is in flight',
-            async (changedField) => {
-                let resolveRequest: (value: TestHogResponseApi) => void = () => {}
-                const pendingResponse = new Promise<TestHogResponseApi>((resolve) => {
-                    resolveRequest = resolve
-                })
-                useMocks({
-                    post: {
-                        '/api/projects/:teamId/evaluations/test_hog/': () => pendingResponse,
-                    },
-                })
-                logic = llmEvaluationLogic({ evaluationId: 'new' })
-                logic.mount()
-                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-
-                logic.actions.setEvaluationType('hog')
-                logic.actions.setOutputType('numeric')
-                logic.actions.testHogOnSample()
-                await expectLogic(logic).toMatchValues({ hogTestResultsLoading: true })
-
-                if (changedField === 'target') {
-                    logic.actions.setEvaluationTarget('trace')
-                } else {
-                    logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: 5 } })
-                }
-                await expectLogic(logic).toMatchValues({ hogTestResults: null })
-                resolveRequest({
-                    results: [
-                        {
-                            sample_id: 'generation-1',
-                            sample_type: 'generation',
-                            event_uuid: 'generation-1',
-                            trace_id: 'trace-1',
-                            input_preview: 'hello',
-                            output_preview: 'world',
-                            result: null,
-                            score: 7,
-                            reasoning: '',
-                            error: null,
-                        },
-                    ],
-                })
-
-                await expectLogic(logic)
-                    .toDispatchActions(['testHogOnSampleSuccess'])
-                    .toMatchValues({
-                        hogTestResults: changedField === 'target' ? null : [expect.objectContaining({ score: 7 })],
-                    })
-            }
-        )
+    it.each([NaN, Infinity, -Infinity])('leaves scores ungraded for threshold %s', (threshold) => {
+        expect(numericScorePasses(7, { operator: 'gte', threshold })).toBeNull()
     })
 
     describe('saveEvaluation list refresh', () => {
@@ -2292,11 +2164,58 @@ return result`,
         })
     })
 
+    describe('saveEvaluation past traffic', () => {
+        it.each([
+            { enabled: true, expectedTab: 'backfills', requestsStart: true, offersPastData: false },
+            { enabled: false, expectedTab: null, requestsStart: false, offersPastData: true },
+        ])(
+            'a new evaluation created enabled=$enabled asks the Backfills tab to start: $requestsStart',
+            async ({ enabled, expectedTab, requestsStart, offersPastData }) => {
+                const pushSpy = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+                const infoSpy = jest.spyOn(lemonToast, 'info')
+                let backfillRequests = 0
+                useMocks({
+                    post: {
+                        '/api/projects/:teamId/evaluations/': () => ({ ...mockSentimentEvaluation, enabled }),
+                        '/api/projects/:teamId/evaluations/:id/backfills/': () => {
+                            backfillRequests += 1
+                            return [201, {}]
+                        },
+                    },
+                })
+                logic = llmEvaluationLogic({ evaluationId: 'new', evaluationType: 'sentiment' })
+                logic.mount()
+
+                try {
+                    await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                    logic.actions.setEvaluationName('Sentiment evaluation')
+                    logic.actions.setCheckPastTraffic(true)
+                    logic.actions.saveEvaluation()
+                    await expectLogic(logic).toDispatchActions(['saveEvaluationSuccess'])
+                    await expectLogic(logic).toFinishAllListeners()
+
+                    expect(backfillRequests).toBe(0)
+                    const params = new URL(String(pushSpy.mock.calls.at(-1)?.[0]), 'http://x').searchParams
+                    expect(params.get('evaluation_tab')).toBe(expectedTab)
+                    // The request stays in memory, never in a URL someone could share.
+                    expect(params.get('backfill_start')).toBeNull()
+                    expect(takeBackfillStart(mockSentimentEvaluation.id)).toBe(requestsStart)
+                    expect(
+                        infoSpy.mock.calls.some(
+                            ([message]) => message === 'This evaluation grades new data from now on.'
+                        )
+                    ).toBe(offersPastData)
+                } finally {
+                    pushSpy.mockRestore()
+                    infoSpy.mockRestore()
+                }
+            }
+        )
+    })
+
     describe('saveEvaluation updates', () => {
         it.each([
             { change: 'name', expected: { name: 'Renamed decision evaluation' }, rejected: false },
-            { change: 'disable', expected: { enabled: false }, rejected: false },
-            { change: 'enable', expected: { enabled: true }, rejected: true },
             {
                 change: 'output_config',
                 expected: { output_config: { allows_na: true } },
@@ -2325,7 +2244,7 @@ return result`,
             async ({ change, expected, rejected }) => {
                 const evaluation: EvaluationConfig = {
                     ...mockEvaluation,
-                    enabled: change !== 'enable',
+                    enabled: true,
                     evaluation_type: 'llm_judge',
                     evaluation_config: { prompt: 'Is this response helpful?', judge_method: 'decision' },
                     output_type: 'boolean',
@@ -2364,10 +2283,6 @@ return result`,
                         case 'name':
                             logic.actions.setEvaluationName(expected.name)
                             break
-                        case 'disable':
-                        case 'enable':
-                            logic.actions.setEvaluationEnabled(expected.enabled)
-                            break
                         case 'output_config':
                             logic.actions.setAllowsNA(true)
                             break
@@ -2389,6 +2304,58 @@ return result`,
                 }
             }
         )
+    })
+
+    describe('saveEnabled', () => {
+        it('lets a saved code evaluation turn on while its unsaved draft is a judge without a key', async () => {
+            const evaluation: EvaluationConfig = {
+                ...mockEvaluation,
+                enabled: false,
+                evaluation_type: 'hog',
+                evaluation_config: { source: 'return true;' },
+                model_configuration: null,
+            } as EvaluationConfig
+            useMocks({ get: { '/api/projects/:teamId/evaluations/:id/': evaluation } })
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+            await expectLogic(keysLogic).toFinishAllListeners()
+
+            logic.actions.setEvaluationType('llm_judge')
+
+            expect(logic.values.canEnable).toBe(false)
+            expect(logic.values.enableSavedReason).toBeNull()
+        })
+
+        it('saves only the run state and keeps unsaved configuration edits', async () => {
+            const evaluation: EvaluationConfig = { ...mockEvaluation, enabled: false }
+            let savedPayload: unknown
+            useMocks({
+                get: { '/api/projects/:teamId/evaluations/:id/': evaluation },
+                patch: {
+                    '/api/projects/:teamId/evaluations/:id/': async ({ request }) => {
+                        savedPayload = await request.json()
+                        return { ...evaluation, enabled: true }
+                    },
+                },
+            })
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationName('Renamed but not saved')
+            logic.actions.saveEnabled(true)
+
+            await expectLogic(logic)
+                .toDispatchActions(['saveEnabledSuccess'])
+                .toMatchValues({
+                    enabledSaving: false,
+                    evaluation: expect.objectContaining({ enabled: true, name: 'Renamed but not saved' }),
+                    originalEvaluation: expect.objectContaining({ enabled: true, name: evaluation.name }),
+                    hasUnsavedChanges: true,
+                })
+            expect(savedPayload).toEqual({ enabled: true })
+        })
     })
 
     describe('saveEvaluation report persistence', () => {
@@ -2556,23 +2523,38 @@ return result`,
         })
     })
 
+    describe('report cooldown', () => {
+        it.each([
+            { name: 'keeps a saved gap the hours field rounds, until someone edits it', hours: 2, expected: 90 },
+            { name: 'uses the edited hours once someone changes them', hours: 3, expected: 180 },
+        ])('$name', ({ hours, expected }) => {
+            const savedReport = { ...mockEvaluationReport, frequency: 'every_n' as const, cooldown_minutes: 90 }
+            const draft = { ...draftFromReport(savedReport), cooldownHours: hours }
+            expect(effectiveCooldownMinutes(savedReport, draft)).toBe(expected)
+        })
+    })
+
     describe('report destinations', () => {
         it.each([
-            { name: 'a new evaluation reports daily', evaluationId: 'new', frequency: 'scheduled' },
-            {
-                name: 'a saved evaluation without a report keeps the older baseline, so it shows no unsaved change',
-                evaluationId: 'saved-eval',
-                frequency: 'every_n',
-            },
-        ])('$name', ({ evaluationId, frequency }) => {
-            const reportLogic = evaluationReportLogic({ evaluationId })
-            reportLogic.mount()
-            try {
-                expect(reportLogic.values.configDraft).toMatchObject({ frequency, scheduleCadence: 'daily' })
-            } finally {
-                reportLogic.unmount()
+            { name: 'a new evaluation', evaluationId: 'new' },
+            { name: 'a saved evaluation without a report', evaluationId: 'saved-eval' },
+        ])(
+            '$name starts every 100 results, at most once a day, like the report the backend creates',
+            ({ evaluationId }) => {
+                const reportLogic = evaluationReportLogic({ evaluationId })
+                reportLogic.mount()
+                try {
+                    expect(reportLogic.values.configDraft).toMatchObject({
+                        frequency: 'every_n',
+                        triggerThreshold: 100,
+                        cooldownHours: 24,
+                    })
+                    expect(reportLogic.values.isConfigDirty).toBe(false)
+                } finally {
+                    reportLogic.unmount()
+                }
             }
-        })
+        )
 
         it('keeps an emptied destination open until it is removed, then clears it', () => {
             const reportLogic = evaluationReportLogic({ evaluationId: 'new' })

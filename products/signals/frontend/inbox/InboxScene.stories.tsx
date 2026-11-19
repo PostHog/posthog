@@ -7,6 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { billingJson } from '~/mocks/fixtures/_billing'
 
 import { expect, userEvent } from 'storybook/test'
 
@@ -22,8 +23,10 @@ import {
     reportTabReports,
 } from './__mocks__/inboxMocks'
 import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns, mockScoutSuggestionSet } from './__mocks__/scoutConfigs'
+import { InboxStateFilter } from './components/shell/InboxStateFilter'
 import { InboxScene } from './InboxScene'
 import { INBOX_LAST_UI_STATE_STORAGE_KEY } from './logics/inboxOnboardingLogic'
+import { reportListLogic, sectionListLogicProps } from './logics/reportListLogic'
 
 // Full Inbox scene with a populated report list. Use this to polish the holistic
 // layout: header, page tabs, the Reports view switcher, scope picker, filter bar, and the
@@ -41,6 +44,7 @@ function routeTo(pathname: string, searchParams: Record<string, string> = {}): D
 
 const sceneMocks = mswDecorator({
     get: {
+        '/api/projects/:id/signals/trial/': { enabled: false, grant_status: 'not_claimed' },
         '/api/projects/:id/integrations/github/available_installations/': {
             discovery_id: '11111111-1111-4111-8111-111111111111',
             discovered_at: '2026-06-11T00:00:00Z',
@@ -104,6 +108,53 @@ type Story = StoryObj
 
 export const Inbox: Story = {}
 
+function statusAvailabilityMocks(monitoringCount: number): Decorator {
+    return mswDecorator({
+        get: {
+            '/api/projects/:id/signals/reports': ({ request }) => [
+                200,
+                {
+                    results: [],
+                    count: new URL(request.url).searchParams.get('status') === 'monitoring' ? monitoringCount : 0,
+                    next: null,
+                    previous: null,
+                },
+            ],
+        },
+    })
+}
+
+export const MonitoringReportsExist: Story = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false },
+        testOptions: { snapshotBrowsers: [] },
+    },
+    decorators: [statusAvailabilityMocks(1)],
+    render: () => (
+        <div className="p-4">
+            <InboxStateFilter />
+        </div>
+    ),
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /statuses/ }))
+        await waitFor(() => expect(within(document.body).getByText('Monitoring', { exact: true })).toBeVisible())
+    },
+}
+
+export const NoMonitoringReports: Story = {
+    ...MonitoringReportsExist,
+    decorators: [statusAvailabilityMocks(0)],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() =>
+            expect(reportListLogic(sectionListLogicProps('outcome-monitoring')).values.hasProjectReports).toBe(false)
+        )
+        await userEvent.click(await canvas.findByRole('button', { name: /statuses/ }))
+        expect(within(document.body).queryByText('Monitoring', { exact: true })).not.toBeInTheDocument()
+    },
+}
+
 const valueSummaryMocks = mswDecorator({
     get: {
         '/api/projects/:team_id/signals/inbox_summary/': {
@@ -141,6 +192,36 @@ export const ReportsNarrow: Story = {
         await userEvent.click(await canvas.findByLabelText('Filters'))
         // The panel renders in a popover outside the story root, and fades in after the click.
         await waitFor(() => expect(within(document.body).getByText('Reset to default')).toBeVisible())
+    },
+}
+
+const TAGGED_REPORT_TAGS = ['billing', 'silent-failure', 'payments', 'retry-logic', 'customer-impact']
+const taggedReports = allReports.map((report, index) =>
+    index === 0 ? { ...report, tags: TAGGED_REPORT_TAGS } : report
+)
+
+export const ReportsTagFilter: Story = {
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_TAG_FILTER]: true },
+        testOptions: { snapshotBrowsers: [] },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports/tag_options/': () => [
+                    200,
+                    { tags: [...TAGGED_REPORT_TAGS, 'docs-gap', 'onboarding'] },
+                ],
+                '/api/projects/:id/signals/reports': () => [
+                    200,
+                    { results: taggedReports, count: taggedReports.length, next: null, previous: null },
+                ],
+            },
+        }),
+    ],
+    play: async ({ canvas }) => {
+        await userEvent.click(await canvas.findByLabelText('Tags: any'))
+        await waitFor(() => expect(within(document.body).getByText('docs-gap')).toBeVisible())
     },
 }
 
@@ -299,6 +380,46 @@ export const ScoutFindingsLoadFailed: Story = {
 
 export const Settings: Story = {
     decorators: [routeTo(urls.inbox('settings'))],
+}
+
+export const SettingsWithSpendBilling: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.SELF_DRIVING_QUOTA_ENFORCEMENT]: true } },
+    decorators: [
+        routeTo(urls.inbox('settings')),
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/reports/refund-summary/': {
+                    credited_refund_count: 0,
+                    credited_credits: 0,
+                    period_billable_credits: 0,
+                    quota_limited: true,
+                },
+                '/api/billing': () => [
+                    200,
+                    {
+                        ...billingJson,
+                        products: [
+                            {
+                                ...billingJson.products[0],
+                                type: 'inbox_usage',
+                                name: 'Inbox usage',
+                                usage_key: 'signals_spend_credits',
+                                current_amount_usd: '12.34',
+                                current_usage: 1234,
+                            },
+                        ],
+                        usage_summary: { signals_spend_credits: { billing_start_date: '2020-01-01' } },
+                    },
+                ],
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText('1,234 credits')).toBeVisible()
+        await expect(await canvas.findByText('Spending limit reached')).toBeVisible()
+        await expect(canvas.getByText(/Work already underway will finish/)).toBeVisible()
+    },
 }
 
 export const Sources: Story = {

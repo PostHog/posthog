@@ -9,6 +9,7 @@ import { useViewBack } from '@/features/views/screen/ViewScreenFrame'
 import { ViewsReauthState } from '@/features/views/ViewsReauthState'
 import { useToasts, ViewsToast } from '@/features/views/ViewsToast'
 import { formatClock, formatMonthDay } from '@/lib/dates'
+import { FEATURE_FLAGS, useFeatureFlag } from '@/lib/featureFlags'
 import { safeHttpsUrl } from '@/lib/urls'
 import type { QueryState } from '@/model/types'
 import { ComposeIcon } from '@/ui/icons/ComposeIcon'
@@ -20,6 +21,7 @@ import { RecordingIcon } from '@/ui/icons/RecordingIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { Pressable44 } from '@/ui/Pressable44'
+import { ScreenBlur } from '@/ui/ScreenBlur'
 import { StateView } from '@/ui/StateView'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors, useTheme } from '@/ui/theme'
@@ -55,6 +57,7 @@ import { SessionSkeleton } from './SessionSkeleton'
 import { SessionTimelineSection } from './SessionTimelineSection'
 import { SummaryCard } from './SummaryCard'
 import { fallbackTitle, formatDuration, formatOffset } from './sessionAdapters'
+import { ReplayVideoPlayer } from './video/ReplayVideoPlayer'
 
 interface SessionScreenProps {
     sessionId: string
@@ -136,8 +139,9 @@ function Frame({ onBack, children }: { onBack: () => void; children: ReactElemen
     const insets = useScreenInsets()
     return (
         <View style={styles.screen}>
-            <View style={[styles.fill, { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP) }]}>{children}</View>
-            <SessionChrome onBack={onBack} />
+            <ScreenBlur chrome={<SessionChrome onBack={onBack} />}>
+                <View style={[styles.fill, { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP) }]}>{children}</View>
+            </ScreenBlur>
         </View>
     )
 }
@@ -184,6 +188,8 @@ function SessionBody({ recording, t, source, onBack }: SessionBodyProps): ReactE
     const timeline = useSessionTimeline(recording)
     const flow = useSessionSummaryFlow(recording.sessionId)
     const toasts = useToasts()
+    const replayVideo = useFeatureFlag(FEATURE_FLAGS.replayVideo)
+    const [watching, setWatching] = useState(false)
     const [menuOpen, setMenuOpen] = useState(false)
     const [framePosition, setFramePosition] = useState<number | null>(null)
     const { sessionId } = recording
@@ -247,54 +253,61 @@ function SessionBody({ recording, t, source, onBack }: SessionBodyProps): ReactE
 
     return (
         <View style={styles.screen}>
-            <ScrollView
-                style={styles.fill}
-                contentContainerStyle={[
-                    styles.content,
-                    {
-                        paddingTop: topOffset(insets, SCREEN_CONTENT_TOP),
-                        paddingBottom: bottomOffset(insets, 120),
-                    },
-                ]}
-                onScroll={scrollTitle.onScroll}
-                scrollEventThrottle={16}
-                testID="session-scroll"
-            >
-                <Header
-                    onTitleLayout={scrollTitle.onTitleLayout}
-                    recording={recording}
-                    timeline={timeline}
-                    projectName={projectName}
-                    title={summary?.title ?? null}
-                    keyMomentMs={summary?.keyMomentMs ?? null}
-                    onKeyMoment={keyChapter >= 0 ? () => openChapter(keyChapter) : null}
-                />
-                <SummaryCard
-                    card={flow.card}
-                    aiStatus={aiStatus}
-                    pending={flow.pending}
-                    onSummarize={flow.summarize}
-                    onCheckAgain={flow.checkAgain}
-                />
-                {summary ? (
-                    <ChapterList
-                        observationId={summary.observationId}
-                        chapters={chapters}
-                        onOpen={(chapter) => openChapter(chapters.indexOf(chapter))}
+            <ScreenBlur
+                chrome={
+                    <SessionChrome
+                        title={scrollTitle.title}
+                        onBack={onBack}
+                        onOpenFull={!safeWebUrl ? null : replayVideo ? () => setWatching(true) : openFull}
+                        watchInApp={replayVideo}
+                        onMore={() => setMenuOpen(true)}
                     />
-                ) : null}
-                <SessionTimelineSection
-                    timeline={timeline}
-                    highlightMs={t === undefined ? undefined : t * 1000}
-                    onOpenIssue={openIssue}
-                />
-            </ScrollView>
-            <SessionChrome
-                title={scrollTitle.title}
-                onBack={onBack}
-                onOpenFull={safeWebUrl ? openFull : null}
-                onMore={() => setMenuOpen(true)}
-            />
+                }
+            >
+                <ScrollView
+                    style={styles.fill}
+                    contentContainerStyle={[
+                        styles.content,
+                        {
+                            paddingTop: topOffset(insets, SCREEN_CONTENT_TOP),
+                            paddingBottom: bottomOffset(insets, 120),
+                        },
+                    ]}
+                    onScroll={scrollTitle.onScroll}
+                    scrollEventThrottle={16}
+                    testID="session-scroll"
+                >
+                    <Header
+                        onTitleLayout={scrollTitle.onTitleLayout}
+                        recording={recording}
+                        timeline={timeline}
+                        projectName={projectName}
+                        title={summary?.title ?? null}
+                        keyMomentMs={summary?.keyMomentMs ?? null}
+                        onKeyMoment={keyChapter >= 0 ? () => openChapter(keyChapter) : null}
+                    />
+                    <SummaryCard
+                        card={flow.card}
+                        aiStatus={aiStatus}
+                        pending={flow.pending}
+                        onSummarize={flow.summarize}
+                        onCheckAgain={flow.checkAgain}
+                        watchLabel={replayVideo ? 'Watch replay' : 'Open full replay'}
+                    />
+                    {summary ? (
+                        <ChapterList
+                            observationId={summary.observationId}
+                            chapters={chapters}
+                            onOpen={(chapter) => openChapter(chapters.indexOf(chapter))}
+                        />
+                    ) : null}
+                    <SessionTimelineSection
+                        timeline={timeline}
+                        highlightMs={t === undefined ? undefined : t * 1000}
+                        onOpenIssue={openIssue}
+                    />
+                </ScrollView>
+            </ScreenBlur>
             <Pressable44
                 onPress={openChat}
                 accessibilityLabel="Chat about this session"
@@ -310,6 +323,17 @@ function SessionBody({ recording, t, source, onBack }: SessionBodyProps): ReactE
                 onClose={() => setMenuOpen(false)}
                 testID="session-menu"
                 items={[
+                    ...(replayVideo
+                        ? [
+                              {
+                                  key: 'web',
+                                  label: 'Open in PostHog',
+                                  Icon: ExternalLinkIcon,
+                                  onPress: openFull,
+                                  disabled: !safeWebUrl,
+                              },
+                          ]
+                        : []),
                     {
                         key: 'share',
                         label: `Share link at ${formatOffset(seconds * 1000)}`,
@@ -327,6 +351,15 @@ function SessionBody({ recording, t, source, onBack }: SessionBodyProps): ReactE
                     position={framePosition}
                     onChangePosition={setFramePosition}
                     onClose={() => setFramePosition(null)}
+                />
+            ) : null}
+            {watching ? (
+                <ReplayVideoPlayer
+                    sessionId={sessionId}
+                    durationSeconds={recording.durationSeconds}
+                    seconds={seconds}
+                    onClose={() => setWatching(false)}
+                    onOpenWeb={safeWebUrl ? openFull : null}
                 />
             ) : null}
             <ViewsToast toast={toasts.toast} onHide={toasts.hide} bottom={110} />

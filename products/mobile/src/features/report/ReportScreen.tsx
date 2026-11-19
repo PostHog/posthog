@@ -1,8 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query'
+import { BlurTargetView } from 'expo-blur'
 import { useIsFocused, useRouter } from 'expo-router'
-import { type ReactElement, useEffect, useState } from 'react'
-import { View } from 'react-native'
+import * as WebBrowser from 'expo-web-browser'
+import { type ReactElement, useEffect, useRef, useState } from 'react'
+import { View, type ViewInstance } from 'react-native'
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
+import { ProjectScopeOverride } from '@/auth/projectScope'
+import { CLOUD_REGIONS } from '@/auth/regions'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useViewer } from '@/auth/useViewer'
 import { useDataMode } from '@/demo/demoMode'
@@ -16,12 +20,13 @@ import {
     RESOLVE_REASON_OPTIONS,
     type ResolveReason,
 } from '@/model/verdictReasons'
-import { INBOX_PANE_WIDTH, NAV_RAIL_WIDTH, READING_WIDTH } from '@/ui/adaptiveLayout'
+import { NAV_RAIL_WIDTH, READING_WIDTH } from '@/ui/adaptiveLayout'
 import { ChartCanvasBudget } from '@/ui/chart/budget/ChartCanvasBudget'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { SceneFrame } from '@/ui/SceneFrame'
+import { ScreenBlur } from '@/ui/ScreenBlur'
 import { LoadingView, StateView } from '@/ui/StateView'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
@@ -56,6 +61,7 @@ import { ReportCharts } from './metrics/ReportCharts'
 import { reportDetailQuery } from './queries'
 import { ReportMeta } from './ReportMeta'
 import { apiErrorKind, type ReportOpenSource, type SheetEntry, useSheetFunnel } from './reportAnalytics'
+import { followLinkProject, type ReportLink, useReportLinkScope } from './reportLinkScope'
 import { TextLinkRow } from './TextLinkRow'
 import { HEADLINE_GAP, TopChrome } from './TopChrome'
 import { useReportReadTracking } from './useReportReadTracking'
@@ -66,7 +72,10 @@ type Overlay = 'none' | Sheet
 interface ReportScreenProps {
     reportId: string
     from: ReportOpenSource
+    link?: ReportLink
 }
+
+const NO_LINK: ReportLink = { projectId: null, host: null }
 
 function goBackOrInbox(router: ReturnType<typeof useRouter>): void {
     if (router.canGoBack()) {
@@ -76,10 +85,20 @@ function goBackOrInbox(router: ReturnType<typeof useRouter>): void {
     }
 }
 
-export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElement {
+export function ReportScreen({ reportId, from, link = NO_LINK }: ReportScreenProps): ReactElement {
     const demo = useDataMode() === 'demo'
     const focused = useIsFocused()
-    const { rail, railSide, paired, reportNavigation: navigation } = useAppLayout()
+    const {
+        rail,
+        railSide,
+        paired,
+        inboxExtent,
+        paneAxis,
+        paneGap,
+        reportPane,
+        reportNavigation: navigation,
+    } = useAppLayout()
+    const linkScope = useReportLinkScope(link)
     return (
         <OverlayHost>
             <View
@@ -90,24 +109,44 @@ export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElemen
                     paddingRight: rail && railSide === 'right' ? NAV_RAIL_WIDTH : 0,
                 }}
             >
-                <View style={{ flex: 1, flexDirection: 'row' }}>
+                <View style={{ flex: 1, flexDirection: paneAxis, gap: paired ? paneGap : 0 }}>
                     <SceneFrame
                         style={{
                             flexGrow: 0,
                             flexShrink: 0,
-                            flexBasis: INBOX_PANE_WIDTH,
-                            width: INBOX_PANE_WIDTH,
+                            flexBasis: inboxExtent,
+                            ...(paneAxis === 'row' ? { width: inboxExtent } : { height: inboxExtent }),
                             display: paired ? 'flex' : 'none',
                         }}
                     >
                         <ReportInbox selectedReportId={reportId} active={paired && focused} />
                     </SceneFrame>
-                    <SceneFrame>
+                    <SceneFrame
+                        style={
+                            reportPane
+                                ? {
+                                      position: 'absolute',
+                                      left: reportPane.x,
+                                      top: reportPane.y,
+                                      width: reportPane.width,
+                                      height: reportPane.height,
+                                  }
+                                : undefined
+                        }
+                    >
                         <ChartCanvasBudget active={focused}>
-                            {isReportId(reportId, demo) ? (
-                                <ReportContent reportId={reportId} from={from} />
-                            ) : (
+                            {!isReportId(reportId, demo) ? (
                                 <ReportNotFound />
+                            ) : linkScope.kind === 'elsewhere' ? (
+                                <ReportElsewhere reportId={reportId} link={link} />
+                            ) : (
+                                <ProjectScopeOverride.Provider value={linkScope.override}>
+                                    <ReportContent
+                                        reportId={reportId}
+                                        from={from}
+                                        link={linkScope.override ? link : undefined}
+                                    />
+                                </ProjectScopeOverride.Provider>
                             )}
                         </ChartCanvasBudget>
                     </SceneFrame>
@@ -115,6 +154,42 @@ export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElemen
             </View>
             {navigation ? <ReportNavigation /> : null}
         </OverlayHost>
+    )
+}
+
+function ReportElsewhere({ reportId, link }: { reportId: string; link: ReportLink }): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
+    const router = useRouter()
+    const goBack = (): void => goBackOrInbox(router)
+    // Only the cloud hosts the app links cover, so a crafted link cannot send the browser elsewhere.
+    const cloudHost = CLOUD_REGIONS.some((region) => region.host === `https://${link.host}`)
+    const webUrl =
+        cloudHost && link.projectId !== null
+            ? `https://${link.host}/project/${link.projectId}/inbox/reports/${reportId}`
+            : null
+    useEffect(() => {
+        track('mobile_report_load_failed', { report_id: reportId, kind: 'other_project' })
+    }, [reportId])
+    // An in-app browser, because Linking.openURL can hand an associated link straight back to this app.
+    const openWeb = (): void => {
+        if (webUrl) {
+            WebBrowser.openBrowserAsync(webUrl).catch(() => undefined)
+        }
+    }
+    return (
+        <View style={styles.screen}>
+            <ScreenBlur chrome={<TopChrome onBack={goBack} />}>
+                <StateView
+                    icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
+                    title="This report is in another project"
+                    message="The app isn't signed in to this report's project or region. Open the link in your browser instead."
+                    actionLabel={webUrl ? 'Open in browser' : 'Go back'}
+                    onAction={webUrl ? openWeb : goBack}
+                    testID="report-elsewhere"
+                />
+            </ScreenBlur>
+        </View>
     )
 }
 
@@ -129,20 +204,21 @@ function ReportNotFound(): ReactElement {
     }, [])
     return (
         <View style={styles.screen}>
-            <TopChrome onBack={goBack} />
-            <StateView
-                icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
-                title="Couldn't find this report"
-                message="This link doesn't point to a report. Go back and open the report from your inbox."
-                actionLabel="Go back"
-                onAction={goBack}
-                testID="report-not-found"
-            />
+            <ScreenBlur chrome={<TopChrome onBack={goBack} />}>
+                <StateView
+                    icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
+                    title="Couldn't find this report"
+                    message="This link doesn't point to a report. Go back and open the report from your inbox."
+                    actionLabel="Go back"
+                    onAction={goBack}
+                    testID="report-not-found"
+                />
+            </ScreenBlur>
         </View>
     )
 }
 
-function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
+function ReportContent({ reportId, from, link }: ReportScreenProps): ReactElement {
     const styles = useStyles()
     const colors = useColors()
     const router = useRouter()
@@ -174,12 +250,14 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
 
     // A background refetch that fails keeps the cached report, so only a report that never loaded counts.
     const loadFailed = !query.data && query.isError
-    // biome-ignore lint/correctness/useExhaustiveDependencies: one event each time the error screen appears.
+    const errorKind = loadFailed ? apiErrorKind(query.error) : undefined
+    // The server answers for the link's project, so a project the account cannot read fails here, not before.
+    const linkRefused = link !== undefined && (errorKind === 'forbidden' || errorKind === 'not_found')
     useEffect(() => {
-        if (loadFailed) {
-            track('mobile_report_load_failed', { report_id: reportId, kind: apiErrorKind(query.error) })
+        if (errorKind && !linkRefused) {
+            track('mobile_report_load_failed', { report_id: reportId, kind: errorKind })
         }
-    }, [loadFailed, reportId])
+    }, [errorKind, linkRefused, reportId])
 
     const goBack = (): void => goBackOrInbox(router)
     const goTo = (id: string | undefined): (() => void) | undefined =>
@@ -200,29 +278,34 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
     if (access.state !== 'ok') {
         return (
             <View style={styles.screen}>
-                <TopChrome onBack={goBack} />
-                <ViewsReauthState access={access} feature="inbox" />
+                <ScreenBlur chrome={<TopChrome onBack={goBack} />}>
+                    <ViewsReauthState access={access} feature="inbox" />
+                </ScreenBlur>
             </View>
         )
     }
 
     const report = query.data
+    if (!report && link && linkRefused) {
+        return <ReportElsewhere reportId={reportId} link={link} />
+    }
     if (!report) {
         return (
             <View style={styles.screen}>
-                <TopChrome onBack={goBack} />
-                {query.isLoading ? (
-                    <LoadingView label="Loading the report" />
-                ) : (
-                    <StateView
-                        icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
-                        title="Couldn't load this report"
-                        message={query.error?.message ?? 'Check your connection and try again.'}
-                        actionLabel="Try again"
-                        onAction={() => void query.refetch()}
-                        testID="report-error"
-                    />
-                )}
+                <ScreenBlur chrome={<TopChrome onBack={goBack} />}>
+                    {query.isLoading ? (
+                        <LoadingView label="Loading the report" />
+                    ) : (
+                        <StateView
+                            icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
+                            title="Couldn't load this report"
+                            message={query.error?.message ?? 'Check your connection and try again.'}
+                            actionLabel="Try again"
+                            onAction={() => void query.refetch()}
+                            testID="report-error"
+                        />
+                    )}
+                </ScreenBlur>
             </View>
         )
     }
@@ -230,8 +313,20 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
     const state = actionBarStateFor(report, { answer, handOffPending: actions.pending.handOff })
     const task = report.task
     const taskId = task?.taskId ?? report.work.assignee?.taskId
+    // Chat reads the session's project, so a report from another project moves the session there first. When the
+    // session cannot move, the web opens the report instead of the chat loading the wrong project.
+    const followReportProject = (): boolean => followLinkProject(link?.projectId)
+    const openReportOnWeb = (): void => {
+        if (report.webUrl) {
+            WebBrowser.openBrowserAsync(report.webUrl).catch(() => undefined)
+        }
+    }
     const openTaskChat = (entry: TaskChatEntry): void => {
         if (taskId) {
+            if (!followReportProject()) {
+                openReportOnWeb()
+                return
+            }
             track('mobile_report_action_pressed', {
                 action: 'task_chat',
                 from: entry,
@@ -278,6 +373,10 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
         sheets.completed()
     }
     const openChat = (): void => {
+        if (!followReportProject()) {
+            openReportOnWeb()
+            return
+        }
         track('mobile_report_action_pressed', { action: 'chat', from: 'action_bar', report_id: report.id })
         router.push({ pathname: '/chat', params: { reportId: report.id, entry: 'report' satisfies ChatSheetEntry } })
     }
@@ -294,7 +393,15 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
                 onNext={goTo(neighbors.nextId)}
                 onReassign={() => openSheet('assignee', 'chip')}
                 onChangePriority={() => openSheet('priority', 'chip')}
-                onReadFull={() => router.push({ pathname: '/report/[id]/details', params: { id: report.id } })}
+                onReadFull={() =>
+                    router.push({
+                        pathname: '/report/[id]/details',
+                        params: {
+                            id: report.id,
+                            ...(link?.projectId != null ? { project: String(link.projectId) } : {}),
+                        },
+                    })
+                }
             />
             <ActionBar
                 report={report}
@@ -404,6 +511,7 @@ function ReportBody({
     const styles = useStyles()
     const insets = useScreenInsets()
     const [headlineHeight, setHeadlineHeight] = useState(0)
+    const blurTarget = useRef<ViewInstance>(null)
     const scrollY = useSharedValue(0)
     const reading = useReportReadTracking(report.id)
     const { maxScrollY } = reading
@@ -413,39 +521,44 @@ function ReportBody({
     })
     return (
         <View style={styles.body}>
-            <Animated.ScrollView
-                style={styles.scroll}
-                contentContainerStyle={[styles.content, { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP) }]}
-                keyboardShouldPersistTaps="handled"
-                onScroll={onScroll}
-                onLayout={reading.onLayout}
-                onContentSizeChange={reading.onContentSizeChange}
-                scrollEventThrottle={16}
-                testID="report-scroll"
-            >
-                <Headline
-                    headline={report.headline}
-                    accent={report.accent}
-                    lede={report.lede}
-                    meta={<ReportMeta report={report} onReassign={onReassign} onChangePriority={onChangePriority} />}
-                    onHeadlineHeight={setHeadlineHeight}
-                />
-                {hasReportDetail(report) ? (
-                    <View style={styles.readFull}>
-                        <TextLinkRow label="Read the full report" onPress={onReadFull} testID="report-read-full" />
-                    </View>
-                ) : null}
-                <Evidence blocks={report.evidence} reportId={report.id} />
-                <Facts facts={report.facts} />
-                {report.observation ? (
-                    <ObservationCard metric={report.observation} reportId={report.id} accent={report.accent} />
-                ) : null}
-                <ImpactMetrics metrics={report.supportingMetrics} reportId={report.id} />
-                <ReportCharts charts={report.charts} reportId={report.id} accent={report.accent} />
-                <Activity events={report.activity} viewerName={viewerName} />
-            </Animated.ScrollView>
+            <BlurTargetView ref={blurTarget} style={styles.scroll}>
+                <Animated.ScrollView
+                    style={styles.scroll}
+                    contentContainerStyle={[styles.content, { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP) }]}
+                    keyboardShouldPersistTaps="handled"
+                    onScroll={onScroll}
+                    onLayout={reading.onLayout}
+                    onContentSizeChange={reading.onContentSizeChange}
+                    scrollEventThrottle={16}
+                    testID="report-scroll"
+                >
+                    <Headline
+                        headline={report.headline}
+                        accent={report.accent}
+                        lede={report.lede}
+                        meta={
+                            <ReportMeta report={report} onReassign={onReassign} onChangePriority={onChangePriority} />
+                        }
+                        onHeadlineHeight={setHeadlineHeight}
+                    />
+                    {hasReportDetail(report) ? (
+                        <View style={styles.readFull}>
+                            <TextLinkRow label="Read the full report" onPress={onReadFull} testID="report-read-full" />
+                        </View>
+                    ) : null}
+                    <Evidence blocks={report.evidence} reportId={report.id} />
+                    <Facts facts={report.facts} />
+                    {report.observation ? (
+                        <ObservationCard metric={report.observation} reportId={report.id} accent={report.accent} />
+                    ) : null}
+                    <ImpactMetrics metrics={report.supportingMetrics} reportId={report.id} />
+                    <ReportCharts charts={report.charts} reportId={report.id} accent={report.accent} />
+                    <Activity events={report.activity} viewerName={viewerName} />
+                </Animated.ScrollView>
+            </BlurTargetView>
             <TopChrome
                 refreshing={refreshing}
+                blurTarget={blurTarget}
                 onBack={onBack}
                 onPrevious={onPrevious}
                 onNext={onNext}

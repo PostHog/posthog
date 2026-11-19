@@ -1,6 +1,6 @@
 import { getBackendHost } from 'lib/utils/oauthClient'
 
-import { inStorybook, inStorybookTestRunner } from './dom'
+import { inStorybook } from './dom'
 import { getAppContext } from './getAppContext'
 
 /**
@@ -17,8 +17,7 @@ export function backendAssetUrl(path: string): string {
     return backendHost ? `${backendHost}${path}` : path
 }
 
-export function apiHostOrigin(): string {
-    const appOrigin = window.location.origin
+export function apiHostOrigin(appOrigin: string = window.location.origin): string {
     if (appOrigin === 'https://us.posthog.com') {
         return 'https://us.i.posthog.com'
     } else if (appOrigin === 'https://eu.posthog.com') {
@@ -37,7 +36,7 @@ export function liveEventsHostOrigin(): string | null {
         return 'https://live.eu.posthog.com'
     } else if (appOrigin === 'https://app.dev.posthog.dev') {
         return 'https://live.dev.posthog.dev'
-    } else if (inStorybook() || inStorybookTestRunner()) {
+    } else if (inStorybook()) {
         return 'http://localhost:6006'
     }
 

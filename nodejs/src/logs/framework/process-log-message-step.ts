@@ -254,8 +254,8 @@ async function processLogMessage(context: LogsPipelineContext, input: LogsProces
                     key: null,
                     headers: {
                         ...withoutInternalLogsHeaders(parseKafkaHeaders(input.message.headers)),
-                        ...(input.internalLogs !== undefined
-                            ? { [INTERNAL_SOURCE_HEADER]: input.internalLogs.source }
+                        ...(input.verifiedAsInternalLogs !== undefined
+                            ? { [INTERNAL_SOURCE_HEADER]: input.verifiedAsInternalLogs.source }
                             : {}),
                         token: input.token,
                         team_id: input.teamId.toString(),

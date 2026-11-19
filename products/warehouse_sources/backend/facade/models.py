@@ -36,17 +36,22 @@ from products.warehouse_sources.backend.models.external_data_job import (
 )
 from products.warehouse_sources.backend.models.external_data_schema import (
     CDC_SNAPSHOT_LANE_KEY,
+    INCREMENTAL_HISTORY_KEY,
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     SCHEDULED_FULL_REFRESH_SYNC_TYPES,
+    SCHEMA_PINNED_METADATA_KEY,
     SCHEMA_RESOURCE_ID_METADATA_KEY,
+    SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY,
     WORKER_RESTART_ERROR_MESSAGE,
     ExternalDataSchema,
     auto_enable_new_schemas,
     discovered_schema_finder,
     get_all_schemas_for_source_id,
     get_schemas_for_direct_reconciliation,
+    get_undeleted_schemas_with_tables,
     is_pinned_schema,
     mark_schema_running_unless_halted,
+    persist_schema_metadata,
     resolve_sync_type,
     self_managed_table_ref,
     sync_frequency_interval_to_sync_frequency,
@@ -64,7 +69,10 @@ from products.warehouse_sources.backend.models.external_data_source import (
     get_direct_external_data_source_for_connection,
     is_managed_warehouse_connection_ready,
 )
-from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
+from products.warehouse_sources.backend.models.pending_source_credential import (
+    PENDING_CREDENTIAL_TTL,
+    PendingSourceCredential,
+)
 from products.warehouse_sources.backend.models.table import (
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
     DataWarehouseTable,
@@ -106,8 +114,11 @@ __all__ = [
     "MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND",
     "MANAGED_WAREHOUSE_SOURCE_PREFIX",
     "MAX_FULL_REFRESH_INTERVAL_DAYS",
+    "PENDING_CREDENTIAL_TTL",
     "PendingSourceCredential",
+    "SCHEMA_PINNED_METADATA_KEY",
     "SCHEMA_RESOURCE_ID_METADATA_KEY",
+    "SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY",
     "SCHEDULED_FULL_REFRESH_SYNC_TYPES",
     "SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING",
     "WORKER_RESTART_ERROR_MESSAGE",
@@ -118,9 +129,11 @@ __all__ = [
     "auto_enable_new_schemas",
     "discovered_schema_finder",
     "is_pinned_schema",
+    "persist_schema_metadata",
     "self_managed_table_ref",
     "create_datawarehousetable",
     "get_all_schemas_for_source_id",
+    "get_undeleted_schemas_with_tables",
     "get_schemas_for_direct_reconciliation",
     "get_direct_external_data_source_for_connection",
     "is_managed_warehouse_connection_ready",
@@ -153,6 +166,7 @@ __all__ = [
     "resolve_sync_type",
     "self_managed_table_ref",
     "CDC_SNAPSHOT_LANE_KEY",
+    "INCREMENTAL_HISTORY_KEY",
     "validate_source_prefix",
     "validate_warehouse_table_url_pattern",
 ]

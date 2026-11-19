@@ -51,6 +51,7 @@ from hogli_commands.complexity_lint import PYTHON_SCOPE, TEST_WARN_AT, TYPESCRIP
 from hogli_commands.depot_mirrors import mirror_violations
 from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
 from hogli_commands.lockfile_merge import LOCKFILE_GLOBS, missing_resolutions
+from hogli_commands.ownership_lint import check_test_owners
 from hogli_commands.preflight_checks import (
     SEMGREP_SCOPE,
     SNAPSHOT_MANIFEST,
@@ -64,13 +65,22 @@ from hogli_commands.preflight_checks import (
     check_stack_depth,
     prepare_semgrep,
 )
-from hogli_commands.projections import all_outputs as projection_outputs
+from hogli_commands.projections import (
+    Tier,
+    all_outputs as projection_outputs,
+    all_triggers as projection_triggers,
+    projections_of,
+)
 from hogli_commands.size_lint import (
     SCOPE as SIZE_SCOPE,
     _merge_base,
 )
 
-Requirement = Literal["node", "desktop-node", "agent-node", "stack", "clickhouse", "python-env"]
+Requirement = Literal["node", "desktop-node", "agent-node", "stack", "clickhouse", "python-env", "migration-checks"]
+
+_UNMET_REASON: dict[Requirement, str] = {
+    "migration-checks": "POSTHOG_SKIP_MIGRATION_CHECKS is set (the flox default), so migrations:check checks nothing",
+}
 
 
 @dataclass
@@ -98,6 +108,7 @@ class DiffCheck:
     # for advisory checks whose findings print on stdout with exit 0. Warnings
     # never block and never count toward the advisory footer.
     soft: bool = False
+    detail_from_tail: bool = False
     # A check that reads the diff itself. It replaces `verify` and `fix`, and it has no auto-fix.
     run: Callable[[Scope], Outcome] | None = None
     matched: list[str] = field(default_factory=list)
@@ -171,6 +182,13 @@ DIFF_CHECKS: list[DiffCheck] = [
         takes_files=True,
         takes_diff_scope=True,
         soft=True,
+    ),
+    DiffCheck(
+        key="test-owners",
+        label="test ownership (a test file left with no team owner)",
+        triggers=["*"],
+        verify=None,
+        run=check_test_owners,
     ),
     DiffCheck(
         key="ruff-format",
@@ -363,20 +381,31 @@ DIFF_CHECKS: list[DiffCheck] = [
         # cannot drift on which diffs need a regen. The outputs count too, so a hand-edit
         # to one is caught.
         triggers=[
-            *BUILD_TRIGGERS["build:projections"],
-            *projection_outputs(),
+            *projection_triggers(Tier.PREFLIGHT),
+            *projection_outputs(Tier.PREFLIGHT),
         ],
-        verify=["hogli", "build:projections", "--check"],
-        fix=["hogli", "build:projections"],
+        verify=["hogli", "build:projections", "--check", "--tier", Tier.PREFLIGHT],
+        fix=["hogli", "build:projections", "--tier", Tier.PREFLIGHT],
+        requires=("python-env",),
+    ),
+    DiffCheck(
+        key="ci-projections",
+        label="sources of CI-only projections changed (outputs may need a regen)",
+        triggers=[
+            path for projection in projections_of(Tier.CI) for path in (*projection.triggers, *projection.outputs)
+        ],
+        verify=None,
+        fix=["hogli", "build:projections", "--tier", Tier.CI],
         requires=("python-env",),
     ),
     DiffCheck(
         key="migrations",
-        label="migration conflict / orphaned migration",
+        label="migration conflict, or migrations not applied to the local database",
         triggers=["*/migrations/*.py"],
         # migrations:check declares both postgresql and clickhouse services.
         verify=["hogli", "migrations:check"],
-        requires=("stack", "clickhouse"),
+        requires=("migration-checks", "stack", "clickhouse"),
+        detail_from_tail=True,
     ),
     DiffCheck(
         key="snapshot-baselines",
@@ -470,6 +499,8 @@ def _capability_met(req: Requirement) -> bool:
         return (REPO_ROOT / "packages" / "agent" / "node_modules" / ".pnpm").exists()
     if req == "python-env":
         return _project_python_ready()
+    if req == "migration-checks":
+        return not os.environ.get("POSTHOG_SKIP_MIGRATION_CHECKS")
     if req == "stack":
         # Postgres reachable — proxy for "dev stack is running".
         return _port_open(5432)
@@ -569,7 +600,7 @@ def _run_diff_check(
         # finding, and sends anyone who already ran it looking for a diff that isn't there.
         return "advisory", f"if you have not run `{' '.join(chk.fix or [])}` since changing them, run it and commit"
     elif unmet:
-        return "skipped", f"needs {', '.join(unmet)}"
+        return "skipped", "; ".join(_UNMET_REASON.get(req, f"needs {req}") for req in unmet)
     else:
         cmd = list(chk.verify)
     if chk.takes_diff_scope:
@@ -599,8 +630,11 @@ def _run_diff_check(
             warn_lines = result.stdout.strip().splitlines()
             return "warning", " · ".join(warn_lines[:3])
         return "pass", "fixed" if do_fix else "ok"
-    lines = (result.stdout or result.stderr).strip().splitlines()
-    return "fail", " · ".join(lines[:3]) if lines else f"exit {result.returncode}"
+    if chk.detail_from_tail:
+        lines = [line for line in f"{result.stdout}\n{result.stderr}".splitlines() if line.strip()][-3:]
+    else:
+        lines = (result.stdout or result.stderr).strip().splitlines()[:3]
+    return "fail", " · ".join(lines) if lines else f"exit {result.returncode}"
 
 
 # Branch-freshness backstop thresholds. The risk signals in ``_staleness_risks``
@@ -626,6 +660,11 @@ def _git(*args: str, timeout: float = 5.0) -> str | None:
     """Like ``_git_run`` but collapses to trimmed stdout, None on any failure."""
     result = _git_run(*args, timeout=timeout)
     return result.stdout.strip() if result is not None and result.returncode == 0 else None
+
+
+def _untracked_count() -> int:
+    out = _git("ls-files", "--others", "--exclude-standard", "-z")
+    return len([path for path in out.split("\0") if path]) if out else 0
 
 
 def _fetch_marker() -> Path | None:
@@ -862,12 +901,24 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
 @click.option("--against", default=None, help="Diff against this base ref instead of the branch default.")
 @click.option("--json", "as_json", is_flag=True, help="Emit the result summary as JSON.")
 @click.option(
+    "--include-untracked",
+    is_flag=True,
+    help="Also check (and with --fix, rewrite) files git does not track. Off by default.",
+)
+@click.option(
     "--prepare-semgrep",
     "prepare_semgrep_tool",
     is_flag=True,
     help="Cache the pinned Semgrep tool without running checks.",
 )
-def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool, prepare_semgrep_tool: bool) -> None:
+def ci_preflight(
+    do_fix: bool,
+    strict: bool,
+    against: str | None,
+    as_json: bool,
+    include_untracked: bool,
+    prepare_semgrep_tool: bool,
+) -> None:
     if os.environ.get("HOGLI_PREFLIGHT_DISABLED", "").lower() in {"1", "true"}:
         disabled_summary: dict[str, Any] = {"mode": "disabled", "results": []}
         if as_json:
@@ -894,8 +945,9 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool,
     # --strict is the blocking pre-push hook: scope it to the committed diff, since a
     # push only carries commits. Untracked/uncommitted work never reaches CI, so gating
     # a push on lint errors in a scratch file is a false block. Advisory/--fix runs keep
-    # the working tree in scope so agents can clean edits before committing.
-    files = changed_files(against, include_worktree=not strict)
+    # the working tree in scope so agents can clean edits before committing, minus untracked
+    # files, which are often scratch scripts and local tool configs that --fix must not rewrite.
+    files = changed_files(against, include_worktree=not strict, include_untracked=include_untracked)
     base = against or "origin/master"
 
     triggered: list[DiffCheck] = []
@@ -911,6 +963,12 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool,
     advisories = 0
     if not as_json:
         click.secho(f"\n  ci:preflight — {len(files)} changed file(s) vs {base}\n", bold=True)
+        if not strict and not include_untracked and (untracked := _untracked_count()):
+            click.secho(
+                f"  {untracked} untracked file(s) not checked. `git add` the ones that belong to this change, "
+                "or pass --include-untracked.\n",
+                dim=True,
+            )
 
     # Always-on branch-health check, independent of which files changed: a stale
     # branch breaks CI on merge no matter what the diff touches. Advisory only —

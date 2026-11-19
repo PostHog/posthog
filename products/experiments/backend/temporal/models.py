@@ -112,9 +112,6 @@ class ExperimentMetricsRecalculationWorkflowInputs:
     """Input to the batch metrics recalculation workflow."""
 
     recalculation_id: str  # UUID as string
-    # Task-queue fairness key for the calc activities (the org id, matching the app_per_org limiter scope).
-    # None falls back to default dispatch order.
-    fairness_key: str | None = None
     # Task queue for the metric calculation activity, chosen when the run starts so replay stays deterministic.
     # None keeps the activity on the workflow's own queue.
     activity_task_queue: str | None = None

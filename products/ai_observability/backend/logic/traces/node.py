@@ -3,6 +3,7 @@ import json
 from posthog.dataclasses import frozen
 
 from ...facade.contracts import TraceNodeKind
+from ..message_normalizer.values import Value
 from .event import kind_of_event
 from .trace_queries import TraceNodeRow, read_flag, read_number, read_text
 
@@ -68,6 +69,16 @@ class NodeEvent:
         )
 
     @property
+    def input(self) -> Value:
+        key = self.io_keys.input
+        return self.row.properties[key] if key else None
+
+    @property
+    def output(self) -> Value:
+        key = self.io_keys.output
+        return self.row.properties[key] if key else None
+
+    @property
     def error(self) -> str | None:
         value = self.row.properties.get("$ai_error")
         if not value:
@@ -84,6 +95,10 @@ class NodeEvent:
             prompt_name=read_text(properties.get("$ai_prompt_name")),
             prompt_version=read_number(properties.get("$ai_prompt_version")),
         )
+
+    @property
+    def custom_properties(self) -> dict[str, Value]:
+        return {key: value for key, value in self.row.properties.items() if not key.startswith("$")}
 
     def _first_present(self, keys: tuple[str, ...]) -> str | None:
         return next((key for key in keys if self.row.properties.get(key) is not None), None)

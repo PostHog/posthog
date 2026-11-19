@@ -1,13 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear } from '@posthog/icons'
 import { Button, Text } from '@posthog/quill'
 
-import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
-import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -20,11 +16,8 @@ import { FeedbackButton } from './components/FeedbackButton'
 import { TaskDigestButton } from './components/TaskDigest/TaskDigestButton'
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
 
-export function QuillCustomerAnalyticsSceneActions({
-    onConfigureClick,
-}: {
-    onConfigureClick: () => void
-}): JSX.Element {
+// Under today-rail-nav, Configure is a row in the People pane, so the header has no Configure button.
+export function QuillCustomerAnalyticsSceneActions(): JSX.Element {
     const { activeTab } = useValues(customerAnalyticsSceneLogic)
     const { isEditMode, stagedNodes, isSaving } = useValues(journeyEditorLogic)
     const { saveChanges, cancelChanges } = useActions(journeyEditorLogic)
@@ -84,34 +77,7 @@ export function QuillCustomerAnalyticsSceneActions({
                     )}
                     <DeleteJourneyButton />
                 </>
-            ) : (
-                <Shortcut
-                    name="CustomerAnalyticsSettings"
-                    keybind={[keyBinds.settings]}
-                    intent="Configure customer analytics"
-                    interaction="click"
-                    scope={Scene.CustomerAnalytics}
-                >
-                    <Button
-                        variant="outline"
-                        render={
-                            <LinkPrimitive
-                                to={
-                                    activeTab === 'accounts'
-                                        ? `${urls.customerAnalyticsConfiguration()}?tab=customer-analytics-accounts`
-                                        : urls.customerAnalyticsConfiguration()
-                                }
-                            />
-                        }
-                        onClick={onConfigureClick}
-                        tooltip="Configure customer analytics"
-                        data-attr="customer-analytics-config"
-                    >
-                        <IconGear />
-                        Configure
-                    </Button>
-                </Shortcut>
-            )}
+            ) : null}
         </div>
     )
 }

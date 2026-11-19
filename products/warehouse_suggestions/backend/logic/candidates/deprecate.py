@@ -26,12 +26,12 @@ class DeprecateCandidate(Candidate):
 
     def evaluate(self, context: CandidateContext) -> CandidateResult:
         rules = context.rules.deprecate
-        if context.reads.days_with_data < rules.min_days_with_data:
+        if context.reads.days_with_data < context.rules.window_days:
             return CandidateResult(
                 drafts=(),
                 rejections=(),
                 skipped_reason=(
-                    f"needs {rules.min_days_with_data} days of read data, has {context.reads.days_with_data}"
+                    f"needs {context.rules.window_days} days of read data, has {context.reads.days_with_data}"
                 ),
             )
         unread = [

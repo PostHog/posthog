@@ -8,6 +8,11 @@ from products.web_analytics.backend.rollups.properties import has_event_property
 
 EVENTS_HEALTH_EVENTS = ("$pageview", "$screen", "$pageleave", "$web_vitals")
 
+# Web analytics reads sessions through the `$session_id_uuid` materialized column, which is NULL when
+# `$session_id` is absent or is not a UUID. The raw_sessions materialized views then admit UUIDv7
+# alone, and hold the version in the nibble at bit 76 (see posthog/models/raw_sessions/sessions_v2.py).
+# A pageview that fails either test never reaches a session, so web analytics drops it from every
+# visitor and session aggregate.
 EVENTS_HEALTH_FILL_SQL = """
 SELECT
     team_id,

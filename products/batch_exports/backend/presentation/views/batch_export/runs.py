@@ -165,6 +165,8 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.Retrie
         "batch_export_id": PathParameter(type=UUID, description="The `BatchExport` this run belongs to."),
     }
     scope_object = "batch_export"
+    # batch_export is not an access-control resource, so no rule names one run.
+    records_have_object_access_rules = False
     serializer_class = BatchExportRunSerializer
     pagination_class = RunsCursorPagination
     # The paginator reads the ordering through this filter, and the facade applies it.
@@ -206,17 +208,11 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.Retrie
             statuses=statuses, created=contracts.DatetimeRange(start=after_datetime, end=before_datetime)
         )
 
-    def dangerously_get_object(self) -> contracts.BatchExportRunDetail:
-        # The mixin's get_object() reads through a queryset, which this view no longer has, so the
-        # run is read through the facade instead. That skips the mixin's team filter and object
-        # permission check, so both happen here: the facade filters by team and export, and
-        # check_object_permissions runs on the contract. `logs` reads the run through here too.
+    def read_object(self) -> contracts.BatchExportRunDetail:
         try:
-            run = batch_exports_api.get_batch_export_run(self.team_id, self._get_export_id(), self.kwargs["pk"])
+            return batch_exports_api.get_batch_export_run(self.team_id, self._get_export_id(), self.kwargs["pk"])
         except contracts.BatchExportRunNotFoundError as e:
             raise NotFound(*e.args) from e
-        self.check_object_permissions(self.request, run)
-        return run
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         export_id = self._get_export_id()

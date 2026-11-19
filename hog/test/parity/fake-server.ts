@@ -1,10 +1,44 @@
 import { createHash } from 'node:crypto'
+import { z } from 'zod'
+
+import { readJson } from '@/testing'
 
 // A fake PostHog API plus object store that records every request. Parity tests run posthog-cli and
 // hog against it and compare the recordings. Server-side ids are derived from the request (UUIDv5),
 // so both CLIs see the same ids.
 
-export type Scenario = 'fresh' | 'post-only' | 'hash-mismatch' | 'release-mismatch' | 'check-403' | 'start-500-once'
+// `no-sdk` is a PostHog that predates `sdk` on event_definitions/typescript/: it ignores the query.
+export type Scenario =
+    | 'fresh'
+    | 'post-only'
+    | 'hash-mismatch'
+    | 'release-mismatch'
+    | 'check-403'
+    | 'start-500-once'
+    | 'no-sdk'
+
+const ReleaseBody = z.looseObject({
+    hash_id: z.string(),
+    version: z.string(),
+    project: z.string(),
+    metadata: z.unknown().optional(),
+})
+const CheckUploadBody = z.looseObject({
+    symbol_sets: z.array(z.looseObject({ chunk_id: z.string(), content_hash: z.string() })),
+})
+const StartUploadBody = z.looseObject({
+    symbol_sets: z.array(
+        z.looseObject({
+            chunk_id: z.string(),
+            release_id: z.string().nullable(),
+            content_hash: z.string(),
+            content_length: z.number().optional(),
+        })
+    ),
+    force: z.boolean(),
+    skip_on_conflict: z.boolean(),
+})
+const FinishUploadBody = z.looseObject({ content_hashes: z.record(z.string(), z.string()) })
 
 export interface RecordedRequest {
     method: string
@@ -104,6 +138,11 @@ export function startFakeServer(scenario: Scenario): FakeServer {
             const base = `http://127.0.0.1:${server.port}`
             let match: RegExpMatchArray | null
 
+            // hog reads event definitions through /api/environments/ and posthog-cli through /api/projects/.
+            if ((match = path.match(/^\/api\/(?:projects|environments)\/\d+\/event_definitions\/(\w+)$/))) {
+                const sdk = scenario === 'no-sdk' ? null : url.searchParams.get('sdk')
+                return respond(json(200, eventDefinitions(match[1]!, sdk, scenario !== 'no-sdk')))
+            }
             if ((match = path.match(/^\/api\/projects\/\d+\/error_tracking\/releases\/hash\/(.+)$/))) {
                 const release = releases.get(match[1]!)
                 return respond(
@@ -113,12 +152,7 @@ export function startFakeServer(scenario: Scenario): FakeServer {
                 )
             }
             if (/^\/api\/projects\/\d+\/error_tracking\/releases$/.test(path) && request.method === 'POST') {
-                const parsed = JSON.parse(body) as {
-                    hash_id: string
-                    version: string
-                    project: string
-                    metadata?: unknown
-                }
+                const parsed = readJson(body, ReleaseBody)
                 const release = {
                     id: uuid5(`release:${parsed.hash_id}`),
                     hash_id: parsed.hash_id,
@@ -152,7 +186,7 @@ export function startFakeServer(scenario: Scenario): FakeServer {
                         })
                     )
                 }
-                const parsed = JSON.parse(body) as { symbol_sets: { chunk_id: string; content_hash: string }[] }
+                const parsed = readJson(body, CheckUploadBody)
                 const needed = parsed.symbol_sets
                     .filter((set) => symbolSets.get(set.chunk_id)?.hash !== set.content_hash)
                     .map((set) => set.chunk_id)
@@ -163,16 +197,7 @@ export function startFakeServer(scenario: Scenario): FakeServer {
                 if (scenario === 'start-500-once' && startCalls === 1) {
                     return respond(json(500, { detail: 'Server error.' }))
                 }
-                const parsed = JSON.parse(body) as {
-                    symbol_sets: {
-                        chunk_id: string
-                        release_id: string | null
-                        content_hash: string
-                        content_length?: number
-                    }[]
-                    force: boolean
-                    skip_on_conflict: boolean
-                }
+                const parsed = readJson(body, StartUploadBody)
                 // The stored copy has other content: an error unless the request says what to do.
                 if (scenario === 'hash-mismatch' && !parsed.force) {
                     if (!parsed.skip_on_conflict) {
@@ -214,7 +239,7 @@ export function startFakeServer(scenario: Scenario): FakeServer {
                 return respond(json(201, { id_map: idMap }))
             }
             if (path.endsWith('/symbol_sets/bulk_finish_upload')) {
-                const parsed = JSON.parse(body) as { content_hashes: Record<string, string> }
+                const parsed = readJson(body, FinishUploadBody)
                 for (const [id, hash] of Object.entries(parsed.content_hashes)) {
                     for (const set of symbolSets.values()) {
                         if (set.id === id) {
@@ -244,6 +269,21 @@ export function startFakeServer(scenario: Scenario): FakeServer {
             objects.push(...stored)
         },
         stop: () => server.stop(true),
+    }
+}
+
+// Non-ASCII names and no final newline, so a CLI that re-encodes or reformats the module fails.
+function eventDefinitions(
+    language: string,
+    sdk: string | null,
+    namesSdk: boolean
+): { content: string; event_count: number; schema_hash: string; sdk?: string } {
+    const variant = sdk ? `${language}-${sdk}` : language
+    return {
+        content: `/**\n * GENERATED FILE - DO NOT EDIT\n * Language: ${variant}\n */\nexport type EventName = "sign up" | "café ☕"\n// end`,
+        event_count: 2,
+        schema_hash: `hash-${variant}`,
+        ...(language === 'typescript' && namesSdk ? { sdk: sdk ?? 'posthog-js' } : {}),
     }
 }
 

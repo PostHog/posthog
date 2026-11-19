@@ -3,18 +3,25 @@ import { router } from 'kea-router'
 import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import api from 'lib/api'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { handleLoginRedirect, redirectAfterLogin } from 'lib/utils/loginRedirect'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
+import { getRadarSignalsId, markRadarSignalsIdSent, startRadarSignals } from 'scenes/authentication/shared/radarSignals'
 
 import { initKea } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { loginLogic } from './loginLogic'
+import { CODE_RESEND_COOLDOWN_MS, loginLogic } from './loginLogic'
 
 jest.mock('@simplewebauthn/browser', () => ({ startAuthentication: jest.fn() }))
 jest.mock('posthog-js')
+jest.mock('scenes/authentication/shared/radarSignals', () => ({
+    startRadarSignals: jest.fn(),
+    getRadarSignalsId: jest.fn(() => Promise.resolve('signals_abc')),
+    markRadarSignalsIdSent: jest.fn(),
+}))
 
 // isWebKitBrowser() reads navigator.vendor: "Apple Computer, Inc." on WebKit, "Google Inc." on Chromium.
 const WEBKIT_VENDOR = 'Apple Computer, Inc.'
@@ -168,6 +175,21 @@ describe('loginLogic', () => {
             expect(beginHandler).toHaveBeenCalledTimes(1)
         })
 
+        it('does not auto-trigger the passkey prompt for an email once its password login is submitted', async () => {
+            useMocks({
+                post: {
+                    '/api/login': () => [401, { code: 'code_based_verification_required', detail: 'user@example.com' }],
+                },
+            })
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+            logic.actions.submitLogin()
+            logic.actions.precheck({ email: 'user@example.com' })
+            await expectLogic(logic)
+                .toDispatchActionsInAnyOrder(['precheckSuccess', 'submitLoginFailure'])
+                .toFinishAllListeners()
+            expect(beginHandler).not.toHaveBeenCalled()
+        })
+
         it('does not auto-trigger the passkey modal on WebKit (Safari)', async () => {
             setVendor(WEBKIT_VENDOR)
             logic.actions.precheck({ email: 'user@example.com' })
@@ -186,8 +208,19 @@ describe('loginLogic', () => {
                 get: { '/api/users/@me/': () => [200, {}] },
                 post: {
                     '/api/login/precheck': () => [200, { saml_available: false }],
-                    '/api/login': () => [401, { code: 'code_based_verification_required', detail: 'user@example.com' }],
+                    '/api/login': () => [
+                        401,
+                        {
+                            code: 'code_based_verification_required',
+                            detail: 'user@example.com',
+                            extra: { inbox_provider: 'gmail' },
+                        },
+                    ],
                     '/api/login/code-based-verification': () => [200, { success: true }],
+                    '/api/login/code-based-verification/resend': () => [
+                        429,
+                        { code: 'too_soon', detail: 'Please wait before requesting another email' },
+                    ],
                 },
             })
             initKeaTests()
@@ -203,17 +236,89 @@ describe('loginLogic', () => {
         })
 
         it('enters code-entry mode when login requires a code, and exits on demand', async () => {
-            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
-            logic.actions.submitLogin()
-            await expectLogic(logic).toDispatchActions(['setCodeVerificationRequired', 'submitLoginFailure'])
+            const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000)
+            try {
+                logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+                logic.actions.submitLogin()
+                await expectLogic(logic).toDispatchActions(['setCodeVerificationRequired', 'submitLoginFailure'])
 
-            expect(logic.values.codeVerificationRequired).toBe(true)
-            expect(logic.values.codeVerificationEmail).toBe('user@example.com')
+                expect(logic.values.codeVerificationRequired).toBe(true)
+                expect(logic.values.codeVerificationEmail).toBe('user@example.com')
+                expect(logic.values.codeVerificationInboxProvider).toBe('gmail')
+                expect(logic.values.generalError).toBe(null)
+                expect(logic.values.codeResendAttempted).toBe(false)
+                expect(logic.values.codeResendAvailableAt).toBe(1_000_000 + CODE_RESEND_COOLDOWN_MS)
+
+                now.mockReturnValue(1_030_000)
+                logic.actions.resendCodeBasedVerification(null)
+                await expectLogic(logic).toDispatchActions(['resendCodeBasedVerificationSuccess'])
+                expect(logic.values.resendResponse).toBe(null)
+                expect(logic.values.codeResendAttempted).toBe(true)
+                expect(logic.values.codeResendAvailableAt).toBe(1_000_000 + CODE_RESEND_COOLDOWN_MS)
+
+                logic.actions.exitCodeVerification()
+                expect(logic.values.codeVerificationRequired).toBe(false)
+                expect(logic.values.codeVerificationEmail).toBe(null)
+                expect(logic.values.codeVerificationInboxProvider).toBe(null)
+                expect(logic.values.codeResendAttempted).toBe(false)
+                expect(logic.values.codeResendAvailableAt).toBe(null)
+            } finally {
+                now.mockRestore()
+            }
+        })
+
+        it('submits an IdP verification code without an empty login email', async () => {
+            useMocks({
+                post: {
+                    '/api/login/code-based-verification': async ({ request }) => {
+                        const body = (await request.json()) as { email?: string }
+                        return body.email === ''
+                            ? [400, { detail: 'Email cannot be blank.' }]
+                            : [200, { success: true }]
+                    },
+                },
+            })
+            router.actions.push('/login?code_verification_pending=1&email=member%40example.com')
+            expect(logic.values.login.email).toBe('')
+            logic.actions.setCodeVerificationValue('code', '123456')
+            logic.actions.submitCodeVerification()
+            await expectLogic(logic).toDispatchActions(['submitCodeVerificationSuccess'])
+            expect(logic.values.codeVerificationManualErrors).toEqual({})
+        })
+
+        it('shows an undeliverable address on resend as a login error, and clears it once a resend goes out', async () => {
+            const detail = "We can't send email to this address."
+            useMocks({
+                post: {
+                    '/api/login/code-based-verification/resend': () => [
+                        400,
+                        { type: 'server_error', code: 'login_code_email_undeliverable', detail },
+                    ],
+                },
+            })
+
+            logic.actions.resendCodeBasedVerification(null)
+            await expectLogic(logic).toDispatchActions(['resendCodeBasedVerificationSuccess'])
+
+            expect(logic.values.resendResponse).toBe(null)
+            expect(logic.values.generalError).toEqual({ code: 'login_code_email_undeliverable', detail })
+
+            expect(logic.values.codeResendAvailableAt).toBe(null)
+
+            const sent = { success: true, message: 'sent' }
+            useMocks({ post: { '/api/login/code-based-verification/resend': () => [200, sent] } })
+
+            const now = jest.spyOn(Date, 'now').mockReturnValue(2_000_000)
+            try {
+                logic.actions.resendCodeBasedVerification(null)
+                await expectLogic(logic).toDispatchActions(['resendCodeBasedVerificationSuccess'])
+            } finally {
+                now.mockRestore()
+            }
+
+            expect(logic.values.resendResponse).toEqual(sent)
             expect(logic.values.generalError).toBe(null)
-
-            logic.actions.exitCodeVerification()
-            expect(logic.values.codeVerificationRequired).toBe(false)
-            expect(logic.values.codeVerificationEmail).toBe(null)
+            expect(logic.values.codeResendAvailableAt).toBe(2_000_000 + CODE_RESEND_COOLDOWN_MS)
         })
     })
 
@@ -254,6 +359,81 @@ describe('loginLogic', () => {
                 expect.anything(),
                 expect.objectContaining({ extra: expect.objectContaining({ status: 502 }) })
             )
+        })
+    })
+
+    describe('radar signals', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        const originalVendor = window.navigator.vendor
+
+        afterEach(() => {
+            logic.unmount()
+            setVendor(originalVendor)
+            jest.restoreAllMocks()
+            jest.clearAllMocks()
+        })
+
+        it.each([
+            [
+                'sends the signals token when the precheck names a radar client',
+                { radar_client_id: 'client_123' },
+                [['client_123']],
+                { radar_signals_id: 'signals_abc' },
+                [['signals_abc']],
+            ],
+            ['sends no token when the precheck names none', {}, [], {}, []],
+        ])('%s', async (_name, precheckExtra, expectedStartCalls, expectedTokenField, expectedSentCalls) => {
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger
+            useMocks({
+                post: {
+                    '/api/login/precheck': () => [200, { saml_available: false, ...precheckExtra }],
+                    '/api/login': () => [400, { code: 'invalid_credentials', detail: 'Invalid email or password.' }],
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+            const createSpy = jest.spyOn(api, 'create')
+
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+            logic.actions.precheck({ email: 'user@example.com' })
+            await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+            logic.actions.submitLogin()
+            await expectLogic(logic).toDispatchActions(['submitLoginFailure'])
+
+            const loginBody = createSpy.mock.calls.find(([url]) => url === 'api/login')?.[1]
+            expect(jest.mocked(startRadarSignals).mock.calls).toEqual(expectedStartCalls)
+            expect(loginBody).toEqual({ email: 'user@example.com', password: 'a-password', ...expectedTokenField })
+            expect(jest.mocked(markRadarSignalsIdSent).mock.calls).toEqual(expectedSentCalls)
+        })
+
+        it('sends the login without a token when the token never arrives', async () => {
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger
+            jest.mocked(getRadarSignalsId).mockReturnValueOnce(new Promise(() => {}))
+            useMocks({
+                post: {
+                    '/api/login/precheck': () => [200, { saml_available: false, radar_client_id: 'client_123' }],
+                    '/api/login': () => [400, { code: 'invalid_credentials', detail: 'Invalid email or password.' }],
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+            logic.actions.precheck({ email: 'user@example.com' })
+            await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+            const createSpy = jest.spyOn(api, 'create')
+            jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+            logic.actions.submitLogin()
+            await jest.advanceTimersByTimeAsync(3000)
+            jest.useRealTimers()
+            await expectLogic(logic).toDispatchActions(['submitLoginFailure'])
+
+            const loginBody = createSpy.mock.calls.find(([url]) => url === 'api/login')?.[1]
+            expect(loginBody).toEqual({ email: 'user@example.com', password: 'a-password' })
         })
     })
 
@@ -340,12 +520,14 @@ describe('loginLogic', () => {
     describe('available login methods', () => {
         let logic: ReturnType<typeof loginLogic.build>
         let precheckResponse: Record<string, any>
+        let resetHandler: jest.Mock
         const originalVendor = window.navigator.vendor
 
         beforeEach(() => {
             setVendor(WEBKIT_VENDOR) // skip the passkey auto-trigger, isolate the precheck response
             precheckResponse = { saml_available: false }
-            useMocks({ post: { '/api/login/precheck': () => [200, precheckResponse] } })
+            resetHandler = jest.fn(() => [200, { success: true }])
+            useMocks({ post: { '/api/login/precheck': () => [200, precheckResponse], '/api/reset/': resetHandler } })
             initKeaTests()
             router.actions.push('/login')
             logic = loginLogic()
@@ -358,9 +540,10 @@ describe('loginLogic', () => {
             jest.clearAllMocks()
         })
 
-        async function precheck(response: Record<string, any>): Promise<void> {
+        async function precheck(response: Record<string, any>, email = 'user@example.com'): Promise<void> {
             precheckResponse = response
-            logic.actions.precheck({ email: 'user@example.com' })
+            logic.actions.setLoginValues({ email })
+            logic.actions.precheck({ email })
             await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
         }
 
@@ -406,7 +589,7 @@ describe('loginLogic', () => {
             })
             expect(logic.values.availableLoginMethods).toEqual(['passkey'])
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(false)
-            expect(logic.values.restrictToProviders).toEqual([])
+            expect(logic.values.restrictToProviders).toBe(null)
         })
 
         it('offers SAML for a passwordless account on a SAML domain', async () => {
@@ -426,11 +609,28 @@ describe('loginLogic', () => {
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(false)
         })
 
-        it('reports a dead end for a passwordless account with nothing else', async () => {
+        it('offers every provider and a set-password email to a passwordless account with nothing linked', async () => {
             await precheck({ saml_available: false, password_login_available: false, social_providers: [] })
             expect(logic.values.isPasswordLoginUnavailable).toBe(true)
             expect(logic.values.availableLoginMethods).toEqual([])
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(true)
+            expect(logic.values.restrictToProviders).toBe(null)
+
+            logic.actions.sendSetPasswordLink('user@example.com')
+            await expectLogic(logic).toDispatchActions(['sendSetPasswordLinkSuccess'])
+
+            expect(resetHandler).toHaveBeenCalledTimes(1)
+            expect(logic.values.setPasswordLinkSentTo).toBe('user@example.com')
+        })
+
+        it('ignores a passwordless precheck once the email in the field changes', async () => {
+            await precheck({ saml_available: false, password_login_available: false, social_providers: [] })
+
+            logic.actions.setLoginValues({ email: 'other@example.com' })
+
+            expect(logic.values.isPasswordLoginUnavailable).toBe(false)
+            expect(logic.values.hasNoConfiguredLoginMethod).toBe(false)
+            expect(logic.values.restrictToProviders).toBe(null)
         })
 
         it('defers entirely to enforced SSO', async () => {

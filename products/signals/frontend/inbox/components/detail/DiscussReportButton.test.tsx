@@ -14,12 +14,15 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
+import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
+
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import {
     FIX_CI_REQUEST,
     inboxTaskKickoffLogic,
     MERGE_PR_REQUEST,
     REPORT_DISCUSSION_QUESTION_MAX_LENGTH,
+    RESOLVE_CONFLICTS_REQUEST,
 } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
@@ -75,10 +78,12 @@ function makeReport(suggestedPrompts?: string[]): SignalReport {
 
 describe('DiscussReportButton', () => {
     let checksConclusion: 'failure' | 'success' | null = null
+    let hasConflict = false
     let discussReport: jest.Mock
 
     beforeEach(() => {
         checksConclusion = null
+        hasConflict = false
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
@@ -88,6 +93,7 @@ describe('DiscussReportButton', () => {
                         checks: checksConclusion
                             ? [{ name: 'backend', status: 'completed', conclusion: checksConclusion, url: null }]
                             : [],
+                        has_conflict: hasConflict,
                     },
                 ],
                 '/api/projects/:team_id/signals/reports/:id/pr_comments/': { comments: [] },
@@ -189,6 +195,37 @@ describe('DiscussReportButton', () => {
             expect.objectContaining({ id: 'report-1' }),
             'https://app/report-1',
             'Who is affected?'
+        )
+    })
+
+    it('submits the edited check suggestion with the metric replacement intent', async () => {
+        const user = userEvent.setup()
+        const report = makeReport([SUGGESTION])
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MONITORING], {
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
+        })
+        await expectLogic(inboxTaskKickoffLogic, () =>
+            inboxTaskKickoffLogic.actions.openReportCheckMetricSuggestion(report, {
+                id: 'checkout-check',
+                title: 'Checkout errors stay low',
+            } as SignalReportCheckApi)
+        ).toFinishAllListeners()
+        const initialDraft = inboxTaskKickoffLogic.values.reportDiscussionDraft
+        render(<ReportDiscussionComposer report={report} reportUrl="https://app/report-1" />)
+
+        expect(screen.getByTestId('max-chat-input')).toHaveValue(initialDraft)
+        expect(screen.queryByText(SUGGESTION)).not.toBeInTheDocument()
+        fireEvent.change(screen.getByTestId('max-chat-input'), {
+            target: { value: `${initialDraft}Measure the failed checkout rate over seven days.` },
+        })
+        await user.click(screen.getByTestId('inbox-report-ask-ai-submit'))
+
+        expect(discussReport).toHaveBeenCalledWith(
+            report,
+            'https://app/report-1',
+            `${initialDraft}Measure the failed checkout rate over seven days.`,
+            undefined,
+            'check_metrics'
         )
     })
 
@@ -331,8 +368,13 @@ describe('DiscussReportButton', () => {
         expect(screen.queryByText('Get it merged')).not.toBeInTheDocument()
     })
 
-    async function setChecks(report: SignalReport, conclusion: 'failure' | 'success'): Promise<void> {
+    async function setChecks(
+        report: SignalReport,
+        conclusion: 'failure' | 'success',
+        conflicting: boolean = false
+    ): Promise<void> {
         checksConclusion = conclusion
+        hasConflict = conflicting
         const logic = inboxReportDetailLogic({ reportId: report.id, report })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -366,20 +408,52 @@ describe('DiscussReportButton', () => {
         })
     })
 
-    it.each([
-        ['CI passes', 'success', 'open'],
-        ['the PR is already merged', 'failure', 'merged'],
-    ] as const)('does not offer Make it green when %s', async (_name, conclusion, state) => {
+    it('offers Make it green and sends Resolve conflicts when the PR conflicts while CI passes', async () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_GET_IT_MERGED], {
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
             [FEATURE_FLAGS.INBOX_GET_IT_MERGED]: true,
         })
-        const report = withPullRequest(makeReport(), state, 'review_required')
-        await setChecks(report, conclusion)
+        const report = withPullRequest(makeReport(), 'open', 'review_required')
+        await setChecks(report, 'success', true)
         const user = userEvent.setup()
         render(<DiscussReportButton report={report} reportUrl="https://app/report-1" />)
 
         await user.click(screen.getByTestId('inbox-report-ask-ai-actions'))
-        expect(screen.queryByText('Make it green')).not.toBeInTheDocument()
+        expect(screen.getByText('Make it green')).toBeInTheDocument()
+        await user.click(screen.getByText('Resolve conflicts'))
+
+        expect(discussReport).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'report-1' }),
+            'https://app/report-1',
+            RESOLVE_CONFLICTS_REQUEST,
+            undefined,
+            'resolve_conflicts',
+            'https://github.com/org/repo/pull/1'
+        )
+        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+            question_source: 'suggested',
+            suggestion_count: 1,
+            question_intent: 'resolve_conflicts',
+        })
+    })
+
+    it.each([
+        ['CI passes and the PR does not conflict', 'success', false, 'open', false],
+        ['CI fails and the PR does not conflict', 'failure', false, 'open', true],
+        ['the PR is already merged', 'failure', true, 'merged', false],
+    ] as const)('offers no Resolve conflicts when %s', async (_name, conclusion, conflicting, state, makesGreen) => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_GET_IT_MERGED], {
+            [FEATURE_FLAGS.INBOX_GET_IT_MERGED]: true,
+        })
+        const report = withPullRequest(makeReport(), state, 'review_required')
+        await setChecks(report, conclusion, conflicting)
+        const user = userEvent.setup()
+        render(<DiscussReportButton report={report} reportUrl="https://app/report-1" />)
+
+        await user.click(screen.getByTestId('inbox-report-ask-ai-actions'))
+        expect(screen.getByTestId('inbox-report-ask-ai-quick-submit')).toBeInTheDocument()
+        expect(screen.queryByText('Resolve conflicts')).not.toBeInTheDocument()
+        expect(screen.queryByText('Make it green') !== null).toBe(makesGreen)
     })
 
     it('fills the quick ask from a suggestion and sends it in the background on Enter', async () => {

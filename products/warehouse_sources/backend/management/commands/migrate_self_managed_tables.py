@@ -31,9 +31,7 @@ class Command(BaseCommand):
         "turns syncing on, and the first sync then replaces it with the same id and name. A table made from an "
         "uploaded file gets a file upload source of its own, and its next uploaded file is the first sync. "
         "Each source gets the access rules that keep every member's access to its tables, or the table stays "
-        "self-managed. Runs only for teams "
-        "with the object storage sources feature flag. Without --live-run the command only reports what it "
-        "would do."
+        "self-managed. Without --live-run the command only reports what it would do."
     )
 
     def add_arguments(self, parser: CommandParser) -> None:

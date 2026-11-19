@@ -287,6 +287,20 @@ describe('definitionPopoverLogic', () => {
     })
 
     describe('view mode', () => {
+        it.each([
+            ['a saved event definition', { id: 'uuid-pageview', name: '$pageview' }, true],
+            ['a hidden event stand-in with no definition', { name: '$feature_flag_called' }, false],
+        ])('offers Edit for %s', async (_label, definition, isEditable) => {
+            logic = definitionPopoverLogic({ type: TaxonomicFilterGroupType.Events })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDefinition(definition)
+            })
+                .toDispatchActions(['setDefinitionSuccess'])
+                .toMatchValues({ isEditable })
+        })
+
         it('hydrates data warehouse fields from the selected filter before applying defaults', async () => {
             logic = definitionPopoverLogic({
                 type: TaxonomicFilterGroupType.DataWarehouse,

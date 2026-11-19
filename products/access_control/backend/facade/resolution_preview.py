@@ -21,7 +21,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.object_names import (
     display_model,
@@ -205,7 +205,7 @@ def _build_subjects(team: Team, user_access_control: UserAccessControl, rows: li
             )
         )
     for membership in memberships:
-        if membership.level >= OrganizationMembership.Level.ADMIN:
+        if membership.effective_level >= OrganizationMembership.Level.ADMIN:
             continue
         user = membership.user
         name = f"{user.first_name} {user.last_name}".strip() or user.email

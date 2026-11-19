@@ -5,12 +5,12 @@ import pytest
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 from products.warehouse_sources.sources.shipstation._config import ShipStationSourceConfig
 from products.warehouse_sources.sources.shipstation.settings import (
+    PAGE_SIZE,
     SHIPSTATION_ENDPOINTS,
     SHIPSTATION_V1,
     SHIPSTATION_V2,
 )
 from products.warehouse_sources.sources.shipstation.shipstation import (
-    PAGE_SIZE,
     SHIPSTATION_DIALECTS,
     ShipStationResumeConfig,
     _build_params,
@@ -97,8 +97,94 @@ class TestExtractionShapes:
         assert result.raised is None
         assert result.rows == []
 
+    @pytest.mark.parametrize(
+        "endpoint, row, path, params",
+        [
+            ("users", {"userId": "user-a", "name": "Warehouse operator"}, "/users", {"showInactive": "true"}),
+            ("marketplaces", {"marketplaceId": 1, "name": "Example shop"}, "/stores/marketplaces", {}),
+        ],
+    )
+    def test_v1_reference_tables(
+        self, endpoint: str, row: dict[str, str | int], path: str, params: dict[str, str]
+    ) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=[row])], api_version=SHIPSTATION_V1)
+
+        assert result.raised is None
+        assert result.rows == [row]
+        assert result.paths == [path]
+        assert dict(result.requests[0].query) == {key: (value,) for key, value in params.items()}
+
+    @pytest.mark.parametrize("api_version", [SHIPSTATION_V1, SHIPSTATION_V2])
+    @pytest.mark.parametrize("endpoint", ["services", "packages"])
+    @pytest.mark.parametrize("resume", [False, True])
+    def test_carrier_lookups(self, api_version: str, endpoint: str, resume: bool) -> None:
+        is_v2 = api_version == SHIPSTATION_V2
+        parent_key = "carrier_id" if is_v2 else "code"
+        carrier_key = "carrier_id" if is_v2 else "carrierCode"
+        code_key = ("service_code" if endpoint == "services" else "package_code") if is_v2 else "code"
+        child_path = f"/v2/carriers/carrier-a/{endpoint}" if is_v2 else f"/carriers/list{endpoint}"
+        completed_path = f"/carriers/carrier-a/{endpoint}" if is_v2 else f"{child_path}?carrierCode=carrier-a"
+        parents = [{parent_key: carrier} for carrier in ["carrier-a", "carrier-empty", "carrier-b"]]
+        child = {code_key: "shared-code", "name": "Example type"}
+        body = {"carriers": parents} if is_v2 else parents
+        child_body = {endpoint: [child]} if is_v2 else [child]
+        empty_body = {endpoint: []} if is_v2 else []
+        script = [ScriptedResponse(json=body)]
+        if not resume:
+            script.append(ScriptedResponse(json=child_body))
+        script.extend([ScriptedResponse(json=empty_body), ScriptedResponse(json=child_body)])
+
+        result = _driver().run(
+            endpoint,
+            script,
+            api_version=api_version,
+            resume_state=ShipStationResumeConfig(
+                fanout_state={"completed": [completed_path], "current": None, "child_state": None}
+            )
+            if resume
+            else None,
+        )
+
+        assert result.raised is None
+        expected_carriers = ["carrier-b"] if resume else ["carrier-a", "carrier-b"]
+        assert result.rows == [{**child, carrier_key: carrier} for carrier in expected_carriers]
+        requested_carriers = ["carrier-empty", "carrier-b"] if resume else ["carrier-a", "carrier-empty", "carrier-b"]
+        if is_v2:
+            assert result.paths == [
+                "/v2/carriers",
+                *[f"/v2/carriers/{carrier}/{endpoint}" for carrier in requested_carriers],
+            ]
+        else:
+            assert result.paths == ["/carriers", *[child_path] * len(requested_carriers)]
+            assert result.params("carrierCode") == [None, *requested_carriers]
+        assert result.params("page") == [None] * len(result.requests)
+        assert result.params("pageSize") == [None] * len(result.requests)
+        assert result.params("page_size") == [None] * len(result.requests)
+        assert result.response is not None
+        assert result.response.primary_keys == [carrier_key, code_key]
+        assert result.final_state is not None
+        completed = result.final_state.fanout_state["completed"]
+        assert len(completed) == 3
+        assert completed_path in completed
+
 
 class TestPagination:
+    def test_v2_users_paginates_with_the_endpoint_page_limit(self) -> None:
+        result = _driver().run(
+            "users",
+            [
+                ScriptedResponse(json={"users": [{"user_id": "user-a"}], "page": 1, "pages": 2}),
+                ScriptedResponse(json={"users": [{"user_id": "user-b"}], "page": 2, "pages": 2}),
+            ],
+            api_version=SHIPSTATION_V2,
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"user_id": "user-a"}, {"user_id": "user-b"}]
+        assert result.paths == ["/v2/users", "/v2/users"]
+        assert result.params("page") == ["1", "2"]
+        assert result.params("page_size") == ["100", "100"]
+
     def test_paginates_using_pages_total(self):
         result = _driver().run(
             "orders",

@@ -9,7 +9,6 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 
 import type { PropertyTypeEnumApi } from '~/generated/core/api.schemas'
-import { tagsModel } from '~/models/tagsModel'
 import { isCoreFilter } from '~/taxonomy/helpers'
 
 import { PropertyDefinitionEditModalProps, propertyDefinitionEditModalLogic } from './propertyDefinitionEditModalLogic'
@@ -25,7 +24,6 @@ export function PropertyDefinitionEditModal(props: PropertyDefinitionEditModalPr
     const logic = propertyDefinitionEditModalLogic(props)
     const { propertyDefinitionEditFormChanged, isPropertyDefinitionEditFormSubmitting } = useValues(logic)
     const { closeModal, submitPropertyDefinitionEditForm } = useActions(logic)
-    const { tags, tagsLoading } = useValues(tagsModel)
     const allowVerification = !isCoreFilter(props.propertyDefinition.name)
 
     return (
@@ -75,10 +73,9 @@ export function PropertyDefinitionEditModal(props: PropertyDefinitionEditModalPr
                         {({ value, onChange }) => (
                             <ObjectTags
                                 className="definition-tags"
-                                saving={isPropertyDefinitionEditFormSubmitting || tagsLoading}
+                                saving={isPropertyDefinitionEditFormSubmitting}
                                 tags={value ?? []}
                                 onChange={onChange}
-                                tagsAvailable={tags}
                             />
                         )}
                     </LemonField>

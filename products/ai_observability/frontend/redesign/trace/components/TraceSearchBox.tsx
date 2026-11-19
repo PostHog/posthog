@@ -66,7 +66,8 @@ export function TraceSearchBox(props: TraceSearchBoxProps): JSX.Element {
         <LemonInput
             type="search"
             size="small"
-            className="w-80 max-w-full"
+            // A small input is 1px shorter than the small buttons it shares a row with.
+            className="w-full max-w-full [--lemon-input-height:2.0625rem]!"
             placeholder="Search this trace"
             value={query}
             maxLength={MAX_QUERY_LENGTH}

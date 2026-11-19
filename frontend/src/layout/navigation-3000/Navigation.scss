@@ -722,11 +722,11 @@
 
     display: grid;
 
-    // Viewport-height navigation must not force the content row underneath the terminal dock.
+    // Viewport-height navigation must not force the content row underneath the terminal dock or the DEBUG bar.
     grid-template: 'left content' minmax(0, 1fr) / var(--left-nav-width) minmax(0, 1fr);
-    height: calc(100vh - var(--terminal-dock-height, 0px));
+    height: calc(100vh - var(--terminal-dock-height, 0px) - var(--bottom-notice-height, 0px));
     height: calc(
-        100dvh - var(--terminal-dock-height, 0px)
+        100dvh - var(--terminal-dock-height, 0px) - var(--bottom-notice-height, 0px)
     ); // see .Navigation3000 — keep bottom-anchored UI reachable on mobile
 
     overflow: hidden;

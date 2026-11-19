@@ -32,18 +32,23 @@ def _credential(access_key: str = "AKIAEXAMPLE", access_secret: str = "c2VjcmV0"
     return SelfManagedCredential(access_key=access_key, access_secret=access_secret)
 
 
-def test_reads_from_its_own_endpoint() -> None:
+@pytest.mark.parametrize(
+    "host", [f"{R2_ACCOUNT_ID}.r2.cloudflarestorage.com", f"{R2_ACCOUNT_ID}.eu.r2.cloudflarestorage.com"]
+)
+def test_reads_from_its_own_endpoint(host: str) -> None:
     source = CloudflareR2Source()
-    config = source.object_store_config(source.parse_config(VALUES))
+    config = source.object_store_config(
+        source.parse_config({**VALUES, "url_pattern": f"https://{host}/customer-data/exports/"})
+    )
 
     store = open_store(config)
 
-    assert config.location_url == f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com/customer-data/exports/"
-    assert getattr(store.fs, "endpoint_url", None) == f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+    assert config.location_url == f"https://{host}/customer-data/exports/"
+    assert getattr(store.fs, "endpoint_url", None) == f"https://{host}"
     assert store.delta_uri("sales") == "s3://customer-data/exports/sales"
     assert {
         "AWS_REGION": "auto",
-        "AWS_ENDPOINT_URL": f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+        "AWS_ENDPOINT_URL": f"https://{host}",
     }.items() <= store.delta_storage_options.items()
 
 
@@ -97,10 +102,13 @@ def test_discovery_options_read_the_csv_quote_option_from_the_file_format(
 
 
 @pytest.mark.usefixtures("resolvable_hosts")
-def test_a_self_managed_table_maps_to_its_bucket_and_credential() -> None:
-    location = parse_self_managed_url(f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com/exports/a.csv")
+@pytest.mark.parametrize(
+    "host", [f"{R2_ACCOUNT_ID}.r2.cloudflarestorage.com", f"{R2_ACCOUNT_ID}.eu.r2.cloudflarestorage.com"]
+)
+def test_a_self_managed_table_maps_to_its_bucket_and_credential(host: str) -> None:
+    location = parse_self_managed_url(f"https://{host}/exports/a.csv")
 
     job_inputs = CloudflareR2Source().job_inputs_for_self_managed(location, _credential())
 
-    assert job_inputs["url_pattern"] == f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com/exports/"
+    assert job_inputs["url_pattern"] == f"https://{host}/exports/"
     assert (job_inputs["access_key_id"], job_inputs["secret_access_key"]) == ("AKIAEXAMPLE", "c2VjcmV0")

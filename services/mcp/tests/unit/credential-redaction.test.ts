@@ -334,6 +334,50 @@ describe('credential redaction', () => {
             expected: { results: ['/?access%5Ftoken=[REDACTED]'] },
         },
         {
+            tool: 'logs-context',
+            response: { timeline: [{ body: 'Authorization: Bearer secret' }] },
+            expected: { timeline: [{ body: 'Authorization: [REDACTED]' }] },
+        },
+        {
+            tool: 'logs-context',
+            response: {
+                correlation_keys: [
+                    { key: 'request.api_key', value: 'secret', count: 3 },
+                    { key: 'trace_id', value: 'abc123', count: 1 },
+                ],
+                next: [
+                    { query: { anchor: { attribute: { key: 'password', value: 'secret' } } } },
+                    { query: { anchor: { attribute: { key: 'request_id', value: 'req-1' } } } },
+                ],
+            },
+            expected: {
+                correlation_keys: [
+                    { key: 'request.api_key', value: '[REDACTED]', count: 3 },
+                    { key: 'trace_id', value: 'abc123', count: 1 },
+                ],
+                next: [{ query: { anchor: { attribute: { key: 'request_id', value: 'req-1' } } } }],
+            },
+        },
+        {
+            tool: 'logs-patterns-diff',
+            response: {
+                next: [
+                    { query: { filterGroup: [{ key: 'message', value: 'timeout', operator: 'regex', type: 'log' }] } },
+                    { query: { filterGroup: [{ key: 'api_key', value: 'secret', operator: 'exact', type: 'log' }] } },
+                ],
+            },
+            expected: {
+                next: [
+                    { query: { filterGroup: [{ key: 'message', value: 'timeout', operator: 'regex', type: 'log' }] } },
+                ],
+            },
+        },
+        {
+            tool: 'query-logs',
+            response: { results: [{ attributes: { key: 'secret', value: 'created' } }] },
+            expected: { results: [{ attributes: { key: '[REDACTED]', value: 'created' } }] },
+        },
+        {
             tool: 'logs-facet-values-create',
             response: { results: [{ value: '{"password":"secret"}', count: 2 }] },
             expected: { results: [{ value: '{"password":"[REDACTED]"}', count: 2 }] },
@@ -345,6 +389,23 @@ describe('credential redaction', () => {
         } as unknown as Context
 
         expect(await GENERATED_TOOLS[tool]!().handler(context, {})).toEqual(expected)
+    })
+
+    it('redacts logs-group-by values whose dimension key is credential-named, keeping session ids', async () => {
+        const response = {
+            groups: [{ value: OTHER_SECRET, values: [OTHER_SECRET, 'checkout', 'sess-1'], log_count: 3 }],
+        }
+        const context = {
+            stateManager: { getProjectId: vi.fn().mockResolvedValue(1) },
+            api: { request: vi.fn().mockResolvedValue(response) },
+        } as unknown as Context
+        const params = {
+            query: { groupBys: [{ key: 'api_key' }, { key: 'service.name' }, { key: 'session_id' }] },
+        }
+
+        expect(await GENERATED_TOOLS['logs-group-by']!().handler(context, params)).toEqual({
+            groups: [{ values: ['[REDACTED]', 'checkout', 'sess-1'], log_count: 3 }],
+        })
     })
 
     it.each([

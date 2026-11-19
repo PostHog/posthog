@@ -25,9 +25,14 @@ import type {
     EvaluationContextSuggestionRequestApi,
     EvaluationContextSuggestionResponseApi,
     FeatureFlagApi,
+    FeatureFlagCodeAnalysisApi,
+    FeatureFlagCodeAnalysisStartApi,
+    FeatureFlagCodeAnalysisTargetApi,
+    FeatureFlagCodeCleanupStartApi,
     FeatureFlagCreateRequestSchemaApi,
     FeatureFlagRequestUsageListParams,
     FeatureFlagRequestUsageResponseApi,
+    FeatureFlagRestoreVersionRequestApi,
     FeatureFlagRollOutToEveryoneRequestApi,
     FeatureFlagSetActiveRequestApi,
     FeatureFlagSetReleaseConditionRolloutRequestApi,
@@ -37,6 +42,7 @@ import type {
     FeatureFlagVersionResponseApi,
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsAllActivityRetrieveParams,
+    FeatureFlagsCodeAnalysisTargetRetrieveParams,
     FeatureFlagsEvaluationReasonsRetrieveParams,
     FeatureFlagsListParams,
     FeatureFlagsMyFlagsRetrieveParams,
@@ -749,6 +755,32 @@ export const featureFlagsActivityRetrieve = async (
     })
 }
 
+export const getFeatureFlagsAnalyzeCodeCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/analyze_code/`
+}
+
+/**
+ * Start a read-only analysis of where the project's GitHub repository checks this flag.
+ *
+ * An agent clones the repository, finds every check of the flag, and reports the code each outcome runs.
+ * It does not change code or the flag. Returns 400 when no repository can be chosen (see
+ * `code_analysis_target`), 403 when AI data processing is not approved or the request comes from a task
+ * sandbox, and 409 when an analysis is already running.
+ */
+export const featureFlagsAnalyzeCodeCreate = async (
+    projectId: string,
+    id: number,
+    featureFlagCodeAnalysisStartApi?: FeatureFlagCodeAnalysisStartApi,
+    options?: RequestInit
+): Promise<FeatureFlagCodeAnalysisApi> => {
+    return apiMutator<FeatureFlagCodeAnalysisApi>(getFeatureFlagsAnalyzeCodeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagCodeAnalysisStartApi),
+    })
+}
+
 export const getFeatureFlagsArchiveCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/archive/`
 }
@@ -771,6 +803,70 @@ export const featureFlagsArchiveCreate = async (
         ...options,
         method: 'POST',
     })
+}
+
+export const getFeatureFlagsCodeAnalysisRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/code_analysis/`
+}
+
+/**
+ * The latest code analysis of this flag: where the project's GitHub repository checks the flag, and
+ * the code each outcome runs.
+ *
+ * Poll until `is_terminal` is true. `result` is filled once the run completes. Returns 404 when the
+ * flag has never been analyzed.
+ */
+export const featureFlagsCodeAnalysisRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<FeatureFlagCodeAnalysisApi> => {
+    return apiMutator<FeatureFlagCodeAnalysisApi>(getFeatureFlagsCodeAnalysisRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagsCodeAnalysisTargetRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: FeatureFlagsCodeAnalysisTargetRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/feature_flags/${id}/code_analysis_target/?${stringifiedParams}`
+        : `/api/projects/${projectId}/feature_flags/${id}/code_analysis_target/`
+}
+
+/**
+ * Repository a code analysis of this flag would read.
+ *
+ * Resolution order: the requested repository, else the one the last analysis used, else the
+ * environment's default flag cleanup repository, else the only connected repository. When the
+ * project has several repositories and none is chosen (`source=ambiguous`), pass one in `repository`.
+ */
+export const featureFlagsCodeAnalysisTargetRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: FeatureFlagsCodeAnalysisTargetRetrieveParams,
+    options?: RequestInit
+): Promise<FeatureFlagCodeAnalysisTargetApi> => {
+    return apiMutator<FeatureFlagCodeAnalysisTargetApi>(
+        getFeatureFlagsCodeAnalysisTargetRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getFeatureFlagsCreateStaticCohortForFlagCreateUrl = (projectId: string, id: number) => {
@@ -872,6 +968,33 @@ export const featureFlagsEnableCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(featureFlagSetActiveRequestApi),
+    })
+}
+
+export const getFeatureFlagsOpenCleanupPrCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/open_cleanup_pr/`
+}
+
+/**
+ * Open a draft pull request that removes this stale flag's checks from the code.
+ *
+ * An agent starts from the checks the latest code analysis found, keeps the code for one outcome, and
+ * opens the pull request in the repository the analysis read. It does not change the flag. Returns 400
+ * when the flag isn't stale, the analysis found no checks, or an outcome must be chosen (see
+ * `cleanup` on `code_analysis`), 403 when AI data processing is not approved or the request comes from a
+ * task sandbox, and 409 when a cleanup pull request is still being opened.
+ */
+export const featureFlagsOpenCleanupPrCreate = async (
+    projectId: string,
+    id: number,
+    featureFlagCodeCleanupStartApi?: FeatureFlagCodeCleanupStartApi,
+    options?: RequestInit
+): Promise<FeatureFlagCodeAnalysisApi> => {
+    return apiMutator<FeatureFlagCodeAnalysisApi>(getFeatureFlagsOpenCleanupPrCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagCodeCleanupStartApi),
     })
 }
 
@@ -1055,6 +1178,38 @@ export const featureFlagsVersionsRetrieve = async (
     return apiMutator<FeatureFlagVersionResponseApi>(getFeatureFlagsVersionsRetrieveUrl(projectId, id, versionNumber), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getFeatureFlagsVersionsRestoreCreateUrl = (projectId: string, id: number, versionNumber: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/versions/${versionNumber}/restore/`
+}
+
+/**
+ * Restore a past version of a feature flag.
+ *
+ * Sets the flag's release conditions, variants, payloads, name and evaluation options back to
+ * what they were at `version_number`. Read that version first with the versions endpoint to see
+ * what will change. The flag's key, its enabled state, and its archived state stay as they are,
+ * as do tags, evaluation contexts and how its cohorts are defined. The restore is saved as a new
+ * version, so it can be undone by restoring the version before it.
+ *
+ * Send the flag's current `version`. A change after that version is refused with 409. An
+ * approval policy that gates the change opens a change request instead. A restore to a version
+ * that matches the current configuration writes nothing and returns the flag.
+ */
+export const featureFlagsVersionsRestoreCreate = async (
+    projectId: string,
+    id: number,
+    versionNumber: number,
+    featureFlagRestoreVersionRequestApi: FeatureFlagRestoreVersionRequestApi,
+    options?: RequestInit
+): Promise<FeatureFlagApi> => {
+    return apiMutator<FeatureFlagApi>(getFeatureFlagsVersionsRestoreCreateUrl(projectId, id, versionNumber), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagRestoreVersionRequestApi),
     })
 }
 

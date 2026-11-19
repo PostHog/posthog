@@ -14,10 +14,12 @@ import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { getDefaultTracesIngestionConsumerConfig } from '../config'
+import { INTERNAL_LOGS_HEADER, signInternalLogs } from '../internal-logs'
 import { LogRecord, encodeLogRecords } from '../log-record-avro'
 import { DEFAULT_LOGS_RETENTION_DAYS, LogsIngestionConsumer, logMessageDlqCounter } from '../logs-ingestion-consumer'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from '../outputs/outputs'
 import { DEFAULT_TRACES_RETENTION_DAYS } from '../retention/tracing-config-cache'
+import { compileRuleSet } from '../sampling/compile-rules'
 import { TracesIngestionConsumer } from '../traces-ingestion-consumer'
 import { createLogsIngestionConsumer, createTracesIngestionConsumer } from './create-consumer'
 import { LogsIngestionFrameworkConsumer } from './logs-ingestion-framework-consumer'
@@ -101,6 +103,17 @@ function producedTo(topic: string): { headers?: Record<string, string>; value: u
         .flatMap((batch) => batch.messages.map((message) => ({ headers: message.headers, value: message.value })))
 }
 
+const dropEverything = compileRuleSet([
+    {
+        id: '00000000-0000-0000-0000-0000000000bb',
+        rule_type: 'path_drop',
+        scope_service: null,
+        scope_path_pattern: null,
+        scope_attribute_filters: [],
+        config: { patterns: ['.*'] },
+    },
+])
+
 const kafkaDeliveryError = (code: number): Error => LibrdKafkaError.create(new Error(err2str(code)))
 
 function failLogsProduce(makeError: () => unknown, times = Infinity): () => void {
@@ -183,6 +196,38 @@ describe('LogsIngestionFrameworkConsumer', () => {
     afterEach(async () => {
         await consumer.stop()
         await closeHub(hub)
+    })
+
+    it('runs transformations on a batch whose internal logs header fails to verify, flagged as internal', async () => {
+        await consumer.stop()
+        const logsTransformer = {
+            startBatch: jest.fn(),
+            teamHasTransformations: jest.fn().mockResolvedValue(true),
+            transformRecords: jest.fn().mockResolvedValue({ recordsDropped: 0, recordsDroppedByFunctionId: new Map() }),
+            flush: jest.fn().mockResolvedValue(undefined),
+        }
+        consumer = withoutKafka(
+            new LogsIngestionFrameworkConsumer(
+                {
+                    ...hub,
+                    LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*',
+                    LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: '*',
+                    LOGS_INTERNAL_INGESTION_SIGNING_KEYS: 'current-key',
+                },
+                { ...consumerDeps(), logsTransformer }
+            )
+        )
+        await consumer.start()
+
+        await processAndWait(
+            await createKafkaMessages(1, {
+                token: team.api_token,
+                [INTERNAL_LOGS_HEADER]: signInternalLogs('rotated-away-key', 'hog_function', team.id),
+            })
+        )
+
+        expect(logsTransformer.transformRecords).toHaveBeenCalledWith(team.id, expect.any(Array), undefined, true)
+        expect(producedTo(KAFKA_LOGS_CLICKHOUSE)).toHaveLength(1)
     })
 
     it('produces a valid message to the logs topic with the batch headers', async () => {
@@ -330,6 +375,35 @@ describe('LogsIngestionFrameworkConsumer', () => {
             expect(await fallback['defaultRetentionDays'](team.id, { retention_days: 30 })).toBe(
                 DEFAULT_TRACES_RETENTION_DAYS
             )
+        })
+
+        it.each([
+            { label: 'drops spans with the span rules when the team is enabled', enabled: true },
+            { label: 'leaves spans untouched when the team is not enabled', enabled: false },
+        ])('$label', async ({ enabled }) => {
+            const getCompiledRuleSet = jest.fn().mockResolvedValue(dropEverything)
+            await consumer.stop()
+            // The logs gate is set the other way, so the traces consumer must read its own gate.
+            consumer = withoutKafka(
+                new TracesIngestionFrameworkConsumer(
+                    tracesConfig({
+                        TRACES_SAMPLING_ENABLED_TEAMS: enabled ? String(team.id) : '',
+                        LOGS_SAMPLING_ENABLED_TEAMS: enabled ? '' : '*',
+                    }),
+                    { ...consumerDeps(), samplingRulesCache: { getCompiledRuleSet } }
+                )
+            )
+            await consumer.start()
+
+            await processAndWait(await createKafkaMessages(1, { token: team.api_token }))
+
+            if (enabled) {
+                expect(getCompiledRuleSet).toHaveBeenCalledWith(team.id, 'spans')
+                expect(producedTo(KAFKA_LOGS_CLICKHOUSE)).toHaveLength(0)
+            } else {
+                expect(getCompiledRuleSet).not.toHaveBeenCalled()
+                expect(producedTo(KAFKA_LOGS_CLICKHOUSE)).toHaveLength(1)
+            }
         })
     })
 

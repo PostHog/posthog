@@ -9,6 +9,7 @@ import requests
 from products.warehouse_sources.sources.genesys_cloud import genesys_cloud
 from products.warehouse_sources.sources.genesys_cloud._config import GenesysCloudSourceConfig
 from products.warehouse_sources.sources.genesys_cloud.genesys_cloud import (
+    _GENESYS_CLOUD_RETRY,
     GenesysCloudResumeConfig,
     validate_credentials,
 )
@@ -290,6 +291,152 @@ class TestListingEndpoints:
         assert result.final_state is None
 
 
+def _queue_members_respond(request: RecordedRequest) -> ScriptedResponse:
+    if request.path == "/oauth/token":
+        return TOKEN
+    if request.path == "/api/v2/routing/queues":
+        page = int(request.param("pageNumber") or 0)
+        queues = {1: [{"id": "q1"}, {"id": "q2"}], 2: [{"id": "q3"}]}.get(page, [])
+        return ScriptedResponse(json={"entities": queues, "pageNumber": page, "pageCount": 2})
+    queue_id = request.path.split("/")[5]
+    member_page = request.param("pageNumber")
+    if queue_id == "q1" and member_page == "1":
+        return ScriptedResponse(
+            json={"entities": [{"id": "u1"}], "nextUri": "/api/v2/routing/queues/q1/members?pageSize=100&pageNumber=2"}
+        )
+    if queue_id == "q1" and member_page == "2":
+        return ScriptedResponse(json={"entities": [{"id": "u2"}]})
+    if queue_id == "q2":
+        return ScriptedResponse(status=404, json={"code": "not.found"})
+    return ScriptedResponse(json={"entities": [{"id": "u3"}]})
+
+
+class TestFanOutEndpoints:
+    @pytest.mark.parametrize(
+        "resume,expected_rows,expected_requests",
+        [
+            (
+                None,
+                [("q1", "u1"), ("q1", "u2"), ("q3", "u3")],
+                [("queues", "1"), ("q1", "1"), ("q1", "2"), ("q2", "1"), ("queues", "2"), ("q3", "1")],
+            ),
+            (
+                GenesysCloudResumeConfig(
+                    page_number=1,
+                    parent_id="q1",
+                    next_uri="/api/v2/routing/queues/q1/members?pageSize=100&pageNumber=2",
+                ),
+                [("q1", "u2"), ("q3", "u3")],
+                [("queues", "1"), ("q1", "2"), ("q2", "1"), ("queues", "2"), ("q3", "1")],
+            ),
+            (
+                GenesysCloudResumeConfig(page_number=1, parent_id="q2"),
+                [("q3", "u3")],
+                [("queues", "1"), ("q2", "1"), ("queues", "2"), ("q3", "1")],
+            ),
+            (
+                GenesysCloudResumeConfig(page_number=1, parent_id="removed-queue", next_uri="/stale?pageNumber=9"),
+                [("q1", "u1"), ("q1", "u2"), ("q3", "u3")],
+                [("queues", "1"), ("q1", "1"), ("q1", "2"), ("q2", "1"), ("queues", "2"), ("q3", "1")],
+            ),
+            (GenesysCloudResumeConfig(page_number=2), [("q3", "u3")], [("queues", "2"), ("q3", "1")]),
+            (GenesysCloudResumeConfig(page_number=3), [], [("queues", "3")]),
+        ],
+    )
+    def test_queue_members_walk_parents_and_child_pages(self, resume, expected_rows, expected_requests):
+        result = _driver().run("queue_members", _queue_members_respond, resume_state=resume)
+
+        assert result.raised is None
+        assert [(row["queueId"], row["id"]) for row in result.rows] == expected_rows
+        assert [
+            ("queues" if request.path.endswith("/queues") else request.path.split("/")[5], request.param("pageNumber"))
+            for request in result.requests[1:]
+        ] == expected_requests
+        assert result.final_state is None
+
+    def test_queue_members_stage_the_position_after_each_child_page(self):
+        result = _driver().run("queue_members", _queue_members_respond)
+
+        assert result.saved_states == [
+            GenesysCloudResumeConfig(
+                page_number=1, parent_id="q1", next_uri="/api/v2/routing/queues/q1/members?pageSize=100&pageNumber=2"
+            ),
+            GenesysCloudResumeConfig(page_number=1, parent_id="q2"),
+            GenesysCloudResumeConfig(page_number=2),
+            GenesysCloudResumeConfig(page_number=3),
+        ]
+
+    @pytest.mark.parametrize(
+        "status,body,expected_error",
+        [
+            (400, {"code": "quality.query.invalid.user"}, None),
+            (400, {"code": "bad.request"}, requests.HTTPError),
+            (403, {"code": "missing.permissions"}, requests.HTTPError),
+        ],
+    )
+    def test_evaluations_are_read_per_evaluator(self, status, body, expected_error):
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return TOKEN
+            if request.path == "/api/v2/users":
+                return ScriptedResponse(json={"entities": [{"id": "removed"}, {"id": "e1"}], "pageCount": 1})
+            if request.param("evaluatorUserId") == "removed":
+                return ScriptedResponse(status=status, json=body)
+            return ScriptedResponse(json={"entities": [{"id": "ev1", "evaluator": {"id": "e1"}}]})
+
+        result = _driver().run("evaluations", respond)
+
+        if expected_error is not None:
+            assert isinstance(result.raised, expected_error)
+            assert result.rows == []
+            return
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["ev1"]
+        evaluation_requests = result.requests[2:]
+        assert [request.param("evaluatorUserId") for request in evaluation_requests] == ["removed", "e1"]
+        assert all(request.path == "/api/v2/quality/evaluations/query" for request in evaluation_requests)
+        assert all(request.param("expandAnswerTotalScores") == "true" for request in evaluation_requests)
+
+    def test_evaluations_follow_next_uri_for_the_same_evaluator(self):
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return TOKEN
+            if request.path == "/api/v2/users":
+                return ScriptedResponse(json={"entities": [{"id": "e1"}], "pageCount": 1})
+            if request.param("pageNumber") == "1":
+                return ScriptedResponse(
+                    json={
+                        "entities": [{"id": "ev1"}],
+                        "nextUri": "https://evil.example.com/api/v2/quality/evaluations/query?evaluatorUserId=other&pageNumber=2&previousPage=tok",
+                    }
+                )
+            return ScriptedResponse(json={"entities": [{"id": "ev2"}], "nextUri": None})
+
+        result = _driver().run("evaluations", respond)
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["ev1", "ev2"]
+        second_page = result.requests[-1]
+        assert second_page.origin == result.requests[2].origin
+        assert second_page.path == "/api/v2/quality/evaluations/query"
+        assert (second_page.param("evaluatorUserId"), second_page.param("previousPage")) == ("e1", "tok")
+
+    def test_a_child_page_that_repeats_ends_the_parent(self):
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return TOKEN
+            if request.path == "/api/v2/routing/queues":
+                return ScriptedResponse(json={"entities": [{"id": "q1"}], "pageCount": 1})
+            return ScriptedResponse(
+                json={"entities": [{"id": "u1"}], "nextUri": "/api/v2/routing/queues/q1/members?pageNumber=2"}
+            )
+
+        result = _driver().run("queue_members", respond)
+
+        assert result.raised is None
+        assert result.params("pageNumber")[2:] == ["1", "2"]
+
+
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "endpoint,status_code,expected_valid,expected_message",
@@ -325,6 +472,40 @@ class TestValidateCredentials:
                 "external_organizations": "/api/v2/externalcontacts/scan/organizations",
                 "user_status_history": "/api/v2/analytics/users/details/query",
             }[endpoint]
+        )
+
+    @pytest.mark.parametrize(
+        "users,child_status,child_body,expected",
+        [
+            ([], None, None, (True, None)),
+            ([{"id": "u1"}], 200, {"entities": []}, (True, None)),
+            ([{"id": "u1"}], 400, {"code": "quality.query.invalid.user"}, (True, None)),
+            (
+                [{"id": "u1"}],
+                403,
+                {},
+                (
+                    False,
+                    "The OAuth client's role is missing the `quality:evaluation:view` permission, which the evaluations table needs.",
+                ),
+            ),
+        ],
+    )
+    def test_fan_out_probe_reads_one_child_of_the_first_parent(self, users, child_status, child_body, expected):
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return TOKEN
+            if request.path == "/api/v2/users":
+                return ScriptedResponse(json={"entities": users})
+            return ScriptedResponse(status=child_status or 500, json=child_body)
+
+        with scripted_network(respond) as network:
+            result = validate_credentials("mypurecloud.com", "cid", "secret", "evaluations")
+
+        assert result == expected
+        child_requests = network.requests_log[2:]
+        assert [(request.path, request.param("evaluatorUserId")) for request in child_requests] == (
+            [("/api/v2/quality/evaluations/query", "u1")] if users else []
         )
 
     @pytest.mark.parametrize(
@@ -364,3 +545,20 @@ class TestValidateCredentials:
         assert result == (False, "Select the Genesys Cloud region your organization is hosted in.")
         assert network.requests_log == []
         assert network.session_options == []
+
+
+class TestRetryPolicy:
+    @pytest.mark.parametrize(
+        "status_code,expected_retry",
+        [
+            (429, True),
+            (504, True),
+            (404, False),
+        ],
+    )
+    def test_analytics_post_retries_like_the_listing_gets(self, status_code, expected_retry):
+        # The analytics/user-analytics endpoints are read via POST; without the override below,
+        # DEFAULT_RETRY would only retry the listing/scan endpoints' GETs and let a transient
+        # 429/5xx on the POST query bubble up as an unhandled HTTPError.
+        for method in ("GET", "POST"):
+            assert _GENESYS_CLOUD_RETRY.is_retry(method, status_code) is expected_retry

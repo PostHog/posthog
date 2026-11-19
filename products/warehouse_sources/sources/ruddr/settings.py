@@ -26,6 +26,14 @@ RUDDR_ENDPOINTS: dict[str, RuddrEndpointConfig] = {
     "invoices": RuddrEndpointConfig(name="invoices", path="/invoices"),
     "invoice_items": RuddrEndpointConfig(name="invoice_items", path="/invoice-items"),
     "allocations": RuddrEndpointConfig(name="allocations", path="/allocations"),
+    "project_members": RuddrEndpointConfig(name="project_members", path="/project-members"),
+    "opportunities": RuddrEndpointConfig(name="opportunities", path="/opportunities"),
+    "opportunity_stages": RuddrEndpointConfig(name="opportunity_stages", path="/opportunity-stages"),
+    "project_health_reports": RuddrEndpointConfig(name="project_health_reports", path="/project-health-reports"),
+    "project_expenses": RuddrEndpointConfig(name="project_expenses", path="/project-expenses"),
+    "payments": RuddrEndpointConfig(name="payments", path="/payments"),
+    "timesheets": RuddrEndpointConfig(name="timesheets", path="/timesheets"),
+    "practices": RuddrEndpointConfig(name="practices", path="/practices"),
 }
 
 ENDPOINTS = tuple(RUDDR_ENDPOINTS.keys())

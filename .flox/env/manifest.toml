@@ -111,12 +111,14 @@ bash = '''
   fi
   unset GOROOT
   export GOTOOLCHAIN=local
-  export GOPATH="$FLOX_ENV_CACHE/go"
-  export GOCACHE="$FLOX_ENV_CACHE/go-build"
+  export GOPATH="$HOME/.cache/posthog/go"
+  export GOCACHE="$HOME/.cache/posthog/go-build"
   export GOMODCACHE="$GOPATH/pkg/mod"
   export GOFLAGS=-modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   export PATH="$FLOX_ENV/bin:$PATH"
+  # Keep the pnpm shims from on-activate.sh ahead of the corepack launchers in $FLOX_ENV/bin.
+  if [[ -d "$FLOX_ENV_CACHE/node-shims" ]]; then export PATH="$FLOX_ENV_CACHE/node-shims:$PATH"; fi
   # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)
   export UV_PROJECT_ENVIRONMENT="$FLOX_ENV_CACHE/venv"
   # Recreate venv if it was deleted (on-activate only runs on first activation)
@@ -140,12 +142,14 @@ zsh = '''
   fi
   unset GOROOT
   export GOTOOLCHAIN=local
-  export GOPATH="$FLOX_ENV_CACHE/go"
-  export GOCACHE="$FLOX_ENV_CACHE/go-build"
+  export GOPATH="$HOME/.cache/posthog/go"
+  export GOCACHE="$HOME/.cache/posthog/go-build"
   export GOMODCACHE="$GOPATH/pkg/mod"
   export GOFLAGS=-modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   export PATH="$FLOX_ENV/bin:$PATH"
+  # Keep the pnpm shims from on-activate.sh ahead of the corepack launchers in $FLOX_ENV/bin.
+  if [[ -d "$FLOX_ENV_CACHE/node-shims" ]]; then export PATH="$FLOX_ENV_CACHE/node-shims:$PATH"; fi
   # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)
   export UV_PROJECT_ENVIRONMENT="$FLOX_ENV_CACHE/venv"
   # Recreate venv if it was deleted (on-activate only runs on first activation)
@@ -167,12 +171,14 @@ zsh = '''
 fish = '''
   set -e GOROOT
   set -gx GOTOOLCHAIN local
-  set -gx GOPATH "$FLOX_ENV_CACHE/go"
-  set -gx GOCACHE "$FLOX_ENV_CACHE/go-build"
+  set -gx GOPATH "$HOME/.cache/posthog/go"
+  set -gx GOCACHE "$HOME/.cache/posthog/go-build"
   set -gx GOMODCACHE "$GOPATH/pkg/mod"
   set -gx GOFLAGS -modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   fish_add_path -g "$FLOX_ENV/bin"
+  # Keep the pnpm shims from on-activate.sh ahead of the corepack launchers in $FLOX_ENV/bin.
+  test -d "$FLOX_ENV_CACHE/node-shims"; and fish_add_path -gm "$FLOX_ENV_CACHE/node-shims"
   # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)
   set -gx UV_PROJECT_ENVIRONMENT "$FLOX_ENV_CACHE/venv"
   # Recreate venv if it was deleted (on-activate only runs on first activation)
@@ -187,12 +193,14 @@ fish = '''
 tcsh = '''
   unsetenv GOROOT
   setenv GOTOOLCHAIN local
-  setenv GOPATH "$FLOX_ENV_CACHE/go"
-  setenv GOCACHE "$FLOX_ENV_CACHE/go-build"
+  setenv GOPATH "$HOME/.cache/posthog/go"
+  setenv GOCACHE "$HOME/.cache/posthog/go-build"
   setenv GOMODCACHE "$GOPATH/pkg/mod"
   setenv GOFLAGS -modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   setenv PATH "$FLOX_ENV/bin:$PATH"
+  # Keep the pnpm shims from on-activate.sh ahead of the corepack launchers in $FLOX_ENV/bin.
+  if ( -d "$FLOX_ENV_CACHE/node-shims" ) setenv PATH "$FLOX_ENV_CACHE/node-shims:$PATH"
   # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)
   setenv UV_PROJECT_ENVIRONMENT "$FLOX_ENV_CACHE/venv"
   # Recreate venv if it was deleted (on-activate only runs on first activation)

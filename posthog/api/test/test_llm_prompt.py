@@ -23,19 +23,22 @@ from posthog.api.llm_prompt_serializers import (
     validate_prompt_label_name_value,
 )
 from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
-from posthog.auth import DelegatedOAuthAccessTokenAuthentication
+from posthog.auth import DelegatedOAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import PersonalAPIKey
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import (
     BurstRateThrottle,
+    LLMPromptFetchProjectSecretApiKeyTeamRateThrottle,
     LLMPromptFetchRateThrottle,
     LLMPromptPublishBurstRateThrottle,
     SustainedRateThrottle,
 )
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
+from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.authentication_checks import covers_authentication
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptDependency, LLMPromptLabel
@@ -931,6 +934,65 @@ class TestLLMPromptAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
 
+    @parameterized.expand(
+        [
+            ("get_by_name", "name/test-prompt/"),
+            ("list", ""),
+        ]
+    )
+    @covers_authentication(ProjectSecretAPIKeyAuthentication)
+    def test_project_secret_key_created_in_settings_fetches_prompts(self, _name: str, path: str) -> None:
+        self.create_prompt_version(name="test-prompt", prompt="Prompt text")
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "sdk", "scopes": ["llm_prompt:read"]},
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/{path}",
+            headers={"authorization": f"Bearer {created.json()['value']}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        prompt = body["results"][0] if "results" in body else body
+        assert prompt["name"] == "test-prompt"
+        assert prompt["prompt"] == "Prompt text"
+
+    @parameterized.expand(
+        [
+            ("resolve_by_name", ["llm_prompt:read"], True, "get", "resolve/name/test-prompt/"),
+            ("publish", ["llm_prompt:read"], True, "patch", "name/test-prompt/"),
+            ("create", ["llm_prompt:read"], True, "post", ""),
+            ("archive", ["llm_prompt:read"], True, "post", "name/test-prompt/archive/"),
+            ("key_without_the_scope", ["feature_flag:read"], True, "get", "name/test-prompt/"),
+            ("key_of_another_project", ["llm_prompt:read"], False, "get", "name/test-prompt/"),
+        ]
+    )
+    def test_project_secret_key_is_denied_outside_sdk_reads(
+        self, _name: str, scopes: list[str], key_is_for_this_project: bool, method: str, path: str
+    ) -> None:
+        self.create_prompt_version(name="test-prompt")
+        key_team = (
+            self.team if key_is_for_this_project else self.create_team_with_organization(organization=self.organization)
+        )
+        _, token = create_project_secret_api_key(key_team, scopes=scopes)
+        self.client.logout()
+
+        response = getattr(self.client, method)(
+            f"/api/environments/{self.team.id}/llm_prompts/{path}",
+            data={"name": "new-prompt", "prompt": "v2", "base_version": 1} if method != "get" else None,
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert LLMPrompt.objects.filter(team=self.team).count() == 1
+
     @override_settings(TEST=False)
     @patch("posthog.api.llm_prompt.capture_internal")
     def test_fetch_prompt_by_name_emits_version_metadata(self, mock_capture_internal):
@@ -1074,8 +1136,9 @@ class TestLLMPromptAPI(APIBaseTest):
 
         throttles = view.get_throttles()
 
-        assert len(throttles) == 1
+        assert len(throttles) == 2
         assert isinstance(throttles[0], LLMPromptFetchRateThrottle)
+        assert isinstance(throttles[1], LLMPromptFetchProjectSecretApiKeyTeamRateThrottle)
 
     def test_duplicate_prompt_creates_new_prompt_with_latest_content(self):
         self.create_prompt_version(name="original", version=1, is_latest=False, prompt="v1")

@@ -1,8 +1,15 @@
 import { combineUrl } from 'kea-router'
 
+import type { Dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
-import { SubscriptionTargetEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type { subscriptionsCreate } from 'products/subscriptions/frontend/generated/api'
+import {
+    RecurrenceIntervalEnumApi,
+    SubscriptionAIWindowModeEnumApi,
+    SubscriptionTargetEnumApi,
+    SubscriptionWriteApiByweekdayItem,
+} from 'products/subscriptions/frontend/generated/api.schemas'
 
 export interface MCPRecurringReport {
     key: string
@@ -17,6 +24,33 @@ export interface MCPRecurringReport {
     prompt: string
     /** What a delivery covers, in the reader's terms, one short line each. */
     covers: string[]
+}
+
+export const TOOL_HEALTH_REPORT: MCPRecurringReport = {
+    key: 'tool-health',
+    headline: 'How your tools held up',
+    lead: 'Volume, error rate and latency per tool, with the failures worth acting on.',
+    // Weekly, not daily: a typical MCP server sees a few dozen calls a day, so a daily error
+    // rate or p95 is noise. A week gives those numbers enough data to mean something.
+    frequency: 'weekly',
+    title: 'MCP tool health',
+    prompt: [
+        'Report on our MCP server’s health for the last week using $mcp_tool_call events.',
+        'Cover total calls and calls per tool. Use $mcp_exec_tool_call_name when non-empty.',
+        'Otherwise, for $mcp_tool_name = exec and $mcp_exec_verb = call, use $mcp_exec_target_tool',
+        'when it is non-empty and not unrecognized. Fall back to $mcp_tool_name in all other cases.',
+        'Include discovery requests under exec, not the tool they describe. Cover',
+        'the error rate from $mcp_is_error, the most common $mcp_error_type values with example',
+        '$mcp_error_message text, and p95 of $mcp_duration_ms per tool.',
+        'Highlight tools whose error rate or latency is clearly worse than the weeks before,',
+        'and skip sections where nothing notable happened.',
+    ].join(' '),
+    covers: [
+        'Total calls and calls per tool',
+        'Error rate, the most common error types and example messages',
+        'p95 latency per tool',
+        'Tools whose errors or latency got clearly worse than the weeks before',
+    ],
 }
 
 export const MCP_RECURRING_REPORTS: MCPRecurringReport[] = [
@@ -45,32 +79,7 @@ export const MCP_RECURRING_REPORTS: MCPRecurringReport[] = [
             'One change to your tools that would help the most agents',
         ],
     },
-    {
-        key: 'tool-health',
-        headline: 'How your tools held up',
-        lead: 'Volume, error rate and latency per tool, with the failures worth acting on.',
-        // Weekly, not daily: a typical MCP server sees a few dozen calls a day, so a daily error
-        // rate or p95 is noise. A week gives those numbers enough data to mean something.
-        frequency: 'weekly',
-        title: 'MCP tool health',
-        prompt: [
-            'Report on our MCP server’s health for the last week using $mcp_tool_call events.',
-            'Cover total calls and calls per tool. Use $mcp_exec_tool_call_name when non-empty.',
-            'Otherwise, for $mcp_tool_name = exec and $mcp_exec_verb = call, use $mcp_exec_target_tool',
-            'when it is non-empty and not unrecognized. Fall back to $mcp_tool_name in all other cases.',
-            'Include discovery requests under exec, not the tool they describe. Cover',
-            'the error rate from $mcp_is_error, the most common $mcp_error_type values with example',
-            '$mcp_error_message text, and p95 of $mcp_duration_ms per tool.',
-            'Highlight tools whose error rate or latency is clearly worse than the weeks before,',
-            'and skip sections where nothing notable happened.',
-        ].join(' '),
-        covers: [
-            'Total calls and calls per tool',
-            'Error rate, the most common error types and example messages',
-            'p95 latency per tool',
-            'Tools whose errors or latency got clearly worse than the weeks before',
-        ],
-    },
+    TOOL_HEALTH_REPORT,
 ]
 
 /**
@@ -88,4 +97,30 @@ export function urlForRecurringReport(
         frequency: report.frequency,
         target_type: targetType ?? undefined,
     }).url
+}
+
+type SubscriptionCreateBody = Parameters<typeof subscriptionsCreate>[1]
+
+/**
+ * The report emailed to `email`, first on the next day at 09:00 in the caller's time zone and then
+ * every week. There is no immediate send: a report over a few minutes of data is thin, and the point is
+ * a reason to come back on a later day.
+ *
+ * The server evaluates `byweekday` in UTC against `start_date`, so the weekday is the UTC weekday of the
+ * first delivery. The local weekday would push the first delivery a day late wherever the two differ.
+ */
+export function weeklyReportPayload(report: MCPRecurringReport, email: string, now: Dayjs): SubscriptionCreateBody {
+    const firstDelivery = now.add(1, 'day').hour(9).minute(0).second(0).millisecond(0)
+    return {
+        title: report.title,
+        prompt: report.prompt,
+        ai_prompt_config: { window: { mode: SubscriptionAIWindowModeEnumApi.SinceLastSent } },
+        target_type: SubscriptionTargetEnumApi.Email,
+        target_value: email,
+        frequency: RecurrenceIntervalEnumApi.Weekly,
+        interval: 1,
+        byweekday: [firstDelivery.utc().format('dddd').toLowerCase() as SubscriptionWriteApiByweekdayItem],
+        start_date: firstDelivery.toISOString(),
+        send_test_now: false,
+    }
 }

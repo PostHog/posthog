@@ -1,3 +1,5 @@
+import { decodeJsonString } from '@/core/json'
+
 // A JSON reader and writer that produce the same bytes as serde_json 1.0.145 with default features,
 // which posthog-cli uses to read and rewrite sourcemaps. The bytes feed uploads and content hashes,
 // so `JSON.parse` and `JSON.stringify` are not enough: they reorder integer-like keys, round large
@@ -186,7 +188,10 @@ export class JsonParser {
         if (!escaped) {
             return text.slice(start + 1, end)
         }
-        const decoded = JSON.parse(text.slice(start, end + 1)) as string
+        const decoded = decodeJsonString(text.slice(start, end + 1))
+        if (decoded === undefined) {
+            this.fail('invalid escape')
+        }
         if (LONE_SURROGATE.test(decoded)) {
             this.fail('lone leading surrogate in hex escape')
         }

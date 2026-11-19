@@ -16,6 +16,13 @@ export function EvaluationScoreOutput({
     // The direction is kept here until a passing score exists, because a rule needs both.
     const [pendingOperator, setPendingOperator] = useState<'gte' | 'lte'>('gte')
     const operator = rule?.operator ?? pendingOperator
+    const min = config.min ?? null
+    const max = config.max ?? null
+    const unreachable =
+        !!rule &&
+        min !== null &&
+        max !== null &&
+        (rule.operator === 'gte' ? rule.threshold > max : rule.threshold < min)
     return (
         <div className="flex flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -50,9 +57,13 @@ export function EvaluationScoreOutput({
                     data-attr="llma-evaluation-numeric-threshold"
                 />
             </div>
-            <span className="text-xs text-secondary">
-                Leave the passing score empty to keep scores without a pass or fail. Pass rates and reports need one.
-            </span>
+            {unreachable ? (
+                <span className="text-xs text-warning">
+                    Scores go from {min} to {max}, so no run can pass this.
+                </span>
+            ) : (
+                <span className="text-xs text-secondary">Leave it empty to record scores without a pass rate.</span>
+            )}
         </div>
     )
 }

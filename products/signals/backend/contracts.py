@@ -7,6 +7,7 @@ import enum
 from collections.abc import Mapping
 from typing import Annotated, Literal, get_args
 
+import re2
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.fields import FieldInfo
 
@@ -59,6 +60,38 @@ class AlertScope(enum.StrEnum):
     INVESTIGATED_ONLY = "investigated_only"
     # Every insight alert that starts to fire, also alerts without the investigation agent.
     ALL_FIRING_ALERTS = "all_firing_alerts"
+    # No alert becomes a signal. Alert checks, notifications, and investigations still run.
+    OFF = "off"
+
+
+# ── Alert name patterns ─────────────────────────────────────────────────────────
+# Patterns matched against a firing alert's name and its insight's name. Only `ALERT_SCOPE_SOURCE` accepts them.
+# They compile with RE2, which runs in linear time, so a user pattern cannot stall a worker as `re` can.
+ALERT_ALLOW_PATTERNS_KEY = "alert_allow_patterns"
+ALERT_BLOCK_PATTERNS_KEY = "alert_block_patterns"
+ALERT_PATTERNS_MAX_COUNT = 20
+ALERT_PATTERN_MAX_LENGTH = 200
+
+
+def alert_patterns_problem(value: object) -> str | None:
+    """Why `value` is not a valid pattern list, or None when it is. The API rejects the value with
+    this message, and the signal paths drop every alert when a stored list fails it."""
+    if not isinstance(value, list) or not all(isinstance(pattern, str) and pattern for pattern in value):
+        return "must be a list of non-empty strings"
+    if len(value) > ALERT_PATTERNS_MAX_COUNT:
+        return f"must have at most {ALERT_PATTERNS_MAX_COUNT} patterns"
+    for pattern in value:
+        if len(pattern) > ALERT_PATTERN_MAX_LENGTH:
+            return f"patterns must be at most {ALERT_PATTERN_MAX_LENGTH} characters"
+        try:
+            re2.compile(pattern)
+        except re2.error as error:
+            # RE2 raises with the parser message as bytes, which would print as a `b'...'` literal.
+            detail = error.args[0] if error.args else ""
+            if isinstance(detail, bytes):
+                detail = detail.decode(errors="replace")
+            return f"pattern {pattern!r} is not a valid RE2 regex: {detail}"
+    return None
 
 
 # The sources that emit straight through `emit_signal` and still honor steering, via the gate in
@@ -75,6 +108,26 @@ DIRECT_STEERABLE_SOURCES: frozenset[tuple[str, str]] = frozenset(
         (SignalSourceProduct.ANALYTICS, SignalSourceType.ALERT_FIRING),
     }
 )
+
+
+# ── Issue filters ───────────────────────────────────────────────────────────────
+# `SignalSourceConfig.config` key holding a compiled error tracking filter. The same filter is saved
+# on every error tracking row, and emission drops a signal it excludes before the steering gate.
+# The error tracking facade compiles the bytecode on the server, so a client cannot store its own.
+ISSUE_FILTERS_KEY = "issue_filters"
+ISSUE_FILTER_SOURCES: frozenset[tuple[str, str]] = frozenset(
+    {
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_CREATED),
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_REOPENED),
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_SPIKING),
+    }
+)
+
+# ── HogQL source filters ────────────────────────────────────────────────────────
+# `SignalSourceConfig.config` key holding a boolean expression over the source's filter catalog fields.
+# Clients send the expression as a string. The server stores it with the catalog version it was validated
+# against, so a later catalog version cannot change what a saved filter means.
+HOGQL_FILTER_KEY = "hogql_filter"
 
 
 class ContractModel(BaseModel):
@@ -1317,6 +1370,52 @@ class GoogleSearchConsoleSearchOpportunitySignalInput(SignalInputBase):
     extra: GoogleSearchConsoleSearchOpportunitySignalExtra
 
 
+# ── SEO site audits ──────────────────────────────────────────────────────────────
+
+
+class BingWebmasterToolsSearchOpportunitySignalExtra(SignalExtraBase):
+    site_url: str | None
+    issue_flag: str | None
+    issue: str | None
+    affected_urls: str | None
+    example_url: str | None
+    inbound_links: str | None
+
+
+class BingWebmasterToolsSearchOpportunitySignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SEARCH_OPPORTUNITY]
+    source_product: Literal[SignalSourceProduct.BING_WEBMASTER_TOOLS]
+    extra: BingWebmasterToolsSearchOpportunitySignalExtra
+
+
+class AhrefsSearchOpportunitySignalExtra(SignalExtraBase):
+    project_id: str | None
+    issue_id: str | None
+    issue_category: str | None
+    issue_importance: str | None
+    affected_urls: str | None
+
+
+class AhrefsSearchOpportunitySignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SEARCH_OPPORTUNITY]
+    source_product: Literal[SignalSourceProduct.AHREFS]
+    extra: AhrefsSearchOpportunitySignalExtra
+
+
+class SemrushSearchOpportunitySignalExtra(SignalExtraBase):
+    project_id: str | None
+    issue_id: str | None
+    affected_pages: str | None
+    example_url: str | None
+    audit_snapshot_id: str | None
+
+
+class SemrushSearchOpportunitySignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SEARCH_OPPORTUNITY]
+    source_product: Literal[SignalSourceProduct.SEMRUSH]
+    extra: SemrushSearchOpportunitySignalExtra
+
+
 class HelpscoutConversationSignalExtra(SignalExtraBase):
     number: str | None
     status: str | None
@@ -1352,6 +1451,34 @@ class VitallyConversationSignalInput(SignalInputBase):
     source_type: Literal[SignalSourceType.TICKET]
     source_product: Literal[SignalSourceProduct.VITALLY]
     extra: VitallyConversationSignalExtra
+
+
+class IntercomTicketsTicketSignalExtra(SignalExtraBase):
+    ticket_id: str | None
+    category: str | None
+    ticket_state_category: str | None
+    ticket_type_name: str | None
+    created_at: str | None
+
+
+class IntercomTicketsTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.INTERCOM_TICKETS]
+    extra: IntercomTicketsTicketSignalExtra
+
+
+class PylonTicketSignalExtra(SignalExtraBase):
+    number: str | None
+    state: str | None
+    type: str | None
+    link: str | None
+    created_at: str | None
+
+
+class PylonTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.PYLON]
+    extra: PylonTicketSignalExtra
 
 
 # ── Incident management / on-call ─────────────────────────────────────────────────
@@ -1677,6 +1804,106 @@ class InstatusIncidentSignalInput(SignalInputBase):
     extra: InstatusIncidentSignalExtra
 
 
+class RootlyIncidentSignalExtra(SignalExtraBase):
+    status: str | None
+    severity_name: str | None
+    kind: str | None
+    url: str | None
+    created_at: str | None
+
+
+class RootlyIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.ROOTLY]
+    extra: RootlyIncidentSignalExtra
+
+
+class ZendutyIncidentSignalExtra(SignalExtraBase):
+    incident_number: str | None
+    status: str | None
+    urgency: str | None
+    creation_date: str | None
+
+
+class ZendutyIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.ZENDUTY]
+    extra: ZendutyIncidentSignalExtra
+
+
+class SplunkObservabilityCloudIncidentSignalExtra(SignalExtraBase):
+    severity: str | None
+    anomaly_state: str | None
+    triggered_at: str | None
+
+
+class SplunkObservabilityCloudIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.SPLUNK_OBSERVABILITY_CLOUD]
+    extra: SplunkObservabilityCloudIncidentSignalExtra
+
+
+class UptimerobotIncidentSignalExtra(SignalExtraBase):
+    status: str | None
+    type: str | None
+    started_at: str | None
+
+
+class UptimerobotIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.UPTIMEROBOT]
+    extra: UptimerobotIncidentSignalExtra
+
+
+class RootlyAlertsIncidentSignalExtra(SignalExtraBase):
+    status: str | None
+    source: str | None
+    url: str | None
+    created_at: str | None
+
+
+class RootlyAlertsIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.ROOTLY_ALERTS]
+    extra: RootlyAlertsIncidentSignalExtra
+
+
+class IncidentIoAlertsIncidentSignalExtra(SignalExtraBase):
+    status: str | None
+    alert_source_id: str | None
+    created_at: str | None
+
+
+class IncidentIoAlertsIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.INCIDENT_IO_ALERTS]
+    extra: IncidentIoAlertsIncidentSignalExtra
+
+
+class FirehydrantAlertsIncidentSignalExtra(SignalExtraBase):
+    status: str | None
+    starts_at: str | None
+
+
+class FirehydrantAlertsIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.FIREHYDRANT_ALERTS]
+    extra: FirehydrantAlertsIncidentSignalExtra
+
+
+class GrafanaIrmAlertGroupsIncidentSignalExtra(SignalExtraBase):
+    state: str | None
+    alerts_count: str | None
+    integration_id: str | None
+    created_at: str | None
+
+
+class GrafanaIrmAlertGroupsIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.GRAFANA_IRM_ALERT_GROUPS]
+    extra: GrafanaIrmAlertGroupsIncidentSignalExtra
+
+
 class GooglePlayConsoleIssueSignalExtra(SignalExtraBase):
     issue_type: str | None
     code_location: str | None
@@ -1710,12 +1937,18 @@ class AzureApplicationInsightsIssueSignalInput(SignalInputBase):
 
 
 class AppsignalIssueSignalExtra(SignalExtraBase):
+    # One schema serves every AppSignal incident table, because a variant is keyed by (source_product, source_type).
+    # Exception incidents carry no `kind`, so the fields that only performance and anomaly incidents have are optional.
     state: str | None
     severity: str | None
     namespace: str | None
     occurrence_count: str | None
     created_at: str | None
     last_occurred_at: str | None
+    kind: Literal["performance_incident", "anomaly_incident"] | None = None
+    mean_duration_ms: str | None = None
+    alert_state: str | None = None
+    metric_name: str | None = None
 
 
 class AppsignalIssueSignalInput(SignalInputBase):
@@ -1737,6 +1970,203 @@ class CursorIssueSignalInput(SignalInputBase):
     source_type: Literal[SignalSourceType.ISSUE]
     source_product: Literal[SignalSourceProduct.CURSOR]
     extra: CursorIssueSignalExtra
+
+
+# ── App reviews and error-report feedback ──────────────────────────────────────
+
+
+class AppStoreConnectReviewSignalExtra(SignalExtraBase):
+    app_id: str | None
+    rating: str | None
+    territory: str | None
+    created_date: str | None
+
+
+class AppStoreConnectReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.APP_STORE_CONNECT]
+    extra: AppStoreConnectReviewSignalExtra
+
+
+class SentryFeedbackSignalExtra(SignalExtraBase):
+    project_slug: str | None
+    event_id: str | None
+    date_created: str | None
+
+
+class SentryFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.SENTRY_FEEDBACK]
+    extra: SentryFeedbackSignalExtra
+
+
+# ── Code, secret and cloud security scanners ───────────────────────────────────
+
+
+class SonarcloudScannerFindingSignalExtra(SignalExtraBase):
+    severity: str | None
+    type: str | None
+    status: str | None
+    component: str | None
+    rule: str | None
+    creation_date: str | None
+
+
+class SonarcloudScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.SONARCLOUD]
+    extra: SonarcloudScannerFindingSignalExtra
+
+
+class CheckmarxScannerFindingSignalExtra(SignalExtraBase):
+    result_type: str | None
+    finding_severity: str | None
+    finding_state: str | None
+    first_seen: str | None
+    scans: str | None
+
+
+class CheckmarxScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.CHECKMARX]
+    extra: CheckmarxScannerFindingSignalExtra
+
+
+class VeracodeScannerFindingSignalExtra(SignalExtraBase):
+    application_guid: str | None
+    scan_type: str | None
+    finding_severity: str | None
+    violates_policy: str | None
+    cwe_id: str | None
+    finding_category: str | None
+    finding_state: str | None
+    resolution_status: str | None
+    first_found_date: str | None
+
+
+class VeracodeScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.VERACODE]
+    extra: VeracodeScannerFindingSignalExtra
+
+
+class VeracodeScaScannerFindingSignalExtra(SignalExtraBase):
+    cve_name: str | None
+    component_filename: str | None
+    component_version: str | None
+    max_severity: str | None
+    affected_applications: str | None
+    first_seen: str | None
+
+
+class VeracodeScaScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.VERACODE_SCA]
+    extra: VeracodeScaScannerFindingSignalExtra
+
+
+class SemgrepScaScannerFindingSignalExtra(SignalExtraBase):
+    vulnerability_identifier: str | None
+    package_name: str | None
+    ecosystem: str | None
+    finding_severity: str | None
+    reachability_state: str | None
+    affected_findings: str | None
+    first_seen: str | None
+
+
+class SemgrepScaScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.SEMGREP_SCA]
+    extra: SemgrepScaScannerFindingSignalExtra
+
+
+class GitguardianScannerFindingSignalExtra(SignalExtraBase):
+    severity: str | None
+    validity: str | None
+    status: str | None
+    occurrences_count: str | None
+    gitguardian_url: str | None
+    date: str | None
+
+
+class GitguardianScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.GITGUARDIAN]
+    extra: GitguardianScannerFindingSignalExtra
+
+
+class InfisicalScannerFindingSignalExtra(SignalExtraBase):
+    rule: str | None
+    resource_name: str | None
+    resource_type: str | None
+    data_source_type: str | None
+    severity: str | None
+    status: str | None
+    created_at: str | None
+
+
+class InfisicalScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.INFISICAL]
+    extra: InfisicalScannerFindingSignalExtra
+
+
+class AwsMacieScannerFindingSignalExtra(SignalExtraBase):
+    type: str | None
+    category: str | None
+    severity_level: str | None
+    region: str | None
+    created_at: str | None
+
+
+class AwsMacieScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.AWS_MACIE]
+    extra: AwsMacieScannerFindingSignalExtra
+
+
+class SentineloneScannerFindingSignalExtra(SignalExtraBase):
+    classification: str | None
+    confidence_level: str | None
+    analyst_verdict: str | None
+    incident_status: str | None
+    threat_mitigation_status: str | None
+    detection_type: str | None
+    created_at: str | None
+
+
+class SentineloneScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.SENTINELONE]
+    extra: SentineloneScannerFindingSignalExtra
+
+
+class JfrogXrayScannerFindingSignalExtra(SignalExtraBase):
+    issue_id: str | None
+    violation_severity: str | None
+    violation_type: str | None
+    violations: str | None
+    first_seen: str | None
+
+
+class JfrogXrayScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.JFROG_XRAY]
+    extra: JfrogXrayScannerFindingSignalExtra
+
+
+class DynatraceSecurityScannerFindingSignalExtra(SignalExtraBase):
+    display_id: str | None
+    vulnerability_type: str | None
+    status: str | None
+    first_seen_timestamp: str | None
+
+
+class DynatraceSecurityScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.DYNATRACE_SECURITY]
+    extra: DynatraceSecurityScannerFindingSignalExtra
 
 
 # ── Error monitors ─────────────────────────────────────────────────────────────
@@ -1905,6 +2335,157 @@ class OkendoReviewSignalInput(SignalInputBase):
     extra: OkendoReviewSignalExtra
 
 
+class BeamerFeedbackSignalExtra(SignalExtraBase):
+    status: str | None
+    category: str | None
+    votes_count: str | None
+    comments_count: str | None
+    date: str | None
+    permalink: str | None
+
+
+class BeamerFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.BEAMER]
+    extra: BeamerFeedbackSignalExtra
+
+
+class BeamerNpsFeedbackSignalExtra(SignalExtraBase):
+    score: str | None
+    date: str | None
+
+
+class BeamerNpsFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.BEAMER_NPS]
+    extra: BeamerNpsFeedbackSignalExtra
+
+
+class ChameleonFeedbackSignalExtra(SignalExtraBase):
+    button_text: str | None
+    survey_id: str | None
+    created_at: str | None
+
+
+class ChameleonFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.CHAMELEON]
+    extra: ChameleonFeedbackSignalExtra
+
+
+class FeaturebaseSurveysFeedbackSignalExtra(SignalExtraBase):
+    survey_id: str | None
+    created_at: str | None
+
+
+class FeaturebaseSurveysFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.FEATUREBASE_SURVEYS]
+    extra: FeaturebaseSurveysFeedbackSignalExtra
+
+
+class UservoiceNpsFeedbackSignalExtra(SignalExtraBase):
+    rating: str | None
+    created_at: str | None
+
+
+class UservoiceNpsFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.USERVOICE_NPS]
+    extra: UservoiceNpsFeedbackSignalExtra
+
+
+class VitallyNpsFeedbackSignalExtra(SignalExtraBase):
+    score: str | None
+    nps_type: str | None
+    created_at: str | None
+
+
+class VitallyNpsFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.VITALLY_NPS]
+    extra: VitallyNpsFeedbackSignalExtra
+
+
+class EtsyReviewSignalExtra(SignalExtraBase):
+    rating: str | None
+    listing_id: str | None
+    language: str | None
+    created_timestamp: str | None
+
+
+class EtsyReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.ETSY]
+    extra: EtsyReviewSignalExtra
+
+
+class G2ReviewSignalExtra(SignalExtraBase):
+    star_rating: str | None
+    product_name: str | None
+    url: str | None
+    submitted_at: str | None
+
+
+class G2ReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.G2]
+    extra: G2ReviewSignalExtra
+
+
+class GumroadReviewSignalExtra(SignalExtraBase):
+    rating: str | None
+    product_id: str | None
+    created_at: str | None
+
+
+class GumroadReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.GUMROAD]
+    extra: GumroadReviewSignalExtra
+
+
+class TrustpilotProductReviewsReviewSignalExtra(SignalExtraBase):
+    stars: str | None
+    language: str | None
+    state: str | None
+    product_name: str | None
+    created_at: str | None
+
+
+class TrustpilotProductReviewsReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.TRUSTPILOT_PRODUCT_REVIEWS]
+    extra: TrustpilotProductReviewsReviewSignalExtra
+
+
+class WoocommerceReviewSignalExtra(SignalExtraBase):
+    rating: str | None
+    status: str | None
+    verified: str | None
+    product_id: str | None
+    date_created_gmt: str | None
+
+
+class WoocommerceReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.WOOCOMMERCE]
+    extra: WoocommerceReviewSignalExtra
+
+
+class YotpoReviewSignalExtra(SignalExtraBase):
+    score: str | None
+    sku: str | None
+    deleted: str | None
+    created_at: str | None
+
+
+class YotpoReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.YOTPO]
+    extra: YotpoReviewSignalExtra
+
+
 # ── Cloud security ────────────────────────────────────────────────────────────────
 
 
@@ -1962,6 +2543,147 @@ class MicrosoftDefenderCloudAppsScannerFindingSignalInput(SignalInputBase):
     source_type: Literal[SignalSourceType.SCANNER_FINDING]
     source_product: Literal[SignalSourceProduct.MICROSOFT_DEFENDER_CLOUD_APPS]
     extra: MicrosoftDefenderCloudAppsScannerFindingSignalExtra
+
+
+class GithubDependabotScannerFindingSignalExtra(SignalExtraBase):
+    number: str | None
+    state: str | None
+    severity: str | None
+    ghsa_id: str | None
+    cve_id: str | None
+    package_ecosystem: str | None
+    package_name: str | None
+    vulnerable_version_range: str | None
+    first_patched_version: str | None
+    manifest_path: str | None
+    dependency_scope: str | None
+    html_url: str | None
+    created_at: str | None
+    repository: str | None
+
+
+class GithubDependabotScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.GITHUB_DEPENDABOT]
+    extra: GithubDependabotScannerFindingSignalExtra
+
+
+class GithubCodeScanningScannerFindingSignalExtra(SignalExtraBase):
+    number: str | None
+    state: str | None
+    rule_id: str | None
+    rule_severity: str | None
+    security_severity_level: str | None
+    tool_name: str | None
+    location_path: str | None
+    location_start_line: str | None
+    html_url: str | None
+    created_at: str | None
+    repository: str | None
+
+
+class GithubCodeScanningScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.GITHUB_CODE_SCANNING]
+    extra: GithubCodeScanningScannerFindingSignalExtra
+
+
+class GithubSecretScanningScannerFindingSignalExtra(SignalExtraBase):
+    number: str | None
+    state: str | None
+    secret_type: str | None
+    validity: str | None
+    html_url: str | None
+    created_at: str | None
+    repository: str | None
+
+
+class GithubSecretScanningScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.GITHUB_SECRET_SCANNING]
+    extra: GithubSecretScanningScannerFindingSignalExtra
+
+
+# ── Monitoring alerts and error tracking ─────────────────────────────────────────
+
+
+class NewrelicIssueSignalExtra(SignalExtraBase):
+    # One schema serves every New Relic table, because a variant is keyed by (source_product, source_type).
+    # `kind` says which table the signal came from, and each emitter fills only the fields its table has.
+    kind: Literal["alert_issue", "javascript_error", "transaction_error"]
+    issue_id: str | None = None
+    priority: str | None = None
+    activated_at: str | None = None
+    app_name: str | None = None
+    error_class: str | None = None
+    sample_transaction: str | None = None
+    occurrences: str | None = None
+    first_seen: str | None = None
+    last_seen: str | None = None
+
+
+class NewrelicIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.NEWRELIC]
+    extra: NewrelicIssueSignalExtra
+
+
+class AmazonCloudwatchIncidentSignalExtra(SignalExtraBase):
+    alarm_name: str | None
+    alarm_kind: str | None
+    transitions: str | None
+    first_seen: str | None
+    last_seen: str | None
+
+
+class AmazonCloudwatchIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.AMAZON_CLOUDWATCH]
+    extra: AmazonCloudwatchIncidentSignalExtra
+
+
+class LogicmonitorIncidentSignalExtra(SignalExtraBase):
+    severity: str | None
+    acked: str | None
+    monitor_object_name: str | None
+    datasource: str | None
+    instance_name: str | None
+    data_point_name: str | None
+    start_epoch: str | None
+
+
+class LogicmonitorIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.LOGICMONITOR]
+    extra: LogicmonitorIncidentSignalExtra
+
+
+class AirbrakeIssueSignalExtra(SignalExtraBase):
+    project_id: str | None
+    environment: str | None
+    notice_total_count: str | None
+    created_at: str | None
+    last_notice_at: str | None
+
+
+class AirbrakeIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.AIRBRAKE]
+    extra: AirbrakeIssueSignalExtra
+
+
+class MuxIssueSignalExtra(SignalExtraBase):
+    error_id: str | None
+    error_code: str | None
+    view_count: str | None
+    view_share: str | None
+    last_seen_at: str | None
+
+
+class MuxIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.MUX]
+    extra: MuxIssueSignalExtra
 
 
 # ── Union over all signal variants ──────────────────────────────────────────────
@@ -2040,9 +2762,14 @@ SignalInput = Annotated[
     | EngineeringAnalyticsCIBrokenDefaultBranchSignalInput
     | EngineeringAnalyticsCIDurationRegressionSignalInput
     | GoogleSearchConsoleSearchOpportunitySignalInput
+    | BingWebmasterToolsSearchOpportunitySignalInput
+    | AhrefsSearchOpportunitySignalInput
+    | SemrushSearchOpportunitySignalInput
     | HelpscoutConversationSignalInput
     | DecagonConversationSignalInput
     | VitallyConversationSignalInput
+    | IntercomTicketsTicketSignalInput
+    | PylonTicketSignalInput
     | PagerdutyIncidentSignalInput
     | OpsgenieAlertSignalInput
     | IncidentIoIncidentSignalInput
@@ -2063,6 +2790,14 @@ SignalInput = Annotated[
     | StatuspageIncidentSignalInput
     | CronitorIncidentSignalInput
     | InstatusIncidentSignalInput
+    | RootlyIncidentSignalInput
+    | ZendutyIncidentSignalInput
+    | SplunkObservabilityCloudIncidentSignalInput
+    | UptimerobotIncidentSignalInput
+    | RootlyAlertsIncidentSignalInput
+    | IncidentIoAlertsIncidentSignalInput
+    | FirehydrantAlertsIncidentSignalInput
+    | GrafanaIrmAlertGroupsIncidentSignalInput
     | LaceworkScannerFindingSignalInput
     | OrcaSecurityScannerFindingSignalInput
     | TenableVulnerabilityManagementScannerFindingSignalInput
@@ -2070,6 +2805,19 @@ SignalInput = Annotated[
     | AzureApplicationInsightsIssueSignalInput
     | AppsignalIssueSignalInput
     | CursorIssueSignalInput
+    | AppStoreConnectReviewSignalInput
+    | SentryFeedbackSignalInput
+    | SonarcloudScannerFindingSignalInput
+    | CheckmarxScannerFindingSignalInput
+    | VeracodeScannerFindingSignalInput
+    | VeracodeScaScannerFindingSignalInput
+    | SemgrepScaScannerFindingSignalInput
+    | GitguardianScannerFindingSignalInput
+    | InfisicalScannerFindingSignalInput
+    | AwsMacieScannerFindingSignalInput
+    | SentineloneScannerFindingSignalInput
+    | JfrogXrayScannerFindingSignalInput
+    | DynatraceSecurityScannerFindingSignalInput
     | TriggerDevErrorSignalInput
     | ChecklyErrorGroupSignalInput
     | RoarkIssueSignalInput
@@ -2082,10 +2830,30 @@ SignalInput = Annotated[
     | GainsightPxFeedbackSignalInput
     | TrustpilotReviewSignalInput
     | OkendoReviewSignalInput
+    | BeamerFeedbackSignalInput
+    | BeamerNpsFeedbackSignalInput
+    | ChameleonFeedbackSignalInput
+    | FeaturebaseSurveysFeedbackSignalInput
+    | UservoiceNpsFeedbackSignalInput
+    | VitallyNpsFeedbackSignalInput
+    | EtsyReviewSignalInput
+    | G2ReviewSignalInput
+    | GumroadReviewSignalInput
+    | TrustpilotProductReviewsReviewSignalInput
+    | WoocommerceReviewSignalInput
+    | YotpoReviewSignalInput
     | AwsSecurityHubScannerFindingSignalInput
     | AwsGuarddutyScannerFindingSignalInput
     | AwsInspectorScannerFindingSignalInput
-    | MicrosoftDefenderCloudAppsScannerFindingSignalInput,
+    | MicrosoftDefenderCloudAppsScannerFindingSignalInput
+    | GithubDependabotScannerFindingSignalInput
+    | GithubCodeScanningScannerFindingSignalInput
+    | GithubSecretScanningScannerFindingSignalInput
+    | NewrelicIssueSignalInput
+    | AmazonCloudwatchIncidentSignalInput
+    | LogicmonitorIncidentSignalInput
+    | AirbrakeIssueSignalInput
+    | MuxIssueSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -2157,9 +2925,14 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     EngineeringAnalyticsCIBrokenDefaultBranchSignalInput,
     EngineeringAnalyticsCIDurationRegressionSignalInput,
     GoogleSearchConsoleSearchOpportunitySignalInput,
+    BingWebmasterToolsSearchOpportunitySignalInput,
+    AhrefsSearchOpportunitySignalInput,
+    SemrushSearchOpportunitySignalInput,
     HelpscoutConversationSignalInput,
     DecagonConversationSignalInput,
     VitallyConversationSignalInput,
+    IntercomTicketsTicketSignalInput,
+    PylonTicketSignalInput,
     PagerdutyIncidentSignalInput,
     OpsgenieAlertSignalInput,
     IncidentIoIncidentSignalInput,
@@ -2180,6 +2953,14 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     StatuspageIncidentSignalInput,
     CronitorIncidentSignalInput,
     InstatusIncidentSignalInput,
+    RootlyIncidentSignalInput,
+    ZendutyIncidentSignalInput,
+    SplunkObservabilityCloudIncidentSignalInput,
+    UptimerobotIncidentSignalInput,
+    RootlyAlertsIncidentSignalInput,
+    IncidentIoAlertsIncidentSignalInput,
+    FirehydrantAlertsIncidentSignalInput,
+    GrafanaIrmAlertGroupsIncidentSignalInput,
     LaceworkScannerFindingSignalInput,
     OrcaSecurityScannerFindingSignalInput,
     TenableVulnerabilityManagementScannerFindingSignalInput,
@@ -2187,6 +2968,19 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     AzureApplicationInsightsIssueSignalInput,
     AppsignalIssueSignalInput,
     CursorIssueSignalInput,
+    AppStoreConnectReviewSignalInput,
+    SentryFeedbackSignalInput,
+    SonarcloudScannerFindingSignalInput,
+    CheckmarxScannerFindingSignalInput,
+    VeracodeScannerFindingSignalInput,
+    VeracodeScaScannerFindingSignalInput,
+    SemgrepScaScannerFindingSignalInput,
+    GitguardianScannerFindingSignalInput,
+    InfisicalScannerFindingSignalInput,
+    AwsMacieScannerFindingSignalInput,
+    SentineloneScannerFindingSignalInput,
+    JfrogXrayScannerFindingSignalInput,
+    DynatraceSecurityScannerFindingSignalInput,
     TriggerDevErrorSignalInput,
     ChecklyErrorGroupSignalInput,
     RoarkIssueSignalInput,
@@ -2199,10 +2993,30 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     GainsightPxFeedbackSignalInput,
     TrustpilotReviewSignalInput,
     OkendoReviewSignalInput,
+    BeamerFeedbackSignalInput,
+    BeamerNpsFeedbackSignalInput,
+    ChameleonFeedbackSignalInput,
+    FeaturebaseSurveysFeedbackSignalInput,
+    UservoiceNpsFeedbackSignalInput,
+    VitallyNpsFeedbackSignalInput,
+    EtsyReviewSignalInput,
+    G2ReviewSignalInput,
+    GumroadReviewSignalInput,
+    TrustpilotProductReviewsReviewSignalInput,
+    WoocommerceReviewSignalInput,
+    YotpoReviewSignalInput,
     AwsSecurityHubScannerFindingSignalInput,
     AwsGuarddutyScannerFindingSignalInput,
     AwsInspectorScannerFindingSignalInput,
     MicrosoftDefenderCloudAppsScannerFindingSignalInput,
+    GithubDependabotScannerFindingSignalInput,
+    GithubCodeScanningScannerFindingSignalInput,
+    GithubSecretScanningScannerFindingSignalInput,
+    NewrelicIssueSignalInput,
+    AmazonCloudwatchIncidentSignalInput,
+    LogicmonitorIncidentSignalInput,
+    AirbrakeIssueSignalInput,
+    MuxIssueSignalInput,
     CheckFailedSignalInput,
     MonitoringUnresolvedSignalInput,
 )
