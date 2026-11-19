@@ -66,8 +66,20 @@ The task reads the current state of every linked Linear ticket from Linear, so a
 
 `error_tracking_linear_external_references`, declared in the same file.
 It handles created tickets and `Issue` updates that change the description or the title, and queues one task per error tracking issue that the description links to.
-Its `ownership` lookup reads `organization_id` the same way, but only for a ticket whose description links to an error tracking issue in any region.
+Its `ownership` lookup reads `organization_id` the same way, but only for a ticket whose description links to an error tracking issue at this instance's URL or one of the configured regional origins.
 Every other delivery is `UNDECIDED`.
-The task links the ticket only for a project that connects the ticket's workspace and whose token can read the ticket.
+The task waits 60 seconds before linking and uses the ticket's immutable ID, so a move between Linear teams does not lose the link.
+It honors the description in the signed event, even if the URL is removed before the task runs.
+
+The project must connect the ticket's workspace, and its token must still be able to read the ticket.
+The event's actor must be an active human user in that workspace, with general access to public teams or membership of the ticket's current team.
+Private and restricted teams always require membership, including for administrators.
+Guests can link tickets in teams they belong to, matching [Linear's member roles](https://linear.app/docs/members-roles).
+Individually shared private issues and inherited restricted-team access do not qualify without team membership.
+These checks also apply when refreshing a linked ticket's title.
+
+After linking, the task reconciles the current states of all the issue's linked Linear tickets, using the existing status-sync rules and kill switch.
+A completed ticket can therefore resolve the issue without another state-change delivery.
+An open ticket does not by itself reactivate an issue that someone resolved in PostHog.
 
 See the [Endpoints table](../README.md#endpoints).

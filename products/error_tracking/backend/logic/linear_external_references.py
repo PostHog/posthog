@@ -2,32 +2,28 @@
 
 A linked issue gets the same reference a user adds by hand, so the issue shows the ticket and the
 Linear status sync acts on it. Only a project that connects the ticket's Linear workspace gets the
-reference, and only when that project's token can read the ticket.
+reference, and only when its token can read the ticket and confirm the actor's team access.
 """
 
 import re
 from collections.abc import Mapping
 from typing import Any
+from uuid import UUID
 
+from django.conf import settings
 from django.db import transaction
 
+from posthog import regions
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ingress.contracts import DeliveryOwnership
-from posthog.ingress.dispatch.database import bounded_statement_timeout
-from posthog.integrations import IntegrationManager
-
-# `bounded_statement_timeout` gets the database alias of a read from the router, and the router needs
-# the model class. So `Integration` is imported only to cap the ownership lookup, and every read of a
-# row goes through the SDK.
-from posthog.models.integration import (  # nosemgrep: semgrep.rules.devex.integration-model-through-sdk
-    Integration,
-    LinearIntegration,
-)
+from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models.integration import LinearIntegration
 from posthog.ph_client import ph_scoped_capture
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.logic import external_references
+from products.error_tracking.backend.logic.linear_workspace import workspace_ownership
 from products.error_tracking.backend.models import ErrorTrackingExternalReference, ErrorTrackingIssue
 
 # Linear lists only the fields an update changed in `updatedFrom`. An update that changes neither of
@@ -35,15 +31,13 @@ from products.error_tracking.backend.models import ErrorTrackingExternalReferenc
 _LINKING_FIELDS = ("description", "title")
 _IDENTIFIER = re.compile(r"[A-Za-z0-9]+-[1-9][0-9]*")
 _MAX_TITLE_LENGTH = 500
-# Matches a link to any region, because the receiving region decides where a delivery goes before
-# the region that holds the issue reads it.
-_ANY_REGION_ISSUE_LINK = re.compile(r"/project/[1-9][0-9]*/error[_-]tracking/")
-_WORKSPACE_LOOKUP_TIMEOUT_MS = 800
 
 
 @frozen
 class _Ticket:
     organization_id: str
+    id: UUID
+    actor_id: UUID
     identifier: str
     title: str | None
     description: str
@@ -62,7 +56,19 @@ def _ticket(payload: Mapping[str, Any]) -> _Ticket | None:
 
     organization_id = payload.get("organizationId")
     data = payload.get("data")
-    if not isinstance(organization_id, str) or not organization_id or not isinstance(data, Mapping):
+    actor = payload.get("actor")
+    if (
+        not isinstance(organization_id, str)
+        or not organization_id
+        or not isinstance(data, Mapping)
+        or not isinstance(actor, Mapping)
+        or actor.get("type") != "user"
+    ):
+        return None
+    try:
+        ticket_id = UUID(str(data.get("id")))
+        actor_id = UUID(str(actor.get("id")))
+    except ValueError:
         return None
     identifier = data.get("identifier")
     description = data.get("description")
@@ -70,7 +76,14 @@ def _ticket(payload: Mapping[str, Any]) -> _Ticket | None:
         return None
     title = data.get("title")
     title = title.strip()[:_MAX_TITLE_LENGTH].strip() if isinstance(title, str) else ""
-    return _Ticket(organization_id=organization_id, identifier=identifier, title=title or None, description=description)
+    return _Ticket(
+        organization_id=organization_id,
+        id=ticket_id,
+        actor_id=actor_id,
+        identifier=identifier,
+        title=title or None,
+        description=description,
+    )
 
 
 def prepare_jobs(payload: Mapping[str, Any]) -> list[contracts.LinearExternalReferenceJob]:
@@ -81,6 +94,8 @@ def prepare_jobs(payload: Mapping[str, Any]) -> list[contracts.LinearExternalRef
         contracts.LinearExternalReferenceJob(
             team_id=reference.team_id,
             organization_id=ticket.organization_id,
+            ticket_id=ticket.id,
+            actor_id=ticket.actor_id,
             identifier=ticket.identifier,
             title=ticket.title,
             issue_id=reference.issue_id,
@@ -97,11 +112,16 @@ def delivery_ownership(payload: Mapping[str, Any]) -> DeliveryOwnership:
     the region boundary. A lookup that raises is let out, so Linear sends the delivery again.
     """
     ticket = _ticket(payload)
-    if ticket is None or not _ANY_REGION_ISSUE_LINK.search(ticket.description):
+    if ticket is None or not external_references.extract_posthog_issue_references(
+        ticket.description,
+        site_urls=(
+            settings.SITE_URL,
+            f"https://{regions.PRIMARY_REGION_DOMAIN}",
+            f"https://{regions.SECONDARY_REGION_DOMAIN}",
+        ),
+    ):
         return DeliveryOwnership.UNDECIDED
-    with bounded_statement_timeout(_WORKSPACE_LOOKUP_TIMEOUT_MS, models=[Integration]):
-        held_here = IntegrationManager.linear.oauth.exists_by_external_id(ticket.organization_id)
-    return DeliveryOwnership.LOCAL if held_here else DeliveryOwnership.ELSEWHERE
+    return workspace_ownership(ticket.organization_id)
 
 
 def link_reference(job: contracts.LinearExternalReferenceJob) -> bool:
@@ -114,22 +134,37 @@ def link_reference(job: contracts.LinearExternalReferenceJob) -> bool:
     if issue is None:
         return False
 
-    already_linked = ErrorTrackingExternalReference.objects.filter(
-        issue_id=issue.id, integration_id=integration.id, external_context__contains={"id": job.identifier}
-    ).exists()
-    # The status sync reads every linked ticket with this token, and a ticket that it cannot read keeps
-    # the issue open. Raises LinearIntegrationError when the read fails, so the task retries.
-    if not already_linked and job.identifier not in LinearIntegration(integration).issue_state_types([job.identifier]):
+    from products.error_tracking.backend.logic.linear_status_sync import (  # noqa: PLC0415 - issue_mutations imports the facade through core tasks
+        issue_status_lock,
+    )
+
+    with issue_status_lock(issue.id):
+        return _link_and_reconcile(job, integration, issue)
+
+
+def _link_and_reconcile(
+    job: contracts.LinearExternalReferenceJob, integration: IntegrationRecord, issue: ErrorTrackingIssue
+) -> bool:
+    ticket = LinearIntegration(integration).issue_for_reference(str(job.ticket_id), str(job.actor_id))
+    if ticket is None:
         return False
 
-    external_context: dict[str, Any] = {"id": job.identifier}
+    external_context: dict[str, Any] = {"id": ticket.identifier}
     if job.title is not None:
         external_context["title"] = job.title
     with transaction.atomic():
         locked_issue = ErrorTrackingIssue.objects.select_for_update().filter(team_id=job.team_id, id=issue.id).first()
         if locked_issue is None:
             return False
-        # The ticket already links to PostHog in its description, so it gets no attachment as well.
+        references = ErrorTrackingExternalReference.objects.filter(
+            issue_id=locked_issue.id,
+            integration_id=integration.id,
+            external_context__id__in={job.identifier, *ticket.previous_identifiers} - {ticket.identifier},
+        )
+        for reference in references:
+            reference.external_context = {**(reference.external_context or {}), "id": ticket.identifier}
+            reference.save(update_fields=["external_context"])
+        # The event snapshot authorizes the link even if the description changed while the task waited.
         _, created = external_references.create_external_reference(
             team_id=job.team_id,
             issue_id=locked_issue.id,
@@ -146,4 +181,10 @@ def link_reference(job: contracts.LinearExternalReferenceJob) -> bool:
                 properties={"linked_by": "fingerprint" if job.fingerprint is not None else "issue_id"},
                 groups=groups(issue.team.organization, issue.team),
             )
+    from products.error_tracking.backend.logic.linear_status_sync import (  # noqa: PLC0415 - issue_mutations imports the facade through core tasks
+        reconcile_linked_issue,
+    )
+
+    # Reconcile on retries too: the reference may have committed before a previous status read failed.
+    reconcile_linked_issue(issue, organization_id=job.organization_id, identifier=ticket.identifier)
     return created

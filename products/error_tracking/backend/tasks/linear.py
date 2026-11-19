@@ -92,6 +92,8 @@ def enqueue_linear_external_references(payload: dict[str, Any]) -> None:
             kwargs={
                 "team_id": job.team_id,
                 "organization_id": job.organization_id,
+                "ticket_id": str(job.ticket_id),
+                "actor_id": str(job.actor_id),
                 "identifier": job.identifier,
                 "title": job.title,
                 "issue_id": str(job.issue_id) if job.issue_id is not None else None,
@@ -109,7 +111,13 @@ def enqueue_linear_external_references(payload: dict[str, Any]) -> None:
     reject_on_worker_lost=True,
     # The read of the ticket fails closed, so a transient Linear error must retry rather than drop the
     # delivery, because a blip would otherwise lose a legitimate link for good.
-    autoretry_for=(DatabaseError, LinearIntegrationError, requests.RequestException),
+    autoretry_for=(
+        DatabaseError,
+        LinearIntegrationError,
+        RedisConnectionError,
+        RedisTimeoutError,
+        requests.RequestException,
+    ),
     max_retries=5,
     retry_backoff=True,
     retry_backoff_max=300,
@@ -121,6 +129,8 @@ def process_linear_external_reference(
     *,
     team_id: int,
     organization_id: str,
+    ticket_id: str,
+    actor_id: str,
     identifier: str,
     title: str | None,
     issue_id: str | None,
@@ -129,6 +139,8 @@ def process_linear_external_reference(
     job = contracts.LinearExternalReferenceJob(
         team_id=team_id,
         organization_id=organization_id,
+        ticket_id=UUID(ticket_id),
+        actor_id=UUID(actor_id),
         identifier=identifier,
         title=title,
         issue_id=UUID(issue_id) if issue_id is not None else None,
@@ -138,3 +150,7 @@ def process_linear_external_reference(
         api.link_linear_external_reference(job)
     except LinearRateLimitedError as error:
         raise self.retry(exc=error, countdown=error.retry_after_seconds, max_retries=_RATE_LIMITED_MAX_RETRIES)
+    except LockError as error:
+        raise self.retry(
+            exc=error, countdown=random.randint(*_ISSUE_BUSY_RETRY_SECONDS), max_retries=_ISSUE_BUSY_MAX_RETRIES
+        )

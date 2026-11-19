@@ -50,11 +50,13 @@ class PostHogIssueReference:
     fingerprint: str | None = None
 
 
-def extract_posthog_issue_references(text: str) -> list[PostHogIssueReference]:
-    """The error tracking issues that links to this region's PostHog in the text point at, in order and without repeats."""
-    site_url = re.escape(settings.SITE_URL.rstrip("/"))
+def extract_posthog_issue_references(
+    text: str, *, site_urls: Iterable[str] | None = None
+) -> list[PostHogIssueReference]:
+    """The issues linked at the allowed PostHog origins, in order and without repeats."""
+    origins = "|".join(re.escape(url.rstrip("/")) for url in (site_urls or (settings.SITE_URL,)))
     pattern = re.compile(
-        rf"{site_url}/project/(?P<team_id>[1-9][0-9]*)/error[_-]tracking/"
+        rf"(?<![\w:/.-])(?:{origins})/project/(?P<team_id>[1-9][0-9]{{0,18}})/error[_-]tracking/"
         rf"(?:fingerprint/(?P<fingerprint>[^/?#\s<>\]\)]+)|"
         rf"(?P<issue_id>[0-9a-fA-F]{{8}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-"
         rf"[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{12}}))"
@@ -63,9 +65,12 @@ def extract_posthog_issue_references(text: str) -> list[PostHogIssueReference]:
     references: list[PostHogIssueReference] = []
     seen: set[PostHogIssueReference] = set()
     for match in pattern.finditer(text):
+        team_id = int(match.group("team_id"))
+        if team_id > 2**63 - 1:
+            continue
         issue_id = match.group("issue_id")
         reference = PostHogIssueReference(
-            team_id=int(match.group("team_id")),
+            team_id=team_id,
             issue_id=UUID(issue_id) if issue_id else None,
             fingerprint=unquote(match.group("fingerprint")) if match.group("fingerprint") else None,
         )
