@@ -35,6 +35,7 @@ describe('<WorkflowsRunLinkTagSettings />', () => {
 
     afterEach(() => {
         cleanup()
+        jest.restoreAllMocks()
     })
 
     it.each([
@@ -65,6 +66,23 @@ describe('<WorkflowsRunLinkTagSettings />', () => {
             expect(localStorage.getItem(LINK_TAGGING_SAVED_KEY)).not.toBeNull()
         }
     )
+
+    it('saves the switch when the browser refuses to store the signal for other tabs', async () => {
+        jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+            throw new DOMException('Storage is full', 'QuotaExceededError')
+        })
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: { capture_workflows_engagement_events: true, email_workflow_run_link_tag_enabled: false },
+        })
+        render(<WorkflowsRunLinkTagSettings />)
+        const toggle = screen.getByLabelText('Connect tracked email clicks to sessions')
+
+        await userEvent.click(toggle)
+
+        await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'true'))
+        expect(patchBodies).toEqual([{ workflows_config: { email_workflow_run_link_tag_enabled: true } }])
+    })
 
     it('keeps the switch off for a member without project admin, whose save the project API would refuse', async () => {
         initKeaTests(true, {
