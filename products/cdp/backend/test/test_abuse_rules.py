@@ -7,7 +7,7 @@ from parameterized import parameterized
 from posthog.hogql.parser import _builtin_parse_cache, _user_parse_cache, clear_parse_caches
 
 from products.cdp.backend.abuse.classifier import HogFunctionContent
-from products.cdp.backend.abuse.rules import Rule, matched_rules
+from products.cdp.backend.abuse.rules import Rule, has_outbound_call, matched_rules
 
 
 def content(
@@ -534,6 +534,58 @@ class TestAbuseRules(SimpleTestCase):
     )
     def test_matched_rules(self, _name: str, function: HogFunctionContent, expected: tuple[Rule, ...]) -> None:
         assert matched_rules(function) == expected
+
+    @parameterized.expand(
+        [
+            ("direct_fetch", content(), True),
+            ("no_call", content(hog="event.properties.internal := true\nreturn event", inputs={}), False),
+            (
+                "fetch_only_in_a_string_and_a_comment",
+                content(hog="print('fetch(inputs.url)')\n// fetch(inputs.url)\nreturn event", inputs={}),
+                False,
+            ),
+            ("fetch_shadowed_by_a_local_function", content(hog="fun fetch(url) {\n  return url\n}\nfetch('x')"), False),
+            ("fetch_shadowed_by_a_local_lambda", content(hog="let fetch := (url) -> url\nfetch('x')"), False),
+            (
+                "fetch_beside_a_local_of_that_name_in_another_scope",
+                content(hog="fun f() {\n  let fetch := 1\n}\nfetch('x')"),
+                True,
+            ),
+            ("fetch_assigned_to_a_variable", content(hog="let send := fetch\nsend(inputs.url)"), True),
+            ("fetch_called_as_an_expression", content(hog="(fetch)(inputs.url)"), True),
+            ("fetch_kept_in_a_dict", content(hog="let senders := {'a': fetch}\nsenders.a(inputs.url)"), True),
+            ("fetch_in_a_lambda", content(hog="let send := (url) -> fetch(url)\nsend(inputs.url)"), True),
+            ("send_email", content(hog="sendEmail({'to': inputs.to})"), True),
+            ("posthog_capture", content(hog="postHogCapture({'event': 'copied'})"), True),
+            ("ticket_function", content(hog="postHogGetTicket({'ticket_id': event.properties.ticket_id})"), True),
+            (
+                "fetch_in_a_hog_template_input",
+                content(hog="return event", inputs={"url": {"value": "{fetch(event.uuid)}"}}),
+                True,
+            ),
+            (
+                "fetch_in_the_masking_hash",
+                content(hog="return event", inputs={}, masking={"hash": "{fetch(event.uuid)}"}),
+                True,
+            ),
+            ("code_that_does_not_parse", content(hog="let x := (", inputs={}), True),
+            (
+                "fetch_in_unchanged_template_code",
+                content(template_id="template-webhook", code_modified_from_template=False),
+                True,
+            ),
+            *(
+                (
+                    f"{prefix}_runs_code_other_than_its_hog",
+                    content(hog="return event", inputs={}, template_id=f"{prefix}-x"),
+                    True,
+                )
+                for prefix in ("plugin", "segment", "native")
+            ),
+        ]
+    )
+    def test_has_outbound_call(self, _name: str, function: HogFunctionContent, expected: bool) -> None:
+        assert has_outbound_call(function) is expected
 
     def test_parsed_code_and_templates_stay_out_of_the_parse_cache(self) -> None:
         clear_parse_caches()

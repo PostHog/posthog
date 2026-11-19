@@ -68,6 +68,7 @@ class ScoredHogFunction:
     verdict: AbuseVerdict | None
     failure: FailureReason | None
     rule_hits: tuple[rules.Rule, ...]
+    outbound_call: bool
 
     @property
     def would_alert(self) -> bool:
@@ -256,11 +257,12 @@ def classify_if_due(hog_function: HogFunction) -> None:
     if not is_scorable(hog_function) or not runs_customer_code(hog_function) or not shadow_enabled(hog_function.team):
         return
     content = content_of(hog_function, hog_function.template)
-    rule_hits = rules.matched_rules(_with_secret_inputs(hog_function, content))
+    runtime_content = _with_secret_inputs(hog_function, content)
+    rule_hits = rules.matched_rules(runtime_content)
     if cache.get(_hash_key(str(hog_function.id))) == _cache_entry(content_hash(content), rule_hits):
         metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
         return
-    report(hog_function, _score(hog_function, content, rule_hits), trigger=Trigger.SAVE)
+    report(hog_function, _score(hog_function, content, runtime_content, rule_hits), trigger=Trigger.SAVE)
 
 
 def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
@@ -276,16 +278,28 @@ def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
 
 def score(hog_function: HogFunction) -> ScoredHogFunction:
     content = content_of(hog_function, hog_function.template)
-    return _score(hog_function, content, rules.matched_rules(_with_secret_inputs(hog_function, content)))
+    runtime_content = _with_secret_inputs(hog_function, content)
+    return _score(hog_function, content, runtime_content, rules.matched_rules(runtime_content))
 
 
 def _score(
-    hog_function: HogFunction, content: HogFunctionContent, rule_hits: tuple[rules.Rule, ...]
+    hog_function: HogFunction,
+    content: HogFunctionContent,
+    runtime_content: HogFunctionContent,
+    rule_hits: tuple[rules.Rule, ...],
 ) -> ScoredHogFunction:
+    """Jev reads the public `content`. The checks that read what runs use `runtime_content`, which holds the
+    decrypted secret inputs."""
+    outbound_call = rules.has_outbound_call(runtime_content)
     verdict: AbuseVerdict | None = None
     failure: FailureReason | None = None
     try:
-        verdict = classify(content, team_id=hog_function.team_id, thresholds=thresholds_for(hog_function.team))
+        verdict = classify(
+            content,
+            team_id=hog_function.team_id,
+            thresholds=thresholds_for(hog_function.team),
+            outbound_call=outbound_call,
+        )
     except ClassificationFailed as error:
         failure = error.reason
     return ScoredHogFunction(
@@ -294,6 +308,7 @@ def _score(
         verdict=verdict,
         failure=failure,
         rule_hits=rule_hits,
+        outbound_call=outbound_call,
     )
 
 
@@ -375,6 +390,7 @@ def _capture(hog_function: HogFunction, scored: ScoredHogFunction, outcome: dict
         "hog_function_type": hog_function.type,
         "template_id": hog_function.template_id,
         "code_modified_from_template": scored.code_modified_from_template,
+        "outbound_call": scored.outbound_call,
         "enabled": hog_function.enabled,
         "content_hash": scored.content_hash,
         "admin_url": absolute_uri(f"/admin/cdp/hogfunction/{hog_function.id}/change/"),

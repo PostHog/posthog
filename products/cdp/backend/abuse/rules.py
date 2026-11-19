@@ -66,6 +66,20 @@ INTERNAL_FUNCTIONS = frozenset(
     }
 )
 
+# Every async function the Node worker registers in `nodejs/src/cdp/async-functions/`, and `postHogCapture`. Each one
+# sends a request or a message out of the function. A function added there must be added here too, or code that calls
+# only that function counts as code with no outbound call.
+OUTBOUND_FUNCTIONS = INTERNAL_FUNCTIONS | {
+    "fetch",
+    "postHogCapture",
+    "postHogGetTicket",
+    "postHogSendTicketMessage",
+    "postHogUpdateTicket",
+}
+
+# A function from one of these templates runs plugin, Segment or native destination code instead of its `hog` field.
+_NON_HOG_TEMPLATE_PREFIXES = ("plugin-", "segment-", "native-")
+
 # Source that names none of these cannot match a rule that reads parsed Hog, so it is not parsed.
 _HOG_RULE_NAMES = re.compile("|".join(sorted(INTERNAL_FUNCTIONS | {"range", "replaceAll"})))
 
@@ -154,6 +168,25 @@ def matched_rules(content: HogFunctionContent) -> tuple[Rule, ...]:
     return tuple(rule for rule in Rule if rule in matched)
 
 
+def has_outbound_call(content: HogFunctionContent) -> bool:
+    """Whether the code or a Hog template can call a function that sends a request. Code that does not parse counts,
+    as does unedited template code, which still runs."""
+    if (content.template_id or "").startswith(_NON_HOG_TEMPLATE_PREFIXES):
+        return True
+    return _calls_out(_parse_code, content.hog) or any(
+        _calls_out(_parse_template, template) for template in _hog_templates(content)
+    )
+
+
+def _calls_out(parse: Callable[[str], ast.AST], hog: str) -> bool:
+    visitor = _HogCodeVisitor()
+    try:
+        visitor.visit(parse(hog))
+    except Exception:
+        return True
+    return visitor.calls_out
+
+
 def _parse_code(hog: str) -> ast.AST:
     """Parsed without the shadow parser and the parse cache, as is every template here. A shadow parse sends a
     diverging statement to error tracking, the cache keeps the statement in memory after the parse, and a template
@@ -207,6 +240,7 @@ class _HogCodeVisitor(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
         self.matched: set[Rule] = set()
+        self.calls_out = False
         self._scopes: list[set[str]] = [set()]
 
     def _is_local(self, name: str) -> bool:
@@ -257,6 +291,7 @@ class _HogCodeVisitor(TraversingVisitor):
         super().visit_call(node)
         if self._is_local(node.name):
             return
+        self.calls_out |= node.name in OUTBOUND_FUNCTIONS
         if node.name in INTERNAL_FUNCTIONS:
             self.matched.add(Rule.INTERNAL_FUNCTION)
         elif node.name == "range" and _hog_range_size(node.args) > MAX_RANGE_SIZE:
@@ -265,9 +300,17 @@ class _HogCodeVisitor(TraversingVisitor):
             self.matched.add(Rule.REPLACE_AMPLIFICATION)
 
     def visit_field(self, node: ast.Field) -> None:
-        # `let run := postHogCreateTask` followed by `run()` reaches the same handler as a direct call.
+        # `let run := postHogCreateTask` followed by `run()` reaches the same handler as a direct call. A name is the
+        # only way to reach an async function, so a bare reference also covers calls through a dict, a lambda or an
+        # expression.
         super().visit_field(node)
-        if len(node.chain) == 1 and (name := str(node.chain[0])) in INTERNAL_FUNCTIONS and not self._is_local(name):
+        if len(node.chain) != 1:
+            return
+        name = str(node.chain[0])
+        if self._is_local(name):
+            return
+        self.calls_out |= name in OUTBOUND_FUNCTIONS
+        if name in INTERNAL_FUNCTIONS:
             self.matched.add(Rule.INTERNAL_FUNCTION)
 
 

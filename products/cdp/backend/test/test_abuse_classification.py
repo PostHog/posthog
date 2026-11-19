@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from posthog.utils import absolute_uri
 
+from products.cdp.backend.abuse.classifier import MALICIOUS_QUESTIONS
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.tasks.abuse_classification import classify_hog_function_for_abuse
 from products.cdp.backend.test.abuse_support import (
@@ -18,6 +19,8 @@ from products.cdp.backend.test.abuse_support import (
 )
 
 LOW_CONTROL_SCORES = {**SCORES, "normal_integration": 0.2}
+SSRF_SCORES = {**SCORES, "internal_network": 0.6, "resource_exhaustion": 0.1, "normal_integration": 0.6}
+NO_CALL_HOG = "print(event.properties.$ip)"
 
 
 class TestAbuseClassification(AbuseClassificationTestCase):
@@ -101,6 +104,38 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 True,
                 False,
             ),
+            ("ssrf_score_alerts_with_an_outbound_call", SSRF_SCORES, None, RULE_FREE_HOG, [], True, False),
+            ("ssrf_score_is_ignored_without_an_outbound_call", SSRF_SCORES, None, NO_CALL_HOG, [], False, False, False),
+            (
+                "ssrf_score_at_the_block_threshold_is_ignored_without_an_outbound_call",
+                {**SSRF_SCORES, "internal_network": 0.95},
+                None,
+                NO_CALL_HOG,
+                [],
+                False,
+                False,
+                False,
+            ),
+            (
+                "other_risk_alerts_without_an_outbound_call",
+                LOW_CONTROL_SCORES,
+                None,
+                NO_CALL_HOG,
+                [],
+                True,
+                False,
+                False,
+            ),
+            (
+                "rule_alerts_without_an_outbound_call",
+                {**SSRF_SCORES, "internal_network": 0.95},
+                None,
+                "if (event.properties.$current_url == 'http://127.0.0.1/') {\n  return\n}\nprint(event.event)",
+                ["internal_host_reference"],
+                True,
+                False,
+                False,
+            ),
         ]
     )
     def test_a_verdict_is_captured_as_an_internal_event(
@@ -112,6 +147,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         rule_hits: list[str],
         would_alert: bool,
         would_block: bool,
+        outbound_call: bool = True,
     ) -> None:
         self.gateway.response = httpx.Response(200, json=decision_payload(scores))
         self.flags.payload = payload
@@ -134,8 +170,9 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             "enabled": True,
             "trigger": "save",
             **{f"score_{question}": score for question, score in scores.items()},
-            "risk_score": scores["resource_exhaustion"],
+            "risk_score": max(scores[question] for question in MALICIOUS_QUESTIONS),
             "rule_hits": rule_hits,
+            "outbound_call": outbound_call,
             "would_alert": would_alert,
             "would_block": would_block,
             "state_truncated": False,
@@ -159,7 +196,13 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 None,
                 httpx.ConnectError("connection refused"),
                 {"hog": RULE_FREE_HOG},
-                {"error": "gateway_unreachable", "rule_hits": [], "would_alert": None, "would_block": None},
+                {
+                    "error": "gateway_unreachable",
+                    "rule_hits": [],
+                    "outbound_call": True,
+                    "would_alert": None,
+                    "would_block": None,
+                },
             ),
             (
                 "unreadable_with_padded_input",
