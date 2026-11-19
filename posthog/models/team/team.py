@@ -284,6 +284,7 @@ class Team(UUIDTClassicModel):
                 condition=models.Q(conversations_enabled=True),
                 name="posthog_team_widget_token_idx",
             ),
+            models.Index(fields=["updated_at"], name="posthog_team_updated_at_idx"),
         ]
         constraints = [
             models.CheckConstraint(
@@ -765,8 +766,12 @@ class Team(UUIDTClassicModel):
         # where this model loads in every process.
         from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
 
+        from posthog.models.event.new_events_schema import project_moved_to_new_events_table  # noqa: PLC0415
+
         modifiers = HogQLQueryModifiers()
         set_default_modifier_values(modifiers, self)
+        # Whether PostHog moved the project. Project settings hides the early opt-in switch once it is true.
+        modifiers.useNewEventsSchema = project_moved_to_new_events_table(self.pk)
         return modifiers.model_dump()
 
     @property

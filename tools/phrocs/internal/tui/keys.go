@@ -264,7 +264,7 @@ func (m Model) handleInfoKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.
 
 	case key.Matches(msg, m.keys.InfoMode), msg.Code == tea.KeyEscape:
 		m.infoMode = false
-		m.disableAllMetrics()
+		m.syncMetrics()
 		if !m.isDockerMode() {
 			m.reloadActiveLines()
 			m.viewport.GotoBottom()
@@ -590,6 +590,7 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 
 	case key.Matches(msg, m.keys.Sort):
 		m.sortMode = (m.sortMode + 1) % SortMode(sortModeCount)
+		m.syncMetrics()
 		m.sortServices()
 		m.dbg("sort: %s", m.sortMode)
 
@@ -605,7 +606,7 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 
 	case key.Matches(msg, m.keys.InfoMode):
 		m.infoMode = true
-		m.toggleMetricsOnSelectedProc()
+		m.syncMetrics()
 		m.refreshInfoContent()
 		m.viewport.GotoTop()
 		m.dbg("info mode: enter")

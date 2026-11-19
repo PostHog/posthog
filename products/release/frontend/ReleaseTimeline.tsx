@@ -112,7 +112,7 @@ function TrackLanesContent({
                     <ReleaseRolloutBar
                         steps={steps}
                         scale={scale}
-                        color={STAGE_COLOR[row.stage]}
+                        color={STAGE_COLOR.flag}
                         top={26}
                         height={20}
                         stickyOffset={stickyOffset}
@@ -158,7 +158,7 @@ function TrackLanesContent({
                     <ReleaseTrackLane
                         key={lane.key}
                         lane={lane}
-                        color={STAGE_COLOR[row.stage]}
+                        color={STAGE_COLOR.flag}
                         scale={scale}
                         stickyOffset={stickyOffset}
                     />
@@ -208,12 +208,12 @@ const CalendarStateContext = createContext<CalendarState>({
 
 function ReleaseCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
     const { expanded, stepsByFlag, related } = useContext(CalendarStateContext)
-    return (
-        <TrackHeader
-            track={buildTrack(row.original, stepsByFlag, related[row.original.id])}
-            open={!!expanded[row.original.id]}
-        />
+    const rowRelated = related[row.original.id]
+    const track = useMemo(
+        () => buildTrack(row.original, stepsByFlag, rowRelated),
+        [row.original, stepsByFlag, rowRelated]
     )
+    return <TrackHeader track={track} open={!!expanded[row.original.id]} />
 }
 
 function TimelineCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
@@ -225,13 +225,14 @@ function TimelineCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
             loadFlagActivity([firstFlagId])
         }
     }, [firstFlagId, loadFlagActivity])
+    const rowRelated = related[row.original.id]
+    const track = useMemo(
+        () => buildTrack(row.original, stepsByFlag, rowRelated),
+        [row.original, stepsByFlag, rowRelated]
+    )
     return (
         <>
-            <TrackLanes
-                track={buildTrack(row.original, stepsByFlag, related[row.original.id])}
-                open={!!expanded[row.original.id]}
-                stickyOffset={stickyOffset}
-            />
+            <TrackLanes track={track} open={!!expanded[row.original.id]} stickyOffset={stickyOffset} />
             {row.original.id === lastRowId && <div ref={sentinel} />}
         </>
     )

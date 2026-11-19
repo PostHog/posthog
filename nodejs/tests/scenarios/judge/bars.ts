@@ -3,7 +3,13 @@ import { z } from 'zod'
 import type { CdpRole, Named, Step } from '../cards'
 import type { Definition } from '../cards/definitions'
 import type { JournalEntry } from './judge'
-import type { DriveWindow, MetricSample } from './measurements'
+import {
+    type DriveWindow,
+    type HostSample,
+    type MetricSample,
+    SCRAPE_GAP_MS,
+    stepHostBusyShareOf,
+} from './measurements'
 
 export type CpuPoint = { at: number; percent: number }
 
@@ -11,8 +17,10 @@ export type BarEvidence = {
     journal: readonly JournalEntry[]
     samples: readonly MetricSample[]
     drive: DriveWindow
-    steps: Step[]
+    steps: readonly Step[]
     writerCpu: CpuPoint[] | { unread: string }
+    host: readonly HostSample[]
+    hostCpuCeiling?: number
 }
 
 export type BreakingPoint = { scale: number; at: string; offeredPerSecond: number; key?: string; value: number }
@@ -20,6 +28,7 @@ export type BreakingPoint = { scale: number; at: string; offeredPerSecond: numbe
 export type BarResult = {
     name: string
     unit: string
+    limit: number
     passed: boolean
     unjudged?: string
     breakingPoint?: BreakingPoint
@@ -30,13 +39,13 @@ type Window = { from: number; to: number; last: boolean }
 type Reading = { key?: string; value: number; passed: boolean } | { unread: string }
 
 type BarDefinition = Definition & {
+    limit(params: unknown): number
     unit: string
     read(evidence: BarEvidence, window: Window, params: unknown): Reading
 }
 
 const P99 = 0.99
 const MINUTE_MS = 60_000
-const SCRAPE_GAP_MS = 15_000
 
 const WriterCpuParams = z.object({ percent: z.number().positive().max(100) }).strict()
 const Queue = z.enum(['hogflow', 'email'])
@@ -49,9 +58,12 @@ const WORKER_OF = {
 
 const iso = (at: number): string => new Date(at).toISOString()
 
+const percent = (share: number): string => `${Number((share * 100).toFixed(1))}%`
+
 const writerCpuUnder: BarDefinition = {
     name: 'writer_cpu_under',
     params: WriterCpuParams,
+    limit: (params) => WriterCpuParams.parse(params).percent,
     unit: '%',
     read: ({ writerCpu }, { from, to }, params) => {
         if ('unread' in writerCpu) {
@@ -136,6 +148,7 @@ function p99Of(buckets: Buckets): { value: number; beyond: boolean } {
 const pickupP99Under: BarDefinition = {
     name: 'pickup_p99_under',
     params: PickupParams,
+    limit: (params) => PickupParams.parse(params).seconds,
     unit: 's',
     read: ({ samples }, { from, to, last }, params) => {
         const { seconds, queues } = PickupParams.parse(params)
@@ -178,10 +191,23 @@ const offeredPerSecond = (journal: readonly JournalEntry[], { from, to }: Window
     ).length /
     ((to - from) / 1000)
 
+function hostOverCeiling({ host, hostCpuCeiling }: BarEvidence, window: Window, scale: number): string | undefined {
+    if (hostCpuCeiling === undefined) {
+        return undefined
+    }
+    const share = stepHostBusyShareOf(host, window)
+    if (share === undefined) {
+        return `fewer than two host CPU samples in the ${scale}x step`
+    }
+    return share >= hostCpuCeiling
+        ? `the run host was ${percent(share)} busy in the ${scale}x step, at or over the ${percent(hostCpuCeiling)} ceiling`
+        : undefined
+}
+
 export function judgeBars(bars: Named[], evidence: BarEvidence): BarResult[] {
     return bars.map(({ name, params }) => {
         const definition = BARS.find((bar) => bar.name === name)!
-        const result = { name, unit: definition.unit }
+        const result = { name, unit: definition.unit, limit: definition.limit(params) }
         for (const [i, { scale, fromMs, toMs }] of evidence.steps.entries()) {
             const window = {
                 from: evidence.drive.startedAt + fromMs,
@@ -190,6 +216,10 @@ export function judgeBars(bars: Named[], evidence: BarEvidence): BarResult[] {
             }
             if (window.to <= window.from) {
                 return { ...result, passed: false, unjudged: `the drive ended before the ${scale}x step` }
+            }
+            const overloaded = hostOverCeiling(evidence, window, scale)
+            if (overloaded !== undefined) {
+                return { ...result, passed: false, unjudged: overloaded }
             }
             const reading = definition.read(evidence, window, params)
             if ('unread' in reading) {

@@ -96,7 +96,8 @@ describe('releaseLogic', () => {
             [{ key: ['Release', 'r1'], name: 'Quiet theme' }],
         ],
         ['names the list page', urls.releaseList(), [{ key: 'Releases', name: 'Releases' }]],
-        ['names the calendar page', urls.releases(), [{ key: 'ReleaseCalendar', name: 'Release calendar' }]],
+        ['names the calendar page', urls.releaseCalendar(), [{ key: 'ReleaseCalendar', name: 'Release calendar' }]],
+        ['names the view all page', urls.releases(), [{ key: 'ReleaseAll', name: 'View all' }]],
     ])('%s', async (_name, url, expected) => {
         mockedReleasesList.mockResolvedValue({
             results: [
@@ -115,11 +116,16 @@ describe('releaseLogic', () => {
         } as never)
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASES_AREA], { [FEATURE_FLAGS.RELEASES_AREA]: true })
         router.actions.push(url)
-        const logic = releaseLogic()
+        const logic = releaseLogic({ id: url === urls.release('r1') ? 'r1' : undefined })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.breadcrumbs).toEqual(expected)
+        expect(logic.values.todayRecent).toEqual(
+            url === urls.release('r1')
+                ? { type: 'release', id: 'r1', name: 'Quiet theme', href: urls.release('r1') }
+                : null
+        )
     })
 
     it.each([

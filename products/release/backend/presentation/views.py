@@ -22,10 +22,15 @@ from posthog.api.utils import action
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import get_authenticator_scopes
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 
 from products.feature_flags.backend.facade.api import existing_flag_ids
-from products.feature_flags.backend.facade.release_candidates import list_release_import_flags
+from products.feature_flags.backend.facade.release_candidates import (
+    list_release_catalog_flags,
+    list_release_import_flags,
+    release_flag_ids_matching,
+    release_flag_labels,
+)
 from products.product_analytics.backend.facade.api import existing_insight_ids, insight_summaries
 from products.surveys.backend.facade.api import existing_survey_ids, survey_summaries
 from products.workflows.backend.facade.api import (
@@ -40,6 +45,12 @@ from ..facade import api, contracts
 from .serializers import (
     BroadcastOptionSerializer,
     BroadcastSearchQuerySerializer,
+    CatalogFlagsQuerySerializer,
+    CatalogFlagsResponseSerializer,
+    CatalogReleasesQuerySerializer,
+    CatalogReleasesResponseSerializer,
+    FlagReleasesQuerySerializer,
+    FlagReleasesSerializer,
     ImportAllResponseSerializer,
     MergeReleasesSerializer,
     ReleaseSerializer,
@@ -53,12 +64,22 @@ BROADCAST_SEARCH_LIMIT = 50
 
 class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "feature_flag"
-    requires_resource_level_access = True
-    scope_object_read_actions = ["list", "retrieve", "broadcast_search"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "broadcast_search",
+        "catalog_flags",
+        "catalog_releases",
+        "flag_suggestions",
+    ]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy", "import_all", "merge"]
     serializer_class = ReleaseSerializer
     pagination_class = FacadeLimitOffsetPagination
     path_parameters = {"pk": UUID}
+
+    @property
+    def requires_resource_level_access(self) -> bool:
+        return self.action != "catalog_flags"
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
@@ -185,6 +206,22 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             for key, broadcast_id in shown.items()
         )
 
+    def _flag_labels(self, flag_ids: list[int]) -> dict[int, contracts.FlagLabel]:
+        return {
+            flag_id: contracts.FlagLabel(id=label.id, key=label.key, name=label.name)
+            for flag_id, label in release_flag_labels(team_id=self.team_id, flag_ids=flag_ids).items()
+        }
+
+    def _gets_own_release(self, flag_id: int) -> bool:
+        return bool(
+            list_release_import_flags(
+                team_id=self.team_id, project_id=self.team.project_id, access_control=None, flag_ids=[flag_id]
+            )
+        )
+
+    def _search_flags(self, terms: list[str]) -> list[int]:
+        return release_flag_ids_matching(team_id=self.team_id, terms=terms, limit=api.SUGGESTION_FLAG_MATCHES)
+
     @property
     def _lookups(self) -> api.LinkLookups:
         return api.LinkLookups(
@@ -202,6 +239,15 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             lambda page: api.list_page(self.team_id, page, self._lookups),
             serializer_class=ReleaseSerializer,
         )
+
+    @extend_schema(responses={200: ReleaseSerializer})
+    def retrieve(self, request: Request, pk: UUID, **kwargs) -> Response:
+        """Get one release with its linked flags, broadcasts, surveys and insights."""
+        try:
+            dto = api.get(self.team_id, pk, self._lookups)
+        except api.ReleaseNotFoundError:
+            raise NotFound("Release not found.")
+        return Response(ReleaseSerializer(dto).data)
 
     @validated_request(
         request_serializer=WriteReleaseSerializer,
@@ -231,6 +277,14 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound("Release not found.")
         except api.UnknownLinkedObjectsError as error:
             raise ValidationError({error.field: f"These {error.noun} do not exist in this project: {error.ids}"})
+        except api.TooManyMetricsError:
+            raise ValidationError(
+                {
+                    "metric_insight_ids": (
+                        f"A release can have up to {contracts.MAX_METRICS} metrics, including ones you cannot see."
+                    )
+                }
+            )
         return Response(ReleaseSerializer(dto).data)
 
     @validated_request(
@@ -283,6 +337,76 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             request=request,
         )
         return Response(ReleaseSerializer(dto).data)
+
+    @validated_request(
+        query_serializer=CatalogFlagsQuerySerializer,
+        responses={200: OpenApiResponse(response=CatalogFlagsResponseSerializer)},
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def catalog_flags(self, request: ValidatedRequest, **kwargs) -> Response:
+        """List the project's feature flags the caller can see, newest or oldest first, with only the fields a list shows."""
+        query = request.validated_query_data
+        flags, has_more = list_release_catalog_flags(
+            team_id=self.team_id,
+            project_id=self.team.project_id,
+            access_control=self.user_access_control,
+            search=query.get("search", "").strip(),
+            created_by_ids=query.get("created_by") or None,
+            oldest_first=query["order"] == "created_at",
+            limit=query["limit"],
+            offset=query["offset"],
+        )
+        return Response(CatalogFlagsResponseSerializer({"results": flags, "has_more": has_more}).data)
+
+    @validated_request(
+        query_serializer=CatalogReleasesQuerySerializer,
+        responses={200: OpenApiResponse(response=CatalogReleasesResponseSerializer)},
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def catalog_releases(self, request: ValidatedRequest, **kwargs) -> Response:
+        """List the project's releases, newest or oldest first, with only the fields a list shows."""
+        query = request.validated_query_data
+        try:
+            releases, next_cursor = api.list_catalog_page(
+                self.team_id,
+                self._flag_visibility,
+                search=query.get("search", "").strip(),
+                limit=query["limit"],
+                cursor=query["cursor"],
+                owner_ids=query.get("owner") or None,
+                oldest_first=query["order"] == "created_at",
+                feature_flag_id=query.get("feature_flag_id"),
+            )
+        except api.InvalidCatalogCursorError:
+            raise ValidationError({"cursor": "This cursor is not valid."})
+        return Response(CatalogReleasesResponseSerializer({"results": releases, "next_cursor": next_cursor}).data)
+
+    @validated_request(
+        query_serializer=FlagReleasesQuerySerializer,
+        responses={200: OpenApiResponse(response=FlagReleasesSerializer)},
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def flag_suggestions(self, request: ValidatedRequest, **kwargs) -> Response:
+        """Find the releases a feature flag is in, and the existing releases it probably belongs to."""
+        flag_id = request.validated_query_data["feature_flag_id"]
+        try:
+            result = api.releases_for_flag(
+                self.team_id,
+                flag_id,
+                self._flag_visibility,
+                self._flag_labels,
+                self._search_flags,
+                self._gets_own_release,
+            )
+        except api.FlagNotFoundError:
+            raise NotFound("Feature flag not found.")
+        report_user_action(
+            request.user,
+            "release suggestions served",
+            {"suggestion_count": len(result.suggestions), "in_release": bool(result.current)},
+            request=request,
+        )
+        return Response(FlagReleasesSerializer(result).data)
 
     @extend_schema(request=None, responses={201: ImportAllResponseSerializer})
     @action(detail=False, methods=["post"], pagination_class=None)

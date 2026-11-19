@@ -47,7 +47,6 @@ export interface tracingViewerLogicValues {
     traceViewMode: TraceViewMode // tracingConfigLogic
     configuredDistinctIdKeys: string[] | undefined // tracingCorrelationConfigLogic
     configuredSessionIdKeys: string[] | undefined // tracingCorrelationConfigLogic
-    correlationLinksEnabled: boolean // tracingCorrelationConfigLogic
     sessionErrorBadgesEnabled: boolean // tracingCorrelationConfigLogic
     spans: Span[] // tracingDataLogic
     traceLoadContext: {
@@ -108,10 +107,17 @@ export interface tracingViewerLogicActions {
         initialTimestamp?: number | null | undefined,
         modalContext?:
             | import('scenes/session-recordings/player/modal/sessionPlayerModalLogic').SessionPlayerModalContext
+            | undefined,
+        recordingList?:
+            | null
+            | import('scenes/session-recordings/player/modal/sessionPlayerModalLogic').SessionPlayerModalRecordingList
             | undefined
     ) => {
         initialTimestamp: number | null
         modalContext: import('scenes/session-recordings/player/modal/sessionPlayerModalLogic').SessionPlayerModalContext
+        recordingList:
+            | null
+            | import('scenes/session-recordings/player/modal/sessionPlayerModalLogic').SessionPlayerModalRecordingList
         sessionRecording: Pick<import('~/types').SessionRecordingType, 'id' | 'matching_events'>
     } // sessionPlayerModalLogic
     disableSpanKeys: () => {
@@ -239,8 +245,7 @@ export interface tracingViewerLogicMeta {
             canLoadMoreTraceSpans: boolean,
             traceSpansLoading: boolean,
             configuredDistinctIdKeys: string[] | undefined,
-            configuredSessionIdKeys: string[] | undefined,
-            correlationLinksEnabled: boolean
+            configuredSessionIdKeys: string[] | undefined
         ) => TraceIdentity
         traceSessionId: (
             openTraceSpans: Span[],
@@ -282,12 +287,7 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
             tracingFiltersLogic({ id }),
             ['hasDeferredFilterRefresh'],
             tracingCorrelationConfigLogic,
-            [
-                'configuredDistinctIdKeys',
-                'configuredSessionIdKeys',
-                'correlationLinksEnabled',
-                'sessionErrorBadgesEnabled',
-            ],
+            ['configuredDistinctIdKeys', 'configuredSessionIdKeys', 'sessionErrorBadgesEnabled'],
             tracingConfigLogic,
             ['traceViewMode'],
         ],
@@ -465,20 +465,14 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
                 s.traceSpansLoading,
                 s.configuredDistinctIdKeys,
                 s.configuredSessionIdKeys,
-                s.correlationLinksEnabled,
             ],
             (
                 openTraceSpans: Span[],
                 canLoadMoreTraceSpans: boolean,
                 traceSpansLoading: boolean,
                 configuredDistinctIdKeys: string[] | undefined,
-                configuredSessionIdKeys: string[] | undefined,
-                correlationLinksEnabled: boolean
+                configuredSessionIdKeys: string[] | undefined
             ): TraceIdentity => {
-                // The flag guard runs before the scan, which reads every attribute of every span.
-                if (!correlationLinksEnabled) {
-                    return EMPTY_TRACE_IDENTITY
-                }
                 // Nothing while more spans can arrive, because a second, conflicting identity may
                 // sit on a page that has not loaded, and the prefetch fallback shown during the
                 // first fetch may itself be truncated.

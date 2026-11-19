@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { Pool, PoolClient, QueryResult } from 'pg'
+import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 import { Counter, Histogram } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -43,7 +43,11 @@ import {
  */
 export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
 
-export async function allocateEmailDequeueSeqs(pool: Pool | PoolClient, jobTeamIds: number[]): Promise<string[]> {
+export type SqlRunner = {
+    query<R extends QueryResultRow = any>(text: string, values?: unknown[]): Promise<QueryResult<R>>
+}
+
+export async function allocateEmailDequeueSeqs(pool: SqlRunner, jobTeamIds: number[]): Promise<string[]> {
     const indicesByTeam = new Map<number, number[]>()
     jobTeamIds.forEach((teamId, i) => {
         const indices = indicesByTeam.get(teamId)
@@ -321,6 +325,8 @@ export class CyclotronV2Manager {
             connectionString: config.pool.dbUrl,
             max: config.pool.maxConnections ?? 10,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
+            statement_timeout: config.pool.statementTimeoutMs,
+            connectionTimeoutMillis: config.pool.connectionTimeoutMs,
         })
         this.depthLimit = config.depthLimit ?? 1_000_000
         this.depthCheckIntervalMs = config.depthCheckIntervalMs ?? 10_000

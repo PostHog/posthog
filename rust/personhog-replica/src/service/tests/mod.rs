@@ -7,13 +7,13 @@ use std::sync::Arc;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     CountCohortMembersRequest, CreateGroupRequest, DeleteCohortMemberRequest,
-    DeleteCohortMembersBulkRequest, DeleteGroupTypeMappingRequest,
-    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupsBatchForTeamRequest,
-    DeletePersonsBatchForTeamRequest, DeletePersonsRequest, DeleteTombstonedPersonsRequest,
-    EnsurePersonVersionFloorsRequest, GetGroupRequest, GetPersonRequest,
-    GetPersonsByDistinctIdsInTeamRequest, InsertCohortMembersRequest, ListCohortMemberIdsRequest,
-    PersonVersionFloor, UpdateGroupRequest, UpdateGroupTypeMappingRequest,
-    UpsertHashKeyOverridesRequest, VersionBoundedPerson,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersByPersonIdsRequest,
+    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingsBatchForTeamRequest,
+    DeleteGroupsBatchForTeamRequest, DeletePersonsBatchForTeamRequest, DeletePersonsRequest,
+    DeleteTombstonedPersonsRequest, EnsurePersonVersionFloorsRequest, GetGroupRequest,
+    GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, InsertCohortMembersRequest,
+    ListCohortMemberIdsRequest, PersonVersionFloor, UpdateGroupRequest,
+    UpdateGroupTypeMappingRequest, UpsertHashKeyOverridesRequest, VersionBoundedPerson,
 };
 use rstest::rstest;
 use tonic::Request;
@@ -478,6 +478,65 @@ async fn test_delete_cohort_members_bulk_success() {
         .await;
 
     assert!(result.is_ok());
+}
+
+// ============================================================
+// DeleteCohortMembersByPersonIds tests
+// ============================================================
+
+#[rstest]
+#[case::connection_error(FailingStorage::with_connection_error(), tonic::Code::Unavailable)]
+#[case::pool_exhausted(FailingStorage::with_pool_exhausted(), tonic::Code::Unavailable)]
+#[case::query_error(FailingStorage::with_query_error(), tonic::Code::Internal)]
+#[tokio::test]
+async fn test_delete_cohort_members_by_person_ids_storage_error(
+    #[case] storage: FailingStorage,
+    #[case] expected_code: tonic::Code,
+) {
+    let service = PersonHogReplicaService::new(Arc::new(storage));
+
+    let result = service
+        .delete_cohort_members_by_person_ids(Request::new(DeleteCohortMembersByPersonIdsRequest {
+            cohort_id: 1,
+            person_ids: vec![42],
+        }))
+        .await;
+
+    assert_eq!(result.unwrap_err().code(), expected_code);
+}
+
+#[tokio::test]
+async fn test_delete_cohort_members_by_person_ids_too_many_person_ids() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let status = service
+        .delete_cohort_members_by_person_ids(Request::new(DeleteCohortMembersByPersonIdsRequest {
+            cohort_id: 1,
+            person_ids: (0..10001).collect(),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("10000"));
+}
+
+#[rstest]
+#[case::single_person(vec![42])]
+#[case::exactly_10000((0..10000).collect())]
+#[tokio::test]
+async fn test_delete_cohort_members_by_person_ids_success(#[case] person_ids: Vec<i64>) {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let expected_count = person_ids.len() as i64;
+    let result = service
+        .delete_cohort_members_by_person_ids(Request::new(DeleteCohortMembersByPersonIdsRequest {
+            cohort_id: 1,
+            person_ids,
+        }))
+        .await;
+
+    assert_eq!(result.unwrap().get_ref().deleted_count, expected_count);
 }
 
 // ============================================================

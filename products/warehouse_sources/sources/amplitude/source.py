@@ -7,7 +7,14 @@ from products.warehouse_sources.sources.amplitude.amplitude import (
     amplitude_source,
     validate_credentials as validate_amplitude_credentials,
 )
-from products.warehouse_sources.sources.amplitude.settings import AMPLITUDE_ENDPOINTS, EVENTS_ENDPOINT
+from products.warehouse_sources.sources.amplitude.settings import (
+    AMPLITUDE_ENDPOINTS,
+    COMPOSITION_ENDPOINT,
+    DASHBOARD_LOOKBACK_DAYS,
+    EVENTS_ENDPOINT,
+    RETENTION_ENDPOINT,
+    REVENUE_LTV_ENDPOINT,
+)
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
@@ -30,6 +37,15 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 AMPLITUDE_READ_TIMEOUT_ERROR = "Read timed out"
+
+_DASHBOARD_WINDOW_DESCRIPTION = f"Covers the last {DASHBOARD_LOOKBACK_DAYS} days. Each sync replaces the table."
+
+SCHEMA_DESCRIPTIONS: dict[str, str] = {
+    EVENTS_ENDPOINT: "Only syncs the last 30 days on initial sync",
+    RETENTION_ENDPOINT: f"Daily retention of new users who return with any event. {_DASHBOARD_WINDOW_DESCRIPTION}",
+    COMPOSITION_ENDPOINT: f"Unique users per value of each built-in user property. {_DASHBOARD_WINDOW_DESCRIPTION}",
+    REVENUE_LTV_ENDPOINT: f"Daily lifetime value of new users for each revenue metric. {_DASHBOARD_WINDOW_DESCRIPTION}",
+}
 
 AMPLITUDE_SLOW_RESPONSE_MESSAGE = (
     "Amplitude's API was slow to respond, so this sync run did not finish. This usually clears on "
@@ -201,7 +217,7 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
                 supports_incremental=endpoint.supports_incremental,
                 supports_append=endpoint.supports_append,
                 incremental_fields=endpoint.incremental_fields,
-                description="Only syncs the last 30 days on initial sync" if endpoint.name == EVENTS_ENDPOINT else None,
+                description=SCHEMA_DESCRIPTIONS.get(endpoint.name),
             )
             for endpoint in AMPLITUDE_ENDPOINTS.values()
         ]
@@ -252,7 +268,8 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
             caption=(
                 "Connect Amplitude with your project's **API key** and **secret key**, found in Amplitude under "
                 "**Settings → Organization settings → Projects**. These authenticate the Export API (raw events), "
-                "the Cohorts API, the Annotations API, and the Taxonomy API (event and property definitions).\n\n"
+                "the Cohorts API, the Annotations API, the Taxonomy API (event and property definitions), and the "
+                "Dashboard REST API (retention, user composition, and revenue LTV charts).\n\n"
                 "The events stream uses Amplitude's Export API, which enforces a ~2 hour data latency and only "
                 "syncs the last 30 days on the initial sync."
             ),

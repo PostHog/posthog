@@ -1,16 +1,14 @@
 import { useRouter } from 'expo-router'
 import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
-
 import { liveCountriesHref } from '@/features/views/viewRoutes'
 import { plural } from '@/model/adapters/text'
 import type { LiveWorld } from '@/model/live'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, type } from '@/ui/tokens'
-
 import { trackLiveMapOpened } from './analytics'
-import { LiveCard, LiveCardNote, NOT_LOADED_TEXT } from './LiveCard'
+import { LiveCard, LiveCardLoading, LiveCardNote } from './LiveCard'
 import { countryText } from './liveFormat'
 import { useLiveWorldShare } from './liveWorldStore'
 import { WorldMap } from './map/WorldMap'
@@ -19,6 +17,7 @@ interface LiveMapCardProps {
     users?: boolean
     mobileOnly?: boolean
     webOnly?: boolean
+    filterTestAccounts?: boolean
     world: LiveWorld | null
     /** Live's Pause. Visitors by country follows it, and Pause cannot change while that screen covers Live. */
     paused: boolean
@@ -31,12 +30,20 @@ export function LiveMapCard({
     users = false,
     mobileOnly = false,
     webOnly = false,
+    filterTestAccounts = false,
 }: LiveMapCardProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const router = useRouter()
     const openCountries = (): void => {
-        useLiveWorldShare.setState({ world, paused, users, mobileOnly, webOnly })
+        useLiveWorldShare.setState({
+            world,
+            paused,
+            users,
+            mobileOnly,
+            webOnly,
+            filterTestAccounts,
+        })
         trackLiveMapOpened()
         router.push(liveCountriesHref())
     }
@@ -46,10 +53,11 @@ export function LiveMapCard({
     if (!world || !leader) {
         return (
             <LiveCard title={title} testID="live-map">
-                <LiveCardNote
-                    text={world ? 'No country data' : NOT_LOADED_TEXT}
-                    testID={world ? 'live-map-empty' : 'live-map-not-loaded'}
-                />
+                {world ? (
+                    <LiveCardNote text="No country data" testID="live-map-empty" />
+                ) : (
+                    <LiveCardLoading testID="live-map-loading" />
+                )}
             </LiveCard>
         )
     }

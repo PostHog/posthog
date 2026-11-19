@@ -5,6 +5,7 @@ import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { corsHeadersForOAuthMetadata, oauthMetadataPreflightResponse } from '@/lib/oauth-metadata-cors'
+import { isProjectSecretKey, validateCredentialForPath } from '@/lib/project-secret-key'
 import { RequestProperties } from '@/lib/request-properties'
 import { buildRedirectUrl, getPublicUrl, getRegionFromRequest, matchAuthServerRedirect } from '@/lib/routing'
 import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
@@ -147,6 +148,12 @@ const handleRequest = async (
     const token = extractBearerToken(request)
     const sessionId = url.searchParams.get('sessionId')
 
+    const wrongPath = validateCredentialForPath(token, request)
+    if (wrongPath) {
+        log.extend({ authError: 'credential_on_wrong_path' })
+        return wrongPath
+    }
+
     if (!token) {
         // Return 401 with WWW-Authenticate header per RFC 9728.
         // The resource_metadata URL tells OAuth-capable clients where to discover auth server.
@@ -170,7 +177,12 @@ const handleRequest = async (
         )
     }
 
-    if (!token.startsWith('phx_') && !token.startsWith('pha_') && !isIdJagAccessToken(token)) {
+    if (
+        !token.startsWith('phx_') &&
+        !token.startsWith('pha_') &&
+        !isProjectSecretKey(token) &&
+        !isIdJagAccessToken(token)
+    ) {
         log.extend({ authError: 'invalid_token_format' })
         return new Response(
             `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,

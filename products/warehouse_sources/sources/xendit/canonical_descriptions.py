@@ -47,4 +47,33 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "status": "Status of the account: INVITED, REGISTERED, AWAITING_DOCS, PENDING_VERIFICATION, LIVE or SUSPENDED.",
         },
     },
+    "disputes": {
+        "description": "Disputes and chargebacks raised against the account's payments, with the disputed amount, response deadline and outcome.",
+        "docs_url": "https://docs.xendit.co/apidocs/list-all-disputes-1",
+        "columns": {
+            "id": "Xendit-generated unique dispute identifier.",
+            "status": "Current lifecycle state: ACTION_REQUIRED, UNDER_REVIEW, WON or LOST. ACTION_REQUIRED means a response is needed before due_date.",
+            "status_reason": "Reason for the terminal outcome, for example EXCEEDED_DEADLINE, ACCEPTED, CHALLENGED or WITHDRAWN. Only set when status is WON or LOST.",
+            "channel_code": "Payment channel of the original transaction, for example CARDS or QRIS.",
+            "card_brands": "Card network of the dispute, for example VISA or MASTERCARD. Only set when channel_code is CARDS.",
+            "currency": "Currency of the disputed amount, as an ISO 4217 code.",
+            "amount": "Disputed amount: initial is the amount when the dispute was raised, terminal is the final resolved amount (null while unresolved).",
+            "due_date": "Deadline to respond before the dispute is automatically lost.",
+            "note": "Optional guidance from Xendit about the dispute.",
+            "category": "Slug of the dispute category, for example fraudulent.",
+            "payment_id": "Xendit ID of the original disputed payment.",
+            "reference_id": "Merchant reference ID of the original transaction.",
+            "created_at": "Time the dispute was created.",
+            "updated_at": "Time the dispute was last updated.",
+        },
+    },
+    "bill_payment_products": {
+        "description": "Bill payment products the account can sell, such as prepaid electricity, with biller, price, fees and availability.",
+        "docs_url": "https://docs.xendit.co/apidocs/get-product-list",
+        "columns": {
+            "id": "Unique product identifier, for example PLN_PREPAID_50K.",
+            "type": "Type of object, always product.",
+            "properties": "Product details: product_name, category, biller, country, currency, requires_inquiry, availability_status (AVAILABLE, TEMPORARILY_UNAVAILABLE or DISCONTINUED), admin_amount, base_amount, total_amount, revenue_share_amount and localized names.",
+        },
+    },
 }

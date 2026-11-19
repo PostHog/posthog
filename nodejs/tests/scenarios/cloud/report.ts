@@ -4,8 +4,9 @@ import { z } from 'zod'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { EXIT_CODE, Status } from '../runner/status'
-import { SCHEMA_VERSION, ScorecardProperties } from '../scorecard/scorecard'
+import { ADAPTERS, SCHEMA_VERSION, ScorecardProperties } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
+import { reportToStore } from '../store/client'
 import { Controller, HOURS_PER_MONTH, dollars } from './admission'
 import { Aws } from './aws'
 import { FAILOVER_VALVE } from './card'
@@ -178,6 +179,7 @@ function environmentOf(profile: CloudProfile, manifest: Manifest, runnerFingerpr
         writer_class: profile.writerClass,
         reader_acu_min: profile.readerAcu.min,
         reader_acu_max: profile.readerAcu.max,
+        reader_monitoring_interval_seconds: profile.readerMonitoringIntervalSeconds,
         host_class: profile.host.class,
         engine_version: profile.engineVersion,
         pooler_replicas: profile.pooler.replicas,
@@ -253,6 +255,7 @@ export async function report(
     const properties: ScorecardProperties = {
         schema_version: SCHEMA_VERSION,
         card_id: card.id,
+        adapters: ADAPTERS,
         ...host?.event,
         ...environment,
         run_id: runId,
@@ -293,6 +296,12 @@ export async function report(
         controller.warn(`Could not publish the scorecard to Scenario runs: ${written.problem}`)
     } else {
         controller.print('Scenario runs credentials are not set, so the scorecard is not published.')
+    }
+    const reported = await reportToStore({ scorecard: properties }, controller.env)
+    if (reported.stored) {
+        controller.print('Reported the run to the run store.')
+    } else if (reported.problem) {
+        controller.warn(`Could not report the run to the run store: ${reported.problem}`)
     }
     if (written.problem || (!kept && !written.recorded)) {
         return EXIT_CODE.writeFailed
