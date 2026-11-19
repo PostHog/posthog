@@ -553,7 +553,8 @@ They work on uploading, completed, and failed experiments.
 | `results/{result_id}/payload/` | Set one or more top-level result payload fields.                                                                                                                 | Remove the stored result payload.                                                                        |
 
 Read the item's, result's, or payload's `revision` first. Include it in the PATCH body or the DELETE query string.
-A successful PATCH returns the new revision. A successful DELETE returns HTTP 204. A stale revision returns HTTP 409.
+A successful PATCH returns the current revision. A successful DELETE returns HTTP 204. A stale revision returns HTTP 409.
+If a reported score already has the requested status, value, and error code, its revision and score timestamp stay the same. This also preserves the timestamps of its dependent composites.
 For example, PATCH a reported result with `{"revision": 0, "status": "ok", "value": false}`.
 For payload edits, use `{"revision": 0, "payload": {"output": null}}`. Omission preserves a field, while JSON null sets it to null.
 An item and its payload share a revision, as do a result and its payload.

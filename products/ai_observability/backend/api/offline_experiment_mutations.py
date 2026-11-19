@@ -122,27 +122,28 @@ class OfflineExperimentMutationViewSet(OfflineExperimentReadViewSet):
         if is_service_auth(request) or (deleting and is_mcp_request(request)):
             raise PermissionDenied("Use the direct project API with an evaluation editor credential.")
         data = dict(request.validated_query_data if deleting else request.validated_data)
-        revision = data.pop("revision")
-        result = aio.mutate_offline_evaluation(
+        expected_revision = data.pop("revision")
+        current_revision = aio.mutate_offline_evaluation(
             team_id=self.team_id,
             experiment_id=self._path_id(),
             resource_id=self._path_id("item_id" if target.startswith("item") else "result_id"),
             target=target,
-            expected_revision=revision,
+            expected_revision=expected_revision,
             changes=None if deleting else cast(dict[str, JSONValue], data),
             access=self.user_access_control,
         )
-        report_on_commit(
-            partial(
-                report_user_action,
-                request.user,
-                "llma offline evaluation resource changed",
-                {"resource": target, "operation": "delete" if deleting else "update"},
-                team=self.team,
-                request=request,
+        if deleting or current_revision != expected_revision:
+            report_on_commit(
+                partial(
+                    report_user_action,
+                    request.user,
+                    "llma offline evaluation resource changed",
+                    {"resource": target, "operation": "delete" if deleting else "update"},
+                    team=self.team,
+                    request=request,
+                )
             )
-        )
-        return Response(status=204) if deleting else Response({"revision": result})
+        return Response(status=204) if deleting else Response({"revision": current_revision})
 
     @OfflineExperimentReadViewSet.item.mapping.patch
     @validated_request(

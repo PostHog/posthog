@@ -106,6 +106,8 @@ def _update_score(
         accepted_at=result.accepted_at,
         index=None,
     )
+    if (updated.status, updated.value, updated.error_code) == (result.status, result.value, result.error_code):
+        return
     _save_score(result, updated, now)
     composites = list(
         dependents.select_related("scorer_version__definition").select_for_update(of=("self",)).order_by("id")
@@ -261,6 +263,8 @@ def mutate_offline_evaluation(
         _delete_resource(experiment, owner, affected)
     elif isinstance(owner, OfflineEvaluationResult):
         _update_score(owner, dependents, changes, now)
+        if owner.revision == expected_revision:
+            return owner.revision
     else:
         for name in ("case_key", "trial", "application_trace_id", "model_version"):
             if name in changes:

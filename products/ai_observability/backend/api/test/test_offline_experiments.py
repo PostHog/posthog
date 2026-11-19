@@ -124,11 +124,21 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         change = {"revision": 0, "status": "ok", "value": True}
         self.assertEqual(self.client.patch(url, change).data, {"revision": 1})
         self.assertEqual(self.client.patch(url, change).status_code, 409)
-        read = self.client.get(self._endpoint(exp_id, f"items/{item_id}/results")).data["results"]
+        results_url = self._endpoint(exp_id, f"items/{item_id}/results")
+        read = self.client.get(results_url).data["results"]
         self.assertEqual(
             {row["scorer"]["name"]: (row["status"], row["value"]) for row in read},
             {"Accurate": ("ok", True), "Total": ("ok", 1.0)},
         )
+        payload_url = self._endpoint(exp_id, f"items/{item_id}/payload")
+        self.assertEqual(self.client.patch(payload_url, {"revision": 0, "payload": {"input": "B"}}).status_code, 200)
+        experiment = OfflineExperiment.objects.for_team(self.team.id).get(pk=exp_id)
+        last_edit = experiment.updated_at
+        self.assertEqual(self.client.patch(url, {"revision": 1, "error_code": None}).data, {"revision": 1})
+        self.assertEqual(self.client.get(results_url).data["results"], read)
+        experiment.refresh_from_db()
+        self.assertEqual(experiment.updated_at, last_edit)
+
         composite = next(row for row in read if row["input_result_ids"])
         self.assertEqual(
             self.client.patch(
