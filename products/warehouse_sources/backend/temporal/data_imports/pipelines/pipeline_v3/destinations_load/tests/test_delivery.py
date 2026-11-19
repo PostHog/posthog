@@ -103,10 +103,20 @@ class DeliveryTestCase(BaseTest):
         # Idempotency markers live in memory, so every test starts with none and the writers
         # never touch Redis. The staged parquet is never read, since no batch reaches a writer.
         self._seen: set[str] = set()
+        self._stashed: dict[tuple, BatchWriteOutcome] = {}
         patches = [
             mock.patch.object(delivery, "aiter_record_batches", return_value=iter(())),
             mock.patch.object(delivery, "is_batch_already_processed", side_effect=self._already),
             mock.patch.object(delivery, "mark_batch_as_processed", side_effect=self._mark),
+            mock.patch.object(
+                delivery,
+                "stash_delivery_outcome",
+                side_effect=lambda *key: self._stashed.__setitem__(key[:-1], key[-1]),
+            ),
+            mock.patch.object(delivery, "stashed_delivery_outcome", side_effect=lambda *key: self._stashed.get(key)),
+            mock.patch.object(
+                delivery, "clear_stashed_delivery_outcome", side_effect=lambda *key: self._stashed.pop(key, None)
+            ),
         ]
         for patch in patches:
             patch.start()
@@ -207,7 +217,7 @@ class TestDelivery(DeliveryTestCase):
         )
         assert sorted(recorded) == [("run-a1", 2048), ("run-a2", 2048)]
 
-    def test_a_failed_egress_record_fails_the_batch_so_the_retry_records_it(self) -> None:
+    def test_a_failed_egress_record_is_saved_by_the_retry_without_writing_again(self) -> None:
         a = self._destination("warehouse a")
         RecordingWriter.bytes_written = {"warehouse a": 2048}
         signal = self._signal([str(a.id)])
@@ -218,13 +228,15 @@ class TestDelivery(DeliveryTestCase):
             with self.assertRaises(delivery.DeliveryRecordError):
                 delivery.deliver_batch_to_destinations(signal)
 
-        assert self._seen == set()
         a.refresh_from_db()
         assert a.status == ExternalDataDestination.Status.HEALTHY
 
         delivery.deliver_batch_to_destinations(signal)
 
+        # An append has nothing on the destination side to drop a second copy of the rows.
+        assert self._writes() == ["warehouse a"]
         assert self._recorded_egress() == {"warehouse a": 2048}
+        assert self._stashed == {}
 
     @parameterized.expand(
         [

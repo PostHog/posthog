@@ -47,8 +47,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     aiter_record_batches,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
+    clear_stashed_delivery_outcome,
     is_batch_already_processed,
     mark_batch_as_processed,
+    stash_delivery_outcome,
+    stashed_delivery_outcome,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 
@@ -214,6 +217,9 @@ def deliver_batch_to_destinations(
         # Writing and publishing are separate. The extraction side sends the last batch twice,
         # once while processing and once flagged final, so skipping the whole batch because it
         # was already written would leave a full refresh staged and never swapped in.
+        if already_written:
+            _record_stashed_delivery(export_signal, destination)
+
         if already_written and not export_signal.is_final_batch:
             logger.info(
                 "destination_batch_already_delivered",
@@ -254,9 +260,6 @@ def deliver_batch_to_destinations(
             if not already_written:
                 async_to_sync(writer.prepare_run)(run_ctx)
                 outcome = async_to_sync(_write)(writer, export_signal, batch_ctx)
-                # Recorded before the marker, so a batch whose record failed is written and
-                # recorded again on retry rather than skipped with its egress lost.
-                _record_delivery(export_signal, destination, outcome)
                 # Marked before publication, not after. `finalize_run` is a no-op the second
                 # time, but `write_batch` is not: on a full refresh it rebuilds the staging
                 # table out of this one batch, so a replay that ran both again would publish
@@ -270,6 +273,7 @@ def deliver_batch_to_destinations(
                     destination_id=destination_id,
                 )
                 written += 1
+                _record_delivery(export_signal, destination, outcome)
             if export_signal.is_final_batch:
                 async_to_sync(writer.finalize_run)(run_ctx)
                 logger.info(
@@ -328,27 +332,64 @@ def _record_delivery(
 ) -> None:
     """Record the egress of one delivered batch for billing.
 
-    The unique constraint makes a re-delivered batch insert nothing, so it is billed once. The
-    savepoint keeps a failed insert from aborting a transaction the caller may have open.
+    Runs after the processed marker, so a failed save never writes the batch again: an append
+    has nothing on the destination side to drop a second copy. The outcome is stashed instead,
+    and the batch fails so that its retry, which skips the write, saves the record from the stash.
     """
+    outcome = outcome or BatchWriteOutcome(rows_written=0, bytes_written=0)
     try:
-        with transaction.atomic():
-            ExternalDataDestinationDelivery.objects.for_team(export_signal.team_id, canonical=True).bulk_create(
-                [
-                    ExternalDataDestinationDelivery(
-                        team_id=export_signal.team_id,
-                        job_id=export_signal.job_id,
-                        destination_id=destination.id,
-                        run_uuid=export_signal.run_uuid,
-                        batch_index=export_signal.batch_index,
-                        rows_written=outcome.rows_written if outcome else 0,
-                        bytes_exported=outcome.bytes_written if outcome else 0,
-                    )
-                ],
-                ignore_conflicts=True,
-            )
+        _insert_delivery(export_signal, destination, outcome)
+    except Exception as e:
+        stash_delivery_outcome(
+            export_signal.team_id,
+            export_signal.schema_id,
+            export_signal.run_uuid,
+            export_signal.batch_index,
+            str(destination.id),
+            outcome,
+        )
+        raise DeliveryRecordError(f"Could not record the egress of batch {export_signal.batch_index}: {e}") from e
+
+
+def _record_stashed_delivery(export_signal: ExportSignalMessage, destination: ExternalDataDestination) -> None:
+    """Save the egress record that an earlier pass of this batch could not save."""
+    coordinates = (
+        export_signal.team_id,
+        export_signal.schema_id,
+        export_signal.run_uuid,
+        export_signal.batch_index,
+        str(destination.id),
+    )
+    outcome = stashed_delivery_outcome(*coordinates)
+    if outcome is None:
+        return
+    try:
+        _insert_delivery(export_signal, destination, outcome)
     except Exception as e:
         raise DeliveryRecordError(f"Could not record the egress of batch {export_signal.batch_index}: {e}") from e
+    clear_stashed_delivery_outcome(*coordinates)
+
+
+def _insert_delivery(
+    export_signal: ExportSignalMessage, destination: ExternalDataDestination, outcome: BatchWriteOutcome
+) -> None:
+    # The unique constraint makes a batch recorded twice insert nothing, so it bills once. The
+    # savepoint keeps a failed insert from aborting a transaction the caller may have open.
+    with transaction.atomic():
+        ExternalDataDestinationDelivery.objects.for_team(export_signal.team_id, canonical=True).bulk_create(
+            [
+                ExternalDataDestinationDelivery(
+                    team_id=export_signal.team_id,
+                    job_id=export_signal.job_id,
+                    destination_id=destination.id,
+                    run_uuid=export_signal.run_uuid,
+                    batch_index=export_signal.batch_index,
+                    rows_written=outcome.rows_written,
+                    bytes_exported=outcome.bytes_written,
+                )
+            ],
+            ignore_conflicts=True,
+        )
 
 
 async def _write(
