@@ -32,7 +32,7 @@ from drf_spectacular.utils import (
 )
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ParseError
+from rest_framework.exceptions import ErrorDetail, NotFound, ParseError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser, get_encoding
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -545,9 +545,11 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
     )
 
     def to_internal_value(self, data: Any) -> dict[str, Any]:
-        if isinstance(data, Mapping) and (
-            data.get("scheduled_at") is not None or "scheduled_at" in getattr(data, "repeated", {})
-        ):
+        if isinstance(data, Mapping) and "scheduled_at" in getattr(data, "repeated", {}):
+            raise serializers.ValidationError(
+                {"scheduled_at": ErrorDetail(ScheduledAtField.default_error_messages["repeated"], code="repeated")}
+            )
+        if isinstance(data, Mapping) and data.get("scheduled_at") is not None:
             team = self.context.get("team")
             if team is not None and _flag_enabled(team, EMAIL_SCHEDULED_SENDS_FLAG):
                 fix = "To schedule it, send it with `template_id` on `/api/messaging/send/email/`, or leave out"
@@ -628,19 +630,17 @@ class _JsonObject(dict):
     repeated: dict[str, _Repeated]
 
     @classmethod
-    def from_pairs(cls, pairs: list[tuple[str, Any]]) -> "_JsonObject":
-        obj = cls(pairs)
-        obj.repeated = {}
-        if len(obj) < len(pairs):
-            values_by_key: dict[str, _Repeated] = {}
-            for key, value in pairs:
-                values_by_key.setdefault(key, _Repeated()).append(value)
-            obj.repeated = {key: values for key, values in values_by_key.items() if len(values) > 1}
-        return obj
+    def from_pairs(cls, pairs: list[tuple[str, Any]]) -> Mapping[str, Any]:
+        obj = dict(pairs)
+        if len(obj) == len(pairs):
+            return obj
+        values_by_key: dict[str, _Repeated] = {}
+        for key, value in pairs:
+            values_by_key.setdefault(key, _Repeated()).append(value)
+        return cls.with_repeats(obj, {key: values for key, values in values_by_key.items() if len(values) > 1})
 
     @classmethod
-    def carrying_repeats_of(cls, source: Mapping[str, Any], data: Mapping[str, Any]) -> Mapping[str, Any]:
-        repeated = getattr(source, "repeated", None)
+    def with_repeats(cls, data: Mapping[str, Any], repeated: dict[str, _Repeated]) -> Mapping[str, Any]:
         if not repeated:
             return data
         obj = cls(data)
@@ -798,7 +798,7 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
                 data = {**data, "template_id": template.get("id")}
             if "distinct_id" not in data and isinstance(identifiers, Mapping):
                 data = {**data, "distinct_id": identifiers.get("distinct_id")}
-            data = _JsonObject.carrying_repeats_of(source, data)
+            data = _JsonObject.with_repeats(data, getattr(source, "repeated", {}))
         return super().to_internal_value(data)
 
     def get_fields(self) -> dict[str, serializers.Field]:
@@ -1225,10 +1225,10 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         attachments = request.validated_data.get("attachments") or []
         scheduled_at = request.validated_data.get("scheduled_at")
         outcome: dict[str, Any] = {"outcome": "error"}
-        scheduled_by_cdp = False
+        scheduled_by_cdp = replayed = False
         try:
             queued = send(idempotency_key)
-            scheduled_by_cdp = queued.status == QueuedEmailStatus.SCHEDULED
+            scheduled_by_cdp, replayed = queued.status == QueuedEmailStatus.SCHEDULED, queued.replayed
             outcome["outcome"] = "replayed" if queued.replayed else "queued"
             if queued.warnings:
                 outcome["warning_codes"] = [warning.code for warning in queued.warnings]
@@ -1251,7 +1251,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             raise unavailable() from None
         finally:
             with transactional_email_stage("usage_event"):
-                schedule = _scheduled_send_properties(scheduled_at, scheduled_by_cdp)
+                schedule = _scheduled_send_properties(scheduled_at, scheduled_by_cdp, replayed)
                 self._report_transactional_email_send(request, {**usage_properties, **schedule, **outcome})
         if not queued.replayed:
             self._report_first_code_send_after_commit(request, usage_properties.get("addressed_by", "template_id"))
@@ -1837,9 +1837,12 @@ def _check_scheduled_at(team: Any, scheduled_at: datetime | None) -> None:
         )
 
 
-def _scheduled_send_properties(scheduled_at: datetime | None, scheduled: bool) -> dict[str, Any]:
+def _scheduled_send_properties(scheduled_at: datetime | None, scheduled: bool, replayed: bool) -> dict[str, Any]:
     if scheduled_at is None or not scheduled:
         return {"scheduled": False, "scheduled_lead_bucket": None}
+    # A replay schedules nothing new, and its lead from now says nothing about the lead the first send had.
+    if replayed:
+        return {"scheduled": True, "scheduled_lead_bucket": None}
     lead = scheduled_at - timezone.now()
     bucket = "<1h" if lead < timedelta(hours=1) else "<1d" if lead < timedelta(days=1) else "<7d"
     return {"scheduled": True, "scheduled_lead_bucket": bucket}

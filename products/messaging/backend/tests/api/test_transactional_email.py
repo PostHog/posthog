@@ -1183,7 +1183,6 @@ class TestTransactionalEmail(APIBaseTest):
             ("a_time", "2026-11-20T09:00:00Z", (), True),
             ("an_empty_string", "", (), True),
             ("a_time_without_a_recipient", "2026-11-20T09:00:00Z", ("to",), True),
-            ("a_time_then_null_in_json", ["2026-11-20T09:00:00Z", None], (), True),
             ("a_time_while_scheduled_sends_are_off", "2026-11-20T09:00:00Z", (), False),
         ]
     )
@@ -1379,7 +1378,10 @@ class TestTransactionalEmail(APIBaseTest):
         assert (moved.status_code, moved.json()["code"]) == (422, "idempotency_key_reused")
         assert len(cdp.queued) == 1
         events = analytics.properties_of("transactional email api send")
-        assert [event["scheduled"] for event in events[:2]] == [True, True]
+        assert [(event["scheduled"], event["scheduled_lead_bucket"]) for event in events[:2]] == [
+            (True, "<1d"),
+            (True, None),
+        ]
 
     @parameterized.expand(
         [
@@ -1418,6 +1420,7 @@ class TestTransactionalEmail(APIBaseTest):
                 "repeated",
             ),
             ("template_id_a_list", "send_email_list_value", ["2026-11-21T09:00:00Z"], "invalid_format"),
+            ("template_route_json_a_time_then_null", "template", ["2026-11-21T09:00:00Z", None], "repeated"),
             (
                 "template_key_form_a_later_time_then_one_that_passed",
                 "code_form",
