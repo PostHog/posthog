@@ -114,6 +114,21 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             == '{% if variables.allow and variables.allow != 0 and variables.allow != empty %}{{ variables.token | join: "," }}\n{% endif %}'
         )
 
+    def test_plain_text_keeps_a_condition_when_a_stray_angle_bracket_comes_before_it(self) -> None:
+        converted = convert_version({"html_content": "x < <!--{{#if allow}}-->>{{token}} <i<!--{{/if}}-->b> y"})
+
+        assert converted.text.count("{% if variables.allow") == 1
+        assert converted.text.count("{% endif %}") == 1
+        assert (
+            converted.text.index("{% if") < converted.text.index("variables.token") < converted.text.index("{% endif")
+        )
+
+    def test_a_note_names_a_tag_as_it_was_written(self) -> None:
+        converted = convert_version({"html_content": "{{ x endraw <%subject%> }}", "generate_plain_content": False})
+
+        assert "{{ x endraw <%subject%> }}" in " ".join(converted.notes)
+        assert "\x00" not in " ".join(converted.notes)
+
     def test_a_tag_kept_as_text_stays_text_in_the_plain_part(self) -> None:
         converted = convert_version({"html_content": '<p>{{helper endraw" | append: person.properties.secret}}</p>'})
 
