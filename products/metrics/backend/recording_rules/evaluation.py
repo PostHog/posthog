@@ -98,7 +98,11 @@ def evaluate_team_recording_rules(team_id: int, now: datetime) -> int:
     deadline = time.monotonic() + TEAM_QUERY_BUDGET_SECONDS
     checkpoint = _read_instant(fetch_partition_checkpoint, team)
     if checkpoint is None or now - checkpoint > MAX_RECORDED_AGE:
-        logger.info("Recording rules are waiting for ingestion to report how far it has reached", team_id=team_id)
+        logger.info(
+            "Recording rules are waiting for metrics ingestion to catch up",
+            team_id=team_id,
+            checkpoint=checkpoint.isoformat() if checkpoint else None,
+        )
         MetricRecordingRule.objects.filter(team_id=team_id, enabled=True).update(
             last_error="Waiting for metrics ingestion to catch up."
         )

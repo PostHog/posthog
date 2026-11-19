@@ -48,7 +48,7 @@ _TEAM_FRESHNESS_QUERY: Final = parse_select(
 )
 
 
-# Not scoped to a team, because every team's samples spread over every partition. An old floor is kept,
+# Not scoped to a team, because every team's samples spread over every partition. The checkpoint is kept,
 # however old, because a lagging partition is the case the checkpoint exists for. A partition that stops
 # receiving records holds every check at its last capture time. Over no rows, min returns the epoch and
 # least() returns now() for a NULL, so an empty table would read as fully caught up. HAVING returns no
