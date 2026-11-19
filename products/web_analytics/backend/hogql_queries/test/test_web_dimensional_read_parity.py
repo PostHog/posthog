@@ -667,6 +667,24 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
 
         assert failing_query.called
 
+    def _run_overview(self, modifiers, web_query_modifiers, properties=None, filter_test_accounts=None):
+        runner = WebOverviewQueryRunner(
+            query=WebOverviewQuery(
+                dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                properties=properties or [],
+                filterTestAccounts=filter_test_accounts,
+                webQueryModifiers=web_query_modifiers,
+            ),
+            team=self.team,
+            modifiers=modifiers,
+        )
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+            wraps=execute_hogql_query,
+        ) as mock_execute:
+            response = runner.calculate()
+        return [call.kwargs["query_type"] for call in mock_execute.call_args_list], response
+
     @parameterized.expand(
         [
             ("no_filter", [], [3, 4, 3]),
@@ -685,25 +703,8 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         ]
     )
     def test_overview_dimensional_matches_v2(self, _name, properties, expected_counts):
-        def run(modifiers, web_query_modifiers):
-            runner = WebOverviewQueryRunner(
-                query=WebOverviewQuery(
-                    dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
-                    properties=properties,
-                    webQueryModifiers=web_query_modifiers,
-                ),
-                team=self.team,
-                modifiers=modifiers,
-            )
-            with patch(
-                "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
-                wraps=execute_hogql_query,
-            ) as mock_execute:
-                response = runner.calculate()
-            return [call.kwargs["query_type"] for call in mock_execute.call_args_list], response
-
-        v2_query_types, v2 = run(LEGACY, None)
-        dimensional_query_types, dimensional = run(None, OPT_IN)
+        v2_query_types, v2 = self._run_overview(LEGACY, None, properties)
+        dimensional_query_types, dimensional = self._run_overview(None, OPT_IN, properties)
 
         assert v2_query_types == ["web_overview_preaggregated_query"]
         assert dimensional_query_types == ["web_overview_dimensional_query"]
@@ -722,25 +723,8 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         ensure_web_stats_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
         ensure_web_bounces_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
 
-        def run(web_query_modifiers):
-            runner = WebOverviewQueryRunner(
-                query=WebOverviewQuery(
-                    dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
-                    properties=[],
-                    filterTestAccounts=True,
-                    webQueryModifiers=web_query_modifiers,
-                ),
-                team=self.team,
-            )
-            with patch(
-                "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
-                wraps=execute_hogql_query,
-            ) as mock_execute:
-                response = runner.calculate()
-            return [call.kwargs["query_type"] for call in mock_execute.call_args_list], response
-
-        dimensional_query_types, dimensional = run(OPT_IN)
-        live_query_types, live = run(None)
+        dimensional_query_types, dimensional = self._run_overview(None, OPT_IN, filter_test_accounts=True)
+        live_query_types, live = self._run_overview(None, None, filter_test_accounts=True)
 
         assert dimensional_query_types == ["web_overview_dimensional_query"]
         assert "web_overview_dimensional_query" not in live_query_types
