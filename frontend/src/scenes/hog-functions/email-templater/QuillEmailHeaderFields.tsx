@@ -249,6 +249,7 @@ function CustomSenderForm({ senders, onDone }: { senders: EmailSender[]; onDone:
                 <InputGroup size="sm">
                     <InputGroupInput
                         value={localPart}
+                        className="pl-2"
                         disabled={mixedDomains && !from.email}
                         aria-invalid={addressError ? true : undefined}
                         placeholder={single?.config?.email?.split('@')[0] ?? 'Sender address'}

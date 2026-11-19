@@ -33,24 +33,26 @@ export function LiquidSupportedText({
 
     const templating = templatingEngine ?? 'hog'
 
+    const suggestions = (
+        <CyclotronJobTemplateSuggestionsButton
+            templating={templatingEngine}
+            setTemplatingEngine={setTemplatingEngine}
+            value={value}
+            onOptionSelect={(option) => {
+                onChange?.(
+                    insertTemplateReference(value || '', templateReferenceForOption(option, templating), cursorOffset())
+                )
+            }}
+        />
+    )
+
     return (
-        <span className="flex grow group relative justify-between">
-            <span className="absolute top-0 right-2 z-20 p-px opacity-0 transition-opacity group-hover:opacity-100">
-                <CyclotronJobTemplateSuggestionsButton
-                    templating={templatingEngine}
-                    setTemplatingEngine={setTemplatingEngine}
-                    value={value}
-                    onOptionSelect={(option) => {
-                        onChange?.(
-                            insertTemplateReference(
-                                value || '',
-                                templateReferenceForOption(option, templating),
-                                cursorOffset()
-                            )
-                        )
-                    }}
-                />
-            </span>
+        <span className={clsx('flex grow group relative justify-between', plain && 'items-center gap-1')}>
+            {plain ? null : (
+                <span className="absolute top-0 right-2 z-20 p-px opacity-0 transition-opacity group-hover:opacity-100">
+                    {suggestions}
+                </span>
+            )}
             {placeholder && !value ? (
                 <span
                     className={clsx(
@@ -101,6 +103,11 @@ export function LiquidSupportedText({
                     }
                 />
             </div>
+            {plain ? (
+                <span className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                    {suggestions}
+                </span>
+            ) : null}
         </span>
     )
 }
