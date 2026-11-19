@@ -6604,7 +6604,7 @@ Note: Jamf publishes no downloadable OpenAPI on developer.jamf.com (ReadMe-hoste
 
 ## Jellyfish — gaps
 
-Today (15): `allocations_by_investment_category`, `allocations_by_person`, `allocations_by_team`, `allocations_by_work_category`, `allocations_by_work_category_person`, `allocations_by_work_category_team`, `company_metrics`, `deliverable_scope_and_effort_history`, `deliverables`, `engineers`, `person_metrics`, `team_metrics`, `teams`, `unlinked_pull_requests`, `work_categories`
+Today (25): `ai_company_adoption_analytics`, `ai_company_impact_analytics`, `ai_person_adoption`, `ai_team_adoption_analytics`, `ai_team_impact_analytics`, `allocations_by_investment_category`, `allocations_by_investment_category_person`, `allocations_by_investment_category_team`, `allocations_by_person`, `allocations_by_team`, `allocations_by_work_category`, `allocations_by_work_category_person`, `allocations_by_work_category_team`, `allocations_summary_by_investment_category`, `allocations_summary_by_work_category`, `company_metrics`, `deliverable_scope_and_effort_history`, `deliverables`, `engineers`, `person_metrics`, `team_metrics`, `team_sprint_summary`, `teams`, `unlinked_pull_requests`, `work_categories`
 
 Diffed against: <https://raw.githubusercontent.com/Jellyfish-AI/jellyfish-mcp/main/README.md>
 
@@ -6612,10 +6612,10 @@ Diffed against: <https://raw.githubusercontent.com/Jellyfish-AI/jellyfish-mcp/ma
 - [x] `metrics/team_metrics` — per-team metrics for the teams we already sync — the main breakdown dimension (high)
 - [x] `allocations/details/work_category (+ by_person, by_team)` — allocation split by work category; we sync the work_categories lookup and investment-category allocations but not the work-category allocations themselves (high)
 - [x] `delivery/deliverable_scope_and_effort_history` — scope and effort change history for the deliverables we sync — the state-transition record behind delivery risk (high)
-- [ ] `metrics/team_sprint_summary` — sprint-level throughput and commitment per team (medium)
-- [ ] `allocations/details/investment_category_person and investment_category_team` — finer-grained investment-category breakdown than the flat allocations table we have (medium)
-- [ ] `allocations/summary/investment_category and summary/work_category` — prebuilt allocation rollups for dashboards without re-aggregating detail rows (medium)
-- [ ] `ai/company_adoption_analytics, company_impact_analytics, team_adoption_analytics, team_impact_analytics, person_adoption` — AI-assisted engineering adoption and impact — Jellyfish's current headline metric family, entirely unsynced (medium)
+- [x] `metrics/team_sprint_summary` — sprint-level throughput and commitment per team (medium). Added as `team_sprint_summary`, fanned out over every team.
+- [x] `allocations/details/investment_category_person and investment_category_team` — finer-grained investment-category breakdown than the flat allocations table we have (medium). Added as `allocations_by_investment_category_person` and `allocations_by_investment_category_team`.
+- [x] `allocations/summary/investment_category and summary/work_category` — prebuilt allocation rollups for dashboards without re-aggregating detail rows (medium). The export paths are `allocations/summary_filtered/by_investment_category` and `by_work_category`. Added as `allocations_summary_by_investment_category` and `allocations_summary_by_work_category`.
+- [x] `ai/company_adoption_analytics, company_impact_analytics, team_adoption_analytics, team_impact_analytics, person_adoption` — AI-assisted engineering adoption and impact — Jellyfish's current headline metric family, entirely unsynced (medium). The export paths are under `ai_impact/`. Added as `ai_company_adoption_analytics`, `ai_company_impact_analytics`, `ai_team_adoption_analytics`, `ai_team_impact_analytics` and `ai_person_adoption`.
 - [ ] `devex/insights_by_team` — developer experience survey insights per team (medium)
 - [ ] `people/search_people` — broader people roster than list_engineers (non-engineer contributors, managers) (medium)
 - [ ] `allocations/filter_fields` — dimension/filter-field lookup describing what allocations can be sliced by (low)
