@@ -9,6 +9,7 @@ import { Button, Separator } from '@posthog/quill'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { saveWithLatestEmailEdit } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -156,8 +157,8 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
                     workflowUserAccessLevel={workflowUserAccessLevel ?? undefined}
                     onDiscardChanges={() => discardChanges()}
                     onUpdateTemplate={showSaveAsTemplateModal}
-                    onSave={submitWorkflow}
-                    onPublish={() => publishDraft()}
+                    onSave={() => void saveWithLatestEmailEdit(submitWorkflow)}
+                    onPublish={() => void saveWithLatestEmailEdit(publishDraft)}
                     onDiscardDraft={() => discardDraft()}
                 />
             ) : (
@@ -200,7 +201,7 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
                                     size="small"
                                     htmlType="submit"
                                     form="workflow"
-                                    onClick={submitWorkflow}
+                                    onClick={() => void saveWithLatestEmailEdit(submitWorkflow)}
                                     loading={isWorkflowSubmitting}
                                     disabledReason={
                                         workflowHasErrors
@@ -229,7 +230,7 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
                                         data-attr="workflow-publish"
                                         type={hasStagedDraft && !hasUnsavedChanges ? 'primary' : 'secondary'}
                                         size="small"
-                                        onClick={() => publishDraft()}
+                                        onClick={() => void saveWithLatestEmailEdit(publishDraft)}
                                         loading={draftActionPending === 'publish'}
                                         disabledReason={publishDisabledReason}
                                         // Discarding is rare and destructive, so it sits in the

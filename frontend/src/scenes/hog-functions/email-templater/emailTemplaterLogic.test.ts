@@ -22,6 +22,7 @@ import {
     editorDesignForEmail,
     buildPersonPropertyMergeValue,
     emailTemplaterLogic,
+    saveWithLatestEmailEdit,
 } from './emailTemplaterLogic'
 
 const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
@@ -868,6 +869,43 @@ describe('emailTemplaterLogic', () => {
             await jest.advanceTimersByTimeAsync(500)
             jest.useRealTimers()
             await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('holds an edit it could not export, and a save waits for it instead of storing the older email', async () => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            let exportFails = true
+            logic.actions.setEmailEditorRef({
+                editor: {
+                    ...fakeEditorRef().editor,
+                    exportPlainText: (callback: (data: any) => void) => {
+                        if (exportFails) {
+                            throw new Error('export failed')
+                        }
+                        callback({ text: 'edited' })
+                    },
+                },
+            } as unknown as EditorRef)
+            const save = jest.fn()
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            await jest.advanceTimersByTimeAsync(500)
+
+            expect(logic.values.latestEditUnsaved).toBe(true)
+            expect(parent.email.design).not.toEqual(DESIGN_EDITED)
+            expect(toast).toHaveBeenCalledWith(expect.stringContaining("Couldn't save this email"))
+
+            await saveWithLatestEmailEdit(save)
+            expect(save).not.toHaveBeenCalled()
+
+            exportFails = false
+            await saveWithLatestEmailEdit(save)
+            jest.useRealTimers()
+
+            expect(save).toHaveBeenCalledTimes(1)
+            expect(logic.values.latestEditUnsaved).toBe(false)
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED, text: 'edited' })
+            toast.mockRestore()
         })
 
         it('keeps the editor open and says so when an edit fails to save on close', async () => {

@@ -431,6 +431,7 @@ export interface emailTemplaterLogicValues {
     isModalOpen: boolean
     isSaveTemplateModalOpen: boolean
     isTemplatePickerOpen: boolean
+    latestEditUnsaved: boolean
     logicProps: EmailTemplaterLogicProps
     mergeTags: UnlayerMergeTags
     needsEmailConversion: boolean
@@ -558,6 +559,9 @@ export interface emailTemplaterLogicActions {
     setIsTemplatePickerOpen: (isOpen: boolean) => {
         isOpen: boolean
     }
+    setLatestEditUnsaved: (unsaved: boolean) => {
+        unsaved: boolean
+    }
     setPrefersOldEmailEditor: (prefersOld: boolean) => {
         prefersOld: boolean
     }
@@ -647,6 +651,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         onEmailEditorReady: true,
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
         setIsSaveTemplateModalOpen: (isOpen: boolean) => ({ isOpen }),
+        setLatestEditUnsaved: (unsaved: boolean) => ({ unsaved }),
         setIsTemplatePickerOpen: (isOpen: boolean) => ({ isOpen }),
         designUpdated: true,
         designLoaded: true,
@@ -711,6 +716,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             false,
             {
                 setIsSaveTemplateModalOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
+        // A canvas edit the email couldn't take in. Whatever saves the email checks it, so it never saves an older one.
+        latestEditUnsaved: [
+            false,
+            {
+                setLatestEditUnsaved: (_, { unsaved }) => unsaved,
             },
         ],
         isTemplatePickerOpen: [
@@ -1055,12 +1067,25 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 return
             }
 
-            const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] = await Promise.all([
-                exportEditorHtml(editor),
-                new Promise<any>((res) => editor.exportPlainText(res)),
-            ])
+            let htmlData: { html: string; design: JSONTemplate }
+            let textData: { text: string }
+            try {
+                ;[htmlData, textData] = await Promise.all([
+                    exportEditorHtml(editor),
+                    new Promise<any>((res) => editor.exportPlainText(res)),
+                ])
+            } catch (error) {
+                // The edit stays pending, so the next edit or a flush tries again.
+                posthog.captureException(error)
+                if (!values.latestEditUnsaved) {
+                    lemonToast.error(EMAIL_SAVE_FAILED_MESSAGE)
+                }
+                actions.setLatestEditUnsaved(true)
+                return
+            }
             breakpoint()
             cache.pendingDesignEdit = false
+            actions.setLatestEditUnsaved(false)
 
             // Only real changes propagate - an export identical to the last known editor state is a
             // load echo, and pushing it would only mark the parent form dirty.
@@ -1205,12 +1230,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 } catch (error) {
                     posthog.captureException(error)
                     cache.flushFailed = true
+                    actions.setLatestEditUnsaved(true)
                     return
                 }
                 if (cache.designEdits !== editsBeforeExport) {
                     continue
                 }
                 cache.pendingDesignEdit = false
+                actions.setLatestEditUnsaved(false)
                 if (!objectsEqual(htmlData.design, cache.lastEditorDesign)) {
                     cache.lastEditorDesign = htmlData.design
                     cache.lastLoadedExternalDesign = null
@@ -1432,4 +1459,20 @@ function escapeHTMLStringCurlies(htmlString: string): string {
 
     const serializer = new XMLSerializer()
     return serializer.serializeToString(doc)
+}
+
+/**
+ * Runs a save once the open email editor has handed over its last edit. When that edit can't be read out of the
+ * editor, the save would store an older email, so it doesn't run and the person is told.
+ */
+export async function saveWithLatestEmailEdit(save: () => void): Promise<void> {
+    const templater = emailTemplaterLogic.findMounted()
+    if (templater) {
+        await templater.asyncActions.flushPendingDesignEdit()
+        if (templater.values.latestEditUnsaved) {
+            lemonToast.error(EMAIL_SAVE_FAILED_MESSAGE)
+            return
+        }
+    }
+    save()
 }

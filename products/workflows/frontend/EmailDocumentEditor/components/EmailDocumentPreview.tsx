@@ -4,19 +4,29 @@ import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { withInertLinks } from 'scenes/hog-functions/email-templater/emailPreviewHtml'
 
+import { renderEmailPreview } from '../../Broadcasts/emailPreview'
 import { withoutLiquidBetweenRows } from '../renderEmailHtml'
 
 const WIDTHS = { desktop: '100%', tablet: '600px', phone: '375px', small: '320px' }
 
+// Conditions and assignments run against a person with no properties, so the preview lays out like a sent email
+// instead of showing the Liquid code. Variables with no value stay as written.
+const PREVIEW_PERSON = { id: 'preview', properties: {} }
+
 export function EmailDocumentPreview({
     html,
+    liquid,
     unsubscribeMissing,
 }: {
     html: string
+    liquid?: boolean
     unsubscribeMissing?: boolean
 }): JSX.Element {
     const [width, setWidth] = useState<keyof typeof WIDTHS>('desktop')
-    const srcDoc = useMemo(() => withInertLinks(withoutLiquidBetweenRows(html)), [html])
+    const srcDoc = useMemo(
+        () => withInertLinks(withoutLiquidBetweenRows(liquid ? renderEmailPreview(html, PREVIEW_PERSON) : html)),
+        [html, liquid]
+    )
     return (
         <div className="flex flex-col flex-1 min-h-0 gap-2 p-2 bg-surface-secondary">
             <div className="flex items-center gap-2 flex-wrap">
@@ -32,7 +42,9 @@ export function EmailDocumentPreview({
                     ]}
                 />
                 <span className="text-xs text-secondary">
-                    Variables and conditions show as written. Send a test email to see them filled in.
+                    {liquid
+                        ? 'Conditions run as if the person has no properties. Send a test email to see your data filled in.'
+                        : 'Variables and conditions show as written. Send a test email to see them filled in.'}
                 </span>
                 {unsubscribeMissing ? (
                     <span className="text-xs text-warning-dark">
