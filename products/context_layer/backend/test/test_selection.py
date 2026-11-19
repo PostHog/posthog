@@ -3,6 +3,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from threading import BoundedSemaphore, Event
+from typing import Any
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -89,7 +90,7 @@ class TestSelection(SimpleTestCase):
         self.skill: dict[str, object] = {"name": "activation-guide", "description": "Activation definition"}
         self.rows: dict[str, list[dict[str, object]]] = {"llm_skills/search/": [self.skill]}
         self.status = 200
-        self.states: list[dict[str, JsonValue]] = []
+        self.states: list[dict[str, Any]] = []
         self.requests: list[httpx.Request] = []
         client = httpx.Client
         self.enterContext(
