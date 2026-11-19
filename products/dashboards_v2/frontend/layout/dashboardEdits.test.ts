@@ -119,4 +119,24 @@ describe('dashboardEdits', () => {
         ])
         expect(JSON.stringify(board)).toEqual(saved)
     })
+
+    it('keeps a drag made in a folded view clear of the section in the saved layout', () => {
+        const board = dashboard([
+            section('group', 0, 0, 24, [text('inside', 0, 0, 24, 4)]),
+            text('below', 0, 6, 12, 2),
+            text('side', 12, 6, 12, 2),
+        ])
+        const viewed = withFolds(board, { group: true })
+        const grid = viewed.tabs[0].tiles
+        const dragged = Object.fromEntries(grid.map((tile) => [tile.id, tile.place]))
+        dragged.side = { ...dragged.side, x: 0, y: 1 }
+        dragged.below = { ...dragged.below, y: 3 }
+
+        expect(allPlaces(applyEdit(board, { edit: 'placeTiles', grid: 'first', places: dragged }))).toEqual([
+            'group@first: 0,0,24,5',
+            'inside@group: 0,0,24,4',
+            'below@first: 0,7,12,2',
+            'side@first: 0,5,12,2',
+        ])
+    })
 })

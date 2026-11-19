@@ -86,7 +86,7 @@ function DashboardV2(): JSX.Element {
                         tiles={tiles}
                         cols={GRID.columns}
                         width={width}
-                        editable={hasPermission('placeTiles')}
+                        editable={hasPermission('placeTiles') && !stacked}
                     />
                 )}
             </div>
