@@ -114,16 +114,25 @@ describe('ImpactFunnelCard', () => {
         expect(screen.queryByText('Needs link tagging')).not.toBeInTheDocument()
     })
 
-    it('shows the setting saved in another tab once this tab has focus again, and keeps checking on later focus', async () => {
+    it('shows the setting saved in another tab once this tab has focus again, also after a first focus came too early', async () => {
         initKeaTests(true, teamWithLinkTagging(false))
         let stored = teamWithLinkTagging(false)
-        useMocks({ get: { '/api/projects/:id/': () => [200, stored] } })
+        let reads = 0
+        useMocks({
+            get: {
+                '/api/projects/:id/': () => {
+                    reads += 1
+                    return [200, stored]
+                },
+            },
+        })
         answer = [200, IMPACT]
         renderCard()
         await screen.findByText('Needs link tagging')
 
         fireEvent(window, new Event('focus'))
-        await waitFor(() => expect(screen.getByText('Needs link tagging')).toBeInTheDocument())
+        await waitFor(() => expect(reads).toBe(1))
+        expect(screen.getByText('Needs link tagging')).toBeInTheDocument()
 
         stored = teamWithLinkTagging(true)
         fireEvent(window, new Event('focus'))
