@@ -24,7 +24,7 @@ export function WorkflowEmailPauseBanner(): JSX.Element | null {
         <EmailSendingPausedBanner
             pause={emailSendingPause}
             subject="workflow"
-            effect="Its email steps are skipped until you resume it."
+            effect="Its email steps are skipped while it is paused."
             onResume={resumeEmailSending}
             resuming={resumeEmailSendingPending}
             // Resuming reloads the workflow from the server, which resets the editor and would
