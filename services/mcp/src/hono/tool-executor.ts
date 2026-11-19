@@ -318,9 +318,35 @@ export class ToolExecutor {
             return invitation
         }
         const result = await this.dispatchToolCall(toolName, callParams, callState, analyticsMeta)
-        const delivered = this.deliverConversationHandle(result, preparedCall)
+        const resultWithProjectContext =
+            carriedContextHandle || callState.requestContext.projectId
+                ? result
+                : await this.appendDefaultProjectWarning(result, callState)
+        const delivered = this.deliverConversationHandle(resultWithProjectContext, preparedCall)
         await hooks?.afterExecute(callState, delivered)
         return delivered
+    }
+
+    private async appendDefaultProjectWarning(result: unknown, state: ResolvedState): Promise<unknown> {
+        if (typeof result !== 'object' || result === null || !('content' in result) || !Array.isArray(result.content)) {
+            return result
+        }
+
+        try {
+            const projectId = await state.context.stateManager.getProjectId()
+            return {
+                ...result,
+                content: [
+                    ...result.content,
+                    {
+                        type: 'text',
+                        text: `The default project (ID ${projectId}) is active because this request carried no usable \`conversation_id\` or MCP session. To use a project you switched to, pass the \`conversation_id\` from that conversation on subsequent calls.`,
+                    },
+                ],
+            }
+        } catch {
+            return result
+        }
     }
 
     // The agent can only echo a handle it has been given. One exit for every dispatch path,
