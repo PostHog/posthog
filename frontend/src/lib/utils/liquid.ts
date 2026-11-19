@@ -197,6 +197,7 @@ export class LiquidRenderer {
             templates: {},
             // Previews render while the page draws, so a runaway loop must fail fast instead of freezing the tab.
             // The worker's budgets, from nodejs/src/cdp/utils/liquid.ts.
+            parseLimit: 5_000_000,
             renderLimit: 500,
             memoryLimit: 1_000_000,
         })
