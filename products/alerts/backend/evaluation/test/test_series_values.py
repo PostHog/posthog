@@ -86,9 +86,7 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
 
     def _shadowed_check(self, alert: AlertConfiguration, raising: bool = False) -> tuple[Any, dict[str, Any]]:
         failure = (
-            patch(f"{_SHADOW}.closed_trends_series_values", side_effect=RuntimeError("boom"))
-            if raising
-            else nullcontext()
+            patch(f"{_SHADOW}.closed_series_values", side_effect=RuntimeError("boom")) if raising else nullcontext()
         )
         with self._enrolled(), failure, patch(f"{_SHADOW}.posthoganalytics.capture") as capture:
             result = check_alert_for_insight(alert)
