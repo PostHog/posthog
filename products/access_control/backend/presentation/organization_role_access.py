@@ -2,16 +2,21 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 
 from posthog.models import Organization, User
-from posthog.permissions import can_in_organization
+from posthog.permissions import request_subject
 from posthog.utils import posthoganalytics
 
 from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
 from products.authorization.backend.facade.enums import Action
 
 
 def require_organization_access_management(request: Request, organization: Organization) -> None:
     authorization.invalidate_session()
-    if not can_in_organization(request, organization, Action.MANAGE_ACCESS):
+    if not authorization.check(
+        resource=Resource.organization(organization.id),
+        action=Action.MANAGE_ACCESS,
+        subject=request_subject(request),
+    ):
         raise PermissionDenied("You do not have permission to manage organization access.")
 
 

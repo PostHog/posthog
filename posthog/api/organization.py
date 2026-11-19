@@ -60,7 +60,6 @@ from posthog.permissions import (
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TimeSensitiveActionPermission,
-    can_in_organization,
     extract_organization,
     get_authenticator_scoped_organization_ids,
     request_subject,
@@ -410,7 +409,11 @@ class OrganizationSerializer(
                 )
                 if role.organization_access_level is not None:
                     authorization.invalidate_session()
-                    if not can_in_organization(self.context["request"], instance, Action.MANAGE_ACCESS):
+                    if not authorization.check(
+                        resource=Resource.organization(instance.id),
+                        action=Action.MANAGE_ACCESS,
+                        subject=request_subject(self.context["request"]),
+                    ):
                         raise exceptions.PermissionDenied("You do not have permission to manage organization access.")
                 validated_data["default_role"] = role
             instance = super().update(instance, validated_data, *args, **kwargs)
