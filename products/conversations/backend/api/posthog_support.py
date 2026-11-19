@@ -20,13 +20,14 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.event_usage import report_user_action, sanitize_header_value
+from posthog.event_usage import MCP_TRANSPORT_EVENT_SOURCES, get_event_source, report_user_action, sanitize_header_value
 from posthog.models.user import User
 from posthog.rate_limit import PostHogSupportDraftCreateThrottle
 
 from products.conversations.backend.permissions import SessionAuthenticationOnly
 from products.conversations.backend.services.posthog_support import (
     DraftCreateInProgress,
+    DraftedVia,
     FilingReason,
     SupportDraftStore,
     SupportTicketDraft,
@@ -198,10 +199,12 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = request.validated_data
         mcp_session_id = _mcp_id(request.headers.get("X-Posthog-Mcp-Session-Id"))
         mcp_conversation_id = _mcp_id(request.headers.get("X-Posthog-Mcp-Conversation-Id"))
+        drafted_via = DraftedVia.MCP if get_event_source(request) in MCP_TRANSPORT_EVENT_SOURCES else DraftedVia.API
         try:
             draft = self._draft_store().create(
                 message=data["message"],
                 filing_reason=data["filing_reason"],
+                drafted_via=drafted_via,
                 mcp_session_id=mcp_session_id,
                 mcp_conversation_id=mcp_conversation_id,
             )
@@ -223,6 +226,7 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "filing_reason": draft.filing_reason,
                 "agent_name": data.get("agent_name") or None,
                 "authenticated_with": type(request.successful_authenticator).__name__,
+                "drafted_via": drafted_via.value,
                 # The MCP server records each tool call under these same ids, so support can follow a
                 # ticket's draft id back to every call the agent made before it drafted the ticket.
                 "mcp_session_id": mcp_session_id,

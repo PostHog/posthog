@@ -6,6 +6,7 @@ the person in their browser, sends it.
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from dataclasses import asdict
@@ -33,6 +34,11 @@ class FilingReason(models.TextChoices):
     USER_DISAGREES_WITH_AGENT = "user_disagrees_with_agent", "The person disagrees with the agent's answer"
 
 
+class DraftedVia(models.TextChoices):
+    MCP = "mcp", "Drafted by an AI agent through the PostHog MCP"
+    API = "api", "Drafted through the PostHog API"
+
+
 class TooManyOpenDrafts(Exception):
     pass
 
@@ -47,6 +53,7 @@ class SupportTicketDraft:
     message: str
     filing_reason: FilingReason
     expires_at: int
+    drafted_via: DraftedVia = DraftedVia.API
     mcp_session_id: str | None = None
     mcp_conversation_id: str | None = None
 
@@ -55,8 +62,8 @@ class SupportTicketDraft:
         # The person cannot see or edit this note, so it holds only text the server writes. The MCP ids
         # come from request headers, so the API keeps a value only when it has the form of an id.
         lines = [
-            "Drafted by an AI agent through the PostHog MCP, then reviewed and sent by the person.",
-            f"Why the agent drafted it: {FilingReason(self.filing_reason).label}.",
+            f"{DraftedVia(self.drafted_via).label}, then reviewed and sent by the person.",
+            f"Why it was drafted: {FilingReason(self.filing_reason).label}.",
             f"Draft id: {self.id}",
         ]
         # Support finds the agent's tool calls by these ids, under $mcp_session_id and $mcp_conversation_id.
@@ -87,11 +94,25 @@ def compose_ticket_message(
     for title, body in sections:
         if not body or not body.strip():
             continue
+        body = body.strip()
+        if title == "Error":
+            body = _code_block(body)
         # Markdown joins two lines of prose into one paragraph, so Request needs a blank line to render its
         # label on its own line. The other sections open with a list, which starts a new block anyway.
         separator = "\n\n" if title == "Request" else "\n"
-        parts.append(f"{title}:{separator}{body.strip()}")
+        parts.append(f"{title}:{separator}{body}")
     return SECTION_SEPARATOR.join(parts)
+
+
+def _code_block(text: str) -> str:
+    """Shows error text exactly as given. As Markdown, a line that starts with `#` or `*` would become a
+    heading or a list item, and the indentation of stack frames would be lost."""
+    if text.startswith("```") and text.endswith("```"):
+        return text
+    # The fence must be longer than any run of backticks in the text, or that run would close it early.
+    longest_run = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    fence = "`" * max(3, longest_run + 1)
+    return f"{fence}text\n{text}\n{fence}"
 
 
 class SupportDraftStore:
@@ -106,6 +127,7 @@ class SupportDraftStore:
         *,
         message: str,
         filing_reason: FilingReason,
+        drafted_via: DraftedVia = DraftedVia.API,
         mcp_session_id: str | None = None,
         mcp_conversation_id: str | None = None,
     ) -> SupportTicketDraft:
@@ -118,6 +140,7 @@ class SupportDraftStore:
             return self._create(
                 message=message,
                 filing_reason=filing_reason,
+                drafted_via=drafted_via,
                 mcp_session_id=mcp_session_id,
                 mcp_conversation_id=mcp_conversation_id,
             )
@@ -129,6 +152,7 @@ class SupportDraftStore:
         *,
         message: str,
         filing_reason: FilingReason,
+        drafted_via: DraftedVia,
         mcp_session_id: str | None,
         mcp_conversation_id: str | None,
     ) -> SupportTicketDraft:
@@ -148,6 +172,7 @@ class SupportDraftStore:
             message=message,
             filing_reason=filing_reason,
             expires_at=int(time.time()) + DRAFT_TTL_SECONDS,
+            drafted_via=drafted_via,
             mcp_session_id=mcp_session_id,
             mcp_conversation_id=mcp_conversation_id,
         )
@@ -169,6 +194,8 @@ class SupportDraftStore:
             message=stored["message"],
             filing_reason=stored["filing_reason"],
             expires_at=stored["expires_at"],
+            # A draft saved before this field existed keeps the note it was created with, which named the MCP
+            drafted_via=stored.get("drafted_via", DraftedVia.MCP),
             mcp_session_id=stored.get("mcp_session_id"),
             mcp_conversation_id=stored.get("mcp_conversation_id"),
         )

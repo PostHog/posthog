@@ -216,7 +216,8 @@ const DRAFT_ATTACHMENTS_LABEL = 'Attachments:'
 
 /** Adds an uploaded file to an agent draft, in an Attachments section right after Request. */
 export function addAttachmentToDraftMessage(message: string, fileName: string, url: string): string {
-    const attachmentLine = `- ${fileName}: ${url}`
+    // An image link renders the image itself in the ticket. Square brackets in the name would end its alt text early.
+    const attachmentLine = `![${fileName.replace(/[[\]]/g, '')}](${url})`
     const sections = message.split(DRAFT_SECTION_SEPARATOR)
     const attachmentsIndex = sections.findIndex((section) => section.startsWith(`${DRAFT_ATTACHMENTS_LABEL}\n`))
     if (attachmentsIndex === -1) {

@@ -55,7 +55,7 @@ Our staging build sent test checkout events to our live project in the first wee
 ---
 
 Details:
-- Project: Web app, ID 12345, US Cloud, https://us.posthog.com/project/12345
+- Project: Web app (ID 12345), US Cloud, https://us.posthog.com/project/12345
 - Events: `checkout_started` and `checkout_completed` from the host `staging.example.com`
 - Query, which returned 3,817 events:
 
