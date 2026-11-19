@@ -1,5 +1,5 @@
 diff --git a/src/middlewares.js b/src/middlewares.js
-index 36ed48e2f18c27f7acc339806ad7f85640a72f3b..dcd7a9231f8cc7b7c7268c9b0aceb02de3238b86 100644
+index 36ed48e2f18c27f7acc339806ad7f85640a72f3b..a882d460437cdb0ee2f17ca11ecfd75a650a6130 100644
 --- a/src/middlewares.js
 +++ b/src/middlewares.js
 @@ -18,6 +18,7 @@
@@ -33,7 +33,15 @@ index 36ed48e2f18c27f7acc339806ad7f85640a72f3b..dcd7a9231f8cc7b7c7268c9b0aceb02d
          default:
              return false;
      }
-@@ -226,7 +228,7 @@
+@@ -206,6 +208,7 @@
+ 
+             // skip reading too large body
+             if(length && +length > options.limit) {
++                res.status(413);
+                 return next(new Error('Request entity too large'));
+             }
+ 
+@@ -226,7 +229,7 @@
              let inflate;
              let totalSize = 0;
              if(options.inflate) {
@@ -42,7 +50,7 @@ index 36ed48e2f18c27f7acc339806ad7f85640a72f3b..dcd7a9231f8cc7b7c7268c9b0aceb02d
                  if(inflate === false) {
                      return next(new Error('Unsupported content encoding'));
                  }
-@@ -234,12 +236,26 @@
+@@ -234,12 +237,26 @@
  
              req.bodyRead = true;
  
@@ -70,11 +78,12 @@ index 36ed48e2f18c27f7acc339806ad7f85640a72f3b..dcd7a9231f8cc7b7c7268c9b0aceb02d
                  }
  
                  // shallow copy, to avoid shared references for large bodies.
-@@ -247,11 +263,15 @@
+@@ -247,11 +264,16 @@
  
                  totalSize += buf.length;
                  if(totalSize > options.limit) {
 +                    stopped = true;
++                    res.status(413);
                      return next(new Error('Request entity too large'));
                  }
              }

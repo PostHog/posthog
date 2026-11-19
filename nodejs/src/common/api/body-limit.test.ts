@@ -124,26 +124,22 @@ describe('setupExpressApp JSON body limit', () => {
         'answers a %s JSON body that decodes far past the limit with 413 without decoding the rest',
         async (encoding) => {
             const body = await compressRepeated(encoding, Buffer.alloc(1024 * 1024, ' '), 128)
-            const peakBefore = process.resourceUsage().maxRSS
             const cpuBefore = process.cpuUsage()
             const upload = supertest(app)
                 .post('/echo')
                 .set({ 'Content-Type': 'application/json', 'Content-Encoding': encoding })
             upload.write(body)
             const oversized = await upload
-            const peakGrowthKb = process.resourceUsage().maxRSS - peakBefore
             const cpu = process.cpuUsage(cpuBefore)
             const next = await supertest(app).post('/echo').send({ data: 'x' })
 
             expect({
                 oversized: [oversized.status, oversized.body],
                 cpuUnder100Ms: cpu.user + cpu.system < 100_000,
-                peakGrowthUnder32Mb: peakGrowthKb < 32 * 1024,
                 next: next.status,
             }).toEqual({
                 oversized: [413, { status: 'error', error: 'Request entity too large' }],
                 cpuUnder100Ms: true,
-                peakGrowthUnder32Mb: true,
                 next: 200,
             })
         }

@@ -429,17 +429,29 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
             expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, source: 'COMPLAINT' }])
         })
 
-        it.each(['gzip', 'deflate', 'br'] as const)(
-            'answers a %s notification that decodes far past the limit with 413',
-            async (encoding) => {
-                const req = supertest(app)
-                    .post('/public/m/ses_sandbox_webhook')
-                    .set({ 'Content-Type': 'text/plain', 'Content-Encoding': encoding })
-                req.write(await compressRepeated(encoding, Buffer.alloc(1024 * 1024, ' '), 128))
-
-                expect((await req).status).toBe(413)
+        it.each([
+            ['a plain notification over the size limit, with its length', 'identity', false],
+            ['a plain notification over the size limit, in chunks', 'identity', true],
+            ['a gzip notification that decodes far past the size limit', 'gzip', true],
+            ['a deflate notification that decodes far past the size limit', 'deflate', true],
+            ['a br notification that decodes far past the size limit', 'br', true],
+        ] as const)('answers %s with 413', async (_case, encoding, chunked) => {
+            const req = supertest(app)
+                .post('/public/m/ses_sandbox_webhook')
+                .set({
+                    'Content-Type': 'text/plain',
+                    ...(encoding === 'identity' ? {} : { 'Content-Encoding': encoding }),
+                })
+            const body =
+                encoding === 'identity'
+                    ? Buffer.alloc(150 * 1024, ' ')
+                    : await compressRepeated(encoding, Buffer.alloc(1024 * 1024, ' '), 128)
+            if (chunked) {
+                req.write(body)
             }
-        )
+
+            expect((await (chunked ? req : req.send(body.toString()))).status).toBe(413)
+        })
 
         it.each([
             ['confirms', 'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&Token=t', 200, 1],
