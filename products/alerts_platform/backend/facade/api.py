@@ -429,14 +429,23 @@ def count_configurations(
     )
 
 
-def newest_enabled_configurations(
-    *, team_id: int, source_kind: SourceKind, native_only: bool, limit: int
+def newest_enabled_held_configurations(
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    excluded_check_interval_minutes: Collection[int],
+    exclude_public_id: UUID | None,
+    limit: int,
 ) -> list[tuple[datetime, UUID]]:
-    """The creation time and id of a team's newest enabled alerts of a kind on the platform, newest first,
-    at most `limit`. For a source that ranks its alerts against a plan limit. With `native_only`, only the
-    ones with no source row."""
-    return platform_reads.newest_enabled_configurations(
-        team_id=team_id, source_kind=source_kind.value, native_only=native_only, limit=limit
+    """The creation time and public id of a team's newest enabled alerts of a kind whose settings the
+    platform holds (those with no source row, and the copies it owns), newest first, at most `limit`.
+    For a source that ranks its alerts against a plan limit. A copy's public id is its source row's id."""
+    return platform_reads.newest_enabled_held_configurations(
+        team_id=team_id,
+        source_kind=source_kind.value,
+        excluded_check_interval_minutes=excluded_check_interval_minutes,
+        exclude_public_id=exclude_public_id,
+        limit=limit,
     )
 
 

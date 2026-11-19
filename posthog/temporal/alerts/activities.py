@@ -537,8 +537,10 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
         # keeps its newest alerts running and skips the rest. They stay enabled and resume once it has room.
         if alert.is_over_plan_limit(alert.team.organization):
             logger.info("Skipping alert check because the project is over its plan's alert limit", alert_id=alert.id)
-            alert.next_check_at = next_check_time(alert)
-            alert.save(update_fields=["next_check_at"])
+            # Only if the schedule is still the one read here, so an edit saved meanwhile keeps its own.
+            AlertConfiguration.objects.filter(
+                id=alert.id, calculation_interval=alert.calculation_interval, next_check_at=alert.next_check_at
+            ).update(next_check_at=next_check_time(alert))
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.OVER_PLAN_LIMIT)
 
         if skip_because_of_weekend(alert):

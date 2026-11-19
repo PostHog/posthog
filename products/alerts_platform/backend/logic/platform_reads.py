@@ -515,17 +515,25 @@ def count_configurations(
     return configurations.count()
 
 
-def newest_enabled_configurations(
-    *, team_id: int, source_kind: str, native_only: bool, limit: int
+def newest_enabled_held_configurations(
+    *,
+    team_id: int,
+    source_kind: str,
+    excluded_check_interval_minutes: Collection[int],
+    exclude_public_id: UUID | None,
+    limit: int,
 ) -> list[tuple[datetime, UUID]]:
-    """The creation time and id of a team's newest enabled alerts of a kind, newest first, at most `limit`.
-    With `native_only`, only the ones with no source row."""
-    configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
-        source_kind=source_kind, enabled=True
+    """The creation time and public id of a team's newest enabled alerts of a kind whose settings the
+    platform holds, newest first, at most `limit`. A copy's public id is its source row's id."""
+    configurations = (
+        PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
+        .filter(_HELD, source_kind=source_kind, enabled=True)
+        .exclude(check_interval_minutes__in=excluded_check_interval_minutes)
+        .annotate(public_id=Coalesce("legacy_configuration_id", "id"))
     )
-    if native_only:
-        configurations = configurations.filter(legacy_configuration_id__isnull=True)
-    return list(configurations.order_by("-created_at", "-id").values_list("created_at", "id")[:limit])
+    if exclude_public_id is not None:
+        configurations = configurations.exclude(public_id=exclude_public_id)
+    return list(configurations.order_by("-created_at", "-public_id").values_list("created_at", "public_id")[:limit])
 
 
 def get_configuration(

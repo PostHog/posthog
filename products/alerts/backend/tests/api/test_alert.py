@@ -911,17 +911,24 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert response.json()["attr"] == field
         assert not AlertConfiguration.objects.filter(team=self.team).exists()
 
-    def _alerts_in_creation_order(self, count: int) -> list[AlertConfiguration]:
-        alerts = [create_insight_alert(self.team, created_by=self.user) for _ in range(count)]
+    def _alerts_in_creation_order(self, count: int, **overrides: Any) -> list[AlertConfiguration]:
+        alerts = [create_insight_alert(self.team, created_by=self.user, **overrides) for _ in range(count)]
         for minutes, alert in enumerate(alerts):
             AlertConfiguration.objects.filter(pk=alert.pk).update(
                 created_at=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(minutes=minutes)
             )
         return alerts
 
+    def _set_alert_limit(self, limit: int | None) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ALERTS, "name": "Alerts", "limit": limit}
+        ]
+        self.organization.save()
+
     def test_turning_on_an_alert_is_refused_while_the_plan_limit_is_full(self) -> None:
+        self._set_alert_limit(5)
         disabled = create_insight_alert(self.team, created_by=self.user, enabled=False)
-        running = self._alerts_in_creation_order(AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER)
+        running = self._alerts_in_creation_order(5)
         url = f"/api/projects/{self.team.id}/alerts/{disabled.id}"
 
         refused = self.client.patch(url, {"enabled": True}, format="json")
@@ -939,6 +946,17 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert allowed.status_code == status.HTTP_200_OK, allowed.content
         assert allowed.json()["over_plan_limit"] is False
 
+    def test_alerts_on_a_cadence_the_plan_lost_leave_room_to_turn_one_on(self) -> None:
+        self._set_alert_limit(5)
+        disabled = create_insight_alert(self.team, created_by=self.user, enabled=False)
+        self._alerts_in_creation_order(5, calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{disabled.id}", {"enabled": True}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+
     def test_turning_on_an_alert_another_update_overtook_after_validation_is_refused_under_the_lock(self) -> None:
         alert = create_insight_alert(self.team, created_by=self.user, enabled=False)
         # Validation sees room; by the time the update holds the lock, another alert took the last slot.
@@ -955,7 +973,8 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert alert.enabled is False
 
     def test_an_alert_past_the_plan_limit_saves_edits_and_shows_it_is_not_running(self) -> None:
-        oldest, *newer = self._alerts_in_creation_order(AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER + 1)
+        self._set_alert_limit(5)
+        oldest, *newer = self._alerts_in_creation_order(6)
 
         renamed = self.client.patch(
             f"/api/projects/{self.team.id}/alerts/{oldest.id}", {"name": "Renamed"}, format="json"
@@ -973,14 +992,27 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             **{str(alert.id): False for alert in newer},
         }
 
-    def test_a_plan_without_an_alert_limit_ranks_no_alerts(self) -> None:
-        self.organization.available_product_features = [{"key": AvailableFeature.ALERTS, "name": "Alerts"}]
+    @parameterized.expand(
+        [
+            ("no_alerts_feature", []),
+            ("no_numeric_limit", [{"key": AvailableFeature.ALERTS, "name": "Alerts"}]),
+        ]
+    )
+    def test_a_plan_without_a_numeric_alert_limit_ranks_no_alerts_and_refuses_no_enable(
+        self, _name: str, features: list[dict[str, Any]]
+    ) -> None:
+        self.organization.available_product_features = features
         self.organization.save()
-        oldest, *_ = self._alerts_in_creation_order(AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER + 1)
+        disabled = create_insight_alert(self.team, created_by=self.user, enabled=False)
+        oldest, *_ = self._alerts_in_creation_order(6)
 
         with self.assertNumQueries(0):
             assert AlertConfiguration.alerts_kept_by_plan_limit(self.team.id, self.organization) is None
             assert oldest.is_over_plan_limit(self.organization) is False
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{disabled.id}", {"enabled": True}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
 
     def test_alert_is_deleted_on_insight_update(self) -> None:
         another_insight = self.client.post(

@@ -416,19 +416,26 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         return None
 
     @classmethod
-    def plan_alert_limit(cls, organization: Organization) -> int | None:
-        """How many alerts each project may have on the organization's plan, or None for no limit."""
+    def enforced_alert_limit(cls, organization: Organization) -> int | None:
+        """The alert limit that evaluation and enabling hold a project to, or None for no limit.
+
+        Only a numeric `limit` on the organization's alerts feature counts. Billing can publish a partial
+        feature list when a plan fails to load, and self-hosted licenses list no alerts feature, so a
+        missing feature must not cap a paid organization's running alerts. Creates keep the free tier
+        fallback in `check_alert_limit`."""
         alerts_feature = organization.get_available_feature(AvailableFeature.ALERTS)
-        if alerts_feature:
-            return alerts_feature.get("limit")
-        return cls.ALERTS_ALLOWED_ON_FREE_TIER
+        limit = alerts_feature.get("limit") if alerts_feature else None
+        return limit if isinstance(limit, int) and not isinstance(limit, bool) else None
 
     @classmethod
     def enable_limit_error(cls, *, team_id: int, organization: Organization, exclude_id: str) -> str | None:
         """Return an error message if turning on the alert `exclude_id` would take the team past its plan's
-        alert limit, else None. Only the team's other enabled alerts count."""
-        limit = cls.plan_alert_limit(organization)
-        if limit is None or cls._counted(team_id, enabled_only=True, exclude_id=exclude_id) < limit:
+        alert limit, else None. Only the team's other alerts that run count, as in `alerts_kept_by_plan_limit`."""
+        limit = cls.enforced_alert_limit(organization)
+        if limit is None:
+            return None
+        running = cls._newest_running(team_id, organization, limit=limit, exclude_id=UUID(exclude_id))
+        if len(running) < limit:
             return None
         return f"Your plan allows {limit} enabled alerts per project. Disable another alert to enable this one."
 
@@ -439,25 +446,47 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
         The limit is enforced on writes, so a project that moves to a smaller plan can hold more enabled
         alerts than it allows. The newest ones up to the limit keep running, and both evaluation stacks skip
-        the rest until the project has room again. Every insight row counts, and so does every platform
-        alert with no insight row, as in `_counted`."""
-        limit = cls.plan_alert_limit(organization)
+        the rest until the project has room again."""
+        limit = cls.enforced_alert_limit(organization)
         if limit is None:
             return None
+        return frozenset(alert_id for _, alert_id in cls._newest_running(team_id, organization, limit=limit))
+
+    @classmethod
+    def _newest_running(
+        cls, team_id: int, organization: Organization, *, limit: int, exclude_id: UUID | None = None
+    ) -> list[tuple[datetime, UUID]]:
+        """The creation time and id of the team's newest alerts that would run, newest first, at most `limit`.
+
+        Each alert counts once, enabled by the stack that owns it: an insight row the insight stack owns, or
+        a platform alert with no insight row or whose copy the platform owns. An alert on a cadence the
+        plan no longer includes counts for nothing, because the evaluation disables it."""
         # Deferred for the same reason as in `_counted`.
-        from products.alerts_platform.backend.facade.api import newest_enabled_configurations  # noqa: PLC0415
+        from products.alerts.backend.platform_insight_alert import RECURRENCE  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.api import newest_enabled_held_configurations  # noqa: PLC0415
         from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
 
+        lost_intervals = [
+            interval
+            for interval, _ in cls.CALCULATION_INTERVAL_CHOICES
+            if cls.interval_entitlement_error(calculation_interval=interval, organization=organization)
+        ]
         rows = (
             cls.objects.filter(team_id=team_id, enabled=True)
-            .order_by("-created_at", "-id")
-            .values_list("created_at", "id")[:limit]
+            .exclude(owner=PlatformAlertOwner.PLATFORM.value)
+            .exclude(calculation_interval__in=lost_intervals)
         )
-        native = newest_enabled_configurations(
-            team_id=team_id, source_kind=SourceKind.INSIGHT, native_only=True, limit=limit
+        if exclude_id is not None:
+            rows = rows.exclude(pk=exclude_id)
+        held = newest_enabled_held_configurations(
+            team_id=team_id,
+            source_kind=SourceKind.INSIGHT,
+            excluded_check_interval_minutes=[RECURRENCE[interval][0] for interval in lost_intervals],
+            exclude_public_id=exclude_id,
+            limit=limit,
         )
-        newest = sorted([*rows, *native], reverse=True)[:limit]
-        return frozenset(alert_id for _, alert_id in newest)
+        newest_rows = rows.order_by("-created_at", "-id").values_list("created_at", "id")[:limit]
+        return sorted([*newest_rows, *held], reverse=True)[:limit]
 
     def is_over_plan_limit(self, organization: Organization) -> bool:
         """Whether this enabled alert is skipped because its project has more enabled alerts than its plan allows."""
@@ -497,33 +526,23 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         return None
 
     @classmethod
-    def _counted(
-        cls,
-        team_id: int,
-        *,
-        active_real_time: bool = False,
-        enabled_only: bool = False,
-        exclude_id: str | None = None,
-    ) -> int:
+    def _counted(cls, team_id: int, *, active_real_time: bool = False, exclude_id: str | None = None) -> int:
         """The team's insight alerts: each insight row, and each platform alert with no insight row."""
         # Deferred: the platform's read logic stays off django.setup(), where this model loads in every process.
         from products.alerts_platform.backend.facade.api import count_configurations  # noqa: PLC0415
         from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
         from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES  # noqa: PLC0415
 
-        enabled_only = enabled_only or active_real_time
         rows = cls.objects.filter(team_id=team_id)
         if active_real_time:
-            rows = rows.filter(calculation_interval=AlertCalculationInterval.REAL_TIME)
-        if enabled_only:
-            rows = rows.filter(enabled=True)
+            rows = rows.filter(calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True)
         if exclude_id:
             rows = rows.exclude(pk=exclude_id)
         native = count_configurations(
             team_id=team_id,
             source_kind=SourceKind.INSIGHT,
             native_only=True,
-            enabled_only=enabled_only,
+            enabled_only=active_real_time,
             check_interval_minutes=REAL_TIME_CADENCE_MINUTES if active_real_time else None,
             # An alert with no insight row carries its platform alert's id.
             exclude_id=UUID(exclude_id) if exclude_id else None,

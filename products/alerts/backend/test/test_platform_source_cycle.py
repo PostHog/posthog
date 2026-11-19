@@ -136,6 +136,17 @@ def _check_event(*, previous_state: str, state: str) -> PlatformCheckEvent:
     )
 
 
+def _alerts_feature(limit: int | None) -> dict[str, Any]:
+    return {"key": AvailableFeature.ALERTS, "name": "Alerts", "limit": limit}
+
+
+_PAID_INTERVALS: Final = [
+    {"key": AvailableFeature.HIGH_FREQUENCY_ALERTS, "name": "High-frequency alerts"},
+    {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"},
+]
+_CAPPED_AT_FIVE: Final = [*_PAID_INTERVALS, _alerts_feature(5)]
+
+
 _AGENT_ON: Final = {
     "detector_config": {"type": "zscore", "threshold": 0.95, "window": 30},
     "investigation_agent_enabled": True,
@@ -993,27 +1004,33 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("behind_newer_insight_alerts_on_the_free_plan", "row", [], False),
-            ("behind_newer_alerts_with_no_insight_row_on_the_free_plan", "native", [], False),
-            ("on_a_plan_without_an_alert_limit", "row", [{"key": AvailableFeature.ALERTS, "name": "Alerts"}], True),
+            ("behind_newer_insight_alerts", "row", _CAPPED_AT_FIVE, False),
+            ("behind_newer_alerts_with_no_insight_row", "native", _CAPPED_AT_FIVE, False),
+            ("behind_newer_alerts_the_platform_disabled", "disabled_on_the_platform", _CAPPED_AT_FIVE, True),
+            ("behind_newer_alerts_on_a_cadence_the_plan_lost", "every_15_minutes", [_alerts_feature(5)], True),
+            ("on_a_plan_without_a_numeric_limit", "row", [*_PAID_INTERVALS, _alerts_feature(None)], True),
+            ("on_a_plan_without_an_alerts_feature", "row", _PAID_INTERVALS, True),
         ]
     )
     def test_an_alert_past_the_plan_limit_is_skipped_without_a_query_and_stays_enabled(
-        self, _name: str, newer: str, features: list[dict[str, str]], queried: bool
+        self, _name: str, newer: str, features: list[dict[str, Any]], queried: bool
     ) -> None:
-        self.organization.available_product_features = [
-            *(self.organization.available_product_features or []),
-            *features,
-        ]
+        self.organization.available_product_features = features
         self.organization.save()
         oldest = self._alert()
         AlertConfiguration.objects.filter(pk=oldest.pk).update(created_at=CUTOFF - timedelta(days=30))
         configuration = self._copy(oldest)
-        for _ in range(AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER):
+        later = CUTOFF + timedelta(days=1)
+        for _ in range(5):
             if newer == "row":
                 self._alert()
+            elif newer == "every_15_minutes":
+                self._alert(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value)
+            elif newer == "native":
+                self._copy(None, legacy_configuration_id=None, next_check_at=later)
             else:
-                self._copy(None, legacy_configuration_id=None, next_check_at=CUTOFF + timedelta(days=1))
+                owned = self._alert(owner=PlatformAlertOwner.PLATFORM.value)
+                self._copy(owned, owner=PlatformAlertOwner.PLATFORM, enabled=False, next_check_at=later)
 
         outcome, query = self._evaluate(configuration, result=AlertEvaluationResult(value=1.0, breaches=[]))
 

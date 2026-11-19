@@ -547,10 +547,16 @@ class TestUpsertAlertTool(BaseTest):
         insight = await self._create_insight()
         await self._create_alert(insight, name="Active")
         disabled = await self._create_alert(insight, name="Disabled", enabled=False)
-        tool = self._setup_tool()
 
-        with mock.patch.object(AlertConfiguration, "ALERTS_ALLOWED_ON_FREE_TIER", 1):
-            content, artifact = await tool._arun_impl(action=UpdateAlertAction(alert_id=str(disabled.id), enabled=True))
+        def _limit_alerts_to_one() -> None:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ALERTS, "name": "Alerts", "limit": 1}
+            ]
+            self.organization.save()
+
+        await sync_to_async(_limit_alerts_to_one)()
+        tool = self._setup_tool()
+        content, artifact = await tool._arun_impl(action=UpdateAlertAction(alert_id=str(disabled.id), enabled=True))
 
         assert "allows 1 enabled alerts" in content.lower()
         assert artifact["error"] == "plan_limit_reached"
