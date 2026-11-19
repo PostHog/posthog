@@ -1171,14 +1171,16 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_time", "2026-11-20T09:00:00Z", ()),
-            ("an_empty_string", "", ()),
-            ("a_time_without_a_recipient", "2026-11-20T09:00:00Z", ("to",)),
+            ("a_time", "2026-11-20T09:00:00Z", (), True),
+            ("an_empty_string", "", (), True),
+            ("a_time_without_a_recipient", "2026-11-20T09:00:00Z", ("to",), True),
+            ("a_time_while_scheduled_sends_are_off", "2026-11-20T09:00:00Z", (), False),
         ]
     )
     def test_the_template_route_refuses_a_scheduled_at_for_good(
-        self, mock_post, _flag, _capture, _name, scheduled_at, without
+        self, mock_post, flag, _capture, _name, scheduled_at, without, scheduled_sends_on
     ):
+        flag.side_effect = lambda key, *_args, **_kwargs: scheduled_sends_on or key != EMAIL_SCHEDULED_SENDS_FLAG
         psak = self._psak_client(["hog_flow:write"])
 
         with FakeCdpApi().serving(mock_post) as cdp:
@@ -1186,7 +1188,7 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert (response.json()["type"], response.json()["attr"]) == ("validation_error", "scheduled_at")
-        assert "/api/messaging/send/email/" in response.json()["detail"]
+        assert ("/api/messaging/send/email/" in response.json()["detail"]) == scheduled_sends_on
         assert cdp.received == []
 
     @parameterized.expand(

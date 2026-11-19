@@ -546,11 +546,15 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
 
     def to_internal_value(self, data: Any) -> dict[str, Any]:
         if isinstance(data, Mapping) and data.get("scheduled_at") is not None:
+            team = self.context.get("team")
+            if team is not None and _flag_enabled(team, EMAIL_SCHEDULED_SENDS_FLAG):
+                fix = "To schedule it, send it with `template_id` on `/api/messaging/send/email/`, or leave out"
+            else:
+                fix = "Leave out"
             raise serializers.ValidationError(
                 {
-                    "scheduled_at": "This route doesn't schedule emails, so PostHog didn't send this one. To "
-                    "schedule it, send it with `template_id` on `/api/messaging/send/email/`, or leave out "
-                    "`scheduled_at` to send it now."
+                    "scheduled_at": "This route doesn't schedule emails, so PostHog didn't send this one. "
+                    f"{fix} `scheduled_at` to send it now."
                 }
             )
         return super().to_internal_value(data)
@@ -1605,6 +1609,7 @@ class MessageTemplatesViewSet(
 
     @validated_request(
         SendTransactionalEmailSerializer,
+        include_serializer_context=True,
         responses=SEND_RESPONSES,
         summary="Send a transactional email",
         description=(
