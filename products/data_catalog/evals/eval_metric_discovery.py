@@ -8,8 +8,16 @@ Run it once per surface:
 
 from __future__ import annotations
 
-from products.data_catalog.evals.catalog_seeders import seed_catalog_with_account_engagement, seed_catalog_with_mrr
-from products.data_catalog.evals.catalog_synthesizer import ACCOUNT_ENGAGEMENT_METRIC, MRR_METRIC
+from products.data_catalog.evals.catalog_seeders import (
+    seed_catalog_with_account_engagement,
+    seed_catalog_with_mrr,
+    seed_catalog_with_proposed_download_adoption,
+)
+from products.data_catalog.evals.catalog_synthesizer import (
+    ACCOUNT_ENGAGEMENT_METRIC,
+    MRR_METRIC,
+    NEW_USER_DOWNLOAD_ADOPTION_METRIC,
+)
 from products.data_catalog.evals.offline_config import offline_suite
 from products.data_catalog.evals.scorers import (
     CanonicalMetricRun,
@@ -82,6 +90,25 @@ async def eval_metric_discovery(ctx: EvalContext) -> None:
                 setup=seed_catalog_with_account_engagement,
             )
             for variant, prompt in _ACCOUNT_ACTIVITY_PROMPTS
+        ),
+        SandboxedEvalCase(
+            name="search_proposed_metric_for_adoption",
+            prompt="Are new users picking up file downloads? Show me adoption week by week.",
+            expected={
+                "metric_found": {"metric_name": NEW_USER_DOWNLOAD_ADOPTION_METRIC.name},
+                "canonical_metric_run": {"metric_name": NEW_USER_DOWNLOAD_ADOPTION_METRIC.name, "outcome": "succeeded"},
+                "trust_badge": {"shown": False},
+                "semantic_layer_answer": {
+                    "expected_behavior": (
+                        f"Find the {NEW_USER_DOWNLOAD_ADOPTION_METRIC.name} metric, run it, and report the weekly "
+                        "share of new signups who downloaded a file within 7 days. Say that the metric is proposed, "
+                        "not approved, so its numbers are not the governed definition. Say that the newest week is "
+                        "low because its signups have had less than 7 days. Do not use the share of all active users "
+                        "who downloaded, because that measures a different group."
+                    )
+                },
+            },
+            setup=seed_catalog_with_proposed_download_adoption,
         ),
     ]
 

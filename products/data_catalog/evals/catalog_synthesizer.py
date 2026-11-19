@@ -296,6 +296,61 @@ ACTIVATION_FUNNEL_METRIC = CatalogMetric(
     unit="percent",
 )
 
+# The seeder leaves this metric proposed, so an answer from it must say so and must not show the approved badge.
+# The noise catalog only has the share of all active users who downloaded, so no approved metric fits new users.
+NEW_USER_DOWNLOAD_ADOPTION_METRIC = CatalogMetric(
+    name="new_user_download_adoption",
+    display_name="New user download adoption",
+    description=(
+        "Share of each week's new signups who downloaded a file within 7 days of signing up, over the trailing "
+        "eight weeks."
+    ),
+    definition={
+        "kind": "HogQLQuery",
+        "query": (
+            "SELECT toStartOfWeek(signup_at) AS week,\n"
+            "    count() AS signups,\n"
+            "    countIf(first_download_at >= signup_at AND first_download_at <= signup_at + INTERVAL 7 DAY) AS adopters,\n"
+            "    round(100 * adopters / signups, 1) AS adoption_pct\n"
+            "FROM (\n"
+            "    SELECT person_id,\n"
+            "        minIf(timestamp, event = 'signed_up') AS signup_at,\n"
+            "        minIf(timestamp, event = 'downloaded_file') AS first_download_at\n"
+            "    FROM events\n"
+            "    WHERE event IN ('signed_up', 'downloaded_file') AND timestamp >= now() - INTERVAL 8 WEEK\n"
+            "    GROUP BY person_id\n"
+            "    HAVING countIf(event = 'signed_up') > 0\n"
+            ")\n"
+            "GROUP BY week\n"
+            "ORDER BY week"
+        ),
+    },
+    unit="percent",
+)
+
+TOOL_FAILURE_RATE_METRIC = CatalogMetric(
+    name="agent_tool_failure_rate",
+    display_name="Agent tool failure rate",
+    description=(
+        "Share of agent tool calls that failed, per day over the trailing 7 days. A failure is a $mcp_tool_call "
+        "event whose $mcp_is_error is true."
+    ),
+    definition={
+        "kind": "HogQLQuery",
+        "query": (
+            "SELECT toStartOfDay(timestamp) AS day,\n"
+            "    count() AS calls,\n"
+            "    round(100 * countIf(toBool(properties.$mcp_is_error)) / count(), 2) AS failure_pct\n"
+            "FROM events\n"
+            "WHERE event = '$mcp_tool_call'\n"
+            "  AND timestamp >= now() - INTERVAL 7 DAY\n"
+            "GROUP BY day\n"
+            "ORDER BY day"
+        ),
+    },
+    unit="percent",
+)
+
 # Both churn branches read Hedgebox events, so the markdown cases need no warehouse table.
 CHURN_RISK_DOWNGRADE_BRANCH = "downgraded_plan"
 CHURN_RISK_DELETION_BRANCH = "deleted_file"

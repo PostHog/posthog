@@ -15,6 +15,7 @@ from products.data_catalog.evals import scenario_synthesizer as pack
         ("share_drop_flag", pack.build_share_drop_flag),
         ("share_dau", pack.build_share_dau),
         ("mcp_tool_shipped", pack.build_mcp_tool_shipped),
+        ("mcp_tool_failures", pack.build_mcp_tool_failures),
         ("revenue_rep_outlier", pack.build_revenue_rep_outlier),
         ("slack_export", pack.build_slack_export),
     ]
@@ -29,6 +30,7 @@ def test_planted_people_carry_the_pack_token_and_a_reserved_domain() -> None:
         + pack.build_wau_bot_spike().persons
         + pack.build_share_drop_flag().events.persons
         + pack.build_mcp_tool_shipped().persons
+        + pack.build_mcp_tool_failures().persons
         + pack.build_share_dau().persons
     )
     assert all(pack.PACK_TOKEN in person.distinct_id for person in persons)
@@ -123,6 +125,21 @@ def test_mcp_export_tool_ships_mid_window_and_correlates_with_share() -> None:
     with_export = [tools[pack.MCP_SHARE_TOOL] for tools in sessions.values() if tools[pack.MCP_EXPORT_TOOL]]
     without_export = [tools[pack.MCP_SHARE_TOOL] for tools in sessions.values() if not tools[pack.MCP_EXPORT_TOOL]]
     assert sum(with_export) / len(with_export) == 3 * sum(without_export) / len(without_export)
+
+
+def test_mcp_failing_tool_fails_more_in_the_last_week_and_other_tools_never_fail() -> None:
+    events = pack.build_mcp_tool_failures().events
+    failing = [event for event in events if event.properties["tool_name"] == pack.MCP_FAILING_TOOL]
+
+    def failure_share(recent: bool) -> float:
+        calls = [event for event in failing if (event.days_ago <= pack.MCP_FAILURE_RISE_DAYS) == recent]
+        return sum(event.properties["$mcp_is_error"] for event in calls) / len(calls)
+
+    assert round(failure_share(recent=False), 2) == 0.05
+    assert round(failure_share(recent=True), 2) == 0.33
+    assert not any(
+        event.properties["$mcp_is_error"] for event in events if event.properties["tool_name"] != pack.MCP_FAILING_TOOL
+    )
 
 
 def test_slack_export_holds_one_pretax_note() -> None:

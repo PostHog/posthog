@@ -3,6 +3,8 @@
 Each case plants one truth from the scenario pack (``scenario_synthesizer.py``) and pairs a
 deterministic check on the tool chain with a judge on the answer. The two midchain cases seed
 governed metrics instead, and grade that the agent uses them inside a larger task.
+The two no-metric cases seed only metrics that do not fit, so the agent must check the catalog, find no
+match, and then define the measure itself.
 
 To run the suite, once per surface:
 
@@ -12,7 +14,11 @@ To run the suite, once per surface:
 
 from __future__ import annotations
 
-from products.data_catalog.evals.catalog_seeders import seed_catalog_for_board_update, seed_pricing_metrics
+from products.data_catalog.evals.catalog_seeders import (
+    seed_catalog_for_board_update,
+    seed_catalog_noise_only,
+    seed_pricing_metrics,
+)
 from products.data_catalog.evals.catalog_synthesizer import (
     ACCOUNT_ENGAGEMENT_METRIC,
     MRR_METRIC,
@@ -267,6 +273,38 @@ async def eval_analysis_diligence(ctx: EvalContext) -> None:
                 },
             },
             setup=seed_share_dau,
+        ),
+        SandboxedEvalCase(
+            name="percentile_no_metric",
+            prompt="What's the 95th percentile size of uploaded files over the last 30 days, by file type?",
+            expected={
+                "metrics_catalog_queried": {},
+                "analysis_diligence": {
+                    "expected_behavior": (
+                        "Check the metrics catalog and find that no governed metric measures file size. State the "
+                        "definition used: the 95th percentile of file_size_b on uploaded_file events over the last "
+                        "30 days, per file_type. Say that file_size_b is in bytes, and give the sizes in a readable "
+                        "unit such as MB."
+                    )
+                },
+            },
+            setup=seed_catalog_noise_only,
+        ),
+        SandboxedEvalCase(
+            name="size_change_no_metric",
+            prompt="We're thinking of capping free accounts at 2 GB of storage. How many free accounts are over that today?",
+            expected={
+                "metrics_catalog_queried": {},
+                "analysis_diligence": {
+                    "expected_behavior": (
+                        "Check the metrics catalog and find that no governed metric measures account storage. Count "
+                        "the accounts whose plan is personal/free and whose used_mb is above 2 GB. Find that used_mb "
+                        "holds bytes despite its name, so the limit is about 2 billion in that property, not 2,048. "
+                        "State the definition used and which value of 2 GB it applies."
+                    )
+                },
+            },
+            setup=seed_catalog_noise_only,
         ),
         SandboxedEvalCase(
             name="adoption_with_first_seen",
