@@ -87,3 +87,34 @@ export function videoSecondsForSessionSeconds(
     }
     return clamp(last.videoTo ?? last.videoFrom)
 }
+
+/**
+ * The second of the recording that `videoSeconds` into the rendered video shows: the inverse of
+ * `videoSecondsForSessionSeconds`. A frame where a skipped stretch was cut maps to where playback resumed.
+ */
+export function sessionSecondsForVideoSeconds(
+    videoSeconds: number,
+    context: ReplayVideoExportContext | undefined
+): number {
+    const at = isFiniteNumber(videoSeconds) ? Math.max(0, videoSeconds) : 0
+    const periods = mappedPeriods(context?.inactivity_periods)
+    const last = periods.at(-1)
+    if (!last) {
+        return at
+    }
+    for (const period of periods) {
+        if (at < period.videoFrom) {
+            return period.sessionFrom
+        }
+        const { sessionFrom, sessionTo, videoFrom, videoTo } = period
+        if (videoTo === null) {
+            return period.active ? sessionFrom + (at - videoFrom) : sessionFrom
+        }
+        if (at <= videoTo && videoTo > videoFrom) {
+            return sessionTo === null
+                ? sessionFrom + (at - videoFrom)
+                : sessionFrom + ((at - videoFrom) * (sessionTo - sessionFrom)) / (videoTo - videoFrom)
+        }
+    }
+    return last.sessionTo ?? last.sessionFrom
+}

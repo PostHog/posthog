@@ -51,6 +51,7 @@ jobs:
                       core.info(safe ? 'Compare the complete push range.' : 'Full checks: push baseline is not green.');
                       return safe;
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: github.event_name == 'pull_request' || (steps.baseline.outcome == 'success' && steps.baseline.outputs.result == 'true')
               with:
                   clean: false
                   sparse-checkout: .github/actions/paths-filter
@@ -238,10 +239,10 @@ jobs:
                   echo "Generated Python proto stubs are up to date."
 
     node-codegen:
-        name: Check Node proto stubs are up to date (depot-ubuntu-22.04-4)
+        name: Check Node proto stubs are up to date (depot-ubuntu-22.04)
         needs: changes
         if: needs.changes.outputs.proto == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        runs-on: depot-ubuntu-22.04
         timeout-minutes: 10
 
         steps:

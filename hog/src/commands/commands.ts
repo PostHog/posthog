@@ -22,8 +22,7 @@ export default defineCommand({
     human({ result, out }) {
         const width = Math.max(...result.commands.map((entry) => entry.name.length)) + 2
         for (const entry of result.commands) {
-            const use = entry.use ? out.style(`  (use ${entry.use})`, 'dim') : ''
-            out.line(`  ${entry.name.padEnd(width)}${entry.description}${use}`)
+            out.line(`  ${entry.name.padEnd(width)}${entry.description}`)
         }
     },
 })

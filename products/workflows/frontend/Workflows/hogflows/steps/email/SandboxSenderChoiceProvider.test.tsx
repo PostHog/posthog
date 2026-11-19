@@ -216,7 +216,7 @@ describe('SandboxSenderChoiceProvider', () => {
         async (decision, expected) => {
             await renderStep(ownStep({ replyTo: 'help@example.com' }))
 
-            fireEvent.click(within(openFromPicker()).getByText('Sandbox sender'))
+            fireEvent.click(within(openFromPicker()).getByText('PostHog test sender'))
             fireEvent.click(await screen.findByText(decision))
 
             await waitFor(() => expect(storedStep()?.type).toEqual(expected))
@@ -224,9 +224,9 @@ describe('SandboxSenderChoiceProvider', () => {
     )
 
     it.each<[string, string, HogFlowAction, string, string]>([
-        ['an own step to the sandbox sender', 'legacy', ownStep(), 'Sandbox sender', 'email_sandbox'],
+        ['an own step to the PostHog test sender', 'legacy', ownStep(), 'PostHog test sender', 'email_sandbox'],
         ['a sandbox step to an own sender', 'legacy', SANDBOX_STEP, 'hello@example.com', 'function_email'],
-        ['an own step to the sandbox sender', 'sender row', ownStep(), 'Sandbox sender', 'email_sandbox'],
+        ['an own step to the PostHog test sender', 'sender row', ownStep(), 'PostHog test sender', 'email_sandbox'],
         ['a sandbox step to an own sender', 'sender row', SANDBOX_STEP, 'hello@example.com', 'function_email'],
     ])(
         'switches %s from the open editor with the %s header, which stays open and keeps a canvas edit not yet exported',
@@ -257,6 +257,6 @@ describe('SandboxSenderChoiceProvider', () => {
         })
         await renderStep(ownStep())
 
-        expect(within(openFromPicker()).queryByText('Sandbox sender')).not.toBeInTheDocument()
+        expect(within(openFromPicker()).queryByText('PostHog test sender')).not.toBeInTheDocument()
     })
 })

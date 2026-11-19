@@ -47,6 +47,7 @@ import { ToolDetailIntentsSection } from './clustering/ToolDetailIntentsSection'
 import { dimWhileLoading } from './components/loadingFeedback'
 import { McpDateFilter } from './components/McpDateFilter'
 import { McpSharedFilters } from './components/McpSharedFilters'
+import { TableLoadingBar } from './components/TableLoadingBar'
 import { ChartSkeleton } from './dashboard/ChartSkeleton'
 import { formatMs, formatMsAsSeconds, formatNumber } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
@@ -161,65 +162,78 @@ function ResultTable({
                     {action}
                 </CardHeader>
             )}
-            <Table fullWidth>
-                <TableHeader>
-                    <TableRow>
-                        {columns.map((col, i) => (
-                            <TableHead key={i} align={col.align} expand={col.expand} className={col.className}>
-                                {col.header}
-                            </TableHead>
-                        ))}
-                    </TableRow>
-                </TableHeader>
-                {loading && rows.length === 0 ? (
-                    <TableBody aria-busy>
-                        {SKELETON_ROW_WIDTHS.map((width, i) => (
-                            <TableRow key={i}>
-                                {columns.map((col, j) => (
-                                    <TableCell key={j} align={col.align} expand={col.expand} className={col.className}>
-                                        <SkeletonLine
-                                            className={col.align === 'right' ? 'ml-auto w-10' : undefined}
-                                            style={col.align === 'right' ? undefined : { width }}
-                                        />
-                                    </TableCell>
-                                ))}
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                ) : rows.length === 0 ? (
-                    <TableEmpty className="py-6 text-secondary">{emptyMessage}</TableEmpty>
-                ) : (
-                    <TableBody aria-busy={loading} className={dimWhileLoading(loading)}>
-                        {rows.map((row, i) => (
-                            <TableRow
-                                key={i}
-                                className={onRowClick ? 'cursor-pointer hover:bg-fill-highlight-50' : undefined}
-                                onClick={onRowClick ? () => onRowClick(i) : undefined}
-                                // A bare <tr> isn't keyboard-operable — mirror the tracing tables'
-                                // pattern so the drill-down opens on Enter/Space too.
-                                role={onRowClick ? 'button' : undefined}
-                                tabIndex={onRowClick ? 0 : undefined}
-                                onKeyDown={
-                                    onRowClick
-                                        ? (e: React.KeyboardEvent) => {
-                                              if (e.key === 'Enter' || e.key === ' ') {
-                                                  e.preventDefault()
-                                                  onRowClick(i)
+            <div className="relative">
+                <Table fullWidth>
+                    <TableHeader>
+                        <TableRow>
+                            {columns.map((col, i) => (
+                                <TableHead key={i} align={col.align} expand={col.expand} className={col.className}>
+                                    {col.header}
+                                </TableHead>
+                            ))}
+                        </TableRow>
+                    </TableHeader>
+                    {loading && rows.length === 0 ? (
+                        <TableBody aria-busy>
+                            {SKELETON_ROW_WIDTHS.map((width, i) => (
+                                <TableRow key={i}>
+                                    {columns.map((col, j) => (
+                                        <TableCell
+                                            key={j}
+                                            align={col.align}
+                                            expand={col.expand}
+                                            className={col.className}
+                                        >
+                                            <SkeletonLine
+                                                className={col.align === 'right' ? 'ml-auto w-10' : undefined}
+                                                style={col.align === 'right' ? undefined : { width }}
+                                            />
+                                        </TableCell>
+                                    ))}
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    ) : rows.length === 0 ? (
+                        <TableEmpty className="py-6 text-secondary">{emptyMessage}</TableEmpty>
+                    ) : (
+                        <TableBody aria-busy={loading} className={dimWhileLoading(loading)}>
+                            {rows.map((row, i) => (
+                                <TableRow
+                                    key={i}
+                                    className={onRowClick ? 'cursor-pointer hover:bg-fill-highlight-50' : undefined}
+                                    onClick={onRowClick ? () => onRowClick(i) : undefined}
+                                    // A bare <tr> isn't keyboard-operable — mirror the tracing tables'
+                                    // pattern so the drill-down opens on Enter/Space too.
+                                    role={onRowClick ? 'button' : undefined}
+                                    tabIndex={onRowClick ? 0 : undefined}
+                                    onKeyDown={
+                                        onRowClick
+                                            ? (e: React.KeyboardEvent) => {
+                                                  if (e.key === 'Enter' || e.key === ' ') {
+                                                      e.preventDefault()
+                                                      onRowClick(i)
+                                                  }
                                               }
-                                          }
-                                        : undefined
-                                }
-                            >
-                                {columns.map((col, ci) => (
-                                    <TableCell key={ci} align={col.align} expand={col.expand} className={col.className}>
-                                        {col.render(row)}
-                                    </TableCell>
-                                ))}
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                )}
-            </Table>
+                                            : undefined
+                                    }
+                                >
+                                    {columns.map((col, ci) => (
+                                        <TableCell
+                                            key={ci}
+                                            align={col.align}
+                                            expand={col.expand}
+                                            className={col.className}
+                                        >
+                                            {col.render(row)}
+                                        </TableCell>
+                                    ))}
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    )}
+                </Table>
+                <TableLoadingBar loading={loading && rows.length > 0} />
+            </div>
         </Card>
     )
 }

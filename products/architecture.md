@@ -129,7 +129,7 @@ These cross the boundary as classes — allowed only under all three rules:
    Import linters (tach, import-linter) see only the import graph; _what an object is_ can only be checked at runtime, at the door.
    `MaxTool` is the reference implementation: a class registers itself by subclassing (`__init_subclass__` in `ee/hogai/tool.py`), so only a `MaxTool` enters the registry, and the hook rejects an unknown tool name.
    Celery task discovery and `get_query_runner` do not validate yet: they accept whatever the wiring location holds.
-   The Temporal worker validates a product's declaration (see [Temporal](#temporal)), but not the registration lists that a product without one still hands out.
+   The Temporal worker validates every product's declaration (see [Temporal](#temporal)), and refuses to start when a `facade/temporal.py` has none.
 
 Django models never cross, with or without an approved base.
 A model cannot be narrowed: whatever interface it presents, the object still carries managers, `save()`/`delete()`, FK descriptors that query other tables on attribute access, and reverse relations added by other apps.
@@ -255,7 +255,7 @@ Core finds the declaration with `load_product_modules("facade.temporal")` and ne
 The module holds nothing else: no list, no workflow class, no activity, no helper.
 Only core's Temporal loaders and the product's own tests read it.
 `products/review_hog/backend/facade/temporal.py` is the reference.
-A product that still hands out `WORKFLOWS` and `ACTIVITIES` lists moves to a declaration, and a new Temporal move uses one from the start.
+A `facade/temporal.py` without `TEMPORAL` stops every worker at startup, and CI fails on it first.
 
 **Validation.**
 Core validates every declaration before a worker starts and before schedules apply.

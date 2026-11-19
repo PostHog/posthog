@@ -20,6 +20,7 @@ from structlog.testing import capture_logs
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Team, User
+from posthog.models.event.new_events_schema import EVENTS_TABLE_ROLLOUT_FLAG
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import (
@@ -169,12 +170,18 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     )
 
 
-@pytest.mark.parametrize("use_native_schema", [False, True])
+@pytest.mark.parametrize(
+    "use_native_schema,rollout_flag_on,expected_table",
+    [(False, False, "events"), (True, False, "events_json"), (False, True, "events")],
+    ids=["legacy", "native", "rollout-flag-on"],
+)
 async def test_insert_into_stage_activity_reads_native_events_for_workflows(
     mock_clickhouse_client,
     activity_environment,
     ateam,
     use_native_schema: bool,
+    rollout_flag_on: bool,
+    expected_table: str,
 ):
     insert_inputs = BatchExportInsertIntoInternalStageInputs(
         team_id=ateam.pk,
@@ -190,13 +197,18 @@ async def test_insert_into_stage_activity_reads_native_events_for_workflows(
         destination_default_fields=None,
     )
 
-    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema):
+    with (
+        override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema),
+        patch("posthog.models.event.new_events_schema.is_cloud", return_value=rollout_flag_on),
+        patch(
+            "posthog.models.event.new_events_schema.posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag == EVENTS_TABLE_ROLLOUT_FLAG,
+        ),
+    ):
         await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
 
-    if use_native_schema:
-        mock_clickhouse_client.expect_select_from_table("events_json")
-    else:
-        mock_clickhouse_client.expect_select_from_table("events")
+    mock_clickhouse_client.expect_select_from_table(expected_table)
+    if expected_table == "events":
         assert "events_json" not in mock_clickhouse_client.calls[0].query
 
 

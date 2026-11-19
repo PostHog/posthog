@@ -3,6 +3,9 @@ import threading
 import pytest
 from unittest.mock import Mock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from redis.exceptions import (
     ConnectionError as RedisConnectionError,
     LockNotOwnedError,
@@ -13,12 +16,16 @@ from posthog.models.team import Team
 from posthog.redis import get_client
 
 from products.aeo.backend import keyword_suggestions
+from products.aeo.backend.facade.api import get_prompt_set_overview
+from products.aeo.backend.facade.contracts import DEFAULT_STATS_DAYS
+from products.aeo.backend.models import AEOCitationCheck
 from products.aeo.backend.tasks import tasks
 from products.aeo.backend.tasks.tasks import (
     recompute_aeo_own_citations_task,
     run_aeo_citation_checks_for_team_task,
     suggest_aeo_keywords_task,
 )
+from products.aeo.backend.test.factories import create_citation_check, create_own_brand
 
 
 @pytest.fixture
@@ -93,6 +100,25 @@ def test_a_recompute_retries_while_another_one_holds_the_team(team: Team) -> Non
 
     recompute.assert_not_called()
     held.release()
+
+
+def test_refresh_fills_checks_from_before_the_stored_values_and_then_stores_the_views(team: Team) -> None:
+    create_own_brand(team, "example.com")
+    check_id = create_citation_check(team, "example")
+
+    with (
+        patch.object(tasks.recompute_aeo_own_citations_task, "delay", tasks.recompute_aeo_own_citations_task),
+        patch.object(
+            tasks.refresh_aeo_stored_results_for_team_task, "delay", tasks.refresh_aeo_stored_results_for_team_task
+        ),
+    ):
+        tasks.refresh_aeo_stored_results_for_team_task(team.id)
+
+    assert AEOCitationCheck.objects.for_team(team.id).get(id=check_id).prompt_branded is True
+    with CaptureQueriesContext(connection) as queries:
+        overview = get_prompt_set_overview(team.id, timezone_name=team.timezone, days=DEFAULT_STATS_DAYS)
+    assert overview.current.checks == 1
+    assert [q["sql"] for q in queries.captured_queries if "posthog_aeo_citation_check" in q["sql"]] == []
 
 
 def test_lease_renewal_survives_a_redis_blip_and_stops_the_run_once_the_lease_is_lost(monkeypatch) -> None:

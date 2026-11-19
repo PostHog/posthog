@@ -86,6 +86,12 @@ def test_a_complete_declaration_is_valid() -> None:
         (TemporalRegistration(queues=(_binding(workflows=(OtherProductWorkflow,)),)), "which other_product owns"),
         (TemporalRegistration(interceptors=(object,)), "no Interceptor class"),  # type: ignore[arg-type]
         (TemporalRegistration(interceptors=(QueuelessInterceptor,)), "names no task_queue"),
+        (
+            TemporalRegistration(
+                histograms=(HistogramSpec(metric_name="fixture_latency", buckets=(1.0,), queue_setting="SITE_URL"),)
+            ),
+            "no task queue setting",
+        ),
     ],
     ids=[
         "not a registration",
@@ -96,11 +102,25 @@ def test_a_complete_declaration_is_valid() -> None:
         "another product's workflow",
         "interceptor of the wrong type",
         "interceptor without task queue",
+        "histogram on no queue setting",
     ],
 )
 def test_validation_rejects(registration: object, message: str) -> None:
     with pytest.raises(TemporalRegistrationError, match=message):
         validate_registration("fixture_product", registration)
+
+
+def _facade_module(product: str, registration: TemporalRegistration | None) -> SimpleNamespace:
+    module = SimpleNamespace(__name__=f"products.{product}.backend.facade.temporal")
+    if registration is not None:
+        module.TEMPORAL = registration
+    return module
+
+
+def _histogram(buckets: tuple[float, ...], queue_setting: str | None = None) -> TemporalRegistration:
+    return TemporalRegistration(
+        histograms=(HistogramSpec(metric_name="fixture_latency", buckets=buckets, queue_setting=queue_setting),)
+    )
 
 
 @pytest.mark.parametrize(
@@ -111,25 +131,45 @@ def test_validation_rejects(registration: object, message: str) -> None:
             TemporalRegistration(queues=(_binding(workflows=(OtherProductWorkflow,), activities=()),)),
             "both declare a workflow named 'registration-fixture-workflow'",
         ),
+        (_histogram((1.0,)), _histogram((5.0,)), "both declare buckets for the metric 'fixture_latency'"),
         (
-            TemporalRegistration(histograms=(HistogramSpec(metric_name="fixture_latency", buckets=(1.0,)),)),
-            TemporalRegistration(histograms=(HistogramSpec(metric_name="fixture_latency", buckets=(5.0,)),)),
+            _histogram((1.0,)),
+            _histogram((5.0,), queue_setting="MAX_AI_TASK_QUEUE"),
             "both declare buckets for the metric 'fixture_latency'",
         ),
+        (
+            TemporalRegistration(
+                histograms=(
+                    HistogramSpec(metric_name="fixture_latency", buckets=(1.0,)),
+                    HistogramSpec(metric_name="fixture_latency", buckets=(5.0,), queue_setting="MAX_AI_TASK_QUEUE"),
+                )
+            ),
+            TemporalRegistration(),
+            "both declare buckets for the metric 'fixture_latency'",
+        ),
+        (TemporalRegistration(), None, "other_product: facade.temporal must declare TEMPORAL"),
     ],
-    ids=["one workflow name on one queue", "one histogram metric"],
+    ids=[
+        "one workflow name on one queue",
+        "one histogram metric",
+        "one histogram metric on every queue",
+        "one metric twice in one product",
+        "no declaration",
+    ],
 )
-def test_loading_rejects_two_products_that_declare_the_same_name(
-    first: TemporalRegistration, second: TemporalRegistration, message: str
-) -> None:
-    modules = [
-        SimpleNamespace(__name__="products.fixture_product.backend.facade.temporal", TEMPORAL=first),
-        SimpleNamespace(__name__="products.other_product.backend.facade.temporal", TEMPORAL=second),
-        # A product that still hands out lists has no declaration, and loading skips it.
-        SimpleNamespace(__name__="products.legacy_product.backend.facade.temporal"),
-    ]
+def test_loading_rejects(first: TemporalRegistration, second: TemporalRegistration | None, message: str) -> None:
+    modules = [_facade_module("fixture_product", first), _facade_module("other_product", second)]
     with (
         patch("posthog.temporal.common.registration.load_product_modules", return_value=modules),
         pytest.raises(TemporalRegistrationError, match=message),
     ):
         load_registrations.__wrapped__()
+
+
+def test_loading_accepts_one_histogram_metric_on_two_queues() -> None:
+    modules = [
+        _facade_module("fixture_product", _histogram((1.0,), queue_setting="MAX_AI_TASK_QUEUE")),
+        _facade_module("other_product", _histogram((5.0,), queue_setting="TASKS_TASK_QUEUE")),
+    ]
+    with patch("posthog.temporal.common.registration.load_product_modules", return_value=modules):
+        assert set(load_registrations.__wrapped__()) == {"fixture_product", "other_product"}

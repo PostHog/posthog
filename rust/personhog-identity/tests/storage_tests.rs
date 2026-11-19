@@ -1,14 +1,17 @@
 mod common;
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{TimeZone, Utc};
 use common::TestContext;
+use rstest::rstest;
 use uuid::Uuid;
 
 use personhog_common::persons::person_uuid;
 use personhog_identity::config::OutboxWrites;
+use personhog_identity::storage::coalesce::{CoalesceSettings, CoalescingIdentityStorage};
 use personhog_identity::storage::{AttachOutcome, IdentityStorage, PersonStub, StubOutcome};
 
 /// Storage-assertion helpers used only by this test binary.
@@ -71,9 +74,8 @@ impl TestContext {
         sqlx::query_scalar(
             r#"
             INSERT INTO posthog_person
-                (created_at, properties, properties_last_updated_at, properties_last_operation,
-                 team_id, is_identified, uuid, version, is_deleted)
-            VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, false, $2, $3, true)
+                (created_at, properties, team_id, is_identified, uuid, version, is_deleted)
+            VALUES (now(), '{}'::jsonb, $1, false, $2, $3, true)
             RETURNING id
             "#,
         )
@@ -351,13 +353,29 @@ async fn batch_mixes_created_existing_and_lost_race_outcomes_per_row() {
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::own_transactions(false)]
+#[case::coalesced(true)]
 #[tokio::test]
-async fn concurrent_creates_for_one_distinct_id_create_exactly_once() {
+async fn concurrent_creates_for_one_distinct_id_create_exactly_once(#[case] coalesced: bool) {
     let ctx = TestContext::new().await;
+    let storage: Arc<dyn IdentityStorage> = if coalesced {
+        Arc::new(CoalescingIdentityStorage::spawn(
+            ctx.storage.clone(),
+            CoalesceSettings {
+                workers: 2,
+                max_batch_distinct_ids: 50,
+                max_queued_calls: 100,
+                max_queue_wait: Duration::from_secs(60),
+            },
+        ))
+    } else {
+        ctx.storage.clone()
+    };
 
     let tasks: Vec<_> = (0..8)
         .map(|_| {
-            let storage = ctx.storage.clone();
+            let storage = storage.clone();
             let stub = stub(&ctx, "race-key", &[]);
             tokio::spawn(async move { storage.create_person_stubs(&[stub]).await })
         })
@@ -398,9 +416,8 @@ async fn create_blocked_on_uncommitted_winner_resolves_to_it_after_commit() {
     let winner_id: i64 = sqlx::query_scalar(
         r#"
         INSERT INTO posthog_person
-            (created_at, properties, properties_last_updated_at, properties_last_operation,
-             team_id, is_identified, uuid, version)
-        VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, false, $2, 0)
+            (created_at, properties, team_id, is_identified, uuid, version)
+        VALUES (now(), '{}'::jsonb, $1, false, $2, 0)
         RETURNING id
         "#,
     )
@@ -460,9 +477,8 @@ async fn multi_row_create_waits_for_a_holder_locking_in_id_order() {
         let id = sqlx::query_scalar(
             r#"
             INSERT INTO posthog_person
-                (created_at, properties, properties_last_updated_at, properties_last_operation,
-                 team_id, is_identified, uuid, version)
-            VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, false, $2, 0)
+                (created_at, properties, team_id, is_identified, uuid, version)
+            VALUES (now(), '{}'::jsonb, $1, false, $2, 0)
             RETURNING id
             "#,
         )
@@ -547,9 +563,8 @@ async fn create_blocked_on_uncommitted_mapping_rolls_back_as_lost_race() {
     let other_id: i64 = sqlx::query_scalar(
         r#"
         INSERT INTO posthog_person
-            (created_at, properties, properties_last_updated_at, properties_last_operation,
-             team_id, is_identified, uuid, version)
-        VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, false, gen_random_uuid(), 0)
+            (created_at, properties, team_id, is_identified, uuid, version)
+        VALUES (now(), '{}'::jsonb, $1, false, gen_random_uuid(), 0)
         RETURNING id
         "#,
     )

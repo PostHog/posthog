@@ -1,9 +1,11 @@
 """
 Cloudflare Turnstile integration for challenge verification.
 
-Provides token verification against Cloudflare's siteverify API and
-single-use nonce management via Redis for tying challenges to specific
-signup attempts.
+When WorkOS Radar answers "challenge" for a signup or a login, Turnstile is the
+challenge the person solves. This module verifies Turnstile tokens against
+Cloudflare's siteverify API. It also keeps a single-use nonce in Redis that ties
+each challenge to the Radar attempt that asked for it, so a solved challenge can
+be reported against that attempt.
 """
 
 import uuid
@@ -59,21 +61,27 @@ def verify_turnstile_token(token: str, remote_ip: str) -> bool:
         return False
 
 
-def create_challenge_nonce(email: str, ip_address: str) -> str:
+# The value for a challenged attempt without a Radar ID, and the value that nonces from older releases hold
+_NO_ATTEMPT_ID = "1"
+
+
+def create_challenge_nonce(email: str, ip_address: str, radar_attempt_id: str = "") -> str:
     identity_hash = _nonce_identity_hash(email, ip_address)
     nonce = f"challenge:{identity_hash}:{uuid.uuid4()}"
     redis_key = f"turnstile_nonce:{nonce}"
-    get_client().setex(redis_key, CHALLENGE_NONCE_TTL_SECONDS, "1")
+    # The ID stays on the server, so the browser cannot name another attempt to report as a success
+    get_client().setex(redis_key, CHALLENGE_NONCE_TTL_SECONDS, radar_attempt_id or _NO_ATTEMPT_ID)
     return nonce
 
 
-def validate_and_consume_nonce(nonce: str, email: str, ip_address: str) -> bool:
+def consume_challenge_nonce(nonce: str, email: str, ip_address: str) -> str | None:
+    """Return the Radar attempt ID stored with the nonce ("" when there is none), or None when the nonce is not valid."""
     if not nonce.startswith("challenge:"):
-        return False
+        return None
 
     parts = nonce.split(":")
     if len(parts) != 3:
-        return False
+        return None
 
     expected_hash = _nonce_identity_hash(email, ip_address)
     if parts[1] != expected_hash:
@@ -82,12 +90,16 @@ def validate_and_consume_nonce(nonce: str, email: str, ip_address: str) -> bool:
             expected_hash=expected_hash,
             got_hash=parts[1],
         )
-        return False
+        return None
 
     redis_key = f"turnstile_nonce:{nonce}"
-    deleted = get_client().delete(redis_key)
+    pipeline = get_client().pipeline(transaction=True)
+    pipeline.get(redis_key)
+    pipeline.delete(redis_key)
+    stored, deleted = pipeline.execute()
     if deleted == 0:
         logger.warning("turnstile_nonce_not_found_or_expired")
-        return False
+        return None
 
-    return True
+    attempt_id = stored.decode() if isinstance(stored, bytes) else str(stored)
+    return "" if attempt_id == _NO_ATTEMPT_ID else attempt_id

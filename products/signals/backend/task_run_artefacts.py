@@ -538,6 +538,25 @@ def record_report_task(
     )
 
 
+def attribute_task_run_to_scout(
+    *, team_id: int, report_id: str, task_id: str, skill_name: str, scout_run_id: str
+) -> None:
+    """Name the scout run that started a report's task on the task's work-log entry.
+
+    The tasks facade writes the entry when it creates the task and knows nothing about scouts, so
+    the attribution is added after the start returns.
+    """
+    for artefact in SignalReportArtefact.objects.filter(
+        team_id=team_id, report_id=report_id, task_id=task_id, type=SignalReportArtefact.ArtefactType.TASK_RUN
+    ):
+        try:
+            content = TaskRunArtefact.model_validate_json(artefact.content)
+        except ValidationError:
+            continue
+        content = content.model_copy(update={"started_by_scout": skill_name, "started_by_scout_run_id": scout_run_id})
+        SignalReportArtefact.objects.filter(id=artefact.id).update(content=content.model_dump_json())
+
+
 def release_quota_cancelled_implementation(*, team_id: int, task_id: str) -> list[str]:
     """Remove implementation gates so a quota-cancelled report can run again.
 

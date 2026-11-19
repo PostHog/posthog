@@ -132,7 +132,7 @@ def _write_rust_root(root: Path, workspace_dep: str, workspace_lock: list[tuple[
         "".join(f'[[package]]\nname = "{name}"\nversion = "{version}"\n\n' for name, version in workspace_lock)
     )
     (root / "cli" / "Cargo.toml").write_text(f"[dependencies]\n{cli_dep}\n")
-    (root / "cli" / "Cargo.lock").write_text('[[package]]\nname = "posthog-rs"\nversion = "0.30.0"\n')
+    (root / "cli" / "Cargo.lock").write_text('[[package]]\nname = "posthog"\nversion = "1.0.0"\n')
 
 
 @pytest.mark.parametrize(
@@ -163,7 +163,7 @@ def _write_rust_root(root: Path, workspace_dep: str, workspace_lock: list[tuple[
 def test_check_rust_reads_either_crate_name_and_every_lock_entry(
     tmp_path: Path, workspace_dep: str, workspace_lock: list[tuple[str, str]], problem: str | None
 ) -> None:
-    _write_rust_root(tmp_path, workspace_dep, workspace_lock, 'posthog-rs = { version = "=0.30.0" }')
+    _write_rust_root(tmp_path, workspace_dep, workspace_lock, f"posthog = {GIT_POSTHOG}")
 
     problems = guard.check_rust(tmp_path)
 
@@ -174,11 +174,11 @@ def test_check_rust_reads_either_crate_name_and_every_lock_entry(
         assert problems[0].startswith(problem)
 
 
-def test_check_rust_holds_the_cli_on_its_own_major(tmp_path: Path) -> None:
+def test_check_rust_applies_the_expected_major_to_the_cli(tmp_path: Path) -> None:
     _write_rust_root(
-        tmp_path, f"posthog = {GIT_POSTHOG}", [("posthog", "1.0.0")], 'posthog-rs = { version = "=1.1.0" }'
+        tmp_path, f"posthog = {GIT_POSTHOG}", [("posthog", "1.0.0")], 'posthog-rs = { version = "=0.30.0" }'
     )
 
     assert guard.check_rust(tmp_path) == [
-        "cli/Cargo.toml: posthog-rs = '=1.1.0', expected major 0. " + guard.MIGRATION_HINT,
+        "cli/Cargo.toml: posthog-rs = '=0.30.0', expected major 1. " + guard.MIGRATION_HINT,
     ]
