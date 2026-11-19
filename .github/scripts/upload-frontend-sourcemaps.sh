@@ -30,19 +30,30 @@ jq --arg ignore "**/$STABLE_CHUNKS" \
     "$config" >posthog.json
 export HOG_NO_UPDATE_CHECK=1
 
-"$hog" error-tracking process -o text \
+# Fails the script unless every symbol set reached PostHog and hog skipped no file, so the maps are
+# deleted only when error tracking holds each of them. hog exits 0 after skipping a map that is too
+# large or unreadable.
+check() {
+    local result
+    result=$(cat)
+    jq -c '{release, symbolSets: (.symbolSets | group_by(.status) | map({key: .[0].status, value: length}) | from_entries), skipped}' <<<"$result"
+    jq -e '(.skipped | length == 0) and all(.symbolSets[]; .status == "uploaded" or .status == "already_present")' \
+        <<<"$result" >/dev/null
+}
+
+"$hog" error-tracking process -o json \
     --public-path-prefix /static \
     --release-mode event \
     --release-name posthog \
-    --release-version "$version"
+    --release-version "$version" | check
 
 # Without GITHUB_SHA hog resolves no release, so it injects only the chunk ID, which it derives from
-# the file's own content.
-stable=$(find frontend/dist -type f -name "$STABLE_CHUNKS")
+# the file's own content. A stable copy without a map has nothing to upload, so it is left out.
+stable=$(find frontend/dist -type f -name "$STABLE_CHUNKS" -exec grep -l 'sourceMappingURL=' {} + || true)
 if [ -n "$stable" ]; then
-    env -u GITHUB_SHA "$hog" error-tracking process - -o text \
+    env -u GITHUB_SHA "$hog" error-tracking process - -o json \
         --public-path-prefix /static \
-        --release-mode event <<<"$stable"
+        --release-mode event <<<"$stable" | check
 fi
 
 # The image build strips them anyway once the status says "uploaded". Deleting them here keeps the

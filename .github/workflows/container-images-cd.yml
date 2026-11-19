@@ -109,9 +109,9 @@ jobs:
             !cancelled() && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' &&
             needs.changes.outputs.image != 'false'
         runs-on: depot-ubuntu-24.04
-        # Covers two bounded build attempts plus the post-build image-boot verification and the
-        # frontend asset publish to three buckets before dispatch.
-        timeout-minutes: 60
+        # Covers the sourcemap upload, two bounded build attempts, the post-build image-boot
+        # verification and the frontend asset publish to three buckets before dispatch.
+        timeout-minutes: 90
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
@@ -322,9 +322,8 @@ jobs:
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
                       POSTHOG_RELEASE_ID=${{ steps.release.outputs.release-id }}
-                  # Replaces the Dockerfile's sourcemap-upload stage with the processed frontend, once
-                  # the upload above worked. Without it the image keeps the .map files.
-                  build-contexts: ${{ steps.sourcemaps.outcome == 'success' && format('sourcemap-upload={0}/sourcemap-upload', runner.temp) || '' }}
+                  # No processed frontend, in case it made the first attempt fail. The image keeps its
+                  # .map files, which a failed build must not risk losing.
 
             # Reconcile every tag from the already-present digest (preflight skip, or a retry
             # where attempt 1 had already reached ECR). imagetools copies the manifest
@@ -405,7 +404,7 @@ jobs:
             # CDN reads each environment's static-assets bucket. Publishing from the pushed digest before
             # any dispatch below means no pod can serve a page whose files the bucket lacks, whichever sync
             # path rolls it out. An upload error fails the job, and with it every dispatch. The pushed image
-            # is the only correct source: the sourcemap stage rewrites the JS after the frontend build
+            # is the only correct source: the sourcemap upload rewrites the JS after the frontend build
             # stage, so only the final image's dist matches what pods serve.
             #
             # Only files named Name-HASH.ext, with an uppercase content hash after the last hyphen, are
@@ -450,7 +449,7 @@ jobs:
             # file that browsers already load. This has two limits:
             # - A skipped object can hold bytes that differ from the file in this image. Only the stable
             #   chunk names (-S plus 10 hex digits) and the hashed assets come from the final bytes. The
-            #   build minifies a default chunk after esbuild names it, and the sourcemap stage writes the
+            #   build minifies a default chunk after esbuild names it, and the sourcemap upload writes the
             #   release id of the commit into it, under the same name.
             # - The upload does not compare a skipped object with the local file.
             # The deploy hook in the charts repository copies every file with overwrite before the pods
