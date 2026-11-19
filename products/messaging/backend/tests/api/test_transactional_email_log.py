@@ -704,10 +704,13 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
     def test_counts_a_send_with_tracking_off_in_the_period_it_was_queued_in(self, _flag):
         self._send(3 * 24 * 60, "queued-before@example.com", [("sent", 2 * 86400, "untracked")])
         self._send(24 * 60, "queued-inside@example.com", [("sent", 1, "untracked")])
+        self._send(13 * 60, "sent-after-the-period@example.com", [("sent", 2 * 3600, "untracked")])
 
-        impact = self._impact(date_from=(NOW - timedelta(days=2)).isoformat())
+        impact = self._impact(
+            date_from=(NOW - timedelta(days=2)).isoformat(), date_to=(NOW - timedelta(hours=12)).isoformat()
+        )
 
-        assert (impact["sent"], impact["untracked"]) == (1, 1)
+        assert (impact["sent"], impact["untracked"]) == (2, 2)
 
     def test_hides_the_sends_of_a_workflow_the_user_cannot_view(self, _flag):
         restricted = create_workflow_for_test(team_id=self.team.id, name="Payroll").id
