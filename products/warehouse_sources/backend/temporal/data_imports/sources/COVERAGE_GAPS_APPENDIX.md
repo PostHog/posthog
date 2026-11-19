@@ -9049,13 +9049,13 @@ Diffed against: <https://jsapi.apiary.io/apis/amplifyv01/api-description-documen
 - [x] `/reports/marketers/{id}/sections` — section/placement breakdown - the finest-grained supply dimension advertisers block or bid on (high)
 - [x] `/marketers/{id}/conversionEvents` — lookup table resolving the conversion event ids that appear in every report's conversion details (high)
 - [x] `/reports/marketers/{id}/campaigns/periodic` — daily per-campaign time series; campaign_performance today is only a date-range rollup (high)
-- [ ] `/reports/marketers/{id}/geo` — geo breakdown with country/region granularity (medium)
-- [ ] `/reports/marketers/{id}/platforms` — device/platform breakdown (medium)
+- [x] `/reports/marketers/{id}/geo` — geo breakdown with country/region granularity (medium)
+- [x] `/reports/marketers/{id}/platforms` — device/platform breakdown (medium)
 - [x] `/reports/marketers/{id}/interests` — interest-targeting breakdown (medium)
 - [x] `/marketers/{id}/segments` — audience segments lookup for segment-targeted campaigns (medium)
 - [x] `/campaigns/{campaignId}/locations` — campaign geo targeting rows, needed to interpret geo report deltas (medium)
-- [ ] `/marketers/{id}/engagementMetrics` — marketer-level engagement metrics not present in the periodic report (low)
-- [ ] `/campaigns/{campaignId}/promotedLinksSequences` — sequence grouping for promoted links (low)
+- [x] `/marketers/{id}/engagementMetrics` — marketer-level engagement metrics not present in the periodic report (low)
+- [x] `/campaigns/{campaignId}/promotedLinksSequences` — sequence grouping for promoted links (low)
 
 Note: Static endpoint list in settings.py (6 paths: /marketers, /marketers/{id}/campaigns, /marketers/{id}/budgets, /campaigns/{id}/promotedLinks, /reports/marketers/{id}/periodic, /reports/marketers/{id}/campaigns) - no dynamic table discovery. The apiary HTML site 502s; the machine-readable API Blueprint JSON at the jsapi.apiary.io URL above works and was parsed for the full resource list. Outbrain's Performance Reporting group is by far the largest part of the API and PostHog currently exposes only 2 of its ~20 report endpoints.
 
