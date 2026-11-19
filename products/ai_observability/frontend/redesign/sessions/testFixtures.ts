@@ -103,7 +103,6 @@ export function makeTraceTurn(traceId: string, overrides: Partial<TraceTurnApi> 
     }
 }
 
-/** Answers a turns read with a turn for each requested trace. */
 export function sessionTurnsMock(): MockSignature {
     return async ({ request }: { request: Request }) => {
         const { trace_ids }: { trace_ids: string[] } = await request.json()

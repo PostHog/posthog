@@ -17,7 +17,6 @@ export interface ThreadTurnProps {
     turn: ConversationTurn
     isActive: boolean
     onSelectMessage: (sourceNodeId: string, turnId: string) => void
-    /** Reads again the messages of a turn whose read failed. */
     onRetry?: () => void
     /** The steps that contain the search query, or null when nothing is searched. */
     matchingNodeIds?: ReadonlySet<string> | null

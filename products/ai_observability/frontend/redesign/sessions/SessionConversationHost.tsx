@@ -16,7 +16,6 @@ export interface SessionConversationHostProps {
     aroundTraceId: string | null
 }
 
-/** The header and conversation of one session, whose turns the session's trace drawer steps through. */
 export function SessionConversationHost({
     session,
     title,

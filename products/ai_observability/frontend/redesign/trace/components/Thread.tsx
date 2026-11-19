@@ -13,7 +13,6 @@ import { useSearchHighlight } from './useSearchHighlight'
 export interface ThreadProps {
     conversation: ConversationState
     onSelectMessage: (sourceNodeId: string, turnId: string) => void
-    /** Reads again the messages of the turns whose read failed. */
     onRetryTurns?: () => void
     highlightQuery?: string | null
     /** The steps that contain the search query, or null when nothing is searched. */

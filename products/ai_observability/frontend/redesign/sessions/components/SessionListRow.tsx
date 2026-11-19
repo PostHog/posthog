@@ -17,7 +17,6 @@ export interface SessionListRowProps {
     title: TraceCellLoad<TracePreviewApi>
     person: TraceCellLoad<TracePersonApi | null>
     isOpen: boolean
-    /** Where the title links: the list with this session open. */
     href: string
 }
 

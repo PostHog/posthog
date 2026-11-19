@@ -149,7 +149,6 @@ describe('sessionConversationLogic', () => {
             input: { kind: 'messages', messages: [] },
             missingReasons: { input: 'too_large', output: null },
         })
-        // The read leaves out a trace with no events, which is a turn with nothing to show, not one still loading.
         expect(third).toMatchObject({ error: 'RateLimitError: slow down', input: { kind: 'messages', messages: [] } })
         expect(third.pending).toBeUndefined()
     })

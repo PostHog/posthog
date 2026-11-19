@@ -17,7 +17,6 @@ export type sessionConversationOptionsLogicType = MakeLogicType<
     sessionConversationOptionsLogicActions
 >
 
-/** How the open conversation shows its turns, remembered per browser. */
 export const sessionConversationOptionsLogic = kea<sessionConversationOptionsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'redesign', 'sessions', 'sessionConversationOptionsLogic']),
     actions({
