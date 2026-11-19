@@ -33,7 +33,7 @@ from products.warehouse_sources.sources.marketo.marketo import (
 )
 from products.warehouse_sources.sources.marketo.settings import MARKETO_ENDPOINTS
 from products.warehouse_sources.sources.marketo.source import MarketoSource
-from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, WorkerShuttingDownError
 from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -70,6 +70,11 @@ class FakeResumeManager(ResumableSourceManager[MarketoResumeConfig]):
 
     def clear_state(self) -> None:
         self.cleared = True
+
+
+class ShuttingDownResumeManager(FakeResumeManager):
+    def safe_point(self) -> None:
+        raise WorkerShuttingDownError("activity-1", "import_data_activity", "queue", 1, None, None)
 
 
 def _response(body: Any, status: int = 200, content_type: str = "application/json") -> Response:
@@ -461,6 +466,43 @@ class TestMarketo:
 
         assert session.request.call_args_list[1].kwargs["json"]["fields"] == ["id", "email"]
         assert rows == [{"id": 5, "email": "a@example.com"}]
+
+    @pytest.mark.parametrize(
+        "cancel_body",
+        [
+            {"success": True, "result": [{"exportId": "exp-1", "status": "Cancelled"}]},
+            {"success": False, "errors": [{"code": "1003", "message": "Export cannot be cancelled"}]},
+        ],
+    )
+    def test_a_hand_off_during_the_poll_cancels_the_export(self, cancel_body: dict[str, Any]) -> None:
+        session = _session(
+            responses=[
+                _response({"success": True, "result": [{"exportId": "exp-1", "status": "Created"}]}),
+                _response({"success": True, "result": [{"exportId": "exp-1", "status": "Queued"}]}),
+                _response(cancel_body),
+            ]
+        )
+        client = _make_client(session)
+
+        with pytest.raises(WorkerShuttingDownError):
+            _drain(
+                _bulk_rows(
+                    client,
+                    MARKETO_ENDPOINTS["activities"],
+                    datetime(2024, 1, 1, tzinfo=UTC),
+                    datetime(2024, 1, 10, tzinfo=UTC),
+                    ShuttingDownResumeManager(),
+                    mock.MagicMock(),
+                )
+            )
+
+        base = f"https://{MUNCHKIN}.mktorest.com"
+        requests_sent = [(call.args[0], call.args[1].removeprefix(base)) for call in session.request.call_args_list]
+        assert requests_sent == [
+            ("POST", "/bulk/v1/activities/export/create.json"),
+            ("POST", "/bulk/v1/activities/export/exp-1/enqueue.json"),
+            ("POST", "/bulk/v1/activities/export/exp-1/cancel.json"),
+        ]
 
     @pytest.mark.parametrize("status", ["Failed", "Cancelled"])
     def test_a_terminal_export_status_fails_the_sync(self, status: str) -> None:

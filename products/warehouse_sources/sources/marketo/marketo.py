@@ -23,6 +23,7 @@ from products.warehouse_sources.sources.sdk import (
     JobStatus,
     ResumableSourceManager,
     SourceResponse,
+    WorkerShuttingDownError,
     make_tracked_session,
     poll_until_done,
 )
@@ -389,17 +390,30 @@ def _await_bulk_export(
         logger.debug(f"Marketo bulk export {export_id} status={status}")
         return JobStatus(message=str(status))
 
-    poll_until_done(
-        check,
-        interval=BULK_POLL_INTERVAL_SECONDS,
-        budget_seconds=BULK_POLL_BUDGET_SECONDS,
-        safe_point=safe_point,
-        # Marketo never completes a job instantly, and it rejects polls faster than once a minute.
-        wait_first=True,
-        timeout_error=lambda _status: MarketoAPIError(
-            f"Marketo bulk export {export_id} did not complete within {BULK_POLL_BUDGET_SECONDS} seconds"
-        ),
-    )
+    try:
+        poll_until_done(
+            check,
+            interval=BULK_POLL_INTERVAL_SECONDS,
+            budget_seconds=BULK_POLL_BUDGET_SECONDS,
+            safe_point=safe_point,
+            # Marketo never completes a job instantly, and it rejects polls faster than once a minute.
+            wait_first=True,
+            timeout_error=lambda _status: MarketoAPIError(
+                f"Marketo bulk export {export_id} did not complete within {BULK_POLL_BUDGET_SECONDS} seconds"
+            ),
+        )
+    except WorkerShuttingDownError:
+        # The resume state does not keep the export, and the next worker creates a new one, so free its
+        # place in the instance's export queue.
+        _cancel_bulk_export(client, obj, export_id, logger)
+        raise
+
+
+def _cancel_bulk_export(client: MarketoClient, obj: str, export_id: str, logger: FilteringBoundLogger) -> None:
+    try:
+        client.request_json("POST", f"/bulk/v1/{obj}/export/{export_id}/cancel.json")
+    except Exception:
+        logger.warning(f"Marketo: failed to cancel bulk export {export_id}")
 
 
 def _download_bulk_export(

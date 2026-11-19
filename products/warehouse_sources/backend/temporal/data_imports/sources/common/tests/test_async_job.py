@@ -94,12 +94,14 @@ def test_raises_when_the_job_fails(
 
 
 @pytest.mark.parametrize(
-    "budget_seconds,wait_first,expected_checks,expected_elapsed",
+    "budget_seconds,wait_first,check_seconds,expected_checks,expected_elapsed",
     [
-        (60, False, 5, 60),
-        (60, True, 4, 60),
-        (50, False, 5, 60),
-        (0, False, 1, 0),
+        (60, False, 0, 5, 60),
+        (60, True, 0, 4, 60),
+        (50, False, 0, 5, 60),
+        (0, False, 0, 1, 0),
+        (60, False, 10, 3, 60),
+        (60, True, 10, 3, 75),
     ],
 )
 @pytest.mark.parametrize(
@@ -112,6 +114,7 @@ def test_raises_when_the_job_fails(
 def test_raises_when_the_budget_is_spent(
     budget_seconds: float,
     wait_first: bool,
+    check_seconds: float,
     expected_checks: int,
     expected_elapsed: float,
     timeout_error: Callable[[JobStatus[str]], Exception] | None,
@@ -121,8 +124,13 @@ def test_raises_when_the_budget_is_spent(
     check, checked = _job([_pending("QUEUED")])
 
     with scripted_network([]) as network, pytest.raises(expected_error, match=expected_message):
+
+        def slow_check() -> JobStatus[str]:
+            network.advance(check_seconds)
+            return check()
+
         poll_until_done(
-            check,
+            slow_check,
             interval=INTERVAL,
             budget_seconds=budget_seconds,
             wait_first=wait_first,

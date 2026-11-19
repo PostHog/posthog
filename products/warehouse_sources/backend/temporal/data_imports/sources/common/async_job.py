@@ -5,6 +5,7 @@ then downloads the result. `poll_until_done` is the poll step. Each wait goes th
 `interruptible_wait`, so a worker that starts to shut down does not stay in the wait.
 """
 
+import time
 from collections.abc import Callable
 from typing import cast
 
@@ -55,8 +56,9 @@ def poll_until_done[T](
     reach `budget_seconds` and the job is still pending. Without these factories, the errors are
     `AsyncJobFailedError` and `AsyncJobTimeoutError`.
 
-    Each wait counts as `interval` seconds toward the budget, also when it ends early. Thus a
-    shutdown cannot make the poll call the vendor without a limit.
+    The budget counts the time of each status check, and `interval` seconds for each wait, also
+    when the wait ends early. Thus slow status checks cannot extend the poll, and a shutdown
+    cannot make the poll call the vendor without a limit.
 
     Pass `safe_point` only when the run can stop and resume at the poll without losing rows. The
     poll then reaches it before each wait, and a shutdown during a wait hands the run to another
@@ -69,7 +71,9 @@ def poll_until_done[T](
         _wait(interval, safe_point)
         waited += interval
     while True:
+        check_started = time.monotonic()
         status = check()
+        waited += time.monotonic() - check_started
         if status.done:
             return cast(T, status.result)
         if status.failed:
@@ -79,7 +83,7 @@ def poll_until_done[T](
         if waited >= budget_seconds:
             if timeout_error is not None:
                 raise timeout_error(status)
-            raise AsyncJobTimeoutError(f"The job is still {status.message or 'pending'} after {waited:g} seconds")
+            raise AsyncJobTimeoutError(f"The job is still {status.message or 'pending'} after {waited:.0f} seconds")
         _wait(interval, safe_point)
         waited += interval
 
