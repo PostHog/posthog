@@ -101,6 +101,22 @@ describe('ImpactFunnelCard', () => {
         expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
     })
 
+    it('shows the new setting on return after the reader changed the period while settings was open', async () => {
+        initKeaTests(true, teamWithLinkTagging(false))
+        useMocks({ get: { '/api/projects/:id/': teamWithLinkTagging(true) } })
+        answer = [200, IMPACT]
+        renderCard()
+
+        fireEvent.click(await screen.findByText('Needs link tagging'))
+        act(() => emailImpactLogic({ workflowId: 'workflow-1' }).actions.setDays(7))
+        await screen.findByText('Needs link tagging')
+        await act(async () => {
+            window.dispatchEvent(new Event('focus'))
+        })
+
+        expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
+    })
+
     it('keeps the untracked note under an empty period', async () => {
         answer = [200, { ...IMPACT, sent: 0, delivered: 0, opened: 0, clicked: 0, not_clicked: 0, untracked: 3 }]
         renderCard()

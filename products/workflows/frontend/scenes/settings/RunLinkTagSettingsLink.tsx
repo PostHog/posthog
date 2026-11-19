@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 
@@ -16,38 +16,22 @@ export function RunLinkTagSettingsLink({
     children: React.ReactNode
 }): JSX.Element {
     const { refreshCurrentTeam } = useActions(teamLogic)
-    const pendingRefresh = useRef<(() => void) | null>(null)
 
-    useEffect(
-        () => () => {
-            if (pendingRefresh.current) {
-                window.removeEventListener('focus', pendingRefresh.current)
-            }
-        },
-        []
-    )
-
-    // The setting changes in another tab, and the reader can come back before saving it there,
-    // so reload the team on every return to this tab after the link opens settings.
-    const refreshOnReturn = (): void => {
-        if (pendingRefresh.current) {
-            return
-        }
+    // The setting changes in the settings tab this link opens, and the reader can come back before or
+    // after saving it there, so reload the team on every return while this link is on the page.
+    useEffect(() => {
         const onFocus = (): void => {
             refreshCurrentTeam()
         }
-        pendingRefresh.current = onFocus
         window.addEventListener('focus', onFocus)
-    }
+        return () => window.removeEventListener('focus', onFocus)
+    }, [refreshCurrentTeam])
 
     return (
         <Link
             to={urls.settings('environment-workflows', 'workflows-email-run-link-tag')}
             // A new tab keeps this page mounted, so an edit it hasn't saved yet survives the trip.
             target="_blank"
-            // Capture also sees Cmd/Ctrl-clicks, and middle-clicks only fire auxclick.
-            onClickCapture={refreshOnReturn}
-            onAuxClick={refreshOnReturn}
             className={className}
             data-attr={dataAttr}
         >
