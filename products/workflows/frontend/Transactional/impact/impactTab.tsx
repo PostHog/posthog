@@ -4,7 +4,7 @@ import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 
 import { EmailImpactTab } from './EmailImpactTab'
 
-export function impactTab(workflowId: string): LemonTab<'impact'> {
+export function impactTab(workflowId: string, sensitive: boolean): LemonTab<'impact'> {
     return {
         key: 'impact',
         label: (
@@ -15,6 +15,6 @@ export function impactTab(workflowId: string): LemonTab<'impact'> {
                 </LemonTag>
             </span>
         ),
-        content: <EmailImpactTab workflowId={workflowId} />,
+        content: <EmailImpactTab workflowId={workflowId} sensitive={sensitive} />,
     }
 }

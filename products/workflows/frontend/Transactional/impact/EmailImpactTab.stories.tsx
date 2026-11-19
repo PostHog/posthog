@@ -45,7 +45,8 @@ const Template: StoryFn<{
     event: string | null
     replay?: boolean
     linkTagging?: boolean
-}> = ({ impact, event, replay = true, linkTagging = true }) => {
+    sensitive?: boolean
+}> = ({ impact, event, replay = true, linkTagging = true, sensitive = false }) => {
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/transactional_email_log/impact/': ({ request }: { request: Request }) => {
@@ -79,7 +80,7 @@ const Template: StoryFn<{
         setReady(true)
     }, [loadCurrentTeamSuccess, setEvent, event, replay, linkTagging])
 
-    return ready ? <EmailImpactTab workflowId={WORKFLOW_ID} /> : <></>
+    return ready ? <EmailImpactTab workflowId={WORKFLOW_ID} sensitive={sensitive} /> : <></>
 }
 
 export const WithConversionEvent = Template.bind({})
@@ -96,3 +97,6 @@ NoSessionReplay.args = { impact: tracked, event: 'plan upgraded', replay: false 
 
 export const LinkTaggingOff = Template.bind({})
 LinkTaggingOff.args = { impact: tracked, event: 'plan upgraded', linkTagging: false }
+
+export const SensitiveEmail = Template.bind({})
+SensitiveEmail.args = { impact: tracked, event: 'plan upgraded', linkTagging: false, sensitive: true }

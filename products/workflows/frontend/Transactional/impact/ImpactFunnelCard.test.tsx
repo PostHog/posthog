@@ -2,13 +2,12 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
-
-import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { TeamType } from '~/types'
 
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 
@@ -29,6 +28,11 @@ const IMPACT: TransactionalEmailImpactApi = {
     without_click: { sends: 7, converted: 1 },
 }
 
+const teamWithLinkTagging = (enabled: boolean): TeamType => ({
+    ...MOCK_DEFAULT_TEAM,
+    workflows_config: { capture_workflows_engagement_events: true, email_workflow_run_link_tag_enabled: enabled },
+})
+
 describe('ImpactFunnelCard', () => {
     let answer: [number, unknown]
 
@@ -48,10 +52,10 @@ describe('ImpactFunnelCard', () => {
 
     afterEach(cleanup)
 
-    const renderCard = (): void => {
+    const renderCard = (sensitive = false): void => {
         render(
             <Provider>
-                <BindLogic logic={emailImpactLogic} props={{ workflowId: 'workflow-1' }}>
+                <BindLogic logic={emailImpactLogic} props={{ workflowId: 'workflow-1', sensitive }}>
                     <ImpactFunnelCard />
                 </BindLogic>
                 <ToastContainer />
@@ -61,30 +65,41 @@ describe('ImpactFunnelCard', () => {
 
     it.each([
         [
-            'off',
+            'tagging is off',
+            false,
             false,
             'Needs link tagging',
             expect.stringMatching(/\/settings\/environment-workflows#workflows-email-run-link-tag$/),
         ],
-        ['on', true, 'Not measured yet', undefined],
+        ['tagging is on', true, false, 'Not measured yet', undefined],
+        ['the email protects sensitive data', false, true, 'Not measured', undefined],
     ])(
-        "links the session step to the project's link tagging switch only while it is %s",
-        async (_, enabled, label, href) => {
-            teamLogic.mount()
-            teamLogic.actions.loadCurrentTeamSuccess({
-                ...MOCK_DEFAULT_TEAM,
-                workflows_config: {
-                    capture_workflows_engagement_events: true,
-                    email_workflow_run_link_tag_enabled: enabled,
-                },
-            })
+        "links the session step to the project's link tagging switch only when it would help, when %s",
+        async (_, enabled, sensitive, label, href) => {
+            initKeaTests(true, teamWithLinkTagging(enabled))
             answer = [200, IMPACT]
-            renderCard()
+            renderCard(sensitive)
 
             const step = await screen.findByText(label)
             expect(step.closest('a')?.getAttribute('href')).toEqual(href)
         }
     )
+
+    it('opens the switch in a new tab, keeping the template editor, and shows the new setting on return', async () => {
+        initKeaTests(true, teamWithLinkTagging(false))
+        useMocks({ get: { '/api/projects/:id/': teamWithLinkTagging(true) } })
+        answer = [200, IMPACT]
+        renderCard()
+
+        const link = (await screen.findByText('Needs link tagging')).closest('a') as HTMLElement
+        expect(link).toHaveAttribute('target', '_blank')
+        fireEvent.click(link)
+        await act(async () => {
+            window.dispatchEvent(new Event('focus'))
+        })
+
+        expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
+    })
 
     it('keeps the untracked note under an empty period', async () => {
         answer = [200, { ...IMPACT, sent: 0, delivered: 0, opened: 0, clicked: 0, not_clicked: 0, untracked: 3 }]

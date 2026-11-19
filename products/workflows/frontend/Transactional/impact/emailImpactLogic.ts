@@ -9,11 +9,13 @@ import { TeamPublicType, TeamType } from '~/types'
 
 import { transactionalEmailLogImpactRetrieve } from 'products/messaging/frontend/generated/api'
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
+import { runLinkTaggingEnabled } from 'products/workflows/frontend/scenes/settings/runLinkTagging'
 
 import {
     ImpactFunnelState,
     ImpactLift,
     ImpactStep,
+    LinkTagging,
     followedSendsNote,
     impactFunnelState,
     impactLift,
@@ -23,6 +25,7 @@ import {
 
 export interface EmailImpactLogicProps {
     workflowId: string
+    sensitive?: boolean
 }
 
 export const IMPACT_DATE_RANGES = [
@@ -43,6 +46,7 @@ export interface emailImpactLogicValues {
     impactError: string | null
     impactLoading: boolean
     lift: ImpactLift | null
+    linkTagging: LinkTagging
     replayEnabled: boolean
     steps: ImpactStep[] | null
     untrackedNote: string | null
@@ -89,10 +93,11 @@ export interface emailImpactLogicMeta {
             impactLoading: boolean,
             impactError: string | null
         ) => ImpactFunnelState
+        linkTagging: (currentTeam: TeamPublicType | TeamType | null, arg: boolean | undefined) => LinkTagging
         steps: (
             impact: TransactionalEmailImpactApi | null,
             event: string | null,
-            currentTeam: TeamPublicType | TeamType | null
+            linkTagging: LinkTagging
         ) => ImpactStep[] | null
         lift: (impact: TransactionalEmailImpactApi | null) => ImpactLift | null
         followedNote: (impact: TransactionalEmailImpactApi | null) => string | null
@@ -209,20 +214,18 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                 impactError: string | null
             ): ImpactFunnelState => impactFunnelState(impact, impactLoading, impactError),
         ],
+        linkTagging: [
+            (s) => [s.currentTeam, (_, props: EmailImpactLogicProps) => props.sensitive],
+            (currentTeam: TeamPublicType | TeamType | null, sensitive: boolean | undefined): LinkTagging =>
+                sensitive ? 'sensitive-email' : runLinkTaggingEnabled(currentTeam) ? 'on' : 'off',
+        ],
         steps: [
-            (s) => [s.impact, s.event, s.currentTeam],
+            (s) => [s.impact, s.event, s.linkTagging],
             (
                 impact: TransactionalEmailImpactApi | null,
                 event: string | null,
-                currentTeam: TeamPublicType | TeamType | null
-            ): ImpactStep[] | null =>
-                impact
-                    ? impactSteps(
-                          impact,
-                          event,
-                          currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled ?? true
-                      )
-                    : null,
+                linkTagging: LinkTagging
+            ): ImpactStep[] | null => (impact ? impactSteps(impact, event, linkTagging) : null),
         ],
         lift: [
             (s) => [s.impact],

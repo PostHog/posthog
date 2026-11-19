@@ -4,11 +4,13 @@ import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
+import { runLinkTaggingEnabled } from './runLinkTagging'
+
 export function WorkflowsRunLinkTagSettings(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
-    const enabled = currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled ?? true
+    const enabled = runLinkTaggingEnabled(currentTeam)
 
     return (
         <LemonSwitch

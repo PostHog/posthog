@@ -75,7 +75,7 @@ describe('impactSteps', () => {
     })
 
     it('shows each step as a count, and only the conversion as a share of the clicked sends it could follow', () => {
-        const steps = impactSteps(impact, 'plan upgraded', false)
+        const steps = impactSteps(impact, 'plan upgraded', 'off')
 
         expect(steps.map((step) => [step.label, step.value, step.share, step.missing])).toEqual([
             ['Sent', 100, null, undefined],
@@ -87,30 +87,11 @@ describe('impactSteps', () => {
         ])
         expect(steps[5]).toMatchObject({ shareOf: '16 followed', shareDetail: expect.stringContaining('16 of 20') })
         expect(
-            impactSteps({ ...impact, after_click: { sends: 20, converted: 4 } }, 'plan upgraded', false)[5]
+            impactSteps({ ...impact, after_click: { sends: 20, converted: 4 } }, 'plan upgraded', 'off')[5]
         ).toMatchObject({
             share: 0.2,
             shareOf: 'clicked',
         })
-    })
-
-    it.each([
-        [
-            'off, linking to the switch',
-            false,
-            'Needs link tagging',
-            expect.stringMatching(/\/settings\/environment-workflows#workflows-email-run-link-tag$/),
-        ],
-        ['on, with nothing to turn on', true, 'Not measured yet', undefined],
-    ])('labels the session step when link tagging is %s', (_, linkTagging, missing, missingTo) => {
-        const session = impactSteps(impact, 'plan upgraded', linkTagging)[4]
-
-        expect([session.label, session.value, session.missing, session.missingTo]).toEqual([
-            'Started a session',
-            null,
-            missing,
-            missingTo,
-        ])
     })
 
     it('says nobody was sent when no send went out, tracked or not', () => {
@@ -119,20 +100,20 @@ describe('impactSteps', () => {
 
     it('draws each bar against the tallest step, so opens and clicks show before their sends', () => {
         const percents = stepBarPercents(
-            impactSteps({ ...nothingRecorded, opened: 4, clicked: 1 }, 'plan upgraded', false)
+            impactSteps({ ...nothingRecorded, opened: 4, clicked: 1 }, 'plan upgraded', 'off')
         )
 
         expect(percents.slice(0, 4)).toEqual([0, 0, 100, 25])
     })
 
     it('asks for an event until one is picked', () => {
-        const steps = impactSteps({ ...impact, after_click: null, without_click: null }, null, false)
+        const steps = impactSteps({ ...impact, after_click: null, without_click: null }, null, 'off')
 
         expect(steps[5]).toMatchObject({ label: 'Converted', value: null, missing: 'Pick an event' })
     })
 
     it('shows opens, clicks and conversions after a click as recorded when every send went out untracked', () => {
-        const steps = impactSteps(untracked, 'plan upgraded', false)
+        const steps = impactSteps(untracked, 'plan upgraded', 'off')
 
         expect(steps.map((step) => [step.label, step.value, step.missing])).toEqual([
             ['Sent', 100, undefined],

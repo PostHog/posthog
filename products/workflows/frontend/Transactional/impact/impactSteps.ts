@@ -1,5 +1,4 @@
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { urls } from 'scenes/urls'
 
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 
@@ -13,11 +12,13 @@ export interface ImpactStep {
     value: number | null
     missing?: string
     missingDetail?: string
-    missingTo?: string
+    missingFixedByLinkTagging?: boolean
     share: number | null
     shareOf?: string
     shareDetail?: string
 }
+
+export type LinkTagging = 'on' | 'off' | 'sensitive-email'
 
 export interface ImpactLift {
     clicked: number | null
@@ -29,6 +30,26 @@ const LINK_TAGGING_OFF_DETAIL =
 
 const SESSIONS_NOT_MEASURED_DETAIL =
     "Link tagging connects clicks to the sessions they start, but this funnel doesn't count those sessions yet. Conversions still count, because they go through the person on each send."
+
+const SENSITIVE_EMAIL_DETAIL =
+    "This email protects sensitive data, so PostHog doesn't tag its links and can't connect its clicks to sessions. Conversions still count, because they go through the person on each send."
+
+function sessionStep(linkTagging: LinkTagging): ImpactStep {
+    const step = { key: 'session', label: 'Started a session', value: null, share: null } as const
+    switch (linkTagging) {
+        case 'on':
+            return { ...step, missing: 'Not measured yet', missingDetail: SESSIONS_NOT_MEASURED_DETAIL }
+        case 'off':
+            return {
+                ...step,
+                missing: 'Needs link tagging',
+                missingDetail: LINK_TAGGING_OFF_DETAIL,
+                missingFixedByLinkTagging: true,
+            }
+        case 'sensitive-email':
+            return { ...step, missing: 'Not measured', missingDetail: SENSITIVE_EMAIL_DETAIL }
+    }
+}
 
 function share(value: number, of: number): number | null {
     return of > 0 ? value / of : null
@@ -81,7 +102,7 @@ export function emptyPeriodMessage(impact: TransactionalEmailImpactApi): string 
 export function impactSteps(
     impact: TransactionalEmailImpactApi,
     event: string | null,
-    linkTagging: boolean
+    linkTagging: LinkTagging
 ): ImpactStep[] {
     const conversions = impact.after_click
     return [
@@ -89,24 +110,7 @@ export function impactSteps(
         { key: 'delivered', label: 'Delivered', value: impact.delivered, share: null },
         { key: 'opened', label: 'Opened', value: impact.opened, share: null },
         { key: 'clicked', label: 'Clicked', value: impact.clicked, share: null },
-        linkTagging
-            ? {
-                  key: 'session',
-                  label: 'Started a session',
-                  value: null,
-                  share: null,
-                  missing: 'Not measured yet',
-                  missingDetail: SESSIONS_NOT_MEASURED_DETAIL,
-              }
-            : {
-                  key: 'session',
-                  label: 'Started a session',
-                  value: null,
-                  share: null,
-                  missing: 'Needs link tagging',
-                  missingDetail: LINK_TAGGING_OFF_DETAIL,
-                  missingTo: urls.settings('environment-workflows', 'workflows-email-run-link-tag'),
-              },
+        sessionStep(linkTagging),
         event && conversions
             ? {
                   key: 'converted',

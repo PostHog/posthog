@@ -1,8 +1,10 @@
 import clsx from 'clsx'
 
-import { Link, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+
+import { RunLinkTagSettingsLink } from 'products/workflows/frontend/scenes/settings/RunLinkTagSettingsLink'
 
 import { ImpactStep, stepBarPercents } from './impactSteps'
 
@@ -42,12 +44,14 @@ function StepValue({ step }: { step: ImpactStep }): JSX.Element {
     if (step.value !== null) {
         return <span className="font-semibold text-base">{humanFriendlyNumber(step.value)}</span>
     }
-    if (step.missingTo) {
+    if (step.missingFixedByLinkTagging) {
         return (
             <Tooltip title={step.missingDetail}>
-                <Link to={step.missingTo} className="text-xs" data-attr="email-impact-link-tagging-settings-link">
-                    {step.missing}
-                </Link>
+                <span>
+                    <RunLinkTagSettingsLink className="text-xs" dataAttr="email-impact-link-tagging-settings-link">
+                        {step.missing}
+                    </RunLinkTagSettingsLink>
+                </span>
             </Tooltip>
         )
     }
