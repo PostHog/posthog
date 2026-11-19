@@ -205,6 +205,7 @@ def on_updated(alert: AlertConfiguration, *, snooze_changed: bool, rescheduled: 
         snooze_changed=snooze_changed,
         cadence=upsert,
         rescheduled=rescheduled,
+        created_by_id=alert.created_by_id,
     )
 
 
