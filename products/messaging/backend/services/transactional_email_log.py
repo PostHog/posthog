@@ -578,19 +578,24 @@ def transactional_email_results(
         first_send[person] = min(first_send.get(person, sent_at), sent_at)
         distinct_ids_of[person].append(distinct_id)
 
-    # A recipient's distinct ids stay in one batch, so each recipient's conversions come back from one query.
+    # A recipient's distinct ids stay in one batch, so each recipient's conversions come back from one query. The size
+    # estimate assumes that every byte needs escaping, so a batch can take the whole limit. At the default limit, a
+    # capped request then splits only when its distinct ids are long.
     conversions: dict[str, _Conversion] = {}
-    for batch in _batches_by_query_size(team.id, list(distinct_ids_of.items()), _recipient_query_bytes):
+    recipients = list(distinct_ids_of.items())
+    for batch in _batches_by_query_size(team.id, recipients, _recipient_query_bytes, limit_share=1):
+        batch_first_send = {recipient: first_send[recipient] for recipient, _ in batch}
         conversions |= _conversions(
             team,
             user,
             event,
             revenue_property,
             [distinct_id for _, distinct_ids in batch for distinct_id in distinct_ids],
-            {recipient: first_send[recipient] for recipient, _ in batch},
+            batch_first_send,
             window,
-            start,
-            end + window,
+            min(batch_first_send.values()),
+            # The events range ends before its bound, while a conversion may land on the last second of the window.
+            max(batch_first_send.values()) + window + timedelta(seconds=1),
         )
     converted_at = {person: conversion.first_at for person, conversion in conversions.items()}
     revenue = sum(conversion.revenue for conversion in conversions.values())
@@ -738,9 +743,9 @@ def _converted_sends(team: Team, user: User | None, event: str, sends: list[_Fol
     return converted
 
 
-# ClickHouse reads a size setting as an integer with an optional k, K, M, G or T suffix, and an `i` after the suffix
-# makes it a power of two: "16K" is 16000 and "16Ki" is 16384.
-_CLICKHOUSE_SIZE = re.compile(r"(\d+)(?:([kKMGT])(i?))?")
+# ClickHouse reads a size setting as an integer with an optional plus sign and k, K, M, G or T suffix, and an `i` after
+# the suffix makes it a power of two: "16K" is 16000 and "16Ki" is 16384.
+_CLICKHOUSE_SIZE = re.compile(r"\+?(\d+)(?:([kKMGT])(i?))?")
 _SIZE_SUFFIX_POWER = {"k": 1, "K": 1, "M": 2, "G": 3, "T": 4}
 
 
@@ -757,9 +762,11 @@ def _max_query_size(team_id: int) -> int:
     return team_limit if team_limit > 0 else clickhouse_execute.default_settings()["max_query_size"]
 
 
-def _batches_by_query_size[T](team_id: int, items: list[T], query_bytes_of: Callable[[T], int]) -> Iterator[list[T]]:
-    # A quarter of the limit leaves room for the rest of the query.
-    budget = _max_query_size(team_id) // 4
+def _batches_by_query_size[T](
+    team_id: int, items: list[T], query_bytes_of: Callable[[T], int], *, limit_share: int = 4
+) -> Iterator[list[T]]:
+    # The default quarter of the limit leaves room for the rest of the query.
+    budget = _max_query_size(team_id) // limit_share
     batch: list[T] = []
     batch_bytes = 0
     for item in items:

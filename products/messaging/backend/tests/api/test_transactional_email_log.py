@@ -58,7 +58,7 @@ IMPACT_COUNTS = {
 }
 LONG_ID_SENDS = 20
 TIED_SENDS = 8
-SPLIT_LOOKUP_OTHERS = 7
+SPLIT_LOOKUP_OTHERS = 11
 TIED_SENDS_FOLLOWED = 4
 SMALL_MAX_QUERY_SIZE = 16 * 1024
 
@@ -500,6 +500,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ("too-late", 600 * 24),
             ("never", 60),
             ("personless", 600),
+            ("last-second", 30),
         ]:
             if distinct_id != "personless":
                 create_person(team=self.team, distinct_ids=[distinct_id])
@@ -560,6 +561,13 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             timestamp=NOW - timedelta(minutes=300),
             properties={"amount": 50},
         )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="last-second",
+            timestamp=NOW - timedelta(minutes=30) + timedelta(days=1),
+            properties={"amount": 7},
+        )
         flush_persons_and_events()
 
         response = self.client.get(
@@ -574,11 +582,11 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"recipients": 4, "converted": 2, "revenue": 55.0, "median_hours_to_convert": 5.0}
+        assert response.json() == {"recipients": 5, "converted": 3, "revenue": 62.0, "median_hours_to_convert": 5.0}
 
     def test_counts_a_person_once_when_their_distinct_ids_need_separate_person_lookups(self, _flag):
         names = ["phone", "laptop", *[f"other-{index}" for index in range(SPLIT_LOOKUP_OTHERS)]]
-        distinct_ids = {name: f"split-{name}-{'€' * 600}" for name in names}
+        distinct_ids = {name: f"split-{name}-{'€' * 433}" for name in names}
         create_person(team=self.team, distinct_ids=[distinct_ids["phone"], distinct_ids["laptop"]])
         for name in names[2:]:
             create_person(team=self.team, distinct_ids=[distinct_ids[name]])
@@ -685,7 +693,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "without_click": {"sends": 3, "converted": 2},
         }
 
-    @parameterized.expand([("number_as_text", str(SMALL_MAX_QUERY_SIZE)), ("binary_suffix", "16Ki")])
+    @parameterized.expand(
+        [("number_as_text", str(SMALL_MAX_QUERY_SIZE)), ("binary_suffix", "16Ki"), ("plus_sign", "+16Ki")]
+    )
     def test_counts_conversions_of_sends_whose_ids_overflow_one_clickhouse_query(self, _flag, _name, team_limit):
         long_distinct_ids = [f"long-{index:02d}-{'€' * 380}" for index in range(LONG_ID_SENDS)]
         for minutes_ago, distinct_id in enumerate(long_distinct_ids, start=10):
@@ -722,28 +732,41 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert impact["without_click"] == {"sends": TIED_SENDS_FOLLOWED, "converted": 0}
 
     def test_sizes_impact_batches_by_the_default_limit_when_a_team_turns_the_limit_off(self, _flag):
-        for name in ["one", "two", "three"]:
+        self._welcomed: list[str] = []
+        self._run_token = UUIDT().hex
+        with patch.dict(CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": "0"}}):
+            few = self._conversion_queries_after_adding_sends(3)
+            more = self._conversion_queries_after_adding_sends(3)
+
+        assert more == few
+
+    def _conversion_queries_after_adding_sends(self, count: int) -> int:
+        for _ in range(count):
+            name = f"welcome-{self._run_token}-{len(self._welcomed)}"
+            self._welcomed.append(name)
             create_person(team=self.team, distinct_ids=[name])
             message_id = self._send(60, f"{name}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
             self._record_distinct_id(message_id, name, f"{name}@example.com", NOW - timedelta(minutes=60))
-        _create_event(team=self.team, event="purchase", distinct_id="one", timestamp=NOW - timedelta(minutes=30))
+            _create_event(team=self.team, event="purchase", distinct_id=name, timestamp=NOW - timedelta(minutes=30))
         flush_persons_and_events()
-        [(clickhouse_now,)] = sync_execute("SELECT now()")
+        [(clickhouse_now,)] = sync_execute("SELECT now64(6)")
 
-        with patch.dict(CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": "0"}}):
-            impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
+        impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
 
+        assert impact["without_click"] == {"sends": len(self._welcomed), "converted": len(self._welcomed)}
         sync_execute("SYSTEM FLUSH LOGS")
+        # With the limit off, ClickHouse logs these queries without their tags. They are found by the table they read and
+        # by this run's distinct ids, because other runs on the same ClickHouse write to the same query log. One query can
+        # have more than one log row, so the query ids are counted.
         [(conversion_queries,)] = sync_execute(
             """
-            SELECT count() FROM system.query_log
-            WHERE type = 'QueryFinish' AND event_time >= %(since)s AND current_database = currentDatabase()
-              AND has(tables, concat(currentDatabase(), '.events')) AND position(query, 'purchase') > 0
+            SELECT uniqExact(query_id) FROM system.query_log
+            WHERE event_time_microseconds >= %(since)s AND current_database = currentDatabase()
+              AND has(tables, concat(currentDatabase(), '.events')) AND position(query, %(run_token)s) > 0
             """,
-            {"since": clickhouse_now},
+            {"since": clickhouse_now, "run_token": self._run_token},
         )
-        assert impact["without_click"] == {"sends": 3, "converted": 1}
-        assert conversion_queries == 1
+        return conversion_queries
 
     def test_impact_follows_a_click_and_its_conversion_past_the_end_of_the_period(self, _flag):
         self._seed_impact_sends()
