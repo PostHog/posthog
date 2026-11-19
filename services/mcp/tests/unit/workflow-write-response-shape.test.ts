@@ -155,6 +155,16 @@ describe('workflow write response shape', () => {
                 false,
             ],
             ['a preview', {}, { published: false, confirm_token: 'preview-token', impact: null }, false],
+            [
+                'a preview that shows the live workflow',
+                {},
+                {
+                    published: false,
+                    confirm_token: 'preview-token',
+                    workflow: { ...workflow(), warnings: testSenderLive },
+                },
+                false,
+            ],
         ])
     )(
         'relays the test sender warning only for %s, through %s',

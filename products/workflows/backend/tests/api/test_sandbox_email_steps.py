@@ -240,14 +240,21 @@ class TestSandboxEmailSteps(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("live_on_the_sandbox_sender", "active", [_sandbox_step()], ["test_sender_live"]),
-            ("live_on_both_senders", "active", [_own_email_step(sender_id=1), _sandbox_step()], ["test_sender_live"]),
-            ("draft_on_the_sandbox_sender", "draft", [_sandbox_step()], []),
-            ("live_on_an_own_sender", "active", [_own_email_step(sender_id=1)], []),
+            ("live_on_the_sandbox_sender", "active", [_sandbox_step()], ["test_sender_live"], False),
+            (
+                "live_on_both_senders",
+                "active",
+                [_own_email_step(sender_id=1), _sandbox_step()],
+                ["test_sender_live"],
+                False,
+            ),
+            ("live_on_a_hog_sandbox_step", "active", [_sandbox_step(templating="hog")], ["test_sender_live"], True),
+            ("draft_on_the_sandbox_sender", "draft", [_sandbox_step()], [], False),
+            ("live_on_an_own_sender", "active", [_own_email_step(sender_id=1)], [], False),
         ]
     )
     def test_a_stored_workflow_carries_its_warnings_in_detail_and_list(
-        self, _name: str, status: str, steps: list[dict[str, Any]], expected: list[str]
+        self, _name: str, status: str, steps: list[dict[str, Any]], expected: list[str], names_hog_steps: bool
     ) -> None:
         flow = HogFlow.objects.create(team=self.team, name="Flow", status=status, actions=[_trigger(), *steps])
 
@@ -259,6 +266,8 @@ class TestSandboxEmailSteps(APIBaseTest):
         for warning in detail["warnings"]:
             # A team that already sends other steps from a verified sender has to be told to switch these ones.
             assert "switch those steps to a verified sender" in warning["message"]
+            # The sender switch refuses a Hog step, so only then does the caller hear it needs a Liquid replacement.
+            assert ("new Liquid email step" in warning["message"]) == names_hog_steps
 
     @parameterized.expand([("live", False), ("staged_draft", True)])
     def test_a_stored_sandbox_step_stays_editable_without_the_flag(self, _name: str, in_draft: bool) -> None:

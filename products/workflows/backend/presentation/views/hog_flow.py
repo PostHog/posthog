@@ -3431,21 +3431,31 @@ class HogFlowWarningSerializer(serializers.Serializer):
     message = serializers.CharField(read_only=True, help_text="What to tell the user, with the link that fixes it.")
 
 
-def _live_on_test_sender(hog_flow: Workflow) -> bool:
-    actions = hog_flow.actions if isinstance(hog_flow.actions, list) else []
-    return hog_flow.status == HogFlowState.ACTIVE and any(
-        isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE for action in actions
-    )
+def _live_test_sender_steps(hog_flow: Workflow) -> list[dict]:
+    if hog_flow.status != HogFlowState.ACTIVE or not isinstance(hog_flow.actions, list):
+        return []
+    return [
+        action
+        for action in hog_flow.actions
+        if isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
+    ]
 
 
-def _test_sender_live_warning(team_id: int) -> dict[str, str]:
+def _test_sender_live_warning(team_id: int, steps: list[dict]) -> dict[str, str]:
     setup_url = absolute_uri(f"/project/{team_id}/workflows/channels/email/new")
+    # The sender switch refuses a step written in Hog, so the caller needs the replacement it asks for instead.
+    hog_steps = (
+        ", and replace any step written in Hog with a new Liquid email step on that sender"
+        if any(not written_in_liquid(step) for step in steps)
+        else ""
+    )
     return {
         "code": HogFlowWarningCode.TEST_SENDER_LIVE,
         "message": (
             "This live workflow has email steps on the PostHog test sender. They reach only verified members "
             "of your organization, and everyone else is skipped. To reach your users, switch those steps to a "
-            f"verified sender. If you don't have one yet, set up your sending domain: {setup_url}"
+            f"verified sender{hog_steps}. If you don't have a verified sender yet, set up your sending domain: "
+            f"{setup_url}"
         ),
     }
 
@@ -3569,7 +3579,8 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
 
     @extend_schema_field(HogFlowWarningSerializer(many=True))
     def get_warnings(self, hog_flow: Workflow) -> list[dict[str, str]]:
-        return [_test_sender_live_warning(hog_flow.team_id)] if _live_on_test_sender(hog_flow) else []
+        steps = _live_test_sender_steps(hog_flow)
+        return [_test_sender_live_warning(hog_flow.team_id, steps)] if steps else []
 
     def validate(self, attrs: dict) -> dict:
         if isinstance(self.instance, WorkflowEditState):
