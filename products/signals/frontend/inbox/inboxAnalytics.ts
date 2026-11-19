@@ -106,6 +106,9 @@ export const INBOX_EVENTS = {
     RUN_OPENED: 'Inbox run opened',
     RUN_SUMMARY_VIEWED: 'Inbox run summary viewed',
     ONBOARDING_DECIDED: 'Inbox onboarding decided',
+    // Cloud-only: the desktop app has no Monitoring tab.
+    MONITORING_ROW_EXPANDED: 'Inbox monitoring row expanded',
+    MONITORING_SCOPE_CHANGED: 'Inbox monitoring scope changed',
 } as const
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
@@ -260,7 +263,15 @@ export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limi
  * `config` is the Settings tab; the value predates the rename and stays so the panel breakdown
  * reads continuously. The onboarding panel can appear alongside the report list.
  */
-export type InboxPanelName = 'runs' | 'config' | 'sources' | 'scratchpad' | 'findings' | 'triage' | 'onboarding'
+export type InboxPanelName =
+    | 'runs'
+    | 'config'
+    | 'sources'
+    | 'scratchpad'
+    | 'findings'
+    | 'triage'
+    | 'onboarding'
+    | 'monitoring'
 
 /** A panel read that carries its own timeout, named so each one's stall rate reads separately. */
 export type InboxPanelLoad = 'scout_notes' | 'scout_memory' | 'report_notes'
@@ -1676,4 +1687,20 @@ export function captureScoutSuggestionsRefreshed(params: {
 /** "Suggest a scout" opened the chat, having no picks to reopen. Separates cold start from refresh. */
 export function captureScoutSuggestionsChatOpened(params: { batchStatus: string }): void {
     captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTIONS_CHAT_OPENED, { batch_status: params.batchStatus })
+}
+
+/** A row on the Monitoring tab was opened to show its evidence. `finished` is true for a report that left Monitoring. */
+export function captureMonitoringRowExpanded(params: { reportId: string; status: string; finished: boolean }): void {
+    captureInboxEvent(INBOX_EVENTS.MONITORING_ROW_EXPANDED, {
+        report_id: params.reportId,
+        status: params.status,
+        finished: params.finished,
+    })
+}
+
+export function captureMonitoringScopeChanged(params: { everyone: boolean; connections: string[] }): void {
+    captureInboxEvent(INBOX_EVENTS.MONITORING_SCOPE_CHANGED, {
+        everyone: params.everyone,
+        connections: params.connections,
+    })
 }

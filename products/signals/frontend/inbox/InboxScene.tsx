@@ -18,6 +18,7 @@ import { ScoutsRoster } from './components/config/scouts/ScoutsRoster'
 import { ScoutsRosterActions } from './components/config/scouts/ScoutsRosterActions'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
 import { FindingsPanel } from './components/findings/FindingsPanel'
+import { MonitoringTab } from './components/monitoring/MonitoringTab'
 import { InboxOnboardingBanner } from './components/onboarding/InboxOnboardingBanner'
 import { InboxOnboardingEntry } from './components/onboarding/InboxOnboardingEntry'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
@@ -72,6 +73,8 @@ function ActiveTabBody({ tab }: { tab: InboxTabKey }): JSX.Element | null {
     switch (tab) {
         case 'reports':
             return <ReportsTab />
+        case 'monitoring':
+            return <MonitoringTab />
         case 'scouts':
             return <ScoutsRoster />
         case 'sources':
