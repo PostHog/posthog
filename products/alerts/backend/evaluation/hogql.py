@@ -27,6 +27,7 @@ from products.alerts.backend.evaluation.contract import (
     execution_mode_for_alert,
     zero_sentinel_series,
 )
+from products.alerts.backend.evaluation.series_values_shadow import AlertKind, compare_sql_series_values_shadow
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
@@ -63,11 +64,16 @@ def hogql_config_or_default(raw: dict | None) -> HogQLAlertConfig:
     return HogQLAlertConfig.model_validate(raw or _DEFAULT_HOGQL_CONFIG)
 
 
-def _explicit_limit(insight: Insight) -> int | None:
-    """Read the saved query's constant row limit for detector validation."""
+def _sql_source(insight: Insight) -> dict | None:
     query = insight.query or {}
     source = query.get("source") if query.get("kind") == "DataVisualizationNode" else query
-    if not isinstance(source, dict) or not isinstance(source.get("query"), str):
+    return source if isinstance(source, dict) and isinstance(source.get("query"), str) else None
+
+
+def _explicit_limit(insight: Insight) -> int | None:
+    """Read the saved query's constant row limit for detector validation."""
+    source = _sql_source(insight)
+    if source is None:
         return None
     try:
         parsed = parse_select(source["query"])
@@ -136,6 +142,35 @@ def _calculate_rows_and_columns(
     columns = calculation_result.columns if isinstance(calculation_result.columns, list) else None
     column_names = [str(c) for c in columns] if columns else None
     return _FetchedRows(rows=rows, column_names=column_names, truncated=truncated)
+
+
+def _shadow_value_column(config: HogQLAlertConfig, fetched: _FetchedRows) -> str | None:
+    if not fetched.rows:
+        return None
+    try:
+        value_index = _resolve_value_column_index(config.column, fetched.column_names, fetched.rows)
+    except Exception:
+        return None
+    return _value_column_label(fetched.column_names, value_index)
+
+
+def _compare_with_stored_values(
+    alert: AlertConfiguration,
+    insight: Insight,
+    config: HogQLAlertConfig,
+    fetched: _FetchedRows,
+    *,
+    alert_kind: AlertKind,
+) -> None:
+    compare_sql_series_values_shadow(
+        alert,
+        _sql_source(insight),
+        fetched.rows,
+        fetched.column_names,
+        value_column=_shadow_value_column(config, fetched),
+        evaluation=config.evaluation,
+        alert_kind=alert_kind,
+    )
 
 
 def _check_row_caps(rows: list, evaluation: HogQLAlertEvaluation) -> None:
@@ -214,6 +249,7 @@ class HogQLExtractor:
             cache_age_seconds=cache_age_seconds,
             evaluation=evaluation,
         )
+        _compare_with_stored_values(alert, insight, config, fetched, alert_kind="threshold")
         rows = fetched.rows
         column_names = fetched.column_names
         if len(rows) == 0:
@@ -288,6 +324,7 @@ def extract_hogql_detector_series(
     execution_mode: ExecutionMode,
     cache_age_seconds: int | None = None,
     user: Any = None,
+    alert: AlertConfiguration | None = None,
 ) -> ExtractionResult:
     """Extract SQL history for checks and simulation. Invalid limits disable checks; short uncapped
     histories remain retryable. Empty results retain the zero-result semantics.
@@ -315,6 +352,8 @@ def extract_hogql_detector_series(
         cache_age_seconds=cache_age_seconds,
         evaluation=config.evaluation,
     )
+    if alert is not None:
+        _compare_with_stored_values(alert, insight, config, fetched, alert_kind="detector")
     rows = fetched.rows
     column_names = fetched.column_names
     if len(rows) == 0:
@@ -402,6 +441,7 @@ class HogQLDetectorExtractor:
             execution_mode=execution_mode,
             cache_age_seconds=cache_age_seconds,
             user=alert.created_by,
+            alert=alert,
         )
 
     def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
