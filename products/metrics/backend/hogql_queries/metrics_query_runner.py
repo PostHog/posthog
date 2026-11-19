@@ -8,6 +8,7 @@ query path.
 """
 
 from contextlib import AbstractContextManager, nullcontext
+from dataclasses import replace
 from datetime import datetime
 from functools import cached_property, partial
 from typing import TYPE_CHECKING, Optional, cast
@@ -56,6 +57,14 @@ from products.metrics.backend.facade.enums import (
     MetricRangeFunction,
     MetricType,
 )
+from products.metrics.backend.hogql_queries.tail_refresh import (
+    TailRefresh,
+    TailRefreshMixin,
+    clause_at_cap,
+    compare_series,
+    merge_series,
+)
+from products.metrics.backend.metric_query_runner import _resolve_interval
 from products.metrics.backend.promql import run_promql_range
 from products.metrics.backend.query_concurrency import query_concurrency_slots
 from products.metrics.backend.query_interval import resolve_query_interval
@@ -83,7 +92,7 @@ if TYPE_CHECKING:
 DASHBOARD_V2_FEATURE_FLAG = "dashboard-v2"
 
 
-class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
+class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResponse]):
     query: MetricsQuery
     cached_response: CachedMetricsQueryResponse
     _loaded_variables: dict[str, Variable] | None = None
@@ -198,20 +207,22 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             formula=self.query.formula,
         )
 
+    def _builder_request(self) -> MetricQueryRequest:
+        variables = from_query(self.query.variables)
+        clauses = []
+        for clause in self.query.clauses:
+            substitution = substitute_filters(clause.filters, variables)
+            if substitution.unresolved:
+                raise ValueError(unresolved_message(substitution.unresolved))
+            clauses.append(clause.model_copy(update={"filters": substitution.filters}) if clause.filters else clause)
+        self.query.clauses = clauses
+        return self._to_request()
+
     def _run(self) -> list[MetricSeries]:
         language = self.query.language or MetricsQueryLanguage.BUILDER
         variables = from_query(self.query.variables)
         if language == MetricsQueryLanguage.BUILDER:
-            clauses = []
-            for clause in self.query.clauses:
-                substitution = substitute_filters(clause.filters, variables)
-                if substitution.unresolved:
-                    raise ValueError(unresolved_message(substitution.unresolved))
-                clauses.append(
-                    clause.model_copy(update={"filters": substitution.filters}) if clause.filters else clause
-                )
-            self.query.clauses = clauses
-            return run_metric_query(team=self.team, request=self._to_request())
+            return run_metric_query(team=self.team, request=self._builder_request())
         date_from, date_to = self._date_from, self._date_range.date_to()
         interval = resolve_query_interval(self.query.interval, variables, date_from, date_to)
         if language == MetricsQueryLanguage.PROMQL:
@@ -260,6 +271,58 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
         if self.query.dateRange and self.query.dateRange.date_from == "all":
             return query_concurrency_slots(self.team, dashboard_id=dashboard_id, query_lane=QueryLane.ANALYTICS)
         return nullcontext()
+
+    def _tail_refresh_enabled(self, dashboard_id: int | None) -> bool:
+        # Only the builder's HogQL engine buckets the way the splice assumes. A raw clause ranks and labels
+        # its series over the whole window, and a derived metric runs on another engine. A formula returns
+        # only its own series, so it hides whether a grouped input clause reached the series cap.
+        date_range = self.query.dateRange
+        return (
+            dashboard_id is not None
+            and (self.query.language or MetricsQueryLanguage.BUILDER) == MetricsQueryLanguage.BUILDER
+            and (date_range is None or date_range.date_to is None)
+            and not self._reads_derived_metrics
+            and not (self.query.formula and any(clause.groupBy for clause in self.query.clauses))
+            and not any(
+                MetricAggregation(clause.aggregation.value if clause.aggregation else "none").is_raw
+                for clause in self.query.clauses
+            )
+            and self._dashboard_v2_enabled
+        )
+
+    def _calculate_with_tail(self, tail: TailRefresh[MetricsQueryResponse]) -> MetricsQueryResponse:
+        request = self._builder_request()
+        interval = _resolve_interval(request.date_from, request.date_to, request.interval)
+        clause_order = [clause.name for clause in request.clauses]
+
+        def calculate(date_from: datetime) -> MetricsQueryResponse:
+            return self._response(
+                run_metric_query(team=self.team, request=replace(request, date_from=date_from, interval=interval))
+            )
+
+        def merge(
+            cached: MetricsQueryResponse, fresh: MetricsQueryResponse, start: datetime, cut: datetime
+        ) -> MetricsQueryResponse | None:
+            merged = merge_series(
+                cached.results,
+                fresh.results,
+                start=start,
+                cut=cut,
+                clause_order=clause_order,
+                formula=request.formula is not None,
+            )
+            return MetricsQueryResponse(results=merged) if merged is not None else None
+
+        return tail.run(
+            response_type=MetricsQueryResponse,
+            date_from=request.date_from,
+            date_to=request.date_to,
+            interval=interval,
+            calculate=calculate,
+            merge=merge,
+            compare=lambda spliced, full: compare_series(spliced.results, full.results),
+            can_merge=lambda cached: not clause_at_cap(cached.results),
+        )
 
     @cached_property
     def _date_range(self) -> QueryDateRange:
@@ -314,12 +377,18 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
     def _calculate(self) -> MetricsQueryResponse:
         self._enforce_alpha_gates_without_a_request_user()
         try:
+            if self._tail is not None:
+                return self._calculate_with_tail(self._tail)
             series = self._run()
         except ValueError as exc:
             # The facade signals user errors (bad formula, unknown clause alias, bad
             # quantile) with ValueError; /query only exposes typed errors, so a bare
             # ValueError would surface as a 500 instead of a 400.
             raise ExposedHogQLError(str(exc)) from exc
+        return self._response(series)
+
+    @staticmethod
+    def _response(series: list[MetricSeries]) -> MetricsQueryResponse:
         return MetricsQueryResponse(
             results=[
                 MetricsQuerySeries(

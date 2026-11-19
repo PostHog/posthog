@@ -18,6 +18,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 
@@ -36,11 +37,11 @@ import {
     MinimalAppMetric,
 } from '../../../types'
 import { CyclotronJobConflictError } from '../../cyclotron-v2/manager'
-import { createIdempotencyValkeyPool } from '../../hogflows/idempotency-keys'
 import { IdempotentJobQueue } from '../../job-queue/job-queue.interface'
+import { createEmailAttachmentsValkeyPool } from '../attachment-uploads'
+import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_THROTTLE } from './_tests/fake-ses-endpoint'
 import { SANDBOX_FROM_ADDRESS, useSandboxWorld } from './_tests/sandbox-world'
-import { SandboxEmailEvents } from './sandbox-email-events'
 
 jest.mock('node:dns/promises', () => ({
     Resolver: jest.fn().mockImplementation(() => ({
@@ -185,7 +186,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         queued = []
         api = new CdpApi(
             hub,
-            { ...createCdpConsumerDeps(hub), idempotencyValkey: createIdempotencyValkeyPool(hub) },
+            { ...createCdpConsumerDeps(hub), emailAttachmentsValkey: createEmailAttachmentsValkeyPool(hub) },
             {
                 hogQueue: createMockJobQueue(),
                 hogflowQueue: {
@@ -243,6 +244,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
 
     beforeEach(async () => {
         mockProducerObserver.resetKafkaProducer()
+        capturedAnalytics.length = 0
         queued.length = 0
         cyclotron.clear()
         hub.WORKFLOWS_SANDBOX_SENDER_ENABLED = true
@@ -306,7 +308,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             ...createCdpConsumerDeps(hub),
             sandboxEmail: {
                 service: world.service(),
-                events: new SandboxEmailEvents(hub.teamManager),
+                events: sandboxEventsCapturedInMemory(hub.postgres),
                 sesBucket: world.sesBucket(100),
             },
         }
@@ -397,6 +399,14 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 ...(scheduledAt ? [{ status: 'scheduled', reason: '' }] : []),
                 { status: 'sent', reason: '' },
             ])
+            await waitForExpect(() =>
+                expect(capturedAnalytics).toEqual([
+                    expect.objectContaining({
+                        event: 'workflows sandbox email sent',
+                        properties: expect.objectContaining({ is_test: false, source: 'code' }),
+                    }),
+                ])
+            )
         }
     )
 
@@ -416,6 +426,17 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 attachment_bytes: 0,
             })
             expect(queued).toEqual([])
+            expect(
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(hub.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC)
+                    .map(({ value }) => value)
+            ).toEqual([
+                expect.objectContaining({
+                    kind: 'transactional-email',
+                    teamId: world.team.id,
+                    job: expect.objectContaining({ id: res.body.invocation_id }),
+                }),
+            ])
         } finally {
             hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
         }
@@ -476,6 +497,11 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             expect.stringContaining(`The PostHog test sender didn't send the email (skipped): ${reason}`)
         )
         expect(deliveryStatuses(queued[0].id)).toEqual([{ status: 'failed', reason }])
+        await waitForExpect(() =>
+            expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
+                ['workflows sandbox email blocked', 'code'],
+            ])
+        )
     })
 
     it('records a send as failed and sends nothing when the sandbox sender is switched off after the send was queued', async () => {
@@ -536,6 +562,13 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         expect(world.ses.delivered).toHaveLength(delivered)
         expect(results.at(-1)).toMatchObject({ finished: true })
         expect(deliveryStatuses(queued[0].id)).toEqual([final])
+        const expectedEvent =
+            final.status === 'sent' ? 'workflows sandbox email sent' : 'workflows sandbox email failed'
+        await waitForExpect(() =>
+            expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
+                [expectedEvent, 'code'],
+            ])
+        )
     })
 
     const rerunFromStoredRun = async (invocationId: string): Promise<CyclotronJobInvocation[]> => {
@@ -770,13 +803,6 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             attachment_bytes: 0,
         })
         expect(queued).toHaveLength(1)
-        expect(queued[0].state?.idempotencyKey).toEqual(
-            expect.objectContaining({
-                senderKind: 'email_sandbox',
-                fingerprint: expect.any(String),
-                currentFingerprint: expect.any(String),
-            })
-        )
 
         await deliver()
         expect(deliveryStatuses(sent.body.invocation_id)).toEqual([{ status: 'sent', reason: '' }])

@@ -39411,6 +39411,10 @@ export namespace Schemas {
       edges: DependencyEdge[];
       /** True when more edges matched than the response holds. */
       truncated: boolean;
+      /** True when the window held more traces than the sample reads, so the counts cover only the sampled traces. */
+      sampled: boolean;
+      /** How many whole traces the edges were computed from. */
+      trace_count: number;
       /**
          * The environment filter the edges were computed for: null for every environment, empty for spans with no environment.
          * @nullable
@@ -39444,7 +39448,7 @@ export namespace Schemas {
     }
 
     export interface DeploymentVersion {
-      /** The service.version resource attribute. */
+      /** The version, read from the attribute named by version_source. */
       version: string;
       /** First span of this version in the window. */
       first_seen: string;
@@ -39483,9 +39487,26 @@ export namespace Schemas {
       active: boolean;
     }
 
+    /**
+     * * `service.version` - Service Version
+     * * `k8s.replicaset.name` - K8S Replicaset Name
+     */
+    export type VersionSourceEnum = typeof VersionSourceEnum[keyof typeof VersionSourceEnum];
+
+
+    export const VersionSourceEnum = {
+      Serviceversion: 'service.version',
+      K8sreplicasetname: 'k8s.replicaset.name',
+    } as const;
+
     export interface DeploymentsResponse {
       /** One row per version, oldest first. */
       results: DeploymentVersion[];
+      /** The resource attribute the versions come from: service.version when the service sets it, else k8s.replicaset.name, which changes on every Kubernetes rollout. Null when the spans carry neither.
+       *
+       * * `service.version` - Service Version
+       * * `k8s.replicaset.name` - K8S Replicaset Name */
+      version_source: VersionSourceEnum | null;
       /** The service the versions belong to. */
       service: string;
       /**
@@ -42362,6 +42383,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `scheduled` - Scheduled
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained
+     */
+    export type EmailSendStatusEnum = typeof EmailSendStatusEnum[keyof typeof EmailSendStatusEnum];
+
+
+    export const EmailSendStatusEnum = {
+      Scheduled: 'scheduled',
+      Queued: 'queued',
+      Failed: 'failed',
+      Sent: 'sent',
+      Delivered: 'delivered',
+      Bounced: 'bounced',
+      Complained: 'complained',
+    } as const;
+
+    /**
      * How much workflow email this project may send, and how much of that it has used.
      */
     export interface EmailSendingAllowance {
@@ -42428,16 +42471,17 @@ export namespace Schemas {
     export interface EmailStatus {
       /** The `message_id` that the send returned. */
       id: string;
-      /** What happened to the email. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
+      /** What happened to the email. `scheduled` means it waits for the time it was scheduled for. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
        *
+       * * `scheduled` - Scheduled
        * * `queued` - Queued
        * * `failed` - Failed
        * * `sent` - Sent
        * * `delivered` - Delivered
        * * `bounced` - Bounced
        * * `complained` - Complained */
-      status: EmailDeliveryStatusEnum;
-      /** When the send was queued. */
+      status: EmailSendStatusEnum;
+      /** When PostHog accepted the send. */
       created_at: string;
       /** When the email reached its current status. */
       status_at: string;
@@ -42913,6 +42957,11 @@ export namespace Schemas {
       span_count: number;
       /** Requests with an error status in the window. */
       error_count: number;
+      /**
+         * Apdex score from 0 to 1 with a 500 ms threshold: satisfied requests plus half the tolerating ones (up to 2 s), over all requests. Errors count as frustrated.
+         * @nullable
+         */
+      apdex: number | null;
     }
 
     export interface EndpointHealth {
@@ -42923,7 +42972,7 @@ export namespace Schemas {
       /** The raw entry span name the row counts, for tracing filters. */
       span_name: string;
       /**
-         * The span attribute the route came from (http.route or url.template), or null when the label is the span name.
+         * The span attribute the route came from (http.route, url.template, or for an outgoing call db.system, server.address or net.peer.name), or null when the label is the span name.
          * @nullable
          */
       route_attribute: string | null;
@@ -43727,6 +43776,16 @@ export namespace Schemas {
       /** Error message */
       error: string;
     }
+
+    /**
+     * * `issue_summaries` - Issue Summaries
+     */
+    export type ErrorTrackingAIFeatureEnum = typeof ErrorTrackingAIFeatureEnum[keyof typeof ErrorTrackingAIFeatureEnum];
+
+
+    export const ErrorTrackingAIFeatureEnum = {
+      IssueSummaries: 'issue_summaries',
+    } as const;
 
     export interface ErrorTrackingVolumeBucket {
       /** Bucket timestamp label. */
@@ -45067,6 +45126,96 @@ export namespace Schemas {
       results: ErrorTrackingIssueTagDefinition[];
     }
 
+    /**
+     * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no new issues until its filters are saved again.
+     * @nullable
+     */
+    export type ErrorTrackingIssueTagRuleDisabledData = {
+      readonly message?: string;
+      readonly issue?: { [key: string]: unknown };
+      readonly properties?: { [key: string]: unknown };
+    } | null;
+
+    export interface ErrorTrackingIssueTagRuleFilterGroup {
+      type: FilterLogicalOperator;
+      values: EventPropertyFilter[];
+    }
+
+    export interface ErrorTrackingIssueTagRuleFilters {
+      type: FilterLogicalOperator;
+      values: (ErrorTrackingIssueTagRuleFilterGroup | EventPropertyFilter)[];
+    }
+
+    export interface ErrorTrackingIssueTagRule {
+      /** Unique identifier of the tag rule. */
+      readonly id: string;
+      /** Tag key that issues store for this rule's tag. Use it to filter issues by the tag, or to apply or remove the tag on one issue. It changes when an edit changes which properties the filters read. */
+      readonly key: string;
+      /**
+         * Display name of the tag the rule applies to each new issue whose first event matches the filters.
+         * @maxLength 128
+         */
+      label: string;
+      /** What the tag means. Shown with the tag. */
+      description: string;
+      /** Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
+      filters: ErrorTrackingIssueTagRuleFilters;
+      /** Starts at 1, and goes up by one each time the filters change. */
+      readonly version: number;
+      /** Position in the list of tag rules. Lower values come first. Every matching rule applies its tag, whatever its position. */
+      order_key: number;
+      /**
+         * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no new issues until its filters are saved again.
+         * @nullable
+         */
+      readonly disabled_data: ErrorTrackingIssueTagRuleDisabledData;
+      /** When the rule was created. */
+      readonly created_at: string;
+      /** When the rule was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface ErrorTrackingIssueTagRuleCreateRequest {
+      /**
+         * Display name of the tag the rule applies to each new issue whose first event matches the filters.
+         * @maxLength 128
+         */
+      label: string;
+      /**
+         * What the tag means. Shown with the tag. Defaults to empty.
+         * @maxLength 1000
+         */
+      description?: string;
+      /** Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
+      filters: ErrorTrackingIssueTagRuleFilters;
+      /**
+         * Position in the list of tag rules. Lower values come first. Defaults to 0.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      order_key?: number;
+    }
+
+    export interface ErrorTrackingIssueTagRuleListResponse {
+      /** Tag rules in ascending order key. */
+      results: ErrorTrackingIssueTagRule[];
+    }
+
+    export interface ErrorTrackingIssueTagRuleUpdateRequest {
+      /**
+         * Replacement display name for the tag. Omit to keep the existing label.
+         * @maxLength 128
+         */
+      label?: string;
+      /**
+         * Replacement description. Omit to keep the existing description.
+         * @maxLength 1000
+         */
+      description?: string;
+      /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
+      filters?: ErrorTrackingIssueTagRuleFilters;
+    }
+
     export interface ErrorTrackingIssueValue {
       /** One distinct value of the requested property. */
       name: string;
@@ -45927,6 +46076,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `no_runs` - No runs
+     * * `one_outcome` - One outcome
+     */
+    export type EvalFixProblemEnum = typeof EvalFixProblemEnum[keyof typeof EvalFixProblemEnum];
+
+
+    export const EvalFixProblemEnum = {
+      NoRuns: 'no_runs',
+      OneOutcome: 'one_outcome',
+    } as const;
+
+    /**
      * For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and description, and prompt_name when one managed prompt holds the rule.
      */
     export type EvalSuggestionDraft = { [key: string]: unknown };
@@ -46073,6 +46234,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly target_evaluation_name: string | null;
+      /** What a fix_eval suggestion found. no_runs: the evaluation ran nothing in the lookback. one_outcome: it returned the same result and reasoning almost every time. Null for other kinds.
+       *
+       * * `no_runs` - No runs
+       * * `one_outcome` - One outcome */
+      readonly fix_problem: EvalFixProblemEnum | null;
       /**
          * Existing evaluation that may already cover this suggestion.
          * @nullable
@@ -64702,6 +64868,7 @@ export namespace Schemas {
     /**
      * * `customerio` - Customer.io
      * * `resend` - Resend
+     * * `postmark` - Postmark
      */
     export type ImportProviderKeyEnum = typeof ImportProviderKeyEnum[keyof typeof ImportProviderKeyEnum];
 
@@ -64709,6 +64876,7 @@ export namespace Schemas {
     export const ImportProviderKeyEnum = {
       Customerio: 'customerio',
       Resend: 'resend',
+      Postmark: 'postmark',
     } as const;
 
     export interface ImportStepOption {
@@ -64724,7 +64892,8 @@ export namespace Schemas {
       /** Provider key to send when starting an import.
        *
        * * `customerio` - Customer.io
-       * * `resend` - Resend */
+       * * `resend` - Resend
+       * * `postmark` - Postmark */
       key: ImportProviderKeyEnum;
       /** Display name of the provider. */
       label: string;
@@ -83893,6 +84062,53 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `ok` - ok
+     * * `failing` - failing
+     */
+    export type SourceFilterRunStateEnum = typeof SourceFilterRunStateEnum[keyof typeof SourceFilterRunStateEnum];
+
+
+    export const SourceFilterRunStateEnum = {
+      Ok: 'ok',
+      Failing: 'failing',
+    } as const;
+
+    export interface SourceFilterRunStatus {
+      /** `failing` when the last fetch of this source's records failed because of its saved filter or the query it builds. Nothing from the source reaches the inbox until a fetch succeeds, and the next successful fetch reads the missed records again. `ok` otherwise.
+       *
+       * * `ok` - ok
+       * * `failing` - failing */
+      state: SourceFilterRunStateEnum;
+      /**
+         * Why the last fetch failed, such as `unknown_field`, `type`, `catalog_missing` or `query_failed`. Null unless `state` is `failing`.
+         * @nullable
+         */
+      error_code: string | null;
+      /**
+         * A readable explanation of the failure, or the error type for a failed query. It never carries record values. Null unless `state` is `failing`.
+         * @nullable
+         */
+      error_message: string | null;
+      /**
+         * When the most recent failure happened. Null unless `state` is `failing`.
+         * @nullable
+         */
+      failed_at: string | null;
+      /**
+         * Records created since this time wait to be read again once a fetch succeeds. Null when none wait.
+         * @nullable
+         */
+      unread_since: string | null;
+      /**
+         * When a fetch of this source last succeeded with the filter. Null if never.
+         * @nullable
+         */
+      last_success_at: string | null;
+      /** Records in the last successful fetch that the filter excluded because a field it reads held a value that could not be read. */
+      malformed_count: number;
+    }
+
+    /**
      * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The error tracking sources (`source_product=error_tracking`) read `issue_filters`: an object with a `properties` list of event property filters, the same shape error tracking alert filters use. The filter sees the issue's own fields (`name`, `description`, `severity`, `assignee`) and the properties of one exception: the first one for a new issue, the reopening one, or an example for a spike. Only issues that match become signals. The server compiles the filter and ignores any bytecode sent with it. Save the same filter on all three error tracking rows with `config_set`, and remove it with `config_remove`. Filters apply to future signals only, and they decide which issues are eligible. They are not a spend cap. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
      */
     export type SignalSourceConfigConfig = { [key: string]: unknown };
@@ -83917,6 +84133,8 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
       readonly status: SignalSourceSyncStatusEnum | null;
+      /** How emission last went for this source's saved `hogql_filter`. Null when the source has no saved filter, or before the first fetch with it. */
+      readonly filter_status: SourceFilterRunStatus | null;
     }
 
     export interface PaginatedSignalSourceConfigList {
@@ -90797,6 +91015,31 @@ export namespace Schemas {
       assignee?: ErrorTrackingIssueAssigneeWrite | null;
     }
 
+    /**
+     * Mapping from tag rule UUID to its new order key.
+     */
+    export type PatchedErrorTrackingIssueTagRuleReorderRequestOrders = {[key: string]: number};
+
+    export interface PatchedErrorTrackingIssueTagRuleReorderRequest {
+      /** Mapping from tag rule UUID to its new order key. */
+      orders?: PatchedErrorTrackingIssueTagRuleReorderRequestOrders;
+    }
+
+    export interface PatchedErrorTrackingIssueTagRuleUpdateRequest {
+      /**
+         * Replacement display name for the tag. Omit to keep the existing label.
+         * @maxLength 128
+         */
+      label?: string;
+      /**
+         * Replacement description. Omit to keep the existing description.
+         * @maxLength 1000
+         */
+      description?: string;
+      /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
+      filters?: ErrorTrackingIssueTagRuleFilters;
+    }
+
     export interface PatchedErrorTrackingIssueTagWrite {
       /**
          * Key of the tag to apply or remove. The tag definitions endpoint lists the tags enabled for the project.
@@ -95657,6 +95900,8 @@ export namespace Schemas {
       readonly managed_viewsets?: PatchedProjectBackwardCompatManagedViewsets;
       /** Realtime cohorts as the request's user sees them in this project. */
       readonly realtime_cohorts?: TeamRealtimeCohorts;
+      /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
+      readonly available_error_tracking_ai_features?: readonly ErrorTrackingAIFeatureEnum[];
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode?: FlagEvaluationsModeEnum;
       /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
@@ -96844,6 +97089,8 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
       readonly status?: SignalSourceSyncStatusEnum | null;
+      /** How emission last went for this source's saved `hogql_filter`. Null when the source has no saved filter, or before the first fetch with it. */
+      readonly filter_status?: SourceFilterRunStatus | null;
     }
 
     export type PatchedSubscriptionWriteContextsItem = {
@@ -102094,6 +102341,8 @@ export namespace Schemas {
       readonly managed_viewsets: ProjectBackwardCompatManagedViewsets;
       /** Realtime cohorts as the request's user sees them in this project. */
       readonly realtime_cohorts: TeamRealtimeCohorts;
+      /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
+      readonly available_error_tracking_ai_features: readonly ErrorTrackingAIFeatureEnum[];
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode: FlagEvaluationsModeEnum;
       /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
@@ -103979,7 +104228,8 @@ export namespace Schemas {
       /** The provider the run imports from.
        *
        * * `customerio` - Customer.io
-       * * `resend` - Resend */
+       * * `resend` - Resend
+       * * `postmark` - Postmark */
       provider: ImportProviderKeyEnum;
       /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
        *
@@ -116515,7 +116765,7 @@ export namespace Schemas {
       /** Plain text body of the email your code rendered, at most 5 MiB as UTF-8. Without it, PostHog derives the text from `html`. */
       text?: string;
       /**
-         * Addresses replies to the email your code rendered go to.
+         * Addresses replies to the email your code rendered go to. The PostHog test sender ignores them and says so in the response's `warnings`.
          * @maxItems 10
          */
       reply_to?: string[];
@@ -116539,7 +116789,7 @@ export namespace Schemas {
       /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
       sensitive?: boolean;
       /**
-         * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default.
+         * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its organization, and then only to members of the organization. That sender ignores this field and says so in the response's `warnings`.
          * @maxLength 1024
          */
       from?: string;
@@ -117379,6 +117629,13 @@ export namespace Schemas {
       ArrayNumber: 'array<number>',
       ArrayBoolean: 'array<boolean>',
     } as const;
+
+    export interface SignalReportActionabilityUpdate {
+      /** `immediately_actionable`, `requires_human_input`, or `not_actionable`. Omit to keep the current value. Required when the report has no actionability yet. */
+      actionability?: string;
+      /** Whether the issue is already fixed, or has a fix in flight that someone else is working on. Omit to keep the current value. */
+      already_addressed?: boolean;
+    }
 
     /**
      * Body for appending an artefact to a report.
@@ -119845,6 +120102,12 @@ export namespace Schemas {
       description?: string | null;
       /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
+      /** Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.
+       *
+       * * `web` - web
+       * * `api` - api
+       * * `mcp` - mcp */
+      created_via?: ExternalDataSourceCreateCreatedViaEnum;
     }
 
     export interface SourceSetupWebhook {
@@ -120339,7 +120602,8 @@ export namespace Schemas {
       /** The provider to import from.
        *
        * * `customerio` - Customer.io
-       * * `resend` - Resend */
+       * * `resend` - Resend
+       * * `postmark` - Postmark */
       provider: ImportProviderKeyEnum;
       /**
          * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -120348,7 +120612,7 @@ export namespace Schemas {
          */
       steps: string[];
       /**
-         * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time.
+         * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. PostHog deletes a Resend key or Postmark token when the run ends, so send it every time.
          * @maxLength 512
          */
       api_key?: string;
@@ -127289,8 +127553,13 @@ export namespace Schemas {
       readonly scanners_period_credits: number;
       /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
       readonly backfills_committed_credits: number;
-      /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
-      readonly free_monthly_credits: number;
+      /**
+         * Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. Null when every credit is free.
+         * @nullable
+         */
+      readonly free_monthly_credits: number | null;
+      /** True while billing has not yet synced this organization's limit and free credits. Nothing can run until it does, which usually takes seconds; poll this endpoint until it turns false. */
+      readonly awaiting_billing_sync: boolean;
     }
 
     export interface VisionSpendDay {
@@ -147344,7 +147613,7 @@ export namespace Schemas {
      */
     only_flagged?: boolean;
     /**
-     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose newest flag is the fewest buckets ago first, so a flag in the latest hour ties a flag in the latest day, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent
@@ -148168,7 +148437,7 @@ export namespace Schemas {
 
     export type SignalsMonthlyUsageParams = {
     /**
-     * UTC calendar month in YYYY-MM format, from 2026-10 onward. Defaults to the current month. Usage is grouped by finalization time.
+     * UTC calendar month in YYYY-MM format, from 2026-10 onward and entirely within the last three calendar months. Defaults to the current month. Usage is grouped by finalization time.
      * @minLength 1
      * @pattern ^[0-9]{4}-(0[1-9]|1[0-2])$
      */

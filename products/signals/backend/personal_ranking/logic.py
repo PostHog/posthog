@@ -8,6 +8,7 @@ the model has nothing to personalize it with.
 
 import json
 import time
+import random
 import hashlib
 import datetime
 import itertools
@@ -38,6 +39,7 @@ from products.signals.backend.personal_ranking.config import (
     read_config,
 )
 from products.signals.backend.personal_ranking.inbox_activity import InboxActivityBlock, read_inbox_activity
+from products.signals.backend.personal_ranking.precheck import fingerprint_matches, input_fingerprint, store_fingerprint
 from products.signals.backend.personal_ranking.prompt import (
     PROMPT_VERSION,
     RESPONSE_FORMAT,
@@ -105,6 +107,10 @@ CHANGED_UNKNOWN = "unknown"
 _PART_HASH_CHARS = 16
 
 BuildStatus = Literal["ok", "fallback", "empty", "disabled"]
+# `hit` confirmed the list with no gather. `miss` ran the full check. `agreed` and `disagreed` are sampled hits that
+# ran the full check too, and `disagreed` means the full check found a change that the pre-check did not.
+PrecheckOutcome = Literal["hit", "miss", "agreed", "disagreed"]
+PRECHECK_OUTCOMES: tuple[PrecheckOutcome, ...] = ("hit", "miss", "agreed", "disagreed")
 # What started a build, on the build event and the trace, so cost can be split by it.
 BuildTrigger = Literal["on_demand", "tick", "first_summary"]
 
@@ -403,34 +409,81 @@ def record_check(team: Team, row: PersonalInboxRanking, now: datetime.datetime) 
 class InputCheck:
     unchanged: bool
     calls_model: bool
+    # None when the pre-check is off.
+    precheck: PrecheckOutcome | None = None
+
+
+def _fingerprint(
+    team: Team,
+    user: User,
+    config: PersonalRankingConfig,
+    *,
+    now: datetime.datetime,
+    limit: int,
+    summary_version: int | None,
+) -> str | None:
+    try:
+        return input_fingerprint(team, user, config, now=now, limit=limit, summary_version=summary_version)
+    except Exception:
+        logger.exception("signals.personal_ranking.precheck_failed", team_id=team.id, user_id=user.id)
+        return None
 
 
 def check_inputs(
-    team: Team, user: User, config: PersonalRankingConfig, *, now: datetime.datetime, limit: int | None = None
+    team: Team,
+    user: User,
+    config: PersonalRankingConfig,
+    *,
+    now: datetime.datetime,
+    limit: int | None = None,
+    precheck: bool = False,
 ) -> InputCheck:
-    """Compare the latest list with the current inputs. A list that still matches counts as fresh again."""
+    """Compare the latest list with the current inputs. A list that still matches counts as fresh again.
+
+    With `precheck` and the tick's `precheck_hours` above 0, a fingerprint that matches the one stored by the last
+    full check of the latest list confirms the list with no gather. Any doubt runs the full check.
+    """
     config = config_for_user(config, user.id)
+    limit = list_limit(config, limit)
     latest = latest_row(team, user)
-    candidates = gather_candidates(team, user, config, now=now, with_sources=False)
     summary_version = ready_summary_version(team, user)
+    reusable = latest if latest is not None and latest.fallback_reason not in RETRYABLE_FALLBACK_REASONS else None
+    precheck_hours = config.tick.precheck_hours if precheck else 0
+    fingerprint = None
+    sampled = False
+    if precheck_hours > 0 and reusable is not None:
+        fingerprint = _fingerprint(team, user, config, now=now, limit=limit, summary_version=summary_version)
+        if fingerprint is not None and fingerprint_matches(team, user, reusable, fingerprint):
+            if random.random() >= config.tick.precheck_sample_share:
+                record_check(team, reusable, now)
+                return InputCheck(unchanged=True, calls_model=False, precheck="hit")
+            sampled = True
+    candidates = gather_candidates(team, user, config, now=now, with_sources=False)
     current_hash = input_hash(
         candidates,
         config=config,
-        limit=list_limit(config, limit),
+        limit=limit,
         activity_summary_version=summary_version,
         focus=None,
         inbox_activity=read_inbox_activity(team, user, config, now=now),
     )
-    if (
-        latest is not None
-        and latest.input_hash == current_hash
-        and latest.fallback_reason not in RETRYABLE_FALLBACK_REASONS
-    ):
-        record_check(team, latest, now)
-        return InputCheck(unchanged=True, calls_model=False)
+    unchanged = reusable is not None and reusable.input_hash == current_hash
+    outcome: PrecheckOutcome | None = None
+    if sampled:
+        outcome = "agreed" if unchanged else "disagreed"
+    elif precheck_hours > 0:
+        outcome = "miss"
+    if outcome == "disagreed":
+        logger.warning("signals.personal_ranking.precheck_disagreed", team_id=team.id, user_id=user.id)
+    if reusable is not None and unchanged:
+        record_check(team, reusable, now)
+        if fingerprint is not None:
+            store_fingerprint(team, user, reusable, fingerprint, precheck_hours)
+        return InputCheck(unchanged=True, calls_model=False, precheck=outcome)
     return InputCheck(
         unchanged=False,
         calls_model=bool(candidates) and may_call_model(team, summary_ready=summary_version is not None),
+        precheck=outcome,
     )
 
 

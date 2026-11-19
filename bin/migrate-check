@@ -1,8 +1,20 @@
 #!/bin/bash
 set -e
 
-if [ -z "$POSTHOG_SKIP_MIGRATION_CHECKS" ]; then
-	python manage.py migrate --check
-	python manage.py migrate_clickhouse --check
-	python manage.py run_async_migrations --check
+if [ -n "$POSTHOG_SKIP_MIGRATION_CHECKS" ]; then
+	echo "migrations:check skipped: POSTHOG_SKIP_MIGRATION_CHECKS is set"
+	exit 0
 fi
+
+# `migrate --check` exits 1 without a word when the database lacks a migration,
+# which reads like a broken migration graph. Name what is missing instead.
+if ! python manage.py migrate --check; then
+	unapplied="$(python manage.py showmigrations --plan 2>/dev/null | sed -n 's/^\[ \] //p' | tr '\n' ' ')"
+	if [ -n "$unapplied" ]; then
+		echo "The local database lacks these migrations, so this is local state, not a migration conflict: $unapplied"
+		echo "Run 'hogli migrations:up' to apply them."
+	fi
+	exit 1
+fi
+python manage.py migrate_clickhouse --check
+python manage.py run_async_migrations --check
