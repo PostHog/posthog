@@ -71,7 +71,7 @@ function printResult(result: unknown): void {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
 }
 
-// Discovery lists every tool. A real call only offers the AI consent tools when the organization allows them.
+// Callers can inspect a tool's inputs before their organization grants AI consent.
 function buildStaticExec(): BuiltStaticExec {
     const tools = getCliTools({ aiConsentGiven: true })
     const execTool = createExecTool(
@@ -121,7 +121,11 @@ async function runExecCommand(command: string, config: CliConfig, toolName: stri
         requireApiKey(config)
     }
     const { aiConsentGiven, execTool, context } = await buildExec(config)
-    if (!aiConsentGiven && getToolDefinitions()[toolName]?.requires_ai_consent) {
+    if (
+        !aiConsentGiven &&
+        getToolDefinitions()[toolName]?.requires_ai_consent &&
+        getCliTools({ aiConsentGiven: true }).some((tool) => tool.name === toolName)
+    ) {
         throw new Error(`${toolName} sends data to an AI provider, and the organization has not allowed that.`)
     }
     const result = await execTool.handler(context, { command })
