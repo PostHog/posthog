@@ -1,5 +1,5 @@
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from difflib import SequenceMatcher
 from itertools import groupby
@@ -356,11 +356,13 @@ def _policy_issue_text(topic: PolicyTopic) -> str:
     return f'{verb} the policy "{name}" (flagged text: {quoted})'
 
 
-def _policy_fix(ad: FlaggedAd) -> Step:
+def _policy_fix(ad: FlaggedAd, headline_repeats: bool) -> Step:
     issues = " and ".join(_policy_issue_text(topic) for topic in _policy_issues(ad))
-    if ad.headline:
+    if ad.headline and not headline_repeats:
         return Step(text=f'The ad "{ad.headline}" {issues}.', copyValue=ad.headline)
-    return Step(text=f"The ad with ID {ad.ad_id} {issues}.", copyValue=ad.ad_id or None)
+    # Ads often share a pinned first headline, and searching Ads for it would list all of them.
+    named = f'The ad "{ad.headline}" with ID {ad.ad_id}' if ad.headline else f"The ad with ID {ad.ad_id}"
+    return Step(text=f"{named} {issues}.", copyValue=ad.ad_id or None)
 
 
 def _word_stems(text: str) -> frozenset[str]:
@@ -1654,7 +1656,8 @@ class _Recommender:
                 linkText="Ads",
             )
             shown = flagged[:POLICY_ADS_SHOWN]
-            fix = tuple(_policy_fix(ad) for ad in shown)
+            headlines = Counter(ad.headline for ad in shown)
+            fix = tuple(_policy_fix(ad, headlines[ad.headline] > 1) for ad in shown)
             # Some affected ads come without findings, so the count comes from the approval totals.
             if (others := disapproved + limited - len(shown)) > 0:
                 fix += (
