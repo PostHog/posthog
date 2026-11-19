@@ -7,6 +7,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytz
 import dateutil
+from parameterized import parameterized
 
 from posthog.schema import (
     AggregationAxisFormat,
@@ -115,7 +116,11 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         return insight
 
-    def create_aggregate_trend_insight(self, breakdown: Optional[BreakdownFilter] = None) -> dict[str, Any]:
+    def create_aggregate_trend_insight(
+        self,
+        breakdown: Optional[BreakdownFilter] = None,
+        display: ChartDisplayType = ChartDisplayType.ACTIONS_PIE,
+    ) -> dict[str, Any]:
         query_dict = TrendsQuery(
             series=[
                 EventsNode(
@@ -129,7 +134,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                 ),
             ],
             breakdownFilter=breakdown,
-            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_PIE),
+            trendsFilter=TrendsFilter(display=display),
             interval=IntervalType.WEEK,
             dateRange=DateRange(date_from="-8w"),
         ).model_dump()
@@ -451,10 +456,11 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         mock_send_breaches.assert_not_called()
 
+    @parameterized.expand([(ChartDisplayType.ACTIONS_PIE,), (ChartDisplayType.CALENDAR_HEATMAP,)])
     def test_aggregate_trend_high_threshold_breached(
-        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, display: ChartDisplayType
     ) -> None:
-        insight = self.create_aggregate_trend_insight()
+        insight = self.create_aggregate_trend_insight(display=display)
         alert = self.create_alert(insight, series_index=0, upper=1)
 
         with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=4), tick=False):
