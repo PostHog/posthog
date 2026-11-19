@@ -198,17 +198,6 @@ describe('IntakeProducer', () => {
         expect(drained).toBe(true)
     })
 
-    it('answers from the broker for a settlement that type-checks only under a suppressed error', async () => {
-        const producer = new IntakeProducer(outputs())
-        const run: IntakeRun = { kind: 'transactional-email', invocation: invocation() }
-
-        // tsc fails on these directives once an empty object or a spread copy, which tracks nothing, type-checks.
-        // @ts-expect-error an empty object is not a settlement
-        await expect(producer.produce(run, 'async', {})).resolves.toBe('acked')
-        // @ts-expect-error a spread copy is not the settlement its publishes are tracked on
-        await expect(producer.produce(run, 'async', { ...new PublishSettlement() })).resolves.toBe('acked')
-    })
-
     it('records the wait for the ack in milliseconds', async () => {
         jest.useFakeTimers()
         produce = () => new Promise<void>((resolve) => setTimeout(resolve, 400))
@@ -245,3 +234,12 @@ describe('IntakeProducer', () => {
         expect(modeOf(7)).toBe(mode)
     })
 })
+
+// Compile-only, never called: tsc fails on these directives once an empty object or a spread copy type-checks as the
+// settlement `produce` takes.
+const _settlementTypeChecks = (producer: IntakeProducer, run: IntakeRun): void => {
+    // @ts-expect-error an empty object is not a settlement
+    void producer.produce(run, 'async', {})
+    // @ts-expect-error a spread copy is not the handle its publishes are tracked on
+    void producer.produce(run, 'async', { ...new PublishSettlement() })
+}
