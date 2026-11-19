@@ -151,8 +151,11 @@ export function policyRequestFlow(
                     return undefined
             }
         },
-        approver: (pending) =>
-            pending.canApprove ? undefined : { who: 'an organization admin', names: pending.approvers },
+        approver: (pending) => ({
+            who: 'an organization admin',
+            names: pending.approvers,
+            isUser: pending.canApprove,
+        }),
     }
 }
 

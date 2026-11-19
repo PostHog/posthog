@@ -65,9 +65,10 @@ export interface ApprovalFlow<Pending extends PendingApproval, Value> extends Ap
     reuse?: (existing: Pending) => boolean
     // Rechecks a reused item someone may have resolved in the browser. Undefined starts a new one.
     refresh?: (existing: Pending) => Promise<Pending | undefined>
-    // Who approves when the person at the terminal can't, so hog hands over the link instead of waiting.
-    // Admins set their own names, so `names` never go into the instructions an agent follows.
-    approver?: (pending: Pending) => { who: string; names: string[] } | undefined
+    // Who approves, for a request only some people can approve. When the person who ran hog can't, hog
+    // hands over the link instead of waiting. Admins set their own names, so `names` never go into the
+    // instructions an agent follows.
+    approver?: (pending: Pending) => Approver
     // `timeoutMs` is how long the poll request may take before the request expires.
     poll: (pending: Pending, timeoutMs: number) => Promise<PollOutcome<Value>>
     // Set for a login, where the person may have no PostHog account yet, so the link explains signing up.
@@ -83,6 +84,14 @@ export type ApprovalWait<Pending extends PendingApproval, Value> = Pick<
     'command' | 'resume' | 'pendingName' | 'noun' | 'pending' | 'poll' | 'maxWaitMs' | 'checkResumable' | 'restart'
 >
 
+export interface Approver {
+    // Who can approve, like "an organization admin".
+    who: string
+    names: string[]
+    // The person who ran hog is one of them.
+    isUser: boolean
+}
+
 export type ApprovalResult<Value> =
     | {
           status: 'pending'
@@ -93,6 +102,8 @@ export type ApprovalResult<Value> =
           next: string
           approver?: string
           approverNames?: string[]
+          // Set for a request only some people can approve: whether the user is one of them.
+          canApprove?: boolean
       }
     | { status: 'approved'; value: Value }
 
@@ -297,19 +308,22 @@ export function pendingResult<Pending extends PendingApproval>(
 ): Extract<ApprovalResult<never>, { status: 'pending' }> {
     const code = pending.userCode ?? null
     const approver = flow.approver?.(pending)
-    const approve = approver
-        ? `send ${pending.url} to ${approver.who} to approve`
+    const other = approver && !approver.isUser ? approver : undefined
+    const approve = other
+        ? `send ${pending.url} to ${other.who} to approve`
         : code
           ? `open ${pending.url} and approve the code ${code}`
           : `open ${pending.url} and approve it`
+    const self = approver?.isUser ? ` They are ${approver.who}, so they can approve it themselves.` : ''
     return {
         status: 'pending',
         url: pending.url,
         code,
         expiresAt: new Date(pending.expiresAt).toISOString(),
-        instructions: `Ask the user to ${approve}.${flow.signUp ? ` ${SIGN_UP_INSTRUCTIONS}` : ''} Then run \`${flow.resume}\`. It returns once they approve. If it times out, run it again.`,
+        instructions: `Ask the user to ${approve}.${self}${flow.signUp ? ` ${SIGN_UP_INSTRUCTIONS}` : ''} Then run \`${flow.resume}\`. It returns once they approve. If it times out, run it again.`,
         next: flow.resume,
-        ...(approver ? { approver: approver.who, approverNames: approver.names } : {}),
+        ...(approver ? { canApprove: approver.isUser } : {}),
+        ...(other ? { approver: other.who, approverNames: other.names } : {}),
     }
 }
 
@@ -351,7 +365,7 @@ export async function runApproval<Pending extends PendingApproval, Value>(
     const { runtime } = ctx
     const prompts = ctx.prompts
     const pending = await startPending(runtime, flow)
-    if (!prompts || flow.approver?.(pending) !== undefined) {
+    if (!prompts || flow.approver?.(pending).isUser === false) {
         return pendingResult(flow, pending)
     }
     const code = pending.userCode ? `\n\nCode: ${escapeControls(pending.userCode)}` : ''
@@ -396,7 +410,9 @@ export function printPending(
         ? `Only ${escapeControls(result.approver)}${result.approverNames?.length ? ` (${escapeControls(result.approverNames.join(', '))})` : ''} can approve it. Send them this link:`
         : result.code
           ? `Open this link to approve, and check that it shows the code ${out.style(escapeControls(result.code), 'bold')}:`
-          : 'Open this link to approve:'
+          : result.canApprove
+            ? 'You can approve it yourself. Open this link:'
+            : 'Open this link to approve:'
 
     out.report({
         status: 'partial',
