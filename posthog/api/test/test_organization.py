@@ -82,6 +82,32 @@ class TestOrganizationAPI(APIBaseTest):
         teams = {team["id"]: team for team in organization.json()["teams"]}
         self.assertEqual(teams[self.team.id]["project_group"], "production-apps")
 
+    def test_project_logo_changes_show_in_organization_projects(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        media = UploadedMedia.objects.create(
+            team=self.team,
+            created_by=self.user,
+            media_location="http://example.com/logo.png",
+            content_type="image/png",
+            file_name="logo.png",
+        )
+        # Fills the per-user cache of the org's project list before the logo exists.
+        self.client.get("/api/organizations/@current")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            updated = self.client.patch(
+                f"/api/projects/{self.project.id}/",
+                {"logo_media_id": str(media.id)},
+                format="json",
+            )
+        self.assertEqual(updated.status_code, status.HTTP_200_OK, updated.json())
+
+        organization = self.client.get("/api/organizations/@current")
+        self.assertEqual(organization.status_code, status.HTTP_200_OK, organization.json())
+        projects = {project["id"]: project for project in organization.json()["projects"]}
+        self.assertEqual(projects[self.project.id]["logo_media_id"], str(media.id))
+
     def test_get_current_team_fields(self):
         self.organization.setup_section_2_completed = False
         self.organization.save()
