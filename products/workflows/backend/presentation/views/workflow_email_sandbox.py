@@ -51,7 +51,9 @@ class WorkflowEmailSandboxViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(operation_id="workflow_email_sandbox_status", responses={200: WorkflowEmailSandboxStatusSerializer})
     @action(detail=False, methods=["get"])
     def status(self, request: Request, **kwargs: Any) -> Response:
-        return Response(WorkflowEmailSandboxStatusSerializer(sandbox_sender_status(self.team, self._user())).data)
+        # The editor and Channels ask for the status where they offer the sender, so this is the flag's exposure.
+        sender_status = sandbox_sender_status(self.team, self._user(), report_exposure=True)
+        return Response(WorkflowEmailSandboxStatusSerializer(sender_status).data)
 
     @extend_schema(
         operation_id="workflow_email_sandbox_provision",

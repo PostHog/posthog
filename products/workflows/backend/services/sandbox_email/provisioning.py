@@ -14,14 +14,14 @@ SANDBOX_SENDER_ADOPTION_FLAG = "workflows-sandbox-sender"
 SANDBOX_SENDER_INTEGRATION_ID = "posthog-managed-sandbox"
 
 
-def sandbox_adoption_enabled(team: Team, user: User | None = None) -> bool:
+def sandbox_adoption_enabled(team: Team, user: User | None = None, *, report_exposure: bool = False) -> bool:
     organization_id = str(team.organization_id)
     return feature_enabled_or_false(
         SANDBOX_SENDER_ADOPTION_FLAG,
         user.distinct_id if user is not None and user.distinct_id else str(team.uuid),
         groups={"organization": organization_id},
         group_properties={"organization": {"id": organization_id}},
-        send_feature_flag_events=False,
+        send_feature_flag_events=report_exposure,
     )
 
 
@@ -48,14 +48,16 @@ def provision_sandbox_sender(team: Team, user: User | None) -> IntegrationRecord
         return winner
 
 
-def sandbox_sender_status(team: Team, user: User | None = None) -> SandboxSenderStatus:
+def sandbox_sender_status(
+    team: Team, user: User | None = None, *, report_exposure: bool = False
+) -> SandboxSenderStatus:
     row = IntegrationManager.email_sandbox.credentials.find(team.id, external_id=SANDBOX_SENDER_INTEGRATION_ID)
     return SandboxSenderStatus(
         integration_id=row.id if row is not None else None,
         from_address=settings.SES_SANDBOX_FROM_ADDRESS,
         display_name=f"{team.organization.name} via PostHog",
         organization_blocked=organization_blocked(team),
-        adoption_enabled=sandbox_adoption_enabled(team, user),
+        adoption_enabled=sandbox_adoption_enabled(team, user, report_exposure=report_exposure),
     )
 
 

@@ -810,6 +810,7 @@ def _queue(
         replayed=replayed,
         attachment_bytes=_attachment_bytes(answer),
         warnings=(sandbox_warning,) if sandbox_warning and sent_from_sandbox else (),
+        sent_from_sandbox=sent_from_sandbox,
     )
 
 

@@ -1314,6 +1314,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert json.loads(mock_post.call_args.kwargs["data"])["send"]["from"] == {"integrationId": sandbox.id}
         queued = {"message_id": pipeline_body["invocation_id"], "replayed": pipeline_body.get("replayed", False)}
         reported = capture.call_args.kwargs["properties"]
+        assert reported["sender_kind"] == ("sandbox" if warned else "own_domain")
         if not warned:
             assert response.json() == queued
             assert "warning_codes" not in reported

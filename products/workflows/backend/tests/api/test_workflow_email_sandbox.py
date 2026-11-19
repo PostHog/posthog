@@ -135,6 +135,17 @@ class TestWorkflowEmailSandbox(APIBaseTest):
             "adoption_enabled": True,
         }
 
+    @parameterized.expand([("status", "get", True), ("provision", "post", False)])
+    def test_only_the_status_reports_the_flag_exposure(self, action: str, method: str, reported: bool) -> None:
+        with _flag(True) as feature_enabled:
+            response = getattr(self.client, method)(self._url(action))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        sandbox_calls = [
+            call for call in feature_enabled.call_args_list if call.args[0] == SANDBOX_SENDER_ADOPTION_FLAG
+        ]
+        assert [call.kwargs["send_feature_flag_events"] for call in sandbox_calls] == [reported]
+
     def test_generic_integration_endpoints_refuse_the_sandbox_kind(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

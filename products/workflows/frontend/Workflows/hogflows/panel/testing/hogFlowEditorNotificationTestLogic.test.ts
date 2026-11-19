@@ -445,6 +445,79 @@ describe('hogFlowEditorNotificationTestLogic', () => {
         })
     })
 
+    describe('test email events', () => {
+        const OWN_STEP = { ...SANDBOX_STEP, type: 'function_email', config: { inputs: {} } } as HogFlowAction
+        const ownSend = (emailSendResult: Record<string, unknown>): Record<string, unknown> => ({
+            status: 'success',
+            logs: [],
+            nextActionId: null,
+            emailSendResult,
+        })
+
+        it.each([
+            [
+                'an own sender delivers',
+                OWN_STEP,
+                false,
+                ownSend({ status: 'accepted' }),
+                [
+                    {
+                        event: 'workflows test email sent',
+                        properties: { step_type: 'function_email', sender_kind: 'own_domain' },
+                    },
+                ],
+            ],
+            ['an own sender skips the recipient', OWN_STEP, false, ownSend({ status: 'skipped', reason: 'x' }), []],
+            ['an own sender test is mocked', OWN_STEP, true, ownSend({ status: 'accepted' }), []],
+            [
+                'the sandbox sender delivers',
+                SANDBOX_STEP,
+                false,
+                ACCEPTED,
+                [
+                    { event: 'workflows sandbox test sent', properties: { status: 'accepted', reason: null } },
+                    {
+                        event: 'workflows test email sent',
+                        properties: { step_type: 'email_sandbox', sender_kind: 'sandbox' },
+                    },
+                ],
+            ],
+            [
+                'the sandbox sender refuses the recipient',
+                SANDBOX_STEP,
+                false,
+                { ...ACCEPTED, execResult: { status: 'skipped', reason: 'not_member' } },
+                [{ event: 'workflows sandbox test sent', properties: { status: 'skipped', reason: 'not_member' } }],
+            ],
+        ])('records the test email events when %s', async (_, step, mocked, response, expected) => {
+            const events: { event: string; properties: unknown }[] = []
+            jest.mocked(posthog.capture).mockImplementation((event, properties) => {
+                events.push({ event, properties })
+                return undefined
+            })
+            useMocks({
+                get: { '/api/organizations/@current/members/': { results: MEMBERS, next: null } },
+                post: { '/api/environments/:team_id/hog_flows/:id/invocations': () => [200, response] },
+            })
+            await expectLogic(workflowLogicInstance).toDispatchActions(['loadWorkflowSuccess'])
+            workflowLogicInstance.actions.setWorkflowValues({ actions: [step] })
+            logic.actions.setTestInvocationValue('globals', '{"person": {"properties": {"email": "ana@example.com"}}}')
+            logic.actions.setTestInvocationValue('mock_async_functions', mocked)
+            logic.actions.setEmailAddressOverride('ana@example.com')
+            logic.actions.setSelectedNodeId('email')
+            membersLogic.actions.ensureAllMembersLoaded()
+            await expectLogic(membersLogic).toFinishAllListeners()
+
+            await expectLogic(logic, () => logic.actions.submitTestInvocation()).toDispatchActions([
+                'submitTestInvocationSuccess',
+            ])
+
+            expect(events.filter(({ event }) => event.startsWith('workflows') && event.includes('test'))).toEqual(
+                expected
+            )
+        })
+    })
+
     describe('sandbox step test', () => {
         let sentTo: string[]
         let personEmails: string[]
