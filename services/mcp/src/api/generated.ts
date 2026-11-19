@@ -147429,6 +147429,10 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * 'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking.
+     */
+    needs_you?: boolean;
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
@@ -147724,6 +147728,10 @@ export namespace Schemas {
      * Include reports kept out of the shared inbox. A report is kept out when the scout that authored it turned off its `inbox` output destination. Defaults to false. Fetching a report by id always works, whatever this value is.
      */
     include_unlisted?: boolean;
+    /**
+     * 'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking.
+     */
+    needs_you?: boolean;
     /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
