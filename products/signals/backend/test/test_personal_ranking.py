@@ -71,7 +71,6 @@ from products.signals.backend.personal_ranking_tasks import (
     build_personal_inbox_ranking,
     start_first_summary_build,
 )
-from products.signals.backend.ranking.inbox_sort import PERSONAL_RECOMMENDED_FLAG, RECOMMENDED_INBOX_SORT_FLAG
 from products.signals.backend.ranking.report_predictions import OutcomePrediction, ReportPredictions
 
 REFS = ["c1", "c2", "c3", "c4"]
@@ -902,10 +901,6 @@ class TestBuildPersonalRanking(BaseTest):
             (
                 "products.signals.backend.personal_ranking.candidates.fetch_source_products_for_reports",
                 MagicMock(return_value={}),
-            ),
-            (
-                "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag",
-                MagicMock(return_value="action_pills"),
             ),
         ):
             patcher = patch(target, value)
@@ -1783,8 +1778,6 @@ class TestPersonalListSort(APIBaseTest):
         super().setUp()
         self.payload: dict[str, Any] = {}
         self.flag_enabled = True
-        self.analytics = MagicMock()
-        self.analytics.get_feature_flag.return_value = "control"
         self.gather = MagicMock()
         self.delay = MagicMock()
         for target, value in (
@@ -1796,7 +1789,6 @@ class TestPersonalListSort(APIBaseTest):
                 "products.signals.backend.ranking.access.feature_enabled_or_false",
                 MagicMock(side_effect=lambda *_args, **_kwargs: self.flag_enabled),
             ),
-            ("products.signals.backend.ranking.inbox_sort.posthoganalytics", self.analytics),
             ("products.signals.backend.personal_ranking.serve.gather_candidates", self.gather),
             ("products.signals.backend.personal_ranking.serve.build_personal_inbox_ranking.delay", self.delay),
         ):
@@ -1839,9 +1831,6 @@ class TestPersonalListSort(APIBaseTest):
             **{"user": self.user, "status": "ok", **defaults, **kwargs},
         )
 
-    def _variants(self, variants: dict[str, str]) -> None:
-        self.analytics.get_feature_flag.side_effect = lambda flag, *_args, **_kwargs: variants.get(flag)
-
     def _list(self, **params: Any) -> dict[str, Any]:
         query = "&".join(f"{key}={value}" for key, value in {"status": "ready", **params}.items())
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?{query}")
@@ -1851,38 +1840,39 @@ class TestPersonalListSort(APIBaseTest):
     def _ids(self, body: dict[str, Any]) -> list[str]:
         return [row["id"] for row in body["results"]]
 
-    def test_puts_ranked_then_folded_reports_first_without_a_build_or_an_exposure(self) -> None:
+    @parameterized.expand([("personal",), ("recommended",)])
+    def test_puts_ranked_then_folded_reports_first_without_a_build(self, sort: str) -> None:
         r0, r1, r2, r3, r4 = self.reports
         row = self._ranking([r2, r0], [r1])
-        base = self._ids(self._list(sort="recommended"))
-        self.analytics.reset_mock()
+        base = self._ids(self._list(sort="priority"))
 
-        body = self._list(sort="personal")
+        body = self._list(sort=sort)
 
         rest = [report_id for report_id in base if report_id not in {str(r2.id), str(r0.id), str(r1.id)}]
         assert self._ids(body) == [str(r2.id), str(r0.id), str(r1.id), *rest]
-        assert (body["ranker"], body["ranking_id"], body["ranking_pill"]) == ("personal", str(row.id), False)
+        assert (body["ranker"], body["ranking_id"], body["ranking_pill"]) == ("personal", str(row.id), True)
         assert [row["inbox_merge_key"] for row in body["results"]] == [0, 1, 2, 3 + 5, 3 + 5]
         assert [(row["personal_tier"], row["personal_reason"]) for row in body["results"][:3]] == [
             ("top", "reason R2"),
             (None, None),
             (None, None),
         ]
-        assert self.analytics.get_feature_flag.call_args.kwargs["send_feature_flag_events"] is False
         assert (self.gather.call_count, self.delay.call_count) == (0, 0)
         assert PersonalInboxRanking.objects.for_team(self.team.id).count() == 1
 
     @parameterized.expand(
         [
-            ("no_row", None, True, True),
-            ("empty_row", {"ranked": [], "folded": []}, True, True),
-            ("not_personalized", "not_personalized", True, True),
-            ("flag_off", "ranked", False, True),
-            ("disabled", "ranked", True, False),
+            ("no_row", None, True, True, "personal"),
+            ("empty_row", {"ranked": [], "folded": []}, True, True, "personal"),
+            ("not_personalized", "not_personalized", True, True, "personal"),
+            ("flag_off", "ranked", False, True, "personal"),
+            ("disabled", "ranked", True, False, "personal"),
+            ("recommended_no_row", None, True, True, "recommended"),
+            ("recommended_flag_off", "ranked", False, True, "recommended"),
         ]
     )
-    def test_falls_back_to_the_recommended_order(
-        self, _name: str, row: Any, flag_enabled: bool, config_enabled: bool
+    def test_falls_back_to_the_priority_order(
+        self, _name: str, row: Any, flag_enabled: bool, config_enabled: bool, sort: str
     ) -> None:
         r0, r1, *_ = self.reports
         if row == "not_personalized":
@@ -1891,21 +1881,21 @@ class TestPersonalListSort(APIBaseTest):
             self._ranking([r0], [r1])
         elif row is not None:
             self._ranking([], [], result=row)
-        base = self._list(sort="recommended")
+        base = self._list(sort="priority")
         self.flag_enabled = flag_enabled
         self.payload = {} if config_enabled else {"enabled": False}
 
-        body = self._list(sort="personal")
+        body = self._list(sort=sort)
 
         assert self._ids(body) == self._ids(base)
-        assert (body["ranker"], body["ranking_id"]) == ("priority", None)
-        assert [row["inbox_merge_key"] for row in body["results"]] == [
-            row["inbox_merge_key"] for row in base["results"]
-        ]
+        assert (body["ranker"], body["ranking_id"], body["ranking_pill"]) == ("priority", None, False)
+        # No report has a priority, so each key is the last priority rank.
+        assert [row["inbox_merge_key"] for row in body["results"]] == [5] * len(self.reports)
         assert all(row["personal_reason"] is None for row in body["results"])
         assert (self.gather.call_count, self.delay.call_count) == (0, 0)
 
-    def test_teammate_scope_reads_the_teammate_ranking(self) -> None:
+    @parameterized.expand([("personal",), ("recommended",)])
+    def test_teammate_scope_reads_the_teammate_ranking(self, sort: str) -> None:
         r0, r1, r2, r3, _ = self.reports
         teammate = User.objects.create(email="teammate@example.com")
         OrganizationMembership.objects.create(user=teammate, organization=self.organization)
@@ -1919,7 +1909,7 @@ class TestPersonalListSort(APIBaseTest):
         self._ranking([r0, r1], [])
         row = self._ranking([r3, r2], [r1], user=teammate)
 
-        body = self._list(sort="personal", scope="teammate", teammate_uuid=teammate.uuid)
+        body = self._list(sort=sort, scope="teammate", teammate_uuid=teammate.uuid)
 
         assert self._ids(body)[:3] == [str(r3.id), str(r2.id), str(r1.id)]
         assert set(self._ids(body)) == {str(r0.id), str(r1.id), str(r2.id), str(r3.id)}
@@ -1927,13 +1917,11 @@ class TestPersonalListSort(APIBaseTest):
         assert (body["results"][0]["personal_tier"], body["results"][0]["personal_reason"]) == ("top", "reason R3")
         assert (self.gather.call_count, self.delay.call_count) == (0, 0)
 
-    def test_teammate_scope_outside_the_organization_falls_back_to_the_recommended_order(self) -> None:
+    def test_teammate_scope_outside_the_organization_falls_back_to_the_priority_order(self) -> None:
         r0, r1, r2, r3, r4 = self.reports
         outsider = User.objects.create(email="outsider@example.com")
         self._ranking([r0, r1, r2, r3], [r4])
         self._ranking([r1, r0], [], user=outsider)
-        # The personal arm falls back to the priority order, not to the ranker of the pills arm.
-        self._variants({PERSONAL_RECOMMENDED_FLAG: "personal", RECOMMENDED_INBOX_SORT_FLAG: "action_pills"})
 
         body = self._list(sort="personal", scope="teammate", teammate_uuid=outsider.uuid)
 
@@ -1943,7 +1931,6 @@ class TestPersonalListSort(APIBaseTest):
     @parameterized.expand([("personal",), ("recommended",)])
     def test_later_pages_keep_the_order_of_the_first_page_after_a_rebuild(self, sort: str) -> None:
         r0, r1, r2, r3, r4 = self.reports
-        self._variants({PERSONAL_RECOMMENDED_FLAG: "personal"})
         old = self._ranking([r0, r1, r2, r3], [r4])
         first = self._list(sort=sort, limit=2)
         assert (self._ids(first), first["ranking_id"]) == ([str(r0.id), str(r1.id)], str(old.id))
@@ -1955,41 +1942,6 @@ class TestPersonalListSort(APIBaseTest):
         old.delete()
         latest = self._list(sort=sort, limit=2, offset=2, ranking_id=first["ranking_id"])
         assert self._ids(latest) == [str(r1.id), str(r0.id)]
-
-    @parameterized.expand(
-        [
-            ("full_list", 4, "personal", "personal", [True]),
-            ("full_list_in_control", 4, "control", "priority", [True]),
-            # A rebuild can make an exposed person's list shorter, and they must keep their arm.
-            ("short_list", 3, "personal", "personal", [False]),
-            ("short_list_in_control", 3, "control", "priority", [False]),
-            ("no_list", None, "personal", "priority", []),
-        ]
-    )
-    def test_recommended_exposes_the_personal_test_only_with_a_full_list(
-        self, _name: str, ranked: int | None, variant: str, ranker: str, exposures: list[bool]
-    ) -> None:
-        r0, r1, r2, r3, r4 = self.reports
-        listed = [r3, r1, r4, r0][:ranked]
-        row = self._ranking(listed, [r2]) if ranked is not None else None
-        base = self._ids(self._list(sort="priority"))
-        self._variants({PERSONAL_RECOMMENDED_FLAG: variant, RECOMMENDED_INBOX_SORT_FLAG: "control"})
-
-        body = self._list(sort="recommended")
-
-        if ranker == "personal":
-            assert row is not None
-            assert self._ids(body)[: len(listed) + 1] == [str(report.id) for report in [*listed, r2]]
-            assert (body["ranker"], body["ranking_id"], body["ranking_pill"]) == ("personal", str(row.id), True)
-            assert body["results"][0]["personal_reason"] == "reason R3"
-        else:
-            assert self._ids(body) == base
-            assert (body["ranker"], body["ranking_id"], body["ranking_pill"]) == ("priority", None, False)
-        assert [
-            call.kwargs["send_feature_flag_events"]
-            for call in self.analytics.get_feature_flag.call_args_list
-            if call.args[0] == PERSONAL_RECOMMENDED_FLAG
-        ] == exposures
 
     @parameterized.expand([("priority", {}), ("personal", {}), ("personal", {"scope": "teammate"})])
     def test_first_page_reports_the_viewer_ranking_status(self, sort: str, params: dict[str, Any]) -> None:
