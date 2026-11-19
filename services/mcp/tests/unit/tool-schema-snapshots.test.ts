@@ -135,7 +135,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'platform-alerts-source-warehouse': true,
         'logs-agent-tools': true,
         'signals-source-filters': true,
-        'releases-area': true,
+        'release-objects': true,
     }
     return [...(await getToolsFromContext(createMockContext(), { featureFlags }))].sort((a, b) =>
         a.name.localeCompare(b.name)

@@ -192,9 +192,10 @@ attestations:
           - '(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$'
       sibling_files: [max_migration.txt]
     - name: dependency_proof
-      # The Dependency proof workflow posts this check with a posthog-dependency-proof token. It
-      # first replays the pnpm update from the merge base, and confirms that the replay writes the
-      # same lockfile as the PR head.
+      # The Dependency proof workflow posts this check with a posthog-dependency-proof token. For
+      # an npm update it replays the pnpm update from the merge base, and confirms that the replay
+      # writes the same lockfile as the PR head. For a first-party Python SDK bump it checks that
+      # only the SDK version moves and that PyPI serves the locked files from the SDK's release workflow.
       check: 'Dependency proof'
       app_id: 5697920
       lifts: [deps_toolchain]
@@ -202,6 +203,9 @@ attestations:
           - '(?:^|/)package\.json$'
           - '(?:^|/)pnpm-lock\.yaml$'
           - '(?:^|/)pnpm-workspace\.yaml$'
+          - '(?:^|/)pyproject\.toml$'
+          - '(?:^|/)uv\.lock$'
+          - '(?:^|/)requirements[^/]*\.txt$'
       # The prover's own manifest lists the default-branch paths it runs from. The engine reads it
       # from the default branch and ignores a proof whose marker does not pin every path in it.
       issuer: tools/change-prover/issuer.yml

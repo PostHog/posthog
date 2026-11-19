@@ -965,8 +965,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "persondistinctid",
         "cohort",
         "cohortpeople",
-        "properties_last_updated_at",
-        "properties_last_operation",
         "version",
         "is_user",
     ],

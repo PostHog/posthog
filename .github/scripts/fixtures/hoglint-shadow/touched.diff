@@ -1,0 +1,18 @@
+diff --git a/products/visual_review/backend/logic/shadow_probe.py b/products/visual_review/backend/logic/shadow_probe.py
+index 501a5ae3cdee..f1816611eb53 100644
+--- a/products/visual_review/backend/logic/shadow_probe.py
++++ b/products/visual_review/backend/logic/shadow_probe.py
+@@ -5 +5 @@ from products.event_definitions.backend.models.property_definition import Proper
+-def definition_models() -> tuple[type, type]:
++def definition_model_types() -> tuple[type, type]:
+diff --git a/products/visual_review/backend/logic/shadow_schema.py b/products/visual_review/backend/logic/shadow_schema.py
+new file mode 100644
+index 000000000000..195a91d093c4
+--- /dev/null
++++ b/products/visual_review/backend/logic/shadow_schema.py
+@@ -0,0 +1,5 @@
++from products.event_definitions.backend.models.schema import EventSchema
++
++
++def schema_model() -> type:
++    return EventSchema

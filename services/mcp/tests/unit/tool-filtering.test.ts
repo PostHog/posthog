@@ -1208,7 +1208,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'aeo-citation-tracking',
                 'self-driving-usage-display',
                 'logs-agent-tools',
-                'releases-area',
+                'release-objects',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')

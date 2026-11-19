@@ -1,0 +1,12 @@
+diff --git a/products/visual_review/backend/logic/shadow_probe.py b/products/visual_review/backend/logic/shadow_probe.py
+new file mode 100644
+index 000000000000..501a5ae3cdee
+--- /dev/null
++++ b/products/visual_review/backend/logic/shadow_probe.py
+@@ -0,0 +1,6 @@
++from products.event_definitions.backend.models.event_definition import EventDefinition
++from products.event_definitions.backend.models.property_definition import PropertyDefinition
++
++
++def definition_models() -> tuple[type, type]:
++    return EventDefinition, PropertyDefinition
