@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     # Concurrent index builds can't run in a transaction.
     atomic = False
 
-    dependencies = [("posthog", "1446_organizationprovisioning_partner_paid_since")]
+    dependencies = [("posthog", "1447_team_updated_at_index")]
 
     # On UPPER(name) because icontains compiles to UPPER(col) LIKE UPPER(pattern) on Postgres. A concurrent build
     # takes SHARE UPDATE EXCLUSIVE, which blocks no reads or writes on these hot tables. pg_trgm is already
