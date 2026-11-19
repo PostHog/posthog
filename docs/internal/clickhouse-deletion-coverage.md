@@ -334,8 +334,8 @@ An immediate request without a predicate sweeps the table and verifies it like t
 
 A flag-evaluation row is a fork of its `$feature_flag_called` event, with the same uuid, and both tables shard on `sipHash64(distinct_id)`, so the two copies share a shard.
 That holds only while both tables are on one cluster.
-Where `sharded_flag_evaluations` is on the `flags` cluster, its hosts carry no `sharded_events`, so the shard-local copy check below fails with an unknown-table error.
-A request that reaches the check fails before it deletes or queues anything.
+Where `sharded_flag_evaluations` is on the `flags` cluster, the shard-local copy check below cannot run.
+A request with a predicate then refuses while the table holds rows that match its other criteria, before it deletes or queues anything.
 `DeletionTarget.copied_from` records that relationship.
 A deferred request with a predicate reaches a row that has an events copy through `events`.
 The queue fill reads uuids from `sharded_events` with the events-compiled predicate, and the drain deletes those uuids from every target, so it deletes the flag row of every event the predicate names.

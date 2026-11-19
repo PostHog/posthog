@@ -553,6 +553,13 @@ _IMMEDIATE_HOGQL_RETRY_HINT = (
 )
 
 
+_HOGQL_EVENTS_COPY_ON_ANOTHER_CLUSTER_REASON = (
+    "the request carries a HogQL predicate, and this table is stored on a different cluster from its events "
+    "copies. The check for rows without an events copy reads both tables on one shard, so it cannot run here, "
+    f"and this job cannot tell which of these rows the predicate may reach. See {COVERAGE_DOC}."
+)
+
+
 def _hogql_unchecked_events_copy_reason(target: DeletionTarget, tables: list[str]) -> str:
     return (
         f"the request carries a HogQL predicate, and these rows have no copy in {target.copied_from}, but "
@@ -745,6 +752,16 @@ def _event_removal_placements(
         # matching rows in the request's window. This count also runs the compiled fragment before
         # anything is queued, so a fragment that ClickHouse rejects fails the request with an empty queue.
         if not count_surviving_rows(cluster, target, *uncopied_predicate.narrow(criteria)):
+            continue
+        copy_cluster = next((p.cluster for p in placements if p.target.data_table == target.copied_from), None)
+        if copy_cluster is not placement.cluster:
+            _refuse_unsweepable(
+                cluster,
+                [target],
+                deletion_request,
+                _same_criteria(uncopied_predicate.narrow(criteria)),
+                reason=_HOGQL_EVENTS_COPY_ON_ANOTHER_CLUSTER_REASON,
+            )
             continue
         deferred = reaches_target_through_event_uuids(deletion_request, target)
         if uncopied_predicate.compiled is None:
