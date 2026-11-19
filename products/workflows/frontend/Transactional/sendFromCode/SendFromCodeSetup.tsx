@@ -27,7 +27,7 @@ export function SendFromCodeSetup({ surface }: { surface: SendFromCodeSurface })
             {wizardOffered && isCloudOrDev ? (
                 <>
                     <WizardCommandBlock
-                        // pinned: the Wizard's CLI word, which the copy event also records as `command`
+                        // pinned: the Wizard's CLI word. The copy event records it as `command`, so copies count per released command
                         subcommand="email"
                         description="The setup agent writes the email in your code, adds your project secret API key to your env file, and adds the first send to your server code."
                     />
