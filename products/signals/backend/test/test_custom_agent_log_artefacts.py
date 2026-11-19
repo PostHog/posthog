@@ -99,6 +99,8 @@ class TestCustomAgentLogArtefacts(BaseTest):
             str(self.user.uuid),
         ]
         assert reviewers.root[0].reason == "Maintains the affected feature."
+        row = SignalReportArtefact.objects.get(report_id=result.report_id, type="suggested_reviewers")
+        assert row.implementation_authorization == {"mode": "reviewer", "user_id": None}
         assert resolve_suggested_reviewer_user_ids(SignalReport.objects.get(id=result.report_id)) == {
             member.id,
             self.user.id,

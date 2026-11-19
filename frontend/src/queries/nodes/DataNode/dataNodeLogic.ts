@@ -238,7 +238,7 @@ function getConcurrencyController(query: DataNode, currentTeam: TeamType): Concu
         return marketingAnalyticsConcurrencyController
     }
 
-    if (activeScene === Scene.SavedInsights || activeScene === Scene.AnalyticsProductHome) {
+    if (activeScene === Scene.SavedInsights) {
         return productAnalyticsHomeConcurrencyController
     }
 

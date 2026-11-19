@@ -17,6 +17,7 @@ and idempotent.
 import json
 import time
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -261,7 +262,7 @@ class BackfillWarehousePersonPropertiesWorkflow(PostHogWorkflow):
 
 
 PERSON_PROPERTY_BACKFILL_WORKFLOWS: list[type[PostHogWorkflow]] = [BackfillWarehousePersonPropertiesWorkflow]
-PERSON_PROPERTY_BACKFILL_ACTIVITIES = [
+PERSON_PROPERTY_BACKFILL_ACTIVITIES: list[Callable[..., object]] = [
     backfill_warehouse_person_properties_activity,
     record_failed_person_property_backfill_runs_activity,
 ]

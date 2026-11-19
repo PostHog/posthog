@@ -1382,10 +1382,10 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
             f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}", expected_extra_queries=5
         )
 
-        # Project access doesn't double query the object, but roles and access controls load 3 times, 2 queries each
+        # Project access loads the user's roles and the project's access controls once each, which adds 2 queries
         # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
         self._assert_access_control_adds_queries(
-            "/api/projects/@current/is_generating_demo_data", expected_extra_queries=6
+            "/api/projects/@current/is_generating_demo_data", expected_extra_queries=2
         )
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
@@ -1423,10 +1423,10 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
     def test_query_counts_stable_for_project_access(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
 
-        # Project access doesn't double query the object, but roles and access controls load 3 times, 2 queries each
+        # Project access loads the user's roles and the project's access controls once each, which adds 2 queries
         # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
         self._assert_access_control_adds_queries(
-            "/api/projects/@current/is_generating_demo_data", expected_extra_queries=6
+            "/api/projects/@current/is_generating_demo_data", expected_extra_queries=2
         )
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items

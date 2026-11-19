@@ -320,7 +320,14 @@ describe('ReportsTab', () => {
         { scope: INBOX_SCOPE_FOR_YOU, forYouCount: 14 },
         { scope: INBOX_SCOPE_ENTIRE_PROJECT, forYouCount: null },
     ])('records the personal ranking status on Inbox viewed in the $scope scope', async ({ scope, forYouCount }) => {
-        const status = { state: 'real', size: 4, age_minutes: 90, checked_age_minutes: 5, fallback_reason: null }
+        const status = {
+            state: 'real',
+            size: 4,
+            age_minutes: 90,
+            checked_age_minutes: 5,
+            fallback_reason: null,
+            building: false,
+        }
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/reports/': ({ request }) => {
@@ -351,6 +358,7 @@ describe('ReportsTab', () => {
                 personal_list_age_minutes: 90,
                 personal_list_checked_age_minutes: 5,
                 personal_list_fallback_reason: null,
+                personal_list_building: false,
                 for_you_report_count: forYouCount,
                 sort_field: 'recommended',
                 ranker_id: 'priority',

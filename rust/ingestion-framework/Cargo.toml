@@ -25,6 +25,7 @@ tracing = { workspace = true }
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }
 metrics-exporter-prometheus = { workspace = true }
+proptest = "1"
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true }
 

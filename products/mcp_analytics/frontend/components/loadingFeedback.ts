@@ -5,5 +5,5 @@ import { cn } from 'lib/utils/css-classes'
 export const LOADING_FEEDBACK_DELAY_MS = 200
 
 export function dimWhileLoading(loading: boolean): string {
-    return cn('transition-opacity duration-150 ease-out', loading && 'opacity-40 delay-200')
+    return cn('transition-opacity duration-150 ease-out', loading && 'opacity-50 delay-200')
 }

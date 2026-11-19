@@ -343,6 +343,7 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   10 recordings per page with a Load more footer. Up to 5 optional recommendations load afterward under Worth watching,
   below the recordings; recommendations matching loaded recordings enrich those rows without moving them.
   Pull to refresh reloads the first page and the recommendations.
+  With **Exclude internal users** on, recommendations appear only with recordings that pass the filter.
   Loading (row-shaped blocks), "Couldn't load your sessions" with Try again, "No recordings yet", the sign-in state and
   the demo state are separate screens. More (pushed only) holds Pin to navigation or Unpin from navigation, with the
   Views toast and Undo, and Open on web.

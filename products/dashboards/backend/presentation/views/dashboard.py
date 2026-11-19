@@ -107,7 +107,6 @@ from posthog.models.quick_filter import QuickFilter
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import posthog_feature_flag_enabled
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
@@ -157,7 +156,13 @@ from products.dashboards.backend.customization import (
     validated_group_keys,
     without_default_settings,
 )
-from products.dashboards.backend.facade.api import CannotAddToDashboard, add_insight_to_dashboard, tile_ids_prefetch
+from products.dashboards.backend.facade.api import (
+    CannotAddToDashboard,
+    add_insight_to_dashboard,
+    dashboard_v2_enabled,
+    shared_tile_work,
+    tile_ids_prefetch,
+)
 from products.dashboards.backend.facade.query_sharing import (
     DashboardQuerySharingStream,
     DashboardQuerySharingStreamEvent,
@@ -3117,7 +3122,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # Use the specified layout size to get the correct order for the current viewport
         sorted_tiles = DashboardTile.sort_tiles_by_layout(tiles, layout_size)
 
-        with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
+        with (
+            task_chain_context() if chained_tile_refresh_enabled else nullcontext(),
+            shared_tile_work(
+                team, str(getattr(getattr(self.context.get("request"), "user", None), "distinct_id", None) or team.uuid)
+            ),
+        ):
             # Handle case where there are no tiles
             if not sorted_tiles:
                 return []
@@ -4409,13 +4419,7 @@ class DashboardsViewSet(
     def cached_tiles(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Read the cached results of several insight tiles in one request. Never runs a query: a tile with
         nothing cached comes back as a miss, to be loaded through the insight endpoint."""
-        if not posthog_feature_flag_enabled(
-            "dashboard-v2",
-            str(cast(User, request.user).distinct_id),
-            organization_id=self.team.organization_id,
-            team_id=self.team.pk,
-            only_evaluate_locally=True,
-        ):
+        if not dashboard_v2_enabled(self.team, str(cast(User, request.user).distinct_id)):
             raise exceptions.NotFound()
         # Covers the body as well as the query string: `resolve_execution_mode` honors either.
         if refresh_param_present(request):
