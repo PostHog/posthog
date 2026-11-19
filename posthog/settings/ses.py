@@ -52,6 +52,11 @@ WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS: list[str] = [
 WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED: bool = get_from_env(
     "WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED", False, type_cast=str_to_bool
 )
+WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS: frozenset[str] = frozenset(
+    workflow_id.strip()
+    for workflow_id in os.getenv("WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS", "").split(",")
+    if workflow_id.strip()
+)
 
 # Volume gates. A workflow that sent 12 emails and drew 1 complaint is a 8% complaint rate and
 # no information, so a breach needs both enough sends in the window and enough feedback events.

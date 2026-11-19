@@ -85,6 +85,11 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         self.warning_email = warning_email.delay
         return applied, paused_email.delay
 
+    def _unenforced(self, enforced: bool):
+        if enforced:
+            return override_settings(WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS=frozenset({str(self.flow.id)}))
+        return override_settings(WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED=False)
+
     def test_complaint_breach_pauses_the_workflow_and_notifies(self):
         self._seed(sent=400, complaints=8)
 
@@ -330,21 +335,23 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert self.warning_email.call_count == 1
         assert self.warning_email.call_args.kwargs["hog_flow_id"] == str(other.id)
 
-    @override_settings(WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED=False)
-    def test_dry_run_does_not_warn(self):
+    @parameterized.expand([("dry_run", False), ("exempt_workflow", True)])
+    def test_unenforced_workflow_is_not_warned(self, _name: str, enforced: bool):
         self._seed(sent=10000, complaints=20)
 
-        self._sweep()
+        with self._unenforced(enforced):
+            self._sweep()
 
         assert self.warning_email.call_count == 0
         self.flow.refresh_from_db()
         assert self.flow.email_sending_warned_at is None
 
-    @override_settings(WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED=False)
-    def test_dry_run_finds_the_breach_but_writes_nothing(self):
+    @parameterized.expand([("dry_run", False), ("exempt_workflow", True)])
+    def test_unenforced_workflow_finds_the_breach_but_writes_nothing(self, _name: str, enforced: bool):
         self._seed(sent=400, complaints=8)
 
-        applied, paused_email = self._sweep()
+        with self._unenforced(enforced):
+            applied, paused_email = self._sweep()
 
         assert applied == []
         assert [decision.hog_flow_id for decision in find_workflow_email_pauses(now=self.now)] == [str(self.flow.id)]

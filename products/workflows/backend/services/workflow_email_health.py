@@ -609,11 +609,11 @@ def sweep_workflow_email_health(*, now: datetime | None = None) -> list[PauseDec
     applied: list[PauseDecision] = []
     failed = 0
     for decision in decisions.pauses:
-        if not enabled:
+        if not enabled or _exempt(decision):
             workflow_email_auto_pause_total.labels(
                 signal=decision.threshold.signal,
                 window=decision.threshold.window_label,
-                mode="dry_run",
+                mode=_unenforced_mode(enabled),
                 scope=_scope(decision),
             ).inc()
             logger.info("would_pause_workflow_email_sending", **_decision_log_fields(decision))
@@ -638,11 +638,11 @@ def sweep_workflow_email_health(*, now: datetime | None = None) -> list[PauseDec
         ).inc()
         logger.warning("paused_workflow_email_sending", **_decision_log_fields(decision))
     for decision in decisions.warnings:
-        if not enabled:
+        if not enabled or _exempt(decision):
             workflow_email_warning_total.labels(
                 signal=decision.threshold.signal,
                 window=decision.threshold.window_label,
-                mode="dry_run",
+                mode=_unenforced_mode(enabled),
                 scope=_scope(decision),
             ).inc()
             logger.info("would_warn_workflow_email_sending", **_decision_log_fields(decision))
@@ -665,6 +665,14 @@ def sweep_workflow_email_health(*, now: datetime | None = None) -> list[PauseDec
     if failed:
         logger.warning("workflow_email_health_sweep_partial_failure", failed=failed)
     return applied
+
+
+def _exempt(decision: PauseDecision) -> bool:
+    return decision.hog_flow_id in settings.WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS
+
+
+def _unenforced_mode(enabled: bool) -> str:
+    return "exempt" if enabled else "dry_run"
 
 
 def _scope(decision: PauseDecision) -> str:
