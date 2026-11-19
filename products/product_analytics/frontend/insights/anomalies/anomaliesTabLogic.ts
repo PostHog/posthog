@@ -108,7 +108,7 @@ export interface anomaliesTabLogicValues {
     anomalies: AnomalySearchResponseApi | null
     anomaliesLoading: boolean
     chartPoints: Record<string, AnomalyChartPoints>
-    chartPointsStatus: Record<string, 'loading' | 'failed'>
+    chartPointsStatus: Record<string, 'failed' | 'loading'>
     filters: AnomaliesFilters
     hasMore: boolean
     loadError: AnomaliesLoadError | null
@@ -131,9 +131,6 @@ export interface anomaliesTabLogicActions {
         error: string
         errorObject?: any
     }
-    loadChartPoints: (series: AnomalySeriesApi[]) => {
-        series: AnomalySeriesApi[]
-    }
     loadAnomaliesSuccess: (
         anomalies: AnomalySearchResponseApi | null,
         payload?: {
@@ -144,6 +141,9 @@ export interface anomaliesTabLogicActions {
         payload?: {
             debounce?: boolean
         }
+    }
+    loadChartPoints: (series: AnomalySeriesApi[]) => {
+        series: AnomalySeriesApi[]
     }
     loadMoreAnomalies: () => any
     loadMoreAnomaliesFailure: (
