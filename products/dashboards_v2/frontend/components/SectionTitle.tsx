@@ -8,7 +8,7 @@ export function SectionTitle({
     onToggle,
     onRename,
     draft,
-    onDraftChange,
+    onDraftChange: setDraft,
 }: {
     title: string
     collapsed: boolean
@@ -19,8 +19,6 @@ export function SectionTitle({
     draft: string | null
     onDraftChange: (draft: string | null) => void
 }): JSX.Element {
-    const setDraft = onDraftChange
-
     const commit = (): void => {
         if (draft !== null && draft.trim() && draft !== title) {
             onRename(draft.trim())
