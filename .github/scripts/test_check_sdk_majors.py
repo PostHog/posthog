@@ -219,3 +219,55 @@ def test_check_go_holds_the_module_path_and_version_to_the_expected_major(
     assert len(found) == len(problems)
     for actual, expected in zip(found, problems):
         assert actual.startswith(expected)
+
+
+def _write_node_root(root: Path, root_version: str, desktop_version: str) -> None:
+    def lock(version: str, wrappers: str = "") -> str:
+        return f"packages:\n\n{wrappers}  posthog-node@{version}:\n    resolution: {{integrity: x}}\n\n"
+
+    wrappers = (
+        "  '@posthog/mcp@1.3.0':\n    resolution: {integrity: x}\n    peerDependencies:\n      posthog-node: ^5.0.0 || ^6.0.0\n\n"
+        "  '@posthog/react@1.9.0':\n    resolution: {integrity: x}\n    peerDependencies:\n      posthog-js: '>=1.257.2'\n\n"
+    )
+    for workspace, manifest_dir, version in (
+        (root, root / "nodejs", root_version),
+        (root / "products" / "desktop", root / "products" / "desktop" / "apps" / "code", desktop_version),
+    ):
+        manifest_dir.mkdir(parents=True)
+        (manifest_dir / "package.json").write_text(json.dumps({"dependencies": {"posthog-node": version}}))
+        (workspace / "pnpm-workspace.yaml").write_text("packages: []\n")
+        (workspace / "pnpm-lock.yaml").write_text(lock(version, wrappers if workspace == root else ""))
+
+
+@pytest.mark.parametrize(
+    "root_version,desktop_version,problems",
+    [
+        ("6.0.4", "5.74.0", []),
+        (
+            "5.74.0",
+            "5.74.0",
+            [
+                "nodejs/package.json [dependencies]: posthog-node declares '5.74.0', which is not pinned to major 6",
+                "pnpm-lock.yaml resolves posthog-node to majors [5], expected {6}",
+            ],
+        ),
+        (
+            "6.0.4",
+            "6.0.4",
+            [
+                "products/desktop/apps/code/package.json [dependencies]: posthog-node declares '6.0.4', which is not pinned to major 5",
+                "products/desktop/pnpm-lock.yaml resolves posthog-node to majors [6], expected {5}",
+            ],
+        ),
+    ],
+)
+def test_check_node_holds_each_pnpm_workspace_to_its_own_major(
+    tmp_path: Path, root_version: str, desktop_version: str, problems: list[str]
+) -> None:
+    _write_node_root(tmp_path, root_version, desktop_version)
+
+    found = guard.check_node(tmp_path)
+
+    assert len(found) == len(problems)
+    for actual, expected in zip(found, problems):
+        assert actual.startswith(expected)
