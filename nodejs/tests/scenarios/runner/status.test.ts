@@ -170,6 +170,7 @@ describe('statusOf', () => {
                     {
                         name: 'pickup_p99_under',
                         unit: 's',
+                        limit: 5,
                         passed: false,
                         breakingPoint: { scale: 5, at: at(30), offeredPerSecond: 0, value: 10, part: 'role:x' },
                     },
@@ -190,12 +191,14 @@ describe('statusOf', () => {
                     {
                         name: 'pickup_p99_under',
                         unit: 's',
+                        limit: 5,
                         passed: false,
                         breakingPoint: { scale: 2, at: at(30), offeredPerSecond: 2, value: 10, part: 'role:x' },
                     },
                     {
                         name: 'writer_cpu_under',
                         unit: '%',
+                        limit: 70,
                         passed: false,
                         unjudged: 'no writer CPU reading in the 5x step',
                     },
