@@ -47,7 +47,7 @@ describe('APM alert presets', () => {
             endpointFilter('POST /cart'),
             'checkout-api POST /cart: p95 latency',
         ],
-        // A bare-method span is labelled with its route, but the alert filters on the span's own name.
+        // A bare-method span is labelled with its route: the alert filters on the span name and the route, so other routes of the same method don't count.
         [
             'route-labelled endpoint',
             endpointAlertTarget({
@@ -57,7 +57,28 @@ describe('APM alert presets', () => {
                 route_attribute: 'http.route',
                 route: '/orders',
             }),
-            endpointFilter('GET'),
+            {
+                type: 'AND',
+                values: [
+                    {
+                        type: 'AND',
+                        values: [
+                            {
+                                type: PropertyFilterType.Span,
+                                key: 'name',
+                                operator: PropertyOperator.Exact,
+                                value: ['GET'],
+                            },
+                            {
+                                type: PropertyFilterType.SpanAttribute,
+                                key: 'http.route',
+                                operator: PropertyOperator.Exact,
+                                value: ['/orders'],
+                            },
+                        ],
+                    },
+                ],
+            },
             'checkout-api GET /orders: p95 latency',
         ],
         // An empty span name is still one endpoint, not the whole service.

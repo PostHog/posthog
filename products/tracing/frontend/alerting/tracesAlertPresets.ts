@@ -1,5 +1,4 @@
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import {
     MeasureEnumApi,
@@ -7,6 +6,7 @@ import {
     WindowMinutesEnumApi,
 } from 'products/alerts_platform/frontend/generated/api.schemas'
 
+import { OperationRoute, operationFilterGroup } from '../operationFilters'
 import { TracesAlertFormType, emptyFilterGroup } from './tracesAlertUtils'
 
 export type TracesAlertPreset = 'error_rate' | 'p95_latency' | 'requests_stopped'
@@ -33,28 +33,11 @@ export interface TracesAlertPresetTarget {
     operation: string | null
     /** What the name shows in place of the span name, when the row is labelled differently. */
     label?: string
+    /** The route attribute that narrows a bare-method span name to one endpoint. */
+    route?: OperationRoute | null
     requestCount: number
     errorCount: number
     p95Ms: number | null
-}
-
-function operationFilterGroup(spanName: string): UniversalFiltersGroup {
-    return {
-        type: FilterLogicalOperator.And,
-        values: [
-            {
-                type: FilterLogicalOperator.And,
-                values: [
-                    {
-                        type: PropertyFilterType.Span,
-                        key: 'name',
-                        operator: PropertyOperator.Exact,
-                        value: [spanName],
-                    },
-                ],
-            },
-        ],
-    }
 }
 
 function presetCondition(
@@ -124,7 +107,10 @@ export function buildTargetPresetForm(target: TracesAlertPresetTarget, preset: T
     return {
         name: presetName(target, label),
         serviceNames: [target.serviceName],
-        filterGroup: target.operation === null ? emptyFilterGroup() : operationFilterGroup(target.operation),
+        filterGroup:
+            target.operation === null
+                ? emptyFilterGroup()
+                : operationFilterGroup(target.operation, null, target.route ?? null),
         ...condition,
         percentile: 95,
         windowMinutes: WindowMinutesEnumApi.Number5,
