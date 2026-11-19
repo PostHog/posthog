@@ -47,7 +47,7 @@ from ee.billing.billing_manager import (
     BillingServiceResponseError,
     FundingStatusUnavailable,
     OrganizationFundingStatus,
-    OrganizationHasNoOwnerError,
+    OrganizationHasNoAdminError,
     PrepaidCreditState,
     _get_user_organization_role,
     _parse_funding_status,
@@ -1957,7 +1957,7 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
 
     @patch("ee.billing.billing_manager.capture_exception")
     @patch("ee.billing.billing_manager.http_session.patch")
-    def test_update_billing_org_users_no_owner_captures_exception(self, mock_patch, mock_capture_exception):
+    def test_update_billing_org_users_no_owner_or_admin_captures_exception(self, mock_patch, mock_capture_exception):
         """
         When organization has no owner, should capture exception and return early.
         """
@@ -1975,7 +1975,7 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
         # Should capture exception about no owner
         mock_capture_exception.assert_called_once()
         exception, properties = mock_capture_exception.call_args[0]
-        assert str(exception) == "No owner membership found for organization"
+        assert str(exception) == "No owner or admin membership found for organization"
         assert properties == {"organization_id": self.organization.id}
 
     @parameterized.expand(
@@ -2040,8 +2040,8 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
         assert ctx.exception.status_code == 500
 
     @patch("ee.billing.billing_manager.http_session.patch")
-    def test_sync_organization_users_raises_without_owner(self, mock_patch):
-        with self.assertRaises(OrganizationHasNoOwnerError):
+    def test_sync_organization_users_raises_without_owner_or_admin(self, mock_patch):
+        with self.assertRaises(OrganizationHasNoAdminError):
             BillingManager(self.license, user=self.user).sync_organization_users(self.organization)
 
         mock_patch.assert_not_called()

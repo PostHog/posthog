@@ -7,7 +7,7 @@ from django.core.management import BaseCommand, CommandParser
 
 from posthog.models.organization import Organization
 
-from ee.billing.billing_manager import BillingManager, BillingServiceResponseError, get_most_recent_owner
+from ee.billing.billing_manager import BillingManager, BillingServiceResponseError, get_billing_authorizer
 
 PROGRESS_EVERY = 100
 
@@ -28,11 +28,11 @@ def _sync_organization(org_id: str) -> str | None:
     except (Organization.DoesNotExist, ValidationError):
         return "organization not found"
 
-    owner = get_most_recent_owner(organization)
-    if owner is None:
-        return "organization has no owner"
+    authorizer = get_billing_authorizer(organization)
+    if authorizer is None:
+        return "organization has no owner or admin"
 
-    response = BillingManager(license=None, user=owner).sync_organization_users(organization)
+    response = BillingManager(license=None, user=authorizer).sync_organization_users(organization)
     if not 200 <= response.status_code < 300:
         return f"billing returned {response.status_code}"
     return None

@@ -45,6 +45,10 @@ rules:
           - '/management/commands/backfill_code_review_scopes.py'
           - '/management/commands/test/test_backfill_code_review_scopes.py'
       owners: team-devex
+    - match:
+          - '/management/commands/sync_to_billing.py'
+          - '/management/commands/test/test_sync_to_billing.py'
+      owners: team-billing
     - match: '/queries/'
       owners: team-analytics-platform
     - match: '/rbac/'

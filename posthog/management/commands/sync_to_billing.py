@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.tasks.sync_billing import sync_members_to_billing
 
@@ -41,7 +42,12 @@ class Command(BaseCommand):
             if run_async:
                 sync_members_to_billing.delay(organization.id)
             else:
-                sync_members_to_billing(organization.id)
+                # A direct call does not retry, so report the failure and go on to the next organization.
+                try:
+                    sync_members_to_billing(organization.id)
+                except Exception as e:
+                    capture_exception(e, {"organization_id": organization.id})
+                    print(f"Failed {organization.id}: {type(e).__name__}")  # noqa T201
 
                 if index % 50 == 0:
                     print(f"Processed {index} organizations out of {len(organizations)}")  # noqa T201

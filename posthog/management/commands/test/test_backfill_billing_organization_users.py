@@ -99,7 +99,7 @@ class TestBackfillBillingOrganizationUsers(BaseTest):
         assert mock_patch.call_args.kwargs["json"]["org_customer_email"] == f"owner-{synced.id}@example.com"
         assert "Syncing 3 organizations with billing" in out
         assert f"FAILED {missing_id}: organization not found" in err
-        assert f"FAILED {ownerless.id}: organization has no owner" in err
+        assert f"FAILED {ownerless.id}: organization has no owner or admin" in err
         assert "Progress: 2/3 (1 failed)" in out
         assert "Finished: 1 ok, 2 failed" in out
         assert f"Failed org ids: {missing_id}, {ownerless.id}" in out
@@ -107,7 +107,7 @@ class TestBackfillBillingOrganizationUsers(BaseTest):
             assert list(csv.reader(f)) == [
                 ["org_id", "reason"],
                 [missing_id, "organization not found"],
-                [str(ownerless.id), "organization has no owner"],
+                [str(ownerless.id), "organization has no owner or admin"],
             ]
 
     @patch("ee.billing.billing_manager.http_session.patch")
@@ -118,7 +118,7 @@ class TestBackfillBillingOrganizationUsers(BaseTest):
         second_owner = User.objects.get(email=f"owner-{second.id}@example.com")
 
         with patch(
-            "posthog.management.commands.backfill_billing_organization_users.get_most_recent_owner",
+            "posthog.management.commands.backfill_billing_organization_users.get_billing_authorizer",
             side_effect=[OperationalError("statement timeout"), second_owner],
         ):
             out, err = self._run([str(first.id), str(second.id)])

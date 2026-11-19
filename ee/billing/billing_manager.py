@@ -66,6 +66,8 @@ BILLING_INVOICES_REQUEST_TIMEOUT = (5, 15)
 # An export covers every project rather than the chart's top few, so it reads more and is
 # allowed longer. The person is waiting for a file, which tolerates a longer wait than a chart.
 BILLING_EXPORT_REQUEST_TIMEOUT = (5, 120)
+# Without a timeout, a stalled billing service holds the web or Celery worker that sent the update.
+BILLING_UPDATE_REQUEST_TIMEOUT = (5, 30)
 
 # Marks tokens minted by the billing alerts evaluation job; billing recognizes this claim
 # on its read-only billing status path for tokens without a user role.
@@ -100,9 +102,9 @@ class BillingAPIErrorCodes(Enum):
     OPEN_INVOICES_ERROR = "open_invoices_error"
 
 
-class OrganizationHasNoOwnerError(Exception):
+class OrganizationHasNoAdminError(Exception):
     def __init__(self) -> None:
-        super().__init__("No owner membership found for organization")
+        super().__init__("No owner or admin membership found for organization")
 
 
 class BillingServiceOpenInvoicesError(Exception):
@@ -165,10 +167,17 @@ def _is_valid_email(email: str) -> bool:
     return True
 
 
-def get_most_recent_owner(organization: Organization) -> User | None:
+def get_billing_authorizer(organization: Organization) -> User | None:
+    """
+    Returns the member that the member sync to billing authorizes as. Billing also keeps this member's
+    email as the customer email. Billing accepts the update from an admin, so an organization without
+    an owner falls back to an admin. An active member comes before a deactivated one, then an owner
+    before an admin, then the most recently joined.
+    """
     membership = (
-        OrganizationMembership.objects.filter(organization=organization, level=OrganizationMembership.Level.OWNER)
-        .order_by("-joined_at")
+        OrganizationMembership.objects.filter(organization=organization, level__gte=OrganizationMembership.Level.ADMIN)
+        .select_related("user")
+        .order_by("-user__is_active", "-level", "-joined_at")
         .first()
     )
     return membership.user if membership else None
@@ -516,6 +525,7 @@ class BillingManager:
             f"{BILLING_SERVICE_URL}/api/billing/",
             headers=self.get_auth_headers(organization, authorizer_actor=authorizer_actor),
             json=data,
+            timeout=BILLING_UPDATE_REQUEST_TIMEOUT,
         )
 
         handle_billing_service_error(res)
@@ -572,11 +582,11 @@ class BillingManager:
         A 401 or 404 from billing is returned rather than raised, so a caller that needs to know
         whether the sync landed checks the status code.
         Since this can be called with users that are not ADMINs and update_billing requires
-        an ADMIN role, we do a privilege escalation using the owner.
+        an ADMIN role, we do a privilege escalation using the owner, or an admin when there is no owner.
         """
-        first_owner = get_most_recent_owner(organization)
-        if not first_owner:
-            raise OrganizationHasNoOwnerError()
+        authorizer = get_billing_authorizer(organization)
+        if not authorizer:
+            raise OrganizationHasNoAdminError()
 
         # Billing rejects the whole update when one value fails its validation, so values it would
         # reject are left out: a NULL or empty distinct_id, and an admin email that is not valid.
@@ -600,11 +610,11 @@ class BillingManager:
             organization,
             {
                 "distinct_ids": distinct_ids,
-                "org_customer_email": first_owner.email,
+                "org_customer_email": authorizer.email,
                 "org_admin_emails": admin_emails,
                 "org_users": org_users,
             },
-            authorizer_actor=first_owner,
+            authorizer_actor=authorizer,
         )
 
     def activate_subscription(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
