@@ -1,23 +1,15 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
     llmAnalyticsEvaluationReportsCreate,
-    llmAnalyticsEvaluationReportsGenerateCreate,
     llmAnalyticsEvaluationReportsList,
     llmAnalyticsEvaluationReportsPartialUpdate,
-    llmAnalyticsEvaluationReportsRunsList,
 } from '../generated/api'
-import type { EvaluationReportRunApi } from '../generated/api.schemas'
-import type {
-    EvaluationReport,
-    EvaluationReportDeliveryTarget,
-    EvaluationReportFrequency,
-    EvaluationReportRun,
-} from './types'
+import { evaluationReportTracking } from './evaluationReportTracking'
+import type { EvaluationReport, EvaluationReportDeliveryTarget, EvaluationReportFrequency } from './types'
 
 type EvaluationReportCreateBody = Parameters<typeof llmAnalyticsEvaluationReportsCreate>[1]
 type EvaluationReportPatchBody = Parameters<typeof llmAnalyticsEvaluationReportsPartialUpdate>[2]
@@ -63,7 +55,7 @@ export interface ReportConfigErrors {
 export const TRIGGER_THRESHOLD_MIN = 100
 export const TRIGGER_THRESHOLD_DEFAULT = 100
 export const TRIGGER_THRESHOLD_MAX = 10_000
-export const COOLDOWN_HOURS_DEFAULT = 1
+export const COOLDOWN_HOURS_DEFAULT = 24
 export const COOLDOWN_HOURS_MIN = 1
 export const COOLDOWN_HOURS_MAX = 24
 export const DEFAULT_RRULE = 'FREQ=DAILY'
@@ -93,10 +85,6 @@ const DEFAULT_CONFIG_DRAFT: ReportConfigDraft = {
     triggerThreshold: TRIGGER_THRESHOLD_DEFAULT,
     cooldownHours: COOLDOWN_HOURS_DEFAULT,
 }
-
-// A new evaluation reports daily. Saved evaluations without a report keep the older default as their baseline,
-// so opening one does not show a change nobody made.
-const NEW_EVALUATION_CONFIG_DRAFT: ReportConfigDraft = { ...DEFAULT_CONFIG_DRAFT, frequency: 'scheduled' }
 
 export function getReportConfigErrors(draft: ReportConfigDraft): ReportConfigErrors {
     if (draft.frequency !== 'every_n') {
@@ -156,7 +144,7 @@ function scheduleFromRrule(rrule: string): {
     return { cadence: 'daily', weekdays: DEFAULT_WEEKLY_DAYS }
 }
 
-function draftFromReport(report: EvaluationReport): ReportConfigDraft {
+export function draftFromReport(report: EvaluationReport): ReportConfigDraft {
     const emailTarget = report.delivery_targets.find((t) => t.type === 'email')
     const slackTarget = report.delivery_targets.find((t) => t.type === 'slack')
     const schedule = scheduleFromRrule(report.rrule ?? '')
@@ -173,8 +161,24 @@ function draftFromReport(report: EvaluationReport): ReportConfigDraft {
         slackChannelValue: slackTarget?.channel ?? '',
         reportPromptGuidance: report.report_prompt_guidance ?? '',
         triggerThreshold: report.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT,
-        cooldownHours: Math.max(1, Math.round((report.cooldown_minutes ?? COOLDOWN_HOURS_DEFAULT * 60) / 60)),
+        cooldownHours: cooldownHoursFromMinutes(report.cooldown_minutes),
     }
+}
+
+/** The hours field shows whole hours, so a cooldown saved in minutes through the API rounds for display. */
+function cooldownHoursFromMinutes(minutes: number | null | undefined): number {
+    return Math.max(1, Math.round((minutes ?? COOLDOWN_HOURS_DEFAULT * 60) / 60))
+}
+
+/** The cooldown a report runs with: the saved minutes until someone edits the hours, then the edited hours. */
+export function effectiveCooldownMinutes(activeReport: EvaluationReport | null, draft: ReportConfigDraft): number {
+    if (
+        activeReport?.cooldown_minutes != null &&
+        draft.cooldownHours === cooldownHoursFromMinutes(activeReport.cooldown_minutes)
+    ) {
+        return activeReport.cooldown_minutes
+    }
+    return draft.cooldownHours * 60
 }
 
 export function buildDeliveryTargets(draft: ReportConfigDraft): EvaluationReportDeliveryTarget[] {
@@ -212,8 +216,7 @@ function buildReportUpdatePayload(
         // Only write cooldown_minutes back when the user changed it — the draft rounds
         // minutes to hours for display, so unconditionally writing (hours * 60) would
         // silently clobber sub-hour values set via the API (e.g. 89 min → 60 min).
-        const seededCooldownHours = Math.max(1, Math.round((activeReport.cooldown_minutes ?? 60) / 60))
-        if (draft.cooldownHours !== seededCooldownHours) {
+        if (draft.cooldownHours !== cooldownHoursFromMinutes(activeReport.cooldown_minutes)) {
             data.cooldown_minutes = draft.cooldownHours * 60
         }
     }
@@ -242,12 +245,12 @@ function buildReportCreatePayload(
     return body
 }
 
-async function loadReportsForEvaluation(teamId: number, evaluationId: string): Promise<EvaluationReport[]> {
+export async function loadReportsForEvaluation(teamId: number, evaluationId: string): Promise<EvaluationReport[]> {
     const response = await llmAnalyticsEvaluationReportsList(teamId.toString(), { evaluation: evaluationId })
     return (response.results || []) as EvaluationReport[]
 }
 
-function requireCurrentTeamId(teamId: number | null): number {
+export function requireCurrentTeamId(teamId: number | null): number {
     if (teamId === null) {
         throw new Error('Current team is not loaded')
     }
@@ -256,7 +259,7 @@ function requireCurrentTeamId(teamId: number | null): number {
 
 /** Inline persistor used by the parent evaluation save flow so the single
  * "Save changes" button at the top of the page commits both the evaluation
- * and the (optional) scheduled report. Mirrors the saveDraft listener but
+ * and the (optional) scheduled report, but
  * bypasses the loader plumbing so callers can await the network write.
  *
  * Returns true if a network write was performed. */
@@ -296,15 +299,14 @@ export interface evaluationReportLogicValues {
     configDraft: ReportConfigDraft
     configError: string | null
     configErrors: ReportConfigErrors
-    generateResult: null
-    generateResultLoading: boolean
+    cooldownMinutes: number
+    destinationsError: string | null
+    editingDestinations: boolean
     isConfigDirty: boolean
     isNewEvaluation: boolean
-    reportRuns: EvaluationReportRun[]
-    reportRunsLoading: boolean
     reports: EvaluationReport[]
+    reportsLoadFailed: boolean
     reportsLoading: boolean
-    selectedReportRun: EvaluationReportRun | null
     shownDestinations: ReportDestination[]
 }
 
@@ -312,87 +314,6 @@ export interface evaluationReportLogicValues {
 export interface evaluationReportLogicActions {
     addDraftDestination: (destination: ReportDestination) => {
         destination: ReportDestination
-    }
-    createReport: (params: {
-        cooldown_minutes?: number | null
-        delivery_targets: EvaluationReportDeliveryTarget[]
-        enabled: boolean
-        evaluationId: string
-        frequency: EvaluationReportFrequency
-        report_prompt_guidance?: string
-        rrule?: string
-        trigger_threshold?: number | null
-    }) => {
-        evaluationId: string
-        enabled: boolean
-        frequency: EvaluationReportFrequency
-        rrule?: string
-        delivery_targets: EvaluationReportDeliveryTarget[]
-        report_prompt_guidance?: string
-        trigger_threshold?: number | null
-        cooldown_minutes?: number | null
-    }
-    createReportFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    createReportSuccess: (
-        reports: EvaluationReport[],
-        payload?: {
-            evaluationId: string
-            enabled: boolean
-            frequency: EvaluationReportFrequency
-            rrule?: string
-            delivery_targets: EvaluationReportDeliveryTarget[]
-            report_prompt_guidance?: string
-            trigger_threshold?: number | null
-            cooldown_minutes?: number | null
-        }
-    ) => {
-        reports: EvaluationReport[]
-        payload?: {
-            evaluationId: string
-            enabled: boolean
-            frequency: EvaluationReportFrequency
-            rrule?: string
-            delivery_targets: EvaluationReportDeliveryTarget[]
-            report_prompt_guidance?: string
-            trigger_threshold?: number | null
-            cooldown_minutes?: number | null
-        }
-    }
-    generateReport: (reportId: string) => string
-    generateReportFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    generateReportSuccess: (
-        generateResult: null,
-        payload?: string
-    ) => {
-        generateResult: null
-        payload?: string
-    }
-    loadReportRuns: (reportId: string) => string
-    loadReportRunsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadReportRunsSuccess: (
-        reportRuns: EvaluationReportRunApi[],
-        payload?: string
-    ) => {
-        reportRuns: EvaluationReportRunApi[]
-        payload?: string
     }
     loadReports: () => any
     loadReportsFailure: (
@@ -412,17 +333,47 @@ export interface evaluationReportLogicActions {
     removeDraftDestination: (destination: ReportDestination) => {
         destination: ReportDestination
     }
+    resetDestinationsDraft: (report: EvaluationReport) => {
+        report: EvaluationReport
+    }
     resetDraft: () => {
         value: true
     }
-    saveDraft: () => {
+    saveDestinations: () => {
         value: true
+    }
+    saveReportDestinations: ({
+        reportId,
+        targets,
+    }: {
+        reportId: string
+        targets: EvaluationReportDeliveryTarget[]
+    }) => {
+        reportId: string
+        targets: EvaluationReportDeliveryTarget[]
+    }
+    saveReportDestinationsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    saveReportDestinationsSuccess: (
+        reports: EvaluationReport[],
+        payload?: {
+            reportId: string
+            targets: EvaluationReportDeliveryTarget[]
+        }
+    ) => {
+        reports: EvaluationReport[]
+        payload?: {
+            reportId: string
+            targets: EvaluationReportDeliveryTarget[]
+        }
     }
     seedDraftFromReport: (report: EvaluationReport) => {
         report: EvaluationReport
-    }
-    selectReportRun: (reportRun: EvaluationReportRun | null) => {
-        reportRun: EvaluationReportRunApi | null
     }
     setDraftCooldownHours: (cooldownHours: number) => {
         cooldownHours: number
@@ -451,32 +402,11 @@ export interface evaluationReportLogicActions {
     setDraftTriggerThreshold: (triggerThreshold: number) => {
         triggerThreshold: number
     }
+    setEditingDestinations: (editing: boolean) => {
+        editing: boolean
+    }
     toggleDraftScheduleWeekday: (weekday: ReportScheduleWeekday) => {
         weekday: ReportScheduleWeekday
-    }
-    updateReport: ({ reportId, data }: { data: Partial<EvaluationReport>; reportId: string }) => {
-        reportId: string
-        data: Partial<EvaluationReport>
-    }
-    updateReportFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    updateReportSuccess: (
-        reports: EvaluationReport[],
-        payload?: {
-            reportId: string
-            data: Partial<EvaluationReport>
-        }
-    ) => {
-        reports: EvaluationReport[]
-        payload?: {
-            reportId: string
-            data: Partial<EvaluationReport>
-        }
     }
 }
 
@@ -486,8 +416,10 @@ export interface evaluationReportLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isNewEvaluation: (evaluationId: string) => boolean
         configErrors: (configDraft: ReportConfigDraft) => ReportConfigErrors
-        configError: (configDraft: ReportConfigDraft) => string | null
+        configError: (configDraft: ReportConfigDraft, destinationsError: string | null) => string | null
+        destinationsError: (shownDestinations: ReportDestination[], configDraft: ReportConfigDraft) => string | null
         activeReport: (reports: EvaluationReport[]) => EvaluationReport | null
+        cooldownMinutes: (activeReport: EvaluationReport | null, configDraft: ReportConfigDraft) => number
         isConfigDirty: (activeReport: EvaluationReport | null, configDraft: ReportConfigDraft) => boolean
     }
 }
@@ -524,15 +456,15 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         /** Removes a destination and clears its settings, so the report stops sending there. */
         removeDraftDestination: (destination: ReportDestination) => ({ destination }),
 
-        /** Save the current draft against the active report — creates if none exists, updates otherwise. */
-        saveDraft: true,
-
-        selectReportRun: (reportRun: EvaluationReportRun | null) => ({ reportRun }),
+        /** Saves only the destinations, so other unsaved settings on the Configuration tab stay a draft. */
+        saveDestinations: true,
+        setEditingDestinations: (editing: boolean) => ({ editing }),
+        resetDestinationsDraft: (report: EvaluationReport) => ({ report }),
     }),
 
-    reducers(({ props }) => ({
+    reducers(() => ({
         configDraft: [
-            (props.evaluationId === 'new' ? NEW_EVALUATION_CONFIG_DRAFT : DEFAULT_CONFIG_DRAFT) as ReportConfigDraft,
+            DEFAULT_CONFIG_DRAFT as ReportConfigDraft,
             {
                 setDraftEnabled: (state, { enabled }) => {
                     if (enabled) {
@@ -592,20 +524,38 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     cooldownHours,
                 }),
                 seedDraftFromReport: (_, { report }) => draftFromReport(report),
-                resetDraft: () => (props.evaluationId === 'new' ? NEW_EVALUATION_CONFIG_DRAFT : DEFAULT_CONFIG_DRAFT),
+                resetDraft: () => DEFAULT_CONFIG_DRAFT,
+                resetDestinationsDraft: (state, { report }) => {
+                    const saved = draftFromReport(report)
+                    return {
+                        ...state,
+                        emailValue: saved.emailValue,
+                        slackIntegrationId: saved.slackIntegrationId,
+                        slackChannelValue: saved.slackChannelValue,
+                    }
+                },
                 removeDraftDestination: (state, { destination }) =>
                     destination === 'email'
                         ? { ...state, emailValue: '' }
                         : { ...state, slackIntegrationId: null, slackChannelValue: '' },
             },
         ],
-        selectedReportRun: [
-            null as EvaluationReportRun | null,
+        reportsLoadFailed: [
+            false,
             {
-                selectReportRun: (_, { reportRun }) => reportRun,
+                loadReports: () => false,
+                loadReportsFailure: () => true,
             },
         ],
         // Tracked apart from the values, so clearing an input keeps its destination open while someone types.
+        editingDestinations: [
+            false,
+            {
+                setEditingDestinations: (_, { editing }) => editing,
+                saveReportDestinationsSuccess: () => false,
+                resetDestinationsDraft: () => false,
+            },
+        ],
         shownDestinations: [
             [] as ReportDestination[],
             {
@@ -614,6 +564,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                 removeDraftDestination: (state, { destination }) => state.filter((item) => item !== destination),
                 seedDraftFromReport: (_, { report }) => destinationsFromDraft(draftFromReport(report)),
                 resetDraft: () => [],
+                resetDestinationsDraft: (_, { report }) => destinationsFromDraft(draftFromReport(report)),
             },
         ],
     })),
@@ -628,70 +579,19 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     }
                     return loadReportsForEvaluation(requireCurrentTeamId(values.currentTeamId), props.evaluationId)
                 },
-                createReport: async (params: {
-                    evaluationId: string
-                    enabled: boolean
-                    frequency: EvaluationReportFrequency
-                    rrule?: string
-                    delivery_targets: EvaluationReportDeliveryTarget[]
-                    report_prompt_guidance?: string
-                    trigger_threshold?: number | null
-                    cooldown_minutes?: number | null
+                // Skips a reload, which would reseed the whole draft and drop unsaved edits.
+                saveReportDestinations: async ({
+                    reportId,
+                    targets,
+                }: {
+                    reportId: string
+                    targets: EvaluationReportDeliveryTarget[]
                 }) => {
-                    const body: Record<string, unknown> = {
-                        evaluation: params.evaluationId,
-                        frequency: params.frequency,
-                        delivery_targets: params.delivery_targets,
-                        report_prompt_guidance: params.report_prompt_guidance ?? '',
-                        enabled: params.enabled,
-                    }
-                    if (params.frequency === 'scheduled') {
-                        body.rrule = params.rrule ?? ''
-                    }
-                    if (params.frequency === 'every_n' && params.trigger_threshold != null) {
-                        body.trigger_threshold = params.trigger_threshold
-                    }
-                    if (params.frequency === 'every_n' && params.cooldown_minutes != null) {
-                        body.cooldown_minutes = params.cooldown_minutes
-                    }
                     const teamId = requireCurrentTeamId(values.currentTeamId)
-                    const report = await llmAnalyticsEvaluationReportsCreate(
-                        teamId.toString(),
-                        body as EvaluationReportCreateBody
-                    )
-                    return [
-                        ...values.reports.filter((existing) => existing.id !== report.id),
-                        report as EvaluationReport,
-                    ]
-                },
-                updateReport: async ({ reportId, data }: { reportId: string; data: Partial<EvaluationReport> }) => {
-                    const teamId = requireCurrentTeamId(values.currentTeamId)
-                    const updated = await llmAnalyticsEvaluationReportsPartialUpdate(
-                        teamId.toString(),
-                        reportId,
-                        data as EvaluationReportPatchBody
-                    )
+                    const updated = await llmAnalyticsEvaluationReportsPartialUpdate(teamId.toString(), reportId, {
+                        delivery_targets: targets,
+                    } as EvaluationReportPatchBody)
                     return values.reports.map((r) => (r.id === reportId ? (updated as EvaluationReport) : r))
-                },
-            },
-        ],
-        reportRuns: [
-            [] as EvaluationReportRun[],
-            {
-                loadReportRuns: async (reportId: string) => {
-                    const teamId = requireCurrentTeamId(values.currentTeamId)
-                    const response = await llmAnalyticsEvaluationReportsRunsList(teamId.toString(), reportId)
-                    return response?.results || []
-                },
-            },
-        ],
-        generateResult: [
-            null as null,
-            {
-                generateReport: async (reportId: string) => {
-                    const teamId = requireCurrentTeamId(values.currentTeamId)
-                    await llmAnalyticsEvaluationReportsGenerateCreate(teamId.toString(), reportId)
-                    return null
                 },
             },
         ],
@@ -703,15 +603,31 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             (s) => [s.configDraft],
             (configDraft: ReportConfigDraft): ReportConfigErrors => getReportConfigErrors(configDraft),
         ],
+        // The evaluation's save checks this before writing, so a Slack row without a channel blocks it too.
         configError: [
-            (s) => [s.configDraft],
-            (configDraft: ReportConfigDraft): string | null => getReportConfigError(configDraft),
+            (s) => [s.configDraft, s.destinationsError],
+            (configDraft: ReportConfigDraft, destinationsError: string | null): string | null =>
+                getReportConfigError(configDraft) ?? destinationsError,
+        ],
+        // A Slack row without a workspace and channel would be dropped on save without a word.
+        destinationsError: [
+            (s) => [s.shownDestinations, s.configDraft],
+            (shownDestinations: ReportDestination[], configDraft: ReportConfigDraft): string | null =>
+                shownDestinations.includes('slack') &&
+                !(configDraft.slackIntegrationId && configDraft.slackChannelValue)
+                    ? 'Pick a Slack channel, or remove Slack.'
+                    : null,
         ],
         activeReport: [
             (s) => [s.reports],
             (reports: EvaluationReport[]): EvaluationReport | null => {
                 return reports.find((r: EvaluationReport) => !r.deleted) || null
             },
+        ],
+        cooldownMinutes: [
+            (s) => [s.activeReport, s.configDraft],
+            (activeReport: EvaluationReport | null, configDraft: ReportConfigDraft): number =>
+                effectiveCooldownMinutes(activeReport, configDraft),
         ],
         isConfigDirty: [
             (s) => [s.activeReport, s.configDraft],
@@ -747,54 +663,27 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
         loadReportsSuccess: ({ reports }) => {
-            // Auto-load the run history for the saved report so the Reports tab knows
-            // whether to render itself and can show data immediately.
             const active = reports.find((r: EvaluationReport) => !r.deleted)
             if (active) {
-                actions.loadReportRuns(active.id)
                 // Seed the draft so the config form reflects the saved report instead of defaults.
                 actions.seedDraftFromReport(active)
             }
         },
-        generateReportSuccess: () => {
-            lemonToast.success('Report is being generated and will be delivered to your configured targets shortly.')
-        },
-        generateReportFailure: () => {
-            lemonToast.error('Failed to trigger report generation. Please try again.')
-        },
-        createReportSuccess: () => {
-            actions.loadReports()
-        },
-        updateReportSuccess: () => {
-            actions.loadReports()
-        },
-        saveDraft: () => {
-            const { configDraft, activeReport } = values
-            if (values.configError) {
-                lemonToast.error(values.configError)
+        saveDestinations: () => {
+            const { activeReport, configDraft } = values
+            if (!activeReport) {
                 return
             }
-
             const targets = buildDeliveryTargets(configDraft)
-            if (activeReport) {
-                actions.updateReport({
-                    reportId: activeReport.id,
-                    data: buildReportUpdatePayload(configDraft, activeReport, targets),
-                })
-            } else {
-                actions.createReport({
-                    evaluationId: props.evaluationId,
-                    enabled: configDraft.enabled,
-                    frequency: configDraft.frequency,
-                    rrule: rruleFromSchedule(configDraft.scheduleCadence, configDraft.scheduleWeekdays),
-                    delivery_targets: targets,
-                    report_prompt_guidance: configDraft.reportPromptGuidance,
-                    trigger_threshold: configDraft.frequency === 'every_n' ? configDraft.triggerThreshold : null,
-                    cooldown_minutes: configDraft.frequency === 'every_n' ? configDraft.cooldownHours * 60 : null,
-                })
-            }
+            const before = new Set(activeReport.delivery_targets.map((target) => target.type))
+            const destinationTypes = targets.map((target) => target.type)
+            evaluationReportTracking.destinationsSaved({
+                destination_types: destinationTypes,
+                added: destinationTypes.filter((type) => !before.has(type)),
+            })
+            actions.saveReportDestinations({ reportId: activeReport.id, targets })
         },
     })),
 

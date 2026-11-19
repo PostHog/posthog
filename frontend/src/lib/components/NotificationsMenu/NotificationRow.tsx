@@ -37,6 +37,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Pipeline failures',
         description: 'When a data pipeline or batch export fails',
     },
+    alert_destination_refused: {
+        label: 'Alert destination failures',
+        description: "When a destination refuses an alert's notification",
+    },
     materialization_failure: {
         label: 'Materialized view failures',
         description: 'When a materialized view in your project fails to refresh',
@@ -86,12 +90,12 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         description: 'When a suggestion for a view or table is assigned to you',
     },
     first_report_completed: {
-        label: 'First Self-Driving investigation',
-        description: 'When your first Self-Driving investigation finishes, including when it has no report.',
+        label: 'First Self-driving investigation',
+        description: 'When your first Self-driving investigation finishes, including when it has no report.',
     },
     report_claim_taken_over: {
-        label: 'Self-Driving report takeovers',
-        description: 'When someone takes over a Self-Driving report you were working on',
+        label: 'Self-driving report takeovers',
+        description: 'When someone takes over a Self-driving report you were working on',
     },
     feature_flag_failure: {
         label: 'Feature flag failures',

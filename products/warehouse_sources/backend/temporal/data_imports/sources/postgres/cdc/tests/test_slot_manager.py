@@ -11,6 +11,7 @@ import psycopg
 import psycopg.errors
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.facade.testing import read_unsaved_source_inputs_as_stored
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.slot_manager import (
@@ -238,6 +239,7 @@ class TestCdcPgConnectionSsl:
             yield ("127.0.0.1", 44549)
 
         with (
+            read_unsaved_source_inputs_as_stored(),
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.parse_config",
                 return_value=config,

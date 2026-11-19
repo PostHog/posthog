@@ -1,7 +1,6 @@
 from posthog.models import Person
 
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade import api as dashboards_api
 from products.product_analytics.backend.facade.api import create_insight_variable
 from products.product_analytics.backend.facade.models import Insight
 
@@ -29,9 +28,9 @@ class InsightVariablesDataGenerator(DataGenerator):
             team_id=self.team.pk, name="Variable 4", code_name="variable_4", default_value=10, type="Number"
         )
 
-        dashboard = Dashboard.objects.create(
+        dashboard = dashboards_api.create_dashboard(
             name="Insight variables",
-            team=self.team,
+            team_id=self.team.id,
             variables={
                 str(var2.id): {
                     "code_name": var2.code_name,
@@ -144,9 +143,8 @@ class InsightVariablesDataGenerator(DataGenerator):
             },
         )
 
-        DashboardTile.objects.create(insight=insight1, dashboard=dashboard)
-        DashboardTile.objects.create(insight=insight2, dashboard=dashboard)
-        DashboardTile.objects.create(insight=insight3, dashboard=dashboard)
-        DashboardTile.objects.create(insight=insight4, dashboard=dashboard)
-        DashboardTile.objects.create(insight=insight5, dashboard=dashboard)
-        dashboard.save()
+        dashboards_api.add_insight_tile(insight_id=insight1.id, dashboard_id=dashboard.id)
+        dashboards_api.add_insight_tile(insight_id=insight2.id, dashboard_id=dashboard.id)
+        dashboards_api.add_insight_tile(insight_id=insight3.id, dashboard_id=dashboard.id)
+        dashboards_api.add_insight_tile(insight_id=insight4.id, dashboard_id=dashboard.id)
+        dashboards_api.add_insight_tile(insight_id=insight5.id, dashboard_id=dashboard.id)

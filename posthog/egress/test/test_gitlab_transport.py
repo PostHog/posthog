@@ -41,7 +41,7 @@ class TestGitLabTransport(SimpleTestCase):
                 "POST", _URL, token=_TOKEN, source="integration", endpoint="/api/v4/projects/{id}/merge_requests"
             )
 
-        assert request.call_args.kwargs["headers"]["PRIVATE-TOKEN"] == _TOKEN
+        assert request.call_args.kwargs["headers"]["Authorization"] == f"Bearer {_TOKEN}"
         assert REGISTRY.get_sample_value("gitlab_api_requests_total", labels) == before + 1
         assert not any(_TOKEN in value for sample in _gitlab_samples() for value in sample.labels.values())
 

@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Literal, cast
 
 from posthog.test.base import APIBaseTest
 
@@ -475,3 +475,93 @@ class TestSequentialStatsConfig(SimpleTestCase):
             }
         )
         self.assertEqual(len(ci), 2)
+
+
+class TestCupedStatsConfig(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("bayesian", "bayesian", False),
+            ("frequentist", "frequentist", False),
+            ("sequential", "frequentist", True),
+        ]
+    )
+    def test_covariate_translation_preserves_inference(
+        self, _name: str, method: Literal["bayesian", "frequentist"], sequential: bool
+    ) -> None:
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount")
+        )
+
+        def variant(key: str, mean: float, pre_mean: float) -> ExperimentStatsBase:
+            return ExperimentStatsBase(
+                key=key,
+                number_of_samples=1000,
+                sum=1000 * mean,
+                sum_squares=999 * 9 + 1000 * mean**2,
+                covariate_sum=1000 * pre_mean,
+                covariate_sum_squares=999 * 4 + 1000 * pre_mean**2,
+                covariate_sum_product=999 * 3 + 1000 * mean * pre_mean,
+            )
+
+        calculate = get_bayesian_experiment_result if method == "bayesian" else get_frequentist_experiment_result
+        stats_config = {"cuped": {"enabled": True}, "frequentist": {"sequential_testing_enabled": sequential}}
+        original = calculate(metric, variant("control", 10, 0), [variant("test", 10.5, 0)], stats_config=stats_config)
+        translated = calculate(
+            metric, variant("control", 10, 100), [variant("test", 10.5, 100)], stats_config=stats_config
+        )
+        assert original.variant_results is not None
+        assert translated.variant_results is not None
+
+        if method == "bayesian":
+            original_variant = cast(ExperimentVariantResultBayesian, original.variant_results[0])
+            translated_variant = cast(ExperimentVariantResultBayesian, translated.variant_results[0])
+            assert original_variant.credible_interval is not None
+            assert translated_variant.credible_interval is not None
+            for original_bound, translated_bound in zip(
+                original_variant.credible_interval, translated_variant.credible_interval
+            ):
+                self.assertAlmostEqual(original_bound, translated_bound)
+            assert original_variant.chance_to_win is not None
+            assert translated_variant.chance_to_win is not None
+            self.assertAlmostEqual(original_variant.chance_to_win, translated_variant.chance_to_win)
+        else:
+            original_frequentist = cast(ExperimentVariantResultFrequentist, original.variant_results[0])
+            translated_frequentist = cast(ExperimentVariantResultFrequentist, translated.variant_results[0])
+            assert original_frequentist.confidence_interval is not None
+            assert translated_frequentist.confidence_interval is not None
+            for original_bound, translated_bound in zip(
+                original_frequentist.confidence_interval, translated_frequentist.confidence_interval
+            ):
+                self.assertAlmostEqual(original_bound, translated_bound)
+            assert original_frequentist.p_value is not None
+            assert translated_frequentist.p_value is not None
+            self.assertAlmostEqual(original_frequentist.p_value, translated_frequentist.p_value)
+
+    @parameterized.expand([("bayesian", "bayesian"), ("frequentist", "frequentist")])
+    def test_covariate_without_spread_falls_back_to_unadjusted_test(
+        self, _name: str, method: Literal["bayesian", "frequentist"]
+    ) -> None:
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount")
+        )
+
+        def variant(key: str, mean: float, variance: float) -> ExperimentStatsBase:
+            return ExperimentStatsBase(
+                key=key,
+                number_of_samples=1000,
+                sum=1000 * mean,
+                sum_squares=999 * variance + 1000 * mean**2,
+                covariate_sum=0,
+                covariate_sum_squares=0,
+                covariate_sum_product=0,
+            )
+
+        calculate = get_bayesian_experiment_result if method == "bayesian" else get_frequentist_experiment_result
+        control, test = variant("control", 10, 9), variant("test", 0, 0)
+        with_cuped = calculate(metric, control, [test], stats_config={"cuped": {"enabled": True}})
+        without_cuped = calculate(metric, control, [test], stats_config={"cuped": {"enabled": False}})
+        assert with_cuped.variant_results is not None
+        assert without_cuped.variant_results is not None
+
+        self.assertEqual(with_cuped.variant_results[0], without_cuped.variant_results[0])
+        self.assertIsNone(with_cuped.variant_results[0].significant)

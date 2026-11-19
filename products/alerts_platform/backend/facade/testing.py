@@ -9,13 +9,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import fields
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
+from products.alerts_platform.backend.delivery.thread_store import LEGACY_EVENTS_PROVIDER
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     DeliveryPath,
@@ -187,6 +188,19 @@ def start_firing(
         )
 
 
+def record_legacy_emission(configuration_id: UUID, *, team_id: int, at: datetime) -> None:
+    """Record that a delivery emitted the configuration's legacy events at `at`, as live delivery does."""
+    thread = PlatformAlertThread.objects.for_team(team_id).create(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        provider=LEGACY_EVENTS_PROVIDER,
+        channel_target="0",
+        episode_started_at=datetime(1970, 1, 1, tzinfo=UTC),
+    )
+    # `updated_at` is `auto_now`, so a past time needs an update that skips it.
+    PlatformAlertThread.objects.for_team(team_id).filter(id=thread.id).update(updated_at=at)
+
+
 def set_check_status(configuration_id: UUID, check_status: str) -> None:
     """Mark a configuration's checks as failing or not, as checks outside the test can leave it."""
     # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
@@ -197,6 +211,42 @@ def set_check_interval_minutes(configuration_id: UUID, minutes: int) -> None:
     """Set a configuration's cadence, as an edit to its source's row leaves it. The caller holds the team scope."""
     # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(check_interval_minutes=minutes)
+
+
+def set_evaluation_window(configuration_id: UUID, *, periods: int, datapoints: int) -> None:
+    """Set how many of the last checks must breach. The caller holds the team scope."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(
+        evaluation_periods=periods, datapoints_to_alarm=datapoints
+    )
+
+
+def set_source_config(configuration_id: UUID, source_config: dict[str, Any]) -> None:
+    """Store a configuration's `source_config` as it is, without validation, as a copy made under an
+    older schema keeps it. The caller holds the team scope."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(source_config=source_config)
+
+
+def set_snooze_until(configuration_id: UUID, snooze_until: datetime | None) -> None:
+    """Set a configuration's mute as it is, with no schedule change, as an expired snooze leaves it. The
+    caller holds the team scope."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(snooze_until=snooze_until)
+
+
+def forget_source_row(configuration_id: UUID) -> None:
+    """Turn a copy into an alert its source keeps no row for, as a native create leaves it. The caller
+    holds the team scope."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(legacy_configuration_id=None)
+
+
+def set_created_by(configuration_id: UUID, created_by_id: int | None) -> None:
+    """Store a configuration's creator, as a backfill of a copy's creator leaves it. The caller holds the
+    team scope."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(created_by_id=created_by_id)
 
 
 def set_enabled(configuration_id: UUID, enabled: bool) -> None:

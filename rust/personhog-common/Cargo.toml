@@ -28,7 +28,7 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
-rstest = "0.26"
+rstest = "0.28"
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 tower = { workspace = true, features = ["util"] }
 

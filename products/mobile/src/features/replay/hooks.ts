@@ -25,6 +25,7 @@ import { type DataMode, useDataMode } from '@/demo/demoMode'
 import { useAiApproval } from '@/features/ai/aiApproval'
 import { type OrgAiStatus, projectOrganization } from '@/features/chat/aiAccess'
 import { useAppActive } from '@/features/handoff/useTaskRun'
+import { useInternalUsersFilter } from '@/features/settings/internalUsersPreference'
 import { reportScopeError, useFeatureAccess, type ViewsAccess } from '@/features/views/useViewsAccess'
 import { actionErrorMessage, toError } from '@/lib/errors'
 import { errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
@@ -301,20 +302,23 @@ export interface SessionList {
 export function useSessionList(): SessionList {
     const { scope, ready } = useReplayContext()
     const queryClient = useQueryClient()
+    const filterTestAccounts = useInternalUsersFilter()
+    const recordingsKey = useMemo(() => recordingKeys.recent(scope, filterTestAccounts), [scope, filterTestAccounts])
     const recordings = useInfiniteQuery({
-        queryKey: recordingKeys.recent(scope),
-        queryFn: ({ signal, pageParam }) => scoped(() => fetchRecentRecordings(signal, pageParam)),
+        queryKey: recordingsKey,
+        queryFn: ({ signal, pageParam }) => scoped(() => fetchRecentRecordings(signal, pageParam, filterTestAccounts)),
         initialPageParam: undefined as string | undefined,
         getNextPageParam: (page, _pages, _lastCursor, cursors) =>
             page.has_next && page.next_cursor && !cursors.includes(page.next_cursor) ? page.next_cursor : undefined,
-        enabled: ready,
+        enabled: ready && filterTestAccounts !== undefined,
         retry: retryUnlessMissing,
         staleTime: 60_000,
     })
+    const recordingsData = filterTestAccounts === undefined ? undefined : recordings.data
     const feed = useQuery({
         queryKey: visionKeys.feed(scope),
         queryFn: ({ signal }) => fetchWatchFeed(signal),
-        enabled: ready && recordings.data !== undefined,
+        enabled: ready && recordingsData !== undefined,
         retry: false,
         staleTime: 60_000,
     })
@@ -324,27 +328,25 @@ export function useSessionList(): SessionList {
     const refresh = useCallback(async (): Promise<void> => {
         setRefreshing(true)
         try {
-            await queryClient.cancelQueries({ queryKey: recordingKeys.recent(scope) })
-            queryClient.setQueryData<InfiniteData<RecordingsListApi>>(recordingKeys.recent(scope), (data) =>
+            await queryClient.cancelQueries({ queryKey: recordingsKey, exact: true })
+            queryClient.setQueryData<InfiniteData<RecordingsListApi>>(recordingsKey, (data) =>
                 data ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } : data
             )
             await Promise.all([refetchRecordings(), refetchFeed()])
         } finally {
             setRefreshing(false)
         }
-    }, [queryClient, scope, refetchRecordings, refetchFeed])
+    }, [queryClient, recordingsKey, refetchRecordings, refetchFeed])
 
     const feedItems = feed.data?.results
     const recordingItems = useMemo(() => {
-        if (!recordings.data) {
+        if (!recordingsData) {
             return undefined
         }
         return [
-            ...new Map(
-                recordings.data.pages.flatMap((page) => page.results ?? []).map((row) => [row.id, row])
-            ).values(),
+            ...new Map(recordingsData.pages.flatMap((page) => page.results ?? []).map((row) => [row.id, row])).values(),
         ]
-    }, [recordings.data])
+    }, [recordingsData])
     const { rows, recommendations } = useMemo(() => {
         if (!recordingItems) {
             return { rows: undefined, recommendations: [] }
@@ -357,9 +359,10 @@ export function useSessionList(): SessionList {
                 const row = byId.get(recording.id)
                 return row ? [row] : []
             }),
-            recommendations: combined.filter((row) => !ids.has(row.sessionId)),
+            // The watch feed cannot filter internal users, so only use observations for verified recordings.
+            recommendations: filterTestAccounts ? [] : combined.filter((row) => !ids.has(row.sessionId)),
         }
-    }, [feedItems, recordingItems])
+    }, [feedItems, recordingItems, filterTestAccounts])
     const { hasNextPage, isFetching, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = recordings
     const loadMore = useCallback((): void => {
         if (hasNextPage && !isFetching) {

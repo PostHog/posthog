@@ -1,7 +1,6 @@
 import { z } from 'zod'
 
-import { mergeRecipes, RecipeNormalizer, type StoredRecipe, validateRecipeAgainstSample } from '@posthog/llm-normalizer'
-
+import type { Schemas } from '@/api/generated'
 import { PostHogApiError, wrapError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import { getToolRecoveryHint } from '@/lib/tool-error-hints'
@@ -10,11 +9,6 @@ import type { Context, ToolBase } from '@/tools/types'
 // Mirrors MAX_SOURCE_LENGTH on the ParserRecipe model.
 const MAX_SOURCE_LENGTH = 100_000
 
-// The team's custom recipes are fetched with a fixed cap. A team with more custom
-// recipes than this gets a slightly stale merge — acceptable, since the server still
-// validates against the full event and the built-ins always run first.
-const RECIPE_LIST_LIMIT = 300
-
 const schema = z.object({
     name: z.string().min(1).max(255).describe('Short human-readable name for the recipe, shown in the parser editor.'),
     yaml_source: z
@@ -22,7 +16,7 @@ const schema = z.object({
         .min(1)
         .max(MAX_SOURCE_LENGTH)
         .describe(
-            'The recipe as raw YAML. Call `llma-parser-recipe-reference` first for the DSL syntax and worked examples. The server compiles and validates this against the exact event before saving.'
+            'The recipe as raw YAML. Call `llma-parser-recipe-reference` first for the DSL syntax and worked examples. The server tests this against the exact event before saving.'
         ),
     trace_id: z.string().min(1).describe('The `$ai_trace_id` of the trace containing the event to parse.'),
     event_uuid: z.string().min(1).describe('The UUID (`id`) of the specific event within the trace to parse.'),
@@ -38,41 +32,74 @@ interface ParserRecipeCreateResult {
     already_recognized?: boolean
 }
 
-interface TraceEvent {
-    id: string
-    event: string
-    properties?: Record<string, unknown>
+type ParserTest = Schemas.TraceNodeParserTest
+
+function pathSegment(id: string): string {
+    return Buffer.from(id, 'utf8').toString('base64url')
 }
 
-interface Trace {
-    events?: TraceEvent[]
-}
-
-interface EventSample {
-    input: unknown
-    output: unknown
-    // Embeddings have no message-shaped output; treat that side as recognized so the
-    // recipe only has to explain the input.
-    outputRecognizedByDefault: boolean
-}
-
-// Extract the input/output sides by event type, mirroring `ConversationDisplay`.
-function extractSample(eventName: string, properties: Record<string, unknown>): EventSample {
-    if (eventName === '$ai_generation') {
-        return {
-            input: properties.$ai_input,
-            output: properties.$ai_output_choices ?? properties.$ai_output,
-            outputRecognizedByDefault: false,
+function apiErrorDetail(error: PostHogApiError): string {
+    try {
+        const body: unknown = JSON.parse(error.body)
+        if (body && typeof body === 'object' && 'detail' in body && typeof body.detail === 'string') {
+            return body.detail
         }
+    } catch {
+        // A body that is not JSON is the message itself.
     }
-    if (eventName === '$ai_embedding') {
-        return { input: properties.$ai_input, output: undefined, outputRecognizedByDefault: true }
-    }
-    // Spans and everything else carry their payload in the `_state` fields.
-    return {
-        input: properties.$ai_input_state,
-        output: properties.$ai_output_state,
-        outputRecognizedByDefault: false,
+    return error.body
+}
+
+function failureReason(test: ParserTest): string {
+    const sides = [
+        ['input', test.input],
+        ['output', test.output],
+    ] as const
+    const reasons = sides.flatMap(([name, side]) => {
+        if (side.error?.source === 'existing_recipes') {
+            return [
+                `the team's existing parser recipes fail on the ${name}: ${side.error.message} — this is not a problem with your recipe`,
+            ]
+        }
+        if (side.error) {
+            return [`your recipe failed while parsing the ${name}: ${side.error.message}`]
+        }
+        if (side.broken) {
+            return [
+                `the ${name} is parsed without your recipe but not with it — narrow your rules so they leave that side alone`,
+            ]
+        }
+        if (side.neededFixing && !side.fixed) {
+            return [`the parser does not make the ${name} parsed — write rules that match the shapes in the sample`]
+        }
+        return []
+    })
+    return reasons.join('; ')
+}
+
+async function testParser(
+    context: Context,
+    projectId: string,
+    params: Params
+): Promise<ParserTest | ParserRecipeCreateResult> {
+    try {
+        return await context.api.request<ParserTest>({
+            method: 'POST',
+            path: `/api/projects/${projectId}/ai_observability/traces/${pathSegment(params.trace_id)}/nodes/${pathSegment(params.event_uuid)}/parser_test/`,
+            body: { source: params.yaml_source },
+        })
+    } catch (error) {
+        if (error instanceof PostHogApiError && error.status === 400) {
+            return { valid: false, error: `the recipe does not compile: ${apiErrorDetail(error)}` }
+        }
+        if (error instanceof PostHogApiError && error.status === 404) {
+            return {
+                valid: false,
+                error: 'the event was not found in this trace, or it is past AI events retention — re-check trace_id and event_uuid, and if they are right, the event can no longer be read',
+            }
+        }
+        // Infra failures are exceptions; validation failures are results.
+        throw wrapError(`Failed to test the recipe against event ${params.event_uuid}`, error)
     }
 }
 
@@ -80,88 +107,17 @@ export const parserRecipeCreateHandler: ToolBase<typeof schema, ParserRecipeCrea
     context: Context,
     params: Params
 ) => {
-    const projectId = await context.stateManager.getProjectId()
+    const projectId = String(await context.stateManager.getProjectId())
 
-    // The 1-year window mirrors the frontend trace fetch (`aiObservabilityTraceDataLogic`);
-    // without it, older traces silently return no rows.
-    const dateFrom = new Date(Date.now() - 365 * 24 * 3600 * 1000).toISOString()
-    const traceResult = await context.api
-        .query({ projectId: String(projectId) })
-        .execute({ queryBody: { kind: 'TraceQuery', traceId: params.trace_id, dateRange: { date_from: dateFrom } } })
-    if (!traceResult.success) {
-        // Infra failures are exceptions; validation failures are results.
-        throw wrapError(`Failed to load trace ${params.trace_id}: ${traceResult.error.message}`, traceResult.error)
+    const test = await testParser(context, projectId, params)
+    if ('valid' in test) {
+        return test
     }
-
-    const traces = (traceResult.data.results ?? []) as Trace[]
-    const event = traces.flatMap((trace) => trace.events ?? []).find((candidate) => candidate.id === params.event_uuid)
-    if (!event) {
-        return { valid: false, error: 'event not found in trace — re-check trace_id and event_uuid' }
-    }
-
-    const properties = event.properties ?? {}
-    const { input, output, outputRecognizedByDefault } = extractSample(event.event, properties)
-    if (input === undefined && output === undefined) {
-        // TraceQuery falls back to the shared events table where the heavy AI columns are
-        // stripped, and `ai_events` has a retention TTL — a payload-less event can't prove
-        // anything about a recipe, and normalizeMessages(undefined) would count as recognized.
-        return {
-            valid: false,
-            error: 'the event payload is not available server-side (it likely aged out of retention) — the recipe cannot be validated against it',
-        }
-    }
-    const tools = properties.$ai_tools
-
-    const listResponse = await context.api.request<{ results?: Array<{ id: string; source: string }> }>({
-        method: 'GET',
-        path: `/api/projects/${projectId}/llm_analytics/parser_recipes/`,
-        query: { limit: RECIPE_LIST_LIMIT },
-    })
-    const teamRecipes: StoredRecipe[] = (listResponse.results ?? []).map((row) => ({ id: row.id, source: row.source }))
-
-    // Recompute recognition the way the browser does, so validation only demands the
-    // sides that are currently unrecognized. The whole (possibly multi-MB) trace is
-    // deserialized once here and discarded — the same order of work the browser does.
-    let inputRecognized: boolean
-    let outputRecognized: boolean
-    try {
-        const normalizer = new RecipeNormalizer(mergeRecipes(teamRecipes))
-        inputRecognized = normalizer.normalizeMessages(input, 'user', tools).recognized
-        outputRecognized = outputRecognizedByDefault || normalizer.normalizeMessages(output, 'assistant').recognized
-    } catch (error) {
-        // An already-saved team recipe blew the runtime's depth or work budget on this event.
-        // That is a defect in that recipe, not in the candidate — say so instead of 500ing.
-        return {
-            valid: false,
-            error: `the team's existing recipes failed on this event: ${error instanceof Error ? error.message : String(error)}`,
-        }
-    }
-
-    const verdict = validateRecipeAgainstSample(params.yaml_source, teamRecipes, {
-        input,
-        output,
-        tools,
-        inputRecognized,
-        outputRecognized,
-    })
-    if (!verdict.valid) {
-        return { valid: false, error: verdict.error }
-    }
-
-    // An event both sides of which are already recognized doesn't need a recipe; the
-    // candidate then only has to compile. Flag it so the caller knows.
-    const alreadyRecognized = inputRecognized && outputRecognized
-
-    // A byte-identical recipe already exists — return it instead of saving a duplicate.
-    const existing = teamRecipes.find((recipe) => recipe.source === params.yaml_source)
-    if (existing) {
-        return { valid: true, recipe_id: existing.id, ...(alreadyRecognized ? { already_recognized: true } : {}) }
-    }
-
-    // With both sides pre-recognized, validation was vacuous — the candidate proved
-    // nothing, so persisting it team-wide would save an unproven recipe.
-    if (alreadyRecognized) {
+    if (!test.input.neededFixing && !test.output.neededFixing) {
         return { valid: true, already_recognized: true }
+    }
+    if (!test.passed) {
+        return { valid: false, error: failureReason(test) }
     }
 
     try {

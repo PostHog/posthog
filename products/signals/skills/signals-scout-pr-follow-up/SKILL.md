@@ -159,7 +159,7 @@ Encode the category in the key prefix; rewrite a key to update in place:
 - key `deferred:pr_follow_up:acme/api` — _"Listed, not yet judged, oldest first: #4815@06-10 #4816@06-10 #4820@06-11(soak until 06-12). Take these before new arrivals."_
 - key `recheck:pr_follow_up:acme/api` — _"Judged, not terminal, by due date: #4790@06-14 #4811@06-16. Take the due ones before deferred:, whatever their merge date."_
 - key `batch:pr_follow_up:acme/api@a1b2c3d` — _"Deploy 88140 (onset 2026-06-11 08:15Z) carried only #4821, #4822 (dependabot). Sweep clean through the next onset 06-12 09:00Z."_ One entry covers every member of a batch that had no claim candidate.
-- key `pr:pr_follow_up:acme/api#4809` — _"Fix claim: TypeError in checkout/pay.ts. Onset 2026-06-09 11:40Z (deployment 88123). Baseline 240 occ/day 31 users; post 2 occ/day 2 users over 48h. Held. Sweep clean. Done."_
+- key `pr:pr_follow_up:acme/api#4809` — _"Fix claim: TypeError in checkout/pay.ts. Onset 2026-06-09 11:40Z (deployment 88123). Baseline 240 occ/day 31 users; post 2 occ/day 2 users over 48h. Held. Sweep clean. Done."_ A terminal verdict, like every per-PR `noise:` row and every `batch:` row, gets `expires_at` about 21 days past the merge or deploy, so the prune below happens on its own.
 - key `pr:pr_follow_up:acme/web-app#911` — _"Impact claim: LCP on /pricing. Onset 2026-06-08 (annotation). p75 3.1s → 2.9s, promised <2.5s. Landing; recheck after 2026-06-12."_
 - key `report:pr_follow_up:acme/api#4790` — the `report_id` of the report you authored, so a still-failing re-check edits it (`append_evidence`) instead of duplicating.
 - key `noise:pr_follow_up:acme/api#4801` — _"Unverifiable: refactor with no behavior claim and no touched surface with telemetry."_

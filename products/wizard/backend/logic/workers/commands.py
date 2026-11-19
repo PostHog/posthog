@@ -6,7 +6,8 @@ from django.conf import settings
 
 from posthog.utils import get_instance_region
 
-from products.wizard.backend.facade.validation import is_executable_wizard_version
+from products.wizard.backend.facade.config import WIZARD_PULL_REQUEST_BRANCH_PREFIX
+from products.wizard.backend.facade.validation import is_context_mill_version, is_executable_wizard_version
 from products.wizard.backend.logic.artifacts.config import MAX_GIT_DIFF_BYTES
 from products.wizard.backend.logic.workers.config import (
     LOCAL_WIZARD_ARCHIVE_PATH,
@@ -16,7 +17,11 @@ from products.wizard.backend.logic.workers.config import (
     WIZARD_PACKAGE_INSTALL_PATH,
     WIZARD_TIMEOUT_SECONDS,
 )
-from products.wizard.backend.logic.workers.errors import InvalidWizardProgramCommandError, InvalidWizardVersionError
+from products.wizard.backend.logic.workers.errors import (
+    InvalidContextMillVersionError,
+    InvalidWizardProgramCommandError,
+    InvalidWizardVersionError,
+)
 
 _WIZARD_PROGRAM_COMMAND_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 MAX_SANDBOX_LOG_BYTES = 64 * 1024
@@ -43,12 +48,16 @@ def build_wizard_command(
     program_command: tuple[str, ...],
     *,
     use_local_wizard_source: bool = False,
+    context_mill_version: str | None = None,
 ) -> str:
     if not is_executable_wizard_version(wizard_version):
         raise InvalidWizardVersionError
 
     if any(_WIZARD_PROGRAM_COMMAND_PATTERN.fullmatch(argument) is None for argument in program_command):
         raise InvalidWizardProgramCommandError
+
+    if context_mill_version is not None and not is_context_mill_version(context_mill_version):
+        raise InvalidContextMillVersionError
 
     setup_commands: list[str] = []
     if use_local_wizard_source:
@@ -81,6 +90,9 @@ def build_wizard_command(
         f"--region {shlex.quote(_wizard_region())}",
         f"--project-id {shlex.quote(str(team_id))}",
     ]
+
+    if context_mill_version is not None:
+        invocation.append(f"--context-mill-version {shlex.quote(context_mill_version)}")
 
     if settings.DEBUG:
         invocation.append('--base-url "$POSTHOG_API_URL"')
@@ -136,7 +148,7 @@ def build_read_handoff_command(run_id: UUID) -> str:
 
 
 def pull_request_branch(run_id: UUID) -> str:
-    return f"posthog/wizard-{run_id.hex[:12]}"
+    return f"{WIZARD_PULL_REQUEST_BRANCH_PREFIX}{run_id.hex[:12]}"
 
 
 def _wizard_region() -> str:

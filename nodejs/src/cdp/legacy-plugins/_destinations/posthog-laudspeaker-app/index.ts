@@ -88,7 +88,13 @@ function set(target: any, path: any, value: any) {
     for (let i = 0; i < len; i++) {
         const prop = keys[i]
 
-        if (!isObject(target[prop])) {
+        // Only the payload's own properties are built here, so skip an inherited key and
+        // ignore an inherited value when deciding whether to create a new level below.
+        if (prop === '__proto__') {
+            return
+        }
+
+        if (!Object.hasOwn(target, prop) || !isObject(target[prop])) {
             target[prop] = {}
         }
 

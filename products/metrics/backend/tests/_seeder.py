@@ -14,7 +14,9 @@ to plant deterministic fixtures with specific labels and timestamps.
 from __future__ import annotations
 
 import json
+import math
 import uuid
+import struct
 import hashlib
 import datetime as dt
 from collections.abc import Iterable, Mapping
@@ -26,6 +28,7 @@ from posthog.clickhouse.client import sync_execute
 # instead of going through `ttl_period()`, so the seeder has to keep its rows
 # alive itself. A far-future expiry pins that independent of the wall clock.
 _EXPIRY = dt.datetime(2200, 1, 1, tzinfo=dt.UTC)
+_DEFAULT_NAN_BITS = struct.unpack("<Q", struct.pack("<d", math.nan))[0]
 
 
 def _fingerprint(*parts: Any) -> int:
@@ -88,6 +91,7 @@ def seed_metric(
     trace_id: str = "",
     span_id: str = "",
     count: int = 1,
+    has_labels: bool = True,
 ) -> None:
     """Insert one `metrics4_input` row per `(timestamp, value)` point; the
     ingest MVs write the metrics4 samples, series, names and attribute rollups
@@ -104,6 +108,9 @@ def seed_metric(
 
     Histogram inputs (`histogram_bounds`, `histogram_counts`) are passed
     through verbatim; only relevant when `metric_type='histogram'`.
+
+    `has_labels=False` seeds samples the way capture sends them after the first
+    labelled sample of a window: they write no `metric_series` row.
     """
     attributes = dict(labels or {})
     resource_attributes = dict(resource_labels or {})
@@ -135,7 +142,7 @@ def seed_metric(
                 "trace_id": trace_id,
                 "span_id": span_id,
                 "trace_flags": 0,
-                "has_labels": True,
+                "has_labels": has_labels,
                 "unit": unit,
                 "aggregation_temporality": aggregation_temporality,
                 "is_monotonic": is_monotonic,
@@ -145,8 +152,38 @@ def seed_metric(
             }
         )
 
-    payload = "\n".join(json.dumps(row) for row in rows)
-    sync_execute(f"INSERT INTO metrics4_input FORMAT JSONEachRow {payload}")
+    _insert_input_rows(rows)
+
+
+def _nan_bits(value: Any) -> int:
+    """The bits of a NaN that JSON would turn into the default NaN, or 0 for any other value."""
+    if not isinstance(value, float) or not math.isnan(value):
+        return 0
+    bits = struct.unpack("<Q", struct.pack("<d", value))[0]
+    return 0 if bits == _DEFAULT_NAN_BITS else bits
+
+
+def _insert_input_rows(rows: list[dict[str, Any]]) -> None:
+    if not any(_nan_bits(row["value"]) for row in rows):
+        payload = "\n".join(json.dumps(row) for row in rows)
+        sync_execute(f"INSERT INTO metrics4_input FORMAT JSONEachRow {payload}")
+        return
+    # JSON has no way to write the bits of a NaN, such as a Prometheus stale marker,
+    # so they travel as an integer and become the value again in ClickHouse.
+    columns = sync_execute(
+        "SELECT name, type FROM system.columns WHERE database = currentDatabase() AND table = 'metrics4_input'"
+    )
+    structure = ", ".join(f"{name} {column_type}" for name, column_type in columns)
+    payload = "\n".join(
+        json.dumps({**row, "value": 0.0, "value_bits": bits} if (bits := _nan_bits(row["value"])) else row)
+        for row in rows
+    )
+    sync_execute(
+        "INSERT INTO metrics4_input SELECT * EXCEPT value_bits REPLACE "
+        "(if(value_bits = 0, value, reinterpretAsFloat64(value_bits)) AS value) "
+        "FROM format(JSONEachRow, %(structure)s, %(payload)s)",
+        {"structure": f"{structure}, value_bits UInt64", "payload": payload},
+    )
 
 
 def seed_metric_event(

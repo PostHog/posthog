@@ -66,9 +66,10 @@ const FALLBACK_MODEL_IDS: Record<
     "claude-sonnet-5-5",
     "claude-fable-5",
     "claude-fable-5-1",
+    "claude-fable-5-2",
     "zai-org/glm-5.3",
     "zai-org/glm-5.3-flash",
-    "moonshotai/kimi-k3",
+    "moonshotai/kimi-k3.1-pro",
   ],
   codex: [
     "gpt-5",

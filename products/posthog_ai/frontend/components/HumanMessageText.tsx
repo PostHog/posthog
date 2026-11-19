@@ -43,7 +43,7 @@ export function HumanMessageText({
     const segments = useMemo(() => splitCommentContexts(stripInjectedBlocks(text)), [text])
     if (segments.length === 1 && segments[0].type === 'text') {
         const display = userMessageDisplayText(segments[0].text)
-        return <MarkdownMessage content={display || '*No text.*'} id={id} />
+        return <MarkdownMessage content={display || '*No text.*'} id={id} literalTags />
     }
     return (
         <div className="flex flex-col items-start gap-1">
@@ -51,7 +51,12 @@ export function HumanMessageText({
                 segment.type === 'comment_context' ? (
                     <SentCommentContextChip key={index} context={segment} attachments={attachments} />
                 ) : (
-                    <MarkdownMessage key={index} content={userMessageDisplayText(segment.text)} id={`${id}-${index}`} />
+                    <MarkdownMessage
+                        key={index}
+                        content={userMessageDisplayText(segment.text)}
+                        id={`${id}-${index}`}
+                        literalTags
+                    />
                 )
             )}
         </div>

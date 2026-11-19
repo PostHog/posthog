@@ -3,7 +3,10 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, User
@@ -11,13 +14,15 @@ from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade import api
-from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError
-from products.data_modeling.backend.logic.incremental import IncrementalConfig
-from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.datawarehouse_saved_query import (
-    DataWarehouseSavedQuery,
+from products.data_modeling.backend.facade.contracts import (
+    IncrementalConfig,
     SchedulingUnavailableError,
+    UnsatisfiableFrequencyError,
 )
+from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
+from products.data_modeling.backend.logic.read_access import assert_user_can_read_saved_query
+from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_modeling.backend.test.helpers import warehouse_source_node
@@ -25,7 +30,7 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 GET_V2_DAG_IDS = "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids"
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
-READ_ACCESS_CHECK = "products.data_modeling.backend.logic.saved_query_materialization.assert_user_can_read_query"
+READ_ACCESS_CHECK = "products.data_modeling.backend.logic.saved_query_materialization.assert_user_can_read_saved_query"
 DAY_KEY = IncrementalConfig(incremental_key="day", unique_key=("day",))
 TIMESTAMP_COLUMN = {"timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"}}
 HOSTILE_KEY = IncrementalConfig(incremental_key='day"; DROP TABLE events; --', unique_key=("day",))
@@ -53,7 +58,7 @@ class TestEnableSavedQueryMaterialization(BaseTest):
 
     def _enable(
         self,
-        sync_frequency_interval: timedelta,
+        frequency_target: timedelta,
         user: User | None = None,
         incremental_config: IncrementalConfig | None = None,
     ) -> None:
@@ -61,13 +66,14 @@ class TestEnableSavedQueryMaterialization(BaseTest):
             self.team.id,
             self.saved_query.id,
             user=user or self.user,
-            sync_frequency_interval=sync_frequency_interval,
+            frequency_target=frequency_target,
             visible_blocker_names=_name_no_blockers,
             was_impersonated=False,
             incremental_config=incremental_config,
         )
 
     def test_enabling_retypes_the_node_logs_the_change_and_starts_a_run_for_the_user(self) -> None:
+        set_declared_target(self.node, timedelta(hours=12))
         temporal = AsyncMock()
         with (
             patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
@@ -84,6 +90,7 @@ class TestEnableSavedQueryMaterialization(BaseTest):
         assert self.node.type == NodeType.MAT_VIEW
         assert activity.user == self.user
         assert activity.detail is not None
+        assert activity.detail["changes"][0]["before"] == str(timedelta(hours=12))
         assert activity.detail["changes"][0]["after"] == str(timedelta(hours=1))
         assert workflow_inputs["manually_triggered_by_id"] == self.user.pk
 
@@ -99,8 +106,9 @@ class TestEnableSavedQueryMaterialization(BaseTest):
 
         self.saved_query.refresh_from_db()
         schedule_materialization.assert_not_called()
+        self.node.refresh_from_db()
         assert self.saved_query.is_materialized is False
-        assert self.saved_query.sync_frequency_interval is None
+        assert get_declared_target(self.node) is None
 
     @parameterized.expand(
         [
@@ -112,9 +120,8 @@ class TestEnableSavedQueryMaterialization(BaseTest):
         self, _name: str, error: Exception, expected: type[Exception]
     ) -> None:
         self.saved_query.is_materialized = True
-        self.saved_query.sync_frequency_interval = timedelta(hours=12)
         self.saved_query.incremental_config = STORED_DAY_KEY
-        self.saved_query.save(update_fields=["is_materialized", "sync_frequency_interval", "incremental_config"])
+        self.saved_query.save(update_fields=["is_materialized", "incremental_config"])
 
         with (
             patch.object(DataWarehouseSavedQuery, "schedule_materialization", side_effect=error),
@@ -124,7 +131,6 @@ class TestEnableSavedQueryMaterialization(BaseTest):
 
         self.saved_query.refresh_from_db()
         assert self.saved_query.is_materialized is True
-        assert self.saved_query.sync_frequency_interval == timedelta(hours=12)
         assert self.saved_query.incremental_config == STORED_DAY_KEY
 
     def test_a_schedule_that_disables_materialization_fails_without_logging_an_enable(self) -> None:
@@ -275,3 +281,12 @@ class TestEnableSavedQueryMaterialization(BaseTest):
         schedule_materialization.assert_not_called()
         assert self.saved_query.is_materialized is False
         assert self.saved_query.incremental_config is None
+
+
+class TestReadAccessCheckOnAnIncompleteQuery(SimpleTestCase):
+    @parameterized.expand([("no_query_key", {"kind": "HogQLQuery"}), ("empty_query", {}), ("not_a_dict", None)])
+    def test_a_saved_query_without_sql_is_a_validation_error(self, _name, query):
+        saved_query = DataWarehouseSavedQuery(team_id=1, name="incomplete", query=query)
+
+        with self.assertRaises(ValidationError):
+            assert_user_can_read_saved_query(saved_query, User())

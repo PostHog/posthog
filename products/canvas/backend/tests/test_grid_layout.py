@@ -11,7 +11,7 @@ from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
-from products.canvas.backend import welcome
+from products.canvas.backend import build_service, welcome
 from products.canvas.backend.layout import (
     MAX_LAYOUT_PATCH_OPERATIONS,
     apply_layout_ops,
@@ -19,9 +19,9 @@ from products.canvas.backend.layout import (
     validate_layout,
 )
 from products.canvas.backend.logic import canvases as canvas_logic
-from products.canvas.backend.models import Canvas, CanvasBuild, CanvasHomePreference, CanvasState
+from products.canvas.backend.models import Canvas, CanvasBuild, CanvasHomePreference, CanvasSourceVersion, CanvasState
 from products.canvas.backend.source import has_errors, validate_source_project
-from products.canvas.backend.tests.test_canvas_api import CanvasAPIBaseTest
+from products.canvas.backend.tests.test_canvas_api import WIDE_CAPABILITIES, CanvasAPIBaseTest
 from products.canvas.backend.tests.test_component_store import COMPONENT_META
 from products.tasks.backend.models import Channel, Task
 
@@ -411,6 +411,103 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
             ]
         )
         response = self._publish_layout(grid_id, doc)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    @parameterized.expand(
+        [
+            ("component_creator_pins_an_older_version", "publish", True, status.HTTP_200_OK),
+            ("other_member_pins_an_older_version", "publish", False, status.HTTP_403_FORBIDDEN),
+            ("other_member_pins_the_live_version", "publish_live", False, status.HTTP_200_OK),
+            ("component_creator_reverts_to_a_layout_with_the_pin", "revert", True, status.HTTP_200_OK),
+            ("other_member_reverts_to_a_layout_with_the_pin", "revert", False, status.HTTP_403_FORBIDDEN),
+            ("other_member_moves_another_tile_beside_the_pin", "patch", False, status.HTTP_200_OK),
+            ("other_member_names_the_version_without_its_component", "unattached", False, status.HTTP_200_OK),
+        ]
+    )
+    def test_pinning_an_older_component_version_needs_the_component_creator(
+        self, _name: str, action: str, as_creator: bool, expected_status: int
+    ) -> None:
+        component_id = self._create_component()
+        wide = self._project(component=COMPONENT_META, capabilities=WIDE_CAPABILITIES)
+        old_version = self._publish(component_id, wide).json()["current_version_id"]
+        live_version = self._publish(component_id, self._project(component=COMPONENT_META)).json()["current_version_id"]
+        grid_id = self._create_grid()
+        pinned = placement(status="generating", component=component_id, version=old_version)
+        other = placement(id="p2", x=2)
+        head_id: str | None = None
+        if action in ("revert", "patch"):
+            head_id = self._publish_layout(grid_id, layout(placements=[pinned, other])).json()["current_version_id"]
+        pinned_layout_id = head_id
+        if action == "revert":
+            head_id = self._publish_layout(
+                grid_id, layout(placements=[other]), expected_current_version_id=head_id
+            ).json()["current_version_id"]
+        if not as_creator:
+            self.client.force_login(self._create_user("grid-member@example.com"))
+
+        if action == "publish":
+            response = self._publish_layout(grid_id, layout(placements=[pinned]))
+        elif action == "publish_live":
+            live = placement(status="generating", component=component_id, version=live_version)
+            response = self._publish_layout(grid_id, layout(placements=[live]))
+        elif action == "unattached":
+            response = self._publish_layout(grid_id, layout(placements=[placement(version=old_version)]))
+        elif action == "revert":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/canvases/{grid_id}/revert/",
+                {"version_id": pinned_layout_id, "expected_current_version_id": head_id},
+                format="json",
+            )
+        else:
+            response = self._patch_layout(
+                grid_id, [{"op": "update_placement", "id": "p2", "changes": {"x": 4}}], expected=head_id
+            )
+
+        assert response.status_code == expected_status, response.json()
+        body = response.json()
+        assert "capability_widening" not in body
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            assert body["code"] == "pinned_version_requires_creator"
+            assert body["components"] == [component_id]
+
+    def test_pin_refused_when_the_component_head_moves_during_the_upload(self) -> None:
+        component_id = self._create_component()
+        wide = self._project(component=COMPONENT_META, capabilities=WIDE_CAPABILITIES)
+        wide_version = self._publish(component_id, wide).json()["current_version_id"]
+        narrow_version = self._publish(component_id, self._project(component=COMPONENT_META)).json()[
+            "current_version_id"
+        ]
+        Canvas.objects.for_team(self.team.id).filter(pk=component_id).update(current_source_version_id=wide_version)
+        grid_id = self._create_grid()
+        self.client.force_login(self._create_user("grid-member@example.com"))
+        real_upload = build_service.upload_source_project
+
+        def narrow_then_upload(*args, **kwargs):
+            Canvas.objects.for_team(self.team.id).filter(pk=component_id).update(
+                current_source_version_id=narrow_version
+            )
+            return real_upload(*args, **kwargs)
+
+        with patch.object(build_service, "upload_source_project", side_effect=narrow_then_upload):
+            response = self._publish_layout(
+                grid_id,
+                layout(placements=[placement(status="generating", component=component_id, version=wide_version)]),
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert response.json()["code"] == "pinned_version_requires_creator"
+
+    def test_publish_without_pins_does_not_read_the_current_layout(self) -> None:
+        grid_id = self._create_grid()
+        head_id = self._publish_layout(grid_id, layout(placements=[placement()])).json()["current_version_id"]
+        with team_scope(self.team.id):
+            key = CanvasSourceVersion.objects.for_team(self.team.id).get(pk=head_id).source_object_key
+        self.storage.objects.pop(key)
+
+        response = self._publish_layout(
+            grid_id, layout(placements=[placement(id="p2", x=2)]), expected_current_version_id=head_id
+        )
+
         assert response.status_code == status.HTTP_200_OK, response.json()
 
     def test_live_placement_pinned_to_a_version_without_a_ready_build_rejected(self):

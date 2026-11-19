@@ -1,4 +1,5 @@
-import uuid
+from collections import defaultdict
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
@@ -13,7 +14,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.workflows.backend.github_workflow_events import _GITHUB_EVENT_NAMESPACE, emit_github_event
+from products.workflows.backend.github_workflow_events import emit_github_event
 from products.workflows.backend.webhook_consumers import WEBHOOK_CONSUMERS
 
 INSTALLATION_ID = 4242
@@ -33,10 +34,22 @@ ISSUE_EVENT: dict[str, Any] = {
 }
 
 
+class RecordingSink:
+    def __init__(self) -> None:
+        self.events_by_team: dict[int, list[Any]] = defaultdict(list)
+        self.failing_team_id: int | None = None
+
+    def __call__(self, team_id: int, event: Any, person: Any = None) -> None:
+        if team_id == self.failing_team_id:
+            raise BufferError("Local: Queue full")
+        self.events_by_team[team_id].append(event)
+
+
 @pytest.fixture
-def produce():
-    with patch("products.workflows.backend.github_workflow_events.produce_internal_event") as mock:
-        yield mock
+def sink() -> Iterator[RecordingSink]:
+    recording_sink = RecordingSink()
+    with patch("products.workflows.backend.github_workflow_events.produce_internal_event", recording_sink):
+        yield recording_sink
 
 
 @pytest.fixture
@@ -52,14 +65,15 @@ def integration(db):
 
 
 @pytest.mark.parametrize("enabled", [True, False])
-def test_setting_gates_the_emit(produce, integration, enabled) -> None:
+def test_setting_gates_the_emit(sink, integration, enabled) -> None:
     with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", enabled):
         emit_github_event("issues", ISSUE_EVENT, "delivery-1")
 
-    assert produce.call_count == (1 if enabled else 0)
+    events_per_team = {team_id: len(events) for team_id, events in sink.events_by_team.items()}
+    assert events_per_team == ({integration.team_id: 1} if enabled else {})
 
 
-def test_emits_once_per_connected_project(produce, integration) -> None:
+def test_emits_once_per_connected_project(sink, integration) -> None:
     second_team = Team.objects.create(organization=integration.team.organization, name="Second")
     second_integration = Integration.objects.create(
         team=second_team,
@@ -71,21 +85,21 @@ def test_emits_once_per_connected_project(produce, integration) -> None:
     with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
         emit_github_event("issues", ISSUE_EVENT, "delivery-1")
 
-    assert {call.args[0] for call in produce.call_args_list} == {integration.team_id, second_team.pk}
+    assert set(sink.events_by_team) == {integration.team_id, second_team.pk}
+    (first_event,) = sink.events_by_team[integration.team_id]
+    (second_event,) = sink.events_by_team[second_team.pk]
     # Same delivery, different projects: the uuids have to differ or the second project's run would
     # be discarded as a duplicate of the first.
-    assert len({call.args[1].uuid for call in produce.call_args_list}) == 2
-    assert {call.args[1].properties["integration_id"] for call in produce.call_args_list} == {
-        integration.pk,
-        second_integration.pk,
-    }
+    assert first_event.uuid != second_event.uuid
+    assert first_event.properties["integration_id"] == integration.pk
+    assert second_event.properties["integration_id"] == second_integration.pk
 
 
-def test_emits_nothing_for_an_unconnected_installation(produce, integration) -> None:
+def test_emits_nothing_for_an_unconnected_installation(sink, integration) -> None:
     with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
         emit_github_event("issues", {**ISSUE_EVENT, "installation": {"id": 999}}, "delivery-1")
 
-    produce.assert_not_called()
+    assert sink.events_by_team == {}
 
 
 @pytest.mark.parametrize(
@@ -98,11 +112,12 @@ def test_emits_nothing_for_an_unconnected_installation(produce, integration) -> 
         ("push", {"ref": "refs/heads/main"}, "write"),
     ],
 )
-def test_actor_access_is_precomputed(produce, integration, event_type, payload_overrides, expected) -> None:
+def test_actor_access_is_precomputed(sink, integration, event_type, payload_overrides, expected) -> None:
     with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
         emit_github_event(event_type, {**ISSUE_EVENT, **payload_overrides}, "delivery-1")
 
-    assert produce.call_args.args[1].properties["actor_access"] == expected
+    (event,) = sink.events_by_team[integration.team_id]
+    assert event.properties["actor_access"] == expected
 
 
 @pytest.mark.parametrize(
@@ -112,11 +127,12 @@ def test_actor_access_is_precomputed(produce, integration, event_type, payload_o
         ({"login": "posthog-bot[bot]", "type": "Bot"}, "posthog-bot[bot]"),
     ],
 )
-def test_bot_sender_is_nullable_so_filters_can_use_is_set(produce, integration, sender, expected) -> None:
+def test_bot_sender_is_nullable_so_filters_can_use_is_set(sink, integration, sender, expected) -> None:
     with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
         emit_github_event("issues", {**ISSUE_EVENT, "sender": sender}, "delivery-1")
 
-    assert produce.call_args.args[1].properties["bot_sender"] == expected
+    (event,) = sink.events_by_team[integration.team_id]
+    assert event.properties["bot_sender"] == expected
 
 
 @pytest.mark.parametrize(
@@ -130,17 +146,18 @@ def test_bot_sender_is_nullable_so_filters_can_use_is_set(produce, integration, 
         ("", {"login": "posthog-bot[bot]", "type": "Bot"}, False),
     ],
 )
-def test_own_app_is_precomputed_from_the_app_slug(produce, integration, app_slug, sender, expected) -> None:
+def test_own_app_is_precomputed_from_the_app_slug(sink, integration, app_slug, sender, expected) -> None:
     with (
         patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True),
         override_instance_config("GITHUB_APP_SLUG", app_slug),
     ):
         emit_github_event("issues", {**ISSUE_EVENT, "sender": sender}, "delivery-1")
 
-    assert produce.call_args.args[1].properties["own_app"] == expected
+    (event,) = sink.events_by_team[integration.team_id]
+    assert event.properties["own_app"] == expected
 
 
-def test_push_commit_messages_are_stripped_from_the_embedded_event(produce, integration) -> None:
+def test_push_commit_messages_are_stripped_from_the_embedded_event(sink, integration) -> None:
     # A push always gets actor_access "write", so a maintainer merging an outside contributor's
     # squash commit would otherwise carry that attacker-written message into a privileged step
     # such as create-task, even though the pusher themselves is trusted.
@@ -156,19 +173,13 @@ def test_push_commit_messages_are_stripped_from_the_embedded_event(produce, inte
     with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
         emit_github_event("push", payload, "delivery-1")
 
-    github_event = produce.call_args.args[1].properties["github_event"]
+    (event,) = sink.events_by_team[integration.team_id]
+    github_event = event.properties["github_event"]
     assert github_event["commits"] == [{"id": "abc123"}]
     assert github_event["head_commit"] == {"id": "abc123"}
 
 
-def test_non_push_events_keep_their_raw_payload(produce, integration) -> None:
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        emit_github_event("issues", ISSUE_EVENT, "delivery-1")
-
-    assert produce.call_args.args[1].properties["github_event"] == ISSUE_EVENT
-
-
-def test_pull_request_review_reads_the_review_not_the_pull_request(produce, integration) -> None:
+def test_pull_request_review_reads_the_review_not_the_pull_request(sink, integration) -> None:
     payload = {
         **ISSUE_EVENT,
         "action": "submitted",
@@ -184,7 +195,8 @@ def test_pull_request_review_reads_the_review_not_the_pull_request(produce, inte
     with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
         emit_github_event("pull_request_review", payload, "delivery-1")
 
-    properties = produce.call_args.args[1].properties
+    (event,) = sink.events_by_team[integration.team_id]
+    properties = event.properties
     # The review's own association decides trust, not the PR author's - a review is a distinct
     # actor from whoever opened the PR.
     assert properties["author_association"] == "COLLABORATOR"
@@ -196,7 +208,7 @@ def test_pull_request_review_reads_the_review_not_the_pull_request(produce, inte
     assert properties["number"] == 9
 
 
-def test_issue_comment_reads_the_comment_but_the_issues_title_and_number(produce, integration) -> None:
+def test_issue_comment_reads_the_comment_but_the_issues_title_and_number(sink, integration) -> None:
     # A comment object never carries title or number either - a title filter on an issue_comment
     # trigger matched nothing before this was fixed.
     payload = {
@@ -212,14 +224,15 @@ def test_issue_comment_reads_the_comment_but_the_issues_title_and_number(produce
     with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
         emit_github_event("issue_comment", payload, "delivery-1")
 
-    properties = produce.call_args.args[1].properties
+    (event,) = sink.events_by_team[integration.team_id]
+    properties = event.properties
     assert properties["body"] == "cc @maintainer"
     assert properties["author_association"] == "CONTRIBUTOR"
     assert properties["title"] == "The database is on fire"
     assert properties["number"] == 7
 
 
-def test_oversized_delivery_sheds_the_raw_payload_but_still_emits(produce, integration) -> None:
+def test_oversized_delivery_sheds_the_raw_payload_but_still_emits(sink, integration) -> None:
     # A push's commits array is unbounded; even after stripping commit messages the ids alone can
     # push the message past Kafka's ~1 MiB limit, where the broker drops it silently and the
     # fan-out's dedup mark blocks a redelivery from recovering it. The emit must shed the raw
@@ -235,7 +248,8 @@ def test_oversized_delivery_sheds_the_raw_payload_but_still_emits(produce, integ
     with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
         emit_github_event("push", big_push, "delivery-1")
 
-    properties = produce.call_args.args[1].properties
+    (event,) = sink.events_by_team[integration.team_id]
+    properties = event.properties
     assert properties["github_event"] == {"truncated": True}
     # The flat fields a trigger filters on still deliver, so the run isn't lost.
     assert properties["repository"] == "posthog/posthog"
@@ -250,27 +264,33 @@ def test_oversized_delivery_sheds_the_raw_payload_but_still_emits(produce, integ
         ({"full_name": "PostHog/posthog"}, None),
     ],
 )
-def test_repository_visibility_is_a_string_not_a_boolean(produce, integration, repository, expected) -> None:
+def test_repository_visibility_is_a_string_not_a_boolean(sink, integration, repository, expected) -> None:
     # GitHub deliveries never reach ClickHouse, so an exact-match filter has no stored property
     # definition to coerce a raw boolean against - it would compile a filter that never matches.
     with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
         emit_github_event("issues", {**ISSUE_EVENT, "repository": repository}, "delivery-1")
 
-    assert produce.call_args.args[1].properties["repository_visibility"] == expected
+    (event,) = sink.events_by_team[integration.team_id]
+    assert event.properties["repository_visibility"] == expected
 
 
-def test_review_state_is_only_set_for_pull_request_reviews(produce, integration) -> None:
+def test_review_state_is_only_set_for_pull_request_reviews(sink, integration) -> None:
+    # An issue carries its own open/closed state, which a filter must not mistake for a review verdict.
+    open_issue = {**ISSUE_EVENT, "issue": {**ISSUE_EVENT["issue"], "state": "open"}}
+
+    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
+        emit_github_event("issues", open_issue, "delivery-1")
+
+    (event,) = sink.events_by_team[integration.team_id]
+    assert event.properties["review_state"] is None
+
+
+def test_properties_carry_what_a_filter_needs(sink, integration) -> None:
     with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
         emit_github_event("issues", ISSUE_EVENT, "delivery-1")
 
-    assert produce.call_args.args[1].properties["review_state"] is None
-
-
-def test_properties_carry_what_a_filter_needs(produce, integration) -> None:
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        emit_github_event("issues", ISSUE_EVENT, "delivery-1")
-
-    properties = produce.call_args.args[1].properties
+    (event,) = sink.events_by_team[integration.team_id]
+    properties = event.properties
     assert properties["event_type"] == "issues"
     assert properties["action"] == "opened"
     assert properties["repository"] == "posthog/posthog"
@@ -278,7 +298,7 @@ def test_properties_carry_what_a_filter_needs(produce, integration) -> None:
     assert properties["github_event"] == ISSUE_EVENT
 
 
-def test_an_integration_lookup_timeout_emits_nothing_and_is_reported(produce, integration) -> None:
+def test_an_integration_lookup_timeout_emits_nothing_and_is_reported(sink, integration) -> None:
     # The fan-out's per-delivery budget cannot interrupt a query already in flight, so the
     # statement cap is what keeps a slow lookup from costing the whole delivery.
     with (
@@ -292,36 +312,52 @@ def test_an_integration_lookup_timeout_emits_nothing_and_is_reported(produce, in
     ):
         emit_github_event("issues", ISSUE_EVENT, "delivery-1")
 
-    produce.assert_not_called()
+    assert sink.events_by_team == {}
     assert logger.warning.call_args.args[0] == "github_workflow_event_integration_lookup_timed_out"
     logger.exception.assert_not_called()
 
 
-def test_a_kafka_failure_does_not_reach_the_webhook(produce, integration) -> None:
-    produce.side_effect = RuntimeError("kafka is down")
+def test_a_kafka_failure_for_one_project_does_not_reach_the_webhook_or_the_others(sink, integration) -> None:
+    # The failing project sits between two others, so one of them comes after it in either lookup order.
+    failing_team, last_team = (
+        Team.objects.create(organization=integration.team.organization, name=name) for name in ("Failing", "Last")
+    )
+    last_integration = Integration.objects.create(
+        team=last_team, kind="github", integration_id=str(INSTALLATION_ID), config={}
+    )
+    Integration.objects.create(team=failing_team, kind="github", integration_id=str(INSTALLATION_ID), config={})
+    sink.failing_team_id = failing_team.pk
 
     with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
         emit_github_event("issues", ISSUE_EVENT, "delivery-1")
 
+    (first_event,) = sink.events_by_team[integration.team_id]
+    (last_event,) = sink.events_by_team[last_team.pk]
+    assert first_event.properties["integration_id"] == integration.pk
+    assert last_event.properties["integration_id"] == last_integration.pk
 
-def test_the_webhook_consumer_passes_the_whole_delivery_through_the_facade(produce, integration) -> None:
+
+def test_the_webhook_consumer_passes_the_whole_delivery_through_the_facade(sink, integration) -> None:
     # The facade unpacks the delivery into emit's three arguments. The delivery id only shows up
     # in the event uuid, so dropping it emits an event that looks correct and dedupes wrong.
     (consumer,) = [consumer for consumer in WEBHOOK_CONSUMERS if consumer.name == "workflows"]
-    delivery = WebhookDelivery(
-        provider="github",
-        app="posthog",
-        delivery_id="delivery-1",
-        event_type="issues",
-        payload=ISSUE_EVENT,
-        received_at=datetime(2026, 1, 1, tzinfo=UTC),
-        context={},
-    )
 
     with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        consumer.handler(delivery)
+        for delivery_id in ("delivery-1", "delivery-2", "delivery-1"):
+            consumer.handler(
+                WebhookDelivery(
+                    provider="github",
+                    app="posthog",
+                    delivery_id=delivery_id,
+                    event_type="issues",
+                    payload=ISSUE_EVENT,
+                    received_at=datetime(2026, 1, 1, tzinfo=UTC),
+                    context={},
+                )
+            )
 
-    event = produce.call_args.args[1]
-    assert event.properties["event_type"] == "issues"
-    assert event.properties["github_event"] == ISSUE_EVENT
-    assert event.uuid == str(uuid.uuid5(_GITHUB_EVENT_NAMESPACE, f"{integration.team_id}:delivery-1"))
+    first, second, redelivered = sink.events_by_team[integration.team_id]
+    assert first.properties["event_type"] == "issues"
+    assert first.properties["github_event"] == ISSUE_EVENT
+    assert redelivered.uuid == first.uuid
+    assert second.uuid != first.uuid

@@ -18,7 +18,7 @@ chrono = { workspace = true }
 common-alloc = { path = "../common/alloc" }
 common-database = { path = "../common/database" }
 futures = { workspace = true }
-hashbrown = { version = "0.15", default-features = false }
+hashbrown = { version = "0.17", default-features = false }
 hex = "0.4"
 hmac = { workspace = true }
 itoa = { workspace = true }

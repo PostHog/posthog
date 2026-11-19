@@ -29,7 +29,7 @@ const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 export interface TeamDetailLogicProps {
     ownerTeam: string
     sourceId: string | null
-    /** The 'owner/name' from the path. Every figure on the page is this repository's. */
+    /** Every figure on the page is this repository's. */
     repo: string | null
 }
 
@@ -236,7 +236,7 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
             null as TeamMergeTrendData | null,
             {
                 loadMergeTrend: async (): Promise<TeamMergeTrendData | null> => {
-                    // 'unowned' is an ownership gap, not an org team; a membership join has no meaning there.
+                    // 'unowned' is an ownership gap, not an org team, so a membership join has no meaning there.
                     if (props.ownerTeam === UNOWNED_TEAM) {
                         return null
                     }
@@ -311,9 +311,8 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
                 searchParams: Record<string, string | undefined>
             ): Breadcrumb[] => repoBreadcrumbs(repo, searchParams, sourceId),
         ],
-        /** Quill-ready daily series on the backend's own day buckets. Gaps carry the last values
-         *  forward: a day without merges means "nothing merged", not instant merges, so
-         *  zero-filling would draw a false dip. Null when nothing merged in the window. */
+        /** Gaps carry the last values forward. A day without merges means "nothing merged", not instant
+         *  merges, so zero-filling would draw a false dip. Null when nothing merged in the window. */
         mergeTrendSeries: [
             (s) => [s.mergeTrend],
             (

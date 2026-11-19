@@ -110,11 +110,17 @@ STATUSCAKE_ENDPOINTS: dict[str, StatusCakeEndpointConfig] = {
         path="/maintenance-windows",
         primary_key=["id"],
     ),
-    # Monitoring-location dimension. Locations carry no id, so the table is full-refresh replace
+    # Monitoring-location dimensions. Locations carry no id, so the table is full-refresh replace
     # with no primary key (there is nothing to merge on).
     "uptime_locations": StatusCakeEndpointConfig(
         name="uptime_locations",
         path="/uptime-locations",
+        primary_key=None,
+        should_sync_default=False,
+    ),
+    "pagespeed_locations": StatusCakeEndpointConfig(
+        name="pagespeed_locations",
+        path="/pagespeed-locations",
         primary_key=None,
         should_sync_default=False,
     ),

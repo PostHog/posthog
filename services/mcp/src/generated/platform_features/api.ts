@@ -29,6 +29,10 @@ export const partialUpdateBodyMemberNoticeOneActionOneLabelMax = 40
 
 export const partialUpdateBodyMemberNoticeOneActionOneUrlMax = 2000
 
+export const partialUpdateBodyIpRestrictionsItemMax = 64
+
+export const partialUpdateBodyIpRestrictionsMax = 100
+
 export const PartialUpdateBody = () => zod.object({
     name: zod.string().max(partialUpdateBodyNameMax).optional(),
     logo_media_id: zod.string().nullish(),
@@ -103,6 +107,15 @@ export const PartialUpdateBody = () => zod.object({
         .string()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
+    ip_restrictions: zod
+        .array(zod.string().max(partialUpdateBodyIpRestrictionsItemMax))
+        .max(partialUpdateBodyIpRestrictionsMax)
+        .optional()
+        .describe('IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.'),
+    ip_restrictions_enabled: zod
+        .boolean()
+        .optional()
+        .describe('When False, the IP allowlist is kept but not enforced.'),
 })
 
 export const MembersListParams = () => zod.object({
@@ -240,7 +253,9 @@ export const AdvancedActivityLogsListQueryParams = () => zod.object({
     end_date: zod.iso
         .datetime({ offset: true })
         .optional()
-        .describe('Upper bound on `created_at` (inclusive), ISO-8601.'),
+        .describe(
+            'Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.'
+        ),
     follow: zod
         .boolean()
         .default(advancedActivityLogsListQueryFollowDefault)
@@ -299,7 +314,9 @@ export const AdvancedActivityLogsListQueryParams = () => zod.object({
     start_date: zod.iso
         .datetime({ offset: true })
         .optional()
-        .describe('Lower bound on `created_at` (inclusive), ISO-8601.'),
+        .describe(
+            'Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T10:30:00Z`.'
+        ),
     team_ids: zod
         .array(zod.number())
         .default(advancedActivityLogsListQueryTeamIdsDefault)

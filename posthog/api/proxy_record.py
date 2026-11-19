@@ -232,7 +232,7 @@ class DiagnosticRemediationSerializer(serializers.Serializer):
 
 class DiagnosticCheckResultSerializer(serializers.Serializer):
     id = serializers.CharField(
-        help_text="Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, cert_expiry)."
+        help_text="Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, capture_v1, cert_expiry)."
     )
     name = serializers.CharField(help_text="Human-readable check name.")
     status = serializers.ChoiceField(

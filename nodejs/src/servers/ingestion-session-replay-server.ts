@@ -4,6 +4,7 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PostgresRouter, PostgresRouterConfig } from '~/common/utils/db/postgres'
 import { RedisConnectionConfig, createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
+import { TeamManager } from '~/common/utils/team-manager'
 import {
     KafkaDownstreamProducerEnvConfig,
     getDefaultKafkaDownstreamProducerEnvConfig,
@@ -18,11 +19,15 @@ import {
 import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '~/ingestion/pipelines/sessionreplay/consumer'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/registry'
+import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-store'
 import {
     KafkaSessionreplayProducerEnvConfig,
     getDefaultKafkaSessionreplayProducerEnvConfig,
 } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
+import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/internal-logs-producer'
 
+import { CdpConfig } from '../cdp/config'
+import { parseInternalLogsSources } from '../cdp/services/monitoring/hog-function-monitoring.service'
 import { CommonConfig } from '../common/config'
 import { KafkaBrokerConfig, RedisConnectionsConfig, getDefaultIngestionConsumerConfig } from '../ingestion/config'
 import { RedisPool } from '../types'
@@ -37,6 +42,7 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
  * - KafkaBrokerConfig: Kafka connection and authentication
  * - RedisConnectionsConfig: Redis URLs, hosts, and pool sizing
  * - PostgresRouterConfig: database connection
+ * - Internal logs producer: sends console logs to the logs product when `CDP_INTERNAL_LOGS_SOURCES` lists `session_replay`
  * - Remaining CommonConfig picks: server mode, observability
  *
  * This type is the source of truth for which env vars session replay ingestion deployments need.
@@ -49,6 +55,8 @@ export type IngestionSessionReplayServerConfig = BaseServerConfig &
     SessionReplayOutputsConfig &
     RedisConnectionsConfig &
     PostgresRouterConfig &
+    Pick<CdpConfig, 'CDP_INTERNAL_LOGS_SOURCES'> &
+    InternalLogsProducerConfig &
     Pick<
         CommonConfig,
         'LOG_LEVEL' | 'PLUGIN_SERVER_MODE' | 'HEALTHCHECK_MAX_STALE_SECONDS' | 'KAFKA_HEALTHCHECK_SECONDS'
@@ -111,6 +119,9 @@ export function buildSessionReplayRedisPools(
     return { redisPool, restrictionRedisPool }
 }
 
+// Bounded so that shutdown still fits inside the pod's termination grace period.
+const INTERNAL_LOGS_DRAIN_TIMEOUT_MS = 10_000
+
 export class IngestionSessionReplayServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionSessionReplayServerConfig
@@ -160,15 +171,38 @@ export class IngestionSessionReplayServer implements NodeServer {
         this.redisPool = pools.redisPool
         this.restrictionRedisPool = pools.restrictionRedisPool
 
+        const internalLogsProducer = parseInternalLogsSources(this.config.CDP_INTERNAL_LOGS_SOURCES).has(
+            'session_replay'
+        )
+            ? new InternalLogsProducer(this.config, new TeamManager(this.postgres))
+            : undefined
+
         const ingester = new SessionRecordingIngester(
             this.config,
             this.postgres!,
             outputs,
             this.redisPool,
-            this.restrictionRedisPool
+            this.restrictionRedisPool,
+            {
+                consoleLogStore: new SessionConsoleLogStore(outputs, {
+                    messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT,
+                    internalLogsProducer,
+                }),
+            }
         )
         await ingester.start()
-        this.lifecycle.services.push(ingester.service)
+        const service = ingester.service
+        this.lifecycle.services.push({
+            ...service,
+            // Drains here rather than in additionalCleanup, which runs after Postgres and the HTTP agents close.
+            onShutdown: async () => {
+                try {
+                    await service.onShutdown()
+                } finally {
+                    await internalLogsProducer?.drain(INTERNAL_LOGS_DRAIN_TIMEOUT_MS)
+                }
+            },
+        })
     }
 
     private getCleanupResources(): CleanupResources {

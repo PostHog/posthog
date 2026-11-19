@@ -114,6 +114,8 @@ export interface PaginatedDataModelingJobListApi {
     /** @nullable */
     previous?: string | null
     results: DataModelingJobApi[]
+    /** True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. */
+    count_is_capped?: boolean
 }
 
 export interface CheckDatabaseNameResponseApi {
@@ -1166,6 +1168,8 @@ export interface WarehouseTrinoStatusApi {
      * @nullable
      */
     ready_at: string | null
+    /** Whether the organization's Trino catalog is backed by hoglake. Hoglake credentials reach nothing otherwise. */
+    hoglake: boolean
     /** Trino connection target. Null until Trino is ready and reachable. */
     connection: WarehouseTrinoConnectionApi | null
 }
@@ -1748,6 +1752,86 @@ export const DataWarehouseSavedQueryOriginEnumApi = {
     ManagedViewset: 'managed_viewset',
 } as const
 
+/**
+ * * `clickhouse` - ClickHouse
+ * * `managed_trino` - Hosted Trino
+ * * `connection` - Direct connection
+ */
+export type ViewEngineTargetEnumApi = (typeof ViewEngineTargetEnumApi)[keyof typeof ViewEngineTargetEnumApi]
+
+export const ViewEngineTargetEnumApi = {
+    Clickhouse: 'clickhouse',
+    ManagedTrino: 'managed_trino',
+    Connection: 'connection',
+} as const
+
+/**
+ * * `hogql` - HogQL
+ * * `raw` - Raw SQL
+ */
+export type ViewEngineDialectEnumApi = (typeof ViewEngineDialectEnumApi)[keyof typeof ViewEngineDialectEnumApi]
+
+export const ViewEngineDialectEnumApi = {
+    Hogql: 'hogql',
+    Raw: 'raw',
+} as const
+
+export interface ViewCapabilityApi {
+    /** Whether the view supports this. */
+    available: boolean
+    /**
+     * Why the view does not support this, written for the user. Null when available.
+     * @nullable
+     */
+    reason: string | null
+}
+
+/**
+ * * `clickhouse_probe` - ClickHouse probe
+ * * `client_types` - Column types sent by the client
+ */
+export type ViewColumnSourceEnumApi = (typeof ViewColumnSourceEnumApi)[keyof typeof ViewColumnSourceEnumApi]
+
+export const ViewColumnSourceEnumApi = {
+    ClickhouseProbe: 'clickhouse_probe',
+    ClientTypes: 'client_types',
+} as const
+
+export interface ViewEngineCapabilitiesApi {
+    /** Whether the view can be materialized, run or scheduled. */
+    materialize: ViewCapabilityApi
+    /** Whether the view has lineage and a node in the data modeling DAG. */
+    lineage: ViewCapabilityApi
+    /** Whether HogQL queries on ClickHouse can read from this view by name. */
+    referenceable_from_clickhouse: ViewCapabilityApi
+    /** Where the view's column types come from: a ClickHouse probe of the query, or the types the client sends from its last run.
+     *
+     * * `clickhouse_probe` - ClickHouse probe
+     * * `client_types` - Column types sent by the client */
+    column_source: ViewColumnSourceEnumApi
+}
+
+export interface ViewEngineApi {
+    /** The engine that runs this view: ClickHouse, hosted Trino, or a direct connection.
+     *
+     * * `clickhouse` - ClickHouse
+     * * `managed_trino` - Hosted Trino
+     * * `connection` - Direct connection */
+    target: ViewEngineTargetEnumApi
+    /** Whether the view stores HogQL or raw SQL for its engine.
+     *
+     * * `hogql` - HogQL
+     * * `raw` - Raw SQL */
+    dialect: ViewEngineDialectEnumApi
+    /**
+     * The direct connection that runs this view. Null for any other engine.
+     * @nullable
+     */
+    connection_id: string | null
+    /** What the rest of the product can do with this view. */
+    capabilities: ViewEngineCapabilitiesApi
+}
+
 export type DataWarehouseSavedQueryMinimalApiColumnsItem = { [key: string]: unknown }
 
 /**
@@ -1805,8 +1889,8 @@ export interface DataWarehouseSavedQueryMinimalApi {
      * @nullable
      */
     readonly user_access_level: string | null
-    /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
-    readonly is_raw_managed_trino: boolean
+    /** The engine that runs this view, and what the product can do with it. */
+    readonly engine: ViewEngineApi
 }
 
 export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
@@ -1960,6 +2044,7 @@ export const MaterializeSyncFrequencyEnumApi = {
 
 /**
  * * `source` - source
+ * * `plan` - plan
  * * `consumer` - consumer
  */
 export type SyncFrequencyBlockedByEnumApi =
@@ -1967,6 +2052,7 @@ export type SyncFrequencyBlockedByEnumApi =
 
 export const SyncFrequencyBlockedByEnumApi = {
     Source: 'source',
+    Plan: 'plan',
     Consumer: 'consumer',
 } as const
 
@@ -1994,12 +2080,13 @@ export interface SyncFrequencyOptionApi {
     cadence: MaterializeSyncFrequencyEnumApi
     /** False when writing this cadence would be rejected. */
     allowed: boolean
-    /** Which side withholds this cadence: 'source' when no upstream source syncs that often, 'consumer' when a downstream view or endpoint refreshes more often than this. Null when the cadence is allowed.
+    /** Which side withholds this cadence: 'source' when no upstream source syncs that often, 'plan' when the organization's plan does not allow refreshing that often, 'consumer' when a downstream view or endpoint refreshes more often than this. Null when the cadence is allowed.
      *
      * * `source` - source
+     * * `plan` - plan
      * * `consumer` - consumer */
     blocked_by: SyncFrequencyBlockedByEnumApi | null
-    /** The source or consumer named in `blocked_by`. Null when allowed, and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
+    /** The source or consumer named in `blocked_by`. Null when allowed, when `blocked_by` is 'plan', and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
     blocker: SyncFrequencyBlockerApi | null
     /** Upstream materialized views that would refresh more often than they do now if this cadence were chosen, because a view cannot be fresher than its inputs. Only views the caller may read are listed. Empty when the cadence is blocked. */
     speeds_up: SyncFrequencyBlockerApi[]
@@ -2025,6 +2112,8 @@ export interface SyncFrequencyBoundsApi {
     options: SyncFrequencyOptionApi[]
     /** The fastest bound: no cadence finer than this is allowed, because the source named here does not sync more often. Null when no source withholds a cadence. */
     floor: SyncFrequencyBoundApi | null
+    /** The fastest cadence the organization's plan allows: no cadence finer than this can be saved. `blocker` is always null. Null when the plan withholds no cadence. */
+    plan_floor: SyncFrequencyBoundApi | null
     /** The slowest bound: no cadence coarser than this is allowed, because the consumer named here refreshes that often. Null when no consumer withholds a cadence. */
     ceiling: SyncFrequencyBoundApi | null
     /** Upstream sources with no sync schedule, so the floor is a guess: these arrive when someone runs them, and refreshing more often than they really sync will serve stale data. Only sources the caller may read are listed. */
@@ -2076,7 +2165,7 @@ export interface DataWarehouseSavedQueryApi {
      * * `7day` - 7day
      * * `30day` - 30day */
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
-    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling, and the organization's plan can set a floor too. Read-only, and present on retrieve, create and update responses only. */
     readonly sync_frequency_bounds: SyncFrequencyBoundsApi
     readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
     readonly status: DataWarehouseSavedQueryStatusEnumApi | null
@@ -2111,6 +2200,8 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     soft_update?: boolean | null
+    /** Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access. */
+    acknowledge_breaking_changes?: boolean
     /** @nullable */
     readonly is_materialized: boolean | null
     /** Where this SavedQuery is created.
@@ -2133,8 +2224,8 @@ export interface DataWarehouseSavedQueryApi {
     readonly user_access_level: string | null
     /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
     readonly suspended: DataWarehouseSavedQueryApiSuspended
-    /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
-    readonly is_raw_managed_trino: boolean
+    /** The engine that runs this view, and what the product can do with it. */
+    readonly engine: ViewEngineApi
 }
 
 export type PatchedDataWarehouseSavedQueryApiQueryKind =
@@ -2202,7 +2293,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * * `7day` - 7day
      * * `30day` - 30day */
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
-    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling, and the organization's plan can set a floor too. Read-only, and present on retrieve, create and update responses only. */
     readonly sync_frequency_bounds?: SyncFrequencyBoundsApi
     readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]
     readonly status?: DataWarehouseSavedQueryStatusEnumApi | null
@@ -2237,6 +2328,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     soft_update?: boolean | null
+    /** Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access. */
+    acknowledge_breaking_changes?: boolean
     /** @nullable */
     readonly is_materialized?: boolean | null
     /** Where this SavedQuery is created.
@@ -2259,8 +2352,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly user_access_level?: string | null
     /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
     readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
-    /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
-    readonly is_raw_managed_trino?: boolean
+    /** The engine that runs this view, and what the product can do with it. */
+    readonly engine?: ViewEngineApi
 }
 
 /**
@@ -2367,9 +2460,20 @@ export interface SavedQueryRunApi {
     engine?: MaterializationEngineEnumApi
 }
 
+export interface SavedQueryRunSkippedNodeApi {
+    /** The data model node left out of the run. */
+    node_id: string
+    /** Name of the view left out of the run. */
+    name: string
+    /** Why the view was left out: its query doesn't compile, or it depends on a view whose query doesn't compile. */
+    reason: string
+}
+
 export interface SavedQueryRunResponseApi {
     /** The data model nodes included in the run. */
     node_ids: string[]
+    /** Views an upstream or downstream run selected but left out, because their query doesn't compile or they depend on one that doesn't. Their sources can't be checked against your access, so they don't run. Always empty for a run of only this view. */
+    skipped: SavedQueryRunSkippedNodeApi[]
 }
 
 /**
@@ -2744,6 +2848,22 @@ export interface PatchedTableApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface HistoryTableRefApi {
+    /** ID of the history table. */
+    id: string
+    /** Name the history table is queried by in HogQL. */
+    name: string
+    /** Whether you can change who can access the history table. */
+    user_can_manage_access: boolean
+}
+
+export interface TableHistoryTableApi {
+    /** Whether this table has access rules of its own that you can manage, so there are rules to copy to its history table. */
+    main_table_has_copyable_rules: boolean
+    /** The table's history table, which keeps every past version of its rows. `null` when the table has none or you can't view it. */
+    history_table: HistoryTableRefApi | null
 }
 
 /**

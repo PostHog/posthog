@@ -1,0 +1,36 @@
+{% extends "admin_console/base.html" %}
+{% block title %}Tools · PostHog Admin{% endblock %}
+{% block content %}
+    <div class="flex flex-col gap-6 max-w-5xl">
+        <div>
+            <h1 class="m-0 text-[22px] font-extrabold">Tools</h1>
+            <p class="m-0 mt-1 text-muted-foreground">
+                Reports and actions that are not about one record. Actions on one team or organization are on its page.
+            </p>
+        </div>
+        {% for group, tools in console_tool_groups.items %}
+            <section class="flex flex-col gap-2"
+                     aria-labelledby="tools-{{ group|slugify }}">
+                <h2 id="tools-{{ group|slugify }}" class="m-0 text-[15px] font-extrabold">{{ group }}</h2>
+                <ul class="quill-card group/card m-0 p-0 list-none flex flex-col"
+                    data-quill
+                    data-slot="card"
+                    data-size="sm">
+                    {% for listed_tool in tools %}
+                        <li class="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 px-4 py-2.5 border-b border-border last:border-b-0">
+                            <a class="w-56 shrink-0 font-semibold text-foreground underline decoration-border underline-offset-2 hover:decoration-current"
+                               href="{% url 'admin_console_tool' tool_key=listed_tool.key %}">{{ listed_tool.title }}</a>
+                            <span class="flex-1 min-w-[16rem] text-muted-foreground">{{ listed_tool.description }}</span>
+                            <span class="flex items-center gap-1.5 text-[11px] text-muted-foreground whitespace-nowrap">
+                                {{ listed_tool.owner.name }}
+                                <img class="size-[18px]"
+                                     src="/static/admin-console/crests/{{ listed_tool.owner.crest }}.svg"
+                                     alt="" />
+                            </span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </section>
+        {% endfor %}
+    </div>
+{% endblock %}

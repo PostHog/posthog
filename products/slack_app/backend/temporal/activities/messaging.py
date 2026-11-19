@@ -7,7 +7,7 @@ from posthog.models.integration import SlackIntegration
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
-from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
+from products.slack_app.backend.services.workspace_integrations import get_integration, require_workspace_integration
 from products.slack_app.backend.temporal.helpers import safe_react, swap_reaction
 from products.slack_app.backend.temporal.types import (
     SLACK_APP_PROCESSING_REACTION,
@@ -336,17 +336,15 @@ def request_untagged_followup_confirmation_activity(
     from products.slack_app.backend.services.slack_settings import resolve_untagged_followup_mode  # noqa: PLC0415
 
     inputs = coerce_mention_workflow_inputs(inputs)
-    mapping = (
-        SlackThreadTaskMapping.objects.select_related("integration")
-        .filter(integration_id=inputs.integration_id, channel=channel, thread_ts=thread_ts)
-        .first()
-    )
-    if mapping is None:
+    mapping = SlackThreadTaskMapping.objects.filter(
+        integration_id=inputs.integration_id, channel=channel, thread_ts=thread_ts
+    ).first()
+    integration = get_integration(mapping.team_id, mapping.integration_id) if mapping is not None else None
+    if mapping is None or integration is None:
         # The thread lost its mapping mid-run; the forward activity would drop this
         # anyway, and there is nobody left to attribute a prompt to.
         return True
 
-    integration = mapping.integration
     mode = resolve_untagged_followup_mode(integration, mapping.mentioning_slack_user_id)
     if mode == UntaggedFollowupMode.AUTO:
         return False

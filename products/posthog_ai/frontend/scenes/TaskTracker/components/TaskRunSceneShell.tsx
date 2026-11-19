@@ -23,6 +23,7 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { TodaySessionIcon } from '~/layout/today/TodaySessionIcon'
+import { TodaySessionPinButton } from '~/layout/today/TodaySessionPinButton'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { TodaySidebarBreadcrumb } from '~/layout/today/TodaySidebarBreadcrumb'
 import { sessionIconFields } from '~/layout/today/todayWorkItems'
@@ -191,6 +192,12 @@ export function TaskRunSceneShell({
                                     saveOnBlur
                                     renameDebounceMs={0}
                                     editDataAttr="task-rename"
+                                    suffix={
+                                        todayRailEnabled &&
+                                        task && (
+                                            <TodaySessionPinButton sessionId={task.id} name={task.title || 'Task'} />
+                                        )
+                                    }
                                 />
                             }
                             actions={

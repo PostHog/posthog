@@ -2,6 +2,7 @@ import re
 import uuid
 import textwrap
 from dataclasses import field
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from django.db import models, transaction
@@ -13,11 +14,13 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates
+from products.slack_app.backend.logic.politeness import POLITE_REQUEST_REACTION, is_polite_request
 from products.slack_app.backend.logic.reply_suggestions import clear_open_suggestions
 from products.slack_app.backend.logic.thread_join import ThreadJoinDecision, decide_thread_join
 from products.slack_app.backend.services.slack_messages import (
     SlackThreadMessage,
     context_block,
+    extract_message_text,
     parse_slack_file_refs,
     post_slack_thread_reply,
     thread_permalink,
@@ -612,6 +615,7 @@ def create_posthog_code_task_for_repo_activity(
         api as signals_facade,
         report_tasks,
     )
+    from products.slack_app.backend.facade.constants import PUBLIC_CHANNEL_CONVERSATION_TYPES
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
     from products.slack_app.backend.slack_thread import SlackThreadContext
@@ -684,10 +688,11 @@ def create_posthog_code_task_for_repo_activity(
     user_message_ts = event.get("ts")
     if user_message_ts:
         safe_react(slack.client, channel, user_message_ts, "eyes")
+        if is_polite_request(extract_message_text(event)):
+            safe_react(slack.client, channel, user_message_ts, POLITE_REQUEST_REACTION)
 
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
         decode_slack_event_text,
-        extract_message_text,
         labeled_mentions_to_display_names,
     )
     from products.slack_app.backend.services.slack_user_info import get_slack_user_info  # noqa: PLC0415
@@ -738,6 +743,7 @@ def create_posthog_code_task_for_repo_activity(
     )
 
     slack_thread_context = SlackThreadContext(
+        team_id=integration.team_id,
         integration_id=integration.id,
         channel=channel,
         thread_ts=thread_ts,
@@ -923,11 +929,15 @@ def create_posthog_code_task_for_repo_activity(
         )
 
         if signal_report_id:
+            # The report's scout reads the question, and what a scout reads can reach the whole project.
+            # Only a public channel thread was already open to everyone in the workspace.
+            shared_in_public_channel = not is_fork and conversation_type in PUBLIC_CHANNEL_CONVERSATION_TYPES
             tasks_facade.link_slack_task_to_report(
                 team_id=integration.team_id,
                 task_id=str(created.task_id),
                 report_id=signal_report_id,
                 user_id=user_id,
+                question=title_text or None if shared_in_public_channel else None,
             )
         # Track the workflow to link Temporal jobs to Slack threads
         state_updates: dict[str, Any] = {
@@ -1114,6 +1124,13 @@ def forward_posthog_code_followup_activity(
     ):
         return True
 
+    try:
+        tasks_facade.check_wake_by_task_id(mapping.task_id, source="slack_follow_up")
+    except tasks_facade.TaskDoneError as error:
+        _clear_processing_reaction(slack, channel, user_message_ts)
+        post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=str(error))
+        return True
+
     # Reply-tag fallback for turns with no per-turn actor (boot prompt,
     # pre-rollout runs); the actor stamped at delivery normally wins.
     if slack_user_id != mapping.latest_actor_slack_user_id:
@@ -1134,6 +1151,47 @@ def forward_posthog_code_followup_activity(
             actor_user=actor_user,
             user_text_prefix=followup_user_text_prefix,
             model_override=model_override,
+        )
+        clear_open_suggestions(slack.client, integration.id, channel, thread_ts)
+        return handled
+
+    # Decided before any attachment is uploaded to the live run, so a handoff takes the files to the new run.
+    if handoff_model := _stop_run_for_runtime_handoff(
+        integration,
+        slack,
+        channel,
+        thread_ts,
+        task_run=task_run,
+        override=model_override,
+        actor_user=actor_user,
+        slack_user_id=slack_user_id,
+    ):
+        handled = _resume_task_with_new_run(
+            mapping,
+            task_run,
+            slack,
+            inputs,
+            channel,
+            thread_ts,
+            slack_user_id,
+            event_text,
+            user_message_ts,
+            actor_user=actor_user,
+            user_text_prefix=followup_user_text_prefix,
+            model_override=model_override,
+            runtime_handoff=True,
+        )
+        # `_resume_task_with_new_run` points the mapping at the new run only after its workflow starts.
+        _capture_runtime_handoff(
+            integration,
+            "handed_off" if mapping.task_run_id != task_run.id else "resume_failed",
+            channel=channel,
+            thread_ts=thread_ts,
+            task_run=task_run,
+            to_model=handoff_model,
+            slack_user_id=slack_user_id,
+            actor_user=actor_user,
+            new_run_id=str(mapping.task_run_id) if mapping.task_run_id != task_run.id else None,
         )
         clear_open_suggestions(slack.client, integration.id, channel, thread_ts)
         return handled
@@ -1279,9 +1337,14 @@ def forward_posthog_code_followup_activity(
         )
         return True
 
+    tasks_facade.record_task_client(
+        task_id=str(mapping.task_id), team_id=task_run.team_id, client=tasks_facade.TaskClient.SLACK
+    )
+
     # Message queued; the agent picks it up next, so leave the :eyes: reaction
     # up. relayAgentResponse posts the agent's response once it finishes.
     _delete_followup_progress(
+        team_id=mapping.team_id,
         integration_id=inputs.integration_id,
         channel=channel,
         thread_ts=thread_ts,
@@ -1318,6 +1381,119 @@ def forward_posthog_code_followup_activity(
     clear_open_suggestions(slack.client, integration.id, channel, thread_ts)
     logger.info("posthog_code_followup_forwarded", channel=channel, thread_ts=thread_ts, task_run_id=str(task_run.id))
     return True
+
+
+_RUNTIME_HANDOFF_CANCEL_SOURCE = "slack_runtime_handoff"
+
+
+def _stop_run_for_runtime_handoff(
+    integration: Any,
+    slack: Any,
+    channel: str,
+    thread_ts: str,
+    *,
+    task_run: Any,
+    override: SlackAppModelOverride | None,
+    actor_user: Any | None,
+    slack_user_id: str,
+) -> str | None:
+    """Stop a live run so that a new run on the same task can use a model from the other runtime.
+
+    Returns the requested model only when the live run is stopped or already finished. In every other case the
+    follow-up stays on the live run, and `_apply_followup_model_override` refuses the model as before.
+    Two runs that both answer the thread are worse than a refusal.
+    """
+    from products.slack_app.backend.facade.run_preferences import describe_run_model, resolve_live_run_override
+    from products.tasks.backend.facade import cancellation as tasks_cancellation
+
+    if override is None or not override.model:
+        return None
+    state = task_run.state or {}
+    try:
+        change = resolve_live_run_override(
+            override,
+            runtime_adapter=state.get("runtime_adapter"),
+            model=state.get("model"),
+            reasoning_effort=state.get("reasoning_effort"),
+        )
+    except Exception:
+        logger.exception("slack_app_runtime_handoff_resolve_failed", task_run_id=str(task_run.id))
+        return None
+    if not change.refused_model:
+        return None
+    capture = partial(
+        _capture_runtime_handoff,
+        integration,
+        channel=channel,
+        thread_ts=thread_ts,
+        task_run=task_run,
+        to_model=change.refused_model,
+        slack_user_id=slack_user_id,
+        actor_user=actor_user,
+    )
+    try:
+        outcome, _ = tasks_cancellation.cancel_task_run(
+            task_run.id,
+            task_run.task_id,
+            task_run.team_id,
+            reason="Moved to another runtime",
+            source=_RUNTIME_HANDOFF_CANCEL_SOURCE,
+            requested_by_user_id=actor_user.id if actor_user else None,
+        )
+    except Exception:
+        logger.exception("slack_app_runtime_handoff_cancel_failed", task_run_id=str(task_run.id))
+        capture("stop_failed", stop_outcome="error")
+        return None
+    if outcome not in ("accepted", "already_terminal"):
+        logger.warning("slack_app_runtime_handoff_cancel_refused", task_run_id=str(task_run.id), outcome=outcome)
+        capture("stop_failed", stop_outcome=outcome)
+        return None
+
+    _post_thread_context(
+        slack,
+        channel,
+        thread_ts,
+        f"Moving this thread to {describe_run_model(change.refused_model, None)}. "
+        "A new agent starts with the conversation so far.",
+    )
+    logger.info(
+        "slack_app_runtime_handoff_started",
+        task_run_id=str(task_run.id),
+        from_runtime_adapter=state.get("runtime_adapter"),
+        to_model=change.refused_model,
+    )
+    return change.refused_model
+
+
+def _capture_runtime_handoff(
+    integration: Any,
+    outcome: str,
+    *,
+    channel: str,
+    thread_ts: str,
+    task_run: Any,
+    to_model: str,
+    slack_user_id: str | None,
+    actor_user: Any | None,
+    **props: object,
+) -> None:
+    from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
+
+    state = task_run.state or {}
+    capture_slack_event(
+        integration,
+        "slack app runtime handoff",
+        slack_user_id=slack_user_id,
+        posthog_user=actor_user,
+        outcome=outcome,
+        task_id=str(task_run.task_id),
+        previous_run_id=str(task_run.id),
+        from_runtime_adapter=state.get("runtime_adapter"),
+        from_model=state.get("model"),
+        to_model=to_model,
+        slack_session_id=slack_session_id(integration.integration_id, channel, thread_ts),
+        **props,
+    )
 
 
 def _apply_followup_model_override(
@@ -1507,6 +1683,22 @@ def _build_terminal_recovery_prompt(previous_run: Any, user_text: str) -> str:
     return "\n".join(recovery_lines) + "\n\n" + user_text
 
 
+def _refresh_conversation_type(mapping: Any, slack: Any, event: dict[str, Any], channel: str) -> None:
+    """Resolve the thread's conversation type again before a new run stores the follow-up.
+
+    Slack keeps the channel id when it converts a channel between public and private and sends no
+    event for the conversion, so the stored ``conversation_type`` can be stale. The new run puts the
+    reply in its state, and a stale public type lets the whole team read that state. A failed lookup
+    comes back as ``UNKNOWN``, which keeps the task with its creator.
+    """
+    from products.slack_app.backend.services.slack_conversations import resolve_conversation_type  # noqa: PLC0415
+
+    conversation_type = resolve_conversation_type(slack, event, channel)
+    if conversation_type != mapping.conversation_type:
+        mapping.conversation_type = conversation_type
+        mapping.save(update_fields=["conversation_type", "updated_at"])
+
+
 def _resume_task_with_new_run(
     mapping: Any,
     previous_run: Any,
@@ -1520,8 +1712,13 @@ def _resume_task_with_new_run(
     actor_user: Any | None = None,
     user_text_prefix: str | None = None,
     model_override: SlackAppModelOverride | None = None,
+    runtime_handoff: bool = False,
 ) -> bool:
-    """Create a new run on the same task when a follow-up arrives after the previous run completed."""
+    """Create a new run on the same task when a follow-up arrives after the previous run completed.
+
+    ``runtime_handoff`` marks a previous run that this follow-up stopped itself to change runtime. That
+    stop is not a failure or a user cancel, so the new run gets no recovery instructions for it.
+    """
     from products.signals.backend.facade import (
         report_tasks,  # noqa: PLC0415 - keeps the signals model graph off the webhook import path
     )
@@ -1561,6 +1758,8 @@ def _resume_task_with_new_run(
             text="I can't restart the agent — the original task creator is no longer available.",
         )
         return True
+
+    _refresh_conversation_type(mapping, slack, inputs.event, channel)
 
     create_pr = True
 
@@ -1607,8 +1806,8 @@ def _resume_task_with_new_run(
     extra_state["resume_from_run_id"] = str(previous_run.id)
 
     previous_pr_url = (previous_run.output or {}).get("pr_url")
-    recovery_strategy = _terminal_recovery_strategy(previous_run)
-    initial_prompt_override = _build_terminal_recovery_prompt(previous_run, user_text)
+    recovery_strategy = None if runtime_handoff else _terminal_recovery_strategy(previous_run)
+    initial_prompt_override = user_text if runtime_handoff else _build_terminal_recovery_prompt(previous_run, user_text)
     if create_pr and previous_pr_url:
         initial_prompt_override = (
             f"[CONTEXT: This task already has an open pull request: {previous_pr_url}\n"
@@ -1656,6 +1855,9 @@ def _resume_task_with_new_run(
             text=exc.detail,
         )
         return True
+    except tasks_facade.TaskRunAlreadyLiveError as error:
+        post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=str(error))
+        return True
     except Exception:
         logger.exception(
             "posthog_code_resume_create_run_failed",
@@ -1670,6 +1872,10 @@ def _resume_task_with_new_run(
             text=_RESUME_ERROR_MSG,
         )
         return True
+
+    tasks_facade.record_task_client(
+        task_id=str(mapping.task_id), team_id=previous_run.team_id, client=tasks_facade.TaskClient.SLACK
+    )
 
     # The carried mode can pin BOT after the creator connected GitHub, because the live-sandbox
     # promotion in _refresh_sandbox_github never sees a successor's first turn. Re-check here so
@@ -1714,6 +1920,7 @@ def _resume_task_with_new_run(
                 )
 
     slack_thread_context = SlackThreadContext(
+        team_id=mapping.team_id,
         integration_id=inputs.integration_id,
         channel=channel,
         thread_ts=thread_ts,
@@ -1766,6 +1973,7 @@ def _resume_task_with_new_run(
 
 
 def _delete_followup_progress(
+    team_id: int,
     integration_id: int,
     channel: str,
     thread_ts: str,
@@ -1777,6 +1985,7 @@ def _delete_followup_progress(
     try:
         SlackThreadHandler(
             SlackThreadContext(
+                team_id=team_id,
                 integration_id=integration_id,
                 channel=channel,
                 thread_ts=thread_ts,

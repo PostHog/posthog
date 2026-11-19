@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { Link, Tooltip } from '@posthog/lemon-ui'
+import { Button, Spinner as QuillSpinner } from '@posthog/quill'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { dayjs } from 'lib/dayjs'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -14,7 +16,13 @@ import { shouldQueryBeAsync } from '~/queries/utils'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 
-export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?: boolean }): JSX.Element | null {
+export function ComputationTimeWithRefresh({
+    disableRefresh,
+    onRefresh,
+}: {
+    disableRefresh?: boolean
+    onRefresh?: () => void
+}): JSX.Element | null {
     const { lastRefresh, response, query } = useValues(dataNodeLogic)
 
     const { insightProps } = useValues(insightLogic)
@@ -26,10 +34,53 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
     const { isDev } = useValues(preflightLogic)
     const canBypassRefreshDisabled = user?.is_staff || user?.is_impersonated || isDev
 
+    const quillSurface = useQuillSurface()
+
     usePeriodicRerender(15000) // Re-render every 15 seconds for up-to-date `insightRefreshButtonDisabledReason`
 
     if (!response || (!(response as any).result && !(response as any).results)) {
         return null
+    }
+
+    const refresh = (): void => {
+        onRefresh?.()
+        loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
+    }
+    const bypassTooltip =
+        canBypassRefreshDisabled && disabledReason
+            ? `${disabledReason} (you can bypass this due to dev env / staff permissions)`
+            : undefined
+    const computedAt = lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'
+
+    if (quillSurface) {
+        return (
+            <div className="z-10 flex items-center">
+                <span>Computed&nbsp;</span>
+                <span translate="no">{computedAt}</span>
+                {!disableRefresh && (
+                    <>
+                        <span className="px-1">•</span>
+                        {insightDataLoading ? (
+                            <span className="flex items-center gap-1.5">
+                                <QuillSpinner />
+                                Refreshing
+                            </span>
+                        ) : (
+                            <Button
+                                variant="link"
+                                size="inline"
+                                onClick={refresh}
+                                className={disabledReason ? 'opacity-50' : undefined}
+                                tooltip={bypassTooltip}
+                                disabledReason={canBypassRefreshDisabled ? undefined : disabledReason}
+                            >
+                                Refresh
+                            </Button>
+                        )}
+                    </>
+                )}
+            </div>
+        )
     }
 
     return (
@@ -40,7 +91,7 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
                 removeChild NotFoundError (react#11538). The relative time also opts out of
                 translation, since it is rewritten every 15s. */}
             <span>Computed&nbsp;</span>
-            <span translate="no">{lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}</span>
+            <span translate="no">{computedAt}</span>
             {!disableRefresh && (
                 <>
                     <span className="px-1">•</span>
@@ -50,15 +101,9 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
                             Refreshing
                         </span>
                     ) : (
-                        <Tooltip
-                            title={
-                                canBypassRefreshDisabled && disabledReason
-                                    ? `${disabledReason} (you can bypass this due to dev env / staff permissions)`
-                                    : undefined
-                            }
-                        >
+                        <Tooltip title={bypassTooltip}>
                             <Link
-                                onClick={() => loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')}
+                                onClick={refresh}
                                 className={disabledReason ? 'opacity-50' : ''}
                                 disabledReason={canBypassRefreshDisabled ? '' : disabledReason}
                             >

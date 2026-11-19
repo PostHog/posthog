@@ -316,6 +316,18 @@ export const createCohortMembershipEvents = (events: Partial<CohortMembershipCha
     return events.map((event) => createCohortMembershipEvent(event))
 }
 
+export const createSweepFloorRecord = (overrides: Record<string, unknown> = {}): Record<string, unknown> => {
+    return {
+        type: 'sweep_floor',
+        team_id: 1,
+        cohort_id: 1,
+        run_id: new UUIDT().toString(),
+        threshold: '2026-09-21 03:00:00.214331',
+        partitions: 64,
+        ...overrides,
+    }
+}
+
 export interface CohortMembershipRecord {
     team_id: number
     cohort_id: number

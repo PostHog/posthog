@@ -1,19 +1,5 @@
-"""HogQL assembly of a run's jobs, for the expandable job breakdown on the run rows.
-
-Reads the curated jobs subquery (``_curated.jobs_source``) for one ``run_id``. Job-level data is an
-optional source — when it isn't synced, ``jobs_source()`` is None and this returns ``[]`` so the UI
-degrades to an empty breakdown instead of erroring. Per-job cost is derived from the runner tier
-(parsed from ``labels``) and Depot's billed elapsed via the pure cost model (``logic.cost``) — the
-same model the exposed cost view renders in SQL, fed the same two inputs.
-
-A re-run carries several attempts under one ``run_id``; scoping to a single ``run_attempt`` keeps a
-row's statuses, durations, and costs from merging across attempts (and double-counting cost). The
-attempt's job list is shown whole, matching GitHub's own — including the already-passed jobs GitHub
-re-lists under it — but those rows carry no cost, since nothing ran (``is_rerun_copy``). The
-caller passes the attempt it's showing; when omitted, the run's latest attempt is read from the runs
-source (not the synced job rows) so a default lookup tracks the canonical attempt even when only older
-attempts' jobs have synced — returning an empty breakdown rather than stale jobs for that case.
-"""
+"""The jobs of a workflow run. Job rows are an optional source, so every read returns its empty
+value when they are not synced."""
 
 import json
 from datetime import UTC, datetime
@@ -33,14 +19,8 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     run_windowed_job_created_floor_constant,
 )
 
-# Explicit high LIMIT: without it HogQL caps at DEFAULT_RETURNED_ROWS (100), and since the rows are ordered
-# by start, a run with >100 jobs (matrix builds, re-run attempts) would silently drop its latest-starting
-# jobs — the breakdown would then miss jobs and not add up to the run's cost.
-# No scan floor here, unlike every windowed jobs read: this filters `run_id = {run_id}`, and run_id is
-# the leading PARTITION BY column of the builder's is_rerun_copy window — the one filter shape
-# ClickHouse can push below a window step. A floor would also need the run's created_at, which this
-# entry point isn't given (it takes a run id and nothing else), so bounding it would cost a round trip
-# to buy a bound the run filter already provides.
+# HogQL returns 100 rows when a query names no LIMIT, which would drop the latest-starting jobs of a
+# large run. A date floor could hide an earlier attempt's failure or make a re-listed job look billable.
 _SELECT = """
     SELECT id, run_id, run_attempt, name, status, conclusion, labels, runner_name, started_at, completed_at, duration_seconds, provisioning_seconds, is_rerun_copy,
         ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id, steps
@@ -51,11 +31,9 @@ _SELECT = """
     LIMIT 1000000
 """
 
-# Reads several runs, so it takes the scan floor that the one-run read above does not need. Re-listed
-# rows stay, as in the one-run read, so both reads give an attempt the same job list. A re-listed row
-# can keep the creation time of the attempt that ran it, which is before its run's newest start. The
-# floor is therefore the wide one, or it would cut those rows out of the attempt. The cut would leave
-# a partial job list, and is_rerun_copy and the cost are not exact under a floor, so do not read them here.
+# A re-listed row can keep the creation time of the attempt that ran it, which is before its run's
+# newest start. This read therefore takes the wide scan floor, so an attempt keeps its whole job list.
+# is_rerun_copy and the cost are not exact under a floor, so callers must not rely on them here.
 _RUN_ATTEMPTS_SELECT = f"""
     SELECT id, run_id, run_attempt, name, status, conclusion, labels, runner_name, started_at, completed_at, duration_seconds, provisioning_seconds, is_rerun_copy,
         ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id, __STEPS__
@@ -76,9 +54,8 @@ _LATEST_ATTEMPT_SELECT = """
 def query_workflow_jobs(
     *, curated: CuratedGitHubSource, run_id: int, run_attempt: int | None = None, ci_engine: CIEngine | None = None
 ) -> list[WorkflowJob]:
-    jobs_source = curated.jobs_source(include_steps=True)
+    jobs_source = curated.jobs_source(include_steps=True, scoped=True)
     if jobs_source is None:
-        # The optional job-level source isn't synced for this team yet.
         return []
     # Without an engine, the runs read is also what rejects a run id that two engines share.
     latest_attempt = (
@@ -87,7 +64,7 @@ def query_workflow_jobs(
         else None
     )
     response = curated.run(
-        _SELECT.replace("__JOBS_SOURCE__", jobs_source),
+        curated.scoped_to_run(_SELECT.replace("__JOBS_SOURCE__", jobs_source)),
         query_type="engineering_analytics.workflow_jobs",
         placeholders={
             "run_id": ast.Constant(value=run_id),
@@ -100,11 +77,10 @@ def query_workflow_jobs(
         raise ValueError("Ambiguous run_id; specify ci_engine.")
     target_attempt = run_attempt
     if target_attempt is None:
-        # Default to the run's latest attempt per the runs source, not the synced job rows — those can
-        # trail the run table during sync lag and silently serve an older attempt's jobs as current.
+        # The latest attempt comes from the runs source, because job rows can sync later than the run
+        # and would then show an older attempt's jobs as current.
         target_attempt = latest_attempt
         if target_attempt is None:
-            # Run isn't in the runs source (shouldn't normally happen); fall back to the jobs rows.
             attempts = [int(row[2]) for row in rows if row[2] is not None]
             target_attempt = max(attempts) if attempts else None
     if target_attempt is not None:
@@ -116,11 +92,11 @@ def query_workflow_job(
     *, curated: CuratedGitHubSource, run_id: int, job_id: int, ci_engine: CIEngine | None = None
 ) -> WorkflowJob | None:
     """One job of a run, whichever attempt it belongs to, or None when the source has no such job."""
-    jobs_source = curated.jobs_source(include_steps=True)
+    jobs_source = curated.jobs_source(include_steps=True, scoped=True)
     if jobs_source is None:
         return None
     response = curated.run(
-        _SELECT.replace("__JOBS_SOURCE__", jobs_source),
+        curated.scoped_to_run(_SELECT.replace("__JOBS_SOURCE__", jobs_source)),
         query_type="engineering_analytics.workflow_job",
         placeholders={
             "run_id": ast.Constant(value=run_id),
@@ -147,9 +123,8 @@ def query_jobs_by_run(
     job_name: str | None = None,
     include_steps: bool = False,
 ) -> dict[int, list[WorkflowJob]]:
-    """The job list of one attempt of each run, keyed by run id. ``run_attempts`` maps each run id
-    to the attempt to read, and ``earliest_run_started_at`` is the earliest start among those runs.
-    ``job_name`` keeps one job name. Steps are the widest column, so they are read only on request."""
+    """Jobs keyed by run id, for the attempt ``run_attempts`` names per run. ``earliest_run_started_at``
+    must be no later than any of those runs' starts. Steps are empty unless ``include_steps`` is set."""
     jobs_source = curated.jobs_source(created_floor=True, since=earliest_run_started_at, include_steps=include_steps)
     if jobs_source is None or not run_attempts:
         return {}
@@ -178,7 +153,9 @@ def query_jobs_by_run(
 
 def _latest_run_attempt(*, curated: CuratedGitHubSource, run_id: int, ci_engine: CIEngine | None) -> int | None:
     response = curated.run(
-        _LATEST_ATTEMPT_SELECT.replace("__RUNS_SOURCE__", curated.run_source(live=True)),
+        curated.scoped_to_run(
+            _LATEST_ATTEMPT_SELECT.replace("__RUNS_SOURCE__", curated.run_source(live=True, scoped=True))
+        ),
         query_type="engineering_analytics.workflow_jobs_latest_attempt",
         placeholders={"run_id": ast.Constant(value=run_id)},
     )
@@ -234,9 +211,8 @@ def _to_job(row: tuple[Any, ...]) -> WorkflowJob:
         native_job_id=native_job_id,
         native_attempt_id=native_attempt_id,
         steps=_parse_steps(steps_raw),
-        # Cost runs off the billed clock (wall-clock minus runner boot), not duration_seconds, which
-        # stays what the row displays. A row GitHub re-listed under this attempt without re-running it
-        # costs nothing — the attempt that actually ran carries the minutes (see the jobs builder).
+        # Cost uses the billed clock, which is duration_seconds minus runner boot. A row that was
+        # listed again under this attempt without running costs nothing.
         estimated_cost_usd=estimate_job_cost_usd(
             labels,
             billed_elapsed_seconds(duration_seconds, provisioning),

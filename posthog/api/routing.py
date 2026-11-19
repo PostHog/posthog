@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.core.exceptions import ImproperlyConfigured
+from django.db.models import Model
 from django.db.models.query import QuerySet
 
 import structlog
@@ -46,16 +47,21 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
+    TwoFactorEnforcementPermission,
     VerifiedDomainEnforcementPermission,
     is_service_auth,
 )
 from posthog.products import is_product_module
 from posthog.queryset_paging import stable_queryset_ordering
-from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import ResourceType
+from products.authorization.backend.presentation.querysets import can_filter_queryset, filter_queryset
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -225,9 +231,19 @@ class RouterRegistry:
 # IMPORTANT: Almost all viewsets should inherit from this mixin. It should be the first thing it inherits from to ensure
 # that typing works as expected
 class TeamAndOrgViewSetMixin(_GenericViewSet):
+    # Defer early IP checks so permissions can resolve token and organization overrides after authentication.
+    _ip_restrictions_use_view_scope = True
+
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     param_derived_from_user_current_team: Optional[Literal["team_id", "project_id"]] = None
+
+    # For a route with no project in its path, such as /api/messaging/send/email/: the view acts on the project of the
+    # project secret API key that authenticated the request, and refuses every other credential. It sets
+    # `param_derived_from_user_current_team`, because a project secret API key authenticates as a synthetic user
+    # whose team is fixed to the key's project. A credential with a real user would follow the project that user last
+    # opened, which is why nothing else may authenticate.
+    team_from_project_secret_api_key: bool = False
 
     # Rewrite filter queries, so that for example foreign keys can be accessed
     # Example: {"team_id": "foo__team_id"} will make the viewset filtered by obj.foo.team_id instead of obj.team_id
@@ -284,6 +300,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         for method, message in protected_methods.items():
             if method in cls.__dict__:
                 raise Exception(f"Method {method} is protected and should not be overridden. {message}")
+
+        if cls.team_from_project_secret_api_key:
+            cls.param_derived_from_user_current_team = "team_id"
 
         cls._check_path_parameters()
 
@@ -417,6 +436,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 *dangerously_defined,
                 *workload_token_boundary,
                 VerifiedDomainEnforcementPermission(),
+                TwoFactorEnforcementPermission(),
                 MCPAccessPermission(),
                 ActiveOrganizationPermission(),
                 IPRestrictionsPermission(),
@@ -448,6 +468,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         # organization row it resolved is reused. The MCP cap follows for the same reason:
         # its message must not disclose another organization's security settings.
         permission_classes.append(VerifiedDomainEnforcementPermission)
+        permission_classes.append(TwoFactorEnforcementPermission)
         permission_classes.append(MCPAccessPermission)
         permission_classes.append(ActiveOrganizationPermission)
         permission_classes.append(IPRestrictionsPermission)
@@ -456,6 +477,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         return [permission() for permission in permission_classes]
 
     def get_authenticators(self):
+        if self.team_from_project_secret_api_key:
+            return [ProjectSecretAPIKeyAuthentication()]
+
         # NOTE: Custom authentication_classes go first as these typically have extra initial checks
         authentication_classes: list = [
             *self.authentication_classes,
@@ -558,8 +582,24 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         if self.scope_object == "insight" and self.request.GET.get("short_id") is not None:
             include_all_if_admin = True
 
-        return self.user_access_control.filter_queryset_by_access_level(
-            queryset, include_all_if_admin=include_all_if_admin
+        if self.scope_object == "early_access_feature" and self.request.GET.get("ids") is not None:
+            include_all_if_admin = True
+
+        access = self.user_access_control
+        # A list outside a project reads organization-wide rules, and some models the SDK cannot filter
+        # yet, so those lists stay on the current filter.
+        if (
+            access.team is None
+            or not (self._is_team_view or self._is_project_view)
+            or not can_filter_queryset(queryset.model)
+        ):
+            return access.filter_queryset_by_access_level(queryset, include_all_if_admin=include_all_if_admin)
+        return filter_queryset(
+            queryset,
+            resource=Resource(
+                type=ResourceType(cast(str, model_to_resource(cast(Model, queryset.model)))), project_id=access.team.id
+            ),
+            include_all_if_admin=include_all_if_admin,
         )
 
     def dangerously_get_object(self) -> Any:
@@ -891,11 +931,15 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @cached_property
     def user_permissions(self) -> "UserPermissions":
-        return UserPermissions(
+        permissions = UserPermissions(
             user=cast(User, self.request.user),
             team=self.team,
             organization_membership=self.user_access_control.organization_membership,
         )
+        if self._is_team_view or self._is_project_view:
+            # The SDK checks in this request read the same memberships, so they reuse this instance.
+            authorization.reuse_current_rules(self.user_access_control, permissions)
+        return permissions
 
     @cached_property
     def user_access_control(self) -> "UserAccessControl":
@@ -905,4 +949,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except (Team.DoesNotExist, KeyError):
             pass
 
-        return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
+        access = UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
+        if self._is_team_view or self._is_project_view:
+            # The SDK checks in this request read the same rules, so they reuse this instance.
+            authorization.reuse_current_rules(access)
+        return access

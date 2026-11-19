@@ -64,6 +64,7 @@ from products.mcp_analytics.backend.hogql_queries.base import (
     HarnessLabelQueryRunner,
     display_person_properties,
     effective_tool_expr,
+    isoformat_timestamp,
     mcp_query_date_range,
     mcp_source_expr,
     shared_filter_exprs,
@@ -98,6 +99,17 @@ def _harness_labels_agg(custom_rules: Sequence[CustomHarnessRule]) -> str:
 _RAW_ERROR_TYPE = "substring(coalesce(nullIf(toString(properties.$mcp_error_type), ''), 'unknown'), 1, 200)"
 _RAW_ERROR_STATUS = "substring(coalesce(toString(properties.$mcp_error_status), ''), 1, 20)"
 _COMPOSED_FAILURE_LABEL = "concat(error_type, if(empty(error_status), '', concat(' (HTTP ', error_status, ')')))"
+# Mirrors the capture-side MAX_ERROR_MESSAGE_LENGTH (services/mcp); event-supplied, so
+# re-capped here in case a non-PostHog server emits an unbounded value.
+_ERROR_MESSAGE = "substringUTF8(coalesce(toString(properties.$mcp_error_message), ''), 1, 2048)"
+# Ids and numbers vary per call (`questions.0.link`, `/projects/97205/`), so masking them lets
+# one cause collect all its calls instead of scattering across rows.
+_FAILURE_CAUSE = (
+    "substringUTF8(replaceRegexpAll(replaceRegexpAll("
+    f"{_ERROR_MESSAGE}, "
+    "'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\\\\b(?:[0-9]+[a-fA-F]|[a-fA-F]+[0-9])[0-9a-fA-F]*\\\\b', '<id>'), "
+    "'[0-9]+', 'N'), 1, 300)"
+)
 
 
 # Takes the whole query, not a tool name, so a table added here cannot accept the shared filters
@@ -198,6 +210,7 @@ class MCPToolTopUsersQueryRunner(HarnessLabelQueryRunner[MCPToolTopUsersQueryRes
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_tool_top_users_query",
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -258,21 +271,27 @@ class MCPToolFailuresQueryRunner(HarnessLabelQueryRunner[MCPToolFailuresQueryRes
                 error_status,
                 count() AS occurrences,
                 max(timestamp) AS last_seen,
-                {_HARNESS_LABELS_AGG} AS harnesses
+                {_HARNESS_LABELS_AGG} AS harnesses,
+                cause,
+                argMax(error_message, timestamp) AS sample_message
             FROM (
                 SELECT
                     {_RAW_ERROR_TYPE} AS error_type,
                     {_RAW_ERROR_STATUS} AS error_status,
+                    {_FAILURE_CAUSE} AS cause,
+                    {_ERROR_MESSAGE} AS error_message,
                     timestamp,
                     {token} AS h
                 FROM events
                 WHERE {where}
             )
-            GROUP BY error_type, error_status
+            GROUP BY error_type, error_status, cause
             ORDER BY occurrences DESC
-            LIMIT 20
+            LIMIT 50
             """,
             placeholders={
+                "_FAILURE_CAUSE": parse_expr(_FAILURE_CAUSE),
+                "_ERROR_MESSAGE": parse_expr(_ERROR_MESSAGE),
                 "_HARNESS_LABELS_AGG": parse_expr(_harness_labels_agg(custom_harness_rules(self.team))),
                 "_COMPOSED_FAILURE_LABEL": parse_expr(_COMPOSED_FAILURE_LABEL),
                 "_RAW_ERROR_TYPE": parse_expr(_RAW_ERROR_TYPE),
@@ -292,6 +311,7 @@ class MCPToolFailuresQueryRunner(HarnessLabelQueryRunner[MCPToolFailuresQueryRes
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_tool_failures_query",
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -306,6 +326,8 @@ class MCPToolFailuresQueryRunner(HarnessLabelQueryRunner[MCPToolFailuresQueryRes
                 occurrences=int(row[3] or 0),
                 last_seen=str(row[4] or ""),
                 harnesses=[str(h) for h in (row[5] or [])],
+                cause=str(row[6] or ""),
+                sample_message=str(row[7] or ""),
             )
             for row in (response.results or [])
         ]
@@ -315,11 +337,6 @@ class MCPToolFailuresQueryRunner(HarnessLabelQueryRunner[MCPToolFailuresQueryRes
             hogql=response.hogql,
             modifiers=self.modifiers,
         )
-
-
-# Mirrors the capture-side MAX_ERROR_MESSAGE_LENGTH (services/mcp); event-supplied, so
-# re-capped here in case a non-PostHog server emits an unbounded value.
-_ERROR_MESSAGE = "substring(coalesce(toString(properties.$mcp_error_message), ''), 1, 2048)"
 
 
 class MCPToolFailureOccurrencesQueryRunner(HarnessLabelQueryRunner[MCPToolFailureOccurrencesQueryResponse]):
@@ -359,13 +376,26 @@ class MCPToolFailureOccurrencesQueryRunner(HarnessLabelQueryRunner[MCPToolFailur
             )
         else:
             extra.append(parse_expr("empty({raw_status})", placeholders={"raw_status": parse_expr(_RAW_ERROR_STATUS)}))
+        if self.query.cause is not None:
+            extra.append(
+                parse_expr(
+                    "{raw_cause} = {cause}",
+                    placeholders={
+                        "raw_cause": parse_expr(_FAILURE_CAUSE),
+                        "cause": ast.Constant(value=self.query.cause),
+                    },
+                )
+            )
         return _tool_call_where(self.query, self.query_date_range, self.team, extra=extra)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # The sort key is sort_ts, not timestamp. On the JSON events table, ClickHouse renames a
+        # subquery column that shares an events column's name to a suffixed name such as
+        # timestamp_0, while the sort still asks for timestamp, so the query fails.
         return parse_select(
             """
             SELECT
-                toString(timestamp) AS ts,
+                sort_ts,
                 distinct_id,
                 session_id,
                 {harness_label} AS harness,
@@ -374,7 +404,7 @@ class MCPToolFailureOccurrencesQueryRunner(HarnessLabelQueryRunner[MCPToolFailur
                 error_status
             FROM (
                 SELECT
-                    timestamp,
+                    timestamp AS sort_ts,
                     distinct_id,
                     substring({_CONVERSATION_ID}, 1, 200) AS session_id,
                     if(toString(properties.$mcp_intent) = '{}', '', substring(toString(properties.$mcp_intent), 1, 1000)) AS intent,
@@ -384,7 +414,7 @@ class MCPToolFailureOccurrencesQueryRunner(HarnessLabelQueryRunner[MCPToolFailur
                 FROM events
                 WHERE {where}
             )
-            ORDER BY ts DESC
+            ORDER BY sort_ts DESC
             LIMIT 50
             """,
             placeholders={
@@ -416,7 +446,7 @@ class MCPToolFailureOccurrencesQueryRunner(HarnessLabelQueryRunner[MCPToolFailur
 
         results = [
             MCPToolFailureOccurrenceItem(
-                timestamp=str(row[0] or ""),
+                timestamp=isoformat_timestamp(row[0]),
                 distinct_id=str(row[1] or ""),
                 session_id=str(row[2] or ""),
                 harness=str(row[3] or ""),
@@ -497,6 +527,7 @@ class MCPToolStatsQueryRunner(AnalyticsQueryRunner[MCPToolStatsQueryResponse]):
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_tool_stats_query",
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -585,6 +616,7 @@ class MCPToolDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolDailyStatsQueryRe
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_tool_daily_stats_query",
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -635,7 +667,7 @@ class MCPToolDescriptionsQueryRunner(AnalyticsQueryRunner[MCPToolDescriptionsQue
             """
             SELECT
                 {_EFFECTIVE_DESCRIPTION} AS description,
-                toString(max(timestamp)) AS last_seen
+                max(timestamp) AS last_seen
             FROM events
             WHERE {where}
             GROUP BY description
@@ -655,6 +687,7 @@ class MCPToolDescriptionsQueryRunner(AnalyticsQueryRunner[MCPToolDescriptionsQue
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_tool_descriptions_query",
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -662,7 +695,7 @@ class MCPToolDescriptionsQueryRunner(AnalyticsQueryRunner[MCPToolDescriptionsQue
             )
 
         results = [
-            MCPToolDescriptionItem(description=str(row[0] or ""), last_seen=str(row[1] or ""))
+            MCPToolDescriptionItem(description=str(row[0] or ""), last_seen=isoformat_timestamp(row[1]))
             for row in (response.results or [])
         ]
         return MCPToolDescriptionsQueryResponse(
@@ -694,23 +727,24 @@ class MCPToolSampleIntentsQueryRunner(HarnessLabelQueryRunner[MCPToolSampleInten
                 parse_expr("toString(properties.$mcp_intent) != '{}'"),
             ],
         )
+        # sort_ts carries its own name for the reason given in MCPToolFailureOccurrencesQueryRunner.to_query.
         return parse_select(
             """
             SELECT
-                toString(timestamp) AS timestamp,
+                sort_ts,
                 intent,
                 intent_source,
                 {harness_label} AS harness
             FROM (
                 SELECT
-                    timestamp,
+                    timestamp AS sort_ts,
                     toString(properties.$mcp_intent) AS intent,
                     toString(properties.$mcp_intent_source) AS intent_source,
                     {token} AS h
                 FROM events
                 WHERE {where}
             )
-            ORDER BY timestamp DESC
+            ORDER BY sort_ts DESC
             LIMIT 5
             """,
             placeholders={
@@ -730,6 +764,7 @@ class MCPToolSampleIntentsQueryRunner(HarnessLabelQueryRunner[MCPToolSampleInten
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_tool_sample_intents_query",
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -738,7 +773,7 @@ class MCPToolSampleIntentsQueryRunner(HarnessLabelQueryRunner[MCPToolSampleInten
 
         results = [
             MCPToolSampleIntentItem(
-                timestamp=str(row[0] or ""),
+                timestamp=isoformat_timestamp(row[0]),
                 intent=str(row[1] or ""),
                 intent_source=str(row[2] or ""),
                 harness=str(row[3] or ""),
@@ -824,6 +859,7 @@ class MCPToolNeighborsQueryRunner(AnalyticsQueryRunner[MCPToolNeighborsQueryResp
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_tool_neighbors_query",
                 timings=self.timings,
                 modifiers=self.modifiers,

@@ -40,7 +40,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     is_team_allowlisted_for_internal_hosts,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    rank_incremental_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import (
     reconcile_source_schema_metadata,
 )
@@ -90,6 +93,32 @@ _REDIRECTED = (
 # problem reads the same way across Postgres, MySQL and ClickHouse.
 _INVALID_CREDENTIALS = (
     "The database rejected the username or password. Check the user and password for this source and try again."
+)
+
+# HTTP 530 isn't a real HTTP status — Cloudflare issues it, together with its own "error code"
+# in the body, when a host is proxied through a Cloudflare Tunnel (cloudflared) and the tunnel has
+# no live connection to the origin. Error 1033 is Cloudflare's own code for that case, not a
+# ClickHouse one (ClickHouse's own codes top out around 1002, reserved for wrapped external
+# exceptions). cloudflared drops and re-establishes its edge connections routinely (a deploy, a
+# network blip, an edge rebalance), so this is read the same as the bare 5xx gateway responses
+# below rather than assumed permanent — see get_retryable_errors.
+_CLOUDFLARE_TUNNEL_DOWN = (
+    "We reached a Cloudflare-proxied address for your ClickHouse host, but Cloudflare couldn't reach the origin "
+    "— its Tunnel (cloudflared) has no active connection. Check that the Cloudflare Tunnel on your ClickHouse "
+    "host is running and connected, then try again."
+)
+
+# PostHog's egress proxy is the SSRF backstop for this source (see `_get_client`'s docstring):
+# it independently re-resolves the configured host on every connection and refuses one that
+# answers with a private/internal address, even if the host passed this source's own DNS check
+# at setup time (a short-TTL record can answer public for one lookup and private for the next).
+# clickhouse-connect surfaces the refusal as a 407 naming the proxy's deny rule. Whichever rule
+# fired, the configured host resolves somewhere PostHog won't connect to, and retrying re-resolves
+# and gets denied again, so this is the customer's host/DNS to fix, not a transient failure.
+_EGRESS_DENIED_PRIVATE_HOST = (
+    "We can't connect to this ClickHouse host because it resolves to a private or internal address, which "
+    "PostHog's egress proxy won't connect to. Use a host that's reachable from the public internet, or enable "
+    "the SSH tunnel option if this database can't be exposed publicly."
 )
 
 # sshtunnel reports every failure to reach the gateway with this fixed wording, which names no fix.
@@ -152,6 +181,11 @@ ClickHouseErrors: dict[str, str] = {
     "received http status 502": _TEMPORARILY_UNAVAILABLE,
     "received http status 503": _TEMPORARILY_UNAVAILABLE,
     "received http status 504": _TEMPORARILY_UNAVAILABLE,
+    # See _CLOUDFLARE_TUNNEL_DOWN above.
+    "error code: 1033": _CLOUDFLARE_TUNNEL_DOWN,
+    # PostHog's egress proxy denied the host as resolving to a private/internal address (see
+    # `_EGRESS_DENIED_PRIVATE_HOST`'s definition for why this is deterministic).
+    "egress proxying is denied": _EGRESS_DENIED_PRIVATE_HOST,
 }
 
 
@@ -419,6 +453,14 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # something we can change our side, so retrying just re-loads an
             # already disk-pressured server.
             "Code: 243": "Your ClickHouse server ran out of disk space while we were reading a table (it couldn't reserve space for a temporary file). Try scaling up your ClickHouse service or freeing disk space, or sync a smaller table or use an incremental sync, then resume.",
+            # CANNOT_WRITE_TO_FILE_DESCRIPTOR (code 75) raised as an ErrnoException: the source
+            # server's write() to a temporary file (spilling a sort or buffering query output)
+            # failed with ENOSPC. Same capacity problem as Code: 243 above, just caught at the OS
+            # write syscall instead of ClickHouse's own space-reservation check. We match the
+            # stable errno/strerror text rather than "Code: 75" alone, since
+            # CANNOT_WRITE_TO_FILE_DESCRIPTOR also covers unrelated write failures that should stay
+            # retryable.
+            "No space left on device": "Your ClickHouse server ran out of disk space while we were reading a table (it couldn't write a temporary file). Try scaling up your ClickHouse service or freeing disk space, or sync a smaller table or use an incremental sync, then resume.",
             # TOO_MANY_ROWS_OR_BYTES (code 396) — the source server's own `max_result_bytes`/
             # `max_result_rows` limit rejected our extraction query because the table
             # (or incremental window) is larger than that limit allows. Like Code: 241
@@ -460,6 +502,14 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # identical failure. We match the stable Arrow-conversion phrase, not the
             # volatile column name or type in the message.
             "is not supported for conversion into Arrow data format": "One of the columns in this table has a type ClickHouse can't export (for example an `AggregateFunction` state column on an aggregating materialized view). Deselect that column in this schema's column settings, or sync a view that finalizes it, then resync.",
+            # clickhouse-connect surfaces our own egress proxy's SSRF refusal as "HTTP driver
+            # received HTTP status 407, server response: Egress proxying is denied to host
+            # '<ip>:<port>': ... denied by rule '<rule>'." The proxy re-resolves the configured
+            # host on every connection independently of this source's own setup-time DNS check, so
+            # a host that resolves to a private/internal address is denied every time, whichever
+            # deny rule names it. Matched on the rule-agnostic, host-agnostic prefix rather than a
+            # specific rule name or the volatile host/IP.
+            "Egress proxying is denied": _EGRESS_DENIED_PRIVATE_HOST,
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -484,6 +534,11 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "received HTTP status 502",
             "received HTTP status 503",
             "received HTTP status 504",
+            # Cloudflare's bare HTTP 530 "Argo Tunnel error" (see _CLOUDFLARE_TUNNEL_DOWN) — the
+            # Cloudflare Tunnel in front of the host dropped its connection to the origin.
+            # cloudflared reconnects on its own, often within seconds, so this gets the same
+            # treatment as the bare 5xx gateway responses above rather than disabling the sync.
+            "error code: 1033",
             # urllib3 raises this when the source drops the connection mid-transfer while
             # `get_rows` is iterating `query_arrow_stream` — the byte count varies, but the
             # "Connection broken: IncompleteRead" wording is stable. Unlike the connect-time
@@ -499,6 +554,11 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # pyarrow's message reader instead of urllib3. The byte counts vary; the
             # "bytes for message body, got" wording is stable.
             "bytes for message body, got",
+            # pyarrow raises this `OSError` from the same IPC framing layer when the connection
+            # drops before it can even verify the first message's flatbuffer header — an earlier
+            # point in the same read than the body-length mismatch above, but the same mid-transfer
+            # connection drop. The wording is stable and carries no volatile details.
+            "Invalid flatbuffers message.",
             # requests/urllib3 raises this when the server accepts the connection but never
             # answers within our timeout — typically ClickHouse Cloud still cold-resuming an
             # idle service past our `METADATA_QUERY_TIMEOUT_SECONDS` allowance. Not in
@@ -612,17 +672,19 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # is_in_sorting_key ORDER BY position).
             sort_key = detected_pks.get(table_name)
             leading_sort_key = sort_key[0] if sort_key else None
-            incremental_fields: list[IncrementalField] = [
-                {
-                    "label": field_name,
-                    "type": field_type,
-                    "field": field_name,
-                    "field_type": field_type,
-                    "nullable": nullable,
-                    "is_indexed": field_name == leading_sort_key,
-                }
-                for field_name, field_type, nullable in incremental_field_tuples
-            ]
+            incremental_fields: list[IncrementalField] = rank_incremental_fields(
+                [
+                    {
+                        "label": field_name,
+                        "type": field_type,
+                        "field": field_name,
+                        "field_type": field_type,
+                        "nullable": nullable,
+                        "is_indexed": field_name == leading_sort_key,
+                    }
+                    for field_name, field_type, nullable in incremental_field_tuples
+                ]
+            )
 
             schemas.append(
                 SourceSchema(

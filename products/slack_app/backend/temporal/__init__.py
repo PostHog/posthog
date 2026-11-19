@@ -5,12 +5,15 @@ Activities living here run on ``settings.TASKS_TASK_QUEUE`` and are imported by
 in this package at module load time.
 """
 
+from collections.abc import Callable
+
 from products.slack_app.backend.temporal.activities import (
     CLASSIFIER_THREAD_HISTORY_MESSAGES,
     POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
     POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
     block_posthog_code_task_if_no_personal_github_activity,
     cascade_posthog_code_repository_activity,
+    claim_due_slack_app_daily_focus_activity,
     classify_message_is_agent_directed,
     classify_posthog_code_task_needs_repo_activity,
     classify_slack_app_model_override_activity,
@@ -25,10 +28,12 @@ from products.slack_app.backend.temporal.activities import (
     discover_posthog_code_repository_via_agent_activity,
     edit_slack_app_onboarding_message_activity,
     enforce_posthog_code_billing_quota_activity,
+    find_slack_app_work_focus_activity,
     forward_posthog_code_followup_activity,
     handle_posthog_code_slack_mention_command_activity,
     mark_slack_app_message_processing_activity,
     mark_slack_app_message_queued_activity,
+    offer_slack_app_tool_connections_activity,
     plan_slack_app_onboarding_activity,
     post_posthog_code_internal_error_activity,
     post_posthog_code_no_repos_activity,
@@ -67,7 +72,7 @@ from products.slack_app.backend.temporal.types import (
     SlackRepoSelectionOutcome,
 )
 
-SLACK_APP_ACTIVITIES = [
+SLACK_APP_ACTIVITIES: list[Callable[..., object]] = [
     prepare_slack_report_implementation_activity,
     finish_slack_report_implementation_activity,
     process_slack_app_fork_thread_activity,
@@ -97,6 +102,9 @@ SLACK_APP_ACTIVITIES = [
     mark_slack_app_message_processing_activity,
     mark_slack_app_message_queued_activity,
     edit_slack_app_onboarding_message_activity,
+    find_slack_app_work_focus_activity,
+    claim_due_slack_app_daily_focus_activity,
+    offer_slack_app_tool_connections_activity,
     plan_slack_app_onboarding_activity,
     post_slack_app_onboarding_message_activity,
     remind_slack_app_onboarding_activity,
@@ -154,6 +162,9 @@ __all__ = [
     "resolve_posthog_code_slack_command_user_activity",
     "classify_slack_app_model_router_activity",
     "edit_slack_app_onboarding_message_activity",
+    "find_slack_app_work_focus_activity",
+    "claim_due_slack_app_daily_focus_activity",
+    "offer_slack_app_tool_connections_activity",
     "plan_slack_app_onboarding_activity",
     "post_slack_app_onboarding_message_activity",
     "remind_slack_app_onboarding_activity",

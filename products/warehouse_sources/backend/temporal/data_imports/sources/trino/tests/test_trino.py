@@ -1008,7 +1008,7 @@ def test_get_schemas_advertises_incremental_fields_per_table() -> None:
 
     by_name = {schema.name: schema for schema in schemas}
     assert set(by_name) == {"analytics.events", "lake.raw.events"}
-    assert [field["field"] for field in by_name["analytics.events"].incremental_fields] == ["id", "updated_at"]
+    assert [field["field"] for field in by_name["analytics.events"].incremental_fields] == ["updated_at", "id"]
     assert by_name["analytics.events"].supports_incremental is True
     assert by_name["analytics.events"].detected_primary_keys == ["id"]
     assert by_name["lake.raw.events"].supports_incremental is False

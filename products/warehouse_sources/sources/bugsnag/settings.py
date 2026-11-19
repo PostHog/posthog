@@ -18,6 +18,9 @@ class BugsnagScope(Enum):
     ORGANIZATION = "organization"
     # Fan out over every organization the token can see (GET /organizations/{organization_id}/...).
     PER_ORG = "per_org"
+    # Fan out over every (organization, team) pair, where the teams are the ones the `teams`
+    # endpoint lists for that organization.
+    PER_ORG_TEAM = "per_org_team"
     # Fan out over every project in every organization (GET /projects/{project_id}/...).
     PER_PROJECT = "per_project"
     # Fan out over every (project, release stage) pair. Release-stage-scoped endpoints require the
@@ -113,6 +116,17 @@ BUGSNAG_ENDPOINTS: dict[str, BugsnagEndpointConfig] = {
         scope=BugsnagScope.PER_ORG,
         path="/organizations/{organization_id}/teams",
         primary_keys=["id", "organization_id"],
+    ),
+    # Team membership: one row per (team, collaborator), joining the teams and collaborators tables.
+    "team_collaborators": BugsnagEndpointConfig(
+        name="team_collaborators",
+        scope=BugsnagScope.PER_ORG_TEAM,
+        path="/organizations/{organization_id}/teams/{team_id}/collaborators",
+        primary_keys=["organization_id", "team_id", "id"],
+        # The endpoint documents 30 per page and no maximum, so stay on the documented value.
+        page_size=30,
+        # A team deleted between listing and fan-out answers 404.
+        missing_data_statuses=(404,),
     ),
     "errors": BugsnagEndpointConfig(
         name="errors",
@@ -281,6 +295,19 @@ BUGSNAG_ENDPOINTS: dict[str, BugsnagEndpointConfig] = {
         max_pages=1,
         max_parents_per_project=50,
         should_sync_default=False,
+    ),
+    # BugSnag Performance web vitals: one row per page, pairing the span group of its full page loads
+    # with the span group of its route changes. Paged and sorted like `span_groups`.
+    "page_load_span_groups": BugsnagEndpointConfig(
+        name="page_load_span_groups",
+        scope=BugsnagScope.PER_PROJECT,
+        path="/projects/{project_id}/page_load_span_groups",
+        primary_keys=["id", "project_id"],
+        params={"sort": "name", "direction": "asc"},
+        # Projects without BugSnag Performance have no page load span groups to list.
+        missing_data_statuses=(404,),
+        paginate_by_offset=True,
+        max_pages=100,
     ),
 }
 

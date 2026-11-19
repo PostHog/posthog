@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, incremental_field
 
@@ -8,6 +8,23 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 # the partition key.
 MODIFIED_TIME_FIELD = "Modified_Time"
 CREATED_TIME_FIELD = "Created_Time"
+# Timeline entries record when each change happened in `audited_time`; it never changes.
+AUDITED_TIME_FIELD = "audited_time"
+
+TERRITORIES_ENDPOINT = "Territories"
+PIPELINES_ENDPOINT = "Pipelines"
+DEAL_TIMELINE_ENDPOINT = "Deal_Timeline"
+DEALS_MODULE = "Deals"
+# Zoho lists pipelines per Deals layout, so each pipeline row carries its layout ID.
+PIPELINE_LAYOUT_ID_FIELD = "layout_id"
+# Timeline entries do not carry the record they belong to, so the timeline table adds it.
+TIMELINE_DEAL_ID_FIELD = "deal_id"
+
+# Module kinds that hold an org's own records and are readable through Get Records.
+CUSTOM_MODULE_GENERATED_TYPES = frozenset({"custom", "linking"})
+# Discovered modules get their own namespace, so an org's module named like a static table does
+# not clash with it, and an unknown schema name fails before any request.
+CUSTOM_MODULE_SCHEMA_PREFIX = "Custom_"
 
 
 @dataclass(frozen=True)
@@ -29,12 +46,15 @@ class ZohoCRMEndpointConfig:
     should_sync_default: bool = True
     # Extra query params Zoho requires on this endpoint.
     extra_params: Optional[dict[str, str]] = None
+    incremental_field_name: str = MODIFIED_TIME_FIELD
+    primary_keys: tuple[str, ...] = ("id",)
+    sort_mode: Optional[Literal["asc", "desc"]] = "asc"
 
     @property
     def incremental_fields(self) -> list[IncrementalField]:
         if not self.incremental:
             return []
-        return [incremental_field(MODIFIED_TIME_FIELD, IncrementalFieldType.DateTime)]
+        return [incremental_field(self.incremental_field_name, IncrementalFieldType.DateTime)]
 
 
 def _module(name: str, should_sync_default: bool = True) -> ZohoCRMEndpointConfig:
@@ -73,6 +93,39 @@ ZOHO_CRM_ENDPOINTS: dict[str, ZohoCRMEndpointConfig] = {
         partition_key="created_time",
         extra_params={"type": "AllUsers"},
     ),
+    # Territory management and pipelines are edition features, and each needs a settings scope
+    # that the original setup did not ask for, so both start unticked.
+    TERRITORIES_ENDPOINT: ZohoCRMEndpointConfig(
+        name=TERRITORIES_ENDPOINT,
+        path="settings/territories",
+        is_module=False,
+        data_key="territories",
+        incremental=False,
+        partition_key=None,
+        should_sync_default=False,
+    ),
+    PIPELINES_ENDPOINT: ZohoCRMEndpointConfig(
+        name=PIPELINES_ENDPOINT,
+        path="settings/pipeline",
+        is_module=False,
+        data_key="pipeline",
+        incremental=False,
+        partition_key=None,
+        should_sync_default=False,
+        primary_keys=(PIPELINE_LAYOUT_ID_FIELD, "id"),
+    ),
+    # One request per deal, so it is opt-in. Rows arrive per deal, not in one ordered series.
+    DEAL_TIMELINE_ENDPOINT: ZohoCRMEndpointConfig(
+        name=DEAL_TIMELINE_ENDPOINT,
+        path="__timeline",
+        is_module=False,
+        data_key="__timeline",
+        incremental_field_name=AUDITED_TIME_FIELD,
+        partition_key=AUDITED_TIME_FIELD,
+        should_sync_default=False,
+        primary_keys=(TIMELINE_DEAL_ID_FIELD, "id"),
+        sort_mode=None,
+    ),
 }
 
 ENDPOINTS = tuple(ZOHO_CRM_ENDPOINTS.keys())
@@ -82,3 +135,20 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 }
 
 SHOULD_SYNC_DEFAULT: dict[str, bool] = {name: config.should_sync_default for name, config in ZOHO_CRM_ENDPOINTS.items()}
+
+
+def custom_module_config(api_name: str) -> ZohoCRMEndpointConfig:
+    """Config for a custom or linking module found by discovery. These start unticked."""
+    return ZohoCRMEndpointConfig(
+        name=f"{CUSTOM_MODULE_SCHEMA_PREFIX}{api_name}", path=api_name, should_sync_default=False
+    )
+
+
+def endpoint_config(name: str) -> ZohoCRMEndpointConfig:
+    """The static config for `name`, else the discovered custom or linking module it names."""
+    if name in ZOHO_CRM_ENDPOINTS:
+        return ZOHO_CRM_ENDPOINTS[name]
+    api_name = name.removeprefix(CUSTOM_MODULE_SCHEMA_PREFIX)
+    if api_name and api_name != name:
+        return custom_module_config(api_name)
+    raise ValueError(f"Unknown Zoho CRM schema: {name}")

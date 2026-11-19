@@ -27,7 +27,7 @@ export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =
                                 import (
                                     "time"
 
-                                    "github.com/posthog/posthog-go"
+                                    "github.com/posthog/posthog-go/v2"
                                 )
 
                                 if err != nil {

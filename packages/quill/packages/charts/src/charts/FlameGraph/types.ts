@@ -15,6 +15,8 @@ export interface FlameNode<Meta = unknown> {
     baselineCount?: number
     /** Nodes in the same group share a color. */
     group?: string
+    /** Fills this node alone, for example to flag an error. Ignored when comparing. */
+    color?: string
     /** Two or more children under 1% of this node move to the end so they can bundle. */
     children?: FlameNode<Meta>[]
     meta?: Meta
@@ -84,6 +86,8 @@ export interface FlameGraphConfig {
     valueFormatter?: (value: number) => string
     /** Grows with the tree up to this height, then scrolls. Defaults to 480. */
     maxHeight?: number
+    /** A color per group, so a host can match its other views. Groups left out take palette colors. */
+    groupColors?: Record<string, string>
 }
 
 export type FlameTooltipContext<Meta = unknown> = TooltipContext<Meta> & {
@@ -101,9 +105,11 @@ export interface FlameGraphProps<Meta = unknown> {
     config?: FlameGraphConfig
     /** Case-insensitive match on node names. Non-matches dim. */
     search?: string
-    /** Read on mount only; give the chart a new `key` to open on another node. */
+    /** Read on mount only, and scrolled to the top of the viewport; give the chart a new `key` to open on another node. */
     defaultFocusedId?: string | null
     tooltip?: (ctx: FlameTooltipContext<Meta>) => React.ReactNode
+    /** Called when a click, a breadcrumb, Escape or reset changes the zoom, with null for no zoom. */
+    onFocusChange?: (focused: FlameHit<Meta> | null) => void
     className?: string
     dataAttr?: string
     onError?: (error: Error, info: React.ErrorInfo) => void

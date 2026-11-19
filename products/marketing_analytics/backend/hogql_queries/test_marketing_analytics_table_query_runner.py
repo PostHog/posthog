@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     BaseMathType,
+    CachedMarketingAnalyticsTableQueryResponse,
     CompareFilter,
     ConversionGoalFilter1,
     ConversionGoalFilter3,
@@ -23,6 +24,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tags_context
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.utils import uuid7
 
@@ -134,6 +136,31 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert response.precomputeNotReady is True
         assert response.results == []
         assert response.dataComputedAt is None
+
+    @patch(f"{_BASE_RUNNER}.handle_not_ready")
+    def test_not_ready_response_is_stored_but_never_served_as_fresh(self, _handle_not_ready):
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            draftConversionGoal=self._create_test_conversion_goal("warm_me"),
+        )
+        self.team._ma_precompute_flags = {"conversion": True, "costs": False, "sessions": False, "live_sessions": False}  # type: ignore[attr-defined]
+
+        first = self._create_query_runner(query).run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        stored = self._create_query_runner(query).run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+        recomputed = self._create_query_runner(query).run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        with patch.object(MarketingAnalyticsTableQueryRunner, "enqueue_async_calculation") as enqueue:
+            self._create_query_runner(query).run(ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
+
+        assert isinstance(first, CachedMarketingAnalyticsTableQueryResponse)
+        assert first.precomputeNotReady is True
+        assert isinstance(stored, CachedMarketingAnalyticsTableQueryResponse)
+        assert stored.is_cached is True
+        assert isinstance(recomputed, CachedMarketingAnalyticsTableQueryResponse)
+        assert recomputed.is_cached is False
+        enqueue.assert_called_once()
 
     @patch(f"{_BASE_RUNNER}.handle_not_ready")
     def test_compare_read_warms_the_period_that_missed(self, handle_not_ready):

@@ -12,6 +12,7 @@ from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponenti
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -40,6 +41,10 @@ POSTMORTEM_LIMIT = 1000
 # The incident export requires a start/end window; chunking it bounds each response's size on
 # accounts with years of history and gives us natural resume checkpoints.
 INCIDENT_EXPORT_WINDOW_DAYS = 30
+
+# The audit log list requires a `startDate`/`endDate` window; chunking it bounds how deep each
+# window pages and gives natural resume checkpoints.
+AUDIT_LOG_WINDOW_DAYS = 90
 
 # Window start used on full refresh / first sync (predates Squadcast's launch).
 FULL_REFRESH_START = datetime(2015, 1, 1, tzinfo=UTC)
@@ -73,17 +78,6 @@ class SquadcastResumeConfig:
 
 def _hosts_for_region(region: str | None) -> RegionHosts:
     return REGION_HOSTS.get((region or "us").lower(), REGION_HOSTS["us"])
-
-
-def _format_datetime(value: Any) -> str:
-    """Format a datetime as RFC 3339 with a Z suffix, which Squadcast's date filters expect."""
-    if isinstance(value, datetime):
-        utc_value = value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
-    elif isinstance(value, date):
-        utc_value = datetime.combine(value, datetime.min.time(), tzinfo=UTC)
-    else:
-        return str(value)
-    return utc_value.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _parse_datetime(value: Any) -> datetime:
@@ -278,8 +272,8 @@ def _iter_incident_export_windows(
             {
                 config.team_param: team_id,
                 "type": "json",
-                "start_time": _format_datetime(window_start),
-                "end_time": _format_datetime(window_end),
+                "start_time": format_datetime(window_start),
+                "end_time": format_datetime(window_end),
             },
         )
 
@@ -296,7 +290,7 @@ def _iter_incident_export_windows(
         window_start = window_end
         if window_start < now:
             resumable_source_manager.save_state(
-                SquadcastResumeConfig(team_id=team_id, cursor=_format_datetime(window_start))
+                SquadcastResumeConfig(team_id=team_id, cursor=format_datetime(window_start))
             )
 
 
@@ -317,8 +311,8 @@ def _get_postmortem_rows(
         config.path,
         {
             config.team_param: team_id,
-            "fromDate": _format_datetime(window_start),
-            "toDate": _format_datetime(datetime.now(UTC)),
+            "fromDate": format_datetime(window_start),
+            "toDate": format_datetime(datetime.now(UTC)),
             "limit": POSTMORTEM_LIMIT,
         },
     )
@@ -399,6 +393,103 @@ def _iter_schedule_rotations(
         cursor = next_cursor
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class AuditLogPage:
+    rows: list[Any]
+    total_count: int | None
+
+
+def _get_audit_log_page(
+    client: SquadcastClient,
+    config: SquadcastEndpointConfig,
+    window_start: date,
+    window_end: date,
+    page_number: int,
+) -> AuditLogPage:
+    data = client.get(
+        config.path,
+        {
+            "startDate": window_start.isoformat(),
+            "endDate": window_end.isoformat(),
+            "pageNumber": page_number,
+            "pageSize": PAGE_SIZE,
+        },
+    )
+    metadata = data.get("metadata") if isinstance(data, dict) else None
+    total_count = metadata.get("totalCount") if isinstance(metadata, dict) else None
+    return AuditLogPage(
+        rows=_extract_rows(data, config.envelope),
+        total_count=total_count if isinstance(total_count, int) else None,
+    )
+
+
+def _row_ids(rows: list[Any]) -> list[Any]:
+    return [row.get("id") for row in rows if isinstance(row, dict)]
+
+
+def _iter_audit_log_windows(
+    client: SquadcastClient,
+    config: SquadcastEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[SquadcastResumeConfig],
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.cursor:
+        window_start = date.fromisoformat(resume.cursor)
+    elif db_incremental_field_last_value is not None:
+        window_start = _parse_datetime(db_incremental_field_last_value).date()
+    else:
+        window_start = FULL_REFRESH_START.date()
+
+    today = datetime.now(UTC).date()
+    window_start = min(window_start, today)
+    while True:
+        window_end = min(window_start + timedelta(days=AUDIT_LOG_WINDOW_DAYS), today)
+        is_last_window = window_end >= today
+
+        page_number = 1
+        rows_seen = 0
+        total_count: int | None = None
+        first_page_ids: list[Any] = []
+        while True:
+            page = _get_audit_log_page(client, config, window_start, window_end, page_number)
+            rows = page.rows
+            if page_number == 1:
+                total_count = page.total_count
+                first_page_ids = _row_ids(rows)
+            rows_seen += len(rows)
+            is_last_page = len(rows) < PAGE_SIZE or (total_count is not None and rows_seen >= total_count)
+
+            # The docs don't say whether `pageNumber` starts at 0 or 1. We page from 1, so a
+            # shortfall against `totalCount` means the API is 0-based and page 0 is still unread.
+            if is_last_page and total_count is not None and rows_seen < total_count:
+                page_zero = _get_audit_log_page(client, config, window_start, window_end, 0).rows
+                if _row_ids(page_zero) != first_page_ids:
+                    rows = rows + page_zero
+                else:
+                    logger.warning(
+                        f"Squadcast: audit logs from {window_start} to {window_end} returned {rows_seen} "
+                        f"of {total_count} rows; results may be truncated"
+                    )
+
+            if is_last_page and not is_last_window:
+                resumable_source_manager.save_state(SquadcastResumeConfig(cursor=window_end.isoformat()))
+
+            if rows:
+                yield _prepare_rows(rows, config)
+            else:
+                resumable_source_manager.safe_point()
+
+            if is_last_page:
+                break
+            page_number += 1
+
+        if is_last_window:
+            break
+        window_start = window_end
+
+
 def _iter_team_rows(
     client: SquadcastClient,
     config: SquadcastEndpointConfig,
@@ -452,6 +543,10 @@ def get_rows(
     config = SQUADCAST_ENDPOINTS[endpoint]
     client = SquadcastClient(refresh_token, region, logger)
     last_value = db_incremental_field_last_value if should_use_incremental_field else None
+
+    if config.pagination == "audit_logs":
+        yield from _iter_audit_log_windows(client, config, logger, resumable_source_manager, last_value)
+        return
 
     if config.team_param is None:
         data = client.get(config.path)
@@ -569,10 +664,15 @@ def validate_credentials(
     # them (the fan-out needs it anyway); org-level endpoints are probed directly.
     config = SQUADCAST_ENDPOINTS.get(endpoint) if endpoint else None
     probe_path = config.path if config is not None and config.team_param is None else "/v3/teams"
+    probe_params: dict[str, Any] | None = None
+    if config is not None and config.pagination == "audit_logs":
+        today = datetime.now(UTC).date().isoformat()
+        probe_params = {"startDate": today, "endDate": today, "pageNumber": 1, "pageSize": 1}
 
     try:
         response = session.get(
             f"{hosts.api_host}{probe_path}",
+            params=probe_params,
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=10,
         )

@@ -30,7 +30,7 @@ Cache Invalidation:
 -------------------
 Caches are invalidated automatically when:
 - Team is saved (via Django signal → Celery task)
-- Team is deleted (via Django signal → retrying Celery task that clears the entry by token after commit)
+- Team is deleted, or its project API token is reset or set (retrying Celery task that clears the old token's entry after commit, and again an hour later)
 - Hourly refresh job detects expiring entries (TTL < 24h)
 
 Manual invalidation:
@@ -552,10 +552,9 @@ def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) ->
 
 def cleanup_stale_expiry_tracking() -> int:
     """
-    Clean up orphaned entries in the expiry tracking sorted set.
+    Delete the cache entries of teams that no longer exist and remove their expiry tracking members.
 
-    Removes entries for teams that no longer exist in the database.
-    Should be run periodically (e.g., daily) to prevent sorted set bloat.
+    Should run daily.
 
     Returns:
         Number of stale entries removed

@@ -247,6 +247,8 @@ class Table(FieldOrTable):
     # When True, queries reading this table don't send HogQL's default
     # `max_bytes_before_external_group_by=0`, so the ClickHouse user profile's spill thresholds apply.
     inherit_profile_spill: bool = False
+    # When True, a persons join from this table applies personIdPushdown when the modifier is unset.
+    person_id_pushdown_default: bool = False
     workload: Optional[Workload] = None
     model_config = ConfigDict(extra="forbid")
 
@@ -548,6 +550,9 @@ class LazyTable(Table):
 class LazyTableToAdd:
     lazy_table: LazyTable
     fields_accessed: dict[str, list[str | int]] = field(default_factory=dict)
+    # The names in `fields_accessed` whose column holds what `toJSONString` of the chain returns, so that the outer
+    # read does not serialize it again. Lazy table resolution adds them only for `EventsWithFlagCallsTable`.
+    json_text_fields: set[str] = field(default_factory=set)
 
 
 @dataclass(frozen=True)

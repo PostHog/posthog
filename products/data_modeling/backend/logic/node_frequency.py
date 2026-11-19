@@ -10,21 +10,27 @@ typed column.
 import uuid
 import dataclasses
 from collections.abc import Collection, Iterable, Mapping
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
-from django.db.models import Q, QuerySet
+from django.db.models import OuterRef, Q, QuerySet, Subquery
 
 from posthog.dataclasses import frozen
 
-from products.data_modeling.backend.facade.contracts import SavedQueryNodeState, SuspensionMarker
+from products.data_modeling.backend.facade.contracts import (
+    NodeIdentity,
+    SavedQueryFrequencyBounds,
+    SavedQueryNodeState,
+    SavedQuerySchedule,
+    SuspensionMarker,
+    TargetBounds,
+    TargetOption,
+)
 from products.data_modeling.backend.logic.cohort_scheduling import MINUTES_PER_WEEK
 from products.data_modeling.backend.logic.freshness import (
     STREAMING,
     ClampedCadence,
     InvalidTarget,
-    TargetBounds,
-    TargetOption,
     all_source_floor_bounds,
     all_source_floors,
     ancestors_of,
@@ -39,8 +45,11 @@ from products.data_modeling.backend.logic.freshness import (
     nodes_below_source_floor,
     normalize_seed_target,
 )
-from products.data_modeling.backend.logic.node_suspension import merged_suspension_state
+from products.data_modeling.backend.logic.node_suspension import is_node_suspended, merged_suspension_state
+from products.data_modeling.backend.logic.refresh_floor import read_plan_refresh_floor
+from products.data_modeling.backend.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus
 from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, Node, NodeType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
@@ -51,25 +60,13 @@ _FREQUENCY_KEY = "frequency"
 _TARGET_SECONDS_KEY = "target_seconds"
 _ANCHOR_MINUTES_KEY = "anchor_minutes"
 _PINNED_KEY = "pinned"
+_PLAN_CLAMP_KEY = "plan_clamp"
 
 # `resolve_dependency_to_node` stamps this on source (TABLE) nodes at creation.
 _ORIGIN_KEY = "origin"
 _WAREHOUSE_TABLE_ID_KEY = "warehouse_table_id"
 _ORIGIN_POSTHOG = "posthog"
 _ORIGIN_WAREHOUSE = "warehouse"
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class NodeIdentity:
-    """What a node is in access-control terms, so a caller can decide whether to name it.
-
-    All three empty means the node predates the origin stamp, and a caller that redacts should
-    treat it as withheld rather than guess.
-    """
-
-    saved_query_id: str | None  # views, materialized views and endpoints, under `warehouse_view`
-    warehouse_table_id: str | None  # imported source tables, under `warehouse_table`
-    is_posthog_table: bool  # `events`, `persons` and friends, readable by anyone on the project
 
 
 def parse_warehouse_table_id(properties: Mapping[str, Any] | None) -> uuid.UUID | None:
@@ -94,6 +91,10 @@ def node_identity(node: Node) -> NodeIdentity:
         warehouse_table_id=str(table_id) if table_id else None,
         is_posthog_table=properties.get(_ORIGIN_KEY) == _ORIGIN_POSTHOG,
     )
+
+
+def nodes_declared_finer_than(interval: timedelta) -> QuerySet[Node]:
+    return Node.objects.filter(properties__system__frequency__target_seconds__lt=int(interval.total_seconds()))
 
 
 def get_declared_target(node: Node) -> timedelta | None:
@@ -183,9 +184,42 @@ def stage_declared_target(node: Node, target: timedelta | None) -> None:
     if target is None:
         frequency.pop(_TARGET_SECONDS_KEY, None)
         frequency.pop(_PINNED_KEY, None)
+        frequency.pop(_PLAN_CLAMP_KEY, None)
     else:
         frequency[_TARGET_SECONDS_KEY] = int(target.total_seconds())
     node.properties = properties
+
+
+def stage_plan_floor_clamp(node: Node, *, plan_floor: timedelta, at: datetime) -> None:
+    """Set the target to the plan floor and record the cadence it replaced, so the rewrite can be undone.
+
+    A node rewritten again keeps the first cadence it replaced, which is the one a person chose.
+    """
+    previous = target_before_plan_floor_clamp(node.properties) or get_declared_target(node)
+    stage_declared_target(node, plan_floor)
+    frequency = node.properties[_SYSTEM_KEY][_FREQUENCY_KEY]
+    frequency[_PLAN_CLAMP_KEY] = {
+        "previous_target_seconds": int(previous.total_seconds()) if previous is not None else None,
+        "plan_floor_seconds": int(plan_floor.total_seconds()),
+        "at": at.isoformat(),
+    }
+
+
+def drop_plan_floor_clamp(node: Node) -> None:
+    (node.properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).pop(_PLAN_CLAMP_KEY, None)
+
+
+def target_before_plan_floor_clamp(properties: Mapping[str, Any] | None) -> timedelta | None:
+    """The cadence a plan floor rewrite replaced, or None when the node's target was not rewritten."""
+    clamp = (properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).get(_PLAN_CLAMP_KEY) or {}
+    seconds = clamp.get("previous_target_seconds")
+    return timedelta(seconds=seconds) if seconds is not None else None
+
+
+def target_before_plan_floor_clamp_by_saved_query(team_id: int, saved_query_id: str | uuid.UUID) -> timedelta | None:
+    """The cadence a plan floor rewrite replaced on any of the saved query's nodes, or None when none was rewritten."""
+    nodes = Node.objects.filter(team_id=team_id, saved_query_id=saved_query_id).only("properties")
+    return next((target for node in nodes if (target := target_before_plan_floor_clamp(node.properties))), None)
 
 
 def set_declared_pin(node: Node, pinned: bool) -> None:
@@ -312,6 +346,7 @@ class FrequencyGraph:
     best_effort_source_ids: set[str]  # sources treated as STREAMING but not guaranteed
     names: dict[str, str]  # node id -> display name, so a bound can name what set it
     identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
+    plan_floor: timedelta | None  # finest cadence the team's plan lets a view be set to
     managed_node_ids: set[str]  # nodes whose target the managed viewset provider declares
     stand_ins: dict[str, str]  # stand-in source id -> the node that sets its interval
 
@@ -323,6 +358,7 @@ class FrequencyGraph:
             declared_targets=self.declared_targets,
             source_intervals=self.source_intervals,
             pinned=self.pinned,
+            plan_floor=self.plan_floor,
         )
 
         def real(blocker: str | None) -> str | None:
@@ -431,22 +467,10 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         best_effort_source_ids=best_effort,
         names=names,
         identities=identities,
+        plan_floor=read_plan_refresh_floor(dag.team_id),
         managed_node_ids=managed_node_ids,
         stand_ins=stand_ins,
     )
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class SavedQueryFrequencyBounds:
-    """A saved query's selectable cadences, plus what a caller needs to name the blockers."""
-
-    bounds: TargetBounds
-    names: dict[str, str]  # node id -> display name, covering every blocker the bounds reference
-    identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
-    best_effort_source_ids: set[str]  # upstream sources with no schedule, so the floor is a guess
-    max_data_age: timedelta
-    speeds_up: dict[timedelta, set[str]]  # cadence -> upstream nodes that would run more often if this were set to it
-    pinned: bool
 
 
 def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> SavedQueryFrequencyBounds | None:
@@ -655,6 +679,70 @@ def scheduled_cadences(
     return clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals, pinned=pins)
 
 
+def _latest_materialized_at(team_id: int, saved_queries: Mapping[str, Any]) -> dict[str, datetime]:
+    """Latest successful materialization per saved query id, in one query.
+
+    The batched twin of `saved_query_materialized_at`: the newest completed ClickHouse job, or the
+    frozen v1 `last_run_at` when that is later. Queries that never ran are absent. Each query reads
+    its newest job through the `(saved_query, engine, -last_run_at)` index, so the cost does not
+    grow with a view's run history.
+    """
+    newest_job = (
+        DataModelingJob.objects.filter(
+            saved_query_id=OuterRef("pk"),
+            status=DataModelingJobStatus.COMPLETED,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+        )
+        .order_by("-last_run_at")
+        .values("last_run_at")[:1]
+    )
+    rows = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id__in=saved_queries.keys())
+        .annotate(latest_job_at=Subquery(newest_job))
+        .values_list("id", "latest_job_at")
+    )
+    job_at = {str(query_id): latest for query_id, latest in rows}
+    result: dict[str, datetime] = {}
+    for query_id, saved_query in saved_queries.items():
+        candidates = [ts for ts in (job_at.get(query_id), saved_query.last_run_at) if ts is not None]
+        if candidates:
+            result[query_id] = max(candidates)
+    return result
+
+
+def saved_query_schedules(team_id: int, saved_queries: Iterable[Any]) -> dict[str, SavedQuerySchedule]:
+    """The cadence and next due time of each materialized saved query, keyed by saved query id.
+
+    Batched: one node read, one graph build per DAG and one job read for the whole set. Queries that
+    are not materialized, have no DAG node, or whose node the scheduler gives no cadence are absent.
+    A node suspended for ClickHouse is skipped, since the scheduler skips it until it resumes. When a
+    query holds several nodes the finest cadence wins, since that is how often it is refreshed.
+    """
+    materialized = {str(query.id): query for query in saved_queries if query.is_materialized}
+    if not materialized:
+        return {}
+
+    nodes = list(Node.objects.filter(team_id=team_id, saved_query_id__in=materialized.keys()))
+    cadences = scheduled_cadences_by_node(team_id, {node.dag_id for node in nodes})
+    finest: dict[str, timedelta] = {}
+    for node in nodes:
+        cadence = cadences.get(str(node.id))
+        query_id = str(node.saved_query_id)
+        if cadence is None or is_node_suspended(node, DataModelingJobEngine.CLICKHOUSE):
+            continue
+        if query_id not in finest or cadence < finest[query_id]:
+            finest[query_id] = cadence
+
+    materialized_at = _latest_materialized_at(team_id, {query_id: materialized[query_id] for query_id in finest})
+    return {
+        query_id: SavedQuerySchedule(
+            interval=interval,
+            next_run_at=materialized_at[query_id] + interval if query_id in materialized_at else None,
+        )
+        for query_id, interval in finest.items()
+    }
+
+
 def schedulable_nodes(dag: DAG) -> QuerySet[Node]:
     """The DAG's schedulable nodes: everything that carries a live saved query (not a source
     table, not a soft-deleted query). The one definition of "what gets a freshness target"."""
@@ -686,11 +774,12 @@ def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:
 def seed_targets(dag: DAG) -> dict[str, timedelta]:
     """Derive a starting target per schedulable node from what the DAG already carries.
 
-    A node inherits its saved query's `sync_frequency_interval` if set, else the DAG's
-    `sync_frequency_interval`; nodes with neither are omitted. This deliberately preserves the
-    distinct per-query frequencies of teams still on v1 (whose DAG runs several schedules at
-    different cadences) rather than flattening everything to a single DAG cadence. Read-only;
-    the preview overlays these in memory, and a backfill can persist them.
+    A node inherits its saved query's legacy `sync_frequency_interval` column if set, else the DAG's
+    `sync_frequency_interval`; nodes with neither are omitted. The column is no longer written, but
+    teams still on v1 have it populated: their DAG runs several schedules at different cadences, and
+    reading it keeps those distinct per-query frequencies through the conversion instead of
+    flattening everything to a single DAG cadence. Read-only; the preview overlays these in memory,
+    and a backfill can persist them.
     """
     seeds: dict[str, timedelta] = {}
     for node in schedulable_nodes(dag).select_related("saved_query"):

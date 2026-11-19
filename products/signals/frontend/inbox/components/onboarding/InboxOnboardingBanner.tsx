@@ -25,7 +25,7 @@ export function InboxOnboardingBanner(): JSX.Element {
             </div>
             <p className="mb-0.5 text-sm text-tertiary">Choose sources and scouts to start receiving reports again.</p>
             <LemonButton type="primary" className="w-fit" onClick={openSetup} data-attr="inbox-paused-set-up">
-                Set up Self-Driving
+                Set up Self-driving
             </LemonButton>
         </div>
     )

@@ -1,12 +1,15 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
 
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
-PaginationStyle = Literal["cursor", "none"]
+# ``daily_window`` sends one request per UTC day (``from``/``to``) and stamps that day onto each row.
+# The Metrics API breakdowns aggregate over the whole requested window, so this turns them into a
+# daily fact table.
+PaginationStyle = Literal["cursor", "none", "daily_window"]
 
 
-@dataclass
+@frozen
 class SparkPostEndpointConfig:
     name: str
     path: str
@@ -27,21 +30,106 @@ class SparkPostEndpointConfig:
     # retains message events for 10 days, so a "full" backfill of events is bounded to that window.
     default_lookback_days: Optional[int] = None
     should_sync_default: bool = True
+    extra_params: dict[str, str] = field(default_factory=dict)
 
     @property
     def supports_incremental(self) -> bool:
         return self.timestamp_filter_param is not None
 
+    @property
+    def is_metrics(self) -> bool:
+        return self.path.startswith("/api/v1/metrics/")
 
-def _timestamp_incremental_fields(field_name: str) -> list[IncrementalField]:
+    @property
+    def supports_append(self) -> bool:
+        # Metrics rows are totals that change until their day or bucket ends, and each run fetches the
+        # watermark again. Append mode would keep the partial and the final totals side by side.
+        return self.supports_incremental and not self.is_metrics
+
+
+def _timestamp_incremental_fields(
+    field_name: str, field_type: IncrementalFieldType = IncrementalFieldType.DateTime
+) -> list[IncrementalField]:
     return [
         {
             "label": field_name,
-            "type": IncrementalFieldType.DateTime,
+            "type": field_type,
             "field": field_name,
-            "field_type": IncrementalFieldType.DateTime,
+            "field_type": field_type,
         }
     ]
+
+
+# Metrics API data is retained for 6 months.
+METRICS_LOOKBACK_DAYS = 180
+METRICS_LIMIT = "10000"
+DAILY_WINDOW_FIELD = "date"
+
+# The metrics each endpoint accepts, less the Deliverability Add-On metrics (seed and panel counts),
+# which only accounts with that add-on can request.
+_CORE_METRICS = [
+    "count_targeted",
+    "count_injected",
+    "count_sent",
+    "count_accepted",
+    "count_delivered",
+    "count_delivered_first",
+    "count_delivered_subsequent",
+    "count_bounce",
+    "count_inband_bounce",
+    "count_outofband_bounce",
+    "count_soft_bounce",
+    "count_hard_bounce",
+    "count_block_bounce",
+    "count_admin_bounce",
+    "count_undetermined_bounce",
+    "count_rejected",
+    "count_policy_rejection",
+    "count_generation_rejection",
+    "count_generation_failed",
+    "count_delayed",
+    "count_delayed_first",
+    "count_rendered",
+    "count_nonprefetched_rendered",
+    "count_unique_rendered",
+    "count_nonprefetched_unique_rendered",
+    "count_unique_confirmed_opened",
+    "count_nonprefetched_unique_confirmed_opened",
+    "count_clicked",
+    "count_unique_clicked",
+    "count_spam_complaint",
+    "total_delivery_time_first",
+    "total_delivery_time_subsequent",
+    "total_msg_volume",
+]
+TIME_SERIES_METRICS = [
+    *_CORE_METRICS,
+    "count_initial_rendered",
+    "count_nonprefetched_initial_rendered",
+    "count_unique_initial_rendered",
+    "count_nonprefetched_unique_initial_rendered",
+]
+BOUNCE_METRICS = ["count_bounce", "count_inband_bounce", "count_outofband_bounce", "count_admin_bounce"]
+
+
+def _daily_metrics_endpoint(
+    name: str, path: str, primary_keys: list[str], metrics: Optional[list[str]] = None
+) -> SparkPostEndpointConfig:
+    extra_params = {"limit": METRICS_LIMIT}
+    if metrics:
+        extra_params["metrics"] = ",".join(metrics)
+    return SparkPostEndpointConfig(
+        name=name,
+        path=path,
+        primary_keys=[DAILY_WINDOW_FIELD, *primary_keys],
+        pagination="daily_window",
+        partition_key=DAILY_WINDOW_FIELD,
+        incremental_fields=_timestamp_incremental_fields(DAILY_WINDOW_FIELD, IncrementalFieldType.Date),
+        default_incremental_field=DAILY_WINDOW_FIELD,
+        timestamp_filter_param="from",
+        default_lookback_days=METRICS_LOOKBACK_DAYS,
+        extra_params=extra_params,
+    )
 
 
 # Endpoint catalog. SparkPost (now part of Bird) ships no dedicated Airbyte/Fivetran connector, so
@@ -49,9 +137,10 @@ def _timestamp_incremental_fields(field_name: str) -> list[IncrementalField]:
 # endpoints a user typically wants in the warehouse (suppression list, recipient lists, templates,
 # sending domains, subaccounts, webhooks).
 #
-# Incremental vs full refresh: only the Events Search API exposes a genuine server-side timestamp
-# filter (``from``/``to``), so only ``events`` is marked incremental. The management list endpoints
-# have no server-side time filter, so they ship as full refresh and dedupe on their primary key.
+# Incremental vs full refresh: the Events Search API and the Metrics API expose a genuine server-side
+# timestamp filter (``from``/``to``), so those endpoints are incremental. The management list
+# endpoints have no server-side time filter, so they ship as full refresh and dedupe on their
+# primary key.
 SPARKPOST_ENDPOINTS: dict[str, SparkPostEndpointConfig] = {
     # --- Append-only, server-side timestamp filter (incremental) ---
     "events": SparkPostEndpointConfig(
@@ -107,6 +196,59 @@ SPARKPOST_ENDPOINTS: dict[str, SparkPostEndpointConfig] = {
         primary_keys=["id"],
         pagination="none",
     ),
+    # --- Metrics API (aggregates, incremental on a server-side ``from`` filter) ---
+    "deliverability_time_series": SparkPostEndpointConfig(
+        name="deliverability_time_series",
+        path="/api/v1/metrics/deliverability/time-series",
+        primary_keys=["ts"],
+        pagination="none",
+        partition_key="ts",
+        incremental_fields=_timestamp_incremental_fields("ts"),
+        default_incremental_field="ts",
+        timestamp_filter_param="from",
+        default_lookback_days=METRICS_LOOKBACK_DAYS,
+        # ``day`` buckets are always UTC and have no maximum time window.
+        extra_params={"precision": "day", "metrics": ",".join(TIME_SERIES_METRICS)},
+    ),
+    "deliverability_by_template": _daily_metrics_endpoint(
+        "deliverability_by_template",
+        "/api/v1/metrics/deliverability/template",
+        ["template_id"],
+        _CORE_METRICS,
+    ),
+    # One bounce reason can carry several bounce classifications, so the classification is keyed too.
+    "bounce_reasons": _daily_metrics_endpoint(
+        "bounce_reasons",
+        "/api/v1/metrics/deliverability/bounce-reason",
+        ["reason", "classification_id"],
+        BOUNCE_METRICS,
+    ),
+    "bounce_reasons_by_domain": _daily_metrics_endpoint(
+        "bounce_reasons_by_domain",
+        "/api/v1/metrics/deliverability/bounce-reason/domain",
+        ["reason", "domain", "classification_id"],
+        BOUNCE_METRICS,
+    ),
+    "rejection_reasons": _daily_metrics_endpoint(
+        "rejection_reasons",
+        "/api/v1/metrics/deliverability/rejection-reason",
+        ["reason", "rejection_category_id"],
+    ),
+    "rejection_reasons_by_domain": _daily_metrics_endpoint(
+        "rejection_reasons_by_domain",
+        "/api/v1/metrics/deliverability/rejection-reason/domain",
+        ["reason", "domain", "rejection_category_id"],
+    ),
+    "delay_reasons": _daily_metrics_endpoint(
+        "delay_reasons",
+        "/api/v1/metrics/deliverability/delay-reason",
+        ["reason"],
+    ),
+    "delay_reasons_by_domain": _daily_metrics_endpoint(
+        "delay_reasons_by_domain",
+        "/api/v1/metrics/deliverability/delay-reason/domain",
+        ["reason", "domain"],
+    ),
 }
 
 ENDPOINTS = tuple(SPARKPOST_ENDPOINTS.keys())
@@ -118,6 +260,9 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 # SparkPost retains message events for only 10 days, so the first sync of ``events`` can reach back
 # at most that far.
 LIMITED_RETENTION_ENDPOINTS = {"events"}
+
+# The Metrics API retains data for 6 months, which bounds the first sync of the metrics tables.
+METRICS_ENDPOINTS = {name for name, config in SPARKPOST_ENDPOINTS.items() if config.is_metrics}
 
 # --- Event webhooks ---------------------------------------------------------------------------
 #

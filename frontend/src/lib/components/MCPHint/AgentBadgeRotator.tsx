@@ -6,7 +6,7 @@ import { Link } from '@posthog/lemon-ui'
 import { useInterval } from 'lib/hooks/useInterval'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 import { AgentLogo, claudeLogo, cursorLogo, geminiLogo, openaiLogo } from '../AgentPromptButton/AgentLogo'
 
@@ -49,7 +49,7 @@ const ROTATE_INTERVAL_MS = 3000
 
 export function AgentBadgeRotator(): JSX.Element {
     // Pin to "PostHog Desktop" inside Storybook so visual snapshots don't flake on rotation.
-    const isStorybook = inStorybook() || inStorybookTestRunner()
+    const isStorybook = inStorybook()
 
     const [index, setIndex] = useState(() => (isStorybook ? 0 : Math.floor(Math.random() * AGENTS.length)))
 

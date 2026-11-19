@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
-from django.db import close_old_connections, transaction
+from django.db import close_old_connections, connection, transaction
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone as django_timezone
 
@@ -20,6 +20,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models import Integration, Organization, OrganizationMembership, Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
@@ -120,6 +121,7 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
             extra_state: dict | None = None,
             branch: str | None = None,
             acting_user_id: int | None = None,
+            **kwargs: Any,
         ) -> TaskRun:
             create_reached.set()
             if not handoff_finished.wait(timeout=10):
@@ -131,6 +133,7 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
                 extra_state=extra_state,
                 branch=branch,
                 acting_user_id=acting_user_id,
+                **kwargs,
             )
 
         def bootstrap() -> None:
@@ -455,9 +458,9 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertIsNone(resumed_run)
 
     @override_settings(TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=True)
-    def test_resume_in_cloud_logs_a_restart_beside_a_live_run(self):
+    def test_resume_in_cloud_refuses_a_restart_beside_a_live_run(self):
         task = self._make_task()
-        live = TaskRun.objects.create(
+        TaskRun.objects.create(
             task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.QUEUED
         )
         run = TaskRun.objects.create(
@@ -468,13 +471,29 @@ class TestFacadeReadsAndMappers(TestCase):
             state={"pr_authorship_mode": "bot"},
         )
 
-        with patch("products.tasks.backend.models.log_run_started_beside_live_run") as log_started:
-            outcome, _, _ = facade.resume_task_run_in_cloud(run.id, task.id, self.team.id, self.user.id)
+        outcome, _, _ = facade.resume_task_run_in_cloud(run.id, task.id, self.team.id, self.user.id)
 
-        self.assertEqual(outcome, "resumed")
-        log_started.assert_called_once_with(run, [live.id])
+        self.assertEqual(outcome, "run_in_progress")
         run.refresh_from_db()
-        self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
+        self.assertEqual(run.status, TaskRun.Status.COMPLETED)
+
+    def test_a_warm_run_refuses_its_first_message_while_another_run_is_live(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.IN_PROGRESS
+        )
+        warm = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.CLOUD,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"await_user_message": True},
+        )
+
+        with self.assertRaises(facade.TaskRunAlreadyLiveError):
+            facade.signal_task_run_user_message(
+                warm.id, task.id, self.team.id, content="hello", artifact_ids=[], actor_user_id=self.user.id
+            )
 
     @parameterized.expand([(Task.OriginProduct.SIGNAL_REPORT,), (Task.OriginProduct.SIGNALS_SCOUT,)])
     def test_resume_in_cloud_cannot_reopen_automated_spend(self, origin_product: str) -> None:
@@ -1818,7 +1837,10 @@ class TestFacadeReadsAndMappers(TestCase):
                 task.id,
                 self.team.id,
                 self.user.id,
-                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+                validated_data={
+                    "mode": "background" if expected_stage else "interactive",
+                    "resume_from_run_id": str(previous_run.id),
+                },
                 pipeline_rerun=pipeline_rerun,
                 free_trial_enabled=False,
             )
@@ -2082,6 +2104,7 @@ class TestFacadeReadsAndMappers(TestCase):
         # The encrypted JSON field round-trips an empty dict as None; either way, no env vars.
         self.assertFalse(env.environment_variables)
         self.assertEqual(env.repositories, [])
+        self.assertFalse(ActivityLog.objects.filter(scope="SandboxEnvironment").exists())
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_task_returns_contract(self, _mock_workflow):
@@ -3261,9 +3284,16 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
         self.assertEqual(capture_mock.call_args.kwargs["stage"], "task_create")
 
     def test_create_and_run_task_takes_a_pre_resolved_free_trial_verdict(self):
-        # Auto-start resolves the flag before it takes the report row lock, so the create-time gate
-        # must use the verdict it is given instead of making its own flag request under the lock.
+        # Admission may read the flag to snapshot future eligibility, but not under a new lock.
+        # Its current value must not override the caller's already-resolved permission.
+        savepoints = list(connection.savepoint_ids)
+
+        def flag_outside_lock(*args: object, **kwargs: object) -> bool:
+            self.assertEqual(connection.savepoint_ids, savepoints)
+            return True
+
         with self._on_trial() as flag_mock:
+            flag_mock.side_effect = flag_outside_lock
             dto = facade.create_and_run_task(
                 team=self.team,
                 title="Implementation: t",
@@ -3273,7 +3303,8 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
                 free_trial_enabled=False,
                 start_workflow=False,
             )
-        flag_mock.assert_not_called()
+        # Shared admission snapshots future eligibility; it must not override this verdict.
+        flag_mock.assert_called()
         self.assertTrue(Task.objects.filter(id=dto.task_id).exists())
 
     def test_run_task_takes_a_pre_resolved_free_trial_verdict(self):
@@ -3292,10 +3323,17 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
             team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship="implementation"
         )
 
+        savepoints = list(connection.savepoint_ids)
+
+        def flag_outside_lock(*args: object, **kwargs: object) -> bool:
+            self.assertEqual(connection.savepoint_ids, savepoints)
+            return True
+
         with (
             self._on_trial() as flag_mock,
             patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None),
         ):
+            flag_mock.side_effect = flag_outside_lock
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -3303,6 +3341,7 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
                 validated_data={"mode": "background"},
                 free_trial_enabled=False,
             )
-        flag_mock.assert_not_called()
+        # Shared admission snapshots future eligibility; it must not override this verdict.
+        flag_mock.assert_called()
         assert result is not None and result.error is None
         self.assertTrue(task.runs.exists())

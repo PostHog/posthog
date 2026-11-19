@@ -3,7 +3,7 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope } from '~/types'
+import { ActivityScope, CommentType } from '~/types'
 
 export interface RecordingLinkInfo {
     recordingId: string
@@ -72,4 +72,16 @@ export function isViewingRecording(recordingId: string): boolean {
     const sessionRecordingId =
         url.searchParams.get('sessionRecordingId') || url.hash.match(/sessionRecordingId=([^&]+)/)?.[1]
     return sessionRecordingId === recordingId
+}
+
+// Comments that came in from a synced Slack thread have no PostHog author; their Slack identity
+// rides in item_context.
+export function getCommentAuthorName(comment: CommentType): string {
+    if (comment.created_by) {
+        return comment.created_by.first_name ?? 'Unknown user'
+    }
+    if (comment.item_context?.from_slack) {
+        return comment.item_context.slack_author_name ?? 'Slack user'
+    }
+    return 'Unknown user'
 }

@@ -19,6 +19,7 @@ import {
 
 describe('todayShellLogic', () => {
     beforeEach(() => {
+        localStorage.clear()
         initKeaTests()
     })
 
@@ -35,6 +36,8 @@ describe('todayShellLogic', () => {
         ['/project/1/insights', 'analytics'],
         ['/project/1/feature-flags', 'products'],
         ['/project/1/data-management/destinations', 'products'],
+        ['/project/1/data-warehouse/new-source', 'products'],
+        ['/project/1/data-warehouse/connect-destination', 'products'],
         ['/project/1/web', 'analytics'],
         ['/project/1/marketing', 'analytics'],
         ['/project/1/mcp-analytics', 'analytics'],
@@ -56,7 +59,7 @@ describe('todayShellLogic', () => {
         ['/project/1/airplane', null],
         ['/project/1/homework', null],
     ])('puts %s under %s', (pathname, pane) => {
-        expect(railPaneForPath(pathname)).toBe(pane)
+        expect(railPaneForPath(pathname, {})).toBe(pane)
     })
 
     test.each([
@@ -76,7 +79,7 @@ describe('todayShellLogic', () => {
         ['/project/1/support/tickets/12', 'people'],
         ['/project/1/customer_analytics/configuration', 'people'],
     ])('puts %s under %s', (pathname, pane) => {
-        expect(railPaneForPath(pathname)).toBe(pane)
+        expect(railPaneForPath(pathname, {})).toBe(pane)
     })
 
     test.each([
@@ -166,6 +169,56 @@ describe('todayShellLogic', () => {
     })
 
     test.each([
+        ['/project/1/error-tracking', 'monitor', 'products'],
+        ['/project/1/error-tracking/0190-issue', 'monitor', 'products'],
+        ['/project/1/logs', 'monitor', 'products'],
+        ['/project/1/tracing', 'monitor', 'products'],
+        ['/project/1/inbox/scouts', 'products', 'products'],
+        ['/project/1/inbox/scouts/checkout-errors', 'products', 'products'],
+        ['/project/1/ai-observability/traces', 'monitor', null],
+        ['/project/1/ai-evals/taggers', 'monitor', 'products'],
+        ['/project/1/prompt-management/prompts', 'monitor', 'products'],
+        ['/project/1/application-observability', 'products', 'products'],
+        ['/project/1/inbox/reports', 'products', 'products'],
+    ])('puts %s under %s with monitor-area on, and under %s with it off', (pathname, pane, paneWithoutMonitor) => {
+        expect(railPaneForPath(pathname, { [FEATURE_FLAGS.MONITOR_AREA]: true })).toBe(pane)
+        expect(railPaneForPath(pathname, {})).toBe(paneWithoutMonitor)
+    })
+
+    test.each([
+        [true, 'monitor', 'analytics', ['home', 'spaces', 'analytics', 'people', 'monitor', 'products']],
+        [false, 'products', 'products', ['home', 'spaces', 'analytics', 'people', 'products']],
+    ] as const)(
+        'with monitor-area %s, a Monitor pick shows %s and an issue opened from an insight shows %s',
+        (enabled, pickedPane, issuePane, railPanes) => {
+            const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.MONITOR_AREA]: enabled }
+            featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+            const logic = todayShellLogic()
+            logic.mount()
+            expect(logic.values.railPanes).toEqual(railPanes)
+
+            router.actions.push('/project/1/airplane')
+            logic.actions.pickPane('monitor')
+            expect(logic.values.activePane).toBe(pickedPane)
+
+            router.actions.push('/project/1/insights/abc')
+            router.actions.push('/project/1/error-tracking/0190-issue')
+            expect(logic.values.activePane).toBe(issuePane)
+        }
+    )
+
+    test.each([true, false])('with monitor-area %s, Error tracking opened from Products keeps Products', (enabled) => {
+        const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.MONITOR_AREA]: enabled }
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.pickPane('products')
+        router.actions.push('/project/1/error-tracking')
+        expect(logic.values.activePane).toBe('products')
+    })
+
+    test.each([
         ['products', 'products'],
         ['home', 'analytics'],
     ] as const)('opening Dashboards with the %s pane open shows the %s pane', (openPane, pane) => {
@@ -239,6 +292,57 @@ describe('todayShellLogic', () => {
 
         router.actions.push('/project/1/ai')
         expect(logic.values.activePane).toBe('spaces')
+    })
+
+    test.each([
+        ['/project/1/dashboard', 'products'],
+        ['/project/1/sql', 'products'],
+        ['/project/1/support/tickets', 'products'],
+        ['/project/1/persons', 'products'],
+        ['/project/1/cohorts', 'products'],
+        ['/project/1/groups/0', 'products'],
+        ['/project/1/customer_analytics/accounts', 'products'],
+        ['/project/1/person/ada%40example.com', 'people'],
+    ])('%s opened while the Products pane is open shows the %s pane', (pathname, pane) => {
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.pickPane('products')
+        router.actions.push('/project/1/airplane')
+        router.actions.push(pathname)
+        expect(logic.values.activePane).toBe(pane)
+    })
+
+    test.each([
+        ['/project/1/replay/home', 'analytics'],
+        ['/project/1/replay/0193a2b4-recording', 'analytics'],
+        ['/project/1/heatmaps', 'analytics'],
+        ['/project/1/sql', 'analytics'],
+        ['/project/1/feature-flags', 'products'],
+        ['/project/1/data-warehouse/new-source', 'products'],
+    ])('%s opened while the Analytics pane is open shows the %s pane', (pathname, pane) => {
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.pickPane('analytics')
+        router.actions.push('/project/1/airplane')
+        router.actions.push(pathname)
+        expect(logic.values.activePane).toBe(pane)
+    })
+
+    test.each([
+        ['/project/1/cohorts', 'products'],
+        ['/project/1/ai', 'spaces'],
+    ])('a reload on %s after picking the Products pane shows the %s pane', (pathname, pane) => {
+        todayShellLogic.mount()
+        todayShellLogic.actions.pickPane('products')
+        router.actions.push('/project/1/persons')
+
+        // A reload starts a new kea context and keeps localStorage.
+        initKeaTests()
+        router.actions.push(pathname)
+        todayShellLogic.mount()
+        expect(todayShellLogic.values.activePane).toBe(pane)
     })
 
     it('sizes the left navigation from the clamped sidebar width, and from the rail alone when hidden', () => {

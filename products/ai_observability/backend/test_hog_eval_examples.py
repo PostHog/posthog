@@ -13,11 +13,13 @@ from parameterized import parameterized
 
 from posthog.schema import LLMTrace, LLMTraceEvent
 
-from posthog.temporal.ai_observability.evaluation_hog import execute_hog_eval_bytecode
 from posthog.temporal.ai_observability.run_evaluation import run_hog_eval
 from posthog.temporal.ai_observability.run_session_evaluation import build_session_hog_globals
-from posthog.temporal.ai_observability.run_trace_evaluation import build_trace_hog_globals
 
+from products.ai_observability.backend.logic.evaluations.hog_runtime import (
+    build_trace_hog_globals,
+    execute_hog_eval_bytecode,
+)
 from products.cdp.backend.validation import compile_hog
 
 EXAMPLES_PATH = Path(__file__).resolve().parents[1] / "shared" / "hog_eval_examples.json"

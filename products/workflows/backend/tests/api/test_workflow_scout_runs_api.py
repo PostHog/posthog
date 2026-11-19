@@ -13,7 +13,12 @@ from rest_framework import status
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.test.authentication_checks import covers_authentication
 
-from products.signals.backend.facade.api import ScoutRunRejectionKind, WorkflowScoutRunRejected, WorkflowScoutRunStarted
+from products.signals.backend.facade.api import (
+    ScoutRunRejectionKind,
+    WorkflowScoutRunQueued,
+    WorkflowScoutRunRejected,
+    WorkflowScoutRunStarted,
+)
 from products.signals.backend.scout_harness.run_gates import ScoutRunRejection
 from products.workflows.backend.models import HogFlow
 from products.workflows.backend.presentation.views.workflow_scout_runs import WorkflowScoutRunsJWTAuthentication
@@ -60,25 +65,29 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("without_a_note", {}, None),
-            ("with_a_note", {"note": "  PR #4821  "}, "PR #4821"),
-            ("with_a_blank_note", {"note": "   "}, None),
+            ("without_a_note", {}, None, True),
+            ("with_a_note", {"note": "  PR #4821  "}, "PR #4821", True),
+            ("with_a_blank_note", {"note": "   "}, None, True),
+            ("skipping_when_busy", {"when_busy": "skip"}, None, False),
         ]
     )
     @covers_authentication(WorkflowScoutRunsJWTAuthentication, WorkflowStepJWTAuthentication)
-    def test_dispatches_a_scout_run(self, _name: str, body: dict, expected_note: str | None) -> None:
+    def test_dispatches_a_scout_run(
+        self, _name: str, body: dict, expected_note: str | None, expected_queue_when_busy: bool
+    ) -> None:
         started = WorkflowScoutRunStarted(skill_name=SCOUT, workflow_id="signals-scout-workflow-run-1")
         with patch(_START_SCOUT, return_value=started) as start:
             response = self._post({"idempotency_key": "job:step:1", **body})
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert response.json() == {"scout": SCOUT, "workflow_id": "signals-scout-workflow-run-1"}
+        assert response.json() == {"scout": SCOUT, "workflow_id": "signals-scout-workflow-run-1", "queued": False}
         start.assert_called_once_with(
             team_id=self.team.id,
             skill_name=SCOUT,
             workflow_origin_key="job:step:1",
             run_note=expected_note,
             trigger_workflow_id=str(self.hog_flow.id),
+            queue_when_busy=expected_queue_when_busy,
         )
 
     def test_rejects_a_note_over_the_run_note_limit(self) -> None:
@@ -120,14 +129,31 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
 
         assert first.status_code == status.HTTP_202_ACCEPTED, first.json()
         assert second.status_code == status.HTTP_202_ACCEPTED, second.json()
-        assert first.json() == second.json() == {"scout": SCOUT, "workflow_id": "signals-scout-workflow-run-1"}
+        assert (
+            first.json()
+            == second.json()
+            == {"scout": SCOUT, "workflow_id": "signals-scout-workflow-run-1", "queued": False}
+        )
         start.assert_called_once_with(
             team_id=self.team.id,
             skill_name=SCOUT,
             workflow_origin_key="invocation-1:action-1",
             run_note=None,
             trigger_workflow_id=str(self.hog_flow.id),
+            queue_when_busy=True,
         )
+
+    def test_a_queued_fire_answers_202_without_a_run_and_replays_as_queued(self) -> None:
+        # The step parks on a workflow id, so a queued fire must not hand one back, and a retry must
+        # not read the cached marker as a workflow id.
+        queued = WorkflowScoutRunQueued(skill_name=SCOUT, pending_count=1)
+        with patch(_START_SCOUT, return_value=queued) as start:
+            first = self._post({"idempotency_key": "invocation-1:action-1", "note": "Issue #42"})
+            second = self._post({"idempotency_key": "invocation-1:action-1", "note": "Issue #42"})
+
+        assert first.status_code == second.status_code == status.HTTP_202_ACCEPTED
+        assert first.json() == second.json() == {"scout": SCOUT, "workflow_id": None, "queued": True}
+        start.assert_called_once()
 
     def test_a_different_idempotency_key_still_dispatches_its_own_run(self) -> None:
         started = WorkflowScoutRunStarted(skill_name=SCOUT, workflow_id="signals-scout-workflow-run-1")

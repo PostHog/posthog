@@ -73,7 +73,8 @@ root_files:
                             "backend/webhook_consumers.py",
                             "backend/tasks/**",
                             "backend/models.py",
-                            "backend/migrations/**"
+                            "backend/migrations/**",
+                            "backend/apps.py"
                         ],
                         "outputs": [],
                         "cache": true

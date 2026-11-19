@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from products.managed_warehouse.backend.temporal.compaction_workflow import (
     DucklakeCompactionWorkflow,
     run_ducklake_compaction,
@@ -46,7 +48,7 @@ WORKFLOWS = [
     DuckLakeRegisterDataImportsWorkflow,
     ManagedWarehouseViewTranslationWorkflow,
 ]
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     reconcile_trino_model_aliases_activity,
     cleanup_data_imports_staging_activity,
     cleanup_data_modeling_staging_activity,

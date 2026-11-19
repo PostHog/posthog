@@ -10,7 +10,9 @@ import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 
 import { booleanOutputConfigError, numericOutputConfigError } from '../constants'
 import { evaluationSupportsReports } from '../evaluationCapabilities'
+import { evaluationPreviewLogic } from '../evaluationPreviewLogic'
 import { buildDeliveryTargets, evaluationReportLogic } from '../evaluationReportLogic'
+import { matchesNoUnits } from '../evaluationVolume'
 import { evaluationVolumeLogic } from '../evaluationVolumeLogic'
 import { hasUnsetConditionRollout, llmEvaluationLogic } from '../llmEvaluationLogic'
 import { defaultEvaluationTemplates } from '../templates'
@@ -32,6 +34,7 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
     const { saveEvaluation, resetEvaluation } = useActions(llmEvaluationLogic)
     const { props: logicProps } = useMountedLogic(llmEvaluationLogic)
     const { volume } = useValues(evaluationVolumeLogic(logicProps))
+    const { codeError, everyTestErrored } = useValues(evaluationPreviewLogic(logicProps))
     const template = defaultEvaluationTemplates.find((entry) => entry.key === templateKey)
     const headerRef = useRef<HTMLDivElement>(null)
 
@@ -57,8 +60,22 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
                 evaluation.conditions.length === 0 ||
                 hasUnsetConditionRollout(evaluation.conditions) ||
                 evaluation.conditions.some((condition) => (condition.rollout_percentage ?? 0) > 100),
+            codeError,
+            everyTestErrored,
+            wouldNotRun: matchesNoUnits(volume)
+                ? `No matching generation has a ${evaluation.target} ID, so it would not run`
+                : null,
         })
-    }, [evaluation, numericBoundsRequired, modelSelectionRequired, selectedModel, judgeModelGroups])
+    }, [
+        evaluation,
+        numericBoundsRequired,
+        modelSelectionRequired,
+        selectedModel,
+        judgeModelGroups,
+        codeError,
+        everyTestErrored,
+        volume,
+    ])
 
     if (!evaluation) {
         return null
@@ -109,7 +126,7 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
                         {template ? `New ${template.name.toLowerCase()} evaluation` : 'New evaluation'}
                     </h1>
                 </SceneStickyBar>
-                <div className="w-full max-w-4xl mx-auto">
+                <div className="w-full max-w-6xl mx-auto">
                     <EvaluationFormSteps checklist={checklist} onCreate={handleCreate} onCancel={handleCancel} />
                 </div>
             </div>

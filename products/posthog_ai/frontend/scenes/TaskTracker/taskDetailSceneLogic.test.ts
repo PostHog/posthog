@@ -292,6 +292,59 @@ describe('taskDetailSceneLogic', () => {
         })
     })
 
+    describe('loader unmount', () => {
+        it.each([
+            ['list', false],
+            ['list', true],
+            ['selected run', false],
+            ['selected run', true],
+        ] as const)('ignores a %s response after unmount (failure: %s)', async (loader, fails) => {
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setSelectedRunId('run-456', 'task-123')
+            await expectLogic(logic).toFinishAllListeners()
+
+            let finishRequest!: (response: Response) => void
+            const response = new Promise<Response>((resolve) => {
+                finishRequest = resolve
+            })
+            global.fetch = jest.fn(() => response) as typeof fetch
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            await expectLogic(logic).clearHistory()
+
+            await expectLogic(logic, () => {
+                if (loader === 'list') {
+                    logic.actions.loadTaskRuns()
+                } else {
+                    logic.actions.loadSelectedTaskRun()
+                }
+                logic.unmount()
+                finishRequest(
+                    fails
+                        ? new Response(JSON.stringify({ detail: 'Request failed' }), {
+                              status: 500,
+                              headers: { 'Content-Type': 'application/json' },
+                          })
+                        : createJsonResponse(
+                              loader === 'list'
+                                  ? { results: [createMockRun('run-456', TaskRunStatus.COMPLETED)] }
+                                  : createMockRun('run-456', TaskRunStatus.COMPLETED)
+                          )
+                )
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions([
+                    'loadTaskRunsSuccess',
+                    'loadTaskRunsFailure',
+                    'loadSelectedTaskRunSuccess',
+                    'loadSelectedTaskRunFailure',
+                ])
+
+            expect(consoleError).not.toHaveBeenCalled()
+        })
+    })
+
     describe('loader failure state', () => {
         it('stores run-list failures for inline retry UI', () => {
             const logic = taskDetailSceneLogic({ taskId: 'task-123' })

@@ -1745,6 +1745,12 @@ class TestNonRetryableErrors:
             # would resume with the same saved cursor and fail identically every time.
             f"{META_INVALID_CURSOR_ERROR_MESSAGE} (Meta API response: 400 - "
             '{"error":{"message":"(#2642) Invalid cursors values","type":"OAuthException","code":2642}})',
+            # code 100 / subcode 1885719 — the same invalid-cursor condition, surfaced under the
+            # generic "Invalid parameter" code instead of the dedicated 2642 one.
+            f"{META_INVALID_CURSOR_ERROR_MESSAGE} (Meta API response: 400 - "
+            '{"error":{"message":"Invalid parameter","type":"OAuthException","code":100,"error_subcode":1885719,'
+            '"error_user_msg":"The pagination cursor data was not valid, please submit a valid cursor or retry '
+            'without cursor","error_user_title":"Invalid Pagination Cursor Data"}})',
             # Schema set to incremental/append with no incremental field stored in its config.
             "incremental_field and incremental_field_type can't be None",
         ],
@@ -1846,6 +1852,22 @@ class TestNonRetryableErrors:
         "body,expected",
         [
             ({"error": {"code": 2642, "message": "(#2642) Invalid cursors values", "type": "OAuthException"}}, True),
+            # Real-world "Invalid Pagination Cursor Data" response: the same invalid-cursor
+            # condition, surfaced under the generic code 100 instead of the dedicated 2642 one.
+            (
+                {
+                    "error": {
+                        "message": "Invalid parameter",
+                        "type": "OAuthException",
+                        "code": 100,
+                        "error_subcode": 1885719,
+                    }
+                },
+                True,
+            ),
+            # A different code-100 subcode is a genuine malformed-request bug, not an invalid
+            # cursor, and must not be swept into the same reclassification.
+            ({"error": {"message": "Invalid parameter", "code": 100, "error_subcode": 1885649}}, False),
             # A different code must not be swept into the same reclassification.
             ({"error": {"code": 1, "message": "An unknown error has occurred."}}, False),
             ({"error": {}}, False),

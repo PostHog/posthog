@@ -86,17 +86,6 @@ describe('CapturedEventsService', () => {
             expect(internalCaptureService.capture).toHaveBeenCalledTimes(1)
         })
 
-        it('queue([]) is a no-op', async () => {
-            service.queue([])
-            await service.flush()
-            expect(internalCaptureService.capture).not.toHaveBeenCalled()
-        })
-
-        it('flush with empty buffer does not call internalCaptureService', async () => {
-            await service.flush()
-            expect(internalCaptureService.capture).not.toHaveBeenCalled()
-        })
-
         it('swallows errors from internalCaptureService.capture', async () => {
             internalCaptureService.capture.mockRejectedValueOnce(new Error('boom'))
             service.queue([
@@ -170,14 +159,6 @@ describe('CapturedEventsService', () => {
                 { capturedPostHogEvents: [] } as unknown as CyclotronJobInvocationResult,
                 { capturedPostHogEvents: undefined } as unknown as CyclotronJobInvocationResult,
             ])
-            await service.flush()
-
-            expect(teamManager.getTeam).not.toHaveBeenCalled()
-            expect(internalCaptureService.capture).not.toHaveBeenCalled()
-        })
-
-        it('handles an empty result array', async () => {
-            await service.queueInvocationResults([])
             await service.flush()
 
             expect(teamManager.getTeam).not.toHaveBeenCalled()

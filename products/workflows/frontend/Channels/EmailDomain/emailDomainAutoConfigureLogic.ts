@@ -14,8 +14,9 @@ import type {
 } from 'products/integrations/frontend/generated/api.schemas'
 
 import { EmailDomainLogicProps } from './emailDomainLogicProps'
-import { emailDomainPageUrl } from './emailDomainPageUrl'
 import { emailDomainSenderLogic } from './emailDomainSenderLogic'
+import { emailDomainSetupPageUrl } from './emailDomainSetupLinks'
+import { EmailDomainSetupOrigin } from './emailDomainSetupOrigin'
 import { emailDomainStatusLogic } from './emailDomainStatusLogic'
 
 // pinned: URL search param, the Domain Connect redirect_uri carries it back to this page
@@ -38,6 +39,12 @@ const showInTab = (tab: Window | null, url: string): void => {
     }
     tab.opener = null
     tab.location.href = url
+}
+
+const domainConnectReturnUrl = (pageUrl: string): string => {
+    const url = new URL(pageUrl)
+    url.searchParams.set(DOMAIN_CONNECT_RETURN_PARAM, 'email')
+    return url.toString()
 }
 
 const returnedFromDomainConnect = (): boolean => {
@@ -110,7 +117,11 @@ export interface emailDomainAutoConfigureLogicMeta {
         dnsHost: (detection: EmailDomainConnectCheckApi | null) => EmailDomainDnsHostApi | null
         supportsDomainConnect: (detection: EmailDomainConnectCheckApi | null) => boolean
         hostName: (detection: EmailDomainConnectCheckApi | null, dnsHost: EmailDomainDnsHostApi | null) => string | null
-        pageUrl: (currentTeamId: number | null, integrationId: number | null) => string | null
+        pageUrl: (
+            currentTeamId: number | null,
+            integrationId: number | null,
+            arg: EmailDomainSetupOrigin | undefined
+        ) => string | null
     }
 }
 
@@ -193,9 +204,13 @@ export const emailDomainAutoConfigureLogic = kea<emailDomainAutoConfigureLogicTy
                 dnsHost?.name ?? detection?.provider_name ?? null,
         ],
         pageUrl: [
-            (s) => [s.currentTeamId, s.integrationId],
-            (currentTeamId: number | null, integrationId: number | null): string | null =>
-                currentTeamId && integrationId ? emailDomainPageUrl(currentTeamId, integrationId) : null,
+            (s) => [s.currentTeamId, s.integrationId, (_, props: EmailDomainLogicProps) => props.origin],
+            (
+                currentTeamId: number | null,
+                integrationId: number | null,
+                origin: EmailDomainSetupOrigin | undefined
+            ): string | null =>
+                currentTeamId && integrationId ? emailDomainSetupPageUrl(currentTeamId, integrationId, origin) : null,
         ],
     }),
     listeners(({ actions, values, cache }) => ({
@@ -229,7 +244,7 @@ export const emailDomainAutoConfigureLogic = kea<emailDomainAutoConfigureLogicTy
                 const { url } = await api.integrations.domainConnectApplyUrl({
                     context: 'email',
                     integration_id: integrationId,
-                    redirect_uri: `${pageUrl}?${DOMAIN_CONNECT_RETURN_PARAM}=email`,
+                    redirect_uri: domainConnectReturnUrl(pageUrl),
                 })
                 showInTab(tab, url)
             } catch (error) {

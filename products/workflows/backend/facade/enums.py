@@ -46,6 +46,12 @@ class HogFlowBatchJobState(LabeledStrEnum):
     FAILED = "failed"
 
 
+class HogFlowBatchJobAudienceStatus(LabeledStrEnum):
+    RESOLVING = "resolving"
+    READY = "ready"
+    FAILED = "failed"
+
+
 class HogFlowScheduleStatus(LabeledStrEnum):
     ACTIVE = "active"
     PAUSED = "paused"
@@ -72,6 +78,11 @@ class WorkflowIdeaSource(LabeledStrEnum):
 
 class WorkflowImportSource(LabeledStrEnum):
     CUSTOMERIO = "customerio", "Customer.io"
+    RESEND = "resend", "Resend"
+
+
+class WorkflowImportRequestSource(LabeledStrEnum):
+    CUSTOMERIO = "customerio", "Customer.io"
 
 
 class WorkflowImportNoteLevel(LabeledStrEnum):
@@ -89,6 +100,13 @@ class WorkflowImportStatus(LabeledStrEnum):
     UPDATED = "updated", "Updated"
     SKIPPED = "skipped", "Skipped"
     FAILED = "failed", "Failed"
+
+
+class WorkflowImportSegmentCohortStatus(LabeledStrEnum):
+    CREATED = "created", "Created"
+    REUSED = "reused", "Reused"
+    WOULD_CREATE = "would_create", "Would create"
+    NOT_CONVERTED = "not_converted", "Not converted"
 
 
 class HogFlowState(LabeledStrEnum):
@@ -182,6 +200,7 @@ class EmailDomainSetupRecordKind(LabeledStrEnum):
     MAIL_FROM_MX = "mail_from_mx", "MAIL FROM MX"
     MAIL_FROM_SPF = "mail_from_spf", "MAIL FROM SPF"
     DMARC = "dmarc", "DMARC"
+    ORGANIZATION = "organization", "Organization ownership"
 
 
 class EmailDomainSetupRecordType(LabeledStrEnum):

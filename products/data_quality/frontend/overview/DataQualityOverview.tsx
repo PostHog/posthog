@@ -1,67 +1,39 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconChevronRight, IconEllipsis, IconGear } from '@posthog/icons'
+import { IconChevronRight, IconGear } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
-    LemonDialog,
     LemonInput,
-    LemonMenu,
     LemonSegmentedButton,
     LemonSkeleton,
-    LemonTable,
     LemonTag,
     Link,
-    Spinner,
 } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
 import { CheckEditorModal } from '../CheckEditorModal'
-import { CheckRunsTable } from '../CheckRunsTable'
-import {
-    HEALTH_LABELS,
-    HEALTH_TAG_TYPES,
-    SUBJECT_TYPE_TAGS,
-    checkDisplayName,
-    checkTypeLabel,
-} from '../checksConstants'
-import { CheckStatusCell } from '../CheckStatusCell'
-import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from '../dataQualityCheckEditorLogic'
-import { DataQualitySchedule } from '../DataQualitySchedule'
-import type { DataQualityOverviewCheckApi } from '../generated/api.schemas'
-import { SubjectTypeEnumApi } from '../generated/api.schemas'
+import { HEALTH_LABELS, HEALTH_TAG_TYPES, SUBJECT_TYPE_TAGS } from '../checksConstants'
+import { dataQualityCheckEditorLogic } from '../dataQualityCheckEditorLogic'
 import { DataQualityEmptyState } from './DataQualityEmptyState'
 import {
     NEW_CHECK_ACTION_ID,
     OverviewStatusFilter,
     SubjectGroup,
     dataQualityOverviewLogic,
-    focusCandidatesAfterDelete,
-    rowActionsId,
     subjectDisclosureId,
-    subjectKeyOf,
 } from './dataQualityOverviewLogic'
+import { overviewCheckEditorProps } from './overviewCheckEditorProps'
+import { RunAllBanners } from './RunAllBanners'
+import { SubjectChecksPanel } from './SubjectChecksPanel'
+import { SubjectRunBanners } from './SubjectRunBanners'
 
 const STATUS_FILTERS: { value: OverviewStatusFilter; label: string }[] = [
     { value: 'all', label: 'All' },
     { value: 'failing', label: 'Failing' },
     { value: 'never_run', label: 'Not run yet' },
 ]
-
-function focusFirstAvailable(elementIds: string[]): void {
-    // Runs after the removed row has left the DOM, so the first id that still resolves wins.
-    window.requestAnimationFrame(() => {
-        for (const elementId of elementIds) {
-            const element = document.getElementById(elementId)
-            if (element) {
-                element.focus()
-                return
-            }
-        }
-    })
-}
 
 export function DataQualityOverview(): JSX.Element {
     const {
@@ -75,28 +47,12 @@ export function DataQualityOverview(): JSX.Element {
         startingRun,
         isRunning,
         runTarget,
-        pollTimedOut,
-        runError,
         overviewSummary,
         lastActionCheckId,
     } = useValues(dataQualityOverviewLogic)
     const { setFilters, runChecks, loadOverview, setLastActionCheck } = useActions(dataQualityOverviewLogic)
 
-    const editorProps: DataQualityCheckEditorLogicProps = {
-        surface: 'data-quality-overview',
-        onSaved: () => loadOverview(),
-        onRunNow: (check) =>
-            runChecks({ kind: 'subject', subjectKey: subjectKeyOf(check.subject_type, check.subject_uuid) }, [
-                check.id,
-            ]),
-        onClosed: () => {
-            if (lastActionCheckId) {
-                focusFirstAvailable([rowActionsId(lastActionCheckId)])
-            } else {
-                focusFirstAvailable([NEW_CHECK_ACTION_ID])
-            }
-        },
-    }
+    const editorProps = overviewCheckEditorProps({ lastActionCheckId, loadOverview, runChecks })
     const { openEditor } = useActions(dataQualityCheckEditorLogic(editorProps))
 
     const addCheck = (): void => {
@@ -194,26 +150,7 @@ export function DataQualityOverview(): JSX.Element {
 
                 {overviewSummary && <p className="mb-0 text-secondary">{overviewSummary}</p>}
 
-                {overviewError && snapshotLoaded && (
-                    <LemonBanner type="warning" action={{ children: 'Retry', onClick: loadOverview }}>
-                        Couldn't refresh checks. Showing the latest available results.
-                    </LemonBanner>
-                )}
-                {runningAll && (
-                    <LemonBanner type="info" icon={<Spinner />}>
-                        Running checks...
-                    </LemonBanner>
-                )}
-                {pollTimedOut && runTarget?.kind === 'all' && (
-                    <LemonBanner type="warning" action={{ children: 'Refresh', onClick: loadOverview }}>
-                        Checks are still running. Check back in a few minutes.
-                    </LemonBanner>
-                )}
-                {runError && runTarget?.kind === 'all' && (
-                    <LemonBanner type="error" action={{ children: 'Retry', onClick: () => runChecks({ kind: 'all' }) }}>
-                        {runError}
-                    </LemonBanner>
-                )}
+                <RunAllBanners />
 
                 {checks.length === 0 ? (
                     <DataQualityEmptyState onAddCheck={addCheck} />
@@ -239,28 +176,15 @@ export function DataQualityOverview(): JSX.Element {
     )
 }
 
-const SCHEDULED_SUBJECT_TYPES: string[] = [SubjectTypeEnumApi.Metric, SubjectTypeEnumApi.PosthogTable]
-
 function SubjectSection({ group }: { group: SubjectGroup }): JSX.Element {
-    const {
-        expandedSubjectKeys,
-        startingRun,
-        isRunning,
-        runningSubjectKey,
-        runTarget,
-        runError,
-        pollTimedOut,
-        scheduleBySubjectKey,
-        subjectSchedulesLoading,
-    } = useValues(dataQualityOverviewLogic)
-    const { toggleSubjectExpanded, runChecks, loadOverview } = useActions(dataQualityOverviewLogic)
+    const { expandedSubjectKeys, startingRun, isRunning, runningSubjectKey } = useValues(dataQualityOverviewLogic)
+    const { toggleSubjectExpanded, runChecks } = useActions(dataQualityOverviewLogic)
 
     const subjectType = SUBJECT_TYPE_TAGS[group.subjectType]
     const expanded = expandedSubjectKeys.includes(group.subjectKey)
     const regionId = `data-quality-subject-checks-${group.subjectKey}`
     const running = runningSubjectKey === group.subjectKey
     const anyRunActive = startingRun || isRunning
-    const scopedToThisSubject = runTarget?.kind === 'subject' && runTarget.subjectKey === group.subjectKey
 
     return (
         <div className="border rounded">
@@ -319,164 +243,15 @@ function SubjectSection({ group }: { group: SubjectGroup }): JSX.Element {
                 </LemonButton>
             </div>
 
-            {scopedToThisSubject && pollTimedOut && (
-                <div className="px-2 pb-2">
-                    <LemonBanner type="warning" action={{ children: 'Refresh', onClick: loadOverview }}>
-                        Checks are still running. Check back in a few minutes.
-                    </LemonBanner>
-                </div>
-            )}
-            {scopedToThisSubject && runError && (
-                <div className="px-2 pb-2">
-                    <LemonBanner
-                        type="error"
-                        action={{
-                            children: 'Retry',
-                            onClick: () =>
-                                runChecks(
-                                    { kind: 'subject', subjectKey: group.subjectKey },
-                                    group.checks.map((check) => check.id)
-                                ),
-                        }}
-                    >
-                        {runError}
-                    </LemonBanner>
-                </div>
-            )}
+            <SubjectRunBanners group={group} />
 
             {/* Mounted only while open: a collapsed subject rendering its rows would put every
                 check's controls in the tab order of a panel nobody can see. */}
             {expanded && (
                 <div id={regionId} className="overflow-x-auto">
-                    {SCHEDULED_SUBJECT_TYPES.includes(group.subjectType) && group.subjectUuid ? (
-                        <div className="px-2 pt-2">
-                            <DataQualitySchedule
-                                subjectType={group.subjectType}
-                                subjectId={group.subjectUuid}
-                                initialSchedule={
-                                    scheduleBySubjectKey[group.subjectKey] ??
-                                    (subjectSchedulesLoading ? null : undefined)
-                                }
-                                poll={false}
-                            />
-                        </div>
-                    ) : null}
-                    <SubjectChecks group={group} />
+                    <SubjectChecksPanel group={group} />
                 </div>
             )}
         </div>
-    )
-}
-
-function SubjectChecks({ group }: { group: SubjectGroup }): JSX.Element {
-    const { checkRunsByCheckId, runsLoadingByCheckId, deletingCheckIds, subjectGroups, startingRun, isRunning } =
-        useValues(dataQualityOverviewLogic)
-    const { loadCheckRuns, deleteCheck, setLastActionCheck, openFailingRows, runChecks } =
-        useActions(dataQualityOverviewLogic)
-    const { openEditor } = useActions(dataQualityCheckEditorLogic)
-
-    const confirmDelete = (check: DataQualityOverviewCheckApi): void => {
-        const fallbacks = focusCandidatesAfterDelete(subjectGroups, group.subjectKey, check.id)
-        LemonDialog.open({
-            title: 'Delete this check?',
-            description: 'Past run history is kept.',
-            primaryButton: {
-                children: 'Delete',
-                status: 'danger',
-                onClick: () => {
-                    deleteCheck(check)
-                    focusFirstAvailable(fallbacks)
-                },
-            },
-            secondaryButton: {
-                children: 'Cancel',
-                onClick: () => focusFirstAvailable([rowActionsId(check.id)]),
-            },
-        })
-    }
-
-    return (
-        <LemonTable
-            size="small"
-            dataSource={group.checks}
-            rowKey="id"
-            nouns={['check', 'checks']}
-            expandable={{
-                onRowExpand: (check) => loadCheckRuns(check),
-                expandedRowRender: (check) => (
-                    <div className="flex flex-col gap-2 py-2">
-                        {check.description && <p className="mb-0 text-secondary">{check.description}</p>}
-                        <CheckRunsTable
-                            runs={checkRunsByCheckId[check.id] ?? []}
-                            loading={runsLoadingByCheckId[check.id]}
-                        />
-                    </div>
-                ),
-            }}
-            columns={[
-                { title: 'Check', key: 'name', render: (_, check) => checkDisplayName(check) },
-                { title: 'Type', key: 'check_type', render: (_, check) => checkTypeLabel(check.check_type) },
-                { title: 'Column', key: 'column_name', render: (_, check) => check.column_name || '-' },
-                {
-                    title: 'Last status',
-                    key: 'last_status',
-                    render: (_, check) => <CheckStatusCell check={check} />,
-                },
-                {
-                    title: 'Last run',
-                    key: 'last_run_at',
-                    render: (_, check) => (check.last_run_at ? <TZLabel time={check.last_run_at} /> : '-'),
-                },
-                {
-                    key: 'actions',
-                    width: 0,
-                    render: (_, check) => (
-                        <LemonMenu
-                            items={[
-                                {
-                                    // Reported into this subject's panel, since that is where its
-                                    // result lands either way.
-                                    label: 'Run now',
-                                    onClick: () =>
-                                        runChecks({ kind: 'subject', subjectKey: group.subjectKey }, [check.id]),
-                                    disabledReason: startingRun || isRunning ? 'Checks are already running' : undefined,
-                                },
-                                {
-                                    label: 'Edit',
-                                    onClick: () => {
-                                        setLastActionCheck(check.id)
-                                        openEditor(check, {
-                                            subjectType: check.subject_type,
-                                            subjectId: check.subject_uuid ?? '',
-                                        })
-                                    },
-                                },
-                                {
-                                    label: 'Open failing rows in SQL editor',
-                                    tooltip: "The query behind this check's latest run",
-                                    onClick: () => openFailingRows(check),
-                                },
-                                {
-                                    label: 'Delete',
-                                    status: 'danger',
-                                    onClick: () => confirmDelete(check),
-                                    disabledReason: deletingCheckIds[check.id]
-                                        ? 'This check is being deleted'
-                                        : undefined,
-                                },
-                            ]}
-                        >
-                            <LemonButton
-                                id={rowActionsId(check.id)}
-                                size="small"
-                                icon={<IconEllipsis />}
-                                data-attr="data-quality-overview-check-actions"
-                                aria-label={`Actions for check ${checkDisplayName(check)}`}
-                            />
-                        </LemonMenu>
-                    ),
-                },
-            ]}
-        />
     )
 }

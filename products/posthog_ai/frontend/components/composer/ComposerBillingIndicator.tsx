@@ -3,9 +3,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill-primitiv
 
 export interface ComposerBillingIndicatorProps {
     ownPlan: boolean
+    locked?: boolean
 }
 
-export function ComposerBillingIndicator({ ownPlan }: ComposerBillingIndicatorProps): JSX.Element {
+export function ComposerBillingIndicator({ ownPlan, locked = false }: ComposerBillingIndicatorProps): JSX.Element {
     const label = ownPlan ? 'ChatGPT plan' : 'PostHog credits'
     return (
         <Tooltip>
@@ -22,9 +23,11 @@ export function ComposerBillingIndicator({ ownPlan }: ComposerBillingIndicatorPr
                 }
             />
             <TooltipContent>
-                {ownPlan
-                    ? 'This chat uses your ChatGPT plan. Change it in the model menu.'
-                    : 'This chat uses your PostHog credits.'}
+                {locked
+                    ? `This run uses ${ownPlan ? 'your ChatGPT plan' : 'PostHog credits'}. Billing cannot change during a run.`
+                    : ownPlan
+                      ? 'This chat uses your ChatGPT plan. Change it in the model menu.'
+                      : 'This chat uses your PostHog credits.'}
             </TooltipContent>
         </Tooltip>
     )

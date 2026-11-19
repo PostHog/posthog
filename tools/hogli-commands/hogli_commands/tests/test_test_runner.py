@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import click
 from click.testing import CliRunner
 from hogli.cli import cli
+from hogli.manifest import REPO_ROOT
 from hogli_commands.test_runner import (
     _batch_find_rs_cfg_test,
     _detect_all,
@@ -55,6 +56,34 @@ class TestDetectTestType:
         assert config.test_type == expected_type
         assert config.command == expected_command
         assert "REDIS_URL" in config.env
+
+    @parameterized.expand(
+        [
+            ("services/llm-gateway/tests/test_anthropic.py", "services/llm-gateway", "tests/test_anthropic.py"),
+            (
+                "services/llm-gateway/tests/test_anthropic.py::test_x",
+                "services/llm-gateway",
+                "tests/test_anthropic.py::test_x",
+            ),
+            ("services/llm-gateway/tests", "services/llm-gateway", "tests"),
+            ("services/stripe-mock/tests", "services/stripe-mock", "tests"),
+        ]
+    )
+    def test_standalone_uv_project_runs_in_its_own_environment(self, path: str, project: str, target: str) -> None:
+        config = detect_test_type(path)
+        assert config.command == [
+            "uv",
+            "run",
+            "--project",
+            ".",
+            "--all-groups",
+            "--all-extras",
+            "pytest",
+            "-s",
+            target,
+        ]
+        assert config.cwd == REPO_ROOT / project
+        assert config.env == {"UV_PROJECT_ENVIRONMENT": ""}
 
     def test_python_with_node_id(self) -> None:
         config = detect_test_type("posthog/api/test/test_user.py::TestUserAPI::test_retrieve")
@@ -108,6 +137,26 @@ class TestDetectTestType:
         config = detect_test_type(file_path)
         assert config.test_type == "vitest"
         assert config.command == ["pnpm", "--dir", pkg_dir, "exec", "vitest", "run", rel]
+
+    @parameterized.expand(
+        [
+            ("services/mcp/tests/unit/SessionManager.test.ts", ["tests/unit/SessionManager.test.ts"]),
+            (
+                "services/mcp/tests/hono/analytics.test.ts",
+                ["--config", "vitest.hono.config.mts", "tests/hono/analytics.test.ts"],
+            ),
+            (
+                "services/mcp/tests/tools/actions.integration.test.ts",
+                ["--config", "vitest.integration.config.mts", "tests/tools/actions.integration.test.ts"],
+            ),
+            ("services/mcp/tests", ["tests"]),
+            ("services/mcp/tests/hono", ["--config", "vitest.hono.config.mts", "tests/hono"]),
+        ]
+    )
+    def test_mcp_routes_to_vitest_with_the_suite_config(self, path: str, args: list[str]) -> None:
+        config = detect_test_type(path)
+        assert config.test_type == "vitest"
+        assert config.command == ["pnpm", "--dir", "services/mcp", "exec", "vitest", "run", *args]
 
     def test_desktop_node_id_adds_test_name_filter(self) -> None:
         config = detect_test_type("products/desktop/packages/core/src/archive/archiveListView.test.ts::renders rows")
@@ -546,15 +595,20 @@ class TestRunGrouped:
             [
                 "posthog/api/test/test_user.py",
                 "frontend/src/scenes/dashboard/Dashboard.test.tsx",
+                "services/llm-gateway/tests/test_anthropic.py",
+                "services/llm-gateway/tests/test_anthropic_request.py",
             ]
         )
         _run_grouped(detected, [])
-        assert mock_run.call_count == 2
-        commands = [call[0][0] for call in mock_run.call_args_list]
-        python_cmd = next(c for c in commands if c[0] == "pytest")
-        jest_cmd = next(c for c in commands if c[0] == "pnpm")
-        assert "posthog/api/test/test_user.py" in python_cmd
+        assert mock_run.call_count == 3
+        runs = [(call[0][0], call[1]["cwd"]) for call in mock_run.call_args_list]
+        python_cmd = next(c for c, _ in runs if c[0] == "pytest")
+        jest_cmd = next(c for c, _ in runs if c[0] == "pnpm")
+        uv_cmd, uv_cwd = next((c, cwd) for c, cwd in runs if c[0] == "uv")
+        assert python_cmd[-1] == "posthog/api/test/test_user.py"
         assert "frontend/src/scenes/dashboard/Dashboard.test.tsx" in jest_cmd
+        assert uv_cmd[-2:] == ["tests/test_anthropic.py", "tests/test_anthropic_request.py"]
+        assert uv_cwd == REPO_ROOT / "services/llm-gateway"
 
     @patch("hogli_commands.test_runner._run")
     def test_passes_extra_args(self, mock_run) -> None:

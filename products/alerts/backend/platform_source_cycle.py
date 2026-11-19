@@ -5,7 +5,8 @@ A parallel run. The production insight fleet evaluates the same alerts against
 said, and asks for a delivery only for the alerts the platform owns.
 
 Each platform row resolves to its production alert through `legacy_configuration_id`, because
-`check_alert_for_insight` reads the insight, the threshold and the condition off that model. The
+`check_alert_for_insight` reads the insight, the threshold and the condition off that model. A row
+with no production alert gets an unsaved one built from its own settings. The
 query runs the way production runs it, and the verdict comes from the shared machine under
 `insight_alert_policy`, applied to the platform's own state. `add_alert_check` is the production
 writer, and nothing here calls it.
@@ -22,6 +23,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
+from uuid import UUID
 
 from django.conf import settings
 
@@ -32,10 +34,17 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
+from posthog.models.user import User
 from posthog.query_cache.single_flight import skip_query_single_flight
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
-from posthog.tasks.alerts.utils import AlertEvaluationResult, render_alert_insight_chart, skip_because_of_weekend
+from posthog.tasks.alerts.utils import (
+    CHART_RENDER_TIMEOUT,
+    AlertEvaluationResult,
+    InsightChartRenderFailed,
+    render_alert_insight_chart_or_raise,
+    skip_because_of_weekend,
+)
 from posthog.temporal.alerts.admission import admit_evaluation_slots, release_evaluation_slot
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 
@@ -50,25 +59,40 @@ from products.alerts.backend.insight_alert_state_machine import (
     insight_snapshot,
 )
 from products.alerts.backend.judge.contract import (
-    LLM_DETECTOR_PAUSED_ERROR_CODE,
-    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
-    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    UNAVAILABLE_ERRORS_BY_NAME,
     LLMDetectorMisconfiguredError,
     LLMDetectorPausedError,
     LLMDetectorUnavailableError,
 )
-from products.alerts.backend.llm_detector_limits import is_llm_detector_config
+from products.alerts.backend.llm_detector_limits import calls_ai_gateway
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.logic.destinations import configured_destination_template_ids
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
+from products.alerts.backend.platform_firing_signal import with_firing_signal
+from products.alerts.backend.platform_insight_alert import (
+    RECURRENCE,
+    charted_alert,
+    evaluation_alert,
+    insight_of,
+    insight_row_settings,
+    interval_of,
+)
 from products.alerts.backend.platform_investigation import with_investigation
-from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, refresh_settings, slot_of
+from products.alerts_platform.backend.facade.api import (
+    destination_hears_kind,
+    due_check_ids,
+    due_checks,
+    has_incident_destination,
+    refresh_settings,
+    slot_of,
+)
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     AlertDeliveryRequest,
     AlertEventKind,
+    DestinationType,
     GroupingMode,
     IncidentAction,
     InstanceCheckState,
@@ -79,7 +103,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertConfigurationRecurrenceUnit as RecurrenceUnit
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.facade.grouping import (
     GroupObservation,
     bounded_grouping_key,
@@ -110,10 +134,7 @@ from products.alerts_platform.backend.facade.platform_metrics import (
     record_scheduler_lag,
     safe_record,
 )
-from products.alerts_platform.backend.facade.scheduling import (
-    REAL_TIME_CADENCE_MINUTES,
-    validate_and_normalize_schedule_start_time,
-)
+from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 logger = structlog.get_logger(__name__)
@@ -149,6 +170,10 @@ _QUERY_LIMIT = RateLimit(
 
 class ChartRenderPoolFull(Exception):
     """Every chart render slot is taken. The activity retries later, holding no worker slot meanwhile."""
+
+
+class ChartRenderTimedOut(Exception):
+    """The export ran out of time, so the firing goes out without its chart."""
 
 
 # How many threads of the shared AI pool the parallel run may hold, so a stalled platform check
@@ -199,20 +224,8 @@ def is_evaluated_on_the_platform(alert: AlertConfiguration) -> bool:
     return alert.calculation_interval in EVALUATED_INTERVALS
 
 
-# Minutes for the real-time, 15-minute and hourly cadences, a calendar unit for the rest. A calendar
-# unit reads its cadence from the unit, so its minutes only feed the shard offset, which an anchored
-# unit ignores.
-_RECURRENCE: dict[str, tuple[int, str | None]] = {
-    AlertCalculationInterval.REAL_TIME: (REAL_TIME_CADENCE_MINUTES, None),
-    AlertCalculationInterval.EVERY_15_MINUTES: (15, None),
-    AlertCalculationInterval.HOURLY: (60, None),
-    AlertCalculationInterval.DAILY: (60 * 24, RecurrenceUnit.DAY),
-    AlertCalculationInterval.WEEKLY: (60 * 24 * 7, RecurrenceUnit.WEEK),
-    AlertCalculationInterval.MONTHLY: (60 * 24 * 30, RecurrenceUnit.MONTH),
-}
-
 # What an edit to an insight alert can change on its copy. The check refreshes these, and the due
-# time follows from them, so it is left to the next advance.
+# time follows from them, so it is left to the next advance. `take_ownership` changes the creator.
 SETTINGS_FIELDS: Final = (
     "name",
     "source_config",
@@ -220,17 +233,13 @@ SETTINGS_FIELDS: Final = (
     "check_interval_minutes",
     "recurrence_unit",
     "anchor_time",
+    "created_by_id",
 )
-
-
-def interval_of(check_interval_minutes: int) -> str | None:
-    """The insight cadence a platform alert's `check_interval_minutes` stands for, or None for one insight has not."""
-    return next((interval for interval, (minutes, _) in _RECURRENCE.items() if minutes == check_interval_minutes), None)
 
 
 def platform_upsert_of(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
     """The copy of one alert, or None when the platform does not evaluate it in parallel."""
-    recurrence = _RECURRENCE.get(alert.calculation_interval or "")
+    recurrence = RECURRENCE.get(alert.calculation_interval or "")
     if recurrence is None or not is_evaluated_on_the_platform(alert):
         return None
     check_interval_minutes, recurrence_unit = recurrence
@@ -247,6 +256,7 @@ def platform_upsert_of(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
                 "comparison": alert.condition,
                 "detector": alert.detector_config,
             },
+            **insight_row_settings(alert),
         },
         check_interval_minutes=check_interval_minutes,
         recurrence_unit=recurrence_unit,
@@ -257,6 +267,8 @@ def platform_upsert_of(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
         schedule_restriction=alert.schedule_restriction,
         next_check_at=alert.next_check_at,
         snooze_until=alert.snoozed_until,
+        created_by_id=alert.created_by_id,
+        created_at=alert.created_at,
     )
 
 
@@ -438,20 +450,29 @@ def _stop_query(team_id: int, configuration_id: str, query_id: str) -> None:
 def legacy_alerts_of(
     team_id: int, slot: str, cutoff: datetime, configuration_ids: Collection[str]
 ) -> dict[str, AlertConfiguration]:
-    """The production alert behind each due copy that still has one, keyed by the copy's id."""
+    """The alert behind each due check, keyed by the check's id, with what planning reads: its
+    cadence, detector and owner. A copy's comes from its insight row, and an alert insight keeps no
+    row for gets an unsaved one built from the platform alert."""
     if not configuration_ids:
         return {}
+    checks = due_checks(team_id, SourceKind.INSIGHT.value, slot, cutoff, configuration_ids=list(configuration_ids))
     legacy_ids = {
-        check.legacy_configuration_id: str(check.id)
-        for check in due_checks(
-            team_id, SourceKind.INSIGHT.value, slot, cutoff, configuration_ids=list(configuration_ids)
-        )
-        if check.legacy_configuration_id is not None
+        check.legacy_configuration_id: str(check.id) for check in checks if check.legacy_configuration_id is not None
     }
     alerts = AlertConfiguration.objects.filter(team_id=team_id, id__in=list(legacy_ids)).only(
         "id", "calculation_interval", "detector_config", "owner"
     )
-    return {legacy_ids[alert.id]: alert for alert in alerts}
+    planned = {legacy_ids[alert.id]: alert for alert in alerts}
+    for check in checks:
+        if check.legacy_configuration_id is None:
+            planned[str(check.id)] = AlertConfiguration(
+                id=check.id,
+                team_id=team_id,
+                calculation_interval=interval_of(check.check_interval_minutes),
+                detector_config=(check.source_config.get(SOURCE_CONDITION_KEY) or {}).get("detector"),
+                owner=PlatformAlertOwner.PLATFORM,
+            )
+    return planned
 
 
 def evaluate_insight_check(
@@ -511,10 +532,15 @@ def evaluate_insight_check(
             release_evaluation_slot(configuration_id, held_until=held_until, key=INFLIGHT_KEY)
     # After the slot is free, because the investigation's reads need no ClickHouse slot.
     try:
-        return with_investigation(checks[0], evaluation)
+        evaluation = with_investigation(checks[0], evaluation)
     except Exception:
         # The firing still goes out, uninvestigated, rather than the check being lost as errored.
         logger.exception("Failed to decide a platform insight firing's investigation", check_id=configuration_id)
+    try:
+        return with_firing_signal(checks[0], evaluation)
+    except Exception:
+        # The signal is best effort, so the firing goes out without one.
+        logger.exception("Failed to decide a platform insight firing's signal", check_id=configuration_id)
         return evaluation
 
 
@@ -538,13 +564,14 @@ def fail_insight_check(
     checks = due_checks(team_id, SourceKind.INSIGHT.value, slot, cutoff, configuration_ids=[configuration_id])
     if not checks:
         return None
-    alert = _legacy_alert(checks[0])
+    alert = evaluation_alert(checks[0])
     # As production: switching an alert off mid-check is not a failure of the alert.
     if alert is None or not alert.enabled:
         return None
-    if error_type == LLMDetectorUnavailableError.__name__:
+    unavailable = UNAVAILABLE_ERRORS_BY_NAME.get(error_type or "")
+    if unavailable is not None:
         # As production: the raw transport error is not the owner's configuration, so it gets its own wording.
-        error_message = LLM_DETECTOR_UNAVAILABLE_MESSAGE
+        error_message = unavailable.owner_message
     outcome = _verdict(
         checks[0],
         _snapshot(checks[0]),
@@ -578,21 +605,16 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
     paging destination needs one resolve for every trigger. An alert with no such destination gets
     no incident action, so its edges start no delivery.
     """
-    # Destinations are matched on the legacy alert's id, so a copy without one has nobody to send to.
     # A source-owned alert is the insight stack's to send.
-    if check.legacy_configuration_id is None or not check.owned_by_platform:
+    if not check.owned_by_platform:
         return None
-    legacy_id = str(check.legacy_configuration_id)
+    alert_id = str(check.destination_alert_id)
     kinds = [group.kind for group in outcome.groups]
     if outcome.failure is not None:
         kinds.append(outcome.failure.kind)
     sends_messages = any(kind.value in _EVENT_IDS_BY_KIND for kind in kinds)
     actions = _incident_actions(check, outcome)
-    if actions and not configured_destination_template_ids(
-        team_id=check.team_id,
-        alert_id=legacy_id,
-        allowed_event_ids=tuple(INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION.values()),
-    ):
+    if actions and not _has_incident_destination(check):
         actions = {}
     if not sends_messages and not actions:
         return None
@@ -602,17 +624,30 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         configuration_id=str(check.id),
         # The recorded key unchanged, so the delivery addresses the row this check wrote.
         evaluation_key=outcome.evaluation_key,
-        destination_alert_id=legacy_id,
+        destination_alert_id=alert_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
         event_ids_by_incident_action=INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION,
         incident_actions=actions,
         sends_messages=sends_messages,
-        source_alert_url=_alert_url(check, legacy_id),
+        source_alert_url=_alert_url(check, alert_id),
         owned_by_platform=True,
         overflowed=outcome.overflowed,
         overflow_is_lower_bound=outcome.overflow_is_lower_bound,
         parts=delivery_parts(outcome, actions),
     )
+
+
+def _has_incident_destination(check: PlatformAlertCheckInput) -> bool:
+    """Whether a destination of this alert follows the incident events, as a HogFunction or as a
+    destination the platform keeps. Read only on a firing edge. It decides only that the edge starts a
+    delivery: which destinations that delivery reaches is the delivery's to decide."""
+    if configured_destination_template_ids(
+        team_id=check.team_id,
+        alert_id=str(check.destination_alert_id),
+        allowed_event_ids=tuple(INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION.values()),
+    ):
+        return True
+    return has_incident_destination(team_id=check.team_id, configuration_id=check.id)
 
 
 def _incident_actions(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> dict[str, IncidentAction]:
@@ -634,28 +669,10 @@ def _incident_actions(check: PlatformAlertCheckInput, outcome: PlatformAlertOutc
     }
 
 
-def _alert_url(check: PlatformAlertCheckInput, legacy_id: str) -> str | None:
+def _alert_url(check: PlatformAlertCheckInput, alert_id: str) -> str | None:
     """The alert's page on its insight, so a native message links where the insight stack's does."""
-    insight_short_id = (
-        AlertConfiguration.objects.filter(team_id=check.team_id, id=legacy_id)
-        .values_list("insight__short_id", flat=True)
-        .first()
-    )
-    return insight_alert_url(check.team_id, insight_short_id, legacy_id) if insight_short_id else None
-
-
-def _legacy_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
-    if check.legacy_configuration_id is None:
-        return None
-    return (
-        AlertConfiguration.objects.select_related("insight", "team", "threshold", "created_by")
-        # A firing's card names the insight's tags. Prefetched with the alert, because a reverse
-        # many-to-many cannot be selected, and the read would otherwise be its own round trip
-        # inside the window the check holds its admission slot.
-        .prefetch_related("insight__tagged_items__tag")
-        .filter(team_id=check.team_id, id=check.legacy_configuration_id)
-        .first()
-    )
+    insight = insight_of(check.team_id, check.source_config)
+    return insight_alert_url(check.team_id, insight.short_id, alert_id) if insight is not None else None
 
 
 def _snapshot(
@@ -708,16 +725,17 @@ def _decide(
     uses_llm_detector: bool,
 ) -> PlatformAlertOutcome | None:
     snapshot = _snapshot(check)
-    alert = _legacy_alert(check)
+    alert = evaluation_alert(check)
     if alert is None:
-        # The production alert is gone, so this copy can never be compared again.
+        # The production alert or the insight is gone, so this alert can never be checked again.
         return _skipped(check, snapshot, now=now, disable=True)
     if _ai_detector_not_copied(check, alert):
         # Before the refresh, which would write the AI detector onto the copy and opt it in. The
         # copy is switched off, because it would otherwise skip on its stale schedule every tick.
         return _skipped(check, snapshot, now=now, disable=True)
-    # Before any skip, because a skip advances the check by the copy's schedule.
-    check = _following(check, alert)
+    if check.legacy_configuration_id is not None:
+        # Before any skip, because a skip advances the check by the copy's schedule.
+        check = _following(check, alert)
     if not alert.enabled or alert.insight.deleted or not is_evaluated_on_the_platform(alert):
         return _skipped(check, snapshot, now=now)
     # As production: a plan that lost a cadence stops the alert, because the API checks it only on a write.
@@ -728,7 +746,7 @@ def _decide(
         return _broken(check, snapshot, alert, now=now, message=entitlement_error)
     if skip_because_of_weekend(alert) or is_utc_datetime_blocked(alert, now):
         return _skipped(check, snapshot, now=now)
-    if is_llm_detector_config(alert.detector_config) != uses_llm_detector:
+    if calls_ai_gateway(alert.detector_config) != uses_llm_detector:
         # As production: an edit since the plan means this worker may not hold the model
         # credentials. No outcome keeps the check due, so the next tick plans and routes it again.
         return None
@@ -742,6 +760,7 @@ def _decide(
         unsnoozed = apply_unsnooze(snapshot)
         snapshot = replace(snapshot, state=unsnoozed.new_state, consecutive_failures=unsnoozed.consecutive_failures)
 
+    _run_as_copy_creator(check, alert)
     # Production's tags, so ClickHouse workload management treats the query the way it treats
     # production's and its cost is grouped the same way in the query log. The user is the
     # platform's own, so the parallel run never takes from production's per-user budget.
@@ -767,7 +786,7 @@ def _decide(
         )
     except ClickHouseBudgetFull:
         return None
-    except LLMDetectorUnavailableError:
+    except LLMDetectorUnavailableError as error:
         if not final_attempt:
             # As production: a judge that reached no verdict gets another attempt, and only the
             # last one records the failure.
@@ -775,12 +794,12 @@ def _decide(
         return _verdict(
             check,
             snapshot,
-            CheckInput(threshold_breached=False, error_message=LLM_DETECTOR_UNAVAILABLE_MESSAGE),
+            CheckInput(threshold_breached=False, error_message=error.owner_message),
             now=now,
             skip=SkipReason.QUERY_FAILED,
             context=_context(alert),
             # History shows this reason by its code, and an errored check that repeats announces nothing.
-            check_detail={ERROR_CODE_KEY: LLM_DETECTOR_UNAVAILABLE_ERROR_CODE},
+            check_detail={ERROR_CODE_KEY: error.error_code},
         )
     except LLMDetectorPausedError as error:
         # As production: no retry, and the alert stays enabled so it resumes once access or credits return.
@@ -790,7 +809,7 @@ def _decide(
             alert,
             now=now,
             message=str(error),
-            check_detail={ERROR_CODE_KEY: LLM_DETECTOR_PAUSED_ERROR_CODE},
+            check_detail={ERROR_CODE_KEY: error.error_code},
         )
     except AlertDataUnavailableError as error:
         return _errored_stays_enabled(check, snapshot, alert, now=now, message=str(error))
@@ -816,15 +835,25 @@ def _decide(
 
 
 def _ai_detector_not_copied(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> bool:
-    """Whether a parallel-run copy made without the AI detector would now run one.
+    """Whether a parallel-run copy made without a gateway detector (the AI or forecast detector) would now run one.
 
-    A check reads the alert's live detector, so an alert switched to the AI detector after the
-    backfill copied it would make a model call the project pays for twice. The backfill copies
+    A check reads the alert's live detector, so an alert switched to a gateway detector after the
+    backfill copied it would make a gateway call the project pays for twice. The backfill copies
     AI detector alerts only on request, and a copy it made that way stores the AI detector.
     """
-    if check.owned_by_platform or not is_llm_detector_config(alert.detector_config):
+    if check.owned_by_platform or not calls_ai_gateway(alert.detector_config):
         return False
-    return not is_llm_detector_config(check.condition.get("detector"))
+    return not calls_ai_gateway(check.condition.get("detector"))
+
+
+def _run_as_copy_creator(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> None:
+    """Makes the creator the copy records the user the check's queries run as. A copy the creator
+    backfill has not reached records none, and one whose user is gone records an id that loads no
+    one. Both keep the alert row's, because a check with no user disables the alert."""
+    if check.created_by_id is None or check.created_by_id == alert.created_by_id:
+        return
+    if creator := User.objects.filter(id=check.created_by_id).first():
+        alert.created_by = creator
 
 
 def _following(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> PlatformAlertCheckInput:
@@ -1060,10 +1089,12 @@ def _wants_chart(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> b
 
 
 def render_firing_chart(team_id: int, alert_id: str, *, held_until: float) -> RenderedChart | None:
-    """Render the chart a firing of this alert sends, or None when none applies or the render fails.
+    """Render the chart a firing of this alert sends, or None when none applies.
 
     The evaluation workflow calls this after the check, so the render never holds the check's slot.
-    Raises `ChartRenderPoolFull` when the render pool has no room.
+    Raises `ChartRenderPoolFull` when the render pool has no room, `ChartRenderTimedOut` when the
+    export used its whole time limit and returned nothing, and `InsightChartRenderFailed` when the
+    render fails otherwise.
     """
     if not admit_evaluation_slots(
         [alert_id],
@@ -1073,10 +1104,28 @@ def render_firing_chart(team_id: int, alert_id: str, *, held_until: float) -> Re
     ):
         raise ChartRenderPoolFull()
     try:
-        alert = AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).select_related("team").first()
-        if alert is None:
+        # The id a firing names its chart by, which is the platform alert's own for an alert with no insight row.
+        charted = charted_alert(team_id, UUID(alert_id))
+        if charted is None:
             return None
-        chart = render_alert_insight_chart(alert)
+        alert, configuration_id = charted
+        started = time.monotonic()
+        try:
+            chart = render_alert_insight_chart_or_raise(
+                alert,
+                platform_slack_destination=configuration_id is not None
+                and destination_hears_kind(
+                    team_id=team_id,
+                    configuration_id=configuration_id,
+                    destination_type=DestinationType.SLACK,
+                    event_kind=AlertEventKind.FIRING,
+                ),
+            )
+        except InsightChartRenderFailed as error:
+            # A timed-out export fails like any other, so only its duration tells the two apart.
+            if time.monotonic() - started >= CHART_RENDER_TIMEOUT.total_seconds():
+                raise ChartRenderTimedOut() from error
+            raise
         return (
             RenderedChart(asset_id=chart.asset_id, render_user_id=chart.render_user_id) if chart is not None else None
         )
@@ -1124,7 +1173,7 @@ class _DetailBudget:
 
 
 def _insight_tags(alert: AlertConfiguration) -> list[str]:
-    # Sorted and sliced in Python so the prefetch on `_legacy_alert` is used. A `filter()` here
+    # Sorted and sliced in Python so the prefetch on `legacy_alert` is used. A `filter()` here
     # would build a new queryset and go back to the database for every firing.
     names = sorted(item.tag.name for item in alert.insight.tagged_items.all() if item.tag.team_id == alert.team_id)
     return [_clipped(name, MAX_TAG_CHARS) for name in names[:MAX_TAGS]]
