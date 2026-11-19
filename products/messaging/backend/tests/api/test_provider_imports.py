@@ -211,5 +211,6 @@ class TestProviderImportFlag(APIBaseTest):
         response = self.client.post(url, body)
 
         assert [setting["key"] for setting in mailgun["settings"]] == ["region"]
+        assert any("names on the email preferences page" in step for step in mailgun["next_steps"])
         assert response.status_code == 400
         assert "Mailgun region" in response.json()["detail"]

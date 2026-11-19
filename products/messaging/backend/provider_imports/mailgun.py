@@ -133,6 +133,8 @@ class MailgunImportProvider(ImportProvider):
     next_steps = (
         "Add each sending domain in PostHog and publish its DNS records. PostHog signs mail with its own keys, so "
         "this needs new records. Leave your Mailgun records in place while you move.",
+        "Recipients see the imported list and tag names on the email preferences page. Rename any you don't want "
+        "them to see.",
         "If you send a lot of email, move it over several days. Mailbox providers slow down mail from a sender "
         "whose volume jumps.",
         "Once nothing sends through Mailgun, remove its DNS records and delete the API key you created for this import.",
