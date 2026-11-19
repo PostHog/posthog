@@ -2,6 +2,7 @@
 
 from django.db.models import Q, QuerySet
 
+from products.access_control.backend.facade import api as access_control_facade
 from products.canvas.backend.facade.contracts import CanvasViewer
 from products.canvas.backend.facade.enums import CanvasAccess
 from products.canvas.backend.models import Canvas
@@ -42,8 +43,15 @@ def authorized_canvases(viewer: CanvasViewer, access: CanvasAccess) -> QuerySet[
     if access == CanvasAccess.EDIT:
         if viewer.user_id is None:
             return queryset.none()
+        # An editor grant on the canvas itself lets a member of a private space edit it too. It
+        # only applies within the space visibility above, so a personal space stays its owner's.
+        granted_ids = access_control_facade.object_ids_granted_to_user(
+            team_id=viewer.team_id, resource="canvas", user_id=viewer.user_id, required_level="editor"
+        )
         queryset = queryset.filter(
-            Q(created_by_id=viewer.user_id) | tasks_facade.visible_channels_q(None, relation="channel")
+            Q(created_by_id=viewer.user_id)
+            | tasks_facade.visible_channels_q(None, relation="channel")
+            | Q(id__in=granted_ids)
         )
     elif access == CanvasAccess.DELETE:
         if viewer.user_id is None:

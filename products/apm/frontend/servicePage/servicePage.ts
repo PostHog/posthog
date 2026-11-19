@@ -1,3 +1,7 @@
+import { combineUrl } from 'kea-router'
+
+import { urls } from 'scenes/urls'
+
 import { FilterLogicalOperator, PropertyFilterType, PropertyGroupFilter, PropertyOperator } from '~/types'
 
 import { bucketUpperBound, type TracingLatencyHeatmapData } from 'products/tracing/frontend/durationBuckets'
@@ -299,4 +303,20 @@ export function mergeStatusCodeErrors(breakdowns: { value: string; error_count: 
     return [...byCode.entries()]
         .map(([statusCode, errors]) => ({ statusCode, errors }))
         .sort((a, b) => b.errors - a.errors)
+}
+
+/** The tracing viewer, showing this service's traces under the same scope and window. */
+export function serviceTracesUrl(
+    serviceName: string,
+    dateRange: { date_from: string; date_to: null },
+    filters: ServiceSpanFilter[],
+    { errorsOnly = false }: { errorsOnly?: boolean } = {}
+): string {
+    const filterGroup = toPropertyGroupFilter(errorsOnly ? [...filters, ERROR_STATUS_FILTER] : filters)
+    return combineUrl(urls.tracing(), {
+        // A list, not a string: the viewer splits a string on commas.
+        serviceNames: [serviceName],
+        dateRange: JSON.stringify(dateRange),
+        ...(filterGroup ? { filterGroup: JSON.stringify(filterGroup) } : {}),
+    }).url
 }

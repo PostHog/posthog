@@ -2431,6 +2431,7 @@ export namespace Schemas {
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
+     * * `canvas` - canvas
      * * `code_review_approval` - code_review_approval
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
@@ -2492,6 +2493,7 @@ export namespace Schemas {
       ActivityLog: 'activity_log',
       AiObservabilityClusters: 'ai_observability_clusters',
       BusinessKnowledge: 'business_knowledge',
+      Canvas: 'canvas',
       CodeReviewApproval: 'code_review_approval',
       CustomerAnalytics: 'customer_analytics',
       CustomerJourney: 'customer_journey',
@@ -2556,6 +2558,7 @@ export namespace Schemas {
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
        * * `business_knowledge` - business_knowledge
+       * * `canvas` - canvas
        * * `code_review_approval` - code_review_approval
        * * `customer_analytics` - customer_analytics
        * * `customer_journey` - customer_journey
@@ -2831,6 +2834,7 @@ export namespace Schemas {
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
        * * `business_knowledge` - business_knowledge
+       * * `canvas` - canvas
        * * `code_review_approval` - code_review_approval
        * * `customer_analytics` - customer_analytics
        * * `customer_journey` - customer_journey
@@ -2920,6 +2924,7 @@ export namespace Schemas {
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
        * * `business_knowledge` - business_knowledge
+       * * `canvas` - canvas
        * * `code_review_approval` - code_review_approval
        * * `customer_analytics` - customer_analytics
        * * `customer_journey` - customer_journey
@@ -24649,6 +24654,129 @@ export namespace Schemas {
       unavailable_reason: CITimingUnavailableReasonEnum | null;
     }
 
+    /**
+     * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+     * @nullable
+     */
+    export type CachedTileInsightResultResolvedDateRange = {
+      readonly date_from?: string;
+      readonly date_to?: string;
+    } | null;
+
+    /**
+     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+     * @nullable
+     */
+    export type CachedTileInsightResultResolvedCompareDateRange = {
+      readonly date_from?: string;
+      readonly date_to?: string;
+    } | null;
+
+    /**
+     * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+     * @nullable
+     */
+    export type CachedTileInsightResultActionNames = {[key: string]: string} | null;
+
+    /**
+     * The result fields of an insight tile, without the insight's own metadata.
+     *
+     * Results come from `InsightSerializer.insight_result`, the same computation as the per-tile insight
+     * endpoint, so the cache key, dashboard and tile filters, variables and access restrictions match it.
+     */
+    export interface CachedTileInsightResult {
+      readonly id: number;
+      readonly result: unknown;
+      /** @nullable */
+      readonly hasMore: boolean | null;
+      /** @nullable */
+      readonly columns: readonly string[] | null;
+      /** @nullable */
+      readonly types: readonly unknown[] | null;
+      /**
+         * The timezone this chart is displayed in.
+         * @nullable
+         */
+      readonly timezone: string | null;
+      /**
+         *
+       *     The datetime this insight's results were generated.
+       *     If added to one or more dashboards the insight can be refreshed separately on each.
+       *     Returns the appropriate last_refresh datetime for the context the insight is viewed in
+       *     (see from_dashboard query parameter).
+       *
+         * @nullable
+         */
+      readonly last_refresh: string | null;
+      /**
+         * The target age of the cached results for this insight.
+         * @nullable
+         */
+      readonly cache_target_age: string | null;
+      /**
+         *
+       *     The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
+       *     by querying the database.
+       *
+         * @nullable
+         */
+      readonly next_allowed_client_refresh: string | null;
+      readonly is_cached: boolean;
+      readonly query_status: unknown;
+      /**
+         * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+         * @nullable
+         */
+      readonly resolved_date_range: CachedTileInsightResultResolvedDateRange;
+      /**
+         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+         * @nullable
+         */
+      readonly resolved_compare_date_range: CachedTileInsightResultResolvedCompareDateRange;
+      /**
+         * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+         * @nullable
+         */
+      readonly action_names: CachedTileInsightResultActionNames;
+      /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+      readonly warnings: _InsightResultWarnings | null;
+    }
+
+    /**
+     * * `hit` - Hit
+     * * `miss` - Miss
+     * * `forbidden` - Forbidden
+     * * `not_found` - Not found
+     */
+    export type CachedTileStatusEnum = typeof CachedTileStatusEnum[keyof typeof CachedTileStatusEnum];
+
+
+    export const CachedTileStatusEnum = {
+      Hit: 'hit',
+      Miss: 'miss',
+      Forbidden: 'forbidden',
+      NotFound: 'not_found',
+    } as const;
+
+    export interface CachedTileResult {
+      /** Dashboard tile ID. */
+      id: number;
+      /** 'hit' carries the cached result in `insight`, even when it is older than its target age. 'miss' means nothing usable is cached, so load the tile through the insight endpoint. 'forbidden' means the caller can't view the tile's insight. 'not_found' means the ID isn't an insight tile on this dashboard.
+       *
+       * * `hit` - Hit
+       * * `miss` - Miss
+       * * `forbidden` - Forbidden
+       * * `not_found` - Not found */
+      status: CachedTileStatusEnum;
+      /** The cached result. Present only when status is 'hit'. */
+      insight?: CachedTileInsightResult;
+    }
+
+    export interface CachedTilesResponse {
+      /** One entry per requested tile ID, in request order. */
+      results: CachedTileResult[];
+    }
+
     export interface EventsHeatMapColumnAggregationResult {
       column: number;
       value: number;
@@ -25131,6 +25259,11 @@ export namespace Schemas {
      * A canvas document. Version/build content hangs off the source and build endpoints.
      */
     export interface Canvas {
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
       readonly id: string;
       readonly name: string;
       /** What the canvas is: 'freeform' (a standalone app), 'component' (a reusable widget grids place), or 'grid' (a composition of components).
@@ -28296,6 +28429,13 @@ export namespace Schemas {
       Code: 'code',
       Slack: 'slack',
     } as const;
+
+    export interface ClaimCoupon {
+      /** Coupon code to redeem. Give this or `campaign_slug`, never both. Needs billing access. */
+      code?: string;
+      /** Slug of a campaign to redeem. Give this or `code`, never both. Any organization member can redeem an allowlisted campaign. */
+      campaign_slug?: string;
+    }
 
     export interface TagCount {
       /** The tag value. */
@@ -34172,6 +34312,28 @@ export namespace Schemas {
     }
 
     /**
+     * One value an account held for a custom property (read shape).
+     */
+    export interface CustomPropertyValueHistoryEntry {
+      /** The value, typed per the property's data type. */
+      readonly value: string | number | boolean;
+      /** When the account got this value. */
+      readonly set_at: string;
+      /**
+         * ID of the user who set this value. Null when a sync or the system set it.
+         * @nullable
+         */
+      readonly set_by_id: number | null;
+      /**
+         * When the next value replaced this one. Null for the current value, and for a value that was cleared with no value after it.
+         * @nullable
+         */
+      readonly replaced_at: string | null;
+      /** Whether this is the account's value now. */
+      readonly is_current: boolean;
+    }
+
+    /**
      * One suggested filter value for a custom property.
      */
     export interface CustomPropertyValueSuggestion {
@@ -39286,6 +39448,62 @@ export namespace Schemas {
       deployment_count: number;
     }
 
+    export interface DeploymentVersion {
+      /** The service.version resource attribute. */
+      version: string;
+      /** First span of this version in the window. */
+      first_seen: string;
+      /** Last span of this version in the window. */
+      last_seen: string;
+      /** Requests counted in the window. */
+      requests: number;
+      /** Requests with an error status. */
+      error_count: number;
+      /**
+         * Share of requests with an error status, 0 to 1.
+         * @nullable
+         */
+      error_rate: number | null;
+      /**
+         * 95th percentile request duration in milliseconds.
+         * @nullable
+         */
+      p95_ms: number | null;
+      /**
+         * The version first seen just before this one. Null for the oldest.
+         * @nullable
+         */
+      previous_version: string | null;
+      /**
+         * Error rate minus the previous version's, as a fraction.
+         * @nullable
+         */
+      error_rate_change: number | null;
+      /**
+         * Change in p95 from the previous version, in percent.
+         * @nullable
+         */
+      p95_change_pct: number | null;
+      /** True for the version first seen most recently. */
+      active: boolean;
+    }
+
+    export interface DeploymentsResponse {
+      /** One row per version, oldest first. */
+      results: DeploymentVersion[];
+      /** The service the versions belong to. */
+      service: string;
+      /**
+         * The environment filter the rows were computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
+    }
+
     export interface DepotCIRepoUsage {
       /** Repository the Depot source syncs, as lowercase 'owner/name'. */
       repo: string;
@@ -42705,8 +42923,20 @@ export namespace Schemas {
     export interface EndpointHealth {
       /** The service.name resource attribute. */
       service_name: string;
-      /** The entry span name, for example the HTTP route or the job name. */
+      /** The endpoint label: the entry span name, or "<METHOD> <route>" when the span name is only an HTTP method and the span carries a route. */
       endpoint: string;
+      /** The raw entry span name the row counts, for tracing filters. */
+      span_name: string;
+      /**
+         * The span attribute the route came from (http.route or url.template), or null when the label is the span name.
+         * @nullable
+         */
+      route_attribute: string | null;
+      /**
+         * The route appended to the span name, or null.
+         * @nullable
+         */
+      route: string | null;
       /**
          * The environment filter the row was computed for: null for every environment, empty for spans with no environment.
          * @nullable
@@ -59032,7 +59262,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, html?, design?}}}}. Sends from PostHog's shared sandbox sender to members of the organization only, so it takes no sender, reply-to, template, headers or attachments. Needs text or html. Only workflows, not broadcasts or templates, can hold it. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, html?, design?}}}}. Sends from the PostHog test sender to members of the organization only, so it takes no sender, reply-to, template, headers or attachments. Needs text or html. Only workflows, not broadcasts or templates, can hold it. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
      */
     export type HogFlowActionConfig = { [key: string]: unknown } | {
       /** Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout. */
@@ -59092,7 +59322,7 @@ export namespace Schemas {
        * * `exit` - exit
        * * `email_sandbox` - email_sandbox */
       type: HogFlowActionTypeEnum;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, html?, design?}}}}. Sends from PostHog's shared sandbox sender to members of the organization only, so it takes no sender, reply-to, template, headers or attachments. Needs text or html. Only workflows, not broadcasts or templates, can hold it. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, html?, design?}}}}. Sends from the PostHog test sender to members of the organization only, so it takes no sender, reply-to, template, headers or attachments. Needs text or html. Only workflows, not broadcasts or templates, can hold it. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
       config: HogFlowActionConfig;
       /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
       output_variable?: unknown;
@@ -61212,6 +61442,8 @@ export namespace Schemas {
       /** Opaque id of `identity`, the same as the `key` of its resolution in the resolutions API. Compare it as is. */
       key: string;
       level: MarketingAnalyticsRecommendationLevel;
+      /** True when the monthly impact is under 1% of the ad account's monthly spend. */
+      minor?: boolean | null;
       reason: string;
       /** Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied. */
       resolution?: MarketingAnalyticsRecommendationResolution | null;
@@ -61259,7 +61491,7 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsRecommendationsSource {
-      /** Google Ads ad table, used to read the ad copy of each ad group. */
+      /** Google Ads ad table, used to read the ad copy and landing pages of each ad group. */
       adTable?: string | null;
       /** Google Ads daily campaign conversions split by conversion action. */
       campaignConversionActionTable?: string | null;
@@ -68264,10 +68496,10 @@ export namespace Schemas {
       readonly spec_problems: readonly LLMSkillSpecProblem[];
       readonly version: number;
       /**
-         * Optional note describing what changed in this version. Set when the version is published.
-         * @nullable
+         * Optional note on where this skill came from, such as written from scratch or ported from another skill. Stored on version 1 and shown in the version history.
+         * @maxLength 400
          */
-      readonly version_description: string | null;
+      version_description?: string;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -92119,14 +92351,14 @@ export namespace Schemas {
       base_updated_at?: string;
       /** Ordered design edits applied atomically to this step's email design - the same operations as the email template patch. The result is re-rendered to HTML server-side, so the sent email always matches the patched design. */
       operations?: DesignOperation[];
-      /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. A sandbox step (type email_sandbox) takes only subject, preheader, text and to. The design is edited via operations, and html is always re-rendered from it. */
+      /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. A PostHog test sender step (type email_sandbox) takes only subject, preheader, text and to. The design is edited via operations, and html is always re-rendered from it. */
       email_patch?: unknown;
-      /** Switch the step's sender. 'sandbox' moves it to PostHog's sandbox sender, which sends only to verified members of the organization and needs no verified domain; it is set up for the project on first use. 'own' moves a sandbox step back to one of the project's verified senders, named in email_patch.from.integrationId. The step keeps its id, recipient, content and category.
+      /** Switch the step's sender. 'sandbox' moves it to the PostHog test sender, which sends only to verified members of the organization and needs no verified domain; it is set up for the project on first use. 'own' moves a PostHog test sender step back to one of the project's verified senders, named in email_patch.from.integrationId. The step keeps its id, recipient, content and category.
        *
        * * `sandbox` - sandbox
        * * `own` - own */
       sender?: EmailStepSenderEnum;
-      /** With sender 'sandbox': drop the settings the sandbox sender can't keep (custom from address or name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch is refused and the error lists them, so confirm with the user before setting it. */
+      /** With sender 'sandbox': drop the settings the PostHog test sender can't keep (custom from address or name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch is refused and the error lists them, so confirm with the user before setting it. */
       drop_own_sender_settings?: boolean;
     }
 
@@ -116404,7 +116636,7 @@ export namespace Schemas {
     }
 
     /**
-     * * `sandbox_sender` - Sent from the sandbox sender
+     * * `sandbox_sender` - Sent from the PostHog test sender
      */
     export type SendWarningCodeEnum = typeof SendWarningCodeEnum[keyof typeof SendWarningCodeEnum];
 
@@ -116414,9 +116646,9 @@ export namespace Schemas {
     } as const;
 
     export interface SendWarning {
-      /** What the warning is about. `sandbox_sender`: the email went out from PostHog's sandbox sender because the project has no verified sending domain, so it only reaches members of the organization.
+      /** What the warning is about. `sandbox_sender`: the email went out from the PostHog test sender because the project has no verified sending domain, so it only reaches members of the organization.
        *
-       * * `sandbox_sender` - Sent from the sandbox sender */
+       * * `sandbox_sender` - Sent from the PostHog test sender */
       code: SendWarningCodeEnum;
       /** What happened and what to do next, in words a person can read. */
       message: string;
@@ -128765,23 +128997,23 @@ export namespace Schemas {
     }
 
     export interface WorkflowEmailSandboxProvision {
-      /** ID of the project's sandbox sender. */
+      /** ID of the project's PostHog test sender. */
       integration_id: number;
     }
 
     export interface WorkflowEmailSandboxStatus {
       /**
-         * ID of the project's sandbox sender, which an email step can use. Null until the sender is set up.
+         * ID of the project's PostHog test sender, which an email step can use. Null until the sender is set up.
          * @nullable
          */
       integration_id: number | null;
-      /** The address sandbox emails come from. Blank when sandbox sending isn't configured. */
+      /** The address the PostHog test sender sends from. Blank when the PostHog test sender isn't configured. */
       from_address: string;
-      /** The sender name sandbox emails show, such as 'Acme via PostHog'. */
+      /** The sender name emails from the PostHog test sender show, such as 'Acme via PostHog'. */
       display_name: string;
-      /** Whether PostHog has stopped this organization from using the sandbox sender. */
+      /** Whether PostHog has stopped this organization from using the PostHog test sender. */
       organization_blocked: boolean;
-      /** Whether the project can add new sandbox email steps. Steps it already has keep working either way. */
+      /** Whether the project can add new PostHog test sender steps. Steps it already has keep working either way. */
       adoption_enabled: boolean;
     }
 
@@ -133917,6 +134149,17 @@ export namespace Schemas {
     tags?: string;
     };
 
+    export type AccountsCustomPropertyValuesHistoryRetrieveParams = {
+    /**
+     * ID of the custom property definition to read the history of.
+     */
+    definition: string;
+    /**
+     * Only return values held on or after this date (YYYY-MM-DD, UTC). The first entry is the value in place on that date. Omit for the full history.
+     */
+    since?: string;
+    };
+
     export type AccountsNotebooksListParams = {
     /**
      * Only return notebooks created by these user IDs (repeat the param per user).
@@ -135755,6 +135998,28 @@ export namespace Schemas {
     service?: string;
     };
 
+    export type ApmDeploymentsListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
+     * @maxLength 200
+     */
+    environment?: string;
+    /**
+     * The service to list versions for.
+     * @minLength 1
+     * @maxLength 400
+     */
+    service: string;
+    };
+
     export type ApmEndpointTimeSpentListParams = {
     /**
      * Start of the window, ISO 8601. Defaults to one hour before date_to.
@@ -135765,7 +136030,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * The endpoint's entry span name, as listed by apm/endpoints.
+     * The endpoint label, as listed by apm/endpoints.
      * @minLength 1
      * @maxLength 2000
      */
@@ -137903,6 +138168,21 @@ export namespace Schemas {
       Json: 'json',
       Txt: 'txt',
     } as const;
+
+    export type DashboardsCachedTilesRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
+    /**
+     * Comma-separated dashboard tile IDs to read, at most 100. Results come back in this order.
+     */
+    tile_ids: string;
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string;
+    };
 
     export type DashboardsCopyGroupCreateParams = {
     format?: DashboardsCopyGroupCreateFormat;
@@ -147248,6 +147528,10 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * 'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking.
+     */
+    needs_you?: boolean;
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
@@ -147543,6 +147827,10 @@ export namespace Schemas {
      * Include reports kept out of the shared inbox. A report is kept out when the scout that authored it turned off its `inbox` output destination. Defaults to false. Fetching a report by id always works, whatever this value is.
      */
     include_unlisted?: boolean;
+    /**
+     * 'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking.
+     */
+    needs_you?: boolean;
     /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
