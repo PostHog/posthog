@@ -3,7 +3,7 @@
 // today's allowance is the larger of a floor and 2x the peak clean day of the last 7 days, and a
 // dirty 7-day window halves it.
 
-export type VariantKey = 'A' | 'B' | 'C' | 'D'
+export type VariantKey = 'A' | 'B' | 'C' | 'D' | 'Mix'
 export type StateKey = 'new' | 'warming' | 'capped' | 'moved-down' | 'blocked'
 export type SurfaceKey = 'setup' | 'reputation' | 'broadcast'
 export type DomainProfileKey = 'paying' | 'established' | 'starter' | 'lookup-failed' | 'brand-new' | 'listed'
@@ -47,6 +47,7 @@ export const VARIANTS: { key: VariantKey; name: string; primarySurface: SurfaceK
     { key: 'B', name: 'Explain it', primarySurface: 'reputation' },
     { key: 'C', name: 'At broadcast time', primarySurface: 'broadcast' },
     { key: 'D', name: 'Check at sender setup', primarySurface: 'setup' },
+    { key: 'Mix', name: 'B + C + D', primarySurface: 'reputation' },
 ]
 
 // Filled from the usage brief: flag names and the controls they trip, never numbers.
@@ -55,6 +56,7 @@ export const VARIANT_USAGE_FLAGS: Record<VariantKey, string> = {
     B: 'muscle memory, known pain: workflows-sending-allowance · low use: the Reputation tab',
     C: 'muscle memory, known pain: broadcast-audience-over-limit · low use: broadcast-rate-limit-suggestion · channel shift: broadcasts-create MCP tool',
     D: 'low use: email-domain-ready-reputation · known pain: email-domain-check-again',
+    Mix: 'muscle memory, known pain: workflows-sending-allowance, broadcast-audience-over-limit · channel shift: broadcasts-create MCP tool',
 }
 
 export const SURFACES: { key: SurfaceKey; label: string }[] = [

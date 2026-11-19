@@ -151,7 +151,7 @@ function RecipientsPlan({ state }: { state: SendingState }): JSX.Element {
     )
 }
 
-function SendsInProgress({ state }: { state: SendingState }): JSX.Element | null {
+export function SendsInProgress({ state }: { state: SendingState }): JSX.Element | null {
     const { broadcast } = state
     if (broadcast.sentSoFar >= broadcast.audience || state.key === 'new') {
         return null

@@ -24,6 +24,7 @@ import { VariantAHide } from './VariantAHide'
 import { VariantBExplain } from './VariantBExplain'
 import { VariantCBroadcast } from './VariantCBroadcast'
 import { VariantDSetupCheck } from './VariantDSetupCheck'
+import { VariantMix } from './VariantMix'
 
 function readParam<T extends string>(name: string, allowed: readonly T[], fallback: T): T {
     const value = new URLSearchParams(window.location.search).get(name)
@@ -104,6 +105,14 @@ export function SendingLimitsPrototype(): JSX.Element {
                 {variant === 'C' && <VariantCBroadcast surface={surface} state={state} />}
                 {variant === 'D' && (
                     <VariantDSetupCheck
+                        surface={surface}
+                        state={state}
+                        domainProfile={domainProfile}
+                        setDomainProfile={setDomainProfile}
+                    />
+                )}
+                {variant === 'Mix' && (
+                    <VariantMix
                         surface={surface}
                         state={state}
                         domainProfile={domainProfile}

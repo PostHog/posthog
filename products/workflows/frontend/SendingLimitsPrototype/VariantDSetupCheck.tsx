@@ -53,7 +53,7 @@ function Signal({ signal }: { signal: DomainCheck['signals'][number] }): JSX.Ele
     )
 }
 
-function DomainCheckCard({ check, checkedOn }: { check: DomainCheck; checkedOn: string }): JSX.Element {
+export function DomainCheckCard({ check, checkedOn }: { check: DomainCheck; checkedOn: string }): JSX.Element {
     return (
         <div
             className="border rounded p-4 bg-surface-primary flex flex-col gap-3"

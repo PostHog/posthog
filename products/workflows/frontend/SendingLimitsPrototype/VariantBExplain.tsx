@@ -1,5 +1,8 @@
 // PROTOTYPE (branch prototype/sending-limits-ux): variant B, explain it, on the action-list Reputation tab.
 // A warm-up bar, the 7 days that decide every move, and a plain reason for each move up or down. Never merge.
+import clsx from 'clsx'
+import { ReactNode } from 'react'
+
 import { IconCheck, IconTrending, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 
@@ -19,12 +22,47 @@ import { SetupShell } from './SetupShell'
 const fmt = humanFriendlyNumber
 const pct = (rate: number): string => percentage(rate, 2, true)
 
-// Logarithmic, so 1,000 to 100,000 reads as a climb rather than a sliver.
-function warmUpPercent(perDay: number, ceiling: number): number {
-    if (perDay <= 0) {
-        return 0
-    }
-    return Math.min(100, (Math.log10(perDay / 100) / Math.log10(ceiling / 100)) * 100)
+// The warm-up doubles from the start, so each step on the ladder is one clean move up.
+const LADDER = [1000, 2000, 4000, 8000, 16000, 32000, 64000, 100000]
+
+function shortNumber(value: number): string {
+    return value >= 1000 ? `${value / 1000}k` : String(value)
+}
+
+// Steps, not a fill, so the warm-up never reads as how much of today's allowance is used.
+function WarmUpLadder({ perDay }: { perDay: number }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <span className="text-secondary text-xs">Warm-up, from 1,000 to 100,000 a day</span>
+            <div className="flex gap-1">
+                {LADDER.map((step) => (
+                    <span
+                        key={step}
+                        className={clsx(
+                            'flex-1 rounded border text-center text-xs py-0.5 tabular-nums',
+                            step <= perDay ? 'bg-primary-highlight border-primary font-semibold' : 'text-secondary'
+                        )}
+                    >
+                        {shortNumber(step)}
+                    </span>
+                ))}
+            </div>
+        </div>
+    )
+}
+
+function SentToday({ sent, perDay }: { sent: number; perDay: number }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <span className="flex justify-between text-xs">
+                <span className="text-secondary">Sent today</span>
+                <span className="tabular-nums">
+                    {fmt(sent)} of {fmt(perDay)}
+                </span>
+            </span>
+            <LemonProgress percent={perDay > 0 ? (sent / perDay) * 100 : 0} />
+        </div>
+    )
 }
 
 const STATUS: Record<SendingState['key'], { label: string; type: LemonTagType }> = {
@@ -77,8 +115,16 @@ function RateRow({ label, rate, limit }: { label: string; rate: number; limit: n
     )
 }
 
-function WarmUpCard({ state }: { state: SendingState }): JSX.Element {
+interface WarmUpCardProps {
+    state: SendingState
+    // The mix variant passes the start the domain check or paid plan set.
+    perDayOverride?: number
+    startedFrom?: ReactNode
+}
+
+export function WarmUpCard({ state, perDayOverride, startedFrom }: WarmUpCardProps): JSX.Element {
     const status = STATUS[state.key]
+    const perDay = perDayOverride ?? state.allowancePerDay
     return (
         <div
             className="border rounded p-4 bg-surface-primary flex flex-col gap-4"
@@ -92,12 +138,13 @@ function WarmUpCard({ state }: { state: SendingState }): JSX.Element {
                 <div className="flex-1 min-w-64 flex flex-col gap-1">
                     <span className="text-secondary text-xs">Today's allowance</span>
                     <span className="text-2xl font-semibold">
-                        {state.key === 'blocked' ? 'Paused' : `${fmt(state.allowancePerDay)} emails a day`}
+                        {state.key === 'blocked' ? 'Paused' : `${fmt(perDay)} emails a day`}
                     </span>
-                    <LemonProgress percent={warmUpPercent(state.allowancePerDay, state.ceilingPerDay)} />
+                    {startedFrom && <span className="text-xs text-secondary">{startedFrom}</span>}
+                    {state.key !== 'blocked' && <SentToday sent={state.sentToday} perDay={perDay} />}
+                    <WarmUpLadder perDay={perDay} />
                     <span className="text-xs text-secondary">
-                        Warm-up ends at {fmt(state.ceilingPerDay)} a day. Emails over the allowance wait and go out the
-                        next day. Nothing is dropped.
+                        Emails over today's allowance wait and go out the next day. Nothing is dropped.
                     </span>
                     {state.queued > 0 && state.key !== 'blocked' && (
                         <span className="text-sm">
@@ -166,7 +213,7 @@ function WarmUpCard({ state }: { state: SendingState }): JSX.Element {
     )
 }
 
-function BlockedBanner({ state }: { state: SendingState }): JSX.Element {
+export function BlockedBanner({ state }: { state: SendingState }): JSX.Element {
     return (
         <LemonBanner type="error">
             <div className="flex flex-col gap-1">
