@@ -82,6 +82,7 @@ export interface ResolvedState {
     analyticsContext?: MCPAnalyticsContext | undefined
     /** Set on the per-call state: whether the client sent a session or conversation handle. */
     carriedContextHandle?: boolean | undefined
+    suppliedConversationHadNoSavedSelection?: boolean
     /** The client-carried handle before the SDK can mint one for this call. */
     carriedContextSessionKey?: string | undefined
     isTaskBound?: boolean | undefined
@@ -419,6 +420,10 @@ export class RequestStateResolver {
             oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
+            suppliedConversationHadNoSavedSelection:
+                !requestContext.mcpSessionId &&
+                Boolean(requestContext.mcpConversationId) &&
+                pinned?.hasSavedSelection === false,
             sessionContext,
             allTools,
             scopeGatedTools,
@@ -447,7 +452,7 @@ export class RequestStateResolver {
     private async resolvePinnedContext(
         reqCtx: RequestContext,
         pin: { organizationId?: string | undefined; projectId?: string | undefined }
-    ): Promise<PinnedActiveContext | undefined> {
+    ): Promise<(PinnedActiveContext & { hasSavedSelection?: boolean }) | undefined> {
         const { organizationId, projectId } = pin
         const hasPin = Boolean(organizationId || projectId)
 
@@ -496,6 +501,7 @@ export class RequestStateResolver {
             return {
                 pin: { organizationId: appliedPinOrg, projectId: appliedPinProject },
                 sessionScoped: true,
+                hasSavedSelection: hasSessionState,
                 orgId:
                     activeOrg !== undefined
                         ? (activeOrg ?? undefined)
@@ -529,6 +535,7 @@ export class RequestStateResolver {
         return {
             pin,
             sessionScoped: true,
+            hasSavedSelection: hasSessionState,
             orgId: overrideOrg !== undefined ? (overrideOrg ?? undefined) : organizationId,
             projectId: overrideProject !== undefined ? (overrideProject ?? undefined) : projectId,
         }

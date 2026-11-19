@@ -339,7 +339,7 @@ describe('pinned project with switch-project (Hono)', () => {
         { mode: 'cli', query: '', switchTo: OTHER_PROJECT },
         { mode: 'tools', query: `?organization_id=${PINNED_ORG}`, switchTo: '3' },
     ] as const)(
-        'warns when a $mode call with "$query" drops the handle after switching projects',
+        'warns when a $mode call with "$query" falls back after switching projects',
         async ({ mode, query, switchTo }) => {
             const options = { token: `phx_project_fallback_${mode}_${switchTo}`, query, mode }
             const name = mode === 'cli' ? 'exec' : 'execute-sql'
@@ -358,9 +358,15 @@ describe('pinned project with switch-project (Hono)', () => {
             apiPaths.length = 0
             const withHandle = await postToolCall(name, args, { ...options, conversationId })
             const fallback = await postToolCall(name, args, options)
+            const unknown = await postToolCall(name, args, { ...options, conversationId: CONVERSATION_B })
             const pinned = await postToolCall(name, args, { ...options, query: `?project_id=${PINNED_PROJECT}` })
             const [defaultPath] = pathsFor(PINNED_PROJECT, PINNED_ORG)
-            expect(apiPaths).toEqual([`/api/environments/${switchTo}/mcp_tools/execute_sql/`, defaultPath, defaultPath])
+            expect(apiPaths).toEqual([
+                `/api/environments/${switchTo}/mcp_tools/execute_sql/`,
+                defaultPath,
+                defaultPath,
+                defaultPath,
+            ])
             expect(fallback.result?.isError).toBeFalsy()
             expect(fallback.result?.content?.[0]).toEqual(pinned.result?.content?.[0])
             expect(mintedConversationId(fallback)).toBeTruthy()
@@ -372,6 +378,9 @@ describe('pinned project with switch-project (Hono)', () => {
             expect(withHandle.result?.content?.map(({ text }) => text)).not.toContainEqual(warning)
             expect(pinned.result?.content?.map(({ text }) => text)).not.toContainEqual(warning)
             expect(fallback.result?.content?.map(({ text }) => text)).toContainEqual(warning)
+            expect(unknown.result?.content?.map(({ text }) => text)).toContainEqual(
+                expect.stringContaining('No saved project selection was found for this `conversation_id`.')
+            )
         }
     )
 

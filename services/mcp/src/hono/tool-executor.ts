@@ -265,6 +265,7 @@ export class ToolExecutor {
         const carriedContextHandle =
             hooks?.carriedContextHandle ??
             Boolean(state.requestContext.mcpSessionId || state.requestContext.mcpConversationId)
+        const missingSavedSelection = carriedContextHandle && state.suppliedConversationHadNoSavedSelection === true
         const carriedContextSessionKey = carriedContextHandle
             ? (state.requestContext.mcpConversationId ?? state.requestContext.mcpSessionId)
             : undefined
@@ -318,29 +319,40 @@ export class ToolExecutor {
             return invitation
         }
         const result = await this.dispatchToolCall(toolName, callParams, callState, analyticsMeta)
-        const resultWithProjectContext =
-            carriedContextHandle || callState.requestContext.projectId
-                ? result
-                : await this.appendDefaultProjectWarning(result, callState)
+        const warnAboutDefault =
+            !isContextSwitch && !callState.requestContext.projectId && (!carriedContextHandle || missingSavedSelection)
+        const resultWithProjectContext = warnAboutDefault
+            ? await this.appendDefaultProjectWarning(result, callState, missingSavedSelection)
+            : result
         const delivered = this.deliverConversationHandle(resultWithProjectContext, preparedCall)
         await hooks?.afterExecute(callState, delivered)
         return delivered
     }
 
-    private async appendDefaultProjectWarning(result: unknown, state: ResolvedState): Promise<unknown> {
+    private async appendDefaultProjectWarning(
+        result: unknown,
+        state: ResolvedState,
+        missingSavedSelection: boolean
+    ): Promise<unknown> {
         if (typeof result !== 'object' || result === null || !('content' in result) || !Array.isArray(result.content)) {
             return result
         }
 
         try {
             const projectId = await state.context.stateManager.getProjectId()
+            const reason = missingSavedSelection
+                ? 'No saved project selection was found for this `conversation_id`.'
+                : 'This request carried no usable `conversation_id` or MCP session.'
+            const recovery = missingSavedSelection
+                ? 'To select a different project again, call `switch-project` with this `conversation_id`.'
+                : 'To use a project you switched to, pass the `conversation_id` from that conversation on subsequent calls.'
             return {
                 ...result,
                 content: [
                     ...result.content,
                     {
                         type: 'text',
-                        text: `This request carried no usable \`conversation_id\` or MCP session. Tools that rely on the active project use the default project (ID ${projectId}). To use a project you switched to, pass the \`conversation_id\` from that conversation on subsequent calls.`,
+                        text: `${reason} Tools that rely on the active project use the default project (ID ${projectId}). ${recovery}`,
                     },
                 ],
             }
