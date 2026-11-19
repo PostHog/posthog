@@ -45,6 +45,28 @@ function previewTrigger(trigger: HogFlow['trigger']): PreviewTrigger | null {
     }
 }
 
+// Previews read the event that would have started the run, so the first trigger event, with the filters it
+// must pass, stands in for it. Saved filters carry compiled bytecode, which a query refuses.
+function previewTrigger(trigger: HogFlow['trigger']): PreviewTrigger | null {
+    if (trigger?.type !== 'event') {
+        return null
+    }
+    const filters = asRecord(trigger.filters)
+    const [event] = Array.isArray(filters.events) ? filters.events : []
+    const name = eventNames([event])[0]
+    if (!name) {
+        return null
+    }
+    const properties = [
+        ...(Array.isArray(filters.properties) ? filters.properties : []),
+        ...(Array.isArray(asRecord(event).properties) ? (asRecord(event).properties as unknown[]) : []),
+    ].map((filter) => {
+        const { bytecode: _bytecode, conditionHash: _conditionHash, ...rest } = asRecord(filter)
+        return rest as AnyPropertyFilter
+    })
+    return { event: name, properties }
+}
+
 function PreviewPersonScope({ children }: { children: React.ReactNode }): JSX.Element {
     const scope = useContext(EmailPreviewScopeContext)
     const { previewPerson } = useValues(emailPreviewPersonLogic({ scope }))
