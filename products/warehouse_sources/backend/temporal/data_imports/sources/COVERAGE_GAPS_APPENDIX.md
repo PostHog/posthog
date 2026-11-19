@@ -787,7 +787,7 @@ Note: PostHog exposes three aggregate Pull API v5 reports (daily, geo, partners)
 
 ## Appsignal — gaps
 
-Today (18): `anomaly_incidents`, `apps`, `deploy_markers`, `deploy_stats`, `error_samples`, `exception_incidents`, `log_incidents`, `log_lines`, `metric_names`, `metric_timeseries`, `performance_actions`, `performance_incidents`, `performance_samples`, `performance_traces`, `service_edges`, `slow_event_actions`, `slow_events`, `trace_spans`
+Today (23): `anomaly_incidents`, `apps`, `check_in_triggers`, `deploy_markers`, `deploy_stats`, `error_samples`, `error_traces`, `exception_incidents`, `kubernetes_nodes`, `kubernetes_pods`, `log_incidents`, `log_lines`, `metric_names`, `metric_timeseries`, `performance_actions`, `performance_incidents`, `performance_samples`, `performance_traces`, `service_edges`, `slow_event_actions`, `slow_events`, `trace_spans`, `uptime_monitors`
 
 Diffed against: <https://docs.appsignal.com/api/v2/overview>
 
@@ -796,16 +796,17 @@ Diffed against: <https://docs.appsignal.com/api/v2/overview>
 - [x] `POST /api/v2/metrics/timeseries, GET /api/v2/metrics/names, GET /api/v2/metrics/type_and_tags` — all custom and platform metric data plus the metric-name lookup; the GraphQL metrics API is deprecated (high)
 - [ ] `POST /api/v2/metrics/list` — the same metric data aggregated into rows by a caller-chosen `group_by`; derivable in SQL from `metric_timeseries`, so it was skipped (low)
 - [x] `POST /api/v2/tracing/traces/performance and /api/v2/tracing/trace (spans)` — distributed trace and span data underlying the samples we already sync (high)
-- [ ] `POST /api/v2/tracing/traces/errors` — error traces, keyed by incident digest; no digest-listing endpoint appears on the published V2 reference (medium)
+- [x] `POST /api/v2/tracing/traces/errors` — error traces, keyed by incident digest; `POST /api/v2/tracing/errors` lists the digests with errors in a time range, so `error_traces` walks those per window (medium)
 - [x] `AnomalyIncident (GraphQL)` — anomaly/trigger incidents are a first-class incident type alongside exception and performance incidents we sync (high)
 - [x] `LogIncident (GraphQL)` — log-based incidents, the fourth incident type, otherwise invisible (medium)
 - [x] `POST /api/v2/deploys/stats` — throughput, mean and error_rate per revision — joins directly onto deploy_markers (medium)
 - [x] `POST /api/v2/tracing/actions and service-dependency/slow-event endpoints` — aggregated per-action performance and downstream dependency breakdown (medium)
-- [ ] `POST /api/v2/kubernetes/nodes and /api/v2/kubernetes/pods` — node and pod resource metrics for correlating app incidents with infrastructure (medium)
-- [ ] `uptime monitors (GraphQL)` — uptime check results, a separate monitoring signal from incidents (medium)
-- [ ] `check-ins / cron (GraphQL)` — scheduled-job execution history — misses and late runs (medium)
+- [x] `POST /api/v2/kubernetes/nodes and /api/v2/kubernetes/pods` — node and pod resource metrics for correlating app incidents with infrastructure (medium)
+- [ ] `POST /api/v2/kubernetes/pods/overview` — pod labels, owner references (Deployment, ReplicaSet) and `pod_uuid`, with no resource metrics; a pod-metadata table that joins onto `kubernetes_pods` (low)
+- [x] `uptime monitors (GraphQL)` — monitor configuration; the check results are the `uptime_monitor_*` metrics that `metric_timeseries` already syncs, tagged with the monitor id (medium)
+- [x] `check-ins / cron (GraphQL)` — check-in triggers with the state and time of their latest run; the per-run history (`CheckInTrigger.checkIns`) is skipped because its arguments are not published (medium)
 
-Note: AppSignal split its API in two: GraphQL for models (apps, incidents, markers, dashboards, alerts, uptime monitors, check-ins) and a REST Public API V2 for bulk data (metrics, logs, traces, Kubernetes, deploy stats). PostHog reads the legacy /api/{app_id}/\*.json endpoints, all four GraphQL incident types and the app list, plus the V2 logs, metrics, deploy-stats and tracing endpoints; Kubernetes, uptime monitors and check-ins are still unmapped. `POST /api/v2/tracing/action_edges` is deliberately skipped: its `namespace` argument takes a "<service>/<namespace>" pair and no endpoint we sync reports the service half, so site_edges covers service dependencies instead.
+Note: AppSignal split its API in two: GraphQL for models (apps, incidents, markers, dashboards, alerts, uptime monitors, check-ins) and a REST Public API V2 for bulk data (metrics, logs, traces, Kubernetes, deploy stats). PostHog reads the legacy /api/{app_id}/\*.json endpoints, all four GraphQL incident types, the app list, uptime monitors and check-in triggers, plus the V2 logs, metrics, deploy-stats, tracing and Kubernetes endpoints. `POST /api/v2/tracing/action_edges` is deliberately skipped: its `namespace` argument takes a "<service>/<namespace>" pair and no endpoint we sync reports the service half, so site_edges covers service dependencies instead.
 
 ## Appstack — adequate
 
@@ -851,7 +852,7 @@ Note: Read every documented insight type and compared it with overviewPlays and 
 
 ## Argocd — gaps
 
-Today (9): `application_events`, `applications`, `clusters`, `deployment_history`, `managed_resources`, `projects`, `repositories`, `resource_tree`, `revision_metadata`
+Today (13): `application_events`, `applications`, `applicationsets`, `chart_details`, `clusters`, `deployment_history`, `managed_resources`, `project_events`, `projects`, `repositories`, `repository_refs`, `resource_tree`, `revision_metadata`
 
 Diffed against: <https://raw.githubusercontent.com/argoproj/argo-cd/master/assets/swagger.json>
 
@@ -859,10 +860,10 @@ Diffed against: <https://raw.githubusercontent.com/argoproj/argo-cd/master/asset
 - [x] `/api/v1/applications/{name}/revisions/{revision}/metadata` — lookup resolving the revision SHAs in deployment_history to commit author, message and date (high)
 - [x] `/api/v1/applications/{applicationName}/managed-resources` — the resource inventory each app owns, with live vs target diff — the drift signal (high)
 - [x] `/api/v1/applications/{applicationName}/resource-tree` — live resource hierarchy and per-resource health, one level below application health (medium)
-- [ ] `/api/v1/applicationsets` — lookup for the generator that produced each application in a templated setup (medium)
-- [ ] `/api/v1/projects/{name}/events` — project-level change history, useful for attributing policy changes to sync behavior (medium)
-- [ ] `/api/v1/applications/{name}/revisions/{revision}/chartdetails` — Helm chart version and metadata per deployed revision (low)
-- [ ] `/api/v1/repositories/{repo}/refs` — branch/tag refs available per repo, for joining deployed revisions to source branches (low)
+- [x] `/api/v1/applicationsets` — lookup for the generator that produced each application in a templated setup (medium)
+- [x] `/api/v1/projects/{name}/events` — project-level change history, useful for attributing policy changes to sync behavior (medium)
+- [x] `/api/v1/applications/{name}/revisions/{revision}/chartdetails` — Helm chart version and metadata per deployed revision (low)
+- [x] `/api/v1/repositories/{repo}/refs` — branch/tag refs available per repo, for joining deployed revisions to source branches (low)
 
 Note: Diffed against the upstream swagger spec (82 paths). PostHog's deployment_history is derived from status.history on the applications resource rather than a separate endpoint, so the revision-metadata lookup below is the natural companion. Most remaining unmapped paths are config/plumbing (certificates, gpgkeys, repocreds, notifications, session, settings, account tokens) and are excluded.
 
@@ -5220,8 +5221,8 @@ Diffed against: <https://api.mypurecloud.com/api/v2/docs/swagger>
 - [x] `Get external contacts (GET /api/v2/externalcontacts/contacts)` — resolve externalContactId on participants into customer identities (high)
 - [x] `Get external organizations (GET /api/v2/externalcontacts/organizations)` — resolve externalOrganizationId on participants into customer organizations (high)
 - [x] `Query for user details (POST /api/v2/analytics/users/details/query)` — measure agent presence and routing-state history, including time available and offline (high)
-- [ ] `Queries Evaluations (GET /api/v2/quality/evaluations/query)` — analyze detailed quality evaluations beyond evaluation summaries embedded in conversations (medium)
-- [ ] `Get the members of this queue (GET /api/v2/routing/queues/{queueId}/members)` — connect agents to queues and report queue staffing and membership (medium)
+- [x] `Queries Evaluations (GET /api/v2/quality/evaluations/query)` — analyze detailed quality evaluations beyond evaluation summaries embedded in conversations (medium)
+- [x] `Get the members of this queue (GET /api/v2/routing/queues/{queueId}/members)` — connect agents to queues and report queue staffing and membership (medium)
 
 Note: Parsed the official Swagger document and checked conversation, participant, session, and segment schemas for unresolved IDs. Conversations, calls, and participants all reuse the same conversation detail query. Agent history uses a read-only POST query; membership reads need queue fan-out, and analytical queries need time windows. Excluded recording media, telephony configuration, authentication, and metrics already retained in nested conversation data.
 
