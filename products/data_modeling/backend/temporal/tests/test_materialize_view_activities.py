@@ -2260,6 +2260,58 @@ class _EmptyArrowClient:
 
 
 class TestHogqlTableModifiers:
+    @pytest.mark.parametrize(
+        "query,size_mib,distributed",
+        [
+            ("SELECT value AS id FROM warehouse_source", 2048.0, True),
+            ("SELECT id FROM (SELECT value AS id FROM warehouse_source)", 2048.0, True),
+            (
+                "SELECT value AS id FROM warehouse_source UNION ALL SELECT value AS id FROM warehouse_other",
+                2048.0,
+                True,
+            ),
+            ("SELECT value AS id FROM warehouse_source", 512.0, False),
+            ("SELECT value AS id FROM warehouse_source", None, False),
+            (
+                "SELECT a.value AS id FROM warehouse_source a JOIN warehouse_other b ON a.value = b.value",
+                2048.0,
+                False,
+            ),
+            (
+                "SELECT value AS id FROM warehouse_source WHERE value IN (SELECT value FROM warehouse_other)",
+                2048.0,
+                False,
+            ),
+        ],
+    )
+    async def test_materialization_distributes_only_safe_large_source_scans(
+        self, ateam: Team, query: str, size_mib: float | None, distributed: bool
+    ) -> None:
+        for name in ("warehouse_source", "warehouse_other"):
+            await database_sync_to_async(DataWarehouseTable.objects.create)(
+                team=ateam,
+                name=name,
+                format=DataWarehouseTable.TableFormat.Parquet,
+                url_pattern=f"https://bucket.example.com/{name}/*.parquet",
+                columns={"value": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField", "valid": True}},
+                size_in_s3_mib=size_mib,
+            )
+        client = _EmptyArrowClient(pa.schema([pa.field("id", pa.int64())]))
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: object) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        with unittest.mock.patch(
+            "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client", fake_get_client
+        ):
+            _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+
+        assert client.describe_query is not None
+        assert client.arrow_query is not None
+        assert ("s3Cluster(" in client.describe_query) is distributed
+        assert ("s3Cluster(" in client.arrow_query) is distributed
+
     async def test_formatter_shaped_aliases_preserve_values_and_team_scope(
         self, ateam: Team, clickhouse_client: ClickHouseClient
     ) -> None:

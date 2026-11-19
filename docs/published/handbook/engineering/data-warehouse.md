@@ -62,6 +62,13 @@ Managed views keep the cadence their provider declares.
 When an endpoint's query changes while its cadence is still faster than the minimum, the new version is created but not materialized.
 Picking a cadence at or above the minimum materializes it.
 
+## Materialization source scans
+
+Materializations of standalone warehouse scans can use `s3Cluster` when a source's recorded size is at least 1 GiB.
+Nested `FROM` subqueries and `UNION ALL` retain this eligibility.
+Joins, CTEs, expression subqueries, and non-warehouse sources retain single-node readers.
+Both the schema probe and Arrow export choose the reader from their prepared query.
+
 ## Model materialization usage
 
 The Models **Usage** tab shows bytes read, CPU time, and run counts for materializations over a preset or custom range of complete UTC days.

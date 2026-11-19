@@ -1386,6 +1386,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             fields=fields,
             structure=", ".join(structure),
             table_id=str(self.id),
+            table_size_mib=self.size_in_s3_mib,
             external_data_source_id=str(self.external_data_source_id) if self.external_data_source_id else None,
             source_type=self.external_data_source.source_type if self.external_data_source else None,
             is_history_table=self.is_history_table,

@@ -12,7 +12,11 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import TableNode
-from posthog.hogql.database.s3_table import build_function_call, compression_for_url_pattern
+from posthog.hogql.database.s3_table import (
+    DataWarehouseTable as HogQLDataWarehouseTable,
+    build_function_call,
+    compression_for_url_pattern,
+)
 from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
@@ -102,6 +106,34 @@ class TestS3Compression(SimpleTestCase):
     def test_empty_format_is_preserved(self) -> None:
         result = build_function_call("http://url.com", "", access_key="key", access_secret="secret")
         assert result == "s3('http://url.com', 'key', 'secret', '')"
+
+
+class TestWarehouseSourceMetadata(SimpleTestCase):
+    @parameterized.expand([("unknown", None), ("small", 512.0), ("large", 2048.0)])
+    def test_hogql_definition_preserves_source_size(self, _name: str, size_mib: float | None) -> None:
+        warehouse_table = DataWarehouseTable(
+            name="example_source",
+            url_pattern="https://bucket.example.com/source/*.parquet",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            columns={"value": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField", "valid": True}},
+            size_in_s3_mib=size_mib,
+        )
+
+        definition = warehouse_table.hogql_definition()
+
+        assert isinstance(definition, HogQLDataWarehouseTable)
+        assert definition.table_size_mib == size_mib
+
+    def test_source_size_alone_does_not_enable_distributed_queries(self) -> None:
+        table = HogQLDataWarehouseTable(
+            name="example_source",
+            url="https://bucket.example.com/source/*.parquet",
+            format="Parquet",
+            fields={},
+            table_size_mib=2048.0,
+        )
+
+        assert table.to_printed_clickhouse(HogQLContext(team_id=1)).startswith("s3(")
 
 
 class TestS3Table(BaseTest):

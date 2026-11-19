@@ -33,6 +33,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.resolver import ResolverFactory
+from posthog.hogql.transforms.distributed_s3 import can_distribute_warehouse_query
 
 from posthog.clickhouse.client.execute import ClickHouseExternalTable, KillSwitchLevel, resolve_kill_switch_level
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
@@ -674,6 +675,7 @@ async def hogql_table(
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
+    context.allow_s3_cluster = can_distribute_warehouse_query(prepared_hogql_query)
     probe = await database_sync_to_async_pool(print_describe_variant)(prepared_hogql_query, context, settings)
 
     arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
@@ -799,6 +801,7 @@ async def hogql_table(
     if arrow_prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
+    context.allow_s3_cluster = can_distribute_warehouse_query(arrow_prepared_hogql_query)
     arrow_printed = await database_sync_to_async_pool(print_prepared_ast)(
         arrow_prepared_hogql_query, context=context, dialect="clickhouse", stack=[], settings=settings
     )

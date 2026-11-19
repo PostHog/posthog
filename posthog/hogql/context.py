@@ -94,6 +94,8 @@ class HogQLContext:
     use_new_events_schema: Optional[bool] = None
     # Enable full SELECT queries and subqueries in ClickHouse
     enable_select_queries: bool = False
+    # Distributed readers cannot nest; materialization checks the prepared query before enabling them.
+    allow_s3_cluster: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
     limit_top_select: bool = True
     # Context for determining the appropriate limit to apply
