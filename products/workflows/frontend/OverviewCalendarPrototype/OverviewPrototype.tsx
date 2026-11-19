@@ -7,9 +7,9 @@ import { OverviewTimeline } from './OverviewTimeline'
 import { PrototypeSwitcher, PrototypeVariant, usePrototypeVariant } from './PrototypeSwitcher'
 
 export const OVERVIEW_VARIANTS: PrototypeVariant[] = [
-    { key: 'A', name: 'Attention first' },
-    { key: 'B', name: 'Performance' },
-    { key: 'C', name: 'Timeline' },
+    { key: 'A', name: 'Attention first', flags: 'low use: workflow Logs tab' },
+    { key: 'B', name: 'Performance', flags: 'agent contract: workflow stats' },
+    { key: 'C', name: 'Timeline', flags: 'low use: calendar navigation' },
 ]
 
 export function OverviewPrototype(): JSX.Element {

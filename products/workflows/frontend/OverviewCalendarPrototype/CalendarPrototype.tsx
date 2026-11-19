@@ -12,6 +12,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { SendCalendar } from '../SendCalendar/SendCalendar'
 import { CalendarAgendaView } from './CalendarAgendaView'
+import { CalendarEmptyState } from './CalendarEmptyState'
 import { CalendarFilterMenu } from './CalendarFilterMenu'
 import { CalendarFilters, DEFAULT_FILTERS } from './calendarFilters'
 import { CalendarMonthView } from './CalendarMonthView'
@@ -22,9 +23,9 @@ import { CalendarEntry, TIMEZONE_LABEL, TODAY, entriesBetween } from './prototyp
 import { PrototypeSwitcher, PrototypeVariant, usePrototypeVariant } from './PrototypeSwitcher'
 
 export const CALENDAR_VARIANTS: PrototypeVariant[] = [
-    { key: 'D', name: 'Month, repeats folded' },
-    { key: 'E', name: 'Agenda with results' },
-    { key: 'F', name: "Today's calendar" },
+    { key: 'D', name: 'Month, repeats folded', flags: 'low use: drag to reschedule, type filter' },
+    { key: 'E', name: 'Agenda with results', flags: 'low use: Week/Month toggle' },
+    { key: 'F', name: "Today's calendar", flags: 'low use: every calendar control' },
 ]
 
 export type CalendarSelection = { entryId: string } | { day: string } | null
@@ -39,6 +40,15 @@ export function CalendarPrototype(): JSX.Element {
     )
     // Moves from dragging, kept in memory only.
     const [moved, setMoved] = useState<Record<string, dayjs.Dayjs>>({})
+    const newAccount = searchParams.account === 'new'
+    const toggleAccount = (): void => {
+        const { location, hashParams } = router.values
+        router.actions.replace(
+            location.pathname,
+            { ...searchParams, account: newAccount ? undefined : 'new' },
+            hashParams
+        )
+    }
 
     const allEntries = useMemo(() => {
         const entries = entriesBetween(TODAY.subtract(70, 'day'), TODAY.add(70, 'day'))
@@ -119,10 +129,15 @@ export function CalendarPrototype(): JSX.Element {
                     event-triggered messages per day
                 </span>
                 <span>Times in {TIMEZONE_LABEL}</span>
+                <Button variant="link-muted" size="inline" className="ml-auto" onClick={toggleAccount}>
+                    {newAccount ? 'Prototype: show a busy account' : 'Prototype: show a new account'}
+                </Button>
             </div>
             <div className="flex flex-col gap-3 @min-[64rem]:flex-row">
                 <div className="min-w-0 flex-1">
-                    {variant.key === 'D' ? (
+                    {newAccount ? (
+                        <CalendarEmptyState />
+                    ) : variant.key === 'D' ? (
                         <CalendarMonthView
                             month={monthAnchor}
                             entries={allEntries}
@@ -140,8 +155,10 @@ export function CalendarPrototype(): JSX.Element {
                         />
                     )}
                 </div>
-                {selectedEntry ? <EntryPane entry={selectedEntry} onClose={() => setSelection(null)} /> : null}
-                {selectedDay ? (
+                {selectedEntry && !newAccount ? (
+                    <EntryPane entry={selectedEntry} onClose={() => setSelection(null)} />
+                ) : null}
+                {selectedDay && !newAccount ? (
                     <DayPane
                         day={selectedDay}
                         entries={allEntries}

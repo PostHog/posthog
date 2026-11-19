@@ -10,6 +10,8 @@ import { Button } from '@posthog/quill'
 export interface PrototypeVariant {
     key: string
     name: string
+    // Usage-brief flags this variant trips, with the control, never numbers: the branch is public.
+    flags?: string
 }
 
 export function usePrototypeVariant(variants: PrototypeVariant[]): PrototypeVariant {
@@ -55,6 +57,7 @@ export function PrototypeSwitcher({ variants, page }: { variants: PrototypeVaria
                 <span className="text-xxs uppercase tracking-wide opacity-70">Prototype · {page}</span>
                 <span className="text-sm font-semibold whitespace-nowrap">
                     {current.key} ({current.name})
+                    {current.flags ? <span className="font-normal opacity-70"> · {current.flags}</span> : null}
                 </span>
             </div>
             <Button size="icon-sm" aria-label="Next variant" tooltip="Next variant" onClick={() => step(1)}>
