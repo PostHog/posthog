@@ -8803,17 +8803,17 @@ Note: Parsed the current endpoint index and entity references, including the col
 
 ## OpenAQ — gaps
 
-Today (16): `countries`, `instruments`, `licenses`, `location_flags`, `location_latest`, `locations`, `manufacturers`, `measurements`, `measurements_daily`, `measurements_hourly`, `measurements_yearly`, `owners`, `parameters`, `providers`, `sensor_flags`, `sensors`
+Today (17): `countries`, `instruments`, `licenses`, `location_flags`, `location_latest`, `locations`, `manufacturers`, `measurements`, `measurements_daily`, `measurements_hourly`, `measurements_yearly`, `owners`, `parameter_latest`, `parameters`, `providers`, `sensor_flags`, `sensors`
 
 Diffed against: <https://api.openaq.org/openapi.json>
 
 - [x] `/v3/locations/{id}/latest` — most recent value per location - the headline 'current air quality' read (high)
 - [x] `/v3/sensors/{id}/flags` — data-quality flags needed to exclude bad readings from measurement aggregates (medium)
 - [x] `/v3/locations/{id}/flags` — location-level data-quality flags for the same filtering (medium)
-- [ ] `/v3/parameters/{id}/latest` — latest reading per pollutant across the network (medium)
+- [x] `/v3/parameters/{id}/latest` — latest reading per pollutant across the network (medium)
 - [x] `/v3/sensors/{id}/years` — yearly rollups, cheaper than aggregating hourly data for long-range trends (medium)
-- [ ] `/v3/manufacturers/{id}/instruments` — join table linking manufacturers to instruments we already sync (low)
-- [ ] `/v3/sensors/{id}/hours/hourofday and /days/dayofweek, /days/monthofyear` — seasonal/diurnal aggregations the API precomputes (low)
+- [ ] `/v3/manufacturers/{id}/instruments` — join table linking manufacturers to instruments we already sync (low) Skipped: the instruments table already embeds each instrument's manufacturer.
+- [ ] `/v3/sensors/{id}/hours/hourofday and /days/dayofweek, /days/monthofyear` — seasonal/diurnal aggregations the API precomputes (low) Skipped: window-dependent summaries of measurements_hourly and measurements_daily, which we already sync.
 
 Note: measurements_hourly maps to /sensors/{id}/hours and measurements_daily to /sensors/{id}/days, so the main time grains are covered; sensors are already materialized from each location's embedded sensor list.
 
