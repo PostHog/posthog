@@ -206,6 +206,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactOpenResponseSerializer,
     TaskRunLivingArtifactResponseSerializer,
     TaskRunLivingArtifactsResponseSerializer,
+    TaskRunLogPageResponseSerializer,
+    TaskRunLogsOutput,
     TaskRunLogsQuerySerializer,
     TaskRunLogsView,
     TaskRunPostHogReferencesRequestSerializer,
@@ -393,17 +395,22 @@ TASK_RUN_LOGS_DESCRIPTION = (
     "includes the earlier runs of its task session the same way, each "
     "preceded by a pi_run_started entry that names its run. For a live "
     "presence-gated run, the request marks the stream as watched before "
-    "it reads the log, so events after the snapshot reach the live stream. Pass tail_bytes to read only "
+    "it reads the log, so events after the snapshot reach the live stream. A read with limit, after, "
+    "event_types, exclude_types or output=json does not mark it. Pass tail_bytes to read only "
     "the latest turns first, add before to page back through older turns, or add start to read every "
     "entry after the ones a client holds. X-Log-Origin names the first run of the chain: indexes from responses "
     "with different origins do not match. With tail_bytes, a Pi run returns its full log without the X-Log "
     "headers. Without tail_bytes, pass start and limit to read the log in pages of entries, and after, "
     "event_types or exclude_types to read only the matching entries. The type of an entry is the sessionUpdate "
-    "of a session/update notification, or else its notification method. Pass view=thread to drop the duplicate "
-    "tool response copy that a rendered conversation does not use."
+    "of a session/update notification, or else its notification method. Pass output=json to read a page as a "
+    "JSON object. Pass view=thread to drop the duplicate tool response copy that a rendered conversation does "
+    "not use."
 )
 TASK_RUN_LOGS_RESPONSES: dict[int, ResponseDeclaration] = {
-    200: OpenApiResponse(description="Log content in JSONL format"),
+    200: OpenApiResponse(
+        response=TaskRunLogPageResponseSerializer,
+        description="Log content as JSONL, or with output=json a JSON object with entries, offset and count",
+    ),
     404: OpenApiResponse(description="Task run not found"),
 }
 
@@ -412,6 +419,17 @@ def _log_types(types: str | None) -> frozenset[str]:
     if not types:
         return frozenset()
     return frozenset(name.strip() for name in types.split(",") if name.strip())
+
+
+def _log_entry_objects(content: str) -> list[object]:
+    entries: list[object] = []
+    for line in content.split("\n"):
+        if line.strip():
+            try:
+                entries.append(json.loads(line))
+            except ValueError:
+                entries.append({"unparseable_line": line})
+    return entries
 
 
 def _log_filter(query: dict) -> tasks_contracts.TaskRunLogFilter:
@@ -2351,6 +2369,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "artifacts_preview",
     )
     _VISIBILITY_ONLY_ACTIONS = ("analyze",)
+    _LOG_READ_ACTIONS = ("logs", "log_entries", "session_logs", "stream")
 
     def _one_shot_analysis_response(self, task_id: str) -> Response | None:
         """Refuse to add runs to a server-created analysis task; see the facade reader."""
@@ -2406,7 +2425,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             run_id=run_id,
             include_resume_sources=is_read_only,
         ) and not run_context.may_read_task_run_context(
-            request=self.request, team_id=self.team_id, task_id=task_id, run_id=run_id
+            request=self.request,
+            team_id=self.team_id,
+            task_id=task_id,
+            run_id=run_id,
+            include_chain=self.action in self._LOG_READ_ACTIONS,
         ):
             raise PermissionDenied("The analytics data in this task run is not available to you.")
         if (
@@ -3706,10 +3729,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _logs_response(self, request, pk) -> HttpResponse:
         task_id = self._ensure_task_accessible()
         query = request.validated_query_data
+        json_output = query["output"] == TaskRunLogsOutput.JSON
+        page_read = json_output or not query.keys().isdisjoint(TASK_RUN_LOG_PAGE_FIELDS)
         timer = ServerTimingsGathered()
-        with timer("mark_watched"):
-            tasks_facade.mark_task_run_stream_watched(pk, task_id, self.team_id)
+        if not page_read:
+            with timer("mark_watched"):
+                tasks_facade.mark_task_run_stream_watched(pk, task_id, self.team_id)
         log_headers: dict[str, str] = {}
+        log_page: tasks_contracts.TaskRunLogPageDTO | None = None
         with timer("s3_read"):
             if "tail_bytes" in query:
                 log_slice = tasks_facade.read_task_run_conversation_log_slice(
@@ -3729,7 +3756,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         "X-Log-Turns-Before": str(log_slice.turns_before),
                         "X-Log-Origin": log_slice.origin,
                     }
-            elif query.keys() & {"start", *TASK_RUN_LOG_PAGE_FIELDS}:
+            elif page_read or "start" in query:
                 log_page = tasks_facade.read_task_run_conversation_log_page(
                     pk,
                     task_id,
@@ -3752,7 +3779,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if query["view"] == TaskRunLogsView.THREAD:
             with timer("thread_view"):
                 log_content = tasks_facade.thread_view_of_log_content(log_content)
-        response = HttpResponse(log_content, content_type="application/jsonl")
+        if json_output:
+            assert log_page is not None
+            response: HttpResponse = JsonResponse(
+                {"entries": _log_entry_objects(log_content), "offset": log_page.offset, "count": log_page.count}
+            )
+        else:
+            response = HttpResponse(log_content, content_type="application/jsonl")
         for name, value in log_headers.items():
             response[name] = value
         if log_headers:

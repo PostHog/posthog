@@ -5790,7 +5790,10 @@ def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, tea
 def _conversation_log_content(run: TaskRun, chain: list[TaskRun]) -> str:
     if len(chain) < 2 or run.task.runtime != Task.Runtime.PI:
         return read_task_run_log_content([ancestor.log for ancestor in chain])
+    return _marked_log_content(chain)
 
+
+def _marked_log_content(chain: list[TaskRun]) -> str:
     contents = _TASK_LOG_READ_EXECUTOR.map(lambda ancestor: read_task_run_log_content([ancestor.log]), chain)
     parts: list[str] = []
     for ancestor, content in zip(chain, contents):
@@ -5911,11 +5914,14 @@ def read_task_run_conversation_log_page(
         return None
     chain = run.get_history_chain()
     origin = str(chain[0].id)
-    if run.task.runtime != Task.Runtime.PI and log_filter == contracts.TaskRunLogFilter():
+    if run.task.runtime == Task.Runtime.PI:
+        content = _marked_log_content(chain)
+    elif log_filter == contracts.TaskRunLogFilter():
         parts = _conversation_log_parts([ancestor.log for ancestor in chain])
         return page_log_parts(parts, start=start, limit=limit, origin=origin)
-    entries = log_entries(_conversation_log_content(run, chain))
-    return page_log_entries(entries, start=start, limit=limit, log_filter=log_filter, origin=origin)
+    else:
+        content = read_task_run_log_content([ancestor.log for ancestor in chain])
+    return page_log_entries(log_entries(content), start=start, limit=limit, log_filter=log_filter, origin=origin)
 
 
 def get_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[TaskRunLog] | None:
