@@ -41,7 +41,7 @@ READERS: dict[str, str] = {
     "products/alerts/backend/models/investigation.py": "investigation rows keep a foreign key to the row (G3)",
     "products/pulse/backend/models.py": "Pulse links keep a foreign key to the row (G3)",
     "products/alerts/backend/admin.py": "Django admin for the model (G3)",
-    "products/alerts/backend/platform_ownership.py": "ownership layer: create and owner checks (E1)",
+    "products/alerts/backend/platform_ownership.py": "create hand-over, row locks; moved edits write the copy (E1)",
     "products/logs/backend/platform_ownership.py": "ownership layer: create and mirror (E1, E2)",
     "products/logs/backend/facade/platform_ownership.py": "ownership facade for the platform API (E2)",
     "products/alerts/backend/platform_cutover.py": "hands a new alert to the platform (E1)",
@@ -65,20 +65,20 @@ READERS: dict[str, str] = {
     "products/logs/backend/alert_comparison.py": "shadow comparison of row and copy checks (D4)",
     "products/logs/backend/tasks/tasks.py": "`follow_logs_alert` keeps copies in step (E5)",
     "products/alerts/backend/platform_insight_alert.py": (
-        "investigations and firing signals of a copy load its row (D1 follow-up)"
+        "loads a row by id and puts its copy's settings on it, for investigations and firing signals (G3)"
     ),
     "products/logs/backend/alert_source_cycle.py": (
         "`_as_configured_now` refreshes a copy the logs stack owns from its row (E2)"
     ),
     "products/logs/backend/alert_incidents.py": "incident close reads `owner` from the row (E4)",
     "products/logs/backend/facade/api.py::_close_if_subscribed": "incident close reads `owner` from the row (E4)",
-    "products/alerts/backend/platform_hooks.py": "creator and viewer of an alert with a row, else of the copy (G2)",
+    "products/alerts/backend/platform_hooks.py": "viewer by the row's insight; creator from the copy (G2)",
     "products/logs/backend/platform_hooks.py": "creator and viewer of an alert with a row, else of the copy (G2)",
-    "products/alerts/backend/evaluation/detector.py": "loads the row first, else builds from the copy (D1)",
+    "products/alerts/backend/evaluation/detector.py": "earlier AI flags by row id and handover time only (G3)",
     "posthog/temporal/ai/anomaly_investigation/workflow.py::_investigated_alert": (
-        "investigation loads the row first (plan: stays until D1, D2)"
+        "investigation loads the row with its copy's settings (G3)"
     ),
-    "products/alerts/backend/platform_investigation.py": "investigation loads the row first (plan: stays until D1, D2)",
+    "products/alerts/backend/platform_investigation.py": "investigation's row, with its copy's settings (G3)",
     "products/alerts/backend/activity_logging.py": "activity log of row edits (G2)",
     "products/logs/backend/activity_logging.py": "activity log of row edits (G2)",
     # The legacy evaluators, which stop when the source stacks shut down.
@@ -86,16 +86,16 @@ READERS: dict[str, str] = {
     "posthog/tasks/alerts/investigation_notifications.py": "legacy insight evaluator's investigation safety net",
     "posthog/tasks/alerts/utils.py::dispatch_alert_notification": "legacy delivery skips platform-owned rows (D2)",
     "posthog/tasks/alerts/utils.py::_thresholds_drawn_on_chart": (
-        "firing chart draws the rows the insight stack owns, then the copies (plan: stays until D1, D2)"
+        "firing chart draws the rows the insight stack owns; moved alerts draw from their copies (G3)"
     ),
     "products/logs/backend/temporal/activities.py": "legacy logs evaluator",
     "products/logs/backend/alert_creation.py": "alert limit counts rows (A6-A8)",
-    "products/alerts/backend/llm_detector_limits.py": "AI detector cap counts rows (A6-A8)",
+    "products/alerts/backend/llm_detector_limits.py": "AI cap counts insight-owned rows, then copies (G3)",
     "products/logs/backend/alert_deletion.py": "deletes the row with its copy (G2)",
     "products/logs/backend/native_alerts.py": "validates a native alert as an unsaved row and saves nothing (G3)",
-    "products/alerts/backend/max_tools.py::UpsertAlertTool": "Max create and update write the row (E1, E2)",
+    "products/alerts/backend/max_tools.py::UpsertAlertTool": "Max create writes the row; edits write the copy (E1)",
     "products/alerts/backend/presentation/views/alert.py::AlertSerializer": (
-        "insight alert API create and update write the row (E1, E2)"
+        "insight API create writes the row (E1); moved edits write the copy"
     ),
     "products/logs/backend/presentation/views/alerts_api.py::LogsAlertConfigurationSerializer": (
         "logs alert API serializes and writes the row (E1, E2)"
@@ -106,13 +106,13 @@ READERS: dict[str, str] = {
     "products/alerts/backend/platform_subscribers.py": "subscriber rows point at the row (H3)",
     "products/alerts/backend/tasks/tasks.py": "removes a departed member's subscriptions (H3)",
     "products/alerts/backend/facade/api.py::insight_short_ids_watched_by": (
-        "Today's watched list matches subscriber rows (plan: stays until H3)"
+        "subscriptions on the row; a moved alert's on/off and creator from its copy (H3)"
     ),
     "products/alerts/backend/facade/api.py::snooze_alert_from_slack": (
-        "Slack snooze refuses an alert whose row is off (plan: stays until E2)"
+        "locks the row; a moved alert's on/off and snooze live on its copy (G3)"
     ),
     "products/alerts/backend/logic/ownership.py::_load_alert": (
-        "ownership loads the legacy row or platform copy while both stores exist (E2, G3)"
+        "loads the row with its copy's settings, or the native alert (G3)"
     ),
     "products/alerts/backend/logic/ownership.py::take_alert_ownership": (
         "ownership keeps an unsaved pre-write state for limit checks (G3)"
@@ -122,19 +122,18 @@ READERS: dict[str, str] = {
     ),
     "products/alerts/backend/facade/api.py::delete_insight_alerts": "deletes rows with their insight (G2)",
     # Read surfaces: rows the source stack still owns; platform-owned alerts read their copy (B1-B5).
-    "products/alerts/backend/presentation/views/alert.py::AlertViewSet": "insight alert API (B2)",
+    "products/alerts/backend/presentation/views/alert.py::AlertViewSet": "rows shown with their copy's settings (B2)",
     "products/logs/backend/presentation/views/alerts_api.py::LogsAlertViewSet": "logs alert API (B1)",
     "products/alerts/backend/facade/api.py::_insight_owned_rows": "rows the insight stack owns (B3)",
     "products/alerts/backend/facade/api.py::insight_ids_with_alerts": "insights with a row or a native alert (B3)",
     "products/alerts/backend/facade/api.py::get_alert_team_id": "team of an alert with a row (G2)",
-    "products/alerts/backend/presentation/views/insight_alerts.py": "insight and dashboard embeds (B3)",
+    "products/alerts/backend/presentation/views/insight_alerts.py": "embeds rows with their copy's settings (B3)",
     "products/dashboards/backend/presentation/views/dashboard.py::tile_insight_prefetches": (
-        "dashboard tiles prefetch rows for the embeds (B3)"
+        "dashboard tiles prefetch rows, shown with their copy's settings (B3)"
     ),
     "posthog/hogql/database/schema/system.py::<module>": "`system.alerts` and `system.logs_alerts` (B1, B3)",
     "products/alerts/backend/alert_search.py": "Max entity search (B3)",
-    "products/alerts/backend/logic/alert_email.py": "email of an alert with a row (D2)",
-    "products/alerts/backend/logic/destination_bucket_report.py": "report that informs a cutover",
+    "products/alerts/backend/logic/alert_email.py": "recipients from the row's insight and subscriptions (H3)",
     "products/logs/backend/destination_buckets.py": "report that informs a cutover",
     "products/logs/backend/delivery_path_report.py": "report that informs a cutover",
     "products/alerts/backend/presentation/views/alert.py::ThresholdViewSet": "thresholds endpoint (B6)",

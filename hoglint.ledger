@@ -3522,7 +3522,6 @@ thin-commands	products.alerts.backend.management.commands.backfill_platform_insi
 thin-commands	products.alerts.backend.management.commands.cut_over_insight_alerts_to_platform	products.alerts.backend.logic.alert_email	1
 thin-commands	products.alerts.backend.management.commands.cut_over_insight_alerts_to_platform	products.alerts.backend.models.alert	1
 thin-commands	products.alerts.backend.management.commands.delete_orphaned_platform_insight_alert_copies	products.alerts.backend.models.alert	1
-thin-commands	products.alerts.backend.management.commands.report_insight_alert_destination_buckets	products.alerts.backend.logic.destination_bucket_report	1
 thin-commands	products.alerts_platform.backend.management.commands.report_legacy_config_drift	products.alerts_platform.backend.logic.legacy_config_drift	1
 thin-commands	products.alerts_platform.backend.management.commands.report_legacy_config_drift	products.alerts_platform.backend.logic.legacy_drift_sources	1
 thin-commands	products.approvals.backend.management.commands.approval_coverage	products.approvals.backend.models	1
