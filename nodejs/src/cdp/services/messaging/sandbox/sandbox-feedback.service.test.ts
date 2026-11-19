@@ -402,7 +402,7 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
             }
         )
 
-        it('answers a malformed gzip notification with 400, then records a valid one like a plain one', async () => {
+        it('answers a malformed or check-failed gzip notification with 400, then records a valid one like a plain one', async () => {
             const postGzip = (body: Buffer) => {
                 const req = supertest(app)
                     .post('/public/m/ses_sandbox_webhook')
@@ -411,10 +411,20 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
                 return req
             }
 
+            const failedCheck = gzipSync(notification(sesRecord(team.id, complaint())))
+            failedCheck[failedCheck.length - 1] ^= 0xff
+
             const malformed = await postGzip(Buffer.from('this is not compressed data'))
+            const checkFailed = await postGzip(failedCheck)
+            const rowsAfterFailures = await suppressionRows()
             const valid = await postGzip(gzipSync(notification(sesRecord(team.id, complaint()))))
 
-            expect({ malformed: malformed.status, valid: valid.status }).toEqual({ malformed: 400, valid: 200 })
+            expect({
+                malformed: malformed.status,
+                checkFailed: checkFailed.status,
+                rowsAfterFailures,
+                valid: valid.status,
+            }).toEqual({ malformed: 400, checkFailed: 400, rowsAfterFailures: [], valid: 200 })
             expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, source: 'COMPLAINT' }])
         })
 

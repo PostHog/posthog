@@ -80,4 +80,24 @@ describe('setupExpressApp JSON body limit', () => {
             next: 200,
         })
     })
+
+    it.each([
+        ['gzip', gzipSync],
+        ['deflate', deflateSync],
+    ] as const)('answers a %s JSON body that decodes but fails its check with 400', async (encoding, compress) => {
+        const body = compress(JSON.stringify({ data: 'x' }))
+        body[body.length - 1] ^= 0xff
+
+        const req = supertest(app)
+            .post('/body')
+            .set({ 'Content-Type': 'application/json', 'Content-Encoding': encoding })
+        req.write(body)
+        const res = await req
+        const next = await supertest(app).post('/echo').send({ data: 'x' })
+
+        expect({ checkFailed: [res.status, res.body], next: next.status }).toEqual({
+            checkFailed: [400, { status: 'error', error: 'Malformed compressed body' }],
+            next: 200,
+        })
+    })
 })
