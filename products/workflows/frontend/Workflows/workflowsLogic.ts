@@ -387,7 +387,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                         )
                         return values.workflows
                     }
-                    await api.hogFlows.updateHogFlow(workflow.id, { status })
+                    await hogFlowsPartialUpdate(String(ApiConfig.getCurrentTeamId()), workflow.id, { status })
                     // Reload instead of patching in place: the new status may no longer match the
                     // active status filter, so the row has to be re-fetched through the server query.
                     actions.loadWorkflows()
