@@ -1,3 +1,4 @@
+import functools
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -5,14 +6,20 @@ from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.schema import ExecutionTarget, HogQLQuery
+from posthog.schema import ExecutionTarget, HogQLQuery, HogQLQueryModifiers
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DatabaseField, ExpressionField
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.person_distinct_id_overrides import RawPersonDistinctIdOverridesTable
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.functions.mapping import find_hogql_posthog_function
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
+from posthog.hogql.placeholders import replace_placeholders
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 from posthog.hogql.visitor import TraversingVisitor, clear_locations, clone_expr
 
@@ -44,6 +51,31 @@ ENGINE_VERSION = "sql_series_values_v1"
 SOURCE_ALIAS = "user_query"
 
 _TIMESTAMP = "timestamp"
+_COMPILED_NODES = frozenset(
+    {
+        ast.SelectQuery,
+        ast.JoinExpr,
+        ast.JoinConstraint,
+        ast.Alias,
+        ast.Field,
+        ast.Constant,
+        ast.Call,
+        ast.CompareOperation,
+        ast.And,
+        ast.Or,
+        ast.Not,
+        ast.ArithmeticOperation,
+        ast.Array,
+        ast.Tuple,
+        ast.Lambda,
+        ast.PropertyAccess,
+        ast.JsonSubcolumnAccess,
+        ast.ArrayAccess,
+        ast.TupleAccess,
+        ast.OrderExpr,
+    }
+)
+_COMPILED_FIELD_TYPES = (ast.FieldType, ast.FieldAliasType, ast.LambdaArgumentType, ast.AsteriskType)
 _EVENT_COLUMNS = {
     "person_id",
     *(
@@ -104,6 +136,25 @@ class _Bucket:
     alias: ast.Alias
     hourly: bool
     utc: bool
+
+
+class _ResolvedAwayFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if node.op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
+            self.found = True
+        super().visit_compare_operation(node)
+
+    def visit_call(self, node: ast.Call) -> None:
+        if node.name.lower() == "cohort" or find_hogql_posthog_function(node.name) is not None:
+            self.found = True
+        super().visit_call(node)
+
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
+        self.found = True
 
 
 class _OtherSourceFinder(TraversingVisitor):
@@ -170,6 +221,62 @@ class _OtherSourceFinder(TraversingVisitor):
         return head in self.aliases and self.alias_depth == 0
 
 
+class _ReadRefused(Exception):
+    pass
+
+
+class _CompiledReadChecker(TraversingVisitor):
+    def __init__(self, root: ast.SelectQuery, person_join: Callable[[], ast.JoinExpr | None]) -> None:
+        super().__init__()
+        self.sources = {id(root)}
+        self.person_join = person_join
+
+    def visit(self, node: ast.AST | None) -> None:
+        if node is None or isinstance(node, ast.Type):
+            return
+        if type(node) not in _COMPILED_NODES:
+            raise _ReadRefused
+        if isinstance(node, ast.SelectQuery) and id(node) not in self.sources:
+            raise _ReadRefused
+        super().visit(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if node.ctes or node.array_join_list or node.window_exprs:
+            raise _ReadRefused
+        super().visit_select_query(node)
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if node.table_args is not None or node.sample is not None or node.column_aliases or node.table_final:
+            raise _ReadRefused
+        if node.join_type is not None:
+            if not self._is_person_join(node):
+                raise _ReadRefused
+        elif isinstance(node.table, ast.SelectQuery) and isinstance(
+            node.type, (ast.SelectQueryType, ast.SelectQueryAliasType)
+        ):
+            self.sources.add(id(node.table))
+            self.visit(node.table)
+        elif not (isinstance(node.table, ast.Field) and isinstance(_read_table(node.type), EventsTable)):
+            raise _ReadRefused
+        self.visit(node.constraint)
+        self.visit(node.next_join)
+
+    def visit_field(self, node: ast.Field) -> None:
+        if not isinstance(node.type, _COMPILED_FIELD_TYPES):
+            raise _ReadRefused
+
+    def visit_call(self, node: ast.Call) -> None:
+        if find_hogql_posthog_function(node.name) is not None:
+            raise _ReadRefused
+        super().visit_call(node)
+
+    def _is_person_join(self, node: ast.JoinExpr) -> bool:
+        if not isinstance(node.table, ast.SelectQuery):
+            return False
+        reference = self.person_join()
+        return reference is not None and _join_key(node) == _join_key(reference)
+
+
 class _PlaceholderFinder(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
@@ -212,8 +319,85 @@ def _source_refusal(select: ast.SelectQuery) -> str | None:
     return "source" if finder.found else None
 
 
+def _read_table(table_type: ast.Type | None) -> object:
+    while isinstance(table_type, ast.TableAliasType):
+        table_type = table_type.table_type
+    return table_type.table if isinstance(table_type, ast.TableType) else None
+
+
+def _join_key(node: ast.JoinExpr) -> ast.JoinExpr:
+    return clone_expr(replace(node, next_join=None), clear_types=True, clear_locations=True)
+
+
+def _compiled(
+    select: ast.SelectQuery, team: Team, database: Database, modifiers: HogQLQueryModifiers
+) -> ast.SelectQuery:
+    context = HogQLContext(
+        team_id=team.pk,
+        team=team,
+        enable_select_queries=True,
+        limit_top_select=False,
+        modifiers=modifiers.model_copy(),
+        bypass_warehouse_access_control=True,
+        database=database,
+    )
+    _, prepared = prepare_and_print_ast(clone_expr(select), context=context, dialect="clickhouse")
+    if not isinstance(prepared, ast.SelectQuery):
+        raise _ReadRefused
+    return prepared
+
+
+def _person_join(
+    source_alias: str | None, team: Team, database: Database, modifiers: HogQLQueryModifiers
+) -> ast.JoinExpr | None:
+    probe = ast.SelectQuery(
+        select=[ast.Field(chain=["person_id"])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias=source_alias),
+    )
+    source = _compiled(probe, team, database, modifiers).select_from
+    join = None if source is None else source.next_join
+    if join is None or join.next_join is not None or not isinstance(join.table, ast.SelectQuery):
+        return None
+    inner = join.table.select_from
+    if inner is None or inner.next_join is not None or not isinstance(inner.table, ast.Field):
+        return None
+    return join if isinstance(_read_table(inner.type), RawPersonDistinctIdOverridesTable) else None
+
+
+def _compiled_read_refusal(
+    insert_query: ast.SelectQuery,
+    source_alias: str | None,
+    team: Team,
+    database: Database,
+    modifiers: HogQLQueryModifiers,
+    bounds: tuple[datetime, datetime],
+) -> str | None:
+    window_min, window_max = bounds
+    bound = replace_placeholders(
+        insert_query,
+        {"time_window_min": ast.Constant(value=window_min), "time_window_max": ast.Constant(value=window_max)},
+    )
+    if not isinstance(bound, ast.SelectQuery):
+        return "source"
+    resolved_away = _ResolvedAwayFinder()
+    resolved_away.visit(bound)
+    if resolved_away.found:
+        return "source"
+    person_join = functools.cache(lambda: _person_join(source_alias, team, database, modifiers))
+    try:
+        compiled = _compiled(bound, team, database, modifiers)
+        _CompiledReadChecker(compiled, person_join).visit(compiled)
+    except (_ReadRefused, BaseHogQLError):
+        return "source"
+    return None
+
+
+def _source_alias(select: ast.SelectQuery) -> str | None:
+    return select.select_from.alias if select.select_from else None
+
+
 def _qualifiers(select: ast.SelectQuery) -> set[str]:
-    alias = select.select_from.alias if select.select_from else None
+    alias = _source_alias(select)
     return {"events", alias} if alias else {"events"}
 
 
@@ -508,9 +692,19 @@ def closed_sql_series_values(
     if reason is not None:
         return SeriesValuesUnavailable(reason=reason)
 
+    insert_query = _insert_query(shape, value_column)
+    modifiers = create_default_modifiers_for_team(team)
+    database = Database.create_for(team.pk, team=team, modifiers=modifiers, bypass_warehouse_access_control=True)
+    # The build runs with no user, so this check on the compiled INSERT, not the shape checks above, limits what it reads.
+    reason = _compiled_read_refusal(
+        insert_query, _source_alias(shape.select), team, database, modifiers, (range_start, range_end)
+    )
+    if reason is not None:
+        return SeriesValuesUnavailable(reason=reason)
+
     result = ensure_precomputed(
         team=team,
-        insert_query=_insert_query(shape, value_column),
+        insert_query=insert_query,
         time_range_start=range_start,
         time_range_end=range_end,
         ttl_seconds=ttl_schedule(team.timezone),
@@ -521,6 +715,7 @@ def closed_sql_series_values(
         read_after_write=run_inserts,
         cache_key_context={"engine": ENGINE_VERSION, "value_column": value_column},
         insert_settings=insert_time_cap(wait_timeout_seconds),
+        database=database,
     )
     if not result.ready or not result.job_ids:
         return SeriesValuesUnavailable(reason="not_ready")
