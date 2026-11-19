@@ -221,6 +221,13 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - "Clear filters" is the last row of that menu, and only shows while a filter is on. It is the only way to clear from the toolbar: no "Clear selection" row in a submenu, and no "Clear filters" button beside the funnel. The no-matches empty state may still offer one
   - Inside another menu (a picker), give the outer `DropdownMenu` `modal={false}`, or it blocks the filter menu's popup
   - Precedent: `scenes/analytics/AnalyticsFilterMenu`. A phone sheet, as in `layout/today/TodayRecentFilterMenu`, wraps the same rows
+- A scene that filters a table (the default layout): one `flex flex-col gap-3` column under the title, in this order:
+  - Toolbar: `flex flex-wrap items-center justify-between gap-2`. On the left, the search `InputGroup size="sm"` (`w-72`), the filter menu, then the controls that scope the list but are not filters: date range (an outline Button opening `QuillDateFilter` in a Popover) and saved views. On the right, the result count and a refresh icon button
+  - Applied filters: a row of `Chip` + `ChipClose`, one per filter in force, so each can be removed without opening the menu. Hidden when no filter is on
+  - Table: `DataTable` in `<Card size="sm" flush>`, with `fullWidth`, `size="sm"`, `selectable` when rows take bulk actions, and `resizableColumns` with the widths saved per user (a `persist: true` reducer passed to `columnSizing` / `onColumnSizingChange`). Cells stay on one line: a long value truncates, it never wraps the row. `QuillTablePagination` sits below the card, outside its border (wrap the card and pager in `flex flex-col gap-2`), only when there is more than one page. This matches `DataTable`'s own pager in the quill DataTable stories
+  - Bulk actions: a floating bar, `sticky bottom-4` and `data-quill-inverted`, shown only while rows are selected, with the count and the actions
+  - Loading shows a skeleton of the visible columns, a failed first load an error with retry, and a refetch dims the table without blocking it
+  - Precedent: the tickets scene, `products/conversations/frontend/scenes/tickets/QuillSupportTicketsSceneContent`
 - Text and numbers:
   - Input: single-line text. Beside default-size buttons, such as a search field next to a filter button, use `size="sm"` on `Input` or `InputGroup` so the heights match
   - Textarea: multi-line or long free text
