@@ -15,14 +15,16 @@ import {
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { organizationsProjectsRetrieve } from '~/generated/core/api'
+import type { ProjectBackwardCompatApi } from '~/generated/core/api.schemas'
 import { TeamPublicType, TeamType } from '~/types'
 
 import { transactionalEmailLogImpactRetrieve } from 'products/messaging/frontend/generated/api'
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
+import { onLinkTaggingSavedInAnotherTab } from 'products/workflows/frontend/scenes/settings/linkTaggingAcrossTabs'
 
 import {
     ImpactFunnelState,
@@ -128,7 +130,7 @@ export interface emailImpactLogicMeta {
             impactError: string | null
         ) => ImpactFunnelState
         linkTagging: (
-            storedLinkTagging: any,
+            storedLinkTagging: boolean | null,
             currentTeam: TeamPublicType | TeamType | null,
             alwaysSensitive: boolean
         ) => LinkTagging
@@ -250,19 +252,20 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             null as boolean | null,
             {
                 loadStoredLinkTagging: async (_: void, breakpoint) => {
-                    const projectId = values.currentTeam?.project_id
-                    if (!projectId) {
+                    const { organization, project_id } = values.currentTeam ?? {}
+                    if (!organization || !project_id) {
                         return values.storedLinkTagging
                     }
-                    let project: TeamType
+                    let project: ProjectBackwardCompatApi | null
                     try {
-                        // nosemgrep: prefer-codegen-api -- teamLogic reads the project the same way, and no generated function returns its workflows_config.
-                        project = await api.get(`api/projects/${projectId}`)
+                        project = await organizationsProjectsRetrieve(organization, project_id)
                     } catch {
-                        return values.storedLinkTagging
+                        project = null
                     }
                     breakpoint()
-                    return project.workflows_config?.email_workflow_run_link_tag_enabled ?? true
+                    return project
+                        ? (project.workflows_config?.email_workflow_run_link_tag_enabled ?? true)
+                        : values.storedLinkTagging
                 },
             },
         ],
@@ -341,9 +344,9 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
     afterMount(({ actions, cache }) => {
         actions.loadImpact()
         // The link tagging setting can change in another tab, including the one this tab's settings link opens,
-        // so read it again on mount and whenever this tab gets focus back. The read stays out of teamLogic,
-        // because a slow response there would replace a newer shared team. A later focus also repairs a read
-        // that ran before the save finished or that failed.
+        // so read it again on mount, whenever this tab gets focus back, and when another tab saves it. The save
+        // signal covers a user who comes back before the save commits. The read stays out of teamLogic, because
+        // a slow response there would replace a newer shared team.
         actions.loadStoredLinkTagging()
         cache.disposables.add(
             () => {
@@ -352,6 +355,11 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                 return () => window.removeEventListener('focus', onFocus)
             },
             'reloadLinkTaggingOnFocus',
+            { pauseOnPageHidden: false }
+        )
+        cache.disposables.add(
+            () => onLinkTaggingSavedInAnotherTab(() => actions.loadStoredLinkTagging()),
+            'reloadLinkTaggingOnSave',
             { pauseOnPageHidden: false }
         )
     }),

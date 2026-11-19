@@ -60,7 +60,7 @@ const Template: StoryFn<{
     )
     useStorybookMocks({
         get: {
-            '/api/projects/:team_id/': team,
+            '/api/organizations/:organization_id/projects/:id/': team,
             '/api/projects/:team_id/transactional_email_log/impact/': ({ request }: { request: Request }) => {
                 if (!new URL(request.url).searchParams.get('event')) {
                     return [200, impact]
