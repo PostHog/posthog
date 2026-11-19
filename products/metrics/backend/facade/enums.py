@@ -213,3 +213,21 @@ class DashboardTemplateStatus(LabeledStrEnum):
     APPROVED = "approved"
     REJECTED = "rejected"
     FAILED = "failed"
+
+
+class PrecomputedMetricKind(LabeledStrEnum):
+    """What a precomputed metric stores for each hour and kept label set.
+
+    INCREASE and COUNT_INCREASE store the summed increase of the `value` or `count` column, which answers
+    increase and rate clauses. HISTOGRAM stores the summed bucket counts, which answers histogram quantiles.
+
+    SUM_OVER_TIME and BUCKET_INCREASE answer PromQL tiles and are filled through Snuffle, so they match what a
+    PromQL query reads: `sum_over_time` of any metric type, and `increase` of a histogram's `_bucket` series,
+    which always keeps `le`.
+    """
+
+    INCREASE = "increase", "increase"
+    COUNT_INCREASE = "count_increase", "count_increase"
+    HISTOGRAM = "histogram", "histogram"
+    SUM_OVER_TIME = "sum_over_time", "sum_over_time"
+    BUCKET_INCREASE = "bucket_increase", "bucket_increase"
