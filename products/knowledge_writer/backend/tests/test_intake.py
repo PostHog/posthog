@@ -1198,7 +1198,7 @@ def _legacy_writer_run(team) -> tuple[DocsRequest, TaskRun]:
     legacy = intake.submit(verdict, team_id=team.id)
     assert legacy.task_id is not None
     legacy_task = Task.objects.get(id=legacy.task_id)
-    legacy_task.state = {key: value for key, value in legacy_task.state.items() if key != BASE_SHA_STATE_KEY}
+    legacy_task.state = {key: value for key, value in (legacy_task.state or {}).items() if key != BASE_SHA_STATE_KEY}
     legacy_task.save(update_fields=["state"])
     return verdict.request, TaskRun.objects.get(task_id=legacy.task_id)
 
