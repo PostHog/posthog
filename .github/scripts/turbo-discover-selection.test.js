@@ -4,6 +4,9 @@
 // they get, and which products stay in the matrix. All three read one decision, so a
 // branch that regresses here silently changes what a PR is gated on.
 
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const {
@@ -216,8 +219,36 @@ test('a product cascade gets the lowest phase that covers every file it changed'
         ['legacy_changed', ['products/tasks/backend/tests/test_api.py'], null],
         ['non_isolated_product', undefined, null],
     ]
-    for (const [reason, changedFiles, phase] of cases) {
-        assert.equal(productCascadePhase(reason, changedFiles), phase, `${reason} ${JSON.stringify(changedFiles)}`)
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'turbo-discover-phase-'))
+    const actionsManifest = path.join(repoRoot, 'products/actions/turbo.json')
+    fs.mkdirSync(path.dirname(actionsManifest), { recursive: true })
+    fs.writeFileSync(
+        actionsManifest,
+        JSON.stringify({
+            tasks: {
+                'backend:contract-check': {
+                    inputs: [
+                        'backend/facade/**',
+                        'backend/presentation/**',
+                        'backend/routes.py',
+                        'backend/models/**',
+                        'backend/migrations/**',
+                        'backend/apps.py',
+                    ],
+                },
+            },
+        })
+    )
+    try {
+        for (const [reason, changedFiles, phase] of cases) {
+            assert.equal(
+                productCascadePhase(reason, changedFiles, repoRoot),
+                phase,
+                `${reason} ${JSON.stringify(changedFiles)}`
+            )
+        }
+    } finally {
+        fs.rmSync(repoRoot, { recursive: true, force: true })
     }
 })
 
