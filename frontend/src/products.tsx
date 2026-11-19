@@ -2964,11 +2964,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.aiObservabilityEvaluations(),
         searchKeywords: ['evals', 'llm judge', 'llm as a judge', 'grading', 'datasets', 'test sets', 'golden set'],
         searchTabs: [
-            {
-                name: 'Offline evals',
-                href: urls.aiObservabilityOfflineEvaluations(),
-                flag: FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS,
-            },
+            { name: 'Offline evals', href: urls.aiObservabilityOfflineEvaluations() },
             { name: 'Datasets', href: urls.aiObservabilityDatasets(), flag: FEATURE_FLAGS.LLM_ANALYTICS_DATASETS },
             { name: 'Scorers', href: urls.aiObservabilityScorers() },
         ],
