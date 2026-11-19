@@ -177,22 +177,38 @@ class PauseDecision:
     @property
     def reason(self) -> str:
         """What the customer is told, in the pause email, the workflow banner and the API."""
-        signal_text = (
-            "Spam complaints" if self.threshold.signal == "complaint" else "Emails to addresses that do not exist"
-        )
-        if self.project is not None:
-            events_text = (
-                "spam complaints" if self.threshold.signal == "complaint" else "emails to addresses that do not exist"
-            )
-            return (
-                f"{signal_text} reached {_format_rate(self.project.rate)} of the {self.project.sent:,} emails "
-                f"this project's workflows sent in {self.threshold.window_description}. This workflow sent "
-                f"{self.sent:,} of those emails, and {self.events:,} of the {events_text} came from it."
-            )
+        if self.project is None:
+            return self._own_reason
         return (
-            f"{signal_text} reached {_format_rate(self.rate)} of the {self.sent:,} emails this workflow "
+            f"{self._signal_text} across this project's workflows passed the pause limit in "
+            f"{self.threshold.window_description}. This workflow sent {self.sent:,} emails in that time, "
+            f"and {self.events:,} of the {self._events_text} came from it."
+        )
+
+    @property
+    def warning_reason(self) -> str:
+        if self.project is None:
+            return self._own_reason
+        return (
+            f"{self._signal_text} reached {_format_rate(self.project.rate)} of the {self.project.sent:,} emails "
+            f"this project's workflows sent in {self.threshold.window_description}. This workflow sent "
+            f"{self.sent:,} of those emails, and {self.events:,} of the {self._events_text} came from it."
+        )
+
+    @property
+    def _own_reason(self) -> str:
+        return (
+            f"{self._signal_text} reached {_format_rate(self.rate)} of the {self.sent:,} emails this workflow "
             f"sent in {self.threshold.window_description}."
         )
+
+    @property
+    def _signal_text(self) -> str:
+        return "Spam complaints" if self.threshold.signal == "complaint" else "Emails to addresses that do not exist"
+
+    @property
+    def _events_text(self) -> str:
+        return "spam complaints" if self.threshold.signal == "complaint" else "emails to addresses that do not exist"
 
 
 def _shown_percent(rate: float) -> float:
@@ -640,7 +656,7 @@ def apply_warning(decision: PauseDecision, *, now: datetime | None = None) -> bo
                 team_id=decision.team_id,
                 hog_flow_id=decision.hog_flow_id,
                 hog_flow_name=decision.hog_flow_name,
-                reason=decision.reason,
+                reason=decision.warning_reason,
                 pause_rate=_format_rate(pause_rate),
                 warned_at=now.isoformat(),
             )

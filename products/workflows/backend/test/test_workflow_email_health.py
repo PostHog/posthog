@@ -280,8 +280,8 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert sorted(decision.hog_flow_id for decision in applied) == sorted([str(self.flow.id), str(spreading.id)])
         self.flow.refresh_from_db()
         assert self.flow.email_sending_paused_reason == (
-            "Emails to addresses that do not exist reached 14.44% of the 450 emails this project's workflows "
-            "sent in the last hour. This workflow sent 150 of those emails, and 30 of the emails to addresses "
+            "Emails to addresses that do not exist across this project's workflows passed the pause limit in "
+            "the last hour. This workflow sent 150 emails in that time, and 30 of the emails to addresses "
             "that do not exist came from it."
         )
         under_the_rate.refresh_from_db()
@@ -339,8 +339,8 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert [decision.hog_flow_id for decision in applied] == [str(self.flow.id)]
         self.flow.refresh_from_db()
         assert self.flow.email_sending_paused_reason == (
-            "Emails to addresses that do not exist reached 12.5% of the 200 emails this project's workflows "
-            "sent in the last hour. This workflow sent 10 of those emails, and 15 of the emails to addresses "
+            "Emails to addresses that do not exist across this project's workflows passed the pause limit in "
+            "the last hour. This workflow sent 10 emails in that time, and 15 of the emails to addresses "
             "that do not exist came from it."
         )
 

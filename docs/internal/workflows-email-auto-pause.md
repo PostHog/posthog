@@ -42,7 +42,7 @@ A workflow under the rate keeps sending.
 The project rate's second denominator adds up what each workflow is judged on: the larger of its window's sends and its earlier window's sends when it has hard bounces in the window, and its window's sends when it has none.
 A clean workflow has no late bounces in it, so its earlier sends say nothing about its siblings' bounces, and one bouncing workflow's earlier batch never stands in for its siblings' sends.
 Complaints stay per workflow: a complaint says one recipient objected to one workflow's email, so a sibling's complaints are no evidence against it, and complaint feedback replayed by SES during an incident would otherwise pause every workflow in the project.
-The reason then names the project's rate, the workflow's sends, and how many of the bounces came from the workflow, and the log and the `workflow_email_auto_pause_total` / `workflow_email_warning_total` counters carry `scope="project"`.
+The pause reason then says the project's workflows passed the pause limit and names the workflow's sends and how many of the bounces came from it, with no project-wide figures, because people with access to only that workflow can read it. A warning email goes to the project's admins and names the project's rate, and the log and the `workflow_email_auto_pause_total` / `workflow_email_warning_total` counters carry `scope="project"`.
 
 ## Who pauses, who resumes
 
