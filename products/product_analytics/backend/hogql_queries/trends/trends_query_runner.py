@@ -8,7 +8,7 @@ from operator import itemgetter
 from typing import Any, Optional, Union
 
 from django.conf import settings
-from django.db import models
+from django.db import connection, models
 from django.db.models.functions import Coalesce
 
 from natsort import natsorted, ns
@@ -147,6 +147,12 @@ class _ResultSeriesBreakdown:
     breakdown_value_repr: str
 
 
+@frozen
+class _SharedBreakdownValues:
+    current_period: list[str] | list[list[str]]
+    previous_period: list[str] | list[list[str]] | None
+
+
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     query: TrendsQuery
     cached_response: CachedTrendsQueryResponse
@@ -260,28 +266,20 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return ast.SelectSetQuery.create_from_queries(self.to_queries(), "UNION ALL")
 
-    def to_queries(self) -> list[ast.SelectQuery | ast.SelectSetQuery]:
+    def to_queries(
+        self, shared_breakdown_values: _SharedBreakdownValues | None = None
+    ) -> list[ast.SelectQuery | ast.SelectSetQuery]:
         queries = []
         with self.timings.measure("trends_to_query"):
-            earliest_timestamp = self._earliest_timestamp
             for series in self.series:
-                if not series.is_previous_period_series:
-                    query_date_range = self.query_date_range
-                else:
-                    query_date_range = self.query_previous_date_range
-
-                query_date_range._earliest_timestamp_fallback = earliest_timestamp
-
-                query_builder = TrendsQueryBuilder(
-                    trends_query=series.overriden_query or self.query,
-                    team=self.team,
-                    query_date_range=query_date_range,
-                    series=series.series,
-                    timings=self.timings,
-                    modifiers=self.modifiers,
-                    limit_context=self.limit_context,
-                )
-                query = query_builder.build_query()
+                series_breakdown_values = None
+                if shared_breakdown_values is not None:
+                    series_breakdown_values = (
+                        shared_breakdown_values.previous_period
+                        if series.is_previous_period_series
+                        else shared_breakdown_values.current_period
+                    )
+                query = self._series_query_builder(series, series_breakdown_values).build_query()
 
                 # Get around the default 100 limit, bump to the max 10000.
                 # This is useful for the world map view and other cases with a lot of breakdowns.
@@ -290,6 +288,86 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 queries.append(query)
 
         return queries
+
+    def _series_query_builder(
+        self, series: SeriesWithExtras, shared_breakdown_values: list[str] | list[list[str]] | None = None
+    ) -> TrendsQueryBuilder:
+        if not series.is_previous_period_series:
+            query_date_range = self.query_date_range
+        else:
+            query_date_range = self.query_previous_date_range
+
+        query_date_range._earliest_timestamp_fallback = self._earliest_timestamp
+
+        return TrendsQueryBuilder(
+            trends_query=series.overriden_query or self.query,
+            team=self.team,
+            query_date_range=query_date_range,
+            series=series.series,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+            shared_breakdown_values=shared_breakdown_values,
+        )
+
+    @cached_property
+    def _shared_breakdown_values(self) -> _SharedBreakdownValues | None:
+        # A formula joins the series on the breakdown value. If each series kept its own top values, a value could be
+        # a row of one series and a part of "Other" in the next one, and the formula would read zero for it.
+        formula_nodes = self.query.trendsFilter and self.query.trendsFilter.formulaNodes
+        if not formula_nodes or len(self.query.series) < 2 or not self.breakdown_enabled:
+            return None
+        if not self._series_query_builder(self.series[0]).can_share_breakdown_values:
+            return None
+
+        with self.timings.measure("shared_breakdown_values"):
+            queries: list[ast.SelectQuery] = []
+            for is_previous_period in (False, True):
+                builders = [
+                    self._series_query_builder(series)
+                    for series in self.series
+                    if bool(series.is_previous_period_series) == is_previous_period
+                ]
+                if builders:
+                    queries.append(
+                        builders[0].top_breakdown_values_query(
+                            [builder.breakdown_value_totals_query() for builder in builders]
+                        )
+                    )
+
+            top_values: list[list[str] | list[list[str]] | None] = [None, None]
+
+            def run(index: int, is_parallel: bool) -> None:
+                try:
+                    response = execute_hogql_query(
+                        query_type="TrendsBreakdownValuesQuery",
+                        query=queries[index],
+                        team=self.team,
+                        user=self.user,
+                        workload=self.workload,
+                        ch_user=self.ch_user,
+                        settings=self.hogql_settings,
+                        modifiers=self.modifiers,
+                        limit_context=self.limit_context,
+                        context=self.build_hogql_context(),
+                    )
+                    top_values[index] = [row[0] for row in response.results]
+                finally:
+                    if is_parallel:
+                        # This closes the connection of the worker thread only
+                        connection.close()
+
+            if len(queries) == 1 or settings.IN_UNIT_TESTING:
+                for index in range(len(queries)):
+                    run(index, False)
+            else:
+                run_in_parallel_threads(
+                    [partial(run, index, True) for index in range(len(queries))],
+                    thread_name_prefix="trends_breakdown_values",
+                )
+
+        assert top_values[0] is not None
+        return _SharedBreakdownValues(current_period=top_values[0], previous_period=top_values[1])
 
     def to_events_query(self, *args, **kwargs) -> ast.SelectQuery:
         with self.timings.measure("trends_to_events_query"):
@@ -495,7 +573,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 response.warnings = [*(response.warnings or []), resolved.warning]
             return response
 
-        queries = self.to_queries()
+        queries = self.to_queries(shared_breakdown_values=self._shared_breakdown_values)
 
         response_hogql = get_response_hogql(
             queries, team=self.team, timings=self.timings, modifiers=self.modifiers, database=self.shared_database
@@ -542,8 +620,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     self.on_series_error(e)
             finally:
                 if is_parallel:
-                    from django.db import connection
-
                     # This will only close the DB connection for the newly spawned thread and not the whole app
                     connection.close()
 
@@ -635,6 +711,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             hogql_settings=self.hogql_settings,
         )
         runner._shared_database = self._shared_database
+        # The totals must cover the breakdown values of the sparklines. A second ranking could keep other values.
+        runner._shared_breakdown_values = self._shared_breakdown_values
         # BoldNumber would resolve a daily range, so the totals would cover different days than the sparkline.
         runner.query_date_range = self.query_date_range
         runner.query_previous_date_range = self.query_previous_date_range
