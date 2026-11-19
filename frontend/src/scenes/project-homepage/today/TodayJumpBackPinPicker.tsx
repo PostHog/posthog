@@ -14,6 +14,7 @@ import {
     ComboboxSeparator,
     ComboboxTrigger,
     InputGroupAddon,
+    Text,
 } from '@posthog/quill'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -83,6 +84,14 @@ export function TodayJumpBackPinPicker({ trigger }: { trigger: JSX.Element }): J
         ).filter((group) => group.items.length > 0)
         return { groups: result, optionsByKey: byKey }
     }, [featureFlags, objects, loading, failed, search, searching, pinnedOnOpen, pinnedObjects, recentObjects])
+
+    const statusNote = !searching
+        ? null
+        : loading
+          ? 'Searching…'
+          : failed
+            ? 'Search failed. Change the search to try again.'
+            : null
 
     if (!jumpBackPinScope) {
         return null
@@ -154,15 +163,15 @@ export function TodayJumpBackPinPicker({ trigger }: { trigger: JSX.Element }): J
                         </ComboboxGroup>
                     )}
                 </ComboboxList>
-                <ComboboxEmpty>
-                    {!searching
-                        ? 'Search for a product or item to pin'
-                        : loading
-                          ? 'Searching…'
-                          : failed
-                            ? 'Search failed. Change the search to try again.'
-                            : 'Nothing matches'}
-                </ComboboxEmpty>
+                {statusNote ? (
+                    <Text size="xs" variant="muted" render={<p />} className="m-0 px-2.5 py-1.5">
+                        {statusNote}
+                    </Text>
+                ) : (
+                    <ComboboxEmpty>
+                        {searching ? 'Nothing matches' : 'Search for a product or item to pin'}
+                    </ComboboxEmpty>
+                )}
             </ComboboxContent>
         </Combobox>
     )
