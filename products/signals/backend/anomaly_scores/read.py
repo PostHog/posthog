@@ -13,6 +13,8 @@ from collections.abc import Collection, Mapping, Sequence
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
+from django.core.cache import cache
+
 from posthog.schema import IntervalType
 
 from posthog.hogql import ast
@@ -48,6 +50,10 @@ TIMESTAMP_DRIFT = datetime.timedelta(hours=1)
 # A project's scores are ready to rely on once this many days of the window have a scored daily bucket.
 SCORED_HISTORY_WINDOW = datetime.timedelta(days=28)
 SCORED_HISTORY_READY_DAYS = 14
+# The count changes at most once a day. A ready count stays cached longer, because a project leaves the
+# ready state only after it stops being scored for about two weeks.
+SCORED_DAYS_CACHE_TIMEOUT = datetime.timedelta(hours=3)
+SCORED_DAYS_READY_CACHE_TIMEOUT = datetime.timedelta(days=1)
 
 _LATEST_BUCKETS = """
 SELECT
@@ -392,7 +398,21 @@ def series_summaries(
 
 
 def scored_days(team: Team, *, now: datetime.datetime) -> int:
-    """Distinct UTC days with a scored daily bucket of any insight series from ``SCORED_HISTORY_WINDOW`` before ``now``."""
+    """Distinct UTC days with a scored daily bucket of any insight series from ``SCORED_HISTORY_WINDOW`` before ``now``.
+
+    The count is cached for each team, so ``now`` applies only when the cache is empty.
+    """
+    cache_key = f"signals:anomaly_scores:scored_days:v1:{team.id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return int(cached)
+    days = _count_scored_days(team, now=now)
+    timeout = SCORED_DAYS_READY_CACHE_TIMEOUT if days >= SCORED_HISTORY_READY_DAYS else SCORED_DAYS_CACHE_TIMEOUT
+    cache.set(cache_key, days, timeout=int(timeout.total_seconds()))
+    return days
+
+
+def _count_scored_days(team: Team, *, now: datetime.datetime) -> int:
     tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
     response = execute_hogql_query(
         _SCORED_DAYS_QUERY,
