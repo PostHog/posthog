@@ -220,7 +220,7 @@ fi
 # .husky/_/husky.sh is deliberately absent from this list — husky's installer
 # rewrites it on every sandboxed install, so the profile re-allows it. See the note
 # in bin/dev-sandbox.sb.
-for unsandboxed_exec in .husky/pre-commit .husky/pre-push .husky/post-checkout .flox/env/on-activate.sh; do
+for unsandboxed_exec in .husky/pre-commit .husky/pre-push .husky/post-checkout .flox/env/on-activate.sh .flox/cache/node-shims/pnpm; do
     if [[ ! -f "$repo/$unsandboxed_exec" ]]; then
         echo "  --   $unsandboxed_exec absent, skipping"
         continue
