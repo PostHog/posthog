@@ -37,7 +37,7 @@ export function VariantMix({ surface, state, domainProfile, setDomainProfile }: 
     // which is the Starter band.
     const isNew = state.key === 'new'
     const check = isNew ? DOMAIN_CHECKS[domainProfile] : DOMAIN_CHECKS.starter
-    const checkedOn = isNew ? 'just now' : 'Dec 3'
+    const checkedOn = isNew ? 'Dec 10' : 'Dec 3'
     const start = check.startPerDay
     const shown: SendingState =
         isNew && start !== null
