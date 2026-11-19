@@ -161,14 +161,22 @@ describe('cloud controller', () => {
 
     afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
-    it.each([
-        ['60m', '$47.99', /teardown tail.*\$5\.27/],
-        ['120m', '$53.26', /teardown tail.*\$10\.54/],
+    it.each<[string, string, Record<string, number>, string, RegExp, RegExp]>([
+        ['60m', 'the default interval', {}, '$47.86', /teardown tail.*\$5\.25/, /Monitoring logs, 0\.22 GB: \$0\.11/],
+        ['120m', 'the default interval', {}, '$53.12', /teardown tail.*\$10\.50/, /Monitoring logs, 0\.22 GB: \$0\.11/],
+        [
+            '60m',
+            'every second',
+            { readerMonitoringIntervalSeconds: 1 },
+            '$47.99',
+            /teardown tail.*\$5\.27/,
+            /Monitoring logs, 0\.43 GB: \$0\.22/,
+        ],
     ])(
-        'prints the itemized worst-case estimate for the fixed six-hour TTL, with a %s teardown allowance',
-        async (allowance, total, tail) => {
+        'prints the itemized worst-case estimate for the fixed six-hour TTL, with a %s teardown allowance and the reader monitored at %s',
+        async (allowance, _interval, monitoring, total, tail, logs) => {
             const { controller } = prepare({
-                profile: (p) => ({ ...p, admission: { ...p.admission, teardownAllowance: allowance } }),
+                profile: (p) => ({ ...p, ...monitoring, admission: { ...p.admission, teardownAllowance: allowance } }),
             })
 
             await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
@@ -176,8 +184,52 @@ describe('cloud controller', () => {
             expect(out.join('\n')).toContain(`Admitted estimate: ${total} of the $200 cap`)
             expect(out.join('\n')).toMatch(/reader at 32 ACU.*\$19\.20/)
             expect(out.join('\n')).toMatch(tail)
+            expect(out.join('\n')).toMatch(logs)
         }
     )
+
+    it.each<[string, Setup, number]>([
+        ['the production setting when the profile names none', {}, 60],
+        ['the interval the profile names', { profile: (p) => ({ ...p, readerMonitoringIntervalSeconds: 5 }) }, 5],
+    ])('monitors the reader at %s and the writer every second', async (_, setup, readerInterval) => {
+        const { controller } = prepare({ ...setup, env: api.credentials })
+        const intervalsOf = async (stackName: string): Promise<Record<string, number>> => {
+            const { StackResources } = (await cloud.call([
+                'cloudformation',
+                'describe-stack-resources',
+                '--stack-name',
+                stackName,
+            ])) as { StackResources: { LogicalResourceId: string; ResourceType: string; PhysicalResourceId: string }[] }
+            const instances = StackResources.filter(({ ResourceType }) => ResourceType === 'AWS::RDS::DBInstance')
+            const described = await Promise.all(
+                instances.map(async ({ LogicalResourceId, PhysicalResourceId }) => {
+                    const { DBInstances } = (await cloud.call([
+                        'rds',
+                        'describe-db-instances',
+                        '--db-instance-identifier',
+                        PhysicalResourceId,
+                    ])) as { DBInstances: { MonitoringInterval: number }[] }
+                    return [LogicalResourceId, DBInstances[0].MonitoringInterval] as const
+                })
+            )
+            return Object.fromEntries(described)
+        }
+        let readerAdded = false
+        let atCardStart: Promise<Record<string, number>> | undefined
+        cloud.beforeCall('update-stack', () => {
+            readerAdded = true
+        })
+        cloud.beforeCall('send-command', () => {
+            if (readerAdded) {
+                atCardStart ??= intervalsOf(`scn-${leasedRunId()}`)
+            }
+        })
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+
+        expect(await atCardStart).toEqual({ Writer: 1, Reader: readerInterval })
+        expect(published()).toMatchObject({ reader_monitoring_interval_seconds: readerInterval })
+    })
 
     it('runs the card it is given on the host and judges a card without a failover on its own verdict', async () => {
         const { controller } = prepare({ env: api.credentials })
@@ -358,6 +410,11 @@ describe('cloud controller', () => {
             'pooler.settings',
         ],
         [
+            'a reader monitoring interval RDS does not offer',
+            { profile: (p) => ({ ...p, readerMonitoringIntervalSeconds: 2 }) },
+            'readerMonitoringIntervalSeconds',
+        ],
+        [
             'a pooler setting that spans lines',
             {
                 profile: (p) => ({
@@ -440,17 +497,29 @@ describe('cloud controller', () => {
         }
     )
 
-    it('prints the estimate when it refuses a run over the cap', async () => {
+    it.each<[string, number, Record<string, number>, string, number]>([
+        ['refuses a run far over the cap', 30, {}, '$250.86', 2],
+        ['admits a run just under the cap with the reader at the default interval', 22.72, {}, '$199.90', 0],
+        [
+            'refuses the same run when its reader is monitored every second',
+            22.72,
+            { readerMonitoringIntervalSeconds: 1 },
+            '$200.03',
+            2,
+        ],
+    ])('prints the estimate and %s', async (_, writerPerHour, monitoring, total, exitCode) => {
         const { controller } = prepare({
             profile: (p) => ({
                 ...p,
-                admission: { ...p.admission, rates: { ...p.admission.rates, writerPerHour: 30 } },
+                ...monitoring,
+                admission: { ...p.admission, rates: { ...p.admission.rates, writerPerHour } },
             }),
         })
 
-        await main(['run', profilePath(), FAILOVER_CARD], controller)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(exitCode)
 
-        expect(out.join('\n')).toContain('Admitted estimate: $250.99 of the $200 cap')
+        expect(out.join('\n')).toContain(`Admitted estimate: ${total} of the $200 cap`)
+        expect(err.join('\n').includes('The admitted estimate is over the $200 cap.')).toBe(exitCode === 2)
     })
 
     it('cleans up with only the cloud profile, after the runner profile is gone', async () => {
@@ -1136,6 +1205,7 @@ describe('cloud controller', () => {
             writer_class: 'db.r8g.2xlarge',
             reader_acu_min: 1,
             reader_acu_max: 32,
+            reader_monitoring_interval_seconds: 60,
             host_class: 'm7i.8xlarge',
             engine_version: '16.4',
             pooler_replicas: 2,
@@ -1195,10 +1265,19 @@ describe('cloud controller', () => {
             ...p,
             pooler: { ...p.pooler, settings: { ...p.pooler.settings, default_pool_size: 40 } },
         }))
+        const monitoredEverySecond = await fingerprintOf((p) => ({ ...p, readerMonitoringIntervalSeconds: 1 }))
+        const monitoredEveryFiveSeconds = await fingerprintOf((p) => ({ ...p, readerMonitoringIntervalSeconds: 5 }))
+        const monitoredEveryFiveSecondsAgain = await fingerprintOf((p) => ({
+            ...p,
+            readerMonitoringIntervalSeconds: 5,
+        }))
 
         expect(first).toMatch(/^[0-9a-f]{64}$/)
         expect(repriced).toBe(first)
         expect(other).not.toBe(first)
+        expect(monitoredEverySecond).not.toBe(first)
+        expect(monitoredEveryFiveSeconds).not.toBe(monitoredEverySecond)
+        expect(monitoredEveryFiveSecondsAgain).toBe(monitoredEveryFiveSeconds)
     })
 
     it.each<[string, (fake: FakeCloud) => void, (volumeId: string) => unknown]>([
