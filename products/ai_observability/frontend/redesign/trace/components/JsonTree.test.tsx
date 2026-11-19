@@ -19,10 +19,17 @@ describe('JsonTree', () => {
             'a value too wide for the tree',
             Object.fromEntries(Array.from({ length: 3000 }, (_, index) => [`field_${index}`, index])),
             'field_2999',
+            null,
         ],
-        ['a closed array with too many groups', { level: { items: Array(250000).fill(0) } }, '"items"'],
-    ])('shows %s as text', (_name, src, text) => {
-        const { container } = render(<JsonTree src={src} />)
+        ['a closed array with too many groups', { level: { items: Array(250000).fill(0) } }, '"items"', null],
+        [
+            'a search match beside an unrelated string too long to open',
+            { note: 'needle', prompt: 'a'.repeat(200000) },
+            'needle',
+            'needle',
+        ],
+    ])('shows %s as text', (_name, src, text, highlightQuery) => {
+        const { container } = render(<JsonTree src={src} highlightQuery={highlightQuery} />)
 
         expect(container.querySelector('.react-json-view')).toBeNull()
         expect(container.querySelector('pre')?.textContent).toContain(text)

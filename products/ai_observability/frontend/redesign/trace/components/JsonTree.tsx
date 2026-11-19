@@ -2,13 +2,15 @@ import { useMemo } from 'react'
 
 import { JSONViewer } from 'lib/components/JSONViewer'
 
-import { containsQuery, JsonContainer, toDisplayText } from './jsonText'
+import { containsQuery, JsonContainer, searchableText, toDisplayText } from './jsonText'
 
 const OPEN_DEPTH = 2
 // Captured values can nest thousands of levels deep, and React renders nested components recursively.
 const SEARCH_OPEN_DEPTH = 64
 // The viewer does not virtualize, so a value that opens more rows than this shows as text.
 const MAX_OPEN_ROWS = 2000
+// A search match turns string truncation off for the whole tree, so its text must stay small enough to lay out.
+const MAX_SEARCH_OPEN_CHARS = 100_000
 const ARRAY_GROUP_SIZE = 100
 
 function openRows(value: unknown, depth: number, budget: number, groupsArrays: boolean): number {
@@ -37,7 +39,9 @@ export interface JsonTreeProps {
 export function JsonTree({ src, highlightQuery = null }: JsonTreeProps): JSX.Element {
     const showsQuery = useMemo(() => containsQuery(src, highlightQuery), [src, highlightQuery])
     const isTooBig = useMemo(
-        () => openRows(src, showsQuery ? SEARCH_OPEN_DEPTH : OPEN_DEPTH, MAX_OPEN_ROWS, !showsQuery) > MAX_OPEN_ROWS,
+        () =>
+            (showsQuery && searchableText(src).length > MAX_SEARCH_OPEN_CHARS) ||
+            openRows(src, showsQuery ? SEARCH_OPEN_DEPTH : OPEN_DEPTH, MAX_OPEN_ROWS, !showsQuery) > MAX_OPEN_ROWS,
         [src, showsQuery]
     )
     // Array groups and cut strings ignore the open depth, so a search match opens them too.
