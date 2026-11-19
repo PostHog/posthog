@@ -22,6 +22,7 @@ import {
     BroadcastEmailSettings,
     BroadcastEmailValue,
     BroadcastPushValue,
+    BroadcastTemplatingErrors,
     BroadcastWizardLogicProps,
     broadcastWizardLogic,
     findPushInputs,
@@ -79,6 +80,7 @@ export interface broadcastTestSendLogicValues {
     emailSettings: BroadcastEmailSettings // broadcastWizardLogic
     name: string // broadcastWizardLogic
     push: BroadcastPushValue // broadcastWizardLogic
+    templatingErrors: BroadcastTemplatingErrors // broadcastWizardLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     isModalOpen: boolean
@@ -175,7 +177,8 @@ export interface broadcastTestSendLogicMeta {
             recipientEmail: string,
             channel: BroadcastChannel,
             push: BroadcastPushValue,
-            recipientDistinctId: string
+            recipientDistinctId: string,
+            templatingErrors: Partial<Record<'body' | 'message' | 'preheader' | 'subject' | 'title' | 'to', string>>
         ) => string | undefined
     }
 }
@@ -200,7 +203,7 @@ export const broadcastTestSendLogic = kea<broadcastTestSendLogicType>([
     connect((props: BroadcastWizardLogicProps) => ({
         values: [
             broadcastWizardLogic(props),
-            ['broadcast', 'email', 'emailSettings', 'name', 'channel', 'push'],
+            ['broadcast', 'email', 'emailSettings', 'name', 'channel', 'push', 'templatingErrors'],
             broadcastPreviewLogic(props),
             ['previewPerson'],
             teamLogic,
@@ -342,20 +345,27 @@ export const broadcastTestSendLogic = kea<broadcastTestSendLogicType>([
                 channel === 'push' ? findPushTestSkipReason(testSendResult) : findTestSendSkipReason(testSendResult),
         ],
         sendDisabledReason: [
-            (s) => [s.email, s.recipientEmail, s.channel, s.push, s.recipientDistinctId],
+            (s) => [s.email, s.recipientEmail, s.channel, s.push, s.recipientDistinctId, s.templatingErrors],
             (
                 email: BroadcastEmailValue,
                 recipientEmail: string,
                 channel: BroadcastChannel,
                 push: BroadcastPushValue,
-                recipientDistinctId: string
+                recipientDistinctId: string,
+                templatingErrors: BroadcastTemplatingErrors
             ): string | undefined => {
+                // A test goes to the address typed here, so the saved recipient's template doesn't matter.
+                const { to: _to, ...contentErrors } = templatingErrors
+                const templatingError = Object.values(contentErrors).find(Boolean)
                 if (channel === 'push') {
                     if (push.channels.length === 0) {
                         return 'Choose a push channel first'
                     }
                     if (!push.title.trim()) {
                         return 'Add a notification title first'
+                    }
+                    if (templatingError) {
+                        return templatingError
                     }
                     if (recipientDistinctId.includes('{% endraw')) {
                         return 'This distinct ID contains text that cannot be sent'
@@ -370,6 +380,9 @@ export const broadcastTestSendLogic = kea<broadcastTestSendLogicType>([
                 }
                 if (!email.html && !email.text) {
                     return 'Add email content first'
+                }
+                if (templatingError) {
+                    return templatingError
                 }
                 if (!recipientEmail || !isEmail(recipientEmail)) {
                     return 'Enter a valid email address'
