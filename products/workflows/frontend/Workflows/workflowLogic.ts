@@ -3724,8 +3724,8 @@ function missingStepTemplateIds(
         return []
     }
     const missing = new Set<string>()
-    for (const action of workflow.actions) {
-        const templateId = 'template_id' in action.config ? action.config.template_id : undefined
+    for (const action of workflow.actions ?? []) {
+        const templateId = (action.config as { template_id?: unknown } | undefined)?.template_id
         if (typeof templateId === 'string' && !templatesById[templateId]) {
             missing.add(templateId)
         }
