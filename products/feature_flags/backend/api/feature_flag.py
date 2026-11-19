@@ -1989,8 +1989,14 @@ class FeatureFlagSerializer(
             raise serializers.ValidationError({attr: ErrorDetail(message, code=DEPENDENCY_RUNTIME_MISMATCH)})
 
     def _caller_is_organization_admin(self) -> bool:
-        user_access_control = self.user_access_control
-        return user_access_control is not None and user_access_control.is_organization_admin
+        # Judged in the write team's organization, not the caller's current one: a copy into another
+        # organization has no access-control object of its own, so the caller's current organization would apply.
+        from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+        user = getattr(self.context.get("request"), "user", None)
+        if user is None or user.is_anonymous:
+            return False
+        return UserAccessControl(user, self._write_team).is_organization_admin
 
     def _validate_evaluation_contexts_requirement(
         self, attrs: dict, request: Any, team: Team, creation_context: str | None

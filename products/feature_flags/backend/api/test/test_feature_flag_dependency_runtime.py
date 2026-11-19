@@ -166,6 +166,38 @@ class TestFeatureFlagDependencyRuntime(APIBaseTest):
         assert "server-side only" not in member_response.json()["detail"]
         assert f"Cannot depend on flag (ID: {dependency.id})" in member_response.json()["detail"]
 
+    def test_organization_admin_status_is_judged_in_the_write_teams_organization(self) -> None:
+        from django.test import RequestFactory
+
+        from posthog.models.organization import Organization, OrganizationMembership
+        from posthog.models.team import Team
+
+        from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        other_org = Organization.objects.create(name="other org")
+        OrganizationMembership.objects.create(
+            user=self.user, organization=other_org, level=OrganizationMembership.Level.MEMBER
+        )
+        other_team = Team.objects.create(organization=other_org)
+        request = RequestFactory().get("/")
+        request.user = self.user
+
+        def serializer_for(team: Team) -> FeatureFlagSerializer:
+            return FeatureFlagSerializer(
+                context={
+                    "request": request,
+                    "team_id": team.id,
+                    "project_id": team.project_id,
+                    "get_team": lambda: team,
+                    "get_organization": lambda: team.organization,
+                }
+            )
+
+        assert serializer_for(self.team)._caller_is_organization_admin() is True
+        assert serializer_for(other_team)._caller_is_organization_admin() is False
+
     def test_adding_a_mismatched_dependency_next_to_an_existing_one_is_rejected(self) -> None:
         old_dependency = self._flag("old_dependency", "client")
         new_dependency = self._flag("new_dependency", "client")
