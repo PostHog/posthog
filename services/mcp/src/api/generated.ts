@@ -113419,6 +113419,21 @@ export namespace Schemas {
       reason: string;
     }
 
+    export interface SavedQueryRenameJoin {
+      /** Id of the saved join the rename updates. */
+      id: string;
+      /** Name of the join field on the source table. */
+      field_name: string;
+      /** The join's source table now. */
+      source_table_name_before: string;
+      /** The join's source table after the rename. */
+      source_table_name_after: string;
+      /** The table the join joins now. */
+      joining_table_name_before: string;
+      /** The table the join joins after the rename. */
+      joining_table_name_after: string;
+    }
+
     export interface SavedQueryRenameRewrite {
       /** Id of the model whose query the rename updates. */
       id: string;
@@ -113437,6 +113452,8 @@ export namespace Schemas {
       dependents: SavedQueryRenameRewrite[];
       /** The models that read this model and whose SQL cannot be updated. The rename is refused while any model is blocked. */
       blocked: SavedQueryRenameBlocked[];
+      /** The saved joins that name this model as their source or joining table. The rename changes that name to the new one. */
+      joins: SavedQueryRenameJoin[];
       /** Send this back to the `rename` action to apply this plan. */
       plan_token: string;
     }

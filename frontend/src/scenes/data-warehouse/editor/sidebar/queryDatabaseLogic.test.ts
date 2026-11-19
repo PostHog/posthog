@@ -215,13 +215,21 @@ describe('queryDatabaseLogic', () => {
             before: 'select * from orders_by_day',
             after: 'select * from orders_by_week',
         }
+        const join = {
+            id: 'join-1',
+            field_name: 'customer',
+            source_table_name_before: 'orders_by_day',
+            source_table_name_after: 'orders_by_week',
+            joining_table_name_before: 'customers',
+            joining_table_name_after: 'customers',
+        }
 
         // A child environment: its id differs from its project's, and saved queries belong to the environment.
         const environment = { ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.project_id + 1 }
         let renameTeamIds: string[] = []
 
         function useRenamePlanMocks(
-            plans: { dependents: (typeof dependent)[]; plan_token: string }[],
+            plans: { dependents: (typeof dependent)[]; joins?: (typeof join)[]; plan_token: string }[],
             renameResponses: [number, Record<string, unknown>][]
         ): unknown[] {
             const renameBodies: unknown[] = []
@@ -235,7 +243,7 @@ describe('queryDatabaseLogic', () => {
                     '/api/projects/:team_id/warehouse_saved_queries/:id/rename_plan/': ({ params }) => {
                         renameTeamIds.push(String(params.team_id))
                         const plan = plans.length > 1 ? plans.shift()! : plans[0]
-                        return [200, { name: 'orders_by_week', blocked: [], ...plan }]
+                        return [200, { name: 'orders_by_week', blocked: [], joins: [], ...plan }]
                     },
                     '/api/projects/:team_id/warehouse_saved_queries/:id/rename/': async ({ request, params }) => {
                         renameTeamIds.push(String(params.team_id))
@@ -271,15 +279,18 @@ describe('queryDatabaseLogic', () => {
             logic.unmount()
         })
 
-        it('shows the plan first, then renames with its token', async () => {
+        it.each([
+            ['a view to update', { dependents: [dependent], joins: [] }],
+            ['only a join to update', { dependents: [], joins: [join] }],
+        ])('shows the plan first when it has %s, then renames with its token', async (_, changes) => {
             const renameBodies = useRenamePlanMocks(
-                [{ dependents: [dependent], plan_token: 'token-1' }],
+                [{ ...changes, plan_token: 'token-1' }],
                 [[200, { id: 'view-1', name: 'orders_by_week' }]]
             )
             const logic = await openAndSubmit()
 
             expect(renameBodies).toEqual([])
-            expect(logic.values.renameView?.plan?.dependents).toEqual([dependent])
+            expect(logic.values.renameView?.plan).toMatchObject(changes)
 
             await expectLogic(logic, () => logic.actions.submitRenameView()).toFinishAllListeners()
             expect(renameBodies).toEqual([{ name: 'orders_by_week', plan_token: 'token-1' }])

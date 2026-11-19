@@ -52,6 +52,35 @@ function getReferenceTypeLabel(type?: string): string {
     }
 }
 
+// Lineage can be empty or unavailable while saved SQL still reads this view, so only the plan settles that none does.
+function countOf(count: number, noun: string): string {
+    return `${count} ${noun}${count === 1 ? '' : 's'}`
+}
+
+function getSubmitLabel(references: RenameViewReference[], plan?: SavedQueryRenamePlanApi): string {
+    const updates = [
+        plan?.dependents.length ? countOf(plan.dependents.length, 'view') : null,
+        plan?.joins.length ? countOf(plan.joins.length, 'join') : null,
+    ].filter(Boolean)
+    if (updates.length) {
+        return `Rename and update ${updates.join(' and ')}`
+    }
+    if (!plan && references.some((reference) => reference.type === 'view' || reference.type === 'matview')) {
+        return 'Preview rename'
+    }
+    return 'Rename view'
+}
+
+function getOtherReferencesWarning(references: RenameViewReference[], plan?: SavedQueryRenamePlanApi): string {
+    const hasReaders = plan ? plan.dependents.length > 0 || plan.blocked.length > 0 : references.length > 0
+    if (hasReaders) {
+        return 'Views that reference this one are updated with the new name. Endpoints, insights, dashboards, notebooks, and external systems are not updated and can stop working after the rename.'
+    }
+    return plan
+        ? 'No other views reference this one. Endpoints, insights, dashboards, notebooks, and external systems are not checked and can stop working after the rename.'
+        : 'No known views reference this one. Endpoints, insights, dashboards, notebooks, and external systems are not checked and can stop working after the rename.'
+}
+
 export function RenameViewModal({
     viewName,
     name,
@@ -102,14 +131,7 @@ export function RenameViewModal({
                         onClick={submit}
                         data-attr="data-warehouse-rename-view-submit"
                     >
-                        {plan?.dependents.length
-                            ? `Rename and update ${plan.dependents.length} ${plan.dependents.length === 1 ? 'view' : 'views'}`
-                            : !plan &&
-                                references.some(
-                                    (reference) => reference.type === 'view' || reference.type === 'matview'
-                                )
-                              ? 'Preview rename'
-                              : 'Rename view'}
+                        {getSubmitLabel(references, plan)}
                     </LemonButton>
                 </>
             }
@@ -200,10 +222,21 @@ export function RenameViewModal({
                     </div>
                 ) : null}
 
+                {plan?.joins.length ? (
+                    <div className="space-y-1 text-sm" data-attr="data-warehouse-rename-view-plan-joins">
+                        <p>These joins use this view. They are updated to the new name in the same change.</p>
+                        <ul className="space-y-1">
+                            {plan.joins.map((join) => (
+                                <li key={join.id} className="break-words font-mono">
+                                    {`${join.source_table_name_after}.${join.field_name} → ${join.joining_table_name_after}`}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                ) : null}
+
                 <LemonBanner type="warning" alignItems="start">
-                    {references.length
-                        ? 'Views that reference this one are updated with the new name. Endpoints, insights, dashboards, notebooks, and external systems are not updated and can stop working after the rename.'
-                        : 'No other views reference this one. Endpoints, insights, dashboards, notebooks, and external systems are not checked and can stop working after the rename.'}
+                    {getOtherReferencesWarning(references, plan)}
                 </LemonBanner>
             </div>
         </LemonModal>

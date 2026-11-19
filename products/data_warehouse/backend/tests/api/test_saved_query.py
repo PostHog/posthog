@@ -66,6 +66,7 @@ from products.data_warehouse.backend.presentation.views.saved_query.editing impo
     _capture_unless_user_error,
 )
 from products.data_warehouse.backend.presentation.views.saved_query.viewset import (
+    DataWarehouseSavedQueryViewSet,
     SavedQueryMaterializeSerializer,
     SavedQueryResumeSchedulesRequestSerializer,
     SavedQueryRunSerializer,
@@ -2715,6 +2716,14 @@ class TestSavedQuery(APIBaseTest):
 
     def test_rename_rewrites_the_models_that_read_it(self) -> None:
         renamed, dependent = self._model_with_a_dependent()
+        join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="stg_signups",
+            source_table_key="id",
+            joining_table_name="events",
+            joining_table_key="distinct_id",
+            field_name="events",
+        )
         url = f"/api/environments/{self.team.id}/warehouse_saved_queries/{renamed.id}"
         after = "select staging.signups.id -- keep me\nfrom staging.signups"
 
@@ -2734,9 +2743,20 @@ class TestSavedQuery(APIBaseTest):
                 }
             ],
             "blocked": [],
+            "joins": [
+                {
+                    "id": str(join.id),
+                    "field_name": "events",
+                    "source_table_name_before": "stg_signups",
+                    "source_table_name_after": "staging.signups",
+                    "joining_table_name_before": "events",
+                    "joining_table_name_after": "events",
+                }
+            ],
             "plan_token": plan.json()["plan_token"],
         }
         assert DataWarehouseSavedQuery.objects.get(id=dependent.id).query == dependent.query
+        assert DataWarehouseJoin.objects.get(id=join.id).source_table_name == "stg_signups"
 
         with patch.object(Database, "create_for", wraps=Database.create_for) as create_for:
             response = self.client.post(
@@ -2746,6 +2766,7 @@ class TestSavedQuery(APIBaseTest):
 
         assert response.status_code == 200, response.content
         assert response.json()["name"] == "staging.signups"
+        assert DataWarehouseJoin.objects.get(id=join.id).source_table_name == "staging.signups"
         rename_activity = ActivityLog.objects.get(item_id=str(renamed.id), activity="updated")
         assert cast(dict[str, Any], rename_activity.detail)["changes"][0]["before"] == "stg_signups"
         assert cast(dict[str, Any], rename_activity.detail)["changes"][0]["after"] == "staging.signups"
@@ -2770,6 +2791,7 @@ class TestSavedQuery(APIBaseTest):
             ("stale_plan_token", 409, None),
             ("became_a_managed_view", 400, "Cannot update a query from a managed viewset"),
             ("became_an_endpoint_view", 400, "This view belongs to an endpoint, so it cannot be renamed."),
+            ("too_many_views_to_check", 400, "This rename affects too many views to check at once."),
         ]
     )
     def test_a_refused_rename_changes_nothing(self, case: str, expected_status: int, refusal: str | None) -> None:
@@ -2788,6 +2810,11 @@ class TestSavedQuery(APIBaseTest):
             dependent.query = {"kind": "HogQLQuery", "query": "select id from stg_signups"}
             dependent.query_revision = uuid.uuid4()
             dependent.save()
+        elif case == "too_many_views_to_check":
+            # The check of the one dependent expands the model twice, before and after the rename.
+            self.enterContext(patch("posthog.hogql.compilation.MAX_VIEW_EXPANSIONS", 1))
+            refused_plan = self.client.post(f"{url}/rename_plan/", {"name": "staging.signups"})
+            assert refused_plan.status_code == 400, refused_plan.content
         else:
             # Changed after the plan, so only the check on the locked row can catch it.
             DataWarehouseSavedQuery.objects.filter(id=renamed.id).update(
@@ -2807,11 +2834,24 @@ class TestSavedQuery(APIBaseTest):
         assert DataWarehouseSavedQuery.objects.get(id=renamed.id).name == "stg_signups"
         assert DataWarehouseSavedQuery.objects.get(id=dependent.id).query == dependent.query
 
-    @parameterized.expand([("no_dependents", False, 200), ("a_dependent", True, 400)])
-    def test_patch_renames_only_a_model_nothing_reads(self, _case: str, has_dependent: bool, expected: int) -> None:
+    @parameterized.expand(
+        [("no_dependents", False, False, 200), ("a_dependent", True, False, 400), ("only_a_join", False, True, 400)]
+    )
+    def test_patch_renames_only_a_model_nothing_reads(
+        self, _case: str, has_dependent: bool, has_join: bool, expected: int
+    ) -> None:
         renamed, dependent = self._model_with_a_dependent()
         if not has_dependent:
             dependent.delete()
+        if has_join:
+            DataWarehouseJoin.objects.create(
+                team=self.team,
+                source_table_name="stg_signups",
+                source_table_key="id",
+                joining_table_name="events",
+                joining_table_key="distinct_id",
+                field_name="events",
+            )
 
         with CaptureQueriesContext(connection) as queries:
             response = self.client.patch(
@@ -2826,6 +2866,27 @@ class TestSavedQuery(APIBaseTest):
         assert stored.name == ("staging.signups" if expected == 200 else "stg_signups")
         if has_dependent:
             assert DataWarehouseSavedQuery.objects.get(id=dependent.id).query == dependent.query
+
+    def test_patch_cannot_restore_a_name_a_concurrent_rename_replaced(self) -> None:
+        renamed, dependent = self._model_with_a_dependent()
+        get_object = DataWarehouseSavedQueryViewSet.get_object
+
+        def read_then_lose_the_race(viewset: DataWarehouseSavedQueryViewSet) -> DataWarehouseSavedQuery:
+            instance = get_object(viewset)
+            DataWarehouseSavedQuery.objects.filter(id=renamed.id).update(name="staging.signups")
+            DataWarehouseSavedQuery.objects.filter(id=dependent.id).update(
+                query={"kind": "HogQLQuery", "query": "select staging.signups.id from staging.signups"}
+            )
+            return instance
+
+        with patch.object(DataWarehouseSavedQueryViewSet, "get_object", read_then_lose_the_race):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{renamed.id}", {"name": "stg_signups"}
+            )
+
+        assert response.status_code == 400, response.content
+        assert response.json()["detail"] == "Someone else renamed this view. Reload it and try again."
+        assert DataWarehouseSavedQuery.objects.get(id=renamed.id).name == "staging.signups"
 
     def test_rename_rewrites_only_the_model_when_a_table_holds_the_bare_name(self) -> None:
         renamed = DataWarehouseSavedQuery.objects.create(

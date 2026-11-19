@@ -1,5 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -10,6 +11,7 @@ from posthog.hogql.errors import QueryError, ResolutionCycleError, ResolutionDep
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import resolve_types
 
+from products.data_modeling.backend.facade.contracts import ModelRenameBlocked, ModelRenameJoin, ModelRenameRefusedError
 from products.data_modeling.backend.logic.model_bindings import DOES_NOT_RESOLVE, READS_ANOTHER_TABLE
 from products.data_modeling.backend.logic.model_references import (
     DOES_NOT_PARSE,
@@ -18,7 +20,7 @@ from products.data_modeling.backend.logic.model_references import (
     model_spellings,
     rename_model_references,
 )
-from products.data_modeling.backend.logic.model_rename import plan_model_rename
+from products.data_modeling.backend.logic.model_rename import apply_model_rename, plan_model_rename
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.modeling import (
     DEFAULT_RESOLUTION_DEADLINE_SECONDS,
@@ -29,6 +31,7 @@ from products.data_modeling.backend.models.modeling import (
     ResolutionTimeoutError,
     get_parents_from_model_query,
 )
+from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 GET_PARENTS_TEST_CASES = [
@@ -351,6 +354,18 @@ class TestRenameModelReferences(BaseTest):
                 "select * from revenue unpivot (v for k in (id))",
                 "select * from moved.income unpivot (v for k in (id))",
             ),
+            (
+                "unpivot_source_qualifier",
+                "revenue",
+                "select 1 from revenue unpivot (v for k in (revenue.id))",
+                "select 1 from moved.income unpivot (v for k in (moved.income.id))",
+            ),
+            (
+                "pivot_source_qualifier",
+                "revenue",
+                "select 1 from revenue pivot (sum(revenue.id) for revenue.id in (1))",
+                "select 1 from moved.income pivot (sum(moved.income.id) for moved.income.id in (1))",
+            ),
         ]
     )
     def test_rename_model_references(self, _case: str, model: str, query: str, expected: str | None):
@@ -437,18 +452,55 @@ class TestRenameModelReferences(BaseTest):
         assert dependent_blocks == ([reason] if reason is not None else [])
         assert len(dependent_rewrites) == (0 if reason is not None else 1)
 
-    def test_plan_rewrites_a_model_that_reads_the_renamed_model_directly_and_through_another(self):
+    @parameterized.expand(
+        [
+            ("materialized", "src", "select 1 as id", "select id from src"),
+            ("union_body", "src", "select 1 as id union all select 2 as id", "select id from src"),
+            ("stored_under_models", "models.src", "select 1 as id", "select id from models.src"),
+            ("another_model_stored_under_its_models_name", "src", "select 1 as id", "select id from src"),
+        ]
+    )
+    def test_plan_rewrites_a_plain_read_of_any_kind_of_model(self, case: str, name: str, body: str, query: str):
+        columns = {"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}}
+        renamed = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name=name, query={"query": body}, columns=columns
+        )
+        if case == "materialized":
+            renamed.table = DataWarehouseTable.objects.create(
+                name=name,
+                format="Parquet",
+                team=self.team,
+                credential=DataWarehouseCredential.objects.create(access_key="k", access_secret="s", team=self.team),
+                url_pattern=f"https://bucket.s3/{renamed.folder_path}/*",
+                columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}},
+            )
+            renamed.is_materialized = True
+            renamed.save()
+        if case == "another_model_stored_under_its_models_name":
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name="models.src", query={"query": "select 2 as id"}, columns=columns
+            )
+        dependent = DataWarehouseSavedQuery.objects.create(team=self.team, name="dependent", query={"query": query})
+
+        plan = plan_model_rename(self.team, renamed.id, "target")
+
+        assert plan.blocked == ()
+        rewrites = {entry.saved_query_id: entry.after for entry in plan.rewrites}
+        assert rewrites == {dependent.id: query.replace("src", "target")}
+
+    @parameterized.expand([("middle",), ("models.middle",)])
+    def test_plan_rewrites_a_model_that_reads_the_renamed_model_directly_and_through_another(self, middle_name: str):
         renamed = DataWarehouseSavedQuery.objects.get(team=self.team, name="revenue")
         middle = DataWarehouseSavedQuery.objects.create(
             team=self.team,
-            name="middle",
+            name=middle_name,
             query={"query": "select revenue.id from revenue"},
             columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
         )
         top = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="top",
-            query={"query": "select middle.id from middle join revenue on middle.id = revenue.id"},
+            query={"query": f"select m.id from {middle_name} as m join revenue on m.id = revenue.id"},
         )
 
         plan = plan_model_rename(self.team, renamed.id, "income")
@@ -457,8 +509,117 @@ class TestRenameModelReferences(BaseTest):
         rewrites = {entry.saved_query_id: entry.after for entry in plan.rewrites}
         assert {key: rewrites.get(key) for key in (middle.id, top.id)} == {
             middle.id: "select income.id from income",
-            top.id: "select middle.id from middle join income on middle.id = income.id",
+            top.id: f"select m.id from {middle_name} as m join income on m.id = income.id",
         }
+
+    @parameterized.expand([("reads_through_middle", "middle", True), ("reads_something_else", "other", False)])
+    def test_plan_blocks_a_reader_whose_cte_would_hide_the_renamed_model(self, _case: str, reads: str, blocks: bool):
+        columns = {"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}}
+        renamed = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="source", query={"query": "select 1 as id"}, columns=columns
+        )
+        for name, query in [("middle", "select id from source"), ("other", "select 2 as id")]:
+            DataWarehouseSavedQuery.objects.create(team=self.team, name=name, query={"query": query}, columns=columns)
+        # The expanded body of `middle` sees the CTEs of its caller, so after the rename `target` here is the CTE.
+        top = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="top",
+            query={"query": f"with target as (select 999 as id) select id from {reads}"},
+        )
+
+        plan = plan_model_rename(self.team, renamed.id, "target")
+
+        expected = (
+            ModelRenameBlocked(
+                saved_query_id=top.id,
+                name="top",
+                reason="It defines a CTE named target, which would hide the renamed view.",
+            ),
+        )
+        assert plan.blocked == (expected if blocks else ())
+
+    def test_plan_fails_whole_when_its_checks_run_out_of_budget(self):
+        renamed = DataWarehouseSavedQuery.objects.get(team=self.team, name="revenue")
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="reads_revenue", query={"query": "select revenue.id from revenue"}
+        )
+
+        # Each check expands `revenue` once, so one shared budget of one expansion runs out on the second check.
+        with patch("posthog.hogql.compilation.MAX_VIEW_EXPANSIONS", 1):
+            with pytest.raises(ModelRenameRefusedError, match="This rename affects too many views to check at once."):
+                plan_model_rename(self.team, renamed.id, "income")
+
+    def test_rename_renames_the_joins_on_either_side_of_the_model(self):
+        columns = {"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}}
+        renamed = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="src", query={"query": "select 1 as id"}, columns=columns
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="other", query={"query": "select 1 as id"}, columns=columns
+        )
+        joins = [
+            DataWarehouseJoin.objects.create(
+                team=self.team,
+                source_table_name=source,
+                source_table_key="id",
+                joining_table_name=joining,
+                joining_table_key="id",
+                field_name=field,
+            )
+            for source, joining, field in [("src", "other", "details"), ("other", "src", "back")]
+        ]
+        reads_from = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="reads_from", query={"query": "select src.details.id as id from src"}
+        )
+        reads_into = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="reads_into",
+            query={"query": "select other.back.id as id from other join src on other.id = src.id"},
+        )
+
+        plan = plan_model_rename(self.team, renamed.id, "target")
+
+        assert plan.blocked == ()
+        assert {entry.saved_query_id: entry.after for entry in plan.rewrites} == {
+            reads_from.id: "select target.details.id as id from target",
+            reads_into.id: "select other.back.id as id from other join target on other.id = target.id",
+        }
+        assert plan.joins == tuple(
+            sorted(
+                [
+                    ModelRenameJoin(
+                        join_id=joins[0].id,
+                        field_name="details",
+                        source_table_name_before="src",
+                        source_table_name_after="target",
+                        joining_table_name_before="other",
+                        joining_table_name_after="other",
+                    ),
+                    ModelRenameJoin(
+                        join_id=joins[1].id,
+                        field_name="back",
+                        source_table_name_before="other",
+                        source_table_name_after="other",
+                        joining_table_name_before="src",
+                        joining_table_name_after="target",
+                    ),
+                ],
+                key=lambda join: join.join_id,
+            )
+        )
+
+        apply_model_rename(self.team, renamed.id, "target", plan.token, authorize=lambda _plan: None)
+
+        assert [
+            (join.source_table_name, join.joining_table_name)
+            for join in DataWarehouseJoin.objects.filter(id__in=[join.id for join in joins]).order_by("field_name")
+        ] == [("other", "target"), ("target", "other")]
+        for query in [
+            "select target.details.id as id from target",
+            "select other.back.id as id from other join target on other.id = target.id",
+            "select other.back.id as id from other",
+        ]:
+            assert self._resolves(query), query
 
 
 class TestBoundedResolver(BaseTest):

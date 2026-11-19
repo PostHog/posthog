@@ -238,6 +238,18 @@ class SavedQueryRenameBlockedSerializer(serializers.Serializer):
     )
 
 
+class SavedQueryRenameJoinSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Id of the saved join the rename updates.")
+    # The metaclass moves declared fields off the class, so this does not replace `Field.field_name` at runtime.
+    field_name = serializers.CharField(  # type: ignore[assignment]
+        help_text="Name of the join field on the source table."
+    )
+    source_table_name_before = serializers.CharField(help_text="The join's source table now.")
+    source_table_name_after = serializers.CharField(help_text="The join's source table after the rename.")
+    joining_table_name_before = serializers.CharField(help_text="The table the join joins now.")
+    joining_table_name_after = serializers.CharField(help_text="The table the join joins after the rename.")
+
+
 class SavedQueryRenamePlanSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="The name the model is stored under after the rename.")
     dependents = SavedQueryRenameRewriteSerializer(
@@ -247,6 +259,11 @@ class SavedQueryRenamePlanSerializer(serializers.Serializer):
         many=True,
         help_text="The models that read this model and whose SQL cannot be updated. "
         "The rename is refused while any model is blocked.",
+    )
+    joins = SavedQueryRenameJoinSerializer(
+        many=True,
+        help_text="The saved joins that name this model as their source or joining table. "
+        "The rename changes that name to the new one.",
     )
     plan_token = serializers.CharField(help_text="Send this back to the `rename` action to apply this plan.")
 
@@ -801,7 +818,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     )
     @action(methods=["POST"], detail=True, required_scopes=["warehouse_view:write"])
     def rename_plan(self, request: request.Request, *args, **kwargs) -> response.Response:
-        """Show what renaming this model changes in the models that read it. Changes nothing."""
+        """Show what renaming this model changes in the models that read it and the joins that name it.
+
+        Changes nothing.
+        """
         saved_query: DataWarehouseSavedQuery = self.get_object()
         body = SavedQueryRenamePlanRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -819,6 +839,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 for item in plan.rewrites
             ],
             "blocked": [{"id": item.saved_query_id, "name": item.name, "reason": item.reason} for item in plan.blocked],
+            "joins": [
+                {
+                    "id": item.join_id,
+                    "field_name": item.field_name,
+                    "source_table_name_before": item.source_table_name_before,
+                    "source_table_name_after": item.source_table_name_after,
+                    "joining_table_name_before": item.joining_table_name_before,
+                    "joining_table_name_after": item.joining_table_name_after,
+                }
+                for item in plan.joins
+            ],
             "plan_token": plan.token,
         }
         return response.Response(SavedQueryRenamePlanSerializer(payload).data)
@@ -833,7 +864,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     )
     @action(methods=["POST"], detail=True, required_scopes=["warehouse_view:write"])
     def rename(self, request: request.Request, *args, **kwargs) -> response.Response:
-        """Rename this model and update the models that read it, in one change.
+        """Rename this model and update the models that read it and the joins that name it, in one change.
 
         Every reference to the old name becomes the new name, and keeps its `models.` prefix if it had one.
         The update does not change what those models compute, so none of them is rebuilt. Nothing is renamed

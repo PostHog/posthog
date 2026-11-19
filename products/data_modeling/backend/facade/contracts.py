@@ -102,14 +102,27 @@ class ModelRenameBlocked:
 
 
 @frozen
-class ModelRenamePlan:
-    """What a rename changes in the models that read the renamed model.
+class ModelRenameJoin:
+    """A saved join that names the renamed model on either side, with its table names before and after the rename."""
 
-    The token identifies the queries the plan was computed from. A rename applies only the plan it was shown.
+    join_id: UUID
+    field_name: str
+    source_table_name_before: str
+    source_table_name_after: str
+    joining_table_name_before: str
+    joining_table_name_after: str
+
+
+@frozen
+class ModelRenamePlan:
+    """What a rename changes in the models that read the renamed model and in the joins that name it.
+
+    The token identifies the queries and joins the plan was computed from. A rename applies only the plan it was shown.
     """
 
     rewrites: tuple[ModelRenameRewrite, ...]
     blocked: tuple[ModelRenameBlocked, ...]
+    joins: tuple[ModelRenameJoin, ...]
     token: str
 
 
@@ -127,6 +140,10 @@ class ModelRenamePlanStaleError(Exception):
 
 class ModelRenameRefusedError(Exception):
     """The model is not one a person renames: what made it owns its name. The message says why."""
+
+
+class ModelRenameTooLargeError(ModelRenameRefusedError):
+    """Checking the rewrites ran out of the plan's compilation budget, so nothing about the rename is known."""
 
 
 @frozen

@@ -2790,7 +2790,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             try {
                 const plan =
                     view.plan ?? (await warehouseSavedQueriesRenamePlanCreate(environmentId, view.id, { name }))
-                if (!view.plan && (plan.dependents.length > 0 || plan.blocked.length > 0)) {
+                if (!view.plan && (plan.dependents.length > 0 || plan.blocked.length > 0 || plan.joins.length > 0)) {
                     actions.setRenameViewPlan(plan)
                     return
                 }

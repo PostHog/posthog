@@ -229,6 +229,7 @@ RENAME_NEEDS_PLAN_DETAIL = (
     "Other models read this model. Request its rename plan, then rename it with the rename action, "
     "so their SQL is updated in the same change."
 )
+RENAMED_BY_SOMEONE_ELSE_DETAIL = "Someone else renamed this view. Reload it and try again."
 
 
 class DataWarehouseSavedQuerySerializer(
@@ -824,6 +825,10 @@ class DataWarehouseSavedQuerySerializer(
                 )
             except DataWarehouseSavedQuery.DoesNotExist:
                 raise exceptions.NotFound("Not found.")
+            # The check above compared against the name read before any lock, so a rename that landed since
+            # would be undone here, leaving the models it rewrote reading a name that no longer exists.
+            if "name" in validated_data and locked_instance.name != instance.name:
+                raise serializers.ValidationError({"name": RENAMED_BY_SOMEONE_ELSE_DETAIL})
             before_update = copy.copy(locked_instance)
 
             query_changed = "query" in validated_data and validated_data["query"] != locked_instance.query

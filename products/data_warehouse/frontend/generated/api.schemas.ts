@@ -2438,6 +2438,21 @@ export interface SavedQueryRenameBlockedApi {
     reason: string
 }
 
+export interface SavedQueryRenameJoinApi {
+    /** Id of the saved join the rename updates. */
+    id: string
+    /** Name of the join field on the source table. */
+    field_name: string
+    /** The join's source table now. */
+    source_table_name_before: string
+    /** The join's source table after the rename. */
+    source_table_name_after: string
+    /** The table the join joins now. */
+    joining_table_name_before: string
+    /** The table the join joins after the rename. */
+    joining_table_name_after: string
+}
+
 export interface SavedQueryRenamePlanApi {
     /** The name the model is stored under after the rename. */
     name: string
@@ -2445,6 +2460,8 @@ export interface SavedQueryRenamePlanApi {
     dependents: SavedQueryRenameRewriteApi[]
     /** The models that read this model and whose SQL cannot be updated. The rename is refused while any model is blocked. */
     blocked: SavedQueryRenameBlockedApi[]
+    /** The saved joins that name this model as their source or joining table. The rename changes that name to the new one. */
+    joins: SavedQueryRenameJoinApi[]
     /** Send this back to the `rename` action to apply this plan. */
     plan_token: string
 }

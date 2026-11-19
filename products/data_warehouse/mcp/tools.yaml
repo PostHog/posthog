@@ -286,7 +286,8 @@ tools:
         enrich_url: ?open_view={params.id}
         title: Rename saved query
         description: >
-            Rename a saved query and update the SQL of every model that reads it, in one change. First call
+            Rename a saved query and update the SQL of every model that reads it and every saved join that names it, in
+            one change. First call
             'view-rename-plan' with the new name and show the user each model's SQL before and after. Then call this
             tool with the same name and the plan_token from that plan. Nothing is renamed when any model in the plan is
             blocked. A 409 means the models that read this view changed since the plan was made, so get a new plan and
@@ -305,8 +306,8 @@ tools:
         title: Plan a saved query rename
         description: >
             Show what renaming a saved query changes, without changing anything. Returns the models whose SQL reads this
-            view, each with its SQL before and after, the models that block the rename with the reason, and a
-            plan_token. Show the user the changes, then call 'view-rename' with the same name and the plan_token. Needs
+            view, each with its SQL before and after, the models that block the rename with the reason, the saved joins
+            that name this view and get the new name, and a plan_token. Show the user the changes, then call 'view-rename' with the same name and the plan_token. Needs
             edit access to every model in the plan.
     view-resume:
         operation: warehouse_saved_queries_resume_create
