@@ -450,6 +450,49 @@ describe('workflowsLogic', () => {
             expect(screen.getAllByText(ENABLE_DIALOG)).toHaveLength(1)
         })
 
+        it('sends one write when Enable is chosen again while the first enable saves', async () => {
+            let stored = withEmail('draft', 'function_email')
+            useListMocks(200, { deleted: 1 }, stored)
+            let release: () => void = () => {}
+            const held = new Promise<void>((resolve) => {
+                release = resolve
+            })
+            let markWriting: () => void = () => {}
+            const writing = new Promise<void>((resolve) => {
+                markWriting = resolve
+            })
+            useMocks({
+                get: { [DETAIL_URL]: () => [200, stored] },
+                patch: {
+                    [DETAIL_URL]: async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        writes.push({ method: 'PATCH', path: 'flow-1/', body })
+                        markWriting()
+                        await held
+                        // The server's revision check: a write based on an older copy is refused.
+                        if (body.base_updated_at !== stored.updated_at) {
+                            return [409, { detail: 'This workflow was updated elsewhere' }]
+                        }
+                        stored = { ...stored, status: body.status, updated_at: '2026-05-01T00:10:00.000Z' }
+                        return [200, stored]
+                    },
+                },
+            })
+            showToasts()
+
+            logic.actions.toggleWorkflowStatus(withEmail('draft', 'function_email'))
+            await writing
+            logic.actions.toggleWorkflowStatus(withEmail('draft', 'function_email'))
+            release()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(writes).toHaveLength(1)
+            expect(stored.status).toBe('active')
+            expect(
+                screen.queryByText('This workflow was edited somewhere else. Review it, then enable it again.')
+            ).toBeNull()
+        })
+
         it('keeps a draft off when another tab moves it to the test sender after the check', async () => {
             let stored = withEmail('draft', 'function_email')
             useListMocks()

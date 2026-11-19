@@ -6178,7 +6178,7 @@ class HogFlowViewSet(
                 base_updated_at=self.request.data.get("base_updated_at"),
                 base_live_updated_at=self.request.data.get("base_live_updated_at"),
                 # Raw body like "base_updated_at": the web builder says whether it warned about the test sender.
-                sandbox_sender_warned=self.request.data.get("sandbox_sender_warned"),
+                sandbox_sender_warned=self._sandbox_sender_warned(),
                 includes_staged_draft=bool(self.request.data.get("includes_staged_draft"))
                 and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys(),
                 validated_status=serializer.instance.status,
@@ -6301,6 +6301,16 @@ class HogFlowViewSet(
         return self._is_mcp_request(self.request) and (
             state.status == HogFlowState.ACTIVE or state.disabled_from_active is True
         )
+
+    def _sandbox_sender_warned(self) -> Optional[bool]:
+        # A form body sends "false" as a string, which an identity check against False would skip.
+        value = self.request.data.get("sandbox_sender_warned")
+        if value is None:
+            return None
+        try:
+            return serializers.BooleanField().to_internal_value(value)
+        except exceptions.ValidationError:
+            raise exceptions.ValidationError({"sandbox_sender_warned": "Must be true or false."})
 
     def _set_up_defaulted_sandbox_sender(self, serializer: serializers.BaseSerializer) -> None:
         if serializer.context.get(SETS_UP_SANDBOX_SENDER):

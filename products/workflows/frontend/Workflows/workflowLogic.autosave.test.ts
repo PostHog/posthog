@@ -625,8 +625,29 @@ describe('workflowLogic auto-save', () => {
                     ...(staged ? { draft: staged, draft_updated_at: '2026-05-02T00:00:00.000Z' } : {}),
                 } as HogFlow
             }
+            // A change from another tab advances the stored revision, as the server does.
             const serverCopy = (loaded: HogFlow, server: 'sandbox' | 'own' | null): HogFlow =>
-                server ? { ...loaded, ...(server === 'sandbox' ? withSandbox : withoutSandbox) } : loaded
+                server
+                    ? {
+                          ...loaded,
+                          ...(server === 'sandbox' ? withSandbox : withoutSandbox),
+                          updated_at: '2026-05-01T00:10:00.000Z',
+                      }
+                    : loaded
+            // Registered after the load, so only requests made after the page loaded see the server's copy.
+            const serverMocks = (stored: HogFlow): Parameters<typeof useMocks>[0] => ({
+                get: { '/api/projects/:team_id/hog_flows/:id/': stored },
+                patch: {
+                    // The server's revision check: a write based on an older copy is refused.
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        patchBodies.push(body)
+                        return body.base_updated_at === stored.updated_at
+                            ? [200, { ...stored, ...body }]
+                            : [409, { detail: 'This workflow was updated elsewhere' }]
+                    },
+                },
+            })
             const mountEditor = async (): Promise<void> => {
                 initKeaTests()
                 logic = workflowLogic({ id: WORKFLOW_ID })
@@ -653,18 +674,19 @@ describe('workflowLogic auto-save', () => {
                 const loaded = loadedWith(layout)
                 useMocks(activeMocks(loaded))
                 await mountEditor()
-                // Registered after the load, so only reads made after the page loaded see the change.
-                useMocks({ get: { '/api/projects/:team_id/hog_flows/:id/': serverCopy(loaded, server) } })
+                useMocks(serverMocks(serverCopy(loaded, server)))
                 await enableFromEditor()
                 expect(await screen.findByText(ENABLE_DIALOG)).toBeTruthy()
                 expect(patchBodies).toEqual([])
 
                 await userEvent.click(screen.getByText('Enable anyway'))
                 await waitFor(() => expect(screen.queryByText(ENABLE_DIALOG)).toBeNull())
-                await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+                await expectLogic(logic).toDispatchActions([server ? 'saveWorkflowFailure' : 'saveWorkflowSuccess'])
 
                 expect(patchBodies).toMatchObject([{ status: 'active', sandbox_sender_warned: true }])
-                expect(logic.values.originalWorkflow?.status).toBe('active')
+                // The editor saves against the copy it loaded, so a newer server copy gets the conflict banner.
+                expect(logic.values.externallyEdited).toBe(!!server)
+                expect(logic.values.originalWorkflow?.status).toBe(server ? 'draft' : 'active')
             })
 
             it('keeps a workflow on the test sender disabled after "Cancel"', async () => {
@@ -688,14 +710,14 @@ describe('workflowLogic auto-save', () => {
                 const loaded = loadedWith(layout)
                 useMocks(activeMocks(loaded))
                 await mountEditor()
-                // Registered after the load, so only reads made after the page loaded see the change.
-                useMocks({ get: { '/api/projects/:team_id/hog_flows/:id/': serverCopy(loaded, server) } })
+                useMocks(serverMocks(serverCopy(loaded, server)))
                 await enableFromEditor()
 
                 expect(screen.queryByText(ENABLE_DIALOG)).toBeNull()
                 // Without the warning, the server refuses the enable if the steps moved after this check.
                 expect(patchBodies).toMatchObject([{ status: 'active', sandbox_sender_warned: false }])
-                expect(logic.values.originalWorkflow?.status).toBe('active')
+                expect(logic.values.externallyEdited).toBe(!!server)
+                expect(logic.values.originalWorkflow?.status).toBe(server ? 'draft' : 'active')
             })
 
             it("keeps a workflow disabled when the server's copy can't be read", async () => {
@@ -1471,20 +1493,28 @@ describe('workflowLogic auto-save', () => {
                 })
                 useMocks(
                     serverMocks({
-                        [PUBLISH_URL]: recordPublish(async () => {
+                        [PUBLISH_URL]: recordPublish(async (body) => {
+                            if (!body.confirm) {
+                                return [200, preview]
+                            }
                             await held
                             return [409, { detail: 'stale' }]
                         }),
                     })
                 )
+                showToasts()
 
-                logic.actions.confirmPublishDraft('preview-token', false)
+                await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+                clickConfirm('Publish staged changes?')
                 logic.actions.setWorkflowValues({ name: 'Renamed while publishing' })
                 release()
                 await expectLogic(logic).toFinishAllListeners()
 
+                expect(await toastShown('Publishing failed. Review the staged changes and try again.')).toBe(
+                    'error-toast'
+                )
+                expect(publishBodies).toMatchObject([{ confirm: false }, { confirm: true }])
                 expect(logic.values.externallyEdited).toBe(true)
-                expect(reloads).toBe(0)
                 expect(logic.values.workflow.name).toBe('Renamed while publishing')
             })
 
