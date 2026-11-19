@@ -32,7 +32,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
 from posthog.llm.gateway_client import build_async_openai_client, team_distinct_id
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.rate_limit import (
     AIObservabilitySummarizationBurstThrottle,
     AIObservabilitySummarizationDailyThrottle,
@@ -163,7 +163,7 @@ def load_prompt_template(template_name: str, context: dict) -> str:
     return template.render(Context(context, autoescape=False))
 
 
-def fetch_log_by_uuid(team: Team, uuid: str, timestamp: str) -> dict | None:
+def fetch_log_by_uuid(team: Team, uuid: str, timestamp: str, *, user: User | None = None) -> dict | None:
     """Fetch a single log entry from ClickHouse by UUID.
 
     The timestamp parameter is required for efficient lookup - it allows ClickHouse
@@ -197,6 +197,7 @@ def fetch_log_by_uuid(team: Team, uuid: str, timestamp: str) -> dict | None:
         query_type="LogExplainQuery",
         query=query,
         team=team,
+        user=user,
         workload=Workload.LOGS,
     )
     if not response.results:
@@ -316,6 +317,10 @@ class LogExplainViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         force_refresh = serializer.validated_data.get("force_refresh", False)
 
         try:
+            log_data = fetch_log_by_uuid(self.team, uuid, timestamp, user=cast(User, request.user))
+            if not log_data:
+                return Response({"error": "Log not found"}, status=status.HTTP_404_NOT_FOUND)
+
             cache_key = self._get_cache_key(uuid, timestamp)
             if not force_refresh:
                 cached_result = cache.get(cache_key)
@@ -336,10 +341,6 @@ class LogExplainViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         request=request,
                     )
                     return Response(cached_result, status=status.HTTP_200_OK)
-
-            log_data = fetch_log_by_uuid(self.team, uuid, timestamp)
-            if not log_data:
-                return Response({"error": "Log not found"}, status=status.HTTP_404_NOT_FOUND)
 
             explanation = async_to_sync(explain_log_with_openai)(log_data, self.team_id)
             result = explanation.model_dump()

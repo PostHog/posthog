@@ -68,14 +68,15 @@ def _build_logs_query(team: Team, config: ValidatedLogsListWidgetConfig, limit: 
     )
 
 
-def _run_logs_query(team: Team, query: LogsQuery, *, use_cache: bool) -> dict[str, Any]:
+def _run_logs_query(team: Team, query: LogsQuery, user: User | None, *, use_cache: bool) -> dict[str, Any]:
     with tags_context(product=Product.LOGS, feature=Feature.QUERY, team_id=team.pk):
         if not use_cache:
-            return LogsQueryRunner(team=team, query=query).calculate().model_dump(mode="json")
+            return LogsQueryRunner(team=team, query=query, user=user).calculate().model_dump(mode="json")
 
         tagged_query = query.model_copy(update={"tags": QueryLogTags(name=LOGS_WIDGET_QUERY_NAME)})
-        # No user: LogsQueryRunner admits only export users, and run_widgets has already checked logs access.
-        response = LogsQueryRunner(team=team, query=tagged_query).run(
+        # The user goes to the runner, not to run(): LogsQueryRunner admits only export users, and
+        # run_widgets has already checked logs access. The runner still applies the user's property rules.
+        response = LogsQueryRunner(team=team, query=tagged_query, user=user).run(
             execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
             cache_age_seconds=LOGS_WIDGET_CACHE_MAX_AGE_SECONDS,
         )
@@ -100,7 +101,7 @@ def run_logs_list_widget(
     use_cache = dashboard_v2_enabled(team, user)
 
     def fetch_page(page_limit: int) -> ListWidgetPage:
-        data = _run_logs_query(team, _build_logs_query(team, typed_config, page_limit), use_cache=use_cache)
+        data = _run_logs_query(team, _build_logs_query(team, typed_config, page_limit), user, use_cache=use_cache)
         raw_results = data.get("results")
         return ListWidgetPage(
             results=raw_results if isinstance(raw_results, list) else [],

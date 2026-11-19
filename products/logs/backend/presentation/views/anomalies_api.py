@@ -12,6 +12,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import (
     LogsAnomalyScanBurstRateThrottle,
@@ -20,6 +21,7 @@ from posthog.rate_limit import (
     LogsSeriesBandsSustainedRateThrottle,
 )
 
+from products.access_control.backend.facade import api as access_control_api
 from products.logs.backend.anomaly_scan import MAX_EVAL_DAYS, ScanBudgetExceeded, floor_to_bucket, run_scan
 from products.logs.backend.series_bands import (
     ALIVE_SLOT_FRACTION,
@@ -381,6 +383,17 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     permission_classes = [PostHogFeatureFlagPermission]
     throttle_classes = [LogsAnomalyScanBurstRateThrottle, LogsAnomalyScanSustainedRateThrottle]
 
+    def _requesting_user(self) -> User | None:
+        return self.request.user if isinstance(self.request.user, User) else None
+
+    def _is_restricted(self) -> bool:
+        # Restricted callers see fewer services, so they must not share cached results with other callers.
+        return bool(
+            access_control_api.get_restricted_properties_with_group_type_index_for_team(
+                team_id=self.team.id, user=self._requesting_user()
+            )
+        )
+
     @validated_request(
         request_serializer=LogsAnomalyScanRequestSerializer,
         responses={
@@ -412,7 +425,7 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         cache_key = (
             "logs_anomaly_scan/"
             + hashlib.sha256(
-                f"{self.team.id}/{service_name}/{eval_start.isoformat()}/{eval_end.isoformat()}".encode()
+                f"{self.team.id}/{service_name}/{eval_start.isoformat()}/{eval_end.isoformat()}/{self._is_restricted()}".encode()
             ).hexdigest()
         )
         cached = cache.get(cache_key)
@@ -420,7 +433,7 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response(cached)
 
         try:
-            result = run_scan(self.team, service_name, eval_start, eval_end)
+            result = run_scan(self.team, service_name, eval_start, eval_end, user=self._requesting_user())
         except ScanBudgetExceeded as err:
             return Response({"error": str(err)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
@@ -477,7 +490,7 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "logs_series_bands/"
             + hashlib.sha256(
                 f"{self.team.id}/{service_name}/{interval_minutes}/"
-                f"{window.start.isoformat()}/{window.end.isoformat()}".encode()
+                f"{window.start.isoformat()}/{window.end.isoformat()}/{self._is_restricted()}".encode()
             ).hexdigest()
         )
         cached = cache.get(cache_key)
@@ -491,6 +504,7 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 window_start=window.start,
                 window_end=window.end,
                 interval_minutes=interval_minutes,
+                user=self._requesting_user(),
             )
         except SeriesBandsFetchTruncated as err:
             return Response({"error": str(err)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)

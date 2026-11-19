@@ -26,7 +26,7 @@ from posthog.hogql.visitor import CloningVisitor
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.alerts_platform.backend.facade.ingestion_checkpoint import fetch_ingestion_checkpoint
 from products.alerts_platform.backend.facade.rolling_checks import CheckWindow, rolling_check_ranges
@@ -233,11 +233,13 @@ class AlertCheckQuery:
         alert: AlertQuerySubject,
         date_from: dt.datetime,
         date_to: dt.datetime,
+        user: User | None = None,
     ) -> None:
         if alert.team_id != team.id:
             raise ValueError(f"Alert {alert.id} belongs to team {alert.team_id}, not {team.id}")
         self.team = team
         self.alert = alert
+        self.user = user
         self.date_from = date_from
         self.date_to = date_to
         self.date_range = DateRange(date_from=date_from.isoformat(), date_to=date_to.isoformat())
@@ -345,6 +347,7 @@ class AlertCheckQuery:
             query_type="alert_check",
             query=query,
             team=self.team,
+            user=self.user,
             workload=Workload.LOGS,
             settings=self.SETTINGS,
             limit_context=LimitContext.QUERY,
