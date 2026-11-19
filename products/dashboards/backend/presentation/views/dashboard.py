@@ -108,8 +108,6 @@ from posthog.models.quick_filter import QuickFilter
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.query_cache import prefetched_entries
-from posthog.query_cache.read_history import batched_reads
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
@@ -4438,17 +4436,7 @@ class DashboardsViewSet(
         nothing cached comes back as a miss, to be loaded through the insight endpoint."""
         if not self._dashboard_v2_enabled(request):
             raise exceptions.NotFound()
-        # Covers the body as well as the query string: `resolve_execution_mode` honors either.
-        if refresh_param_present(request):
-            raise exceptions.ValidationError({"refresh": "This endpoint only reads cached results."})
-        tile_ids = parse_tile_ids(request.query_params.get("tile_ids"))
-        if not tile_ids:
-            raise exceptions.ValidationError({"tile_ids": "tile_ids is required."})
-        if len(tile_ids) > MAX_CACHED_TILES_BATCH_SIZE:
-            raise exceptions.ValidationError(
-                {"tile_ids": f"Request at most {MAX_CACHED_TILES_BATCH_SIZE} tiles at a time."}
-            )
-
+        tile_ids = requested_tile_ids(request)
         return Response({"results": self._read_cached_tiles(request, self.get_object(), tile_ids)})
 
     def _dashboard_v2_enabled(self, request: Request) -> bool:
@@ -4459,65 +4447,20 @@ class DashboardsViewSet(
     def _read_cached_tiles(
         self, request: Request, dashboard: Dashboard, tile_ids: builtins.list[int]
     ) -> builtins.list[dict[str, Any]]:
-        """Each tile's cached result, in `tile_ids` order, from one batched cache read and without running a query.
-        Every reader of cached tiles goes through here, so they serve the same hits to the same people."""
-        tiles_by_id = {
-            tile.id: (tile, insight)
-            for tile in DashboardTile.dashboard_queryset(dashboard.tiles.filter(id__in=tile_ids))
-            if (insight := tile.insight) is not None and insight.query is not None
-        }
-        restricted_levels = self._restricted_insight_levels(list(tiles_by_id.values()))
-
         context = self.get_serializer_context()
         context["dashboard"] = dashboard
         context["dashboard_access_method"] = dashboard_access_method(request)
         context["compute_surface"] = ComputeSurface.DASHBOARD_CACHED_TILES
-        # Built once: a serializer per tile deep-copies every declared insight field each time.
-        insight_serializer = CachedTileInsightResultSerializer(context=context)
-
-        # Shares work across tiles as a dashboard load does: one set of warehouse lookups while the keys are
-        # built, and one write that records every tile's cache read.
-        with shared_tile_work(self.team, request.user):
-            # Plan every viewable tile's query first, so all their entries come back from one cache read.
-            planned_queries: dict[int, PlannedQuery] = {}
-            for tile, insight in tiles_by_id.values():
-                if tile.id in restricted_levels:
-                    continue
-                context["dashboard_tile"] = tile
-                try:
-                    planned = insight_serializer.plan_tile_query(insight)
-                    if planned is not None:
-                        planned_queries[tile.id] = planned
-                except Exception:
-                    # Left unplanned, the tile runs as it would without the batch, which reports the failure.
-                    logger.info("cached_tiles_plan_failed", tile_id=tile.id, exc_info=True)
-            context["planned_queries"] = planned_queries
-            cache_keys = [planned.cache_key for planned in planned_queries.values()]
-
-            results: list[dict[str, Any]] = []
-            # The serializer outlives the request in insight_result's lru_cache, so its context must not keep every
-            # planned runner, and with it every tile's raw results, alive after this request.
-            try:
-                with prefetched_entries(cache_keys, team_id=self.team.pk):
-                    for tile_id in tile_ids:
-                        tile_and_insight = tiles_by_id.get(tile_id)
-                        if tile_and_insight is None:
-                            results.append({"id": tile_id, "status": CachedTileStatus.NOT_FOUND})
-                            continue
-                        tile, insight = tile_and_insight
-                        if tile_id in restricted_levels:
-                            results.append({"id": tile_id, "status": CachedTileStatus.FORBIDDEN})
-                            continue
-                        context["dashboard_tile"] = tile
-                        insight_data = insight_serializer.to_representation(insight)
-                        if not insight_data.get("is_cached"):
-                            results.append({"id": tile_id, "status": CachedTileStatus.MISS})
-                            continue
-                        results.append({"id": tile_id, "status": CachedTileStatus.HIT, "insight": insight_data})
-            finally:
-                context.pop("planned_queries", None)
-
-        return results
+        return read_cached_tiles(
+            team=self.team,
+            user=request.user,
+            dashboard=dashboard,
+            tile_ids=tile_ids,
+            restricted_insight_levels=self._restricted_insight_levels,
+            # Built once: a serializer per tile deep-copies every declared insight field each time.
+            insight_serializer=CachedTileInsightResultSerializer(context=context),
+            context=context,
+        )
 
     @extend_schema(
         parameters=[
