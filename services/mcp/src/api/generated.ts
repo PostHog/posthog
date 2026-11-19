@@ -128909,15 +128909,15 @@ export namespace Schemas {
       action_id: string;
       /** The workflow or broadcast that sent the email. */
       workflow_id: string;
-      /** The distinct ID of the person the email went to. */
+      /** The distinct ID of the person the email went to. Empty when no engagement event names it. */
       distinct_id: string;
       /** The address the email was sent to. */
       recipient: string;
-      /** The subject the email went out with. Empty for a sensitive template. */
+      /** The subject the email went out with. Empty for a sensitive template or when no engagement event names it. */
       subject: string;
-      /** When the email went to the provider, or when sending it failed. */
+      /** When the email went to the provider. */
       sent_at: string;
-      /** The email's delivery status. `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, `bounced` came back later, and `failed` was not sent.
+      /** The email's delivery status. `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, and `bounced` came back later.
        *
        * * `queued` - Queued
        * * `failed` - Failed
@@ -128941,15 +128941,15 @@ export namespace Schemas {
       action_id: string;
       /** The workflow or broadcast that sent the email. */
       workflow_id: string;
-      /** The distinct ID of the person the email went to. */
+      /** The distinct ID of the person the email went to. Empty when no engagement event names it. */
       distinct_id: string;
       /** The address the email was sent to. */
       recipient: string;
-      /** The subject the email went out with. Empty for a sensitive template. */
+      /** The subject the email went out with. Empty for a sensitive template or when no engagement event names it. */
       subject: string;
-      /** When the email went to the provider, or when sending it failed. */
+      /** When the email went to the provider. */
       sent_at: string;
-      /** The email's delivery status. `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, `bounced` came back later, and `failed` was not sent.
+      /** The email's delivery status. `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, and `bounced` came back later.
        *
        * * `queued` - Queued
        * * `failed` - Failed
@@ -128969,7 +128969,7 @@ export namespace Schemas {
       results: WorkflowEmailSend[];
       /** Whether another page follows. */
       has_more: boolean;
-      /** Whether the project records engagement events now. Sends made while it was off are not listed. */
+      /** Whether the project records engagement events now. Sends made while it was off show no subject, delivery, opens or clicks. */
       engagement_events_enabled: boolean;
     }
 

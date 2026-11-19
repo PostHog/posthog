@@ -1418,7 +1418,7 @@ export const getWorkflowEmailLogListUrl = (projectId: string, params: WorkflowEm
 }
 
 /**
- * List the emails one workflow or broadcast sent, newest first. Sends are read from the `$workflows_email_*` events, which are only recorded while the project's engagement events setting is on.
+ * List the emails one workflow or broadcast sent, newest first. Sends are read from the workflow's run logs. The subject, the recipient's person, delivery, opens and clicks come from the `$workflows_email_*` events, which are only recorded while the project's engagement events setting is on.
  * @summary List a workflow's email sends
  */
 export const workflowEmailLogList = async (
@@ -1453,7 +1453,7 @@ export const getWorkflowEmailLogRetrieveUrl = (
 }
 
 /**
- * Get one email a workflow sent, with its delivery timeline. Sends are read from the `$workflows_email_*` events, which are only recorded while the project's engagement events setting is on.
+ * Get one email a workflow sent, with its delivery timeline. Sends are read from the workflow's run logs. The subject, the recipient's person, delivery, opens and clicks come from the `$workflows_email_*` events, which are only recorded while the project's engagement events setting is on.
  * @summary Get a workflow email send
  */
 export const workflowEmailLogRetrieve = async (
