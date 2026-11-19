@@ -2,7 +2,14 @@ import { z } from 'zod'
 
 export type MetricPoint = { at: number; value: number }
 
-export type SeriesRequest = { ids: string[]; from: number; to: number; subject: (id: string) => string }
+export type SeriesRequest = {
+    ids: string[]
+    from: number
+    to: number
+    periodMs: number
+    floor: number
+    subject: (id: string) => string
+}
 
 const Answer = z
     .object({
@@ -25,7 +32,10 @@ const IsoTime = z.iso.datetime({ offset: true })
 
 const iso = (at: number): string => new Date(at).toISOString()
 
-export function seriesOf(answer: unknown, { ids, from, to, subject }: SeriesRequest): Record<string, MetricPoint[]> {
+export function seriesOf(
+    answer: unknown,
+    { ids, from, to, periodMs, floor, subject }: SeriesRequest
+): Record<string, MetricPoint[]> {
     const parsed = Answer.safeParse(answer)
     if (!parsed.success) {
         throw new Error(`CloudWatch answered in a shape that is not GetMetricData: ${z.prettifyError(parsed.error)}`)
@@ -59,6 +69,10 @@ export function seriesOf(answer: unknown, { ids, from, to, subject }: SeriesRequ
             if (unreadable.length > 0) {
                 fail(`has a value that is not a finite number at ${unreadable.map(String).join(', ')}`)
             }
+            const low = Timestamps.filter((_, i) => (Values[i] as number) < floor)
+            if (low.length > 0) {
+                fail(`has a value below ${floor} at ${low.map(String).join(', ')}`)
+            }
             const untimed = Timestamps.filter((at) => !IsoTime.safeParse(at).success)
             if (untimed.length > 0) {
                 fail(`has a timestamp that is not a time: ${untimed.map(String).join(', ')}`)
@@ -68,6 +82,12 @@ export function seriesOf(answer: unknown, { ids, from, to, subject }: SeriesRequ
             if (outside.length > 0) {
                 fail(
                     `has a timestamp outside the ${iso(from)} to ${iso(to)} it asked for: ${outside.map(({ at }) => iso(at)).join(', ')}`
+                )
+            }
+            const offGrid = points.filter(({ at }) => (at - from) % periodMs !== 0)
+            if (offGrid.length > 0) {
+                fail(
+                    `has a timestamp off the ${periodMs / 1000}s period of its window: ${offGrid.map(({ at }) => iso(at)).join(', ')}`
                 )
             }
             const unordered = points.filter(({ at }, i) => i > 0 && at <= points[i - 1].at)

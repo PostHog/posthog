@@ -196,6 +196,21 @@ describe('pg.failover', () => {
             /-reader's capacity read has a timestamp outside the .* it asked for: /,
         ],
         [
+            'a capacity read with a negative value',
+            { liveReaderAcu: { maxima: [-1, -1, -1, -1, -1] } },
+            () => undefined,
+            /-reader's capacity read has a value below 0 at /,
+        ],
+        [
+            'a capacity read whose minutes sit off the minute',
+            {},
+            (run) =>
+                (run.aws = answeringCapacity(run.cloud, (asked) =>
+                    idleAnswer({ ...asked, minutes: asked.minutes.map((at) => at + MINUTE_MS / 2) })
+                )),
+            /-reader's capacity read has a timestamp off the 60s period of its window: /,
+        ],
+        [
             'a capacity read that is only one page',
             {},
             (run) =>

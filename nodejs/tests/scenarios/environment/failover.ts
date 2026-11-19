@@ -406,6 +406,8 @@ export async function failOver({
                 ids: ['acu'],
                 from,
                 to: until,
+                periodMs: MINUTE_MS,
+                floor: 0,
                 subject: () => `${reader}'s capacity read`,
             }).acu.map(({ at, value }) => ({ at, max: value }))
         } catch (error) {

@@ -87,7 +87,14 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
             '--metric-data-queries',
             JSON.stringify(queries),
         ]),
-        { ids: ['max', 'avg'], from: start, to: end, subject: (id) => `CloudWatch's ${id} series` }
+        {
+            ids: ['max', 'avg'],
+            from: start,
+            to: end,
+            periodMs: MINUTE_MS,
+            floor: 0,
+            subject: (id) => `CloudWatch's ${id} series`,
+        }
     )
     const byMinute = new Map<number, Minute>()
     for (const [id, points] of Object.entries(series)) {
@@ -139,7 +146,7 @@ function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: Clou
         }
     }
     const pre = minutes.filter(({ at }) => at < t0Minute)
-    const above = pre.filter(({ max, avg }) => (max ?? avg ?? 0) > idleMax)
+    const above = pre.filter(({ max, avg }) => [max, avg].some((reading) => reading !== undefined && reading > idleMax))
     const unshown = pre.filter(({ max, avg }) => max === undefined && avg !== undefined && avg > min && avg <= idleMax)
     const watched = Array.from({ length: CAPACITY_MINUTES }, (_, i) => t0Minute - (CAPACITY_MINUTES - i) * MINUTE_MS)
     const missing = watched.filter((at) => !pre.some((minute) => minute.at === at))

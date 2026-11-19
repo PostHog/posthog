@@ -1213,6 +1213,17 @@ describe('cloud controller', () => {
             'could not read the reader capacity',
         ],
         [
+            'an average above the idle limit in a minute whose maximum is under it',
+            {
+                readerAcu: IDLE_THEN_PROMOTED.map((minute) =>
+                    minute.minute === -2 ? { ...minute, max: 2, avg: 3 } : minute
+                ),
+            },
+            () => undefined,
+            'invalid',
+            'reader above its 2.5 ACU idle limit before T0',
+        ],
+        [
             'a reader above the idle limit while the failover waits for its offset',
             {
                 readerAcu: [

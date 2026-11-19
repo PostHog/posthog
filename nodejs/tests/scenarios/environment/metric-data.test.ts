@@ -2,7 +2,14 @@ import { seriesOf } from './metric-data'
 
 const FROM = Date.parse('2026-11-19T10:00:00Z')
 const TO = Date.parse('2026-11-19T10:05:00Z')
-const REQUEST = { ids: ['max', 'avg'], from: FROM, to: TO, subject: (id: string) => `the ${id} series` }
+const REQUEST = {
+    ids: ['max', 'avg'],
+    from: FROM,
+    to: TO,
+    periodMs: 60_000,
+    floor: 0,
+    subject: (id: string) => `the ${id} series`,
+}
 const STAMPS = ['2026-11-19T10:01:00+00:00', '2026-11-19T10:02:00+00:00', '2026-11-19T10:03:00+00:00']
 
 const series = (Id: string, fields: Record<string, unknown> = {}): Record<string, unknown> => ({
@@ -53,6 +60,11 @@ describe('seriesOf', () => {
         ['an infinite value', answerOf({ Values: [1, Infinity, 2] }), /not a finite number at /],
         ['a string value', answerOf({ Values: [1, '1.5', 2] }), /not a finite number at /],
         [
+            'a value below the floor',
+            answerOf({ Values: [1, -1, 2] }),
+            /has a value below 0 at 2026-11-19T10:02:00\+00:00$/,
+        ],
+        [
             'a timestamp that is not a time',
             answerOf({ Timestamps: ['unknown', ...STAMPS.slice(1)] }),
             /has a timestamp that is not a time: unknown$/,
@@ -66,6 +78,11 @@ describe('seriesOf', () => {
             'a timestamp without an offset',
             answerOf({ Timestamps: ['2026-11-19T10:01:00', ...STAMPS.slice(1)] }),
             /has a timestamp that is not a time: 2026-11-19T10:01:00$/,
+        ],
+        [
+            'a timestamp off the period grid',
+            answerOf({ Timestamps: ['2026-11-19T10:01:30+00:00', ...STAMPS.slice(1)] }),
+            /has a timestamp off the 60s period of its window: 2026-11-19T10:01:30.000Z$/,
         ],
         [
             'a timestamp before the window',

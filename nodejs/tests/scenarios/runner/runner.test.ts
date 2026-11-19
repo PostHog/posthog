@@ -1504,7 +1504,7 @@ describe('runner through seed, drive and judge', () => {
             shortValuesOf: 'Maximum',
         })
         const { manifest } = cloud.runCluster(randomUUID())
-        const manifestFile = path.join(mkdtempSync(path.join(os.tmpdir(), 'runner-manifest-')), 'manifest.json')
+        const manifestFile = path.join(cacheHome, 'manifest.json')
         writeFileSync(manifestFile, JSON.stringify({ ...manifest, schedules: [] }))
         const stub = environmentOf('all')
         const onHost: Environment = {
