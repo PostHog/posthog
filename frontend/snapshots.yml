@@ -6879,13 +6879,21 @@ snapshots:
     products-alerts-simulation-summary--sub-detector-scores--light:
         hash: v1.k794b7964.0a77535b3969cac543ed48fdcd1117a5fe0305a6d7aa38c7bd8af446d4b1e422.ErlO5Qkh3fOCJ8BDf3qU9EkgKb_AUPbuFPhJpFrPr7M
     products-apm-dependencies--all-services--dark:
-        hash: v1.k794b7964.3fcd5d961ead4185c5ab6a304a9b641cfcc53ae6851be0ae454f37a19eb3cf7b.Gpdd3rMUuq50FfSp_ajfrwIyqqnsa7F-wgts0O9ic2Y
+        hash: v1.k794b7964.cdc29ede2fa4e728539fdcc7bb21680fd6c06c0a6f1b3036817f8607fa2a0f9e.3T00QIatyv361rcu4tHk8i94CR5fkiWHjBmYjbLwVSY
     products-apm-dependencies--all-services--light:
-        hash: v1.k794b7964.6b8942edc3cfb54643e576f6eeea96649cb347f6416b8d5e862ac3749a13fe15.kv-YQmLN5axEqeqAURna96NPbHgtzOxES-W1E99moRE
+        hash: v1.k794b7964.e2c3b69b76fb94f64eef85b3e8badecac821f62a776563305e57d8a76ddda53b.A5x9tRV_uESKIT1tVwncHZr9RCBPA5kDcfrvP1H3G9o
     products-apm-dependencies--empty--dark:
-        hash: v1.k794b7964.96b9017c5bfbf086f37c0bbb9eb4a1eb869899e5dcbab6e51e0434ab9e1425ca.LvAkwF2gCZqE3mhLjWp_ZwwTXL0XTr73L3Me5c9Rqu4
+        hash: v1.k794b7964.abef0efc5dca286eac5870549f75b62f40d226f5d93e2bb63f5a1b423f3170a9.vg16aGozPLPu0136cHgUkzE6_oRKSxtFKTaMZ7RQtG0
     products-apm-dependencies--empty--light:
-        hash: v1.k794b7964.cb37f6fa38cf583faa145e6e6bbb926e17ca72c58ef301e255adbef3f90ed2a0.qBZxNsKdIp91blXh5cS3op5NBl7Oh2tLaXvjryZ8IPE
+        hash: v1.k794b7964.690a5f7b198e9aed36ef47a937aad57e6cb41b595d38b4f34a0a0e61f543c5bb.mXZR2d9azZxhyMoTSmg1r_1bmsmG2DHW5M9-s7_WdVM
+    products-apm-dependencies--sampled--dark:
+        hash: v1.k794b7964.525069d8152e35c60580896ce3c7b7a070f07e7877112e31f22c41ec1f509022.3V41VwgmdSYqT2l_LQ4e7Mce1yULmGrLILethkFQE8o
+    products-apm-dependencies--sampled--light:
+        hash: v1.k794b7964.029cab21b0738dfc2c6afaf7cb333b96448b9140d75e723f42f2fd9bde538537.-e90hUs7WpfNJ14312t1gs9r6tdnLsElNRdWcYB11Dc
+    products-apm-dependencies--too-many-spans--dark:
+        hash: v1.k794b7964.4b5e05ea40629cbeaaddff52db954ab34c56e1abfcf9039bffb79337696c8d86.YRYPTVvkvz-UDSopOPxRHZ3z0iMiz6YfZuPCplKHdBA
+    products-apm-dependencies--too-many-spans--light:
+        hash: v1.k794b7964.0e3bb6f19ca3d2d82c92a2681f0279e9bed90115e79b942909fb177504defdad.uubcD9shXdUeL0ODbwWPW8MHGaSXIgUQgtuMv9wB0IU
     products-apm-deployments--no-versions--dark:
         hash: v1.k794b7964.60dd140b79bc7ccfb6639b602d522c53b61f94246cf3104bfab6f3c01cfc12c9.sq4ndQK4B2B5dDjrTF5jfU0fyEfjTEWRfubzwkwvA6E
     products-apm-deployments--no-versions--light:

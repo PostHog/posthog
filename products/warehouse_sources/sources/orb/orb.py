@@ -1,7 +1,7 @@
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import Request
 
@@ -10,6 +10,7 @@ from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     EndpointResource,
     JSONResponseCursorPaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
@@ -84,6 +85,22 @@ class OrbCursorPaginator(JSONResponseCursorPaginator):
             self._has_next_page = True
 
 
+def _flatten_subscription_usage(record: dict[str, Any]) -> list[dict[str, Any]]:
+    metric = record.get("billable_metric") or {}
+    base = {
+        "subscription_id": record.get("subscription_id"),
+        "billable_metric_id": metric.get("id"),
+        "billable_metric_name": metric.get("name"),
+        "view_mode": record.get("view_mode"),
+    }
+    return [{**window, **base} for window in record.get("usage") or []]
+
+
+ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]] = {
+    "SubscriptionUsage": _flatten_subscription_usage,
+}
+
+
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
     cfg = ORB_ENDPOINTS[name]
 
@@ -155,6 +172,8 @@ def orb_source(
             resume_hook=save_fanout_checkpoint,
             initial_paginator_state=resume.fanout_state if resume else None,
         )
+        if endpoint in ROW_MAPS:
+            resource = cast(Resource, resource).add_map(ROW_MAPS[endpoint])
     else:
         config: RESTAPIConfig = {
             "client": client_config,
