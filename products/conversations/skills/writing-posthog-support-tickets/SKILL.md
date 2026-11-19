@@ -75,7 +75,7 @@ Error:
   - Open with what happened, or what they plan to do, in one sentence, with the numbers and dates, such as "Our project used 6 PostHog AI credits on Oct 16, 2026, but nobody on our team has a chat from that day".
   - For an action, add it in one sentence, such as "Please delete the 3,817 events the query below returns".
   - List every open question, numbered, in the person's order. Tighten the wording, but keep every part, because a question support does not see comes back as a follow-up.
-  - Leave out a question that is already answered, and put the answer in **Already checked**, so support sees it was asked. A question about their own account, bill or data stays open even when the docs give the general rule.
+  - Leave out a question that is already answered, and put the answer in **Already checked**, so support sees it was asked. Keep it as a question only when the person wants support to confirm the answer. A question about their own account, bill or data stays open even when the docs give the general rule.
 - **Already checked** lists what was checked and what it showed, one line each, with the person's steps ("I tried") apart from yours ("<your name> checked").
   - Write "<your name> checked" only for a lookup run in this conversation. A number the person gave you is theirs, so it goes in **Request** or **Details**.
   - Keep checks that ruled a cause out, so support doesn't run them again. When there are more than five, keep the ones that bear on the open questions, and name the rest in one line, such as "Also ruled out: bot traffic and a mid-run flag change".
@@ -103,7 +103,7 @@ When `posthog:posthog-support-draft-create` is in your tool list, draft the tick
 - Each part of the ticket is one field, without its heading: `request`, `details`, `already_checked` and `error`.
 - Set `filing_reason` to the first that fits:
   - `billing_question` when it asks about billing or usage, even alongside other questions, so the person can send it on any plan.
-  - `needs_posthog_staff` for a staff action or PostHog-side data.
+  - `needs_posthog_staff` for a staff action, or for records only PostHog can see, such as what the flag service returned.
   - `unexplained_error` for an error you reproduced that nothing explains.
   - `user_disagrees_with_agent` when they think your answer is wrong.
   - `user_asked_for_support` when they want a human after hearing your answer.
