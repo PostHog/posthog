@@ -528,7 +528,7 @@ export type ReleaseMode = 'event' | 'symbol-set'
 // `into_upload`: the payload is the injected source and its map. In event mode the content hash
 // covers the pristine pair instead (injection removed, script paths replaced), so it stays the
 // same across releases and rebuilds.
-export function pairUpload(original: SourcePair, mode: ReleaseMode): SymbolSetUpload {
+export function pairUpload(original: SourcePair, mode: ReleaseMode): SymbolSetUpload & { data: Uint8Array } {
     const pair = original.clone()
     const injected = pair.chunkId()
     const chunkId = injected ?? pair.debugId()

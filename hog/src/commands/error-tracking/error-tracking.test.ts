@@ -5,6 +5,7 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
+    readdirSync,
     readFileSync,
     rmSync,
     symlinkSync,
@@ -17,6 +18,7 @@ import { z } from 'zod'
 import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { cleanUp, cssTargets } from '@/error-tracking/cleanup'
 import { contentHash, SymbolDataType, writeSymbolData } from '@/error-tracking/container'
+import { StagedFiles } from '@/error-tracking/js-flow'
 import { nativeCandidates } from '@/error-tracking/native/package'
 import { ZipWriter } from '@/error-tracking/native/zip'
 import { deriveBaseName } from '@/error-tracking/symbols'
@@ -335,6 +337,21 @@ describe('hog error-tracking upload', () => {
 
         expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(readFileSync(join(folder, 'dist/a.js'), 'utf8')).toBe(bundle)
+    })
+
+    test('a failed rename puts back the files already replaced and leaves no temporary file', () => {
+        const folder = project({ 'a.js': 'old a', 'b.js': 'old b' })
+        const files = new StagedFiles()
+        files.add(join(folder, 'a.js'), 'new a')
+        files.add(join(folder, 'b.js'), 'new b')
+        const stagedForB = readdirSync(folder).find((name) => name.startsWith('b.js.'))!
+        rmSync(join(folder, stagedForB))
+
+        expect(() => files.commit()).toThrow()
+
+        expect(readdirSync(folder).sort()).toEqual(['a.js', 'b.js'])
+        expect(readFileSync(join(folder, 'a.js'), 'utf8')).toBe('old a')
+        expect(readFileSync(join(folder, 'b.js'), 'utf8')).toBe('old b')
     })
 
     test('a universal binary with a slice that does not parse keeps its other slices', () => {

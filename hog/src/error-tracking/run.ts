@@ -10,14 +10,16 @@ import { contentHash } from './container'
 import { discover, isDsymBundle, isIgnored, listFiles, type Artifact, type Root } from './discover'
 import { GitError, gitInfo, type GitInfo } from './git'
 import {
+    dropDuplicateChunks,
     injectEventMode,
     injectSymbolSetMode,
-    preparePairs,
+    preparePair,
     randomChunkId,
     releaseRequested,
     resolveJsRelease,
-    savePairs,
+    StagedFiles,
     type InjectAction,
+    type PreparedPair,
 } from './js-flow'
 import { decodeUtf8 } from './json'
 import { cloneMetadata, hermesSkipReason, hermesUpload, isHermesBundlePath } from './kinds/hermes'
@@ -25,10 +27,10 @@ import {
     loadMapContent,
     readPair,
     serializeMapContent,
+    SourcePair,
     type MapContent,
     type ReleaseMode,
     type Skip,
-    type SourcePair,
 } from './kinds/js'
 import { proguardContainer } from './kinds/proguard'
 import {
@@ -44,7 +46,8 @@ import {
 import { sourceStep } from './native/sources'
 import { plistRelease } from './plist'
 import { fetchOrCreateRelease, resolveRelease, type Release, type ReleaseFields } from './release'
-import { SymbolSetClient, type SymbolSetUpload, type UploadStatus } from './upload'
+import { Scratch, sizeOnly } from './scratch'
+import { SymbolSetClient, uploadBytes, type StoredData, type SymbolSetUpload, type UploadStatus } from './upload'
 
 export interface ErrorTrackingOptions {
     kind?: ArtifactKind
@@ -166,16 +169,74 @@ export class Session {
 const isBundle = (artifact: Artifact): boolean =>
     artifact.kind === 'js' || (artifact.kind === 'hermes' && isHermesBundlePath(artifact.path))
 
-function readPairs(
+interface OwnedPair {
+    pair: SourcePair
+    artifact: Artifact
+}
+
+// A step that needs one fact about the pairs, such as whether any of them lacks a release, reads
+// them before the step that does the work, and it usually stops at the first pair. Remembering
+// the last pair read keeps that from parsing the same map twice.
+class PairReader {
+    private last: { path: string; pair: SourcePair | undefined; skipped: Skip[] } | undefined
+
+    constructor(private readonly publicPathPrefix: string | undefined) {}
+
+    read(path: string, skipped: Skip[]): SourcePair | undefined {
+        if (this.last?.path !== path) {
+            const found: Skip[] = []
+            this.last = { path, pair: readPair(path, this.publicPathPrefix, found), skipped: found }
+        }
+        skipped.push(...this.last.skipped)
+        return this.last.pair
+    }
+
+    // For the step that changes the pair, so that no later read sees the changes.
+    take(path: string, skipped: Skip[]): SourcePair | undefined {
+        const pair = this.read(path, skipped)
+        this.last = undefined
+        return pair
+    }
+}
+
+// JavaScriptCore lets its heap grow with the memory of the machine before it collects, and a pair
+// leaves behind several times its size in parsed JSON and mapping tokens. A collection after a
+// fixed amount of bundle text keeps the memory hog holds near what the largest pair needs.
+const COLLECT_AFTER_SOURCE_CHARS = 16 * 1024 * 1024
+// Transforming a bundle takes many times its size, so a large one starts from a heap without
+// the garbage of the pairs before it.
+const LARGE_SOURCE_CHARS = 4 * 1024 * 1024
+let uncollectedSourceChars = 0
+
+function collect(): void {
+    uncollectedSourceChars = 0
+    Bun.gc(true)
+}
+
+const isLarge = (pair: SourcePair): boolean => pair.source.length >= LARGE_SOURCE_CHARS
+
+function pairRead(pair: SourcePair): void {
+    if (isLarge(pair) && uncollectedSourceChars > 0) {
+        collect()
+    }
+}
+
+function pairDone(pair: SourcePair): void {
+    uncollectedSourceChars += pair.source.length
+    if (uncollectedSourceChars >= COLLECT_AFTER_SOURCE_CHARS || isLarge(pair)) {
+        collect()
+    }
+}
+
+function* readPairs(
     selection: Selection,
-    options: ErrorTrackingOptions,
-    skipped: Skip[]
-): { pairs: SourcePair[]; artifacts: Map<SourcePair, Artifact> } {
+    reader: PairReader,
+    skipped: Skip[],
+    read: 'read' | 'take' = 'take'
+): Generator<OwnedPair> {
     const seen = new Set<string>()
-    const pairs: SourcePair[] = []
-    const owners = new Map<SourcePair, Artifact>()
     for (const artifact of selection.artifacts.filter(isBundle)) {
-        const pair = readPair(artifact.path, options.publicPathPrefix, skipped)
+        const pair = reader[read](artifact.path, skipped)
         if (
             pair &&
             isIgnored(
@@ -193,53 +254,145 @@ function readPairs(
         }
         if (pair && !seen.has(pair.sourcePath)) {
             seen.add(pair.sourcePath)
-            pairs.push(pair)
-            owners.set(pair, artifact)
+            pairRead(pair)
+            yield { pair, artifact }
+            pairDone(pair)
         }
     }
-    return { pairs, artifacts: owners }
 }
+
+function some<T>(items: Iterable<T>, matches: (item: T) => boolean): boolean {
+    for (const item of items) {
+        if (matches(item)) {
+            return true
+        }
+    }
+    return false
+}
+
+const isUploadable = (pair: SourcePair): boolean => pair.chunkId() !== null || pair.debugId() !== null
+
+interface JsEntry {
+    artifact: Artifact
+    uploadable: boolean
+    // Read before the upload stamps its own release on the pair.
+    withoutRelease: boolean
+    target: CleanupTarget | undefined
+    prepared: PreparedPair
+}
+
+interface JsEntryOptions {
+    releaseMode: ReleaseMode
+    deleteAfter: boolean
+    keep: (data: Uint8Array) => StoredData
+    releaseId?: string
+}
+
+function jsEntry({ pair, artifact }: OwnedPair, options: JsEntryOptions): JsEntry {
+    const uploadable = isUploadable(pair)
+    const withoutRelease = pair.map.releaseId === null
+    // The fingerprint covers the map as it is on disk, so it comes before the release is stamped.
+    const target = uploadable && options.deleteAfter ? jsTarget(pair) : undefined
+
+    if (uploadable && options.releaseId !== undefined) {
+        pair.map.releaseId = options.releaseId
+    }
+    return {
+        artifact,
+        uploadable,
+        withoutRelease,
+        target,
+        prepared: preparePair(pair, options.releaseMode, options.keep),
+    }
+}
+
+// The injected pairs, kept on disk for the upload step of `process`. The files in the build can't
+// stand in for them: two bundles can share one map, and then the file holds only the last one.
+class PairSnapshot {
+    private readonly stored: {
+        sourcePath: string
+        mapPath: string
+        source: StoredData
+        map: StoredData
+        artifact: Artifact
+    }[] = []
+
+    constructor(private readonly scratch: Scratch) {}
+
+    add({ pair, artifact }: OwnedPair): void {
+        this.stored.push({
+            sourcePath: pair.sourcePath,
+            mapPath: pair.mapPath,
+            source: this.scratch.write(Buffer.from(pair.source, 'utf8')),
+            map: this.scratch.write(Buffer.from(serializeMapContent(pair.map), 'utf8')),
+            artifact,
+        })
+    }
+
+    *pairs(): Generator<OwnedPair> {
+        for (const { sourcePath, mapPath, source, map, artifact } of this.stored) {
+            const pair = new SourcePair(
+                sourcePath,
+                decodeUtf8(source.read()),
+                mapPath,
+                loadMapContent(decodeUtf8(map.read()))
+            )
+            pairRead(pair)
+            yield { pair, artifact }
+            pairDone(pair)
+        }
+    }
+}
+
+// In symbol-set mode, an upload that found no release yet resolves one after every file is
+// written, and stamps it on the maps it uploads. Only then does an upload change a pair.
+const uploadStampsRelease = (options: ErrorTrackingOptions, release: ReleaseReport | null): boolean =>
+    options.releaseMode === 'symbol-set' && release === null && !options.dryRun
+
+// What the inject step of `process` passes to its upload step in place of the pairs. The entries
+// are final when the upload can't change a pair. Otherwise the upload reads the pairs back.
+type Handoff = { entries: JsEntry[]; failure?: { error: unknown } } | { snapshot: PairSnapshot }
 
 export interface InjectReport {
     release: ReleaseReport | null
     injected: InjectedReport[]
     skipped: Skip[]
     warnings: string[]
-    pairs: SourcePair[]
-    owners: Map<SourcePair, Artifact>
 }
 
-export async function inject(
+export async function inject(ctx: Context, selection: Selection, options: ErrorTrackingOptions): Promise<InjectReport> {
+    return (await injectPairs(ctx, selection, options, new Session(ctx))).report
+}
+
+async function injectPairs(
     ctx: Context,
     selection: Selection,
     options: ErrorTrackingOptions,
-    session: Session = new Session(ctx),
-    preset?: Release,
-    warnMissingRelease = true
-): Promise<InjectReport> {
+    session: Session,
+    forProcess?: { preset: Release | undefined; scratch: Scratch }
+): Promise<{ report: InjectReport; handoff: Handoff | undefined }> {
     const skipped: Skip[] = []
     const warnings: string[] = []
-    const { pairs, artifacts: owners } = readPairs(selection, options, skipped)
-    if (pairs.length === 0) {
+    const reader = new PairReader(options.publicPathPrefix)
+    const peek = (): Generator<OwnedPair> => readPairs(selection, reader, [], 'read')
+    if (!some(peek(), () => true)) {
         throw new HogError(
             'no_bundles',
             'hog found no JavaScript or Hermes bundles with sourcemaps to inject in those paths.',
             'Check the paths, or pass --public-path-prefix if your sourceMappingURL comments are absolute URLs.'
         )
     }
-    // Hermes bundles never carry a release in event mode: the app's own metadata names it.
-    const hermes = new Set(pairs.filter((pair) => owners.get(pair)?.kind === 'hermes'))
-    const js = pairs.filter((pair) => !hermes.has(pair))
     const fields = await releaseFields(ctx, options)
-    let release = preset
+    let release = forProcess?.preset
     let reported: ReleaseReport | null = release
         ? { name: release.project, version: release.version, id: release.id }
         : null
     if (!release) {
+        // Hermes bundles never carry a release in event mode: the app's own metadata names it.
         const needed =
             options.releaseMode === 'event'
-                ? js.length > 0
-                : releaseRequested(fields) || pairs.some((pair) => pair.map.releaseId === null)
+                ? some(peek(), ({ artifact }) => artifact.kind !== 'hermes')
+                : releaseRequested(fields) || some(peek(), ({ pair }) => pair.map.releaseId === null)
         const resolved = needed ? resolveJsRelease(fields, ctx.runtime.env, selection.cwd, warnings) : undefined
         if (resolved) {
             reported = { name: resolved.name, version: resolved.version, id: null }
@@ -249,44 +402,109 @@ export async function inject(
                 release = await session.releases.get(resolved.name, resolved.version, resolved.git)
                 reported.id = release.id
             }
-        } else if (options.releaseMode === 'event' && js.length > 0) {
+        } else if (options.releaseMode === 'event' && needed) {
             warnings.push(
                 'No release could be resolved, so hog injected chunk IDs only and events will carry no release.'
             )
         }
     }
     const releaseId = release?.id ?? null
-    const byPair = new Map(
-        (options.releaseMode === 'event'
-            ? [...injectEventMode(js, releaseId, warnings), ...injectEventMode([...hermes], null, warnings)]
-            : injectSymbolSetMode(pairs, releaseId, randomChunkId(ctx.runtime.now))
-        ).map((outcome) => [outcome.pair, outcome])
-    )
-    const outcomes = pairs.map((pair) => byPair.get(pair)!)
-    if (
-        warnMissingRelease &&
-        options.releaseMode === 'symbol-set' &&
-        reported === null &&
-        pairs.some((pair) => pair.map.releaseId === null)
-    ) {
+
+    let handoff: Handoff | undefined
+    if (forProcess) {
+        handoff = uploadStampsRelease(options, reported)
+            ? { snapshot: new PairSnapshot(forProcess.scratch) }
+            : { entries: [] }
+    }
+    const entryOptions: JsEntryOptions | undefined = forProcess && {
+        releaseMode: options.releaseMode,
+        deleteAfter: options.deleteAfter,
+        keep: options.dryRun ? sizeOnly : forProcess.scratch.write,
+    }
+    const pass = (owned: OwnedPair): void => {
+        if (!handoff || !entryOptions || owned.artifact.kind !== 'js') {
+            return
+        }
+        // Packaging a pair for upload transforms it once more, so the garbage of the injection goes first.
+        if (isLarge(owned.pair)) {
+            collect()
+        }
+        if ('snapshot' in handoff) {
+            handoff.snapshot.add(owned)
+        } else if (!handoff.failure) {
+            // The upload step reports a pair it can't package, after the files are written.
+            try {
+                handoff.entries.push(jsEntry(owned, entryOptions))
+            } catch (error) {
+                handoff.failure = { error }
+            }
+        }
+    }
+
+    const newId = randomChunkId(ctx.runtime.now)
+    // In event mode, the warnings for JavaScript bundles come before the ones for Hermes bundles.
+    const hermesWarnings: string[] = []
+    const injected: InjectedReport[] = []
+    const cwd = realpathSync(selection.cwd)
+    const files = new StagedFiles()
+    // The first error a person sees stays the same whatever the order of the pairs on disk: a
+    // JavaScript pair that can't be transformed, then a Hermes pair in event mode, then a file
+    // that can't be staged.
+    let hermesFailure: { error: unknown } | undefined
+    let stagingFailure: { error: unknown } | undefined
+    let withoutRelease = false
+    try {
+        for (const owned of readPairs(selection, reader, skipped)) {
+            const { pair, artifact } = owned
+            let outcome
+            if (options.releaseMode === 'symbol-set') {
+                outcome = injectSymbolSetMode(pair, releaseId, newId)
+            } else if (artifact.kind !== 'hermes') {
+                outcome = injectEventMode(pair, releaseId, warnings)
+            } else if (hermesFailure) {
+                continue
+            } else {
+                try {
+                    outcome = injectEventMode(pair, null, hermesWarnings)
+                } catch (error) {
+                    hermesFailure = { error }
+                    continue
+                }
+            }
+            withoutRelease ||= pair.map.releaseId === null
+            injected.push({
+                path: artifact.display,
+                map: relative(cwd, pair.mapPath),
+                chunkId: outcome.chunkId,
+                action: outcome.action,
+            })
+
+            if (!options.dryRun && !stagingFailure) {
+                try {
+                    files.add(pair.sourcePath, pair.source)
+                    files.add(pair.mapPath, serializeMapContent(pair.map))
+                } catch (error) {
+                    stagingFailure = { error }
+                }
+            }
+
+            pass(owned)
+        }
+        const failure = hermesFailure ?? stagingFailure
+        if (failure) {
+            throw failure.error
+        }
+        files.commit()
+    } catch (error) {
+        files.discard()
+        throw error
+    }
+
+    warnings.push(...hermesWarnings)
+    if (!forProcess && options.releaseMode === 'symbol-set' && reported === null && withoutRelease) {
         warnings.push(MISSING_RELEASE_WARNING)
     }
-    if (!options.dryRun) {
-        savePairs(pairs, (pair) => serializeMapContent(pair.map))
-    }
-    return {
-        release: reported,
-        injected: outcomes.map((outcome) => ({
-            path: owners.get(outcome.pair)?.display ?? outcome.pair.sourcePath,
-            map: relative(realpathSync(selection.cwd), outcome.pair.mapPath),
-            chunkId: outcome.chunkId,
-            action: outcome.action,
-        })),
-        skipped,
-        warnings,
-        pairs,
-        owners,
-    }
+    return { report: { release: reported, injected, skipped, warnings }, handoff }
 }
 
 const DRY_RUN_RELEASE_WARNING =
@@ -325,12 +543,23 @@ function proguardGit(ctx: Context, artifact: Artifact): GitInfo | undefined {
     }
 }
 
-export async function upload(
+export async function upload(ctx: Context, selection: Selection, options: ErrorTrackingOptions): Promise<UploadReport> {
+    const scratch = new Scratch()
+    try {
+        return await uploadArtifacts(ctx, selection, options, new Session(ctx), scratch)
+    } finally {
+        scratch.dispose()
+    }
+}
+
+async function uploadArtifacts(
     ctx: Context,
     selection: Selection,
     options: ErrorTrackingOptions,
-    session: Session = new Session(ctx),
-    injected?: InjectReport
+    session: Session,
+    scratch: Scratch,
+    injected?: InjectReport,
+    handoff?: Handoff
 ): Promise<UploadReport> {
     const skipped: Skip[] = [...(injected?.skipped ?? [])]
     const warnings: string[] = [...(injected?.warnings ?? [])]
@@ -379,21 +608,78 @@ export async function upload(
 
     // Metro bundles upload through their composed maps, so upload never reads their own pairs.
     const jsOnly = { ...selection, artifacts: selection.artifacts.filter((artifact) => artifact.kind === 'js') }
-    const read = injected ? { pairs: injected.pairs, artifacts: injected.owners } : readPairs(jsOnly, options, skipped)
-    read.pairs = read.pairs.filter((pair) => read.artifacts.get(pair)?.kind === 'js')
-    let targets: { pair: SourcePair; target: CleanupTarget }[] = []
+    const reader = new PairReader(options.publicPathPrefix)
+    const pairs = (found: Skip[], read: 'read' | 'take'): Generator<OwnedPair> =>
+        handoff && 'snapshot' in handoff ? handoff.snapshot.pairs() : readPairs(jsOnly, reader, found, read)
+    const entryOptions: JsEntryOptions = {
+        releaseMode: options.releaseMode,
+        deleteAfter: options.deleteAfter,
+        keep: options.dryRun ? sizeOnly : scratch.write,
+    }
+    const releaseWarnings: string[] = []
+    const jsRelease = async (needed: boolean): Promise<string | undefined> => {
+        const resolved = needed ? resolveJsRelease(fields, ctx.runtime.env, selection.cwd, releaseWarnings) : undefined
+        if (!resolved) {
+            return undefined
+        }
+        reported = { name: resolved.name, version: resolved.version, id: null }
+        if (options.dryRun) {
+            releaseWarnings.push(DRY_RUN_RELEASE_WARNING)
+            return undefined
+        }
+        const release = await releases.get(resolved.name, resolved.version, resolved.git)
+        reported.id = release.id
+        return release.id
+    }
+    const collect = (releaseId?: string): JsEntry[] => {
+        const collected: JsEntry[] = []
+        for (const owned of pairs(skipped, 'take')) {
+            collected.push(jsEntry(owned, { ...entryOptions, releaseId }))
+        }
+        return collected
+    }
+    const reportJsRelease = async (collected: JsEntry[]): Promise<void> => {
+        const needed =
+            options.releaseMode === 'symbol-set' &&
+            !injected?.release &&
+            collected.length > 0 &&
+            (releaseRequested(fields) || collected.some((entry) => entry.uploadable && entry.withoutRelease))
+        await jsRelease(needed)
+    }
+
+    let entries: JsEntry[]
+    let stampedRelease: string | undefined
+    if (handoff && 'entries' in handoff) {
+        entries = handoff.entries
+        await reportJsRelease(entries)
+        if (handoff.failure) {
+            throw handoff.failure.error
+        }
+    } else if (uploadStampsRelease(options, injected?.release ?? null)) {
+        // The release goes into every container, so it is settled before any container is built.
+        const needed = releaseRequested(fields)
+            ? some(pairs([], 'read'), () => true)
+            : some(pairs([], 'read'), ({ pair }) => isUploadable(pair) && pair.map.releaseId === null)
+        stampedRelease = await jsRelease(needed)
+        entries = collect(stampedRelease)
+    } else {
+        entries = collect()
+        await reportJsRelease(entries)
+    }
+    const uploadable = entries.filter((entry) => entry.uploadable)
+
+    let targets: CleanupTarget[] = []
     // posthog-cli stops before any cleanup when no bundle has an id to upload under.
     let jsUploadable = false
     const composed = selection.artifacts.filter(
         (artifact) => artifact.kind === 'hermes' && !isHermesBundlePath(artifact.path)
     )
-    if (options.releaseMode === 'event' && options.skipOnConflict && (read.pairs.length > 0 || composed.length > 0)) {
+    if (options.releaseMode === 'event' && options.skipOnConflict && (entries.length > 0 || composed.length > 0)) {
         warnings.push(
             '--skip-on-conflict is ignored in event mode: every chunk is overwritten, so events never keep an old release.'
         )
     }
-    if (read.pairs.length > 0) {
-        const uploadable = read.pairs.filter((pair) => pair.chunkId() !== null || pair.debugId() !== null)
+    if (entries.length > 0) {
         jsUploadable = uploadable.length > 0
         if (!jsUploadable) {
             warnings.push(
@@ -401,36 +687,26 @@ export async function upload(
             )
         }
         if (options.deleteAfter) {
-            targets = uploadable.map((pair) => ({ pair, target: jsTarget(pair) }))
+            targets = uploadable.map((entry) => entry.target!)
         }
-        if (
-            options.releaseMode === 'symbol-set' &&
-            !injected?.release &&
-            (releaseRequested(fields) || uploadable.some((pair) => pair.map.releaseId === null))
-        ) {
-            const resolved = resolveJsRelease(fields, ctx.runtime.env, selection.cwd, warnings)
-            if (resolved) {
-                reported = { name: resolved.name, version: resolved.version, id: null }
-                if (options.dryRun) {
-                    warnings.push(DRY_RUN_RELEASE_WARNING)
-                } else {
-                    const release = await releases.get(resolved.name, resolved.version, resolved.git)
-                    reported.id = release.id
-                    for (const pair of uploadable) {
-                        pair.map.releaseId = release.id
-                    }
-                }
-            }
-        }
+        warnings.push(...releaseWarnings)
         if (
             options.releaseMode === 'symbol-set' &&
             (!options.dryRun || reported === null) &&
-            uploadable.some((pair) => pair.map.releaseId === null)
+            stampedRelease === undefined &&
+            uploadable.some((entry) => entry.withoutRelease)
         ) {
             warnings.push(MISSING_RELEASE_WARNING)
         }
-        const prepared = preparePairs(read.pairs, options.releaseMode)
-        skipped.push(...prepared.skipped)
+        const prepared = dropDuplicateChunks(
+            entries.flatMap(({ artifact, prepared }) => {
+                if ('skip' in prepared) {
+                    skipped.push(prepared.skip)
+                    return []
+                }
+                return [{ artifact, ...prepared }]
+            })
+        )
         for (const chunkId of prepared.duplicates) {
             warnings.push(`Duplicate chunk ID ${chunkId} across symbol sets: hog uploads the first one.`)
         }
@@ -441,8 +717,8 @@ export async function upload(
                 : { force: options.force, skipOnConflict: options.skipOnConflict }),
             batchSize: options.batchSize ?? 50,
         }
-        for (const { pair, upload: item } of prepared.uploads) {
-            planned.push({ artifact: read.artifacts.get(pair)!, upload: item, policy })
+        for (const { artifact, upload: item } of prepared.uploads) {
+            planned.push({ artifact, upload: item, policy })
         }
     }
 
@@ -574,7 +850,7 @@ export async function upload(
         path: item.artifact.display,
         kind: item.artifact.kind,
         chunkId: item.upload.chunkId,
-        contentHash: item.upload.contentHash ?? contentHash(item.upload.data),
+        contentHash: item.upload.contentHash ?? contentHash(uploadBytes(item.upload.data)),
         size: item.upload.data.length,
         status,
     })
@@ -649,7 +925,7 @@ export async function upload(
             )
         const cleanup = cleanUp([
             // Maps skipped as too large go too, as in posthog-cli, so they never ship with the build.
-            ...targets.map(({ target }) => target),
+            ...targets,
             ...cssTargets(
                 listFiles(selection.roots, selection.cwd),
                 rootPaths,
@@ -687,11 +963,24 @@ export async function processArtifacts(
             preset = await session.releases.get(resolved.name, resolved.version, resolved.git)
         }
     }
-    const injected = selection.artifacts.some(isBundle)
-        ? await inject(ctx, selection, options, session, preset, false)
-        : undefined
-    const report = await upload(ctx, selection, options, session, injected)
-    return { ...report, injected: injected?.injected ?? [] }
+    const scratch = new Scratch()
+    try {
+        const injected = selection.artifacts.some(isBundle)
+            ? await injectPairs(ctx, selection, options, session, { preset, scratch })
+            : undefined
+        const report = await uploadArtifacts(
+            ctx,
+            selection,
+            options,
+            session,
+            scratch,
+            injected?.report,
+            injected?.handoff
+        )
+        return { ...report, injected: injected?.report.injected ?? [] }
+    } finally {
+        scratch.dispose()
+    }
 }
 
 export interface CloneReport {

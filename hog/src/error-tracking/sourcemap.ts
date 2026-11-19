@@ -309,7 +309,7 @@ function decodeRegular(raw: JsonObject): SourceMap {
                 fail(`bad segment size ${numbers.length}`)
             }
             column = u32(column + numbers[0]!)
-            let token: Token = {
+            const token: Token = {
                 dstLine: line,
                 dstCol: column,
                 srcLine: NONE,
@@ -325,7 +325,9 @@ function decodeRegular(raw: JsonObject): SourceMap {
                 }
                 sourceLine = u32(sourceLine + numbers[2]!)
                 sourceColumn = u32(sourceColumn + numbers[3]!)
-                token = { ...token, srcId: sourceId, srcLine: sourceLine, srcCol: sourceColumn }
+                token.srcId = sourceId
+                token.srcLine = sourceLine
+                token.srcCol = sourceColumn
                 if (numbers.length > 4) {
                     nameId = u32(nameId + numbers[4]!)
                     if (nameId >= names.length) {
@@ -462,54 +464,68 @@ export function decodeSourceMap(raw: JsonValue): SourceMap {
 // `SourceMap::adjust_mappings`: maps every token through the adjustment's ranges. A range never
 // crosses a line, so tokens on lines the adjustment doesn't cover are dropped.
 export function adjustMappings(map: SourceMap, adjustment: Token[]): void {
-    type Position = [number, number]
-    interface Range {
-        start: Position
-        end: Position
-        token: Token
-    }
-    const before = (a: Position, b: Position): boolean => a[0] < b[0] || (a[0] === b[0] && a[1] < b[1])
-    const atMost = (a: Position, b: Position): boolean => !before(b, a)
-    const ranges = (tokens: Token[], key: (token: Token) => Position): Range[] => {
-        tokens.sort((a, b) => {
-            const ka = key(a)
-            const kb = key(b)
-            return ka[0] - kb[0] || ka[1] - kb[1]
-        })
-        return tokens.map((token, index) => {
-            const start = key(token)
-            const next: Position = index + 1 < tokens.length ? key(tokens[index + 1]!) : [Infinity, Infinity]
-            const endOfLine: Position = [start[0], Infinity]
-            return { start, end: before(next, endOfLine) ? next : endOfLine, token }
-        })
-    }
-    const original = ranges(map.tokens, (token) => [token.dstLine, token.dstCol])
-    const adjusted = ranges([...adjustment], (token) => [token.srcLine, token.srcCol])
+    const before = (aLine: number, aColumn: number, bLine: number, bColumn: number): boolean =>
+        aLine < bLine || (aLine === bLine && aColumn < bColumn)
+    const original = map.tokens.sort((a, b) => a.dstLine - b.dstLine || a.dstCol - b.dstCol)
+    const adjusted = [...adjustment].sort((a, b) => a.srcLine - b.srcLine || a.srcCol - b.srcCol)
     map.tokens = []
     if (original.length === 0) {
         return
     }
+
+    // A token's range runs to the next token, or to the end of its line when the next token is on
+    // a later line. A bundle's map has millions of tokens, so the positions stay in plain numbers:
+    // an object per token or per comparison costs gigabytes on a large bundle.
     let index = 0
-    let current = original[0]!
-    outer: for (const range of adjusted) {
-        const lineDelta = range.token.dstLine - range.token.srcLine
-        const columnDelta = range.token.dstCol - range.token.srcCol
-        while (atMost(current.end, range.start)) {
+    let token = original[0]!
+    let startLine = 0
+    let startColumn = 0
+    let endLine = 0
+    let endColumn = 0
+    const load = (): void => {
+        token = original[index]!
+        startLine = token.dstLine
+        startColumn = token.dstCol
+        const next = original[index + 1]
+        const nextLine = next ? next.dstLine : Infinity
+        const nextColumn = next ? next.dstCol : Infinity
+        const sameLine = before(nextLine, nextColumn, startLine, Infinity)
+        endLine = sameLine ? nextLine : startLine
+        endColumn = sameLine ? nextColumn : Infinity
+    }
+    load()
+
+    outer: for (let at = 0; at < adjusted.length; at++) {
+        const range = adjusted[at]!
+        const rangeStartLine = range.srcLine
+        const rangeStartColumn = range.srcCol
+        const next = adjusted[at + 1]
+        const nextLine = next ? next.srcLine : Infinity
+        const nextColumn = next ? next.srcCol : Infinity
+        const sameLine = before(nextLine, nextColumn, rangeStartLine, Infinity)
+        const rangeEndLine = sameLine ? nextLine : rangeStartLine
+        const rangeEndColumn = sameLine ? nextColumn : Infinity
+        const lineDelta = range.dstLine - range.srcLine
+        const columnDelta = range.dstCol - range.srcCol
+
+        while (!before(rangeStartLine, rangeStartColumn, endLine, endColumn)) {
             if (++index >= original.length) {
                 break outer
             }
-            current = original[index]!
+            load()
         }
-        while (before(current.start, range.end)) {
-            const [line, column] = before(current.start, range.start) ? range.start : current.start
-            map.tokens.push({ ...current.token, dstLine: u32(line + lineDelta), dstCol: u32(column + columnDelta) })
-            if (atMost(range.end, current.end)) {
+        while (before(startLine, startColumn, rangeEndLine, rangeEndColumn)) {
+            const clipped = before(startLine, startColumn, rangeStartLine, rangeStartColumn)
+            const line = clipped ? rangeStartLine : startLine
+            const column = clipped ? rangeStartColumn : startColumn
+            map.tokens.push({ ...token, dstLine: u32(line + lineDelta), dstCol: u32(column + columnDelta) })
+            if (!before(endLine, endColumn, rangeEndLine, rangeEndColumn)) {
                 break
             }
             if (++index >= original.length) {
                 break outer
             }
-            current = original[index]!
+            load()
         }
     }
     sortTokens(map.tokens)

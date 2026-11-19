@@ -14,10 +14,20 @@ import { contentHash } from './container'
 // counts and the release-mismatch fallback match it, so PostHog sees the same requests from either
 // CLI. Only the user agent differs.
 
+// A container that waits on disk until its upload starts. A JavaScript build has thousands of
+// them, and together they can be larger than the memory of the machine that uploads them.
+export interface StoredData {
+    readonly length: number
+    read(): Uint8Array
+}
+
+export const uploadBytes = (data: Uint8Array | StoredData): Uint8Array =>
+    data instanceof Uint8Array ? data : data.read()
+
 export interface SymbolSetUpload {
     chunkId: string
     releaseId: string | null
-    data: Uint8Array
+    data: Uint8Array | StoredData
     // Set when the hash covers something other than the whole container, like event-mode sourcemaps.
     contentHash?: string
 }
@@ -227,7 +237,7 @@ export class SymbolSetClient {
                 status.set(upload.chunkId, 'too_large')
                 continue
             }
-            const hash = upload.contentHash ?? contentHash(upload.data)
+            const hash = upload.contentHash ?? contentHash(uploadBytes(upload.data))
             contentHashes.set(upload.chunkId, hash)
             kept.push({ ...upload, hash })
         }
@@ -345,7 +355,7 @@ export class SymbolSetClient {
             }
         }
         await runWithConcurrency(entries, options.concurrency ?? 10, async ([chunkId, entry]) => {
-            await this.store(byChunk.get(chunkId)!.data, entry)
+            await this.store(uploadBytes(byChunk.get(chunkId)!.data), entry)
         })
         const finishHashes: Record<string, string> = {}
         for (const [chunkId, entry] of entries) {
