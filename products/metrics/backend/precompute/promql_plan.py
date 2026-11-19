@@ -36,7 +36,12 @@ from posthog.models import Team
 
 from products.metrics.backend.dashboard_import.promql_text import Token, tokenize
 from products.metrics.backend.facade.enums import AttributeScope, PrecomputedMetricKind
-from products.metrics.backend.metric_query_runner import _align_to_interval, _interval_step, _resolve_interval
+from products.metrics.backend.metric_query_runner import (
+    _QUERY_SETTINGS,
+    _align_to_interval,
+    _interval_step,
+    _resolve_interval,
+)
 from products.metrics.backend.models import MetricPrecomputedMetric
 from products.metrics.backend.precompute.definitions import (
     MAX_KEPT_LABELS,
@@ -72,6 +77,7 @@ _DURATION_TEXT = re.compile(r"(?:\d+(?:ms|s|m|h|d|w|y))+")
 _MAX_DURATION_TEXT_LENGTH = 32
 _MAX_WINDOW = dt.timedelta(days=400)
 MAX_EXPANDED_POINTS = 2_000_000
+_MILLISECOND = dt.timedelta(milliseconds=1)
 _DURATION_UNITS = {
     "ms": dt.timedelta(milliseconds=1),
     "s": dt.timedelta(seconds=1),
@@ -173,10 +179,11 @@ def _string(token: Token) -> str:
 def parse_duration(text: str) -> dt.timedelta | None:
     if not text or len(text) > _MAX_DURATION_TEXT_LENGTH or not _DURATION_TEXT.fullmatch(text):
         return None
-    duration = sum(
-        (int(amount) * _DURATION_UNITS[unit] for amount, unit in _DURATION.findall(text)), start=dt.timedelta()
+    # Sum in whole milliseconds first: a timedelta overflows on amounts far past any window we'd accept.
+    milliseconds = sum(
+        int(amount) * (_DURATION_UNITS[unit] // _MILLISECOND) for amount, unit in _DURATION.findall(text)
     )
-    return duration if duration <= _MAX_WINDOW else None
+    return dt.timedelta(milliseconds=milliseconds) if milliseconds <= _MAX_WINDOW // _MILLISECOND else None
 
 
 def _labels(parser: _Parser) -> tuple[str, ...]:
@@ -356,6 +363,7 @@ def _is_delta_histogram(team: Team, bucket_metric_name: str) -> bool:
         ),
         team=team,
         workload=Workload.METRICS,
+        settings=_QUERY_SETTINGS,
     )
     return bool(response.results) and response.results[0][0] == "delta"
 
