@@ -1397,7 +1397,7 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
 
         with (
             patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]),
-            patch("products.signals.backend.anomaly_scores.queue._MAX_NEVER_SCORED_DUE_ROWS", 2),
+            patch("products.signals.backend.anomaly_scores.queue._MAX_NEVER_SCORED_DUE_ROWS", 1),
         ):
             selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW)
 
