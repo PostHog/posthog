@@ -382,8 +382,8 @@ OMIT_TILE_RESULTS_PARAM = OpenApiParameter(
     OpenApiTypes.BOOL,
     description=(
         "When true, return the layout and tile metadata without each insight tile's result, "
-        "to be read separately through cached_tiles. Only honored where cached_tiles is available. "
-        "Elsewhere, and by default, tiles carry their cached results."
+        "to be read separately through stream_query_results with cached_first. Only honored where dashboard-v2 "
+        "is on. Elsewhere, and by default, tiles carry their cached results."
     ),
 )
 
