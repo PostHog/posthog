@@ -13,8 +13,8 @@ export const hasClickTrackingOptOutAttribute = (anchor: Pick<HrefAnchor, 'attrib
 export const isNeverClickTracked = (anchor: Pick<HrefAnchor, 'attribute'>): boolean =>
     hasClickTrackingOptOutAttribute(anchor) || anchor.attribute('ses:no-track') !== undefined
 
-const paramName = (param: string): string => {
-    const name = param.split('=')[0]
+const paramName = (param: string, readName: (name: string) => string): string => {
+    const name = readName(param.split('=')[0])
     try {
         return decodeURIComponent(name)
     } catch {
@@ -22,9 +22,7 @@ const paramName = (param: string): string => {
     }
 }
 
-const isWorkflowRunParam = (param: string): boolean => paramName(param) === WORKFLOW_RUN_PARAM
-
-export const removeWorkflowRunTag = (url: string): string => {
+const withoutWorkflowRunTag = (url: string, readName: (name: string) => string): string => {
     const hashIndex = url.indexOf('#')
     const beforeHash = hashIndex === -1 ? url : url.slice(0, hashIndex)
     const hash = hashIndex === -1 ? '' : url.slice(hashIndex)
@@ -33,10 +31,19 @@ export const removeWorkflowRunTag = (url: string): string => {
         return url
     }
     const params = beforeHash.slice(queryIndex + 1).split('&')
-    const kept = params.filter((param) => !isWorkflowRunParam(param))
+    const kept = params.filter((param) => paramName(param, readName) !== WORKFLOW_RUN_PARAM)
     if (kept.length === params.length) {
         return url
     }
     const query = kept.join('&')
     return `${beforeHash.slice(0, queryIndex)}${query ? `?${query}` : ''}${hash}`
 }
+
+export const removeWorkflowRunTag = (url: string): string => withoutWorkflowRunTag(url, (name) => name)
+
+// The HTML parser hands over the href with its character references decoded, as a browser reads it, and a browser's
+// URL parser then drops every tab and newline, so it reads `ph_workflow_&Tab;run` as the run tag.
+const URL_DROPPED_CHARACTERS = /[\t\n\r]/g
+
+export const removeParsedWorkflowRunTag = (url: string): string =>
+    withoutWorkflowRunTag(url, (name) => name.replace(URL_DROPPED_CHARACTERS, ''))

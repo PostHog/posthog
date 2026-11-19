@@ -669,6 +669,9 @@ describe('EmailTrackingService', () => {
                 // A table cell's marker stops the search before it reaches the stack.
                 const inCell = `<body><b><table><tr><td>${'<div>'.repeat(2_000)}${'x '.repeat(15_000)}<a href="https://example.com/">a</a></td></tr></table></body>`
                 expect(sesTrack(inCell)).toContain('phl:0')
+                // The search stops at the first entry still open, so one opened near the top of the stack costs little.
+                const nearTop = `<body>${'<div>'.repeat(250)}<b>${'x '.repeat(100_000)}<a href="https://example.com/">a</a></b></body>`
+                expect(sesTrack(nearTop)).toContain('phl:0')
             })
 
             it('refuses an email whose MathML annotation the parser rereads for each child', () => {

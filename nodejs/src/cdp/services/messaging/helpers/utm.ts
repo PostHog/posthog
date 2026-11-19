@@ -6,7 +6,7 @@ import { LiquidRenderBudget, LiquidRenderer } from '~/cdp/utils/liquid'
 
 import { decodeHtmlEntitiesInHref } from '../email-tracking.service'
 import { HrefAnchor, editHrefAnchors } from './href-anchors'
-import { WORKFLOW_RUN_PARAM, isNeverClickTracked, removeWorkflowRunTag } from './link-tags'
+import { WORKFLOW_RUN_PARAM, isNeverClickTracked, removeParsedWorkflowRunTag } from './link-tags'
 import { addUtmTagsToEmailLegacy } from './utm-legacy'
 
 export type UtmTags = {
@@ -186,9 +186,9 @@ export const addWorkflowRunTagToEmail = (html: string, { runId, senderEmail, sit
         isOptedOut: isNeverClickTracked,
         tagUrl: (url) => {
             if (runId !== null) {
-                return addTagsToUrl(removeWorkflowRunTag(url), { [WORKFLOW_RUN_PARAM]: runId }, isOnSenderDomain)
+                return addTagsToUrl(removeParsedWorkflowRunTag(url), { [WORKFLOW_RUN_PARAM]: runId }, isOnSenderDomain)
             }
-            const stripped = removeWorkflowRunTag(url)
+            const stripped = removeParsedWorkflowRunTag(url)
             return stripped !== url && parseTaggableUrl(stripped, isOnSenderDomain) ? stripped : null
         },
     })

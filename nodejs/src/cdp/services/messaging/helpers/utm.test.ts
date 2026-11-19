@@ -267,6 +267,11 @@ describe('addUtmTagsToEmail', () => {
             expected: '<a href="https://example.com/p?a=%zz&amp;ph_workflow_run=run-1">x</a>',
         },
         {
+            case: 'replaces a run id of an earlier send whose name a browser reads past a tab',
+            html: '<a href="https://example.com/p?ph_workflow_&Tab;run=old-run&amp;a=1">x</a>',
+            expected: '<a href="https://example.com/p?a=1&amp;ph_workflow_run=run-1">x</a>',
+        },
+        {
             case: 'replaces every run id of earlier sends and keeps a hash route',
             html: '<a href="https://example.com/?ph_workflow_run=a&amp;ph_workflow_run=b#/p?ph_workflow_run=x">x</a>',
             expected: '<a href="https://example.com/?ph_workflow_run=run-1#/p?ph_workflow_run=x">x</a>',
@@ -281,6 +286,12 @@ describe('addUtmTagsToEmail', () => {
             runId: null,
             html: '<a href="https://example.com/?a=1&amp;ph_workflow_run=old">x</a><a href="https://other.com/?ph_workflow_run=old">y</a>',
             expected: '<a href="https://example.com/?a=1">x</a><a href="https://other.com/?ph_workflow_run=old">y</a>',
+        },
+        {
+            case: 'removes a run id whose name a browser reads past a newline for a team that turned the tag off',
+            runId: null,
+            html: '<a href="https://example.com/?a=1&amp;ph_workflow&NewLine;_run=old">x</a>',
+            expected: '<a href="https://example.com/?a=1">x</a>',
         },
     ])('$case', ({ html, expected, sender, runId }) => {
         expect(

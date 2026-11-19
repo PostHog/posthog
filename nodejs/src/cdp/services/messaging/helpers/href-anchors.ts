@@ -314,28 +314,29 @@ const limitTokens = (parser: Parser<DefaultTreeAdapterMap>, bounds: ParseBounds)
     }
 }
 
-// `_reconstructActiveFormattingElements` is internal to the parser of parse5 7.1.2, which the patch pins. Each formatting
-// element it reopens costs another scan.
+// `_reconstructActiveFormattingElements` is internal to the parser of parse5 7.1.2, which the patch pins. It walks the
+// formatting entries from the newest until a marker or an element still open, and looks each one up in the stack of open
+// elements from the top. The walk here repeats that lookup and charges each step before it is taken.
 const limitStackScans = (parser: Parser<DefaultTreeAdapterMap>, bounds: ParseBounds): void => {
     const internals = parser as unknown as { _reconstructActiveFormattingElements: () => void }
     const reconstruct = internals._reconstructActiveFormattingElements.bind(parser)
-    const charge = (scans: number): void => {
-        bounds.stackScansLeft -= scans
-        if (bounds.stackScansLeft < 0) {
-            throw new EmailFormattingTooCostlyError()
-        }
-    }
     internals._reconstructActiveFormattingElements = () => {
-        // The newest entry comes first. A marker there, such as a table cell's, ends the search before it reads the stack.
-        const newest = parser.activeFormattingElements.entries[0]
-        if (!newest || !('element' in newest)) {
-            return reconstruct()
+        const { items, stackTop } = parser.openElements
+        for (const entry of parser.activeFormattingElements.entries) {
+            if (!('element' in entry)) {
+                break
+            }
+            bounds.stackScansLeft -= stackTop + 1
+            if (bounds.stackScansLeft < 0) {
+                throw new EmailFormattingTooCostlyError()
+            }
+            const index = items.lastIndexOf(entry.element, stackTop)
+            if (index >= 0) {
+                bounds.stackScansLeft += index
+                break
+            }
         }
-        const depth = parser.openElements.stackTop + 1
-        charge(depth)
-        const elementsLeft = bounds.elementsLeft
         reconstruct()
-        charge((elementsLeft - bounds.elementsLeft) * depth)
     }
 }
 
