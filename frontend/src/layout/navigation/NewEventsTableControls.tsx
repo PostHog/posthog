@@ -25,12 +25,20 @@ export function NewEventsTableControls(): JSX.Element | null {
                 className="px-2 py-1"
                 data-attr="new-events-table-switch"
             />
-            <ButtonPrimitive menuItem onClick={() => openEventsTableTab(true)} data-attr="new-events-table-open-new">
+            <ButtonPrimitive
+                menuItem
+                autoHeight
+                className="py-1.5"
+                onClick={() => openEventsTableTab(true)}
+                data-attr="new-events-table-open-new"
+            >
                 <IconExternal />
                 Open this page with new events table
             </ButtonPrimitive>
             <ButtonPrimitive
                 menuItem
+                autoHeight
+                className="py-1.5"
                 onClick={() => openEventsTableTab(false)}
                 data-attr="new-events-table-open-classic"
             >
