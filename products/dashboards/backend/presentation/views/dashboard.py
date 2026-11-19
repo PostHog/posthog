@@ -4485,22 +4485,27 @@ class DashboardsViewSet(
             cache_keys = [planned.cache_key for planned in planned_queries.values()]
 
             results: list[dict[str, Any]] = []
-            with prefetched_entries(cache_keys, team_id=self.team.pk):
-                for tile_id in tile_ids:
-                    tile_and_insight = tiles_by_id.get(tile_id)
-                    if tile_and_insight is None:
-                        results.append({"id": tile_id, "status": CachedTileStatus.NOT_FOUND})
-                        continue
-                    tile, insight = tile_and_insight
-                    if tile_id in restricted_levels:
-                        results.append({"id": tile_id, "status": CachedTileStatus.FORBIDDEN})
-                        continue
-                    context["dashboard_tile"] = tile
-                    insight_data = insight_serializer.to_representation(insight)
-                    if not insight_data.get("is_cached"):
-                        results.append({"id": tile_id, "status": CachedTileStatus.MISS})
-                        continue
-                    results.append({"id": tile_id, "status": CachedTileStatus.HIT, "insight": insight_data})
+            # The serializer outlives the request in insight_result's lru_cache, so its context must not keep every
+            # planned runner, and with it every tile's raw results, alive after this request.
+            try:
+                with prefetched_entries(cache_keys, team_id=self.team.pk):
+                    for tile_id in tile_ids:
+                        tile_and_insight = tiles_by_id.get(tile_id)
+                        if tile_and_insight is None:
+                            results.append({"id": tile_id, "status": CachedTileStatus.NOT_FOUND})
+                            continue
+                        tile, insight = tile_and_insight
+                        if tile_id in restricted_levels:
+                            results.append({"id": tile_id, "status": CachedTileStatus.FORBIDDEN})
+                            continue
+                        context["dashboard_tile"] = tile
+                        insight_data = insight_serializer.to_representation(insight)
+                        if not insight_data.get("is_cached"):
+                            results.append({"id": tile_id, "status": CachedTileStatus.MISS})
+                            continue
+                        results.append({"id": tile_id, "status": CachedTileStatus.HIT, "insight": insight_data})
+            finally:
+                context.pop("planned_queries", None)
 
         return Response({"results": results})
 
