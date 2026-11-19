@@ -3189,6 +3189,9 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         # the insert failure.
         try:
             cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id, save_state=False)
+            # Clear stale error state after a successful add when no population is running, so a failed static
+            # cohort does not keep its error banner or block Workflows broadcasts.
+            Cohort.objects.filter(pk=cohort.pk, team_id=self.team_id, is_calculating=False).update(errors_calculating=0)
         finally:
             try:
                 if cohort._replace_in_flight():

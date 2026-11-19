@@ -6538,6 +6538,51 @@ email@example.org,
             activity="persons_added_manually",
         ).exists()
 
+    @parameterized.expand(
+        [
+            ("idle_clears_errors", False, None, 0),
+            ("calculating_keeps_errors", True, None, 2),
+            ("insert_error_keeps_errors", False, RuntimeError("insert boom"), 2),
+        ]
+    )
+    def test_add_persons_resets_errors_calculating_only_on_idle_success(
+        self, _name: str, is_calculating: bool, insert_error: Exception | None, expected_errors: int
+    ) -> None:
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Failed Static Cohort",
+            is_static=True,
+            is_calculating=is_calculating,
+            errors_calculating=2,
+        )
+        person = create_person(team=self.team, distinct_ids=["clear-error-person"])
+        flush_persons_and_events()
+
+        if insert_error is not None:
+            with (
+                patch(
+                    "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid",
+                    side_effect=insert_error,
+                ),
+                patch("posthog.exceptions.capture_exception", return_value=None),
+            ):
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",
+                    {"person_ids": [str(person.uuid)]},
+                    format="json",
+                )
+            self.assertEqual(response.status_code, 500)
+        else:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",
+                {"person_ids": [str(person.uuid)]},
+                format="json",
+            )
+            self.assertEqual(response.status_code, 200)
+
+        static_cohort.refresh_from_db()
+        self.assertEqual(static_cohort.errors_calculating, expected_errors)
+
     @patch("posthog.tasks.calculate_cohort.schedule_static_cohort_count_refresh")
     def test_add_persons_during_a_replace_keeps_the_replace_running(self, mock_schedule_refresh: MagicMock) -> None:
         # An add during a replace writes a fresh ClickHouse row so the prune keeps the person. If one add-persons call
