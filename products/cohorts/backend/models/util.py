@@ -1676,6 +1676,7 @@ def _copy_static_cohort_rows_to_pg(
             require_current_population_marker(cohort.pk, replace_marker)
         # Tagged per page, because the batch writer between pages may retag.
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, query_type="static_cohort_sync_page")
+
         def _query_page() -> Any:
             # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
             with _static_cohort_data_route():

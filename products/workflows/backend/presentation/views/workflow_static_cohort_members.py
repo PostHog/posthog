@@ -12,11 +12,7 @@ from rest_framework.response import Response
 from posthog.auth import InternalAPIUser
 from posthog.redis import get_client
 
-from products.cohorts.backend.facade.api import (
-    StaticCohortQuorumLocked,
-    add_person_to_static_cohort,
-    get_cohort_ref,
-)
+from products.cohorts.backend.facade.api import StaticCohortQuorumLocked, add_person_to_static_cohort, get_cohort_ref
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_static_cohort_ids
 from products.workflows.backend.facade.service_jwt import WORKFLOW_ADD_TO_STATIC_COHORT_PURPOSE
 from products.workflows.backend.presentation.views.workflow_step_auth import WorkflowStepJWTAuthentication

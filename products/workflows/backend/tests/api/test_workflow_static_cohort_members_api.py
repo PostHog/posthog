@@ -10,12 +10,13 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.errors import InternalCHQueryError
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.test.authentication_checks import covers_authentication
 from posthog.test.persons import create_person
 
-from products.cohorts.backend.models.cohort import Cohort
-from products.cohorts.backend.models.util import count_cohort_members
+from products.cohorts.backend.models.cohort import Cohort, CohortPopulationMode
+from products.cohorts.backend.models.util import CLICKHOUSE_QUORUM_LOCKED_CODE, count_cohort_members
 from products.workflows.backend.models import HogFlow
 from products.workflows.backend.presentation.views.workflow_static_cohort_members import (
     WorkflowStaticCohortMemberJWTAuthentication,
@@ -100,10 +101,6 @@ class TestWorkflowStaticCohortMembersAPI(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_returns_503_with_retry_after_when_replace_holds_quorum_lock(self) -> None:
-        from posthog.errors import InternalCHQueryError
-        from products.cohorts.backend.models.cohort import CohortPopulationMode
-        from products.cohorts.backend.models.util import CLICKHOUSE_QUORUM_LOCKED_CODE
-
         Cohort.objects.filter(id=self.cohort.id).update(
             is_calculating=True, pending_population_mode=CohortPopulationMode.REPLACE
         )

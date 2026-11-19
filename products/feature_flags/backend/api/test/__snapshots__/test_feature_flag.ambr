@@ -424,6 +424,7 @@
   WHERE team_id = 99999
     AND cohort_id = 99999
     AND person_id IN ['00000000-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002']
+    AND _offset != 1
   GROUP BY person_id
   '''
 # ---
@@ -1680,6 +1681,7 @@
   WHERE team_id = 99999
     AND cohort_id = 99999
     AND person_id IN ['00000000-0000-4000-8000-000000000000']
+    AND _offset != 1
   GROUP BY person_id
   '''
 # ---

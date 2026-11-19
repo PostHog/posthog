@@ -2633,7 +2633,15 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
         self.assertEqual({str(row[0]) for row in ch_rows}, {str(u) for u in uuids})
 
-    def test_marker_carrying_retry_failing_before_copy_keeps_predecessor_clickhouse_rows(self) -> None:
+    @parameterized.expand(
+        [
+            ("without_pg_writes_deletes_ch_rows", False),
+            ("with_pg_writes_keeps_ch_rows", True),
+        ]
+    )
+    def test_marker_carrying_retry_terminal_failure_cleans_ch_rows_only_without_pg_writes(
+        self, _name: str, pg_already_written: bool
+    ) -> None:
         run = uuid4().hex[:8]
         matched = create_person(
             team=self.team, distinct_ids=[f"{run}-m"], properties={"tag": f"{run}-in"}, uuid=uuid4()
@@ -2648,15 +2656,22 @@ class TestCohortCalculationTasks(APIBaseTest):
         start = timezone.now().replace(microsecond=0)
         _claim_replace(cohort, claimed_at=start)
 
+        first_fail_target = (
+            "products.cohorts.backend.models.util.prune_members_absent_from_replace"
+            if pg_already_written
+            else PG_SYNC_PATH
+        )
+
         with time_machine.travel(start + timedelta(seconds=10), tick=False) as clock:
             insert_cohort_from_query.push_request(retries=0, called_directly=False, is_eager=True)
             try:
                 with (
-                    patch(PG_SYNC_PATH, side_effect=ClickHouseAtCapacity("transient")),
+                    patch(first_fail_target, side_effect=ClickHouseAtCapacity("transient")),
                     self.assertRaises(Retry) as scheduled,
                 ):
                     insert_cohort_from_query.run(cohort.id, self.team.pk)
                 self.assertIn("replace_marker", scheduled.exception.sig.kwargs)
+                self.assertEqual(scheduled.exception.sig.kwargs["pg_membership_written"], pg_already_written)
 
                 insert_cohort_from_query.pop_request()
                 insert_cohort_from_query.push_request(
@@ -2672,7 +2687,8 @@ class TestCohortCalculationTasks(APIBaseTest):
             "SELECT DISTINCT person_id FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND _offset = %(offset)s",
             {"team_id": self.team.pk, "cohort_id": cohort.pk, "offset": REPLACE_ROW_OFFSET},
         )
-        self.assertEqual({str(row[0]) for row in ch_rows}, {str(matched.uuid)})
+        expected = {str(matched.uuid)} if pg_already_written else set()
+        self.assertEqual({str(row[0]) for row in ch_rows}, expected)
 
     def test_resync_stopped_when_replace_claims_cohort_between_read_and_lock(self) -> None:
         # A concurrent PATCH claim arriving after the task starts must fence out an append_only resync before it
@@ -2816,7 +2832,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort.refresh_from_db()
         self.assertFalse(cohort.is_calculating)
         self.assertEqual(set(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk)), {a.id, p.id, q.id})
-                # One flagged row for the match, and the adds keep _offset 0: only the replace's insert sets the flag.
+        # One flagged row for the match, and the adds keep _offset 0: only the replace's insert sets the flag.
         self.assertEqual(
             sorted(_static_cohort_rows(self.team.pk, cohort.pk)),
             sorted([(str(a.uuid), REPLACE_ROW_OFFSET), (str(p.uuid), 0), (str(q.uuid), 0)]),

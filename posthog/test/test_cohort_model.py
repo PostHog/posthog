@@ -13,11 +13,7 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.helpers.batch_iterators import FunctionBatchIterator
 from posthog.models import Person, Team
-from posthog.models.person.sql import (
-    INSERT_PERSON_STATIC_COHORT,
-    PERSON_STATIC_COHORT_TABLE,
-    REPLACE_ROW_OFFSET,
-)
+from posthog.models.person.sql import INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE, REPLACE_ROW_OFFSET
 from posthog.models.person.util import get_person_by_id
 from posthog.tasks.calculate_cohort import calculate_cohort_from_list
 from posthog.test.persons import add_cohort_members, create_person

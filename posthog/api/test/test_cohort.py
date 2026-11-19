@@ -1106,6 +1106,7 @@ email@example.org
 
     def test_switching_cohort_to_dynamic_mid_replace_stops_replace_finalization(self) -> None:
         from posthog.tasks.calculate_cohort import insert_cohort_from_query
+
         from products.cohorts.backend.models.util import insert_cohort_people_into_pg
 
         run = uuid4().hex[:8]
@@ -6585,6 +6586,7 @@ email@example.org,
 
     def test_add_persons_returns_503_with_retry_after_when_replace_holds_quorum_lock(self) -> None:
         from posthog.errors import InternalCHQueryError
+
         from products.cohorts.backend.models.util import CLICKHOUSE_QUORUM_LOCKED_CODE
 
         static_cohort = Cohort.objects.create(

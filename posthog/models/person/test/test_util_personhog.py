@@ -408,8 +408,8 @@ class TestGetPersonUuidsByIds(SimpleTestCase):
             assert "properties" not in list(calls[0].request.read_options.field_mask)
 
     def test_fans_out_batches_concurrently_when_not_in_test_mode(self):
-        import contextvars
         import threading
+        import contextvars
 
         first, second = uuid4(), uuid4()
         marker_var: contextvars.ContextVar[str] = contextvars.ContextVar("marker", default="unset")
