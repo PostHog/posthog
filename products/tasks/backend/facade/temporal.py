@@ -7,6 +7,8 @@ metric config, and callers trigger a run via ``execute_task_processing_workflow`
 from ``facade/api.py`` so ``temporalio`` never lands on the light data-surface import path.
 """
 
+from posthog.temporal.common.registration import HistogramSpec, QueueBinding, TemporalRegistration
+
 from products.tasks.backend.logic.services.workflow_dispatch import dispatch_task_processing_workflow
 from products.tasks.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.tasks.backend.temporal.client import (
@@ -71,3 +73,26 @@ __all__ = [
     "resume_task_in_cloud_workflow",
     "signal_task_followup_message",
 ]
+
+TEMPORAL = TemporalRegistration(
+    queues=(QueueBinding(queue_setting="TASKS_TASK_QUEUE", workflows=tuple(WORKFLOWS), activities=tuple(ACTIVITIES)),),
+    histograms=(
+        *HistogramSpec.for_metrics(TASKS_LATENCY_HISTOGRAM_METRICS, TASKS_LATENCY_HISTOGRAM_BUCKETS),
+        *HistogramSpec.for_metrics(
+            TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS, TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS
+        ),
+        *HistogramSpec.for_metrics(TASKS_RUN_TOKENS_HISTOGRAM_METRICS, TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS),
+        *HistogramSpec.for_metrics(TASKS_RUN_TURNS_HISTOGRAM_METRICS, TASKS_RUN_TURNS_HISTOGRAM_BUCKETS),
+        *HistogramSpec.for_metrics(
+            TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS, TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS
+        ),
+        *HistogramSpec.for_metrics(
+            TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_METRICS, TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_BUCKETS
+        ),
+        *HistogramSpec.for_metrics(TASKS_NETWORK_BYTES_HISTOGRAM_METRICS, TASKS_NETWORK_BYTES_HISTOGRAM_BUCKETS),
+        # These names are the Temporal SDK's own latency metrics, so only the tasks worker takes these buckets.
+        *HistogramSpec.for_metrics(
+            TASKS_SDK_LATENCY_HISTOGRAM_METRICS, TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS, queue_setting="TASKS_TASK_QUEUE"
+        ),
+    ),
+)

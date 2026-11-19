@@ -16,6 +16,7 @@ _LAZY = {
     "humanize_cadence": "logic.freshness",
     "get_model_usage": "logic.usage",
     "node_lineage_counts": "graph",
+    "node_lineage": "graph",
     "delete_metric_node": "logic.metric_dag_sync",
     "mark_metric_node_degraded": "logic.metric_dag_sync",
     "sync_metric_to_dag": "logic.metric_dag_sync",
@@ -131,6 +132,7 @@ _LAZY = {
     "compute_enrichment_hash": "logic.enrich_view_semantics",
     "enrichment_gates_pass": "logic.enrich_view_semantics",
     "enrich_view_semantics_sync": "logic.enrich_view_semantics",
+    "view_ready_for_enrichment": "logic.enrich_view_semantics",
     "MAX_LOOKBACK_SECONDS": "logic.incremental",
     "TRINO_INCREMENTAL_SCOPE": "logic.incremental",
     "IncrementalConfig": "facade.contracts",
@@ -149,6 +151,7 @@ _LAZY = {
     "IncrementalFilterError": "facade.contracts",
     "inject_incremental_filter": "logic.incremental_filter",
     "apply_incremental_filter": "logic.incremental_filter",
+    "assert_user_can_read_saved_query": "logic.read_access",
     "bind_window_start": "logic.incremental_filter",
     "parse_model_query": "logic.incremental_filter",
     "WINDOW_START_PLACEHOLDER": "logic.incremental_filter",
@@ -161,6 +164,12 @@ _LAZY = {
     "watcher_user_ids": "logic.watchers",
     "duplicate_output_columns": "logic.output_columns",
     "duplicate_output_columns_message": "logic.output_columns",
+    "DESCRIBE_QUERY_SETTINGS": "logic.describe_columns",
+    "THERE_IS_NO_COLUMN_ERROR_CODE": "logic.describe_columns",
+    "describe_ast_settings": "logic.describe_columns",
+    "DescribedColumn": "facade.contracts",
+    "print_describe_variant": "logic.describe_columns",
+    "rename_described_columns": "logic.describe_columns",
 }
 
 __all__ = sorted(_LAZY)

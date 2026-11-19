@@ -92,7 +92,9 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .array(zod.email())
         .max(messagingSendEmailCreateBodyReplyToMax)
         .optional()
-        .describe('Addresses replies to the email your code rendered go to.'),
+        .describe(
+            "Addresses replies to the email your code rendered go to. The PostHog test sender ignores them and says so in the response's `warnings`."
+        ),
     cc: zod
         .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyCcTwoMax), zod.null()])
         .optional()
@@ -184,7 +186,7 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .max(messagingSendEmailCreateBodyFromMax)
         .optional()
         .describe(
-            "Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default."
+            "Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its organization, and then only to members of the organization. That sender ignores this field and says so in the response's `warnings`."
         ),
 })
 

@@ -15,7 +15,7 @@ from ..facade.enums import CertificationStatus, MetricStatus, RelationshipStatus
 from ..models import RelationshipProposal, TableCertification
 from .analytics import certification_target_name
 from .certifications import certifications_for_team
-from .metrics import metrics_for_team, metrics_visible_to_user
+from .metrics import cached_denied_tables, metrics_for_team, metrics_visible_to_user
 from .relationships import relationships_for_team
 
 logger = structlog.get_logger(__name__)
@@ -120,9 +120,13 @@ def build_team_pending_review(team: Team, sample_size: int = DEFAULT_SAMPLE_SIZE
 
 
 def pending_review_counts(team: Team, user: User, user_access_control: UserAccessControl) -> PendingReviewCounts:
-    """How many items wait in each review queue, counted as the caller's list of that queue shows them."""
+    """How many items wait in each review queue, as the caller's lists show them, up to a minute behind an access change."""
     proposed_metrics = metrics_visible_to_user(
-        team, user, user_access_control, MetricListFilters(status=MetricStatus.PROPOSED)
+        team,
+        user,
+        user_access_control,
+        MetricListFilters(status=MetricStatus.PROPOSED),
+        load_denied_tables=cached_denied_tables,
     )
     return PendingReviewCounts(
         metrics=proposed_metrics.count(),

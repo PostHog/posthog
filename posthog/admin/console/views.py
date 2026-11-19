@@ -9,7 +9,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.staticfiles import finders
 from django.core.exceptions import PermissionDenied
-from django.db.models import Model, Q
+from django.db.models import Model
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -38,7 +38,8 @@ logger = structlog.get_logger(__name__)
 R = TypeVar("R")
 
 SEARCH_LIMIT = 25
-RECENT_TEAMS_LIMIT = 8
+RECENT_RECORDS_LIMIT = 8
+RECENT_TOOLS_LIMIT = 6
 
 
 @frozen
@@ -126,23 +127,67 @@ class ConsoleEnvironment:
         }
 
 
-class RecentTeams:
-    """The teams this staff member opened last, kept in the session, so the home page has somewhere to start."""
+@frozen
+class RecentRecord:
+    record_type: RecordType
+    title: str
+    subtitle: str
+    url: str
 
-    SESSION_KEY = "admin_console_recent_teams"
+
+class RecentRecords:
+    """The records this staff member opened last, kept in the session, so the home page has somewhere to start."""
+
+    SESSION_KEY = "admin_console_recent_records"
 
     @classmethod
-    def remember(cls, request: HttpRequest, team: Team) -> None:
-        recent = [team_id for team_id in request.session.get(cls.SESSION_KEY, []) if team_id != team.pk]
-        request.session[cls.SESSION_KEY] = [team.pk, *recent][:RECENT_TEAMS_LIMIT]
+    def remember(cls, request: HttpRequest, record_type: RecordType, obj: Model) -> None:
+        entry = [record_type.key, str(obj.pk)]
+        recent = [item for item in request.session.get(cls.SESSION_KEY, []) if item != entry]
+        request.session[cls.SESSION_KEY] = [entry, *recent][:RECENT_RECORDS_LIMIT]
 
     @classmethod
-    def load(cls, request: HttpRequest) -> list[Team]:
-        team_ids: list[int] = request.session.get(cls.SESSION_KEY, [])
-        if not team_ids:
-            return []
-        teams = Team.objects.select_related("organization").in_bulk(team_ids)
-        return [teams[team_id] for team_id in team_ids if team_id in teams]
+    def load(cls, request: HttpRequest) -> list[RecentRecord]:
+        entries: list[list[str]] = request.session.get(cls.SESSION_KEY, [])
+        pks_by_type: dict[str, list[str]] = {}
+        for key, pk in entries:
+            if key in RECORD_TYPES:
+                pks_by_type.setdefault(key, []).append(pk)
+        found: dict[tuple[str, str], Model] = {}
+        for key, pks in pks_by_type.items():
+            for obj in RECORD_TYPES[key].queryset().filter(pk__in=pks):
+                found[(key, str(obj.pk))] = obj
+        recent = []
+        for key, pk in entries:
+            obj = found.get((key, pk))
+            if obj is None:
+                continue
+            record_type = RECORD_TYPES[key]
+            recent.append(
+                RecentRecord(
+                    record_type=record_type,
+                    title=record_type.title(obj),
+                    subtitle=record_type.subtitle(obj),
+                    url=record_type.url(obj),
+                )
+            )
+        return recent
+
+
+class RecentTools:
+    """The tools this staff member opened last, so the few each person uses sit on the home page."""
+
+    SESSION_KEY = "admin_console_recent_tools"
+
+    @classmethod
+    def remember(cls, request: HttpRequest, tool: ConsoleTool) -> None:
+        recent = [key for key in request.session.get(cls.SESSION_KEY, []) if key != tool.key]
+        request.session[cls.SESSION_KEY] = [tool.key, *recent][:RECENT_TOOLS_LIMIT]
+
+    @classmethod
+    def load(cls, request: HttpRequest) -> list[ConsoleTool]:
+        tools = [console.get_tool(key) for key in request.session.get(cls.SESSION_KEY, [])]
+        return [tool for tool in tools if tool is not None]
 
 
 def _search_teams(query: str) -> list[Team]:
@@ -155,8 +200,19 @@ def _search_teams(query: str) -> list[Team]:
     by_token = list(teams.filter(api_token=query)[:1])
     if by_token:
         return by_token
-    matches = teams.filter(Q(name__icontains=query) | Q(organization__name__icontains=query))
-    return list(matches.order_by("-id")[:SEARCH_LIMIT])
+    # Team names and organization names are searched in two queries, so each one can use the trigram index on its
+    # own table. One query with an OR across the join cannot use either index and scans every team.
+    by_team_name = Team.objects.filter(name__icontains=query)
+    by_organization_name = Team.objects.filter(
+        organization_id__in=Organization.objects.filter(name__icontains=query).values("id")
+    )
+    team_ids = {
+        *by_team_name.order_by("-id").values_list("id", flat=True)[:SEARCH_LIMIT],
+        *by_organization_name.order_by("-id").values_list("id", flat=True)[:SEARCH_LIMIT],
+    }
+    newest_ids = sorted(team_ids, reverse=True)[:SEARCH_LIMIT]
+    found = teams.in_bulk(newest_ids)
+    return [found[team_id] for team_id in newest_ids if team_id in found]
 
 
 def _with_kept_query(url: str, request: HttpRequest, names: tuple[str, ...]) -> str:
@@ -208,6 +264,7 @@ def console_home(request: HttpRequest) -> HttpResponse:
         if not query.isdigit():
             messages.info(request, f'Opened the only team that matches "{query}".')
         return redirect("admin_console_team", pk=teams[0].pk)
+    organizations = list({team.organization_id: team.organization for team in teams}.values())
     return render(
         request,
         "admin_console/home.html",
@@ -215,11 +272,15 @@ def console_home(request: HttpRequest) -> HttpResponse:
             **ConsoleEnvironment.context(),
             "query": query,
             "teams": teams,
-            "recent_teams": [] if query else RecentTeams.load(request),
-            "tools": console.tools(),
-            "team_panels": console.panels_for("team"),
+            "organizations": organizations,
+            "recent_records": [] if query else RecentRecords.load(request),
+            "recent_tools": [] if query else RecentTools.load(request),
         },
     )
+
+
+def tools_index(request: HttpRequest) -> HttpResponse:
+    return render(request, "admin_console/tools.html", ConsoleEnvironment.context())
 
 
 def _record_type(record: str) -> RecordType:
@@ -255,8 +316,7 @@ def _rendered_operation(
 def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse:
     record_type = _record_type(record)
     obj = get_object_or_404(record_type.queryset(), pk=pk)
-    if isinstance(obj, Team):
-        RecentTeams.remember(request, obj)
+    RecentRecords.remember(request, record_type, obj)
     panels = [
         RenderedPanel(
             panel=panel,
@@ -589,6 +649,7 @@ def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
         for operation in offered
         if operation.listed
     ]
+    RecentTools.remember(request, tool)
     return render(
         request,
         "admin_console/tool.html",

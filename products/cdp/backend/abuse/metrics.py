@@ -26,3 +26,8 @@ ERRORS = Counter(
     "Shadow abuse classifications that ended without a verdict",
     labelnames=["reason"],
 )
+RULE_HITS = Counter(
+    "cdp_abuse_rule_hits_total",
+    "Exact abuse rules that matched a reported hog function",
+    labelnames=["rule"],
+)

@@ -134,7 +134,7 @@ from products.signals.backend.billing import (
     refund_ineligibility_reason,
     report_pr_is_merged,
 )
-from products.signals.backend.briefing_reports import reports_for_person
+from products.signals.backend.briefing_reports import reports_for_person, reports_needing_person
 from products.signals.backend.contracts import alert_patterns_problem
 from products.signals.backend.dismissal_notes import forward_dismissal_note, principal_may_steer_scouts
 from products.signals.backend.enums import ReportPriority, ReportTaskActionKind, ReviewerRemovalReason
@@ -194,6 +194,7 @@ from products.signals.backend.ranking.served_outcomes import served_outcomes
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES
 from products.signals.backend.receivers import capture_verdict_reason_added_analytics
 from products.signals.backend.repo_corrections import sanitized_repository
+from products.signals.backend.report_actionability_update import ActionabilityRequired, update_report_actionability
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
 from products.signals.backend.report_check_authoring import (
     CheckCreationError,
@@ -243,7 +244,8 @@ from products.signals.backend.report_metric_refresh import (
     REFRESHABLE_REPORT_STATUSES,
     refresh_report_metric_snapshots,
 )
-from products.signals.backend.report_monitoring_attempts import complete_implementation
+from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
+from products.signals.backend.report_monitoring_attempts import complete_implementation, verifying_attempt
 from products.signals.backend.report_monitoring_summary import ReportMonitoringSummary, monitoring_summaries
 from products.signals.backend.report_note_mentions import (
     note_text,
@@ -258,6 +260,7 @@ from products.signals.backend.report_read_state import (
     ReportReadStateResponseSerializer,
     report_read_states,
 )
+from products.signals.backend.report_repository import update_report_repository
 from products.signals.backend.report_search import (
     search_enabled as report_search_enabled,
     search_reports,
@@ -296,6 +299,7 @@ from products.signals.backend.scout_harness.tools.report_author import (
     UserReportAuthor,
     user_report_limit_resets_at,
 )
+from products.signals.backend.scout_harness.tools.runs import run_id_for_sandbox_task
 from products.signals.backend.scout_harness.trial_access import trial_state_errors, trial_store_for_request
 from products.signals.backend.scout_harness.views import (
     assert_custom_image_usable,
@@ -324,6 +328,7 @@ from products.signals.backend.serializers import (
     RankingOutcomesResponseSerializer,
     RankingOutcomesStatus,
     ReportSignalsResponseSerializer,
+    SignalReportActionabilityUpdateSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
     SignalReportArtefactSerializer,
@@ -340,6 +345,7 @@ from products.signals.backend.serializers import (
     SignalReportMetricRefreshResponseSerializer,
     SignalReportPriorityUpdateSerializer,
     SignalReportRefundSerializer,
+    SignalReportRepositoryUpdateSerializer,
     SignalReportSearchQuerySerializer,
     SignalReportSearchResponseSerializer,
     SignalReportSectionCountsSerializer,
@@ -2021,6 +2027,18 @@ _REPORT_LIST_PARAMETERS = [
             "claims by MCP agents acting for them. Internal task claims are not included."
         ),
     ),
+    OpenApiParameter(
+        name="needs_you",
+        type=OpenApiTypes.BOOL,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "'true' keeps only the reports that need the requesting user: the ones waiting on their input "
+            "(pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or "
+            "through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by "
+            "the user's personal ranking."
+        ),
+    ),
 ]
 # Section counts set the status and the implementation PR condition themselves, so they reject these.
 _SECTION_DEFINING_PARAMETERS = frozenset({"status", "has_implementation_pr", "include_all_statuses", "view"})
@@ -2379,6 +2397,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_unclaimed_filter(qs)
         qs = self._apply_signal_report_assignee_filter(qs)
+        qs = self._apply_signal_report_needs_you_filter(qs)
         qs = self._apply_signal_report_channel_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._apply_signal_report_inbox_scope_filter(qs)
@@ -2493,6 +2512,7 @@ class SignalReportViewSet(
             "pr_comments",
             "claim",
             "priority",
+            "actionability",
         }
     )
 
@@ -2730,6 +2750,13 @@ class SignalReportViewSet(
             raise serializers.ValidationError({"assignee": "Invalid value. Allowed: me, mine."})
         actor = self._request_attribution()
         return queryset.filter(reports_with_active_claim(team_id=self.team_id, actor=actor))
+
+    def _apply_signal_report_needs_you_filter(self, queryset):
+        wants_needs_you = self._bool_query_param("needs_you")
+        if wants_needs_you is None:
+            return queryset
+        needs_you = reports_needing_person(self.team_id, cast(User, self.request.user))
+        return queryset.filter(needs_you) if wants_needs_you else queryset.exclude(needs_you)
 
     def _channel_id_filter_value(self) -> uuid.UUID | None:
         # `channel_id=<uuid>` narrows to reports assigned to one space. Absent or empty
@@ -3546,6 +3573,81 @@ class SignalReportViewSet(
             attribution=self._request_attribution(),
         )
         report.__dict__.pop("prefetched_priority_artefacts", None)
+        return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
+
+    @validated_request(
+        request_serializer=SignalReportActionabilityUpdateSerializer,
+        responses={
+            200: OpenApiResponse(response=SignalReportSerializer, description="Report with the new values."),
+            400: OpenApiResponse(
+                description="Neither value was given, the actionability is not an allowed value, or the report has "
+                "no actionability yet and the request names none."
+            ),
+            404: OpenApiResponse(description="Report not found for this project."),
+        },
+        summary="Change a report's actionability or already addressed",
+        description=(
+            "Set whether the report can be acted on now, and whether its issue is already addressed. Appends an "
+            "attributed actionability_judgment artefact, so the work log keeps the previous judgment, and later "
+            "agent runs keep the person's values. A new actionability moves a Ready or Needs input report: "
+            "`requires_human_input` to Needs input, `immediately_actionable` or `not_actionable` to Ready. A report "
+            "in any other status keeps it. The change does not start an implementation. Setting the current values "
+            "again changes nothing."
+        ),
+        operation_id="signals_reports_actionability_update",
+    )
+    @action(detail=True, methods=["put"], required_scopes=["inbox:write", "task:write"])
+    def actionability(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        report = cast(SignalReport, self.get_object())
+        actionability = request.validated_data.get("actionability")
+        try:
+            update_report_actionability(
+                report=report,
+                actionability=ActionabilityChoice(actionability) if actionability else None,
+                already_addressed=request.validated_data.get("already_addressed"),
+                attribution=self._request_attribution(),
+            )
+        except ActionabilityRequired:
+            raise serializers.ValidationError(
+                {"actionability": "This report has no actionability yet, so the change has to set one."}
+            )
+        report.refresh_from_db()
+        report.__dict__.pop("prefetched_actionability_artefacts", None)
+        return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
+
+    @validated_request(
+        request_serializer=SignalReportRepositoryUpdateSerializer,
+        responses={
+            200: OpenApiResponse(response=SignalReportSerializer, description="Report with the new repository."),
+            400: OpenApiResponse(
+                description="The repository is not in 'owner/repo' format, or the project's GitHub integration cannot reach it."
+            ),
+            404: OpenApiResponse(description="Report not found for this project."),
+        },
+        summary="Change a report's repository",
+        description=(
+            "Set the repository the report's work targets. Appends an attributed repo_selection artefact, so the "
+            "report's work log keeps the previous selection and records who changed it. Later implementation runs "
+            "use the new repository. A run that already started keeps its repository. Setting the current "
+            "repository again changes nothing."
+        ),
+        operation_id="signals_reports_repository_update",
+    )
+    @action(detail=True, methods=["put"], required_scopes=["inbox:write", "task:write"])
+    def repository(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        report = cast(SignalReport, self.get_object())
+        repository = request.validated_data["repository"]
+        if repository not in self._connected_repositories():
+            raise serializers.ValidationError(
+                {
+                    "repository": (
+                        f"This project's GitHub integration can't reach {repository}. "
+                        "Pick a repository the integration has access to."
+                    )
+                }
+            )
+        update_report_repository(report=report, repository=repository, attribution=self._request_attribution())
+        report.__dict__.pop("prefetched_repo_selection_artefacts", None)
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
     @validated_request(
@@ -6944,6 +7046,14 @@ def _record_reviewer_edit(
     )
 
 
+def _bound_to_scout_run(request: Request, team: Team) -> bool:
+    authenticator = request.successful_authenticator
+    if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return False
+    task_id = authenticator.access_token.sandbox_task_id
+    return run_id_for_sandbox_task(task_id=task_id, team_id=team.parent_team_id or team.id) is not None
+
+
 @extend_schema_view(
     list=extend_schema(
         summary="List a report's checks",
@@ -7027,9 +7137,32 @@ class SignalReportCheckViewSet(
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         check = cast(SignalReportCheck, self.get_object())
-        stopped = cancel_check(
-            check, reason="stopped_by_person", attribution=resolve_request_attribution(request, self.team.id)
-        )
+        attribution = resolve_request_attribution(request, self.team.id)
+        with transaction.atomic():
+            # A running assessment was prompted with this check, so a cancel now would not reach its verdict.
+            # The report lock keeps an assessment from starting between this guard and the cancel.
+            report = (
+                SignalReport.objects.select_for_update(no_key=True, of=("self",))
+                .select_related("team__organization")
+                .get(team_id=check.team_id, id=check.report_id)
+            )
+            attempt = verifying_attempt(report, check)
+            # Scout tokens carry inbox:write, and a cancelled member leaves verification.
+            if attempt is not None and _bound_to_scout_run(request, self.team):
+                return Response(
+                    {"error": "A scout cannot cancel a check that is verifying a report in Monitoring."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            if (
+                attempt is not None
+                and attempt.aggregation_state == MonitoringAggregation.ASSESSMENT_REQUIRED
+                and report.team.organization.is_ai_data_processing_approved is True
+            ):
+                return Response(
+                    {"error": "This check is part of an assessment in progress. Try again after it finishes."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            stopped = cancel_check(check, reason="stopped_by_person", attribution=attribution)
         if not stopped:
             return Response(
                 {"error": f"This check already finished as '{check.status}' and cannot be cancelled."},

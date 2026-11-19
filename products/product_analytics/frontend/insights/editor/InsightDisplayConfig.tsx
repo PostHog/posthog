@@ -34,6 +34,11 @@ import { insightDisplayOptions } from './insightDisplayOptions'
 import { InsightDisplayOptionsPanel } from './InsightDisplayOptionsPanel'
 import { QuillInsightDisplayOptionsButton } from './QuillInsightDisplayOptionsButton'
 
+const editorDisplayOptions = {
+    ...insightDisplayOptions,
+    bindings: { ...insightDisplayOptions.bindings, funnelSummaryOnDashboards: undefined },
+}
+
 export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: ReactNode }): JSX.Element {
     const { insightProps, canEditInsight, editingDisabledReason } = useValues(insightLogic)
 
@@ -76,7 +81,7 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
         isLifecycle ||
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
 
-    const { tabs: displayOptionTabs, count: advancedOptionsCount } = useDisplayOptions(insightDisplayOptions)
+    const { tabs: displayOptionTabs, count: advancedOptionsCount } = useDisplayOptions(editorDisplayOptions)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (

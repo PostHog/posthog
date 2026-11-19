@@ -9,6 +9,7 @@ from django.db.models.fields.json import KeyTransform
 import structlog
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema
+from opentelemetry import trace
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -220,7 +221,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         )
 
         if should_include_database:
-            context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
+            context["database"] = Database.create_for(
+                team_id=self.team_id, user=cast(User, self.request.user), trigger="saved_query_save"
+            )
         return context
 
     @validated_request(
@@ -229,7 +232,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     )
     def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         self._include_columns = request.validated_query_data["include_columns"]
-        return super().list(request, *args, **kwargs)
+        listed = super().list(request, *args, **kwargs)
+        trace.get_current_span().set_attribute("saved_query_count", len(listed.data["results"]))
+        return listed
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -344,6 +349,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         from products.data_modeling.backend.facade.api import (
             TRINO_INCREMENTAL_SCOPE,
             MissingDagNodeError,
+            assert_user_can_read_saved_query,
             clear_incremental_state,
             materialize_saved_query,
             raise_if_manual_run_is_refused,
@@ -394,6 +400,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                         hidden_types=hidden_types,
                     )
             else:
+                # A run publishes the view's rows, so it needs the same read access to the sources as the paths above.
+                assert_user_can_read_saved_query(saved_query, cast(User, request.user))
                 # Checked before the watermark is dropped below, so a refused full refresh changes nothing.
                 raise_if_manual_run_is_refused(self.team_id, saved_query.id, from_browser_session=from_browser_session)
                 if body.validated_data["full_refresh"]:
