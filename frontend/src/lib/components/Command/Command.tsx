@@ -35,7 +35,7 @@ export function Command(): JSX.Element {
                     phoneSheet &&
                     details?.reason === 'outside-press' &&
                     details.event.target instanceof Element &&
-                    details.event.target.closest('[data-attr="today-rail-search"]')
+                    details.event.target.closest('.TodayTabBar [data-attr^="today-rail-"]')
                 ) {
                     return
                 }
