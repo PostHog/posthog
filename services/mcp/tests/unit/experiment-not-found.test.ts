@@ -253,11 +253,10 @@ describe('experiment not-found rewrite', () => {
         )
         expect(JSON.parse(fence?.[1] ?? '')).toEqual({ detail: denied.detail })
         expect(text.replace(fence?.[0] ?? '', '')).not.toContain(denied.detail)
-        expect(captureException).toHaveBeenCalledWith(
-            expect.anything(),
-            undefined,
-            expect.objectContaining({ is_permission_error: true })
-        )
+        expect(captureException).toHaveBeenCalledWith(expect.anything(), {
+            distinctId: undefined,
+            properties: expect.objectContaining({ is_permission_error: true }),
+        })
     })
 
     it('still captures a 5xx from the results tool as an exception', async () => {
