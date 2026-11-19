@@ -48,7 +48,6 @@ _JOB_IDS = DimensionalJobIds(stats=_STATS_IDS, bounces=_BOUNCES_IDS)
 _BOTH_TABLES = (WEB_STATS_DIMENSIONAL_READ_TABLE, WEB_BOUNCES_DIMENSIONAL_READ_TABLE)
 _NEW_YORK = ZoneInfo("America/New_York")
 _SESSIONS_V3_FLOOR = datetime(2026, 2, 15, tzinfo=UTC)
-_TEST_ACCOUNT_FILTERS = [{"key": "email", "value": "@example.com", "operator": "not_icontains", "type": "person"}]
 _CUSTOM_CHANNEL_RULES = [
     CustomChannelRule(
         id="docs",
@@ -161,7 +160,6 @@ class TestDimensionalReadSelection(SimpleTestCase):
             ("no_modifiers", _runner(None), False, _JOB_IDS),
             ("opted_out", _runner(False), False, _JOB_IDS),
             ("property_access_rules", _runner(True), True, _JOB_IDS),
-            ("test_account_filters", _runner(True, test_account_filters=_TEST_ACCOUNT_FILTERS), False, _JOB_IDS),
             ("half_hour_timezone", _runner(True, tz=ZoneInfo("Asia/Kolkata")), False, _JOB_IDS),
             (
                 "half_hour_timezone_in_compare_period_only",

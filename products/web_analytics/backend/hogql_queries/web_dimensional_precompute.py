@@ -34,6 +34,7 @@ from posthog.schema import HogQLQueryModifiers, SessionTableVersion
 from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import apply_path_cleaning, property_to_expr
 
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
@@ -110,6 +111,10 @@ SELECT
     mat_metadata_backend AS mat_metadata_backend,
     mat_metadata_loggedIn AS mat_metadata_loggedIn,
     channel_type AS channel_type,
+    is_test_account AS is_test_account,
+    {pathname_cleaned} AS pathname_cleaned,
+    {entry_pathname_cleaned} AS entry_pathname_cleaned,
+    {end_pathname_cleaned} AS end_pathname_cleaned,
     uniqState(session_person_id) AS persons_uniq_state,
     uniqState(session_id) AS sessions_uniq_state,
     sumState(pageview_count) AS pageviews_count_state
@@ -143,6 +148,7 @@ FROM (
         {mat_logged_in_inner} AS mat_metadata_loggedIn,
         {mat_backend_inner} AS mat_metadata_backend,
         any(session.$channel_type) AS channel_type,
+        {is_test_event} AS is_test_account,
         assumeNotNull(toInt(countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))))) AS pageview_count
     FROM events
     WHERE and(
@@ -163,7 +169,8 @@ FROM (
         country_code,
         city_name,
         region_code,
-        region_name
+        region_name,
+        is_test_account
     HAVING and(
         toStartOfHour(min(session.$start_timestamp)) >= {time_window_min},
         toStartOfHour(min(session.$start_timestamp)) < {time_window_max}
@@ -195,7 +202,8 @@ GROUP BY
     has_fbclid,
     mat_metadata_backend,
     mat_metadata_loggedIn,
-    channel_type
+    channel_type,
+    is_test_account
 """
 
 
@@ -229,6 +237,9 @@ SELECT
     mat_metadata_backend AS mat_metadata_backend,
     mat_metadata_loggedIn AS mat_metadata_loggedIn,
     channel_type AS channel_type,
+    is_test_account AS is_test_account,
+    {entry_pathname_cleaned} AS entry_pathname_cleaned,
+    {end_pathname_cleaned} AS end_pathname_cleaned,
     uniqState(session_person_id) AS persons_uniq_state,
     uniqState(session_id) AS sessions_uniq_state,
     sumState(pageview_count) AS pageviews_count_state,
@@ -264,6 +275,7 @@ FROM (
         {mat_logged_in_inner} AS mat_metadata_loggedIn,
         {mat_backend_inner} AS mat_metadata_backend,
         any(session.$channel_type) AS channel_type,
+        {is_test_session} AS is_test_account,
         any(session.$is_bounce) AS is_bounce,
         assumeNotNull(toInt(any(session.$session_duration))) AS session_duration,
         assumeNotNull(toInt(countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))))) AS pageview_count
@@ -305,7 +317,8 @@ GROUP BY
     has_fbclid,
     mat_metadata_backend,
     mat_metadata_loggedIn,
-    channel_type
+    channel_type,
+    is_test_account
 """
 
 
@@ -332,10 +345,66 @@ def _mat_metadata_placeholders() -> dict[str, ast.Expr]:
     }
 
 
+def _test_account_placeholders(team: Team) -> dict[str, ast.Expr]:
+    """Build the test-account flag of an event, and of a whole session.
+
+    The live query drops the events that fail the team's test-account filters. An event row carries
+    that verdict, so a filtered read keeps the rows where it is false. A session row is a test row
+    when none of its events pass, which is when the live query has no event left for the session.
+    """
+    if not team.test_account_filters:
+        return {"is_test_event": ast.Constant(value=False), "is_test_session": ast.Constant(value=False)}
+
+    def passes() -> ast.Expr:
+        # A filter on a missing property evaluates to NULL, and the live WHERE drops that event too.
+        return parse_expr(
+            "ifNull({filters}, false)",
+            placeholders={"filters": property_to_expr(team.test_account_filters, team=team)},
+        )
+
+    return {
+        "is_test_event": parse_expr("not({passes})", placeholders={"passes": passes()}),
+        "is_test_session": parse_expr("equals(countIf({passes}), 0)", placeholders={"passes": passes()}),
+    }
+
+
+def _cleaned_path_placeholders(team: Team) -> dict[str, ast.Expr]:
+    """Apply the team's path cleaning rules to the path columns when the row is written.
+
+    A read that cleans paths runs every rule's regex over every row, which costs more than the rest
+    of the query on a team with many rules. The rules are part of the INSERT, so a rule change gives
+    new jobs. A team with no rules stores empty strings, and its reads use the raw columns.
+    """
+    columns = ("pathname", "entry_pathname", "end_pathname")
+    if not team.path_cleaning_filters:
+        return {f"{column}_cleaned": ast.Constant(value="") for column in columns}
+    return {f"{column}_cleaned": apply_path_cleaning(ast.Field(chain=[column]), team) for column in columns}
+
+
 def _base_placeholders() -> dict[str, ast.Expr]:
     return {
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
         **_mat_metadata_placeholders(),
+    }
+
+
+def _stats_placeholders(team: Team) -> dict[str, ast.Expr]:
+    test_account = _test_account_placeholders(team)
+    return {
+        **_base_placeholders(),
+        "is_test_event": test_account["is_test_event"],
+        **_cleaned_path_placeholders(team),
+    }
+
+
+def _bounces_placeholders(team: Team) -> dict[str, ast.Expr]:
+    test_account = _test_account_placeholders(team)
+    cleaned = _cleaned_path_placeholders(team)
+    return {
+        **_base_placeholders(),
+        "is_test_session": test_account["is_test_session"],
+        "entry_pathname_cleaned": cleaned["entry_pathname_cleaned"],
+        "end_pathname_cleaned": cleaned["end_pathname_cleaned"],
     }
 
 
@@ -423,7 +492,7 @@ def ensure_web_stats_dimensional_precomputed(
         time_range_end=time_range_end,
         ttl_seconds=dimensional_ttl_schedule(),
         table=LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED,
-        placeholders=_base_placeholders(),
+        placeholders=_stats_placeholders(team),
         query_type="web_stats_dimensional_insert",
         # Readers select by job_id as soon as a job turns READY, so its rows must be on the replica quorum first.
         read_after_write=True,
@@ -451,7 +520,7 @@ def ensure_web_bounces_dimensional_precomputed(
         time_range_end=time_range_end,
         ttl_seconds=dimensional_ttl_schedule(),
         table=LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED,
-        placeholders=_base_placeholders(),
+        placeholders=_bounces_placeholders(team),
         query_type="web_bounces_dimensional_insert",
         # Readers select by job_id as soon as a job turns READY, so its rows must be on the replica quorum first.
         read_after_write=True,

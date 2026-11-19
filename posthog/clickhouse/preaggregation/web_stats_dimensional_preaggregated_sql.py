@@ -32,6 +32,20 @@ def SHARDED_WEB_STATS_DIMENSIONAL_PREAGGREGATED_TABLE_ENGINE():
     return ReplacingMergeTree(TABLE_BASE_NAME, replication_scheme=ReplicationScheme.SHARDED, ver="computed_at")
 
 
+# Added by migration 0388. Migration 0272 creates the tables without them, so that on a new database
+# 0377 and 0388 change the sorting key in the same order as on an existing one. ClickHouse refuses to add
+# a column to the sorting key unless the same ALTER adds the column.
+RULE_COLUMNS_SQL = """    -- True when the row's events fail the team's test-account filters. Evaluated by the writer, so a
+    -- read with test-account filtering on keeps the rows where it is false.
+    is_test_account Bool,
+    -- The path columns with the team's path cleaning rules applied by the writer. Empty when the team
+    -- has no rules, because the raw columns already hold the answer.
+    pathname_cleaned String,
+    entry_pathname_cleaned String,
+    end_pathname_cleaned String,"""
+RULE_SORTING_KEY_SQL = """,
+    is_test_account"""
+
 WEB_STATS_DIMENSIONAL_PREAGGREGATED_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name}
 (
@@ -69,6 +83,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     mat_metadata_backend Nullable(String),
     mat_metadata_loggedIn Nullable(Bool),
     channel_type LowCardinality(String),
+{rule_columns}
 
     -- Aggregate states: unique persons, unique sessions and total pageviews.
     persons_uniq_state AggregateFunction(uniq, UUID),
@@ -84,12 +99,14 @@ CREATE TABLE IF NOT EXISTS {table_name}
 """
 
 
-def SHARDED_WEB_STATS_DIMENSIONAL_PREAGGREGATED_TABLE_SQL():
+def SHARDED_WEB_STATS_DIMENSIONAL_PREAGGREGATED_TABLE_SQL(include_rule_columns: bool = True):
     # Partition by `expires_at` (the TTL column) so `ttl_only_drop_parts=1` drops
     # whole parts atomically once all their rows expire. `job_id` is in ORDER BY
     # so distinct compute jobs coexist (the read path filters to the fresh
     # job_ids); every dimension is in ORDER BY so the ReplacingMergeTree never
-    # collapses rows that differ only by a dimension. `allow_nullable_key=1` lets
+    # collapses rows that differ only by a dimension. The cleaned path columns
+    # stay out of the key: one job applies one rule set, so within a job they
+    # are a function of the raw path columns. `allow_nullable_key=1` lets
     # the nullable EU metadata columns participate in the sort key.
     return (
         WEB_STATS_DIMENSIONAL_PREAGGREGATED_TABLE_BASE_SQL
@@ -152,7 +169,7 @@ ORDER BY (
     has_fbclid,
     mat_metadata_backend,
     mat_metadata_loggedIn,
-    channel_type
+    channel_type{rule_sorting_key}
 )
 TTL toDateTime(expires_at)
 SETTINGS index_granularity=8192, ttl_only_drop_parts = 1, allow_nullable_key = 1
@@ -160,15 +177,18 @@ SETTINGS index_granularity=8192, ttl_only_drop_parts = 1, allow_nullable_key = 1
     ).format(
         table_name=SHARDED_WEB_STATS_DIMENSIONAL_PREAGGREGATED_TABLE(),
         engine=SHARDED_WEB_STATS_DIMENSIONAL_PREAGGREGATED_TABLE_ENGINE(),
+        rule_columns=RULE_COLUMNS_SQL if include_rule_columns else "",
+        rule_sorting_key=RULE_SORTING_KEY_SQL if include_rule_columns else "",
     )
 
 
-def DISTRIBUTED_WEB_STATS_DIMENSIONAL_PREAGGREGATED_TABLE_SQL():
+def DISTRIBUTED_WEB_STATS_DIMENSIONAL_PREAGGREGATED_TABLE_SQL(include_rule_columns: bool = True):
     # The sharded table lives on the AUX cluster (kept off the main events data
     # nodes — small table, never JOINed against events). Distributed read table
     # lives on DATA so queries fan out from there and resolve to AUX shards.
     return WEB_STATS_DIMENSIONAL_PREAGGREGATED_TABLE_BASE_SQL.format(
         table_name=DISTRIBUTED_WEB_STATS_DIMENSIONAL_PREAGGREGATED_TABLE(),
+        rule_columns=RULE_COLUMNS_SQL if include_rule_columns else "",
         engine=Distributed(
             data_table=SHARDED_WEB_STATS_DIMENSIONAL_PREAGGREGATED_TABLE(),
             sharding_key="sipHash64(job_id)",

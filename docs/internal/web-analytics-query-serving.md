@@ -149,7 +149,7 @@ The `warehouse source connect completed` event records this label after the crea
 
 Both runners skip the dimensional tables when the rows cannot match the live result:
 
-- The team has property access rules or the query filters out test accounts.
+- The team has property access rules.
 - The current or compare period does not start on a UTC hour boundary, or ends inside an hour before now.
 - Either period starts at or before the events retention floor.
 - The team reads sessions v3 and either period starts before the region's v3 backfill start (`SESSIONS_V3_COVERAGE_START_BY_REGION`). The writer does not build those days either, and the coverage check skips them.
@@ -157,6 +157,13 @@ Both runners skip the dimensional tables when the rows cannot match the live res
 - A stats table query asks for bounce rate on a breakdown other than Page or Initial page and filters on `$pathname`. Bounce rate for those breakdowns comes from the bounces table grouped by the same breakdown, and that table holds sessions without the pages they viewed.
 
 The writer stores each session's channel type with the team's custom channel rules applied, so channel breakdowns and `$channel_type` filters read that column. The rules are one of those modifiers. The jobs' identity includes the team's values of those modifiers. A change to the team's bounce, session or channel rule settings gives new jobs, so reads fall back until the writer rebuilds the window.
+
+The writer also applies the team's test-account filters and path cleaning rules, so reads do not evaluate them.
+
+- **Test accounts.** Each stats row carries `is_test_account`, the verdict of the team's test-account filters on its events. A bounces row is a test row when none of the session's events pass the filters. A query that filters out test accounts keeps the rows where the column is false. Cohort filters use the cohort's membership at the time the row was written.
+- **Path cleaning.** The `pathname_cleaned`, `entry_pathname_cleaned` and `end_pathname_cleaned` columns hold the path columns with the team's rules applied. A query with path cleaning on reads those columns, so no cleaning regex runs at read time. A team with no rules stores empty strings and its reads use the raw columns.
+
+Both rule sets are part of the INSERT, so they are part of the jobs' identity. A change to either gives new jobs, and every read of that team falls back until the writer rebuilds the window, including reads that use neither rule set.
 
 The dimensional tables subclass `EventsRetentionTable`, as `events` does. The printer floors every read of them at the events retention floor on `period_bucket`, so a direct HogQL query cannot read rows past retention either. A new table that stores aggregates of events should subclass it too.
 

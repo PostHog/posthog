@@ -69,6 +69,13 @@ WEB_DIMENSIONAL_MIRRORED_COLUMNS: dict[str, tuple[str, ...]] = {
     "pathname": ("$pathname",),
     "entry_pathname": ("$current_url", "$pathname"),
     "end_pathname": ("$current_url", "$pathname"),
+    # The cleaned path columns hold the same values with the team's path cleaning rules applied.
+    "pathname_cleaned": ("$pathname",),
+    "entry_pathname_cleaned": ("$current_url", "$pathname"),
+    "end_pathname_cleaned": ("$current_url", "$pathname"),
+    # The verdict of the team's test-account filters. Its sources differ per team, so
+    # `_test_account_source_properties` names them.
+    "is_test_account": (),
     "browser": ("$browser",),
     "os": ("$os",),
     "viewport_width": ("$viewport_width",),
@@ -122,6 +129,8 @@ def mirrored_properties_for_column(table_type: ast.Type, column_name: str, conte
         return ()
 
     if isinstance(table, WebStatsDimensionalPreAggregatedTable | WebBouncesDimensionalPreAggregatedTable):
+        if column_name == "is_test_account":
+            return _test_account_source_properties(table_type, context)
         return WEB_DIMENSIONAL_MIRRORED_COLUMNS.get(column_name, ())
     if isinstance(table, AiEventsTable):
         source = _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
@@ -130,6 +139,30 @@ def mirrored_properties_for_column(table_type: ast.Type, column_name: str, conte
     else:
         source = None
     return (source,) if source is not None else ()
+
+
+def _test_account_source_properties(table_type: ast.BaseTableType, context: HogQLContext) -> tuple[str, ...]:
+    """The properties that decide `is_test_account`, spelled as `restricted_property_keys_for_table_type` spells them.
+
+    The column is one bit per row, but that bit answers a filter on the properties the team's test-account
+    filters read, so a restriction on any of them must mask it. A cohort or HogQL filter can read any
+    property, and so can filters this function cannot load. In those cases every restricted key is a source.
+    """
+    filters = context.team.test_account_filters if context.team is not None else None
+    if not isinstance(filters, list):
+        return tuple(restricted_property_keys_for_table_type(table_type, context))
+
+    sources: list[str] = []
+    for test_account_filter in filters:
+        key = test_account_filter.get("key") if isinstance(test_account_filter, dict) else None
+        filter_type = test_account_filter.get("type") if isinstance(test_account_filter, dict) else None
+        if not isinstance(key, str) or filter_type not in ("event", "person"):
+            return tuple(restricted_property_keys_for_table_type(table_type, context))
+        if filter_type == "event":
+            sources.append(key)
+        else:
+            sources.extend(f"{container}.{key}" for container in PERSON_PROPERTY_CONTAINERS)
+    return tuple(sources)
 
 
 def restricted_feature_flag_names(keys: Iterable[str]) -> list[str]:

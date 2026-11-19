@@ -65,6 +65,9 @@ _INEXACT_PROPERTY_KEYS = frozenset(
 )
 
 
+_CLEANED_PATH_COLUMNS = frozenset({"pathname", "entry_pathname", "end_pathname"})
+
+
 def ready_dimensional_job_ids(
     runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"],
     tables: Collection[str],
@@ -81,10 +84,6 @@ def ready_dimensional_job_ids(
     # The tables are built without a user, so they cannot honor per-user property restrictions.
     if team_has_property_access_rules(team_id=runner.team.pk):
         return None
-    # The writer builds all traffic, so the rows cannot exclude the team's test accounts.
-    if runner._test_account_filters:
-        return None
-
     # A per-request override, such as a longer bounce duration or different custom channel rules, would
     # count the stored rows differently.
     build_modifiers = dimensional_insert_modifiers(runner.team)
@@ -227,7 +226,21 @@ class _DimensionalTablesMixin(WebAnalyticsPreAggregatedQueryBuilder):
             left=ast.Field(chain=[table_name, "job_id"]),
             right=ast.Constant(value=[str(job_id) for job_id in job_ids]),
         )
-        return ast.And(exprs=[*filters.exprs, job_id_filter])
+        exprs = [*filters.exprs, job_id_filter]
+        # The writer stores the verdict of the team's test-account filters on each row, and the filters
+        # are part of the job identity, so the column always matches the filters of the jobs being read.
+        if self.runner._test_account_filters:
+            exprs.append(ast.Not(expr=ast.Field(chain=[table_name, "is_test_account"])))
+        return ast.And(exprs=exprs)
+
+    def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
+        # The writer stores each path column with the team's rules applied, and the rules are part of the
+        # job identity. Reading that column avoids running every rule's regex over every row.
+        if not self.runner.query.doPathCleaning or not self.runner.team.path_cleaning_filters:
+            return path_expr
+        if isinstance(path_expr, ast.Field) and path_expr.chain[-1] in _CLEANED_PATH_COLUMNS:
+            return ast.Field(chain=[*path_expr.chain[:-1], f"{path_expr.chain[-1]}_cleaned"])
+        return self.runner._apply_path_cleaning(path_expr)
 
 
 class DimensionalStatsTableQueryBuilder(_DimensionalTablesMixin, StatsTablePreAggregatedQueryBuilder):

@@ -200,6 +200,25 @@ WEB_DIMENSIONAL_SPECIFIC_FIELDS = {
         name="channel_type",
         description="Session channel type with the team's custom channel rules applied when the row was written.",
     ),
+    "is_test_account": BooleanDatabaseField(
+        name="is_test_account",
+        description="True when the row's events failed the team's test-account filters when the row was written.",
+    ),
+    "entry_pathname_cleaned": StringDatabaseField(
+        name="entry_pathname_cleaned",
+        description="entry_pathname with the team's path cleaning rules applied when the row was written; empty when the team has no rules.",
+    ),
+    "end_pathname_cleaned": StringDatabaseField(
+        name="end_pathname_cleaned",
+        description="end_pathname with the team's path cleaning rules applied when the row was written; empty when the team has no rules.",
+    ),
+}
+
+WEB_STATS_DIMENSIONAL_SPECIFIC_FIELDS = {
+    "pathname_cleaned": StringDatabaseField(
+        name="pathname_cleaned",
+        description="pathname with the team's path cleaning rules applied when the row was written; empty when the team has no rules.",
+    ),
 }
 
 
@@ -222,6 +241,7 @@ class WebStatsDimensionalPreAggregatedTable(EventsRetentionTable):
         **SHARED_SCHEMA_FIELDS,
         **WEB_STATS_SPECIFIC_FIELDS,
         **WEB_DIMENSIONAL_SPECIFIC_FIELDS,
+        **WEB_STATS_DIMENSIONAL_SPECIFIC_FIELDS,
     }
 
     def to_printed_clickhouse(self, context):

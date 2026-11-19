@@ -470,11 +470,36 @@ class TestRestrictPropertiesInHogQL(BaseTest):
                 "$referring_domain",
             ),
             ("stats_utm_source", "web_stats_dimensional_preaggregated", "utm_source", "utm_source"),
+            ("stats_pathname_cleaned", "web_stats_dimensional_preaggregated", "pathname_cleaned", "$pathname"),
+            (
+                "bounces_entry_pathname_cleaned",
+                "web_bounces_dimensional_preaggregated",
+                "entry_pathname_cleaned",
+                "$current_url",
+            ),
+            (
+                "stats_test_account_event_filter",
+                "web_stats_dimensional_preaggregated",
+                "is_test_account",
+                "$ip",
+                [{"key": "$ip", "type": "event", "operator": "is_not", "value": "127.0.0.1"}],
+            ),
+            # A cohort can read any property, so any restriction masks the verdict.
+            (
+                "bounces_test_account_cohort_filter",
+                "web_bounces_dimensional_preaggregated",
+                "is_test_account",
+                "secret_field",
+                [{"key": "id", "type": "cohort", "value": 1}],
+            ),
         ]
     )
     def test_web_dimensional_columns_use_the_source_property_rule(
-        self, _name: str, table_name: str, column: str, property_name: str
+        self, _name: str, table_name: str, column: str, property_name: str, test_account_filters: list | None = None
     ) -> None:
+        if test_account_filters is not None:
+            self.team.test_account_filters = test_account_filters
+            self.team.save()
         self.event_prop.name = property_name
         self.event_prop.save()
         PropertyAccessControl.objects.create(
