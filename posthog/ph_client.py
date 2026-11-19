@@ -23,8 +23,6 @@ PH_US_HOST = "https://us.i.posthog.com"
 PH_EU_API_KEY = "phc_dZ4GK1LRjhB97XozMSkEwPXx7OVANaJEwLErkY1phUF"
 PH_EU_HOST = "https://eu.i.posthog.com"
 
-E2E_TESTING_API_KEY = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
-
 logger = structlog.get_logger(__name__)
 
 
@@ -211,10 +209,10 @@ class ScopedCapture:
         if is_cloud() and self._client:
             self._client.alias(previous_id=previous_id, distinct_id=distinct_id)
 
-    def flush(self, timeout_seconds: float | None = None) -> None:
+    def flush(self) -> None:
         """Wait for every queued event to be attempted. Blocks; keep it off an event loop.
 
-        `timeout_seconds=None` is the default on purpose — the SDK's default is a 10 second budget, and on expiry
+        `timeout_seconds=None` on purpose — the SDK's default is a 10 second budget, and on expiry
         it logs and returns with items still queued, giving a caller no way to tell a drained buffer
         from an abandoned one. A checkpoint written on that return is exactly the loss the flush is
         there to prevent. Unbounded turns that into a caller-visible stall instead, which is the
@@ -223,13 +221,9 @@ class ScopedCapture:
         It is "attempted", not "delivered": the SDK's consumer acknowledges a batch on its way out
         whether or not the request succeeded, so a batch that exhausts its retries is dropped with
         only a log line. Delivery past that point is not something this call can promise.
-
-        Pass `timeout_seconds` only when nothing durable is written on return, such as a drain that
-        keeps the queue short between batches of work. On expiry the SDK logs the pending count and
-        returns with those events still queued.
         """
         if self._client:
-            self._client.flush(timeout_seconds=timeout_seconds)
+            self._client.flush(timeout_seconds=None)
 
 
 @contextmanager
@@ -309,11 +303,6 @@ def get_client(region: str = "US", **kwargs: Any):
         host = PH_US_HOST
     else:
         return
-
-    # E2E counts as cloud, so scoped capture runs there. Send it to the project the
-    # module-level client uses under E2E (apps.py), never to the production project.
-    if settings.E2E_TESTING:
-        api_key = E2E_TESTING_API_KEY
 
     # A fresh client does not inherit the module-level `disabled` flag that apps.py sets
     # under TEST, so without this a test that runs in cloud mode captures to the real

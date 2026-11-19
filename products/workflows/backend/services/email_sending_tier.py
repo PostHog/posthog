@@ -11,14 +11,10 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import Trigger
-from posthog.ph_client import ScopedCapture
 
 from products.workflows.backend.facade.contracts import TierDecision
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
-from products.workflows.backend.services.email_sending_tier_audit import (
-    drain_tier_events_after_chunk,
-    log_email_sending_tier_change,
-)
+from products.workflows.backend.services.email_sending_tier_audit import log_email_sending_tier_change
 from products.workflows.backend.utils.email_sending_tiers import (
     MIN_EMAIL_SENDING_TIER,
     get_email_sending_tier_limits,
@@ -377,7 +373,6 @@ def apply_tier_decision(
     trigger: Trigger | None = None,
     user_id: int | None = None,
     was_impersonated: bool = False,
-    capture: ScopedCapture | None = None,
 ) -> bool:
     """Persist a tier change. Returns whether anything was written."""
     if not decision.changed:
@@ -422,7 +417,6 @@ def apply_tier_decision(
         trigger=trigger,
         user_id=user_id,
         was_impersonated=was_impersonated,
-        capture=capture,
     )
     return True
 
@@ -433,7 +427,6 @@ def recompute_email_sending_tiers(
     trigger: Trigger | None = None,
     user_id: int | None = None,
     was_impersonated: bool = False,
-    capture: ScopedCapture | None = None,
 ) -> list[TierDecision]:
     """
     Move every candidate team at most one tier, up or down.
@@ -482,12 +475,10 @@ def recompute_email_sending_tiers(
             "team__created_at",
             "team__name",
             "team__organization_id",
-            "team__uuid",
         )
     }
 
     decisions: list[TierDecision] = []
-    written = 0
     for team_id in sorted(candidate_ids):
         config = configs.get(team_id)
         if config is None:
@@ -509,15 +500,10 @@ def recompute_email_sending_tiers(
             ),
             last_rate_demotion_at=config.email_sending_tier_demoted_at,
         )
-        if not decision.changed:
-            decisions.append(decision)
-        elif apply_tier_decision(
-            config, decision, trigger=trigger, user_id=user_id, was_impersonated=was_impersonated, capture=capture
+        if not decision.changed or apply_tier_decision(
+            config, decision, trigger=trigger, user_id=user_id, was_impersonated=was_impersonated
         ):
             decisions.append(decision)
-            written += 1
-            if capture is not None:
-                drain_tier_events_after_chunk(capture, written)
     return decisions
 
 

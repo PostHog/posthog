@@ -10,7 +10,7 @@ from posthoganalytics.client import Client
 
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.organization_caching import connect_signal_handlers as connect_organization_cache_signal_handlers
-from posthog.ph_client import E2E_TESTING_API_KEY, default_before_send, self_hosted_capture_reaches_posthog
+from posthog.ph_client import default_before_send, self_hosted_capture_reaches_posthog
 from posthog.utils import (
     _build_flag_provider,
     get_available_timezones_with_offsets,
@@ -106,7 +106,7 @@ class PostHogConfig(AppConfig):
         posthoganalytics.capture_exception_code_variables = False
 
         if settings.E2E_TESTING:
-            posthoganalytics.api_key = E2E_TESTING_API_KEY  # ty: ignore[invalid-assignment]
+            posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"  # ty: ignore[invalid-assignment]
             posthoganalytics.personal_api_key = None
         elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True  # ty: ignore[invalid-assignment]
