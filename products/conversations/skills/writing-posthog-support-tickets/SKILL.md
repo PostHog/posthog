@@ -45,7 +45,7 @@ A request for a staff action needs exact inputs, so read its reference before yo
 | ------------------------------------------------------------- | ---------------------------------------------------------------- |
 | Delete events, or remove personal or sensitive data from them | [references/deleting-events.md](./references/deleting-events.md) |
 
-When a lookup finds nothing, or fails, say so in the ticket, such as "No flag with the key `checkout-v2` in project 12345".
+When a lookup finds nothing, or fails, say so in one line of **Already checked**, such as "No flag with the key `checkout-v2` in project 12345".
 Ask the person only for what you cannot look up, such as when it started or what they expected.
 
 ## 2. Write it
@@ -73,20 +73,23 @@ Error:
 
 - **Request** is the whole ask, so support knows what to do from this one section.
   - Open with what happened, or what they plan to do, in one sentence, with the numbers and dates, such as "Our project used 6 PostHog AI credits on Oct 16, 2026, but nobody on our team has a chat from that day".
-  - For an action, add it in one sentence, such as "Please delete the 3,817 events the query below returns".
+  - For an action, add it in one sentence, such as "Please delete the 3,817 events the query below returns". When their question only asks for the action, such as "Can you raise our rate limit?", this sentence covers it.
+  - When they heard your answer and still want a human, give your answer in one sentence, as yours, such as "Claude Code found that the gap matches our 90/10 split, but we'd like you to confirm it". What it rests on goes in **Already checked**.
   - List every open question, numbered, in the person's order. Tighten the wording, but keep every part, because a question support does not see comes back as a follow-up.
-  - Leave out a question that is already answered, and put the answer in **Already checked**, so support sees it was asked. Keep it as a question only when the person wants support to confirm the answer. A question about their own account, bill or data stays open even when the docs give the general rule.
+  - Leave out a question that is already answered, and put the answer in **Already checked**, so support sees it was asked. Keep it as a question only when the person wants support to confirm the answer. A question about their own account, bill or data stays open when only a general rule answers it, but one you answered from their own data is answered.
 - **Already checked** lists what was checked and what it showed, one line each, with the person's steps ("I tried") apart from yours ("<your name> checked").
   - Write "<your name> checked" only for a lookup run in this conversation. A number the person gave you is theirs, so it goes in **Request** or **Details**.
   - Keep checks that ruled a cause out, so support doesn't run them again. When there are more than five, keep the ones that bear on the open questions, and name the rest in one line, such as "Also ruled out: bot traffic and a mid-run flag change".
   - When the docs had nothing, or only a heading, write "Docs: nothing found for <what you searched>".
+- **Error** is an error the person saw. A lookup of yours that failed goes in **Already checked**.
 - Copy IDs, queries and errors exactly.
 - Write dates as Dec 10, 2026, never as 10 December or 2026-12-10. A query keeps its own date format.
-- Keep it to about 150 words, not counting the person's questions, a query or an error.
+- Keep it to about 150 words, not counting the numbered questions, a query or an error.
 
 Cut these:
 
-- The story of the investigation, your replies from the conversation, and guesses written as findings. A guess only PostHog can check becomes a question in **Request**.
+- The story of the investigation, and your replies beyond the one-sentence answer above.
+- Guesses written as findings. A guess only PostHog can check becomes a question in **Request**, after the person's.
 - Greetings, sign-offs, background support does not act on, and the same point made twice.
 - Instructions on how to handle the ticket, such as "route this to engineering" or "don't change any settings", even when the person wrote them. Support acts on what **Request** asks.
 - Whole event payloads and full stack traces.
@@ -101,12 +104,12 @@ Never say that a ticket was filed, and do not promise a response time.
 When `posthog:posthog-support-draft-create` is in your tool list, draft the ticket with it:
 
 - Each part of the ticket is one field, without its heading: `request`, `details`, `already_checked` and `error`.
-- Set `filing_reason` to the first that fits:
+- Set `filing_reason` to the first that fits. Only `billing_question` changes what happens. The others tell support why the ticket exists.
   - `billing_question` when it asks about billing or usage, even alongside other questions, so the person can send it on any plan.
-  - `needs_posthog_staff` for a staff action, or for records only PostHog can see, such as what the flag service returned.
+  - `user_disagrees_with_agent` when you answered what they asked and they think your answer is wrong.
+  - `user_asked_for_support` when you answered what they asked and they still want a human to confirm or check it.
+  - `needs_posthog_staff` when you had no answer, because only staff can do what they ask, or see the records that answer it, such as what the flag service returned.
   - `unexplained_error` for an error you reproduced that nothing explains.
-  - `user_disagrees_with_agent` when they think your answer is wrong.
-  - `user_asked_for_support` when they want a human after hearing your answer.
 - Give the person the `review_url` it returns. They open it, check and edit the ticket, and send it from PostHog, which checks that their plan allows it.
 
 Otherwise, they paste the ticket into the Support panel in the PostHog app, which attaches their project and session to it.

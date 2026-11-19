@@ -1357,7 +1357,7 @@ export const FilingReasonEnumApi = {
 
 export interface PostHogSupportDraftCreateApi {
     /**
-     * The whole ask, in the person's voice. Open with what happened in one sentence, with the numbers and dates. Then add the action they need in one sentence, or list every question the docs did not answer, numbered in the person's order, with every part of each question.
+     * The whole ask, in the person's voice. Open with what happened in one sentence, with the numbers and dates. Then add the action they need in one sentence, or list every question the docs did not answer, numbered in the person's order, with every part of each question. When they heard your answer and still want a human, give your answer in one sentence, as yours.
      * @maxLength 2000
      */
     request: string
@@ -1372,7 +1372,7 @@ export interface PostHogSupportDraftCreateApi {
      */
     already_checked?: string
     /**
-     * The exact error text and its top frames. Remove any credential and say that you removed it.
+     * The exact text of an error the person saw, and its top frames. A lookup of yours that failed goes in already_checked. Remove any credential and say that you removed it.
      * @maxLength 1500
      */
     error?: string

@@ -48,7 +48,8 @@ class PostHogSupportDraftCreateSerializer(serializers.Serializer):
         help_text=(
             "The whole ask, in the person's voice. Open with what happened in one sentence, with the numbers and "
             "dates. Then add the action they need in one sentence, or list every question the docs did not answer, "
-            "numbered in the person's order, with every part of each question."
+            "numbered in the person's order, with every part of each question. When they heard your answer and "
+            "still want a human, give your answer in one sentence, as yours."
         ),
     )
     details = serializers.CharField(
@@ -75,7 +76,10 @@ class PostHogSupportDraftCreateSerializer(serializers.Serializer):
         max_length=1500,
         required=False,
         allow_blank=True,
-        help_text="The exact error text and its top frames. Remove any credential and say that you removed it.",
+        help_text=(
+            "The exact text of an error the person saw, and its top frames. A lookup of yours that failed goes in "
+            "already_checked. Remove any credential and say that you removed it."
+        ),
     )
     filing_reason = serializers.ChoiceField(
         choices=FilingReason.choices,
