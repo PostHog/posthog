@@ -45,6 +45,8 @@ import { EVENT_FIELD_DESCRIPTIONS } from './destinations/common'
 import { BatchExportConfigurationForm } from './types'
 import { dayOptions, hourOptions } from './utils'
 
+const NEW_EVENTS_TABLE_BLOG_URL = 'https://posthog.com/blog/changing-event-storage#what-changes-for-batch-exports'
+
 export function BatchExportConfiguration(): JSX.Element {
     const {
         isNew,
@@ -80,7 +82,24 @@ export function BatchExportConfiguration(): JSX.Element {
 
     return (
         <Form logic={batchExportConfigFormLogic} formKey="configuration" className="flex flex-col gap-3">
-            <SourceDestinationsBanner />
+            {selectedModel === BatchExportModelEnumApi.Events ? (
+                <LemonBanner
+                    type="info"
+                    dismissKey="batch-export-new-events-table-migration"
+                    action={{
+                        children: 'Read more',
+                        to: NEW_EVENTS_TABLE_BLOG_URL,
+                        targetBlank: true,
+                        'data-attr': 'batch-export-new-events-table-banner',
+                    }}
+                >
+                    All batch exports will be migrated to the new events table starting on November 30. Some properties
+                    will be exported with a different type or format. You can switch this export over before then with
+                    the Events table setting below.
+                </LemonBanner>
+            ) : (
+                <SourceDestinationsBanner />
+            )}
             <div className="flex flex-wrap gap-4 items-start">
                 <div className="flex flex-col flex-1 min-w-100 gap-y-3">
                     <div className="flex flex-col p-3 rounded border bg-surface-primary gap-y-2 *:max-w-160">
@@ -405,10 +424,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                             events table. All exports will be migrated starting on November 30. You can
                                             switch this export over before then. This switch has no effect once the
                                             migration is complete.{' '}
-                                            <Link
-                                                to="https://posthog.com/blog/changing-event-storage#what-changes-for-batch-exports"
-                                                target="_blank"
-                                            >
+                                            <Link to={NEW_EVENTS_TABLE_BLOG_URL} target="_blank">
                                                 Read more about the change
                                             </Link>
                                         </>
