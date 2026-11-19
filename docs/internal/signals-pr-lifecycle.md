@@ -469,6 +469,11 @@ Incomplete history stops automatic changes until a person confirms the current l
 
 ### Write contract
 
+Reviewer changes through the artefact API retain the authenticated user, including when `X-PostHog-Task-Id` is supplied.
+Automatic implementation triggered by such a change runs as that user and respects their autonomy threshold.
+If that user is ineligible, it does not fall back to a named reviewer or another project member.
+Automatic execution pauses when a non-system reviewer row has no authenticated user, including older task-attributed rows and rows whose user was deleted.
+
 Automatic callers read `reviewer_assignment.state` from the report detail response before selection.
 This is the only API response that includes correction state.
 The web app does not need it for targeted add/remove requests.

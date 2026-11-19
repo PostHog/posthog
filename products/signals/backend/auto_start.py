@@ -49,6 +49,7 @@ from products.signals.backend.implementation_repositories import (
 from products.signals.backend.issue_dependencies import resolve_issue_dependencies, unresolved_dependency_skip
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
+    SignalActorKind,
     SignalReport,
     SignalReportArtefact,
     SignalTeamConfig,
@@ -1456,6 +1457,16 @@ async def maybe_autostart_implementation_task(
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="report gone")
         return AutostartOutcome(status="cancelled", reason="Report no longer exists")
     assignment = await database_sync_to_async(ReviewerRules.read_for_report)(team_id=team_id, report_id=report_id)
+    # A missing user can also mean task attribution or a deleted account, neither of which grants system authority.
+    if (
+        assignment.state.reviewers_id is not None
+        and await SignalReportArtefact.objects.filter(
+            team_id=team_id, id=assignment.state.reviewers_id, created_by_id__isnull=True
+        )
+        .exclude(actor_kind=SignalActorKind.SYSTEM)
+        .aexists()
+    ):
+        return AutostartOutcome(status="blocked", reason="Reviewer attribution needs review before automatic execution")
     if (
         assignment.state.corrections_id is None
         and assignment.corrections.needs_review
@@ -1757,9 +1768,9 @@ async def maybe_autostart_implementation_task(
 async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerContent], int | None]:
     """Latest suggested-reviewers list, plus the id of the user who last edited it (if any).
 
-    The second value is the artefact's user attribution (``created_by_id``): set when a human
-    edited it via the artefact API, ``None`` when the pipeline/system wrote it. A user-edited list
-    must auto-start as that user, never as a named colleague (reviewer impersonation).
+    The second value is the artefact's authenticated user attribution (``created_by_id``).
+    A list with user attribution must auto-start as that user, never as a named colleague.
+    Rows without a user require system provenance, checked by ``maybe_autostart_implementation_task``.
     """
     artefact = (
         await SignalReportArtefact.objects.filter(

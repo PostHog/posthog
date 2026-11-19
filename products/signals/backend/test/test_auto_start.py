@@ -7,6 +7,7 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
@@ -556,6 +557,68 @@ def test_resolve_triggering_user_runs_as_self(organization, team, autostart_prio
         assert resolved.id == user.id
     else:
         assert resolved is None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("actor_kind", ["system", "task", "user", "agent"])
+@time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+def test_autostart_requires_system_provenance_for_reviewers_without_a_user(
+    organization: Organization, team: Team, actor_kind: str
+) -> None:
+    reviewer = _create_org_member_with_github("reviewer@example.com", organization, "example-reviewer")
+    report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
+    Integration.objects.create(
+        team=team,
+        kind="github",
+        integration_id="example-installation",
+        config={"installation_id": "example-installation"},
+        repository_cache=[{"id": 1, "name": "repo", "full_name": "example/repo", "private": True}],
+        repository_cache_updated_at=timezone.now(),
+    )
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    task = Task.objects.create(team=team, title="Example task") if actor_kind == "task" else None
+    SignalReportArtefact.objects.create(
+        team=team,
+        report=report,
+        type="suggested_reviewers",
+        content=json.dumps([{"github_login": "example-reviewer"}]),
+        actor_kind=actor_kind,
+        task=task,
+        actor_agent="Example agent" if actor_kind == "agent" else None,
+    )
+
+    def create_task(*, title: str, description: str, user_id: int, **kwargs: object) -> SimpleNamespace:
+        implementation = Task.objects.create(team=team, title=title, description=description, created_by_id=user_id)
+        run = TaskRun.objects.create(task=implementation, team=team)
+        return SimpleNamespace(task_id=implementation.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    with (
+        patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=False),
+        patch(
+            "products.signals.backend.auto_start.database_sync_to_async",
+            side_effect=lambda f, **kw: sync_to_async(f, thread_sensitive=True),
+        ),
+        patch.object(tasks_facade, "create_and_run_task", side_effect=create_task),
+    ):
+        async_to_sync(maybe_autostart_implementation_task)(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="example/repo",
+            title="t",
+            summary="s",
+            actionability=ActionabilityAssessment(
+                explanation="A clear fix",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            priority=PriorityAssessment(explanation="Affects sessions", priority=Priority.P1),
+            reviewers_content=[_reviewer("example-reviewer")],
+        )
+
+    assert list(
+        Task.objects.filter(team=team).exclude(id=task.id if task else None).values_list("created_by_id", flat=True)
+    ) == ([reviewer.id] if actor_kind == "system" else [])
 
 
 @pytest.mark.parametrize(

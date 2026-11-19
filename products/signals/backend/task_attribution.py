@@ -48,10 +48,12 @@ def resolve_task_id_from_header(request: Request, team_id: int) -> str | None:
     return str(task_uuid)
 
 
-def resolve_request_attribution(request: Request, team_id: int) -> ArtefactAttribution:
+def resolve_request_attribution(
+    request: Request, team_id: int, *, allow_task_attribution: bool = True
+) -> ArtefactAttribution:
     """Resolve the internal task, external MCP agent, or requesting user for an API write."""
     task_id = resolve_task_id_from_header(request, team_id)
-    if task_id is not None:
+    if allow_task_attribution and task_id is not None:
         return ArtefactAttribution.from_task(task_id)
     user_id = request.user.id
     if user_id is None:  # unreachable behind authentication, but keeps attribution honest
