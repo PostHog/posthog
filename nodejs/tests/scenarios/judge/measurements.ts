@@ -4,8 +4,9 @@ import { z } from 'zod'
 
 import { internalFetch } from '~/common/utils/request'
 
-import type { Named } from '../cards'
+import type { CdpRole, Named, Step } from '../cards'
 import type { Definition } from '../cards/definitions'
+import type { ObservationName } from '../environment/failover'
 import { ReplicaOf, nameOf } from '../environment/identity'
 import type { QueueCounts } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
@@ -23,6 +24,8 @@ export type MetricSample = {
     processed: Record<string, number>
     pgClientErrors: number
     consumerLoopErrors: number
+    janitorStalled: number
+    lateness: Record<string, Record<string, number>>
 }
 
 export type MissedScrape = { role: string; replica: number; at: number }
@@ -43,9 +46,14 @@ type Measured = { key?: string; incomplete?: true } & Value
 
 export type Measurement = { name: string; unit: string } & Measured
 
-export type MeasureEvidence = JudgeEvidence &
+export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets'> &
     Readonly<Sampled> &
-    Readonly<Probed> & { sampledFrom: number; drive: DriveWindow; timeline: readonly ValveTimelineEntry[] }
+    Readonly<Probed> & {
+        sampledFrom: number
+        drive: DriveWindow
+        steps: readonly Step[]
+        timeline: readonly ValveTimelineEntry[]
+    }
 
 export type MeasurementDefinition = Definition & {
     unit: string
@@ -81,8 +89,15 @@ const increaseOf = (ofReplica: readonly MetricSample[], read: Counter, since: nu
         return sum + read(lifetime.at(-1)!) - (startedWhileSampled ? 0 : read(lifetime[0]))
     }, 0)
 
-const cpuSecondsOf = (ofReplica: readonly MetricSample[], sampledFrom: number): number =>
-    increaseOf(ofReplica, ({ cpuSeconds }) => cpuSeconds, sampledFrom)
+const increaseAcrossReplicas = (replicas: readonly MetricSample[][], read: Counter, since: number): number =>
+    replicas.reduce((sum, ofReplica) => sum + increaseOf(ofReplica, read, since), 0)
+
+const JANITOR: z.infer<typeof CdpRole> = 'cdp-cyclotron-v2-janitor'
+
+export function janitorResetsOf({ samples, sampledFrom }: Pick<Sampled, 'samples'> & { sampledFrom: number }): number {
+    const replicas = replicasOf(byRole(samples).get(JANITOR) ?? [])
+    return increaseAcrossReplicas(replicas, ({ janitorStalled }) => janitorStalled, sampledFrom)
+}
 
 export const roleCpuSeconds: MeasurementDefinition = {
     name: 'role_cpu_seconds',
@@ -90,10 +105,10 @@ export const roleCpuSeconds: MeasurementDefinition = {
     unit: 's',
     measure: ({ samples, missed, sampledFrom }) =>
         [...byRole(samples)].map(([role, ofRole]) => {
-            const replicas = [...Map.groupBy(ofRole, ({ replica }) => replica).values()]
+            const replicas = replicasOf(ofRole)
             return {
                 key: role,
-                value: replicas.reduce((sum, ofReplica) => sum + cpuSecondsOf(ofReplica, sampledFrom), 0),
+                value: increaseAcrossReplicas(replicas, ({ cpuSeconds }) => cpuSeconds, sampledFrom),
                 ...(replicas.some((ofReplica) => lostCpu(ofReplica, missed)) ? { incomplete: true as const } : {}),
             }
         }),
@@ -149,11 +164,12 @@ export type Phase = { from: number; to: number }
 export type Phases = { baseline: Phase; valve?: Phase; failback?: Phase }
 
 export function phasesOf(drive: DriveWindow, timeline: readonly ValveTimelineEntry[]): Phases {
-    const applied = timeline.flatMap(({ intentAt, releasedAt }) =>
-        intentAt === undefined
+    const applied = timeline.flatMap(({ intentAt, releaseIntentAt, releasedAt }) => {
+        const released = releaseIntentAt ?? releasedAt
+        return intentAt === undefined
             ? []
-            : [{ intent: Date.parse(intentAt), released: releasedAt === undefined ? Infinity : Date.parse(releasedAt) }]
-    )
+            : [{ intent: Date.parse(intentAt), released: released === undefined ? Infinity : Date.parse(released) }]
+    })
     if (applied.length === 0) {
         return { baseline: { from: drive.startedAt, to: drive.endedAt } }
     }
@@ -231,6 +247,8 @@ const ENVELOPE_MS = 10 * 60_000
 const DRAINED_FOR_MS = 60_000
 const QUEUE_GAP_MS = 15_000
 
+export const SCRAPE_GAP_MS = 15_000
+
 function readThroughout(queue: readonly QueueSample[], phase: Phase): boolean {
     const edges = [
         phase.from,
@@ -278,6 +296,9 @@ const spanning = <T extends { at: number }>(series: readonly T[], phase: Phase):
     const reference = lastBefore(series, phase.from)
     return [...(reference ? [reference] : []), ...series.filter(({ at }) => within(phase, at))]
 }
+
+const inside = <T extends { at: number }>(series: readonly T[], phase: Phase): T[] =>
+    series.filter(({ at }) => within(phase, at))
 
 const bracketing = <T extends { at: number }>(series: readonly T[], phase: Phase): T[] => {
     const closing = series.find(({ at }) => at >= phase.to)
@@ -328,12 +349,50 @@ function phaseRate(samples: readonly MetricSample[], read: Counter, phase: Phase
     }, 0)
 }
 
+const queuesOf = (samples: readonly MetricSample[]): string[] => [
+    ...new Set(samples.flatMap(({ processed }) => Object.keys(processed))),
+]
+
+const claimRate = (samples: readonly MetricSample[], queue: string, phase: Phase): number =>
+    phaseRate(samples, ({ processed }) => processed[queue] ?? 0, phase)
+
 function scrapedSeconds(samples: readonly MetricSample[], phase: Phase): number {
     const spans = replicasOf(samples)
         .map((ofReplica) => spanning(ofReplica, phase))
         .filter((window) => window.length > 0)
         .map((window) => seconds(spanOf(window)))
     return spans.length === 0 ? 0 : Math.min(...spans)
+}
+
+function busyShareOf(span: readonly HostSample[]): number | undefined {
+    const [first, last] = [span.at(0), span.at(-1)]
+    return first !== undefined && last !== undefined && last.totalTicks > first.totalTicks
+        ? (last.busyTicks - first.busyTicks) / (last.totalTicks - first.totalTicks)
+        : undefined
+}
+
+export const stepHostBusyShareOf = (host: readonly HostSample[], step: Phase): number | undefined =>
+    busyShareOf(inside(byTime(host), step))
+
+function stepClaimRate(samples: readonly MetricSample[], queue: string, step: Phase): Measured {
+    let value = 0
+    let incomplete = false
+    for (const ofReplica of replicasOf(samples).filter((series) =>
+        series.some(({ processed }) => queue in processed)
+    )) {
+        const window = inside(ofReplica, step)
+        const span = spanOf(window)
+        const edges = [step.from, ...window.map(({ at }) => at), step.to]
+        incomplete ||=
+            span <= 0 ||
+            edges.some((at, i) => i > 0 && at - edges[i - 1] > SCRAPE_GAP_MS) ||
+            window.some(({ startedAt }) => startedAt * 1000 > step.from)
+        if (span <= 0) {
+            continue
+        }
+        value += increaseOf(window, ({ processed }) => processed[queue] ?? 0, window[0].at) / seconds(span)
+    }
+    return { value, ...(incomplete ? { incomplete: true as const } : {}) }
 }
 
 export type Baseline = {
@@ -351,14 +410,10 @@ export function baselineOf({ samples, queue, host, drive, timeline }: MeasureEvi
     if (length < MIN_BASELINE_SECONDS) {
         return { seconds: length, scrapedSeconds: scraped, claimsPerSecond: {} }
     }
-    const queues =
-        scraped < MIN_BASELINE_SECONDS ? [] : [...new Set(samples.flatMap(({ processed }) => Object.keys(processed)))]
-    const claimsPerSecond = Object.fromEntries(
-        queues.map((name) => [name, phaseRate(samples, ({ processed }) => processed[name] ?? 0, baseline)])
-    )
+    const queues = scraped < MIN_BASELINE_SECONDS ? [] : queuesOf(samples)
+    const claimsPerSecond = Object.fromEntries(queues.map((name) => [name, claimRate(samples, name, baseline)]))
     const inserted = spanning(counted(queue), baseline)
-    const hostSpan = spanning(byTime(host), baseline)
-    const [firstHost, lastHost] = [hostSpan.at(0), hostSpan.at(-1)]
+    const hostBusyShare = busyShareOf(spanning(byTime(host), baseline))
     return {
         seconds: length,
         scrapedSeconds: scraped,
@@ -370,12 +425,7 @@ export function baselineOf({ samples, queue, host, drive, timeline }: MeasureEvi
                       seconds(inserted.at(-1)!.at - inserted[0].at),
               }
             : {}),
-        ...(firstHost !== undefined && lastHost !== undefined && lastHost.totalTicks > firstHost.totalTicks
-            ? {
-                  hostBusyShare:
-                      (lastHost.busyTicks - firstHost.busyTicks) / (lastHost.totalTicks - firstHost.totalTicks),
-              }
-            : {}),
+        ...(hostBusyShare === undefined ? {} : { hostBusyShare }),
     }
 }
 
@@ -397,13 +447,37 @@ const inPhase = (
     },
 })
 
+function sinceIntent(timeline: readonly ValveTimelineEntry[], name: ObservationName): Measured[] | undefined {
+    const journalled = timeline.find(({ intentAt, observations }) => intentAt !== undefined && observations)
+    if (journalled === undefined) {
+        return undefined
+    }
+    const observation = journalled.observations!.find((candidate) => candidate.name === name)
+    return observation === undefined
+        ? [{ value: null, censored: true }]
+        : [{ value: seconds(Date.parse(observation.at) - Date.parse(journalled.intentAt!)) }]
+}
+
+const observed = (name: string, observation: ObservationName): MeasurementDefinition => ({
+    name,
+    params: z.object({}).strict(),
+    unit: 's',
+    measure: ({ timeline }) => sinceIntent(timeline, observation) ?? [],
+})
+
 export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
+    observed('seconds_to_cluster_writer', 'cluster_writer'),
+    observed('seconds_to_sql_writer', 'sql_writer'),
     inPhase('writer_unavailable_seconds', 's', 'valve', ({ writer }, phase) => writerUnavailable(writer, phase)),
     inPhase('failback_writer_unavailable_seconds', 's', 'failback', ({ writer }, phase) =>
         writerUnavailable(writer, phase)
     ),
-    inPhase('seconds_to_first_probe_commit', 's', 'valve', ({ writer }, phase) =>
-        firstCommitAfterFailure(writer, phase)
+    inPhase(
+        'seconds_to_first_probe_commit',
+        's',
+        'valve',
+        ({ writer, timeline }, phase) =>
+            sinceIntent(timeline, 'first_probe_commit') ?? firstCommitAfterFailure(writer, phase)
     ),
     inPhase('queue_lag_peak_seconds', 's', 'valve', ({ queue }, phase) => {
         const ages = counted(queue)
@@ -429,6 +503,21 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
         unit: 'jobs/s',
         measure: (evidence) =>
             Object.entries(baselineOf(evidence).claimsPerSecond).map(([key, value]) => ({ key, value })),
+    },
+    {
+        name: 'step_claims_per_second',
+        params: z.object({}).strict(),
+        unit: 'jobs/s',
+        measure: ({ samples, drive, steps }) =>
+            steps.flatMap(({ scale, fromMs, toMs }) => {
+                const step = { from: drive.startedAt + fromMs, to: Math.min(drive.startedAt + toMs, drive.endedAt) }
+                return step.to <= step.from
+                    ? []
+                    : queuesOf(samples).map((queue) => ({
+                          key: `${queue}_${scale}x`,
+                          ...stepClaimRate(samples, queue, step),
+                      }))
+            }),
     },
     {
         name: 'baseline_new_jobs_per_second',
@@ -492,6 +581,17 @@ function processedOf(text: string): Record<string, number> {
     return processed
 }
 
+function latenessOf(text: string): Record<string, Record<string, number>> {
+    const lateness: Record<string, Record<string, number>> = {}
+    for (const { labels, value } of seriesOf(text, 'cdp_cyclotron_job_lateness_seconds_bucket')) {
+        if (labels.queue !== undefined && labels.le !== undefined) {
+            const buckets = (lateness[labels.queue] ??= {})
+            buckets[labels.le] = (buckets[labels.le] ?? 0) + value
+        }
+    }
+    return lateness
+}
+
 export function sampleOf({ role, replica }: Target, at: number, text: string): MetricSample | undefined {
     const startedAt = gauge(text, 'process_start_time_seconds')
     const cpuSeconds = gauge(text, 'process_cpu_seconds_total')
@@ -508,6 +608,8 @@ export function sampleOf({ role, replica }: Target, at: number, text: string): M
               processed: processedOf(text),
               pgClientErrors: totalOf(text, 'cdp_cyclotron_v2_pg_client_errors_total'),
               consumerLoopErrors: totalOf(text, 'cdp_cyclotron_v2_consumer_loop_errors_total'),
+              janitorStalled: totalOf(text, 'cdp_cyclotron_v2_janitor_stalled'),
+              lateness: latenessOf(text),
           }
 }
 
@@ -523,7 +625,7 @@ export function hostSampleOf(at: number, procStat: string): HostSample | undefin
     return { at, busyTicks: totalTicks - ticks[3] - ticks[4], totalTicks }
 }
 
-export type Sampler = { sampledFrom: number; stop(): Promise<Sampled> }
+export type Sampler = { sampledFrom: number; taken(): readonly MetricSample[]; stop(): Promise<Sampled> }
 
 type Target = ReplicaOf & { metricsUrl: string }
 
@@ -601,6 +703,7 @@ export async function startSampler(
     let stopping: Promise<Sampled> | undefined
     return {
         sampledFrom,
+        taken: () => samples,
         stop: () =>
             (stopping ??= (async () => {
                 stopped.abort()

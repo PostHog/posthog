@@ -12,7 +12,7 @@ import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
 import { type ModifierGroup, isCitationGap, modifierGroups } from './keywordsReport'
 
 export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
-    const { modifiers, modifiersLoading, modifiersError, modifierKeyword, keywords } =
+    const { modifiers, modifiersLoading, modifiersError, modifierKeyword, keywords, filters } =
         useValues(contentAutopilotKeywordsLogic)
     const { loadModifiers, setModifierKeyword } = useActions(contentAutopilotKeywordsLogic)
 
@@ -111,6 +111,8 @@ export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
                                 <ContentAutopilotKeywordModifierTerms
                                     modifiers={group.modifiers}
                                     baselineCitedRate={modifiers.baseline_cited_rate}
+                                    days={modifiers.days}
+                                    branded={filters.branded}
                                 />
                             ),
                         }}

@@ -36,6 +36,7 @@ from posthog.ee_urls import ee_urlpatterns
 from posthog.frontend_views import app_context, device_approval_page, home, home_with_region_redirect
 from posthog.ingress.github.provider import build_github_provider
 from posthog.ingress.linear.provider import build_linear_provider
+from posthog.ingress.slack.provider import PROVISIONING_REVIEW_INTERACTIVITY_APP, build_slack_interactivity_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.mobile_app_links import android_asset_links, apple_app_site_association
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
@@ -172,6 +173,31 @@ urlpatterns = [
         name="scim_resource_types",
     ),
     path("scim/v2/<str:scim_slug>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
+    # Same SCIM resources without the tenant slug in the path: the bearer token alone identifies the
+    # IdP config. Both shapes are supported permanently; the slugged URLs stay the canonical ones.
+    path("scim/v2/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users_token"),
+    path(
+        "scim/v2/Users/<int:user_id>",
+        csrf_exempt(scim_views.SCIMUserDetailView.as_view()),
+        name="scim_user_detail_token",
+    ),
+    path("scim/v2/Groups", csrf_exempt(scim_views.SCIMGroupsView.as_view()), name="scim_groups_token"),
+    path(
+        "scim/v2/Groups/<uuid:group_id>",
+        csrf_exempt(scim_views.SCIMGroupDetailView.as_view()),
+        name="scim_group_detail_token",
+    ),
+    path(
+        "scim/v2/ServiceProviderConfig",
+        csrf_exempt(scim_views.SCIMServiceProviderConfigView.as_view()),
+        name="scim_service_provider_config_token",
+    ),
+    path(
+        "scim/v2/ResourceTypes",
+        csrf_exempt(scim_views.SCIMResourceTypesView.as_view()),
+        name="scim_resource_types_token",
+    ),
+    path("scim/v2/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas_token"),
     # api
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
@@ -388,6 +414,15 @@ urlpatterns = [
     opt_slash_path("webhooks/github", github_app_webhook),
     # Linear App webhook. It stays in core for the same reason: the Linear integration is shared.
     opt_slash_path("webhooks/linear", build_webhook_view(build_linear_provider("posthog"))),
+    opt_slash_path(
+        "webhooks/provisioning-reviews/slack/interactivity",
+        build_webhook_view(
+            build_slack_interactivity_provider(
+                secret_getter=lambda: settings.PROVISIONING_REVIEW_SLACK_SIGNING_SECRET,
+                app=PROVISIONING_REVIEW_INTERACTIVITY_APP,
+            )
+        ),
+    ),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),

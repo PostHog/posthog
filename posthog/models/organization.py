@@ -6,8 +6,10 @@ from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, Self, Typ
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
+from django.db.models.functions import Upper
 from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
 from django.db.models.signals import post_save
@@ -26,6 +28,9 @@ from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, generate_slug_candidates, sane_repr
+
+from products.authorization.backend.facade.contracts import CheckRequest, Resource, Subject
+from products.authorization.backend.facade.enums import Action
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -178,7 +183,10 @@ class Organization(ModelActivityMixin, UUIDTModel):
                 fields=["id"],
                 condition=Q(is_active=False),
                 name="org_inactive_id_idx",
-            )
+            ),
+            # The admin console looks teams up by any part of their organization name. Django compiles icontains
+            # to UPPER(name) LIKE UPPER(pattern) on Postgres, so the index is on UPPER(name).
+            GinIndex(OpClass(Upper("name"), name="gin_trgm_ops"), name="posthog_org_name_trgm"),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -263,6 +271,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
     is_member_join_email_enabled = models.BooleanField(
         default=True
     )  # DEPRECATED in favor of User.partial_notification_settings
+    # Also checked by agents before they query production data, see
+    # .agents/skills/querying-production-databases/SKILL.md. Update the skill when this field changes.
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=True)
     is_ai_training_opted_in = models.BooleanField(
         default=True,
@@ -813,7 +823,14 @@ class OrganizationAITerms(Organization):
         verbose_name_plural = "AI terms and conditions"
 
 
+class OrganizationMembershipQuerySet(models.QuerySet["OrganizationMembership"]):
+    def with_effective_level(self) -> "QuerySet[Any]":
+        return self.annotate(resolved_level=models.F("level"))
+
+
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
+    objects = OrganizationMembershipQuerySet.as_manager()
+
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
 
@@ -866,31 +883,46 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     def __str__(self):
         return str(self.Level(self.level))
 
+    @property
+    def effective_level(self) -> Level:
+        return self.Level(self.level)
+
     def validate_update(
         self,
         membership_being_updated: "OrganizationMembership",
         new_level: Level | None = None,
     ) -> None:
-        if new_level is not None:
-            if membership_being_updated.id == self.id:
+        if membership_being_updated.id == self.id:
+            if new_level is not None:
                 raise exceptions.PermissionDenied("You can't change your own access level.")
+            return
+        # The facade imports `posthog.models`, which imports this module.
+        from products.authorization.backend.facade import api as authorization  # noqa: PLC0415
+
+        organization, subject = Resource.organization(self.organization_id), Subject(user_id=self.user_id)
+        can_edit, can_manage_owners = authorization.check(
+            [
+                CheckRequest(resource=organization, action=action, subject=subject)
+                for action in (Action.EDIT, Action.MANAGE_OWNERS)
+            ]
+        )
+        if new_level is not None:
             if new_level == OrganizationMembership.Level.OWNER:
-                if self.level != OrganizationMembership.Level.OWNER:
+                if not can_manage_owners:
                     raise exceptions.PermissionDenied(
                         "You can only make another member owner if you're this organization's owner."
                     )
                 self.save()
-            elif new_level > self.level:
+            elif new_level == OrganizationMembership.Level.ADMIN and not can_edit:
                 raise exceptions.PermissionDenied(
                     "You can only change access level of others to lower or equal to your current one."
                 )
-        if membership_being_updated.id != self.id:
-            if membership_being_updated.organization_id != self.organization_id:
-                raise exceptions.PermissionDenied("You both need to belong to the same organization.")
-            if self.level < OrganizationMembership.Level.ADMIN:
-                raise exceptions.PermissionDenied("You can only edit others if you are an admin.")
-            if membership_being_updated.level > self.level:
-                raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
+        if membership_being_updated.organization_id != self.organization_id:
+            raise exceptions.PermissionDenied("You both need to belong to the same organization.")
+        if not can_edit:
+            raise exceptions.PermissionDenied("You can only edit others if you are an admin.")
+        if membership_being_updated.effective_level == OrganizationMembership.Level.OWNER and not can_manage_owners:
+            raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
 
     def get_scoped_api_keys(self):
         """

@@ -11,6 +11,7 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import type { CdpOutput } from '../../cdp-services'
+import { HIDDEN_OUTPUT_MESSAGE, hidesInvocationOutput } from '../../read-guarded-internal-events'
 import { RerunFilter, RerunFunctionKind, rerunWrapperKindFor } from '../../rerun/rerun-job.types'
 import {
     CyclotronJobInvocation,
@@ -471,7 +472,7 @@ export class HogInvocationResultsService {
             finished_at: finishedAt ? isoMicroseconds(finishedAt) : null,
             duration_ms: durationMs,
             error_kind: errorKind,
-            error_message: errorMessage,
+            error_message: hidesInvocationOutput(invocation) ? HIDDEN_OUTPUT_MESSAGE : errorMessage,
             event_uuid: trigger.event_uuid,
             distinct_id: trigger.distinct_id,
             person_id: trigger.person_id,

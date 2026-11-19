@@ -41,3 +41,12 @@ The ratchet fails when a file has more findings than its baseline count, and als
 | Rule                            | Baseline                                         |
 | ------------------------------- | ------------------------------------------------ |
 | `integration-model-through-sdk` | `posthog/integrations/model_access_baseline.txt` |
+
+## Manifest-wide rules
+
+The devex passes above do not scan `rust/`, `nodejs/`, `cli/`, or the root manifests.
+A rule that has to see every dependency manifest runs in its own job over the whole tree.
+
+| Rule                    | Job                | What it guards                                                                                                |
+| ----------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `posthog-sdk-major-pin` | `semgrep-sdk-pins` | Every PostHog SDK dependency (JS, Python, Rust) has an upper bound, so a new major cannot install by accident |

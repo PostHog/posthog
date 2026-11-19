@@ -10,7 +10,7 @@ on:
     schedule:
         # Daily at 04:00 UTC: regenerate common/storybook/storybook-timings.json from the
         # JUnit artifacts of a recent successful master Storybook run and open/update a PR. The
-        # manifest drives greedy bin-packing across the 16 visual-regression shards in
+        # manifest drives greedy bin-packing across the visual-regression shards in
         # common/storybook/test-sequencer.js; balance decays as story files land without timings,
         # so a periodic refresh keeps the slowest shard close to the mean. Cheap (no story
         # execution — just an artifact download + XML parse).
@@ -58,6 +58,7 @@ jobs:
                   sparse-checkout: |
                       common/storybook/update-storybook-timings.sh
                       common/storybook/storybook-timings.json
+                      .github/workflows/ci-storybook.yml
                   sparse-checkout-cone-mode: false
 
             - name: Find Storybook CI run to use
@@ -70,7 +71,7 @@ jobs:
                   # webkit and firefox shards, so the manifest is refreshed from one run of each.
                   # The nightly run is found by its webkit shards; its firefox artifacts come with it.
                   validate_run() {
-                      local run_id="$1" event="$2" browser="$3" shard_pattern="$4" shard_count="$5"
+                      local run_id="$1" event="$2" browser="$3" shard_count="$4"
                       local run_json artifact_names
 
                       run_json=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id")
@@ -86,8 +87,9 @@ jobs:
 
                       artifact_names=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id/artifacts?per_page=100" \
                           --jq '[.artifacts[] | select(.expired == false) | .name]')
-                      if ! jq -e --arg pattern "^junit-results-storybook-$browser-(?:$shard_pattern)\$" --argjson count "$shard_count" '
-                          ([.[] | select(test($pattern))] | unique | length) == $count
+                      if ! jq -e --arg prefix "junit-results-storybook-$browser-" --argjson count "$shard_count" '
+                          [.[] | select(startswith($prefix)) | ltrimstr($prefix) | select(test("^[0-9]+$")) | tonumber]
+                          | unique == [range(1; $count + 1)]
                       ' <<< "$artifact_names" >/dev/null; then
                           echo "Run $run_id does not have all $shard_count live $browser JUnit shard artifacts" >&2
                           return 1
@@ -112,8 +114,17 @@ jobs:
                           done
                   }
 
+                  # The shard counts come from ci-storybook.yml so that a matrix resize also resizes this check.
+                  # A run that misses a shard artifact would drop that shard's story files from the manifest.
+                  chromium_shards=$(yq '.env.CHROMIUM_SHARDS' .github/workflows/ci-storybook.yml)
+                  webkit_shards=$(yq '.env.WEBKIT_SHARDS' .github/workflows/ci-storybook.yml)
+                  if [[ ! "$chromium_shards" =~ ^[1-9][0-9]*$ || ! "$webkit_shards" =~ ^[1-9][0-9]*$ ]]; then
+                      echo "::error::Could not read CHROMIUM_SHARDS and WEBKIT_SHARDS from ci-storybook.yml"
+                      exit 1
+                  fi
+
                   if [ -n "$INPUT_RUN_ID" ]; then
-                      if ! validate_run "$INPUT_RUN_ID" push chromium '[1-9]|1[0-6]' 16; then
+                      if ! validate_run "$INPUT_RUN_ID" push chromium "$chromium_shards"; then
                           echo "::error::Provided run must be a successful master Storybook push with all chromium shard artifacts"
                           exit 1
                       fi
@@ -121,7 +132,7 @@ jobs:
                       echo "Using provided Storybook CI run for chromium: $chromium_run_id"
                   else
                       echo "Searching for a successful master Storybook push with live chromium JUnit artifacts..."
-                      chromium_run_id=$(find_run push chromium '[1-9]|1[0-6]' 16)
+                      chromium_run_id=$(find_run push chromium "$chromium_shards")
                       if [ -z "$chromium_run_id" ]; then
                           echo "::error::No successful master Storybook push found with live chromium JUnit artifacts (1-day retention)"
                           exit 1
@@ -130,7 +141,7 @@ jobs:
                   fi
 
                   echo "Searching for a successful nightly Storybook run with live webkit JUnit artifacts..."
-                  webkit_run_id=$(find_run schedule webkit '[1-4]' 4)
+                  webkit_run_id=$(find_run schedule webkit "$webkit_shards")
                   if [ -z "$webkit_run_id" ]; then
                       echo "::warning::No successful nightly Storybook run with live webkit JUnit artifacts; keeping the manifest's webkit timings"
                   else

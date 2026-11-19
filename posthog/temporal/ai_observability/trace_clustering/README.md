@@ -316,23 +316,24 @@ if results:
 
 The coordinator workflow (`llma-trace-clustering-coordinator`) runs on a schedule and:
 
-1. Discovers teams dynamically via `get_team_ids_for_ai_observability` (guaranteed teams + a random sample of teams with AI events)
+1. Discovers opted-in projects with AI data processing consent and AI events in the discovery window via `get_team_ids_for_ai_observability`
 2. Spawns clustering workflow for each team in parallel
 3. Handles failures gracefully (individual team failures don't affect others)
 
-Team discovery is configured at runtime from the `llm-analytics-clustering-workflows`
-feature flag payload (distinct ID `internal_llma_team_discovery`), so it can change
-without a deploy. The payload carries:
+Clustering eligibility comes from `ClusteringConfig.enabled` and organization AI data processing consent.
+The `llm-analytics-clustering-workflows` feature flag (distinct ID `internal_llma_team_discovery`)
+retains `skip_team_ids` as an operational exclusion for scheduled runs, and
+`discovery_lookback_days` for coordinators without an explicit window. Legacy guaranteed-team
+and random-sampling settings no longer enable projects. Discovery failures stop dispatch rather
+than falling back to an allowlist.
 
-- `guaranteed_team_ids` — teams always included (dogfooding and customer teams). This
-  is the source of truth for the allowlist.
-- `skip_team_ids` — teams always excluded, even if guaranteed or sampled.
-- `sample_percentage` — fraction of remaining teams (with AI events) to sample.
-
-`team_discovery.py` holds only the dev/test fallbacks (`DEFAULT_GUARANTEED_TEAM_IDS`,
-`DEFAULT_SAMPLE_PERCENTAGE`), used when the flag payload is missing or invalid — i.e.
-local development and CI. If discovery fails entirely, the coordinator falls back to
-those guaranteed teams only.
+Scheduled runs require at least 10 prepared items. Enabling clustering saves the setting without
+starting an immediate run. Existing schedules retain their overlap policies. Embedding reads
+require the job's current filter and analysis-level scope. Paid work and emission recheck project
+eligibility and whether the job is still enabled with the same scope.
+Execution guards cache the operational skip list for 30 seconds per process. Project enablement,
+AI data processing consent, and job scope are checked against the database on every guard call.
+Jobs belong to their project (`team_id`) and do not depend on their creator's continued access.
 
 ## Configuration
 
@@ -344,7 +345,8 @@ Key constants in `constants.py`:
 | `COORDINATOR_WORKFLOW_NAME`         | llma-trace-clustering-coordinator | Temporal coordinator workflow name                                   |
 | `DEFAULT_LOOKBACK_DAYS`             | 7                                 | Days of trace history to analyze                                     |
 | `DEFAULT_MAX_SAMPLES`               | 1500                              | Maximum traces to sample                                             |
-| `MIN_TRACES_FOR_CLUSTERING`         | 1000                              | Minimum items per level required for workflow                        |
+| `MIN_TRACES_FOR_CLUSTERING`         | 10                                | Minimum items per level required for workflow                        |
+| `COORDINATOR_EXECUTION_TIMEOUT`     | 20h                               | Coordinator run budget; teams not started by then get no clusters    |
 | `WORKFLOW_EXECUTION_TIMEOUT`        | 45m                               | Per-team workflow execution timeout                                  |
 | `COMPUTE_ACTIVITY_TIMEOUT`          | 300s                              | Per-attempt clustering compute timeout                               |
 | `COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT` | 720s                              | Total compute timeout including retries, backoff, and queueing       |
@@ -397,7 +399,8 @@ Key constants in `constants.py`:
 
 ## Error Handling
 
-- **Insufficient data**: Skip clustering if fewer than 1000 items (per analysis level)
+- **Opt-in required**: Automated discovery includes only projects with `ClusteringConfig.enabled` and organization AI data processing approval. New and existing projects default to disabled. Enabling creates missing default jobs; disabling preserves jobs and past results while stopping future processing.
+- **Insufficient data**: Skip clustering if fewer than 5 items (per analysis level). There is no project-volume eligibility threshold.
 - **Compute activity retries**: 3 attempts with exponential backoff, capped by the 720s schedule-to-close budget. `ClickHouseAtCapacity` and `ConcurrencyLimitExceeded` wait a jittered 20–60s before the retry instead, and reach error tracking only on the last attempt
 - **LLM activity retries**: 2 attempts with longer intervals (for rate limits)
 - **Emit activity retries**: 3 attempts with exponential backoff

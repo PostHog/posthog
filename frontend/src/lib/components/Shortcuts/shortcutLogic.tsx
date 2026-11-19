@@ -38,6 +38,10 @@ interface ShortcutBase {
     ignoreInEditable?: boolean
     /** Higher priority items appear first in their group. Default: 0 */
     priority?: number
+    /** Easter egg enabler */
+    hidden?: boolean
+    /** Sequence shortcuts only: also fire when the sequence is typed into a text field, without swallowing the keys */
+    matchInEditable?: boolean
 }
 
 interface ShortcutWithRef extends ShortcutBase {
@@ -179,7 +183,10 @@ export const shortcutLogic = kea<shortcutLogicType>([
             (shortcuts: ShortcutType[], disabledNames: string[]): SearchItem[] =>
                 shortcuts
                     .filter(
-                        (shortcut) => !disabledNames.includes(shortcut.name) && !HIDDEN_FROM_SEARCH.has(shortcut.name)
+                        (shortcut) =>
+                            !shortcut.hidden &&
+                            !disabledNames.includes(shortcut.name) &&
+                            !HIDDEN_FROM_SEARCH.has(shortcut.name)
                     )
                     .map((shortcut) => ({
                         id: `shortcut-${shortcut.name}`,
@@ -205,12 +212,16 @@ export const shortcutLogic = kea<shortcutLogicType>([
         cache.sequenceKeys = [] as string[]
         cache.sequenceShortcut = null as ShortcutType | null
         cache.sequenceLastKeyTime = 0
+        cache.editableKeys = [] as string[]
+        cache.editableLastKeyTime = 0
+        cache.editableTarget = null as EventTarget | null
 
         cache.onKeyDown = (event: KeyboardEvent) => {
             const target = event.composedPath()[0]
             if (target instanceof HTMLElement && target.closest('[data-shortcuts-ignore="all"]')) {
                 cache.sequenceKeys = []
                 cache.sequenceShortcut = null
+                cache.editableKeys = []
                 return
             }
             const controlKeyCapture =
@@ -231,6 +242,7 @@ export const shortcutLogic = kea<shortcutLogicType>([
                 // Reset any in-progress sequence
                 cache.sequenceKeys = []
                 cache.sequenceShortcut = null
+                cache.editableKeys = []
 
                 // modifier vocabulary and order must stay in lockstep with formatTriggeredKeybind in
                 // lib/hooks/useKeyboardHotkeys.tsx, so the same chord reports the same `keybind` string
@@ -276,6 +288,44 @@ export const shortcutLogic = kea<shortcutLogicType>([
                 return
             }
 
+            if (isEditableElement(event) && !event.altKey && !event.isComposing) {
+                // The keys still reach the field, so this never calls preventDefault.
+                if (event.key.length !== 1) {
+                    cache.editableKeys = []
+                    return
+                }
+                const editableNow = Date.now()
+                if (target !== cache.editableTarget || editableNow - cache.editableLastKeyTime > 1500) {
+                    cache.editableKeys = []
+                }
+                cache.editableTarget = target
+                cache.editableLastKeyTime = editableNow
+                cache.editableKeys.push(event.key.toLowerCase())
+                const typed: string[] = cache.editableKeys
+                const typedShortcut = values.registeredShortcuts.find(
+                    (shortcut) =>
+                        shortcut.matchInEditable &&
+                        !values.disabledShortcutNames.includes(shortcut.name) &&
+                        shortcut.keybind.some((keybind) => {
+                            if (!isSequenceKeybind(keybind)) {
+                                return false
+                            }
+                            const sequenceKeys = getSequenceKeys(keybind)
+                            return (
+                                typed.length >= sequenceKeys.length &&
+                                typed.slice(-sequenceKeys.length).every((k, i) => k === sequenceKeys[i])
+                            )
+                        })
+                )
+                if (typedShortcut) {
+                    cache.editableKeys = []
+                    triggerShortcut(typedShortcut, typedShortcut.keybind.find((kb) => isSequenceKeybind(kb))!)
+                } else if (typed.length > 32) {
+                    typed.shift()
+                }
+                return
+            }
+
             // Handle sequence shortcuts (no modifier keys, not in editable elements, not mid-IME-composition)
             if (isEditableElement(event) || event.altKey || event.isComposing) {
                 return
@@ -284,14 +334,43 @@ export const shortcutLogic = kea<shortcutLogicType>([
             const now = Date.now()
             const key = event.key.toLowerCase()
 
+            // Reset if too much time has passed (1.5s). This runs before the single-key
+            // lookup below so an abandoned sequence never suppresses a single-key shortcut.
+            if (now - cache.sequenceLastKeyTime > 1500) {
+                cache.sequenceKeys = []
+                cache.sequenceShortcut = null
+            }
+
             // Check for single-key shortcuts first (immediate trigger, no sequence)
             // Since single key shortcuts trigger eagerly, sequence shortcuts need to
             // check for collisions before being implemented. We could also make this
             // "lazy" but that would result in a noticeable lag in app for single key
-            // shortcuts. My preference is the eager way
-            const singleKeyMatch = values.registeredShortcuts.find((shortcut) =>
-                shortcut.keybind.some((keybind) => isSingleKeyKeybind(keybind) && keybind[0] === key)
-            )
+            // shortcuts. My preference is the eager way.
+            //
+            // Exception: if a sequence is already in progress (we've buffered at least
+            // one key within the timeout) and this key continues it, suppress single-key shortcuts so that
+            // sequences whose intermediate letters happen to match a single-key binding
+            // (e.g. HESOYAM contains 'e', which is bound to "edit" on the dashboard
+            // scene) can still complete.
+            const continuesSequence =
+                cache.sequenceKeys.length > 0 &&
+                values.registeredShortcuts.some((shortcut) =>
+                    shortcut.keybind.some((keybind) => {
+                        if (!isSequenceKeybind(keybind)) {
+                            return false
+                        }
+                        const sequenceKeys = getSequenceKeys(keybind)
+                        return (
+                            cache.sequenceKeys.length < sequenceKeys.length &&
+                            [...cache.sequenceKeys, key].every((k: string, i: number) => k === sequenceKeys[i])
+                        )
+                    })
+                )
+            const singleKeyMatch = !continuesSequence
+                ? values.registeredShortcuts.find((shortcut) =>
+                      shortcut.keybind.some((keybind) => isSingleKeyKeybind(keybind) && keybind[0] === key)
+                  )
+                : undefined
 
             if (singleKeyMatch && !values.disabledShortcutNames.includes(singleKeyMatch.name)) {
                 event.preventDefault()
@@ -302,11 +381,6 @@ export const shortcutLogic = kea<shortcutLogicType>([
                 return
             }
 
-            // Reset if too much time has passed (1.5s)
-            if (now - cache.sequenceLastKeyTime > 1500) {
-                cache.sequenceKeys = []
-                cache.sequenceShortcut = null
-            }
             cache.sequenceLastKeyTime = now
 
             // Build up the sequence

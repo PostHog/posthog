@@ -1,4 +1,4 @@
-import { mkdirSync, realpathSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, realpathSync } from 'fs'
 import path from 'path'
 import { parseArgs } from 'util'
 
@@ -9,13 +9,18 @@ import { StackConflictError, holdRunLock } from './environment/processes'
 import { roleSpecs, secretsOf } from './environment/roles'
 import { cyclotronUrlOf } from './environment/stack'
 import { Runner, createRunner } from './runner/runner'
+import { readSavedRun, savedRunPathOf } from './runner/saved-run'
 import { EXIT_CODE, exitCodeOf } from './runner/status'
+import { ADAPTERS } from './scorecard/scorecard'
 import { credentialsOf } from './scorecard/write'
+import { STORE_URL, reportToStore, storeTokenPathOf } from './store/client'
+import { RunId } from './store/runs'
 
 const CARDS_DIR = path.join(__dirname, 'cards')
 const USAGE = [
     'Usage: pnpm --dir nodejs exec tsx tests/scenarios/main.ts run <card id or path>... [--profile <file>]',
     '       pnpm --dir nodejs exec tsx tests/scenarios/main.ts seed-backlog --profile <file>',
+    '       pnpm --dir nodejs exec tsx tests/scenarios/main.ts publish <run id or run directory>... | --all',
 ].join('\n')
 
 function cardPathOf(card: string): string {
@@ -44,11 +49,16 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     const { positionals, values } = parseArgs({
         args: argv,
         allowPositionals: true,
-        options: { profile: { type: 'string' } },
+        options: { profile: { type: 'string' }, all: { type: 'boolean' } },
     })
     const [command, ...cards] = positionals
     if (command === 'seed-backlog' && cards.length === 0 && values.profile !== undefined) {
         return seedBacklogOf(values.profile, env)
+    }
+    const publishesAll = values.all === true
+    const namesRuns = cards.length > 0
+    if (command === 'publish' && publishesAll !== namesRuns) {
+        return publishRuns(cards, env)
     }
     if (command !== 'run' || cards.length === 0) {
         process.stderr.write(`${USAGE}\n`)
@@ -64,6 +74,53 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     process.once('SIGINT', () => interrupt.abort())
     process.once('SIGTERM', () => interrupt.abort())
     return runCards(createRunner(createEnvironment(), env), checked.loaded, interrupt.signal)
+}
+
+function runDirsOf(runs: string[], env: NodeJS.ProcessEnv): string[] {
+    const stateDir = defaultStateDir(env)
+    if (runs.length > 0) {
+        return runs.map((run) => {
+            const local = path.resolve(run)
+            return existsSync(local) || !RunId.safeParse(run).success ? local : path.join(stateDir, run)
+        })
+    }
+    if (!existsSync(stateDir)) {
+        return []
+    }
+    return readdirSync(stateDir)
+        .filter((name) => RunId.safeParse(name).success && existsSync(savedRunPathOf(path.join(stateDir, name))))
+        .sort()
+        .map((name) => path.join(stateDir, name))
+}
+
+async function publishSaved(runDir: string, env: NodeJS.ProcessEnv): Promise<string | undefined> {
+    const saved = readSavedRun(runDir)
+    if ('problem' in saved) {
+        return saved.problem
+    }
+    const { event, host } = saved.run
+    const scorecard = { ...event, adapters: event.adapters ?? ADAPTERS }
+    return (await reportToStore({ scorecard, host }, env)).problem
+}
+
+async function publishRuns(runs: string[], env: NodeJS.ProcessEnv): Promise<number> {
+    if (!env[STORE_URL]) {
+        process.stderr.write(
+            `Set ${STORE_URL} to the run store's URL, and put its run token in ${storeTokenPathOf(env)}.\n`
+        )
+        return EXIT_CODE.invalid
+    }
+    let code: number = EXIT_CODE.passed
+    for (const runDir of runDirsOf(runs, env)) {
+        const problem = await publishSaved(runDir, env).catch((error: Error) => error.message)
+        if (problem === undefined) {
+            process.stdout.write(`${path.basename(runDir)}: stored\n`)
+        } else {
+            process.stderr.write(`${path.basename(runDir)}: ${problem}\n`)
+            code = EXIT_CODE.writeFailed
+        }
+    }
+    return code
 }
 
 async function seedBacklogOf(profilePath: string, env: NodeJS.ProcessEnv): Promise<number> {
@@ -127,7 +184,7 @@ export async function runCards(runner: Runner, cards: LoadedCard[], interrupt: A
     let code: number = EXIT_CODE.passed
     let ran = 0
     try {
-        await runner.up()
+        await runner.up(interrupt)
         for (const loaded of cards) {
             if (interrupt.aborted) {
                 break
@@ -140,6 +197,8 @@ export async function runCards(runner: Runner, cards: LoadedCard[], interrupt: A
             const problems = result.scorecardError ? [result.scorecardError] : []
             const scorecard = [...recording, ...problems].join('; ') || 'not written, no credentials set'
             process.stdout.write(`scorecard: ${scorecard}\n`)
+            const store = result.stored ? 'stored' : (result.storeError ?? `not reported, ${STORE_URL} is not set`)
+            process.stdout.write(`store: ${store}\n`)
             code = Math.max(code, exitCodeOf(result))
             ran += 1
         }

@@ -15,7 +15,17 @@ import {
     IconTrash,
     IconWarning,
 } from '@posthog/icons'
-import { LemonBanner, LemonDivider, LemonMenu, LemonSnack, LemonTabs, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonCheckbox,
+    LemonDivider,
+    LemonMenu,
+    LemonSnack,
+    LemonTabs,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -40,6 +50,7 @@ import { pluralize } from 'lib/utils/strings'
 import { StaticCohortMode, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
+import { hasEventCriteria } from 'scenes/cohorts/cohortUtils'
 import { storesFlagCallsOutsideEvents } from 'scenes/feature-flags/flagEvaluationsTable'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -56,14 +67,20 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { TodayPeoplePinButton } from '~/layout/today/TodayPeoplePinButton'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
+import { getPersonForDeleteColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
+import { isDataTableNode } from '~/queries/schema/node-guards'
+import { DataTableNode, VisualizationNode } from '~/queries/schema/schema-general'
 import { ActivityScope, CohortType, SidePanelTab } from '~/types'
 
 import { cohortFlagCallProblem, flagCallProblemText } from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { CohortRealtimeStatus } from 'products/cohorts/frontend/realtime/CohortRealtimeStatus'
+import { RealtimeCohortsUsage } from 'products/cohorts/frontend/realtime/RealtimeCohortsUsage'
+import { useRealtimeCohortsServing } from 'products/cohorts/frontend/realtime/useRealtimeCohortsServing'
+import { asDisplay } from 'products/persons/frontend/person-utils'
 import {
     captureMessageAudienceClicked,
     messageAudienceAccessDisabledReason,
@@ -88,7 +105,7 @@ import {
 } from './cohortUtils'
 import { openDeleteCohortDialog } from './DeleteCohortDialog'
 import { PersonSelectList } from './PersonSelectList'
-import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
+import { RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 
 const RESOURCE_TYPE = 'cohort'
 
@@ -162,14 +179,24 @@ export interface CohortEditProps {
 export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const logicProps = { id }
 
-    const renderRemovePersonFromCohortButton = ({ record }: { record: unknown }): JSX.Element => {
+    const renderRemovePersonFromCohortButton = ({
+        record,
+        query,
+    }: {
+        record: unknown
+        query: DataTableNode | VisualizationNode
+    }): JSX.Element => {
         if (!Array.isArray(record)) {
             console.error('Expected record to be an array for person.$delete column')
             return <></>
         }
-        const personRecord = record[0] as PersonDisplayNameType
+        const person = isDataTableNode(query) ? getPersonForDeleteColumn(record, query) : null
+        // Only the person_display_name column carries a display name, so the other person columns build one
+        const cohortPerson = person?.id
+            ? { id: person.id, display_name: person.display_name ?? asDisplay(person) }
+            : null
 
-        return <RemovePersonFromCohortButton person={personRecord} />
+        return <RemovePersonFromCohortButton person={cohortPerson} />
     }
 
     const logic = cohortEditLogic(logicProps)
@@ -191,6 +218,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         openBlockingWorkflowsModal,
         submitCohort,
         setCsvUploadModalOpen,
+        switchRealtime,
     } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic(logicProps)
     const { showAddPersonToCohortModal } = useActions(modalLogic)
@@ -209,11 +237,14 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         staticCohortMode,
         activeTab,
         hasAddUsersMenu,
+        realtimeSwitchAction,
+        realtimeSwitchLoading,
     } = useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const realtimeCohortsServing = useRealtimeCohortsServing()
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const flagCallProblem = cohortFlagCallProblem(cohort)
@@ -391,7 +422,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                     <SceneContent>
                         <LemonField name="name" className="contents">
                             <SceneTitleSection
-                                nameAction={<TodayPeoplePinButton />}
+                                nameAction={<TodayScenePinButton />}
                                 name={cohort.name}
                                 nameSuffix={
                                     !isNewCohort ? (
@@ -649,6 +680,25 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 )
                                             )}
 
+                                            {isNewCohort && realtimeCohortsServing && hasEventCriteria(cohort) && (
+                                                <>
+                                                    <LemonField
+                                                        name="realtime_enabled"
+                                                        help="Feature flags can target the cohort once PostHog has prepared it from past events."
+                                                    >
+                                                        {({ value, onChange }) => (
+                                                            <LemonCheckbox
+                                                                checked={!!value}
+                                                                onChange={onChange}
+                                                                label="Turn on realtime"
+                                                                data-attr="cohort-create-realtime"
+                                                            />
+                                                        )}
+                                                    </LemonField>
+                                                    <RealtimeCohortsUsage location="cohort_create" />
+                                                </>
+                                            )}
+
                                             {cohort.is_static && isNewCohort && (
                                                 <div className="flex flex-col gap-y-2">
                                                     <h2 className="text-base mb-0">Populate from</h2>
@@ -670,7 +720,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                             {!isNewCohort && !cohort.is_static && (
                                                 <div className="flex items-center gap-x-2 my-0">
                                                     <strong>Last calculated:</strong>
-                                                    {featureFlags[FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING] && (
+                                                    {realtimeCohortsServing && (
                                                         <Tooltip title="When PostHog last worked out who belongs to this cohort. That count is what insights, breakdowns and the people list below use, and it is recalculated once a day and whenever you edit the cohort.">
                                                             <IconInfo className="text-secondary text-base" />
                                                         </Tooltip>
@@ -689,7 +739,12 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                             )}
 
                                             {!isNewCohort && !cohort.is_static && (
-                                                <CohortRealtimeStatus realtime={cohort.realtime} />
+                                                <CohortRealtimeStatus
+                                                    realtime={cohort.realtime}
+                                                    switchAction={realtimeSwitchAction}
+                                                    switching={realtimeSwitchLoading}
+                                                    onSwitch={switchRealtime}
+                                                />
                                             )}
 
                                             {!isNewCohort && usedIn && (

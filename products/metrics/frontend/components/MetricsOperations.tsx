@@ -5,7 +5,7 @@ import {
     MetricAggregation,
     MetricRangeFunction,
     MetricsViewerClause,
-    isHistogramQuantileAggregation,
+    isHistogramOnlyAggregation,
     supportsHistogramQuantile,
 } from './metricsViewerLogic'
 
@@ -53,15 +53,25 @@ const HISTOGRAM_AGGREGATION_OPTIONS: OperationOption<MetricAggregation>[] = [
         label: 'Histogram p99',
         description: '99th percentile of the recorded values, read from the histogram buckets.',
     },
+    {
+        value: 'count_rate',
+        label: 'Count rate (/s)',
+        description: 'Recorded values per second, such as requests per second from a latency histogram.',
+    },
+    {
+        value: 'count_increase',
+        label: 'Count increase',
+        description: 'Number of values recorded in each time bucket.',
+    },
 ]
 
 // A clause converted from a PromQL histogram percentile has no metric type, so its current
-// aggregation also unlocks the other percentiles.
+// aggregation also unlocks the other histogram options.
 const aggregationOptionsFor = (
     metricType: MetricsViewerClause['selectedMetricType'],
     aggregation: MetricAggregation | null
 ): OperationOption<MetricAggregation>[] =>
-    supportsHistogramQuantile(metricType) || isHistogramQuantileAggregation(aggregation)
+    supportsHistogramQuantile(metricType) || isHistogramOnlyAggregation(aggregation)
         ? [...HISTOGRAM_AGGREGATION_OPTIONS, ...AGGREGATION_OPTIONS]
         : AGGREGATION_OPTIONS
 

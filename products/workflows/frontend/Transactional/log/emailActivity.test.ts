@@ -33,6 +33,7 @@ describe('emailActivity', () => {
                     workflow_id: 'workflow',
                     template_id: 'template',
                     template_name: 'Payment receipt',
+                    code_email_id: null,
                     sending_domain: 'example.com',
                     opened: false,
                     clicked: false,

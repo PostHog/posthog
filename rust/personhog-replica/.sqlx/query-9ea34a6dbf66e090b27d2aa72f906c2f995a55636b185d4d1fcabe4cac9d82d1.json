@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='delete_persons_batch_for_team_clear_tombstone_queue' */ DELETE FROM person_tombstone_publish_queue WHERE team_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9ea34a6dbf66e090b27d2aa72f906c2f995a55636b185d4d1fcabe4cac9d82d1"
+}

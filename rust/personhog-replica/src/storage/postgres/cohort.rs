@@ -24,7 +24,7 @@ async fn insert_cohort_members_chunk(
 ) -> StorageResult<i64> {
     let mut conn = PostgresStorage::acquire_timed(pool, "bulk_primary").await?;
     let result = sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='insert_cohort_members_chunk' */
         INSERT INTO posthog_cohortpeople (person_id, cohort_id, version)
         SELECT pid, $1::bigint, $3
         FROM UNNEST($2::bigint[]) AS t(pid)
@@ -37,6 +37,28 @@ async fn insert_cohort_members_chunk(
         cohort_id,
         person_ids,
         version,
+    )
+    .execute(&mut *conn)
+    .await?;
+    Ok(result.rows_affected() as i64)
+}
+
+/// Delete one bounded chunk of a cohort's members. The (cohort_id, person_id) index keeps
+/// this an index scan. A person that is no longer a member deletes nothing, so a retry of
+/// the full list is safe.
+async fn delete_cohort_members_by_person_ids_chunk(
+    pool: &sqlx::PgPool,
+    cohort_id: i64,
+    person_ids: &[i64],
+) -> StorageResult<i64> {
+    let mut conn = PostgresStorage::acquire_timed(pool, "bulk_primary").await?;
+    let result = sqlx::query!(
+        r#"/* service='personhog-replica', operation='delete_cohort_members_by_person_ids_chunk' */
+        DELETE FROM posthog_cohortpeople
+        WHERE cohort_id = $1::bigint AND person_id = ANY($2::bigint[])
+        "#,
+        cohort_id,
+        person_ids,
     )
     .execute(&mut *conn)
     .await?;
@@ -76,7 +98,7 @@ impl CohortStorage for PostgresStorage {
         // cohort_id to bigint (out-of-band), while prod-eu and the tracked schema have it as
         // integer. sqlx decodes i64 from the cast either way, so one binary works on both.
         let member_ids: Vec<i64> = sqlx::query_scalar!(
-            r#"
+            r#"/* service='personhog-replica', operation='check_cohort_membership' */
             SELECT cohort_id::bigint AS "cohort_id!"
             FROM posthog_cohortpeople
             WHERE person_id = $1 AND cohort_id = ANY($2::bigint[])
@@ -135,7 +157,7 @@ impl CohortStorage for PostgresStorage {
         let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let count: i64 = sqlx::query_scalar!(
-            r#"
+            r#"/* service='personhog-replica', operation='count_cohort_members' */
             SELECT COUNT(*) as "count!"
             FROM posthog_cohortpeople
             WHERE cohort_id = ANY($1::bigint[])
@@ -162,7 +184,7 @@ impl CohortStorage for PostgresStorage {
         let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
 
         let result = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='delete_cohort_member' */
             DELETE FROM posthog_cohortpeople
             WHERE cohort_id = $1::bigint AND person_id = $2
             "#,
@@ -201,7 +223,7 @@ impl CohortStorage for PostgresStorage {
             PostgresStorage::acquire_timed(&self.bulk_primary_pool, "bulk_primary").await?;
 
         let result = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='delete_cohort_members_bulk' */
             DELETE FROM posthog_cohortpeople
             WHERE id IN (
                 SELECT id FROM posthog_cohortpeople
@@ -229,6 +251,72 @@ impl CohortStorage for PostgresStorage {
         );
 
         Ok(result.rows_affected() as i64)
+    }
+
+    async fn delete_cohort_members_by_person_ids(
+        &self,
+        cohort_id: i64,
+        person_ids: &[i64],
+    ) -> StorageResult<i64> {
+        if person_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let client = current_client_name();
+        let method = current_method_name();
+        let labels = [
+            (
+                "operation".to_string(),
+                "delete_cohort_members_by_person_ids".to_string(),
+            ),
+            ("pool".to_string(), "bulk_primary".to_string()),
+            ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let pool = self.bulk_primary_pool.clone();
+        let chunks: Vec<Vec<i64>> = person_ids
+            .chunks(self.bulk_chunk_size)
+            .map(|c| c.to_vec())
+            .collect();
+        common_metrics::histogram(
+            DB_BULK_CHUNKS,
+            &[(
+                "operation".to_string(),
+                "delete_cohort_members_by_person_ids".to_string(),
+            )],
+            chunks.len() as f64,
+        );
+
+        let results: Vec<i64> =
+            stream::iter(
+                chunks.into_iter().map(|chunk| {
+                    let pool = pool.clone();
+                    async move {
+                        delete_cohort_members_by_person_ids_chunk(&pool, cohort_id, &chunk).await
+                    }
+                }),
+            )
+            .buffer_unordered(self.bulk_max_concurrent_chunks)
+            .try_collect()
+            .await?;
+
+        let deleted: i64 = results.iter().sum();
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[
+                (
+                    "operation".to_string(),
+                    "delete_cohort_members_by_person_ids".to_string(),
+                ),
+                ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
+            ],
+            deleted as f64,
+        );
+
+        Ok(deleted)
     }
 
     async fn insert_cohort_members(
@@ -314,7 +402,7 @@ impl CohortStorage for PostgresStorage {
         let fetch_limit = (limit as i64) + 1;
 
         let rows: Vec<i64> = sqlx::query_scalar!(
-            r#"
+            r#"/* service='personhog-replica', operation='list_cohort_member_ids' */
             SELECT person_id
             FROM posthog_cohortpeople
             WHERE cohort_id = $1::bigint AND person_id > $2

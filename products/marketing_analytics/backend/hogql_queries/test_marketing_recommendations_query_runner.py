@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -20,6 +21,11 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import uuid7
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
+    FlaggedAd,
+    PolicyAds,
+    PolicyTopic,
+)
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
     MarketingAnalyticsRecommendationsQueryRunner,
 )
@@ -233,6 +239,113 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         )
 
         assert [(page.query, page.page) for page in pages] == [("funnel analysis", "https://example.com/funnels")]
+
+    def test_reads_the_enabled_ads_of_each_ad_group(self) -> None:
+        campaigns = self._table(
+            "campaign",
+            {
+                "campaign_id": "Int64",
+                "campaign_name": "String",
+                "campaign_advertising_channel_type": "String",
+                "campaign_budget_amount_micros": "Int64",
+            },
+            "campaign_id,campaign_name,campaign_advertising_channel_type,campaign_budget_amount_micros\n"
+            "1,Search,SEARCH,100000000\n",
+        )
+        stats = self._table(
+            "campaign_stats",
+            {
+                "campaign_id": "Int64",
+                "segments_date": "Date",
+                "metrics_cost_micros": "Int64",
+                "metrics_conversions": "Float64",
+            },
+            "campaign_id,segments_date,metrics_cost_micros,metrics_conversions\n1,2026-01-15,1000000000,10\n",
+        )
+        term_columns = {
+            "search_term_view_search_term": "String",
+            "campaign_id": "Int64",
+            "ad_group_id": "Int64",
+            "segments_date": "Date",
+            "metrics_clicks": "Int64",
+            "metrics_impressions": "Int64",
+            "metrics_cost_micros": "Int64",
+            "metrics_conversions": "Float64",
+            "search_term_view_status": "String",
+        }
+        terms = self._table(
+            "search_term_stats",
+            term_columns,
+            ",".join(term_columns) + "\n"
+            "dentist crm,1,11,2026-01-15,10,100,250000000,0,NONE\n"
+            "analytics pricing,1,11,2026-01-15,10,100,400000000,0,NONE\n"
+            "product analytics,1,11,2026-01-15,10,100,350000000,10,NONE\n"
+            "patient records,1,11,2026-01-15,10,100,300000000,0,NONE\n",
+        )
+        ad_columns = {
+            "ad_group_id": "Int64",
+            "campaign_id": "Int64",
+            "ad_group_ad_status": "String",
+            "ad_group_ad_ad_responsive_search_ad_headlines": "String",
+            "ad_group_ad_ad_responsive_search_ad_descriptions": "String",
+            "ad_group_ad_ad_final_urls": "String",
+            "ad_group_ad_ad_expanded_text_ad_headline_part1": "String",
+            "ad_group_ad_policy_summary_approval_status": "String",
+            "ad_group_ad_ad_id": "Int64",
+            "ad_group_ad_policy_summary_policy_topic_entries": "String",
+        }
+        policy_entry = {
+            "topic": "TRADEMARKS_IN_AD_TEXT",
+            "type": "PROHIBITED",
+            "evidences": [{"textList": {"texts": ["Acme"]}}],
+        }
+        policy_topics = json.dumps([json.dumps(policy_entry)]).replace('"', '""')
+        # The sync stores each text asset as a JSON message inside a JSON list. The paused ad does not show.
+        ads = self._table(
+            "ad",
+            ad_columns,
+            ",".join(ad_columns) + "\n"
+            '11,1,ENABLED,"[""{\\""text\\"": \\""Product analytics\\""}""]","[]","[""https://example.com/product""]",,DISAPPROVED,'
+            f'101,"{policy_topics}"\n'
+            '11,1,PAUSED,"[""{\\""text\\"": \\""CRM for dentists\\""}""]","[]","[""https://example.com/crm""]",,DISAPPROVED,102,[]\n'
+            "11,1,ENABLED,[],[],[],Patient records made simple,APPROVED_LIMITED,100,[]\n"
+            "11,1,ENABLED,[],[],[],Session replay,APPROVED,104,[]\n",
+        )
+        source = MarketingAnalyticsRecommendationsSource(
+            sourceType="GoogleAds",
+            campaignTable=campaigns,
+            campaignStatsTable=stats,
+            searchTermTable=terms,
+            adTable=ads,
+        )
+        runner = MarketingAnalyticsRecommendationsQueryRunner(
+            query=MarketingAnalyticsRecommendationsQuery(
+                dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-30"), sources=[source]
+            ),
+            team=self.team,
+            user=self.user,
+        )
+
+        response = runner.calculate()
+
+        assert [(ad.campaign_id, ad.final_urls) for ad in runner._ads(source)] == [
+            ("1", ("https://example.com/product",)),
+            ("1", ()),
+            ("1", ()),
+        ]
+        assert runner._policy_ads(source) == [PolicyAds(campaign_id="1", disapproved=1, limited=1)]
+        assert runner._flagged_ads(source) == [
+            FlaggedAd(
+                campaign_id="1",
+                ad_id="101",
+                headline="Product analytics",
+                policy_topics=(PolicyTopic(topic="TRADEMARKS_IN_AD_TEXT", type="PROHIBITED", texts=("Acme",)),),
+            ),
+            FlaggedAd(campaign_id="1", ad_id="100", headline="Patient records made simple", policy_topics=()),
+        ]
+        wasted = [rec for rec in response.results if rec.rule == "spend_without_conversions"]
+        assert [rec.subject for rec in wasted] == ["dentist crm", "analytics pricing", "patient records"]
+        assert wasted[0].reason.endswith("None of the main words in this search appear in the ads that showed on it.")
 
     @parameterized.expand(
         [
@@ -479,6 +592,7 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
                 "campaign_stats": True,
                 "search_term_stats": True,
                 "search_term_conversion_action_stats": True,
+                "ad": True,
                 "customer": False,
             },
         )
@@ -498,6 +612,7 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
                 "campaignStatsTable": "googleads.acme.campaign_stats",
                 "searchTermTable": "googleads.acme.search_term_stats",
                 "searchTermConversionActionTable": "googleads.acme.search_term_conversion_action_stats",
+                "adTable": "googleads.acme.ad",
             },
             {
                 "sourceType": "GoogleSearchConsole",
