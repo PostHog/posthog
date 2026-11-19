@@ -2306,6 +2306,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             alert=fake_alert,
             date_from=date_from_dt,
             date_to=date_to_dt,
+            user=request.user if isinstance(request.user, User) else None,
         ).execute_bucketed(interval_minutes=cadence_minutes, limit=MAX_SIMULATE_BUCKETS)
 
         cadence_buckets = _fill_empty_buckets(sparse_buckets, date_from_dt, date_to_dt, cadence_minutes)

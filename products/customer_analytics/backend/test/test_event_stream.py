@@ -10,15 +10,14 @@ from slack_sdk.errors import SlackApiError
 from posthog.constants import AvailableFeature
 from posthog.models import Integration, Organization, OrganizationMembership, Team
 
+from products.access_control.backend.facade.testing import set_member_property_access
 from products.access_control.backend.models.access_control import AccessControl
-from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.customer_analytics.backend.logic.event_stream_destination import _NO_MEMBERS_SENTINEL
 from products.customer_analytics.backend.models import EventStream, EventStreamMember, TeamCustomerAnalyticsConfig
 from products.customer_analytics.backend.test.factories import create_account
-from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestEventStreamViewSet(APIBaseTest):
@@ -62,16 +61,7 @@ class TestEventStreamViewSet(APIBaseTest):
     @parameterized.expand([("create",), ("update",), ("add_account",)])
     def test_property_restricted_member_cannot_configure_event_stream(self, operation: str) -> None:
         stream = self._create_stream() if operation != "create" else None
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
-        ]
-        self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        definition = PropertyDefinition.objects.create(
-            team=self.team, name="private_note", type=PropertyDefinition.Type.PERSON
-        )
-        PropertyAccessControl.objects.create(team=self.team, property_definition=definition, access_level="none")
+        set_member_property_access(team=self.team, membership=self.organization_membership, access="restricted")
 
         if operation == "create":
             response = self.client.post(self.base_url, self.valid_data)

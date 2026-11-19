@@ -13,11 +13,7 @@ from rest_framework import status
 
 from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, PropertyGroupFilter
 
-from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership
-
-from products.access_control.backend.models.property_access_control import PropertyAccessControl
-from products.event_definitions.backend.models import PropertyDefinition
+from products.access_control.backend.facade.testing import set_member_property_access
 from products.logs.backend import services_query_runner
 from products.logs.backend.models import LogsExclusionRule
 from products.logs.backend.services_query_runner import ServicesQueryRunner, rule_could_apply_to_service
@@ -381,21 +377,7 @@ class TestServicesCompare(ClickhouseTestMixin, APIBaseTest):
     def test_service_comparison_follows_property_access(
         self, _name: str, explicit_baseline: bool, change_user: bool
     ) -> None:
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
-        ]
-        self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        definition = PropertyDefinition.objects.create(
-            team=self.team, name="private_note", type=PropertyDefinition.Type.EVENT
-        )
-        PropertyAccessControl.objects.create(
-            team=self.team,
-            property_definition=definition,
-            organization_member=self.organization_membership,
-            access_level="none",
-        )
+        set_member_property_access(team=self.team, membership=self.organization_membership, access="restricted")
         service = "posthog-internal-hog-functions"
         insert_logs_and_rollups(_hour_rows(self.team.id, service, 11, 20, 0, {}))
         runner = ServicesQueryRunner(

@@ -18,8 +18,7 @@ from posthog.api.test.dashboards import DashboardAPI
 from posthog.clickhouse.client.execute import UntaggedQueryError, sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.clickhouse.workload import Workload
-from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, Team
+from posthog.models import Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.scopes.catalog import APIScopeObject
@@ -30,8 +29,8 @@ from posthog.session_recordings.session_recording_api import RecordingsListingRe
 from posthog.slo.types import SloOperation, SloOutcome
 from posthog.test.persons import create_person
 
+from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
-from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.dashboards.backend.constants import (
     ACTIVITY_EVENTS_DEFAULT_LIMIT,
     ACTIVITY_EVENTS_MAX_LIMIT,
@@ -63,7 +62,6 @@ from products.dashboards.backend.widgets.error_tracking_list import run_error_tr
 from products.dashboards.backend.widgets.logs_list import run_logs_list_widget
 from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget
 from products.error_tracking.backend.facade.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
-from products.event_definitions.backend.models import PropertyDefinition
 from products.logs.backend.models import LogsView
 
 
@@ -72,26 +70,10 @@ def _empty_listing_result() -> RecordingsListingResult:
 
 
 class TestLogsWidgetPropertyAccess(ClickhouseTestMixin, APIBaseTest):
-    @parameterized.expand([("member",), ("admin",)])
+    @parameterized.expand([("restricted",), ("admin",)])
     @time_machine.travel("2026-11-01T12:00:00Z", tick=False)
-    def test_logs_widget_respects_viewer_property_access(self, access: str) -> None:
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
-        ]
-        self.organization.save()
-        self.organization_membership.level = (
-            OrganizationMembership.Level.ADMIN if access == "admin" else OrganizationMembership.Level.MEMBER
-        )
-        self.organization_membership.save()
-        definition = PropertyDefinition.objects.create(
-            team=self.team, name="private_note", type=PropertyDefinition.Type.EVENT
-        )
-        PropertyAccessControl.objects.create(
-            team=self.team,
-            property_definition=definition,
-            organization_member=self.organization_membership,
-            access_level="none",
-        )
+    def test_logs_widget_respects_viewer_property_access(self, access: PropertyAccess) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
         services = ["application", "posthog-internal-hog-functions", "posthog-internal-workflows"]
         for service in services:
             sync_execute(
@@ -107,7 +89,7 @@ class TestLogsWidgetPropertyAccess(ClickhouseTestMixin, APIBaseTest):
 
         result = run_logs_list_widget(self.team, {"limit": 10}, user=self.user)
 
-        expected_services = ["application"] if access == "member" else services
+        expected_services = ["application"] if access == "restricted" else services
         assert sorted(row["body"] for row in result["results"]) == [
             f"{service} message" for service in expected_services
         ]

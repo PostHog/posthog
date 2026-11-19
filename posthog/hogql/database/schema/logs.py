@@ -38,7 +38,8 @@ def get_hogql_max_bytes_to_read_for_logs_user_queries(organization: "Organizatio
 
 class InternalLogsAccessTable(Table):
     def get_predicates(self, context: "HogQLContext | None" = None) -> list[ast.Expr]:
-        if context is not None and context.restricted_properties:
+        # Scheduled jobs run without a user and keep reading pipeline logs under the team's default rules.
+        if context is not None and context.user is not None and context.restricted_properties:
             return [parse_expr("service_name NOT IN ('posthog-internal-hog-functions', 'posthog-internal-workflows')")]
         return []
 

@@ -16,6 +16,7 @@ from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 from products.logs.backend.context_query_runner import (
     BODY_MAX_CHARS,
     LogsContextRunner,
@@ -473,6 +474,34 @@ class TestLogsContextAPI(ClickhouseTestMixin, APIBaseTest):
         assert [row["body"] for row in body["timeline"]] == ["run started", "step failed"]
         assert body["timeline"][1]["attrs"] == "step=upload"
         assert {"key": "workflow_run_id", "value": "run-42", "log_count": 2} in body["correlation_keys"]
+
+    @parameterized.expand([("restricted", ["scheduler"]), ("granted", None), ("admin", None)])
+    @time_machine.travel(_NOW, tick=False)
+    def test_context_hides_pipeline_logs_from_restricted_members(
+        self, access: PropertyAccess, expected_services: list[str] | None
+    ) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+        run = {"workflow_run_id": "run-42"}
+        self._insert_logs(
+            [
+                self._log(
+                    "00000000-0000-0000-0000-000000000001", _T0, "run started", service="scheduler", attributes=run
+                ),
+                self._log(
+                    "00000000-0000-0000-0000-000000000002",
+                    _T0 + dt.timedelta(seconds=30),
+                    "pipeline step",
+                    service="posthog-internal-hog-functions",
+                    attributes=run,
+                ),
+            ]
+        )
+
+        body = self._request(
+            {"anchor": {"attribute": {"key": "workflow_run_id", "value": "run-42"}, "around": "2026-06-23T12:01:00Z"}}
+        )
+
+        assert body["anchor"]["services"] == (expected_services or ["posthog-internal-hog-functions", "scheduler"])
 
     @time_machine.travel(_NOW, tick=False)
     def test_severity_levels_filter_the_timeline(self) -> None:

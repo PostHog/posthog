@@ -8,6 +8,7 @@ from rest_framework.response import Response
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.models.user import User
 from posthog.permissions import get_authenticator_scopes
 from posthog.scopes.checks import scopes_not_covered
 
@@ -208,7 +209,7 @@ def logs_context_response(team: "Team", request: Request, *, tracing_access: boo
         after=data.get("after"),
     )
     try:
-        result = LogsContextRunner(team, params).run()
+        result = LogsContextRunner(team, params, user=request.user if isinstance(request.user, User) else None).run()
     except OverflowError:
         raise exceptions.ValidationError("The anchor time is out of range.")
     except LogsContextError as error:

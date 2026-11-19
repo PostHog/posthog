@@ -11,11 +11,10 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
 from products.access_control.backend.models.access_control import AccessControl
-from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.actions.backend.facade.testing import create_action
-from products.event_definitions.backend.models import PropertyDefinition
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
@@ -123,29 +122,14 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_property_permissions_apply_to_workflows(
-        self, _name: str, method: str, action: str, access: str, expected_status: int
+        self, _name: str, method: str, action: str, access: PropertyAccess, expected_status: int
     ) -> None:
-        self.organization.available_product_features = [
-            *(self.organization.available_product_features or []),
-            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL},
-        ]
-        self.organization.save()
-        definition = PropertyDefinition.objects.create(
-            team=self.team, name="private_note", type=PropertyDefinition.Type.EVENT
-        )
-        PropertyAccessControl.objects.create(team=self.team, property_definition=definition, access_level="none")
         user = self.user if access == "admin" else self.editor_user
-        if access == "admin":
-            OrganizationMembership.objects.filter(organization=self.organization, user=user).update(
-                level=OrganizationMembership.Level.ADMIN
-            )
-        if access == "granted":
-            PropertyAccessControl.objects.create(
-                team=self.team,
-                property_definition=definition,
-                organization_member=OrganizationMembership.objects.get(organization=self.organization, user=user),
-                access_level="read",
-            )
+        set_member_property_access(
+            team=self.team,
+            membership=OrganizationMembership.objects.get(organization=self.organization, user=user),
+            access=access,
+        )
         self._create_access_control(user, access_level="editor")
         self.client.force_login(user)
         url = self._list_url() if not action else self._detail_url()

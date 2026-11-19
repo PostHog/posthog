@@ -11,11 +11,8 @@ from parameterized import parameterized
 from rest_framework import exceptions, status
 
 from posthog.clickhouse.client import sync_execute
-from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership
 
-from products.access_control.backend.models.property_access_control import PropertyAccessControl
-from products.event_definitions.backend.models import PropertyDefinition
+from products.access_control.backend.facade.testing import set_member_property_access
 from products.logs.backend.presentation.views.explain import (
     LogExplanationResponse,
     explain_log_with_openai,
@@ -349,21 +346,7 @@ class TestLogExplainAPI(ClickhouseTestMixin, APIBaseTest):
             assert mock_report.call_args[0][2]["cached"] is False
 
             if restricted:
-                self.organization.available_product_features = [
-                    {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
-                ]
-                self.organization.save()
-                self.organization_membership.level = OrganizationMembership.Level.MEMBER
-                self.organization_membership.save()
-                definition = PropertyDefinition.objects.create(
-                    team=self.team, name="private_note", type=PropertyDefinition.Type.EVENT
-                )
-                PropertyAccessControl.objects.create(
-                    team=self.team,
-                    property_definition=definition,
-                    organization_member=self.organization_membership,
-                    access_level="none",
-                )
+                set_member_property_access(team=self.team, membership=self.organization_membership, access="restricted")
 
             response2 = self.client.post(
                 f"/api/environments/{self.team.id}/logs/explainLogWithAI/",

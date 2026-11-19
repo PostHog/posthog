@@ -18,7 +18,16 @@ class CDPPropertyAccessPermission(BasePermission):
         "Ask a project administrator for help."
     )
     sensitive_read_actions = frozenset(
-        {"logs", "invocation_results", "invocation_results_count", "invocation_result", "assets", "asset_content"}
+        {
+            "logs",
+            "invocation_results",
+            "invocation_results_count",
+            "invocation_result",
+            "assets",
+            "asset_content",
+            "emails",
+            "push_notifications",
+        }
     )
 
     def has_permission(self, request: "Request", view: "APIView") -> bool:

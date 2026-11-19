@@ -9,13 +9,10 @@ from requests.auth import HTTPBasicAuth
 from rest_framework import status
 
 import posthog.api.snuffle_proxy as snuffle_proxy
-from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.access_control.backend.models.property_access_control import PropertyAccessControl
-from products.event_definitions.backend.models import PropertyDefinition
+from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 
 SNUFFLE_APM_SETTINGS = {
     "SNUFFLE_APM_URL": "http://snuffle.test:9091/",
@@ -51,26 +48,8 @@ class TestLokiQueryApi(APIBaseTest):
         self.addCleanup(debit_patcher.stop)
 
     @parameterized.expand([("restricted", 403), ("granted", 200), ("admin", 200)])
-    def test_logql_follows_property_access(self, access: str, expected_status: int) -> None:
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
-        ]
-        self.organization.save()
-        self.organization_membership.level = (
-            OrganizationMembership.Level.ADMIN if access == "admin" else OrganizationMembership.Level.MEMBER
-        )
-        self.organization_membership.save()
-        definition = PropertyDefinition.objects.create(
-            team=self.team, name="private_note", type=PropertyDefinition.Type.EVENT
-        )
-        PropertyAccessControl.objects.create(team=self.team, property_definition=definition, access_level="none")
-        if access == "granted":
-            PropertyAccessControl.objects.create(
-                team=self.team,
-                property_definition=definition,
-                organization_member=self.organization_membership,
-                access_level="read",
-            )
+    def test_logql_follows_property_access(self, access: PropertyAccess, expected_status: int) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
 
         response = self.client.get(f"{self.base}/query_range", {"query": '{service_name="application"}'})
 
