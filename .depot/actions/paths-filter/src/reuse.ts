@@ -364,6 +364,9 @@ async function decide(input: ReuseInput, api: ReuseApi): Promise<Verdict> {
     return proven
   }
   const missed = (reason: Reason, detail: string | null): Verdict => miss(reason, detail, proven.earlierHeads)
+  if (proven.startedAt < pr.created_at) {
+    return missed('shared-head', `${proven.sha} ran before #${pr.number} was opened`)
+  }
   const otherPulls = (await api.pullsWithCommit(proven.sha)).filter(number => number !== pr.number)
   if (otherPulls.length > 0) {
     return missed('shared-head', `${proven.sha} is also in ${otherPulls.map(number => `#${number}`).join(', ')}`)

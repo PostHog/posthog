@@ -119,6 +119,7 @@ The action reuses a result only when every one of these holds, and runs the suit
   Each file also keeps the same Git mode on the proven head and this one, so a lost executable bit counts as a change.
 - Every check run the action reads comes from an App in `reuse-check-apps`.
 - No other pull request, open or merged, contains the proven head, because check runs on a shared commit can come from a pull request with a different base.
+  The proven run also started after this pull request was opened, because the branch activity includes heads from an earlier pull request on the same branch.
 - The proven run started less than 24 hours ago.
   Its start is the creation time of the earliest check suite among the check runs it reads, which is no later than the moment its filters were evaluated.
 - On a pull request that is ready for review, the proven run started after it was marked ready, because a draft can run a narrower suite.

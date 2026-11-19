@@ -68,6 +68,7 @@ function pullRequest(overrides: Record<string, unknown> = {}): PullRequest {
   return {
     number: 7,
     draft: false,
+    created_at: '2026-11-10T10:00:00Z',
     labels: [],
     head: {sha: 'c'.repeat(40), ref: 'feature', repo: {full_name: 'PostHog/posthog'}},
     base: {sha: BASE, ref: 'master', repo: {full_name: 'PostHog/posthog'}},
@@ -243,6 +244,12 @@ describe('reuse of an earlier passing result', () => {
       'base-changed'
     ],
     ['another pull request shares the head that ran', {}, {pullsWithCommit: async () => [7, 8]}, 'shared-head'],
+    [
+      'the head ran before the pull request was opened',
+      {pr: pullRequest({created_at: '2026-11-10T13:30:00Z'})},
+      {},
+      'shared-head'
+    ],
     ['the run is more than a day old', {now: NOW + 2 * 24 * 60 * 60 * 1000}, {}, 'previous-too-old'],
     ['the workflow is re-run', {runAttempt: 2}, {}, 're-run'],
     ['the file that defines the filters is unknown', {config: {...config, filterSource: null}}, {}, 'error'],
