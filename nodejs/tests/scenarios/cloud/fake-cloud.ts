@@ -390,7 +390,7 @@ export class FakeCloud implements Aws {
                 )
             } else if (Type === 'AWS::RDS::DBInstance') {
                 const instanceId = identifier('DBInstanceIdentifier')
-                const interval = Properties.MonitoringInterval as number | { Ref: string }
+                const interval = Properties.MonitoringInterval as number | { Ref: string } | undefined
                 created.push({
                     logicalId,
                     type: Type,
@@ -400,7 +400,11 @@ export class FakeCloud implements Aws {
                     runTag,
                     seeded: this.backlogSeeded(),
                     monitoringInterval:
-                        typeof interval === 'object' ? stack.parameters[interval.Ref] : String(interval),
+                        interval === undefined
+                            ? undefined
+                            : typeof interval === 'object'
+                              ? stack.parameters[interval.Ref]
+                              : String(interval),
                 })
             } else if (Type === 'AWS::EC2::Instance') {
                 if (!this.serviceRoleAllowsHost(Properties, stack.parameters)) {
