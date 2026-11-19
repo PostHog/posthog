@@ -378,9 +378,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             super().initial(request, *args, **kwargs)
         finally:
             # Recorded even when a permission check refuses the call, the case a caller following the user hits most.
-            flat_route = is_flat_route(request)
-            if flat_route or CURRENT_ALIAS in self.kwargs.values():
-                record_scope_resolution(request, flat_route=flat_route)
+            if is_flat_route(request) or CURRENT_ALIAS in self.kwargs.values():
+                record_scope_resolution(request, token_team=self._get_team_from_request)
         self._parse_path_parameters()
         self._team_scope_token = None
         if self._is_team_view or self._is_project_view:

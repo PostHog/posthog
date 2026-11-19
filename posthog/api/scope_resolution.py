@@ -1,11 +1,12 @@
+from collections.abc import Callable
 from enum import StrEnum
 
 from django.http import HttpRequest
 
 import structlog
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
-from posthog.api.utils import get_token
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.permissions import (
@@ -35,20 +36,28 @@ class ScopeResolution:
     credential_pins_scope: bool
 
 
-def record_scope_resolution(request: Request, *, flat_route: bool) -> None:
+def record_scope_resolution(request: Request, *, token_team: Callable[[], Team | None]) -> None:
     """Store on the HttpRequest what decided the request's project, for the usage middleware to read after the view.
 
     `TeamAndOrgViewSetMixin.initial()` calls this only for requests the middleware reports, so the credential's reach
-    is read for those alone.
+    is read for those alone. `token_team` is the view's own token lookup, so the source follows the routing precedence.
     """
     # Analytics must never fail the request it observes.
     try:
-        # A query token picks the project on a flat route; on an @current route the alias wins over it. get_token can
-        # parse the body, so a request that failed authentication skips it.
-        token_decides = flat_route and request.user.is_authenticated and bool(get_token(None, request))
-        setattr(request._request, _SCOPE_RESOLUTION_ATTR, _resolve(request, token_decides=token_decides))
+        resolution = _resolve(request, token_decides=_token_decides(request, token_team))
+        setattr(request._request, _SCOPE_RESOLUTION_ATTR, resolution)
     except Exception:
         logger.warning("scope_resolution_record_failed", exc_info=True)
+
+
+def _token_decides(request: Request, token_team: Callable[[], Team | None]) -> bool:
+    # The token lookup can parse the request body, so a request that failed authentication skips it.
+    if not request.user.is_authenticated:
+        return False
+    try:
+        return token_team() is not None
+    except AuthenticationFailed:
+        return False
 
 
 def note_flat_route(request: Request) -> None:
