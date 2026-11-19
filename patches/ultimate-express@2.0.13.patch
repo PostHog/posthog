@@ -1,5 +1,5 @@
 diff --git a/src/middlewares.js b/src/middlewares.js
-index 36ed48e2f18c27f7acc339806ad7f85640a72f3b..a882d460437cdb0ee2f17ca11ecfd75a650a6130 100644
+index 36ed48e2f18c27f7acc339806ad7f85640a72f3b..00a5aff15709f0b887b49bceb13a09ae639c4f93 100644
 --- a/src/middlewares.js
 +++ b/src/middlewares.js
 @@ -18,6 +18,7 @@
@@ -50,7 +50,7 @@ index 36ed48e2f18c27f7acc339806ad7f85640a72f3b..a882d460437cdb0ee2f17ca11ecfd75a
                  if(inflate === false) {
                      return next(new Error('Unsupported content encoding'));
                  }
-@@ -234,12 +237,26 @@
+@@ -234,12 +237,27 @@
  
              req.bodyRead = true;
  
@@ -64,6 +64,7 @@ index 36ed48e2f18c27f7acc339806ad7f85640a72f3b..a882d460437cdb0ee2f17ca11ecfd75a
                  }
                  if(inflate) {
 -                    buf = inflate.process(buf);
++                    inflate.instance._maxOutputLength = options.limit - totalSize + 1;
 +                    try {
 +                        buf = inflate.process(buf);
 +                    } catch(e) {
@@ -78,7 +79,7 @@ index 36ed48e2f18c27f7acc339806ad7f85640a72f3b..a882d460437cdb0ee2f17ca11ecfd75a
                  }
  
                  // shallow copy, to avoid shared references for large bodies.
-@@ -247,11 +264,16 @@
+@@ -247,11 +265,16 @@
  
                  totalSize += buf.length;
                  if(totalSize > options.limit) {
