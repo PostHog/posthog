@@ -20,7 +20,7 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
+import { PeopleSceneHeader } from 'scenes/activity/PeopleSceneHeader'
 import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
 import { openDeleteCohortDialog } from 'scenes/cohorts/DeleteCohortDialog'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -28,7 +28,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -41,7 +40,9 @@ import {
 
 import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
 import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
+import { RealtimeCohortsJoinBanner } from 'products/cohorts/frontend/realtime/RealtimeCohortsJoinBanner'
 import { RealtimeCohortsWaitlistBanner } from 'products/cohorts/frontend/realtime/RealtimeCohortsWaitlistBanner'
+import { useRealtimeCohortsServing } from 'products/cohorts/frontend/realtime/useRealtimeCohortsServing'
 
 export const scene: SceneExport = {
     component: Cohorts,
@@ -56,7 +57,7 @@ export function Cohorts(): JSX.Element {
     const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting, loadCohorts } =
         useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
-    const realtimeTargetingEnabled = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
+    const realtimeTargetingEnabled = useRealtimeCohortsServing()
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Creating an export requires editor access to the export resource.
@@ -267,9 +268,8 @@ export function Cohorts(): JSX.Element {
 
     return (
         <SceneContent>
-            <ActivitySceneTabs activeKey="cohorts" />
-
-            <SceneTitleSection
+            <PeopleSceneHeader
+                activeKey="cohorts"
                 name={sceneConfigurations[Scene.Cohorts].name}
                 description={sceneConfigurations[Scene.Cohorts].description}
                 resourceType={{
@@ -308,6 +308,7 @@ export function Cohorts(): JSX.Element {
             />
 
             <RealtimeCohortsWaitlistBanner />
+            <RealtimeCohortsJoinBanner />
 
             <div>{filtersSection}</div>
             <LemonTable

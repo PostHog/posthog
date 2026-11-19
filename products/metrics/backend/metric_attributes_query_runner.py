@@ -85,7 +85,7 @@ class MetricAttributeKeysQueryRunner:
             query_type="MetricAttributeKeysQuery",
             query=query,
             team=self.team,
-            workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+            workload=Workload.METRICS,
             settings=_QUERY_SETTINGS,
         )
 
@@ -241,7 +241,7 @@ class MetricAttributeValuesQueryRunner:
             query_type="MetricAttributeValuesQuery",
             query=query,
             team=self.team,
-            workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+            workload=Workload.METRICS,
             settings=_QUERY_SETTINGS,
         )
 

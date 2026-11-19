@@ -29,7 +29,7 @@ class AdminViewBridge:
     page and the form; the admin view still does the work. When the logic moves to a service function,
     swap the operation's handler and leave the console page as it is.
 
-    Pass the view as a method reference, for example `TeamAdmin.rebuild_cache`, so a renamed view fails
+    Pass the view as a method reference, for example `SomeAdmin.some_view`, so a renamed view fails
     on import instead of when staff click the button.
 
     Only bridge views that take a POST and answer with a redirect. The redirect points into Django admin,

@@ -426,8 +426,12 @@ async def test_generate_digest_data_workflow():
         return [TeamIdRange(start=i, end=i + TEST_BATCH_SIZE) for i in range(1, TEST_TEAM_COUNT + 1, TEST_BATCH_SIZE)]
 
     @activity.defn(name="list-organization-id-ranges")
-    async def list_organization_id_ranges_mocked(input) -> list[OrganizationIdRange]:
+    async def list_organization_id_ranges_mocked(
+        input: CommonInput, organization_ids: list[str] | None = None
+    ) -> list[OrganizationIdRange]:
         activity_calls["organization_id_ranges"] += 1
+        assert input.batch_size == TEST_BATCH_SIZE
+        assert organization_ids is None
         return [OrganizationIdRange(start=uuid.UUID(int=i), end=None) for i in range(TEST_ORG_BATCH_COUNT)]
 
     @activity.defn(name="generate-dashboard-lookup")

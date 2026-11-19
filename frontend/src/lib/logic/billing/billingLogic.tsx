@@ -47,6 +47,7 @@ import {
     isMemberUsageSpendReadAccessEnabled,
 } from './billingAccess'
 import { isCompanionProduct } from './companionProducts'
+import { eventsRetentionMonths } from './eventsRetentionMonths'
 import {
     buildUsageLimitApproachingMessage,
     buildUsageLimitReachedMessage,
@@ -55,6 +56,9 @@ import {
 } from './usageLimits'
 
 export const DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD = 500
+
+// in sync with GRANDFATHERED_EVENTS_RETENTION_PLAN in billing
+export const GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY = 'paid-20240404'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.8 // Threshold to show warning of event usage near limit (aligned with the 80% billing warning email)
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -71,7 +75,7 @@ const getFirstProductFromProductsParam = (productsParam: unknown): ProductKey | 
 }
 
 export interface BillingAlertConfig {
-    kind?: 'trial' | 'usage_limit'
+    kind?: 'trial' | 'usage_limit' | 'unpaid_invoice'
     status: 'info' | 'warning' | 'error'
     title: string
     message?: string
@@ -85,6 +89,12 @@ export interface BillingAlertConfig {
 }
 
 const isManagedBillingAlert = (billingAlert: BillingAlertConfig | null): boolean => billingAlert?.kind !== undefined
+
+// A hosted invoice URL lets anyone who holds it view and pay the invoice, so it stays out of analytics.
+const alertAnalyticsProperties = (alertConfig: BillingAlertConfig): Record<string, any> =>
+    alertConfig.kind === 'unpaid_invoice' && alertConfig.action
+        ? { ...alertConfig, action: { ...alertConfig.action, to: undefined } }
+        : { ...alertConfig }
 
 export enum BillingAPIErrorCodes {
     OPEN_INVOICES_ERROR = 'open_invoices_error',
@@ -106,6 +116,32 @@ export interface BillingError {
 export interface OpenInvoices {
     count: number
     link: string | null
+}
+
+// Returns null on any failure, so a user who cannot read invoices just sees no invoice banner.
+const loadInvoiceSummary = async (status: 'open' | 'uncollectible'): Promise<OpenInvoices | null> => {
+    try {
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingGetInvoicesRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+        const res = await api.getResponse(`api/billing/get_invoices?status=${status}`)
+        const jsonRes = await getJSONOrNull(res)
+        return { count: jsonRes['count'], link: jsonRes['link'] }
+    } catch (error: any) {
+        console.error(error)
+    }
+    return null
+}
+
+/** Billing writes an invoice off as uncollectible and cancels the subscription when the last card payment fails. */
+const buildUnpaidInvoiceAlert = (invoices: OpenInvoices, portalUrl: string | undefined): BillingAlertConfig => {
+    const several = invoices.count > 1
+    const link = !several && invoices.link ? invoices.link : portalUrl
+    return {
+        kind: 'unpaid_invoice',
+        status: 'warning',
+        title: several ? `You have ${invoices.count} unpaid invoices` : 'You have an unpaid invoice',
+        message: 'Your payment failed and your subscription was cancelled.',
+        action: link ? { to: link, children: several ? 'Pay invoices' : 'Pay invoice', targetBlank: true } : undefined,
+    }
 }
 
 export type SwitchPlanPayload = {
@@ -286,9 +322,12 @@ export interface billingLogicValues {
         status: string
     }
     creditOverviewLoading: boolean
+    currentEventsRetentionMonths: number | null
     currentPlatformAddon: BillingProductV2AddonType | null
+    currentPlatformAddonPlan: BillingPlanType | null
     effectiveBillingAlert: BillingAlertConfig | null
     estimatedMonthlyCreditAmountUsd: number | null
+    hasGrandfatheredEventsRetention: boolean
     hasSupportAddonPlan: boolean
     isActivateLicenseSubmitting: boolean
     isActivateLicenseValid: boolean
@@ -309,6 +348,10 @@ export interface billingLogicValues {
     openInvoices: OpenInvoices | null
     openInvoicesLoading: boolean
     platformAddons: BillingProductV2AddonType[]
+    productAnalyticsFreePlan: BillingPlanType | null
+    productAnalyticsPlanAfterPackageDowngrade: BillingPlanType | null
+    productAnalyticsPlanReplacingGrandfathered: BillingPlanType | null
+    productAnalyticsPlans: BillingPlanType[]
     productSpecificAlert: BillingAlertConfig | null
     products: BillingProductV2Type[]
     productsLoading: boolean
@@ -330,6 +373,9 @@ export interface billingLogicValues {
     switchPlanLoading: string | null
     timeRemainingInSeconds: number
     timeTotalInSeconds: number
+    uncollectibleInvoices: OpenInvoices | null
+    uncollectibleInvoicesLoading: boolean
+    unpaidInvoiceAlertDismissed: boolean
     unsubscribeError: UnsubscribeError | null
     unusedPlatformAddonAmount: number
     upgradeLink: string
@@ -370,6 +416,9 @@ export interface billingLogicActions {
         payload?: string
     }
     determineBillingAlert: () => {
+        value: true
+    }
+    dismissUnpaidInvoiceAlert: () => {
         value: true
     }
     loadBilling: () => any
@@ -450,10 +499,28 @@ export interface billingLogicActions {
         products: BillingProductV2Type[]
         payload?: any
     }
+    loadUncollectibleInvoices: () => any
+    loadUncollectibleInvoicesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadUncollectibleInvoicesSuccess: (
+        uncollectibleInvoices: OpenInvoices | null,
+        payload?: any
+    ) => {
+        uncollectibleInvoices: OpenInvoices | null
+        payload?: any
+    }
     registerInstrumentationProps: () => {
         value: true
     }
     reportBillingAlertActionClicked: (alertConfig: BillingAlertConfig) => {
+        alertConfig: BillingAlertConfig
+    }
+    reportBillingAlertDismissed: (alertConfig: BillingAlertConfig) => {
         alertConfig: BillingAlertConfig
     }
     reportBillingAlertShown: (alertConfig: BillingAlertConfig) => {
@@ -672,6 +739,17 @@ export interface billingLogicMeta {
         hasSupportAddonPlan: (billing: BillingType | null) => boolean
         platformAddons: (billing: BillingType | null) => BillingProductV2AddonType[]
         currentPlatformAddon: (billing: BillingType | null) => BillingProductV2AddonType | null
+        currentPlatformAddonPlan: (currentPlatformAddon: BillingProductV2AddonType | null) => BillingPlanType | null
+        productAnalyticsPlans: (billing: BillingType | null) => BillingPlanType[]
+        productAnalyticsFreePlan: (productAnalyticsPlans: BillingPlanType[]) => BillingPlanType | null
+        productAnalyticsPlanReplacingGrandfathered: (productAnalyticsPlans: BillingPlanType[]) => BillingPlanType | null
+        hasGrandfatheredEventsRetention: (productAnalyticsPlans: BillingPlanType[]) => boolean
+        productAnalyticsPlanAfterPackageDowngrade: (
+            productAnalyticsPlans: BillingPlanType[],
+            hasGrandfatheredEventsRetention: boolean,
+            productAnalyticsPlanReplacingGrandfathered: BillingPlanType | null
+        ) => BillingPlanType | null
+        currentEventsRetentionMonths: (currentOrganization: OrganizationType | null) => number | null
         unusedPlatformAddonAmount: (
             currentPlatformAddon: BillingProductV2AddonType | null,
             timeRemainingInSeconds: number,
@@ -771,6 +849,8 @@ export const billingLogic = kea<billingLogicType>([
         setShowLicenseDirectInput: (show: boolean) => ({ show }),
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingAlertActionClicked: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
+        reportBillingAlertDismissed: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
+        dismissUnpaidInvoiceAlert: true,
         reportCreditsFormSubmitted: (creditInput: number) => ({ creditInput }),
         reportCreditsModalShown: true,
         reportBillingShown: true,
@@ -823,6 +903,12 @@ export const billingLogic = kea<billingLogicType>([
             null as BillingAlertConfig | null,
             {
                 setBillingAlert: (_, { billingAlert }) => billingAlert,
+            },
+        ],
+        unpaidInvoiceAlertDismissed: [
+            false,
+            {
+                dismissUnpaidInvoiceAlert: () => true,
             },
         ],
         registeredCustomLimitKeys: [
@@ -1069,17 +1155,13 @@ export const billingLogic = kea<billingLogicType>([
         openInvoices: [
             null as OpenInvoices | null,
             {
-                loadInvoices: async (): Promise<OpenInvoices | null> => {
-                    try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingGetInvoicesRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                        const res = await api.getResponse('api/billing/get_invoices?status=open')
-                        const jsonRes = await getJSONOrNull(res)
-                        return { count: jsonRes['count'], link: jsonRes['link'] }
-                    } catch (error: any) {
-                        console.error(error)
-                    }
-                    return null
-                },
+                loadInvoices: (): Promise<OpenInvoices | null> => loadInvoiceSummary('open'),
+            },
+        ],
+        uncollectibleInvoices: [
+            null as OpenInvoices | null,
+            {
+                loadUncollectibleInvoices: (): Promise<OpenInvoices | null> => loadInvoiceSummary('uncollectible'),
             },
         ],
         creditOverview: [
@@ -1254,6 +1336,57 @@ export const billingLogic = kea<billingLogicType>([
                 )
                 return platformProduct?.addons?.find((addon: BillingProductV2AddonType) => !!addon.subscribed) || null
             },
+        ],
+        currentPlatformAddonPlan: [
+            (s) => [s.currentPlatformAddon],
+            (currentPlatformAddon: BillingProductV2AddonType | null): BillingPlanType | null =>
+                currentPlatformAddon?.plans?.find((plan) => plan.current_plan) ??
+                currentPlatformAddon?.plans?.[0] ??
+                null,
+        ],
+        productAnalyticsPlans: [
+            (s) => [s.billing],
+            (billing: BillingType | null): BillingPlanType[] =>
+                billing?.products?.find((product) => product.type === ProductKey.PRODUCT_ANALYTICS)?.plans ?? [],
+        ],
+        productAnalyticsFreePlan: [
+            (s) => [s.productAnalyticsPlans],
+            (productAnalyticsPlans: BillingPlanType[]): BillingPlanType | null =>
+                productAnalyticsPlans.find((plan) => !!plan.free_allocation && !plan.tiers) ?? null,
+        ],
+        productAnalyticsPlanReplacingGrandfathered: [
+            (s) => [s.productAnalyticsPlans],
+            (productAnalyticsPlans: BillingPlanType[]): BillingPlanType | null =>
+                productAnalyticsPlans.find(
+                    (plan) => !!plan.tiers && plan.plan_key !== GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY
+                ) ?? null,
+        ],
+        hasGrandfatheredEventsRetention: [
+            (s) => [s.productAnalyticsPlans],
+            (productAnalyticsPlans: BillingPlanType[]): boolean =>
+                productAnalyticsPlans.some(
+                    (plan) => !!plan.current_plan && plan.plan_key === GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY
+                ),
+        ],
+        productAnalyticsPlanAfterPackageDowngrade: [
+            (s) => [
+                s.productAnalyticsPlans,
+                s.hasGrandfatheredEventsRetention,
+                s.productAnalyticsPlanReplacingGrandfathered,
+            ],
+            (
+                productAnalyticsPlans: BillingPlanType[],
+                hasGrandfatheredEventsRetention: boolean,
+                productAnalyticsPlanReplacingGrandfathered: BillingPlanType | null
+            ): BillingPlanType | null =>
+                hasGrandfatheredEventsRetention
+                    ? productAnalyticsPlanReplacingGrandfathered
+                    : (productAnalyticsPlans.find((plan) => !!plan.current_plan) ?? null),
+        ],
+        currentEventsRetentionMonths: [
+            (s) => [s.currentOrganization],
+            (currentOrganization: OrganizationType | null): number | null =>
+                eventsRetentionMonths(currentOrganization?.available_product_features),
         ],
         unusedPlatformAddonAmount: [
             (s) => [s.currentPlatformAddon, s.timeRemainingInSeconds, s.timeTotalInSeconds],
@@ -1624,14 +1757,13 @@ export const billingLogic = kea<billingLogicType>([
             posthog.capture('billing v2 shown')
         },
         reportBillingAlertShown: ({ alertConfig }) => {
-            posthog.capture('billing alert shown', {
-                ...alertConfig,
-            })
+            posthog.capture('billing alert shown', alertAnalyticsProperties(alertConfig))
         },
         reportBillingAlertActionClicked: ({ alertConfig }) => {
-            posthog.capture('billing alert action clicked', {
-                ...alertConfig,
-            })
+            posthog.capture('billing alert action clicked', alertAnalyticsProperties(alertConfig))
+        },
+        reportBillingAlertDismissed: ({ alertConfig }) => {
+            posthog.capture('billing alert dismissed', alertAnalyticsProperties(alertConfig))
         },
         reportCreditsModalShown: () => {
             posthog.capture('credits modal shown')
@@ -1661,6 +1793,9 @@ export const billingLogic = kea<billingLogicType>([
                 cache.loadCreditOverviewAfterScene = false
                 actions.loadCreditOverview()
             }
+        },
+        loadUncollectibleInvoicesSuccess: () => {
+            actions.determineBillingAlert()
         },
         loadBillingSuccess: async ({ payload }, breakpoint) => {
             actions.registerInstrumentationProps()
@@ -1813,6 +1948,35 @@ export const billingLogic = kea<billingLogicType>([
                     return true
                 }) || []
 
+            if (productsApproachingLimit.length === 0) {
+                actions.resetUsageLimitApproachingKey()
+            }
+
+            // Reading the lazy value starts its only load, whose success runs this listener again.
+            const unpaidInvoices =
+                values.canAccessBilling &&
+                !values.billing.has_active_subscription &&
+                !values.isExternallyBilled &&
+                !values.unpaidInvoiceAlertDismissed
+                    ? values.uncollectibleInvoices
+                    : null
+            if (unpaidInvoices?.count) {
+                const alert = buildUnpaidInvoiceAlert(unpaidInvoices, values.billing.stripe_portal_url)
+                actions.setBillingAlert({
+                    ...alert,
+                    action: alert.action && {
+                        ...alert.action,
+                        onClick: () => actions.reportBillingAlertActionClicked(alert),
+                    },
+                    onClose: () => {
+                        actions.reportBillingAlertDismissed(alert)
+                        actions.dismissUnpaidInvoiceAlert()
+                        actions.setBillingAlert(null)
+                    },
+                })
+                return
+            }
+
             if (productsApproachingLimit.length > 0) {
                 const { title, message } = buildUsageLimitApproachingMessage(
                     productsApproachingLimit,
@@ -1848,7 +2012,6 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
-            actions.resetUsageLimitApproachingKey()
             clearBillingAlert()
         },
         setCreditFormValue: ({ name, value }) => {

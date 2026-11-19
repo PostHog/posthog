@@ -3,6 +3,7 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { IngestionOutputMessage } from '~/common/outputs/types'
 import { parseJSON } from '~/common/utils/json-parse'
 import { ConsoleLogLevel } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
+import { InternalLogEntry, InternalLogsProducer } from '~/logs/internal-logs-producer'
 import { ClickHouseTimestamp } from '~/types'
 
 import { SessionBatchMetrics } from './metrics'
@@ -183,6 +184,70 @@ describe('SessionConsoleLogStore', () => {
         expect(parsedLogs[0].batch_id).toBe('batch1')
         expect(parsedLogs[1].batch_id).toBe('batch2')
     })
+
+    it.each([
+        { name: 'a working producer', throws: false },
+        { name: 'a producer that throws', throws: true },
+    ])(
+        'sends console logs of accepted teams to the internal logs producer and still writes log_entries with $name',
+        async ({ throws }) => {
+            const producer = {
+                accepts: jest.fn((teamId: number) => teamId === 2),
+                enqueue: jest.fn((_source: string, _entries: InternalLogEntry[]) => {
+                    if (throws) {
+                        throw new Error('producer bug')
+                    }
+                }),
+                flush: jest.fn(),
+            }
+            store = new SessionConsoleLogStore(mockOutputs, {
+                messageLimit: 1000,
+                internalLogsProducer: producer as unknown as InternalLogsProducer,
+            })
+
+            await store.storeSessionConsoleLogs([
+                {
+                    team_id: 1,
+                    message: 'Another team',
+                    level: ConsoleLogLevel.Info,
+                    log_source: 'session_replay',
+                    log_source_id: 'session456',
+                    instance_id: null,
+                    timestamp: makeTimestamp('2025-01-01 10:00:00.000'),
+                    batch_id: 'batch123',
+                },
+                {
+                    team_id: 2,
+                    message: 'Test warning message',
+                    level: ConsoleLogLevel.Warn,
+                    log_source: 'session_replay',
+                    log_source_id: 'session123',
+                    instance_id: null,
+                    timestamp: makeTimestamp('2025-01-01 10:00:01.500'),
+                    batch_id: 'batch123',
+                },
+            ])
+            await store.flush()
+
+            expect(producer.enqueue).toHaveBeenCalledTimes(1)
+            const [source, entries] = producer.enqueue.mock.calls[0]
+            expect(source).toBe('session_replay')
+            expect(entries).toMatchObject([
+                {
+                    team_id: 2,
+                    log_source_id: 'session123',
+                    instance_id: '',
+                    level: 'warn',
+                    message: 'Test warning message',
+                },
+            ])
+            expect(entries[0].timestamp.toMillis()).toBe(Date.UTC(2025, 0, 1, 10, 0, 1, 500))
+            expect(getQueuedMessages(mockOutputs, 0).map(parseMessageValue)).toMatchObject([
+                { team_id: 1, message: 'Another team' },
+                { team_id: 2, message: 'Test warning message' },
+            ])
+        }
+    )
 
     describe('metrics', () => {
         it('should increment console logs stored metric', async () => {

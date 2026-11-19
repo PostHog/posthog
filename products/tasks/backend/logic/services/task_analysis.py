@@ -24,6 +24,7 @@ from products.tasks.backend.constants import (
     TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
 )
 from products.tasks.backend.facade.contracts import TaskAnalysisError
+from products.tasks.backend.facade.profiles import TaskRunOptions
 from products.tasks.backend.logic.services.staged_artifacts import (
     RUN_ARTIFACT_TTL_DAYS,
     build_task_artifact_entry,
@@ -31,6 +32,8 @@ from products.tasks.backend.logic.services.staged_artifacts import (
     tag_task_artifact,
 )
 from products.tasks.backend.models import SandboxCustomImage, Task, TaskRun
+from products.tasks.backend.storage import TaskRunLog, copy_run_log, read_run_log_bytes, read_run_log_size
+from products.tasks.backend.task_profiles import TASK_ANALYSIS
 from products.tasks.backend.task_sources import idempotency_key_startswith_q
 
 logger = structlog.get_logger(__name__)
@@ -128,25 +131,21 @@ def _next_analysis_attempt(*, team_id: int, target_run_id: str) -> int:
     ).count()
 
 
-def _analysis_log_sources(target_run: TaskRun) -> list[str]:
-    """Log object keys across the target's resume chain, oldest first.
+def _analysis_log_sources(target_run: TaskRun) -> list[TaskRunLog]:
+    """Logs across the target's resume chain, oldest first.
 
     A resumed run keeps its earlier transcript segments on its ancestors, so analyzing only
     ``log_url`` would hide most of the work. Same chain ``read_task_run_logs`` walks.
     """
-    return [run.log_url for run in target_run.get_resume_chain() if run.log_url]
+    return [run.log for run in target_run.get_resume_chain()]
 
 
-def _bounded_log_sizes(log_keys: list[str]) -> list[int]:
+def _bounded_log_sizes(logs: list[TaskRunLog]) -> list[int]:
     """Sizes from object metadata, refusing the read outright above the analysis limit."""
     sizes: list[int] = []
     total = 0
-    for key in log_keys:
-        metadata = object_storage.head_object(key)
-        if metadata is None:
-            sizes.append(0)
-            continue
-        size = int(metadata.get("ContentLength") or 0)
+    for log in logs:
+        size = read_run_log_size(log, strict=False)
         total += size
         if total > MAX_ANALYSIS_LOG_BYTES:
             raise TaskAnalysisError("This run's log is too large to analyze.")
@@ -156,7 +155,7 @@ def _bounded_log_sizes(log_keys: list[str]) -> list[int]:
     return sizes
 
 
-def _write_analysis_artifact(*, run: TaskRun, artifact_id: str, log_keys: list[str], total_size: int) -> str:
+def _write_analysis_artifact(*, run: TaskRun, artifact_id: str, logs: list[TaskRunLog], total_size: int) -> str:
     """Put the target's log at the analysis run's artifact path and return the storage path.
 
     A single-segment chain is copied inside object storage, so the common case never routes the
@@ -164,12 +163,12 @@ def _write_analysis_artifact(*, run: TaskRun, artifact_id: str, log_keys: list[s
     the caller already checked.
     """
     storage_path = build_task_run_artifact_storage_path(run, artifact_id, RUN_LOG_ARTIFACT_NAME)
-    if len(log_keys) == 1:
-        object_storage.copy(log_keys[0], storage_path)
+    if len(logs) == 1:
+        copy_run_log(logs[0], storage_path)
     else:
         parts: list[bytes] = []
-        for key in log_keys:
-            chunk = object_storage.read_bytes(key, missing_ok=True)
+        for log in logs:
+            chunk = read_run_log_bytes(log)
             if not chunk:
                 continue
             parts.append(chunk if chunk.endswith(b"\n") else chunk + b"\n")
@@ -230,10 +229,10 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
     if attempt >= MAX_ANALYSES_PER_TARGET_RUN:
         raise TaskAnalysisError("This run has been analyzed as many times as allowed.")
 
-    log_keys = _analysis_log_sources(target_run)
-    if not log_keys:
+    logs = _analysis_log_sources(target_run)
+    if not logs:
         raise TaskAnalysisError("The run has no log to analyze yet.")
-    total_size = sum(_bounded_log_sizes(log_keys))
+    total_size = sum(_bounded_log_sizes(logs))
 
     artifact_id = str(uuid.uuid4())
     prompt = ANALYSIS_PROMPT_TEMPLATE.format(
@@ -263,20 +262,18 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
                 team=team,
                 title=f"Task analysis: {target_task.title[:120]}",
                 description=prompt,
-                origin_product=Task.OriginProduct.TASK_ANALYSIS,
+                profile=TASK_ANALYSIS,
                 user_id=user_id,
-                repository=None,
+                options=TaskRunOptions(
+                    adapter=TASK_ANALYSIS_RUNTIME_ADAPTER, model=TASK_ANALYSIS_MODEL, mcp_scopes="read_only"
+                ),
                 create_pr=False,
                 mode="background",
                 start_workflow=False,
                 origin_key=origin_key,
-                posthog_mcp_scopes="read_only",
-                runtime_adapter=TASK_ANALYSIS_RUNTIME_ADAPTER,
-                model=TASK_ANALYSIS_MODEL,
                 pending_user_message=prompt,
                 extra_run_state=extra_run_state,
                 inactivity_timeout_seconds=TASK_ANALYSIS_INACTIVITY_TIMEOUT_SECONDS,
-                internal=True,
             )
     except IntegrityError:
         claimed = find_existing_analysis_task(team_id=team.id, target_run_id=str(target_run.id))
@@ -289,7 +286,7 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
         raise TaskAnalysisError("Task creation did not produce a run.")
 
     try:
-        _write_analysis_artifact(run=run, artifact_id=artifact_id, log_keys=log_keys, total_size=total_size)
+        _write_analysis_artifact(run=run, artifact_id=artifact_id, logs=logs, total_size=total_size)
     except Exception:
         logger.exception("task_analysis.artifact_failed", task_id=str(task.id), run_id=str(run.id))
         run.status = TaskRun.Status.FAILED
@@ -304,7 +301,7 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
         target_task_id=str(target_task.id),
         target_run_id=str(target_run.id),
         log_bytes=total_size,
-        log_segments=len(log_keys),
+        log_segments=len(logs),
     )
 
     enqueue_or_start_workflow(

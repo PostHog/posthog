@@ -59,7 +59,7 @@ describe('Suggested reviewer presentation', () => {
 
         expect(await screen.findByText(scoutName)).toBeInTheDocument()
     })
-    it('shows each reason before its indented reviewer and keeps actions visible', async () => {
+    it('shows each reason before its reviewer and keeps actions visible', async () => {
         const maya: EnrichedReviewer = {
             github_login: 'maya',
             github_name: 'Maya Rivera',
@@ -87,8 +87,6 @@ describe('Suggested reviewer presentation', () => {
         const reason = screen.getByText('Recently changed the affected transport.')
         const reviewer = screen.getByText('Maya Rivera')
         expect(reason.compareDocumentPosition(reviewer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-        expect(reviewer.closest('.pl-3')).toBeInTheDocument()
-        expect(screen.getByText('Quinn Foster').closest('.pl-3')).not.toBeInTheDocument()
         const addButton = screen.getByText('Add Reviewer')
         expect(addButton).toBeVisible()
         expect(
@@ -145,7 +143,6 @@ describe('Suggested reviewer presentation', () => {
         const reason = screen.getByText('Added by Avery Chen')
         const reviewer = screen.getByText('Quinn Foster')
         expect(reason.compareDocumentPosition(reviewer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-        expect(reviewer.closest('.pl-3')).toBeInTheDocument()
         expect(screen.queryByText('Added by teammate')).not.toBeInTheDocument()
     })
 })

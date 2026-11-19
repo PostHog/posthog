@@ -300,6 +300,27 @@ def _validate_placements(placements: list[Any], columns: int) -> list[dict[str, 
     return diagnostics
 
 
+@frozen
+class PinnedComponentVersion:
+    component_id: str
+    version_id: str
+
+
+def pinned_component_versions(layout: dict[str, Any]) -> set[PinnedComponentVersion]:
+    """The component versions the layout's placements pin to a specific version.
+
+    Both ids are canonical UUID strings, so they compare equal to `str()` of a model id
+    however the layout spelled them.
+    """
+    return {
+        PinnedComponentVersion(
+            component_id=str(UUID(placement["component"])), version_id=str(UUID(placement["version"]))
+        )
+        for placement in layout.get("placements", [])
+        if isinstance(placement, dict) and _is_uuid(placement.get("component")) and _is_uuid(placement.get("version"))
+    }
+
+
 def validate_layout_references(team_id: int, user_id: int | None, layout: dict[str, Any]) -> list[dict[str, Any]]:
     """Validate a layout's component references against the database.
 

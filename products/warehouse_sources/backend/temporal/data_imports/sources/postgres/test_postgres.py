@@ -818,6 +818,10 @@ class TestPostgresSourceNonRetryableErrors:
                 'OperationalError: connection failed: connection to server at "203.0.113.7", port 5432 failed: FATAL:  service temporarily unavailable',
                 "temporarily unavailable",
             ),
+            (
+                "canceling statement due to lock timeout",
+                "lock timeout",
+            ),
         ],
     )
     def test_exhausted_retries_replace_raw_driver_text(self, source, error_msg, expected_phrase):
@@ -1142,6 +1146,44 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         assert not error_message_matches(error_msg, non_retryable.keys()), (
             f"Transient file-descriptor exhaustion should be retryable: {error_msg}"
+        )
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)). The library path
+            # (which embeds the server's build/version) is volatile.
+            'could not load library "/rdsdbbin_1/aurora-16.11.16.11.2.1042.0/lib/postgresql/postgis-3.so": '
+            "libgeos_c.so.1: cannot open shared object file: No such file or directory",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'UndefinedFile: could not load library "/usr/lib/postgresql/16/lib/postgis-3.so": '
+            "libgeos_c.so.1: cannot open shared object file: No such file or directory",
+        ],
+    )
+    def test_missing_extension_library_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert error_message_matches(error_msg, non_retryable.keys()), (
+            f"Missing extension native library should be non-retryable: {error_msg}"
+        )
+
+    def test_missing_extension_library_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'could not load library "/rdsdbbin_1/aurora-16.11.16.11.2.1042.0/lib/postgresql/postgis-3.so": '
+            "libgeos_c.so.1: cannot open shared object file: No such file or directory"
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Missing extension native library error should surface an actionable message"
+        assert "OS-level dependencies" in friendly[0]
+
+    def test_extension_library_fd_exhaustion_on_dlopen_is_retryable(self, source):
+        # Same "cannot open shared object file" prefix as the missing-library case above, but a
+        # different errno reason: dlopen() reports this for EMFILE/ENFILE too, and file-descriptor
+        # exhaustion clears once load on the source drops, unlike a genuinely absent library.
+        error_msg = 'could not load library "/usr/lib/postgresql/16/lib/postgis-3.so": cannot open shared object file: Too many open files'
+        non_retryable = source.get_non_retryable_errors()
+        assert not error_message_matches(error_msg, non_retryable.keys()), (
+            f"Transient file-descriptor exhaustion on dlopen should be retryable: {error_msg}"
         )
 
     @pytest.mark.parametrize(
@@ -2269,6 +2311,42 @@ class TestPostgresSourceRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Connection-dropped error should not be non-retryable: {error_msg}"
 
+    def test_metadata_probe_statement_timeout_is_classified_retryable(self, source):
+        # `_get_table`'s per-table catalog probes (materialized-view/view checks, the column
+        # metadata SELECT) raise the raw psycopg QueryCanceled unconverted, unlike the data-read
+        # path and the whole-schema catalog scan, which both convert a statement_timeout hit into a
+        # more specific exception first. Without this classification, every occurrence floods error
+        # tracking at `exception` level (see `_handle_import_error`) instead of being treated as the
+        # self-recovering condition it is.
+        error_msg = "canceling statement due to statement timeout"
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Metadata-probe statement timeout should be classified retryable: {error_msg}"
+
+    def test_metadata_probe_statement_timeout_is_not_also_non_retryable(self, source):
+        error_msg = "canceling statement due to statement timeout"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Metadata-probe statement timeout should not be non-retryable: {error_msg}"
+
+    def test_lock_timeout_is_classified_retryable(self, source):
+        # `_has_duplicate_primary_keys`'s pre-read probe re-raises `LockNotAvailable` immediately
+        # (no in-process retry), and `get_rows`'s server-cursor DECLARE and keyset-page reads
+        # re-raise the same raw error once their own bounded in-process retry budget is spent.
+        # Without this classification, every one of those floods error tracking at `exception`
+        # level (see `_handle_import_error`) instead of being treated as the self-recovering
+        # condition it is.
+        error_msg = "canceling statement due to lock timeout"
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Lock timeout should be classified retryable: {error_msg}"
+
+    def test_lock_timeout_is_not_also_non_retryable(self, source):
+        error_msg = "canceling statement due to lock timeout"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Lock timeout should not be non-retryable: {error_msg}"
+
 
 def _raise_eof() -> None:
     # Indirection so the `yield` below stays reachable under mypy's warn_unreachable — at runtime
@@ -2765,6 +2843,10 @@ class TestIsConnectionDroppedError:
             # backend-connect timeout as "{:error, :timeout}", the Erlang GenServer call-timeout atom,
             # distinct from the POSIX-level ":etimedout". Same transient pooler class; reconnect recovers.
             psycopg.errors.ConnectionFailure("Failed to connect to database: {:error, :timeout}"),
+            # The bare-atom sibling of the above: some Supavisor versions report the same pool
+            # checkout/backend-connect timeout with the reason atom alone, not wrapped in the
+            # `{:error, ...}` tuple. Same transient pooler class; reconnect must catch it.
+            psycopg.errors.ConnectionFailure("Failed to connect to database: :timeout"),
             # Neon's proxy reports a compute that didn't wake from scale-to-zero before the auth
             # deadline as a ConnectionFailure — a transient drop the in-process recovery must catch.
             psycopg.errors.ConnectionFailure(
@@ -2780,6 +2862,18 @@ class TestIsConnectionDroppedError:
             psycopg.OperationalError(
                 'connection failed: connection to server at "203.0.113.40", port 5432 failed: ERROR:  '
                 "Control plane request failed\n"
+                'connection to server at "203.0.113.40", port 5432 failed: ERROR:  connection is '
+                "insecure (try using `sslmode=require`)"
+            ),
+            # Neon's proxy gives up on a compute that's still mid-wake from scale-to-zero, explicitly
+            # asking for a retry: "ERROR:  The endpoint is taking longer than expected to become
+            # active. Please wait a moment and try again." The real production message pairs it with
+            # the same generic plaintext-fallback rejection as the control-plane case above, on a
+            # second line that must not block the match.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "203.0.113.40", port 5432 failed: ERROR:  '
+                "The endpoint is taking longer than expected to become active. Please wait a moment "
+                "and try again.\n"
                 'connection to server at "203.0.113.40", port 5432 failed: ERROR:  connection is '
                 "insecure (try using `sslmode=require`)"
             ),
@@ -2811,6 +2905,13 @@ class TestIsConnectionDroppedError:
             # ProtocolViolation rather than OperationalError. Same transient pool-capacity class as
             # the pgcat/Supavisor checkout failures above; the reconnect must catch it.
             psycopg.errors.ProtocolViolation("query_wait_timeout"),
+            # PgBouncer's own `idle_transaction_timeout` setting disconnects a client that leaves a
+            # transaction open longer than the configured limit — exactly what our server-cursor
+            # reads do between fetches during a slow delta-merge. Same bare error-packet shape as
+            # `query_wait_timeout` above, so psycopg surfaces it as ProtocolViolation rather than the
+            # `IdleInTransactionSessionTimeout` Postgres itself raises for the server-side timeout
+            # (already covered by the type check); same transient class, so the reconnect must catch it.
+            psycopg.errors.ProtocolViolation("idle transaction timeout"),
             # psycopg's own message when `PQconnectStart` reports the connection BAD before the
             # handshake begins and libpq has no server-reported error text to attach — a purely
             # local pre-handshake failure (e.g. the worker briefly out of file descriptors), not a
@@ -2833,6 +2934,14 @@ class TestIsConnectionDroppedError:
             psycopg.OperationalError(
                 'connection failed: connection to server at "203.0.113.5", port 5432 failed: '
                 "FATAL:  failed to connect to upstream 10.0.0.2:5432"
+            ),
+            # A Neon-style proxy refuses a connect because the branch's compute endpoint has no
+            # primary assigned yet — a brief failover/promotion window, not a permanent
+            # customer-facing restriction. Transient; the reconnect must catch it rather than
+            # letting it escape and fail the whole sync.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "203.0.113.5", port 5432 failed: '
+                "FATAL:  no primary available for branch ep-cool-branch-12345678"
             ),
         ],
     )
@@ -5607,8 +5716,8 @@ class TestValidateCredentialsErrorMapping:
             (
                 'connection failed: connection to server at "1.2.3.4", port 5432 failed: '
                 "server does not support SSL, but SSL was required",
-                "SSL/TLS connection is required but your database does not support it. "
-                "Please enable SSL/TLS on your PostgreSQL server.",
+                "Your database doesn't support encrypted connections, but your certificate settings need one. "
+                "Enable SSL/TLS on your database, or clear this source's certificate settings.",
             ),
             (
                 "consuming input failed: SSL connection has been closed unexpectedly",
@@ -8875,20 +8984,34 @@ class TestGetPrimaryKeys:
             result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_partitioned_inconsistent_pk", logger)
             assert result is None
 
-    def test_reraises_connection_drop_during_child_partition_fallback(self):
+    @parameterized.expand(
+        [
+            (
+                "connection_drop",
+                psycopg.OperationalError("the connection is lost"),
+                "the connection is lost",
+            ),
+            (
+                "recovery_conflict",
+                psycopg.errors.SerializationFailure("canceling statement due to conflict with recovery"),
+                "conflict with recovery",
+            ),
+        ]
+    )
+    def test_reraises_transient_error_during_child_partition_fallback(self, _name, error, match):
         logger = structlog.get_logger()
         cursor = MagicMock()
         # Primary PK query returns no rows, so the child-partition fallback runs.
         cursor.fetchall.return_value = []
-        # The fallback query then hits a transient connection drop. It must propagate to the setup
-        # retry loop (stays retryable), not be swallowed as "no primary key" + captured as noise.
-        cursor.execute.side_effect = [None, psycopg.OperationalError("the connection is lost")]
+        # The fallback query then hits a transient error. It must propagate to the setup retry
+        # loop (stays retryable), not be swallowed as "no primary key" + captured as noise.
+        cursor.execute.side_effect = [None, error]
         module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
         with (
             patch(f"{module}._explain_query"),
             patch(f"{module}.capture_exception") as mock_capture,
         ):
-            with pytest.raises(psycopg.OperationalError, match="the connection is lost"):
+            with pytest.raises(type(error), match=match):
                 _get_primary_keys(cast(Any, cursor), "public", "events", logger)
         mock_capture.assert_not_called()
 

@@ -1,28 +1,22 @@
 #!/usr/bin/env bash
-# Fails any PR that changes both products/desktop/** and backend code that
-# ships in production (the Django image or a rust service): desktop releases
-# auto-update users on their own schedule, with no orchestration against
-# backend deploys, so a coupled PR can ship a client that calls endpoints that
-# are not deployed yet.
+# Fails any PR that changes both desktop code and a Rust service. Desktop and
+# agent releases auto-update users, so a coupled PR can ship a client that
+# calls endpoints that are not deployed yet.
+#
+# desktop-tag.yml and desktop-agent-tag.yml hold each release until prod-us
+# and prod-eu run a Django build that contains the release commit, so Django
+# changes may share a PR with desktop code. Rust services deploy separately
+# and write no deployment record that the releases can wait for.
 set -euo pipefail
 
 REPOSITORY="${REPOSITORY:?}"
 PR_NUMBER="${PR_NUMBER:?}"
 
-# Match deployable Django paths in .depot/workflows/ci-backend.yml's `backend` filter.
-# Include rust/** because Rust services deploy separately and serve desktop clients.
-# Exclude tooling and tests so they cannot block an unrelated desktop PR.
-is_backend_path() {
+# Docs cannot change what a deployed service serves, so they cannot block a desktop PR.
+is_rust_path() {
     case "$1" in
         *.md | *.mdx) return 1 ;;
-        products/desktop/*) return 1 ;;
-        posthog/*) return 0 ;;
         rust/*) return 0 ;;
-        ee/frontend/*) return 1 ;;
-        ee/*) return 0 ;;
-        common/__init__.py | common/hogql_parser/* | common/hogvm/* | common/ingestion/* | common/migration_utils/* | common/plugin_transpiler/*) return 0 ;;
-        products/*/backend/* | products/*.py) return 0 ;;
-        frontend/src/products.json) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -32,7 +26,7 @@ is_desktop_path() {
         # Backend CI regenerates this file from the schema and replaces any hand edit. New endpoints in it stay unused until a desktop call site uses them, and call sites stay gated.
         products/desktop/packages/api-client/src/generated.ts) return 1 ;;
         products/desktop/*) return 0 ;;
-        # The desktop app bundles these packages, so they ship on its release schedule.
+        # The desktop app bundles these packages, and the agent npm release publishes them.
         packages/agent/packages/*) return 0 ;;
         *) return 1 ;;
     esac
@@ -47,12 +41,12 @@ fetch_api() {
 }
 
 touched_desktop=false
-touched_backend=false
+touched_rust=false
 files=$(fetch_api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files" | jq -r '.[].filename') || exit 1
 while IFS= read -r path; do
     [ -n "$path" ] || continue
     if is_desktop_path "$path"; then touched_desktop=true; fi
-    if is_backend_path "$path"; then touched_backend=true; fi
+    if is_rust_path "$path"; then touched_rust=true; fi
 done <<<"$files"
 
 if [ "$touched_desktop" = false ]; then
@@ -68,15 +62,18 @@ if jq -e '[.labels[]?.name] | index("desktop-skip-backend-check") != null' <<<"$
     exit 0
 fi
 
-if [ "$touched_backend" = true ]; then
-    echo "::error::This PR contains both products/desktop and backend changes. These must be separated into different PRs."
+if [ "$touched_rust" = true ]; then
+    echo "::error::This PR contains both desktop and Rust service changes. These must be separated into different PRs."
     echo ""
-    echo "Why? Desktop releases auto-update users and are not orchestrated with backend"
-    echo "deploys. If desktop code depends on a backend change in the same PR, a release"
-    echo "can ship a client that calls endpoints that are not deployed yet."
+    echo "Why? Desktop and agent releases auto-update users. Each release waits until"
+    echo "prod-us and prod-eu run a Django build that contains its commit, so Django"
+    echo "changes can share a PR with desktop code. Rust services deploy separately, and"
+    echo "the releases do not wait for them yet. If desktop code depends on a Rust change"
+    echo "in the same PR, a release can ship a client that calls endpoints that are not"
+    echo "deployed yet."
     echo ""
     echo "Solution: split into two PRs:"
-    echo "  1. First PR: backend changes only (merge and wait for the deploy)."
+    echo "  1. First PR: Rust changes only (merge and wait for the deploy)."
     echo "  2. Second PR: desktop changes (merge once the backend is live)."
     echo ""
     echo "If the two halves are independent (safe to ship in either order), apply the"

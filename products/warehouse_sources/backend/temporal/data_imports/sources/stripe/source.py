@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Optional, cast
 from django.db import close_old_connections, connection
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import WebhookEvents
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
@@ -80,6 +81,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     stripe_source,
     update_webhook_events,
     validate_credentials as validate_stripe_credentials,
+    webhook_events as stripe_webhook_events,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -252,6 +254,9 @@ class StripeSource(
     def webhook_resource_map(self) -> dict[str, str]:
         return RESOURCE_TO_STRIPE_OBJECT_TYPE
 
+    def webhook_events(self, schema_name: str) -> WebhookEvents | None:
+        return stripe_webhook_events(schema_name) if schema_name in self.webhook_resource_map else None
+
     def webhook_mapping_key(self, schema_name: str) -> str:
         # The history table consumes the same `payment_method` events as CustomerPaymentMethod,
         # but `schema_mapping` routes one schema per key — so it registers under a suffixed key
@@ -412,6 +417,11 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # Publishable keys can't authenticate any of the read endpoints we sync, so every retry
             # fails identically — match Stripe's stable rejection text (the request id varies).
             "This API call cannot be made with a publishable API key": "Your Stripe API key is a publishable key, which cannot be used to sync data. Please use a secret or restricted key instead, then reconnect.",
+            # The customer pasted an Organization API key, which Stripe scopes to no single account —
+            # every request needs a target account via a Stripe-Context header, which we never send.
+            # Every endpoint we sync fails identically, so retrying can't help; Stripe's own text is
+            # stable (no request id or account id embedded).
+            "Please include the Stripe-Context header with your target account when using an Organization API key": "Your Stripe API key is an Organization API key, which isn't supported. Please use a secret or restricted API key scoped to a single Stripe account instead, then reconnect.",
             # A non-Connect key was sent with a `stripe_account` header (the source's "Account id"),
             # so Stripe rejects the whole request for the account rather than a specific scope.
             "Only Stripe Connect platforms can work with other accounts": "Stripe rejected the request because your API key isn't authorized for the configured Stripe account. The 'Account id' in your source settings only applies to Stripe Connect platform accounts — remove or correct it if your key belongs directly to the account, then reconnect.",
@@ -487,7 +497,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
 
         oauth_integration = OauthIntegration(integration)
         if oauth_integration.access_token_expired():
-            oauth_integration.refresh_access_token()
+            integration = oauth_integration.refresh_access_token()
 
         if not integration.access_token:
             raise ValueError("Stripe access token not found")
@@ -744,6 +754,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             webhook_source_manager=webhook_source_manager,
+            events=self.webhook_events(inputs.schema_name),
             api_version=self.resolve_api_version(inputs.api_version),
             team_id=inputs.team_id,
             source_id=inputs.source_id,

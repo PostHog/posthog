@@ -7,6 +7,44 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface MCPCustomHarnessApi {
+    readonly id: string
+    /**
+     * Name to show for calls from this harness.
+     * @maxLength 100
+     * @pattern ^[\w .+&()/-]+$
+     */
+    name: string
+    /**
+     * Text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent/1.2`.
+     * @maxLength 100
+     */
+    match_pattern: string
+    /** Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows in one color, like the built-in harness logos. An empty string means no icon. */
+    icon?: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PatchedMCPCustomHarnessApi {
+    readonly id?: string
+    /**
+     * Name to show for calls from this harness.
+     * @maxLength 100
+     * @pattern ^[\w .+&()/-]+$
+     */
+    name?: string
+    /**
+     * Text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent/1.2`.
+     * @maxLength 100
+     */
+    match_pattern?: string
+    /** Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows in one color, like the built-in harness logos. An empty string means no icon. */
+    icon?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
 /**
  * * `feedback` - Feedback
  * * `missing_capability` - Missing capability
@@ -246,6 +284,38 @@ export interface MCPIntentClusterApi {
     readonly self_retries: readonly MCPClusterSelfRetryApi[]
 }
 
+export interface MCPIntentClusterLongTailApi {
+    /** Number of intents whose clusters fell below the minimum cluster size. */
+    readonly intent_count: number
+    /** Sessions represented by the long-tail intents. */
+    readonly session_count: number
+    /** Tool calls across all long-tail intents. */
+    readonly call_count: number
+    /** Error responses across all long-tail intents. */
+    readonly error_count: number
+    /** Error rate across long-tail tool calls, from 0 to 100. */
+    readonly error_rate_pct: number
+    /** Up to ten long-tail intent strings, by call volume desc. Empty when intent text is redacted. */
+    readonly sample_intents: readonly string[]
+}
+
+export interface MCPRecurringIntentApi {
+    /** The most common wording of this automation step. Empty when intent text is redacted. */
+    readonly intent_text: string
+    /** Sessions in the window that opened with this intent. */
+    readonly session_count: number
+    /** Tool calls across those sessions. */
+    readonly call_count: number
+    /** Error responses across those sessions. */
+    readonly error_count: number
+    /** Error rate across those sessions' tool calls, from 0 to 100. */
+    readonly error_rate_pct: number
+    /** How many different wordings of this automation step were merged into the entry. 1 when none were. */
+    readonly variant_count: number
+    /** Up to five merged wordings, most common first. Empty when nothing was merged or intent text is redacted. */
+    readonly sample_variants: readonly string[]
+}
+
 export interface MCPToolPivotCompetitorApi {
     /** The other tool with the largest share of this cluster's calls. */
     readonly tool: string
@@ -412,8 +482,14 @@ export interface MCPIntentClusterSnapshotApi {
     readonly last_computed_at: string | null
     /** Email of the user who triggered the latest recompute, empty for system-triggered runs. */
     readonly last_computed_by_email: string
-    /** All clusters in the snapshot. */
+    /** Clusters that met the minimum member count, by call volume desc. */
     readonly clusters: readonly MCPIntentClusterApi[]
+    /** Aggregate of intents whose clusters fell below the minimum member count. Null when every cluster met it, on older snapshots, and on tool-scoped responses. */
+    readonly long_tail: MCPIntentClusterLongTailApi | null
+    /** Intent texts that open three or more sessions verbatim, which is automated traffic such as scheduled agents and cron runs. Kept out of the clusters and ranked by session count desc. Empty on older snapshots and on tool-scoped responses. */
+    readonly recurring: readonly MCPRecurringIntentApi[]
+    /** True when property access control hides $mcp_intent from the requesting user. Every intent string in the response is then empty. */
+    readonly intent_text_redacted: boolean
     /** Tool-centric pivot of the clusters: per tool, the intents it serves, capture per cluster, contested score, discovery rate, and description fit. Empty on snapshots computed before the per-call pipeline; recompute to populate. */
     readonly tools: readonly MCPToolPivotApi[]
     /** Tool pairs competing for the same intent clusters, by contested call volume desc, capped at 50. */
@@ -540,6 +616,26 @@ export interface MCPToolCallApi {
      * @nullable
      */
     readonly duration_ms: number | null
+    /** Arguments the client passed ($mcp_parameters) as JSON text, exactly as the SDK captured them after its redaction. Empty when not captured. */
+    readonly parameters: string
+    /** Result the MCP server returned ($mcp_response) as JSON text, exactly as the SDK captured it after its redaction and truncation. Empty when not captured. */
+    readonly response: string
+    /** Error category ($mcp_error_type) when the SDK classified the failure, otherwise empty. */
+    readonly error_type: string
+    /** HTTP status ($mcp_error_status) when the failure carried one, otherwise empty. */
+    readonly error_status: string
+    /** Command an exec-style server ran ($mcp_exec_verb), such as call, info, search or unrecognized. Empty for direct tool calls. */
+    readonly exec_verb: string
+    /** Tool the exec command named ($mcp_exec_target_tool). Empty when the command named none. */
+    readonly exec_target_tool: string
+    /** Argument names the client sent ($mcp_input_keys), without values. Empty when not captured. */
+    readonly input_keys: readonly string[]
+    /** Specific failure code ($mcp_error_code) when the server set one, otherwise empty. */
+    readonly error_code: string
+    /** Argument the failure points at ($mcp_error_field), otherwise empty. */
+    readonly error_field: string
+    /** Model that made the call ($mcp_llm_model), otherwise empty. */
+    readonly llm_model: string
 }
 
 export interface PaginatedMCPToolCallListApi {
@@ -571,7 +667,7 @@ export interface MCPActivityStatsApi {
     readonly calls_with_intent: number
     /** Tool calls flagged as errors ($mcp_is_error) in the window. */
     readonly error_calls: number
-    /** $mcp_missing_capability events captured in the window. */
+    /** Missing-capability reports captured in the window: $mcp_missing_capability events and $mcp_feedback events of type missing_capability. */
     readonly missing_capability_reports: number
 }
 
@@ -742,6 +838,10 @@ export type McpAnalyticsSessionsToolCallsParams = {
      * Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable.
      */
     date_from?: string
+    /**
+     * Absolute ISO timestamp upper bound for the event scan. Pass the session's end so the scan stops there instead of reading up to now. Unbounded when omitted or unparseable.
+     */
+    date_to?: string
     /**
      * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
      */

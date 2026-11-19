@@ -1,8 +1,8 @@
 import { LemonCard, LemonTag } from '@posthog/lemon-ui'
 
+import { BrandMark } from 'lib/components/BrandMark/BrandMark'
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { BrandMark } from '../components/BrandMark'
 import { harnessMark } from '../dashboard/harnessRegistry'
 import type { MCPActivityRecentCallApi } from '../generated/api.schemas'
 import { formatDuration } from '../sessions/utils'
@@ -19,7 +19,9 @@ export function ToolCallRevealCard({ call }: { call: MCPActivityRecentCallApi })
                     <span className="truncate">{client}</span>
                 </span>
                 <span className="text-secondary">called</span>
-                <span className="min-w-0 truncate font-mono font-semibold">{call.tool}</span>
+                <span className="min-w-0 truncate font-mono font-semibold" title={call.tool}>
+                    {call.tool}
+                </span>
                 <LemonTag type={call.is_error ? 'danger' : 'success'}>
                     {call.is_error
                         ? 'Failed'

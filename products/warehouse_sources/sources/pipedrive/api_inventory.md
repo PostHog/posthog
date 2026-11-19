@@ -38,6 +38,9 @@ Reference: <https://developers.pipedrive.com/docs/api/v1>
 | organization_fields | `/api/v1/organizationFields`                    | offset     | id                       | —             |
 | lead_labels         | `/api/v1/leadLabels`                            | none       | id                       | —             |
 | activity_types      | `/api/v1/activityTypes`                         | none       | id                       | —             |
+| currencies          | `/api/v1/currencies`                            | none       | id                       | —             |
+| call_logs           | `/api/v1/callLogs`                              | offset     | id                       | start_time    |
+| goals               | `/api/v1/goals/find`                            | none       | id                       | —             |
 | deal_products       | `/api/v2/deals/products`                        | cursor     | deal_id, id              | add_time      |
 | deal_changelog      | `/api/v1/deals/{id}/changelog`                  | cursor     | deal_id, field_key, time | time          |
 | mail_threads        | `/api/v1/mailbox/mailThreads`                   | offset     | id                       | add_time      |
@@ -48,7 +51,16 @@ Reference: <https://developers.pipedrive.com/docs/api/v1>
 | project_boards      | `/api/v1/projects/boards`                       | none       | id                       | —             |
 | project_phases      | `/api/v1/projects/phases`                       | none       | id                       | —             |
 
-`lead_labels` and `activity_types` are documented as unpaginated and always return every row, so they are read in one request.
+`lead_labels`, `activity_types` and `currencies` are documented as unpaginated and always return every row, so they are read in one request.
+
+`call_logs` pages by 50, the largest page `/callLogs` accepts.
+It holds only the call logs of the user who owns the API token.
+Call logs have no `add_time`, so the table is partitioned on the call `start_time`, which does not change.
+
+`goals` reads `/goals/find` with no search criteria, which returns every goal in one response under `data.goals`.
+`/goals/{id}/results` is not synced: it returns one progress figure for a goal over a required date range, not rows, and `deals` and `activities` hold the data it counts.
+
+`/leadSources` is not synced: it returns a fixed list of names that is the same for every account and has no ids, and `leads` already carry the source name.
 
 `deal_products` and `deal_changelog` fan out over every deal in `/api/v2/deals` and `/api/v2/deals/archived`, so a deal keeps its line items and history after it is archived.
 `deal_products` sends up to 100 deal ids per request in the `deal_ids` param.

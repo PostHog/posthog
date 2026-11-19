@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { type MutableRefObject, type RefObject, useEffect, useMemo, useRef, useState } from 'react'
+import { type KeyboardEvent, type MutableRefObject, type RefObject, useEffect, useMemo, useRef, useState } from 'react'
+
+import { Kbd } from '@posthog/quill-primitives'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { projectLogic } from 'scenes/projectLogic'
@@ -10,7 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
-import { Composer } from 'products/posthog_ai/frontend/api/composer'
+import { Composer, ReplySuggestionHint } from 'products/posthog_ai/frontend/api/composer'
 import {
     runInteractionLogic,
     type RunInteractionLogicProps,
@@ -34,6 +36,7 @@ import { CommandResultCard } from '../../../components/composer/CommandResultCar
 import { CommentContextChips } from '../../../components/composer/CommentContextChips'
 import { ComposerAttachmentChips } from '../../../components/composer/ComposerAttachmentChips'
 import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
+import { ComposerCodexBillingIndicator } from '../../../components/composer/ComposerCodexBillingIndicator'
 import { ComposerCodexBillingPickers } from '../../../components/composer/ComposerCodexBillingPickers'
 import { ComposerCommandMenu } from '../../../components/composer/ComposerCommandMenu'
 import {
@@ -86,6 +89,8 @@ export function TaskRunComposer({
         composerActive,
         steerPending,
         cancellationState,
+        replySuggestion,
+        replySuggestions,
     } = useValues(runInteractionLogic(logicProps))
     const { slashCommands, commandResult } = useValues(runSlashCommandsLogic(logicProps))
     const { submitComposer, dismissCommandResult } = useActions(runSlashCommandsLogic(logicProps))
@@ -112,6 +117,9 @@ export function TaskRunComposer({
         steerQueue,
         submitAfterConsent,
         setQueueEditing,
+        acceptReplySuggestion,
+        dismissReplySuggestion,
+        reportReplySuggestionShown,
     } = useActions(runInteractionLogic(logicProps))
 
     useEffect(() => {
@@ -121,6 +129,28 @@ export function TaskRunComposer({
     }, [user?.uuid, currentProjectId, enableTaskDraftPersistence])
 
     const draft = useDebouncedDraft(composerForm.draft, (value) => setComposerFormValues({ draft: value }))
+    const shownReplySuggestion = draft.value ? null : replySuggestion
+    const shownReplySuggestionTurn = shownReplySuggestion !== null ? replySuggestions?.turnIndex : undefined
+    useEffect(() => {
+        if (shownReplySuggestionTurn !== undefined) {
+            reportReplySuggestionShown(shownReplySuggestionTurn)
+        }
+    }, [shownReplySuggestionTurn, reportReplySuggestionShown])
+    const handleReplySuggestionKeys = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+        if (shownReplySuggestion === null || shownReplySuggestionTurn === undefined) {
+            return
+        }
+        const noModifiers = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey
+        if (noModifiers && (event.key === 'Tab' || event.key === 'ArrowRight')) {
+            event.preventDefault()
+            draft.onChange(shownReplySuggestion)
+            acceptReplySuggestion(shownReplySuggestion, event.key)
+        } else if (event.key === 'Escape') {
+            event.preventDefault()
+            event.stopPropagation()
+            dismissReplySuggestion(shownReplySuggestionTurn)
+        }
+    }
     useEffect(() => {
         flushDraftRef.current = draft.flush
     }, [flushDraftRef, draft.flush])
@@ -134,7 +164,7 @@ export function TaskRunComposer({
     const groupRef = useRef<HTMLDivElement>(null)
     const [contextPickerOpen, setContextPickerOpen] = useState(false)
     const skin = useThreadSkin()
-    const codexBillingEnabled = useFeatureFlag('POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD')
+    const codexBillingEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
 
     const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
     const placeholder =
@@ -183,8 +213,19 @@ export function TaskRunComposer({
     const field = (
         <ComposerCommandMenu commands={slashCommands}>
             <Composer.Field>
-                <Composer.Placeholder>{placeholder}</Composer.Placeholder>
-                <Composer.Textarea data-attr="sandbox-composer-input" autoFocus={autoFocus} onPaste={onPaste} />
+                {shownReplySuggestion !== null ? (
+                    <Composer.Placeholder className="right-12">
+                        <ReplySuggestionHint suggestion={shownReplySuggestion} acceptHint={<Kbd>Tab to accept</Kbd>} />
+                    </Composer.Placeholder>
+                ) : (
+                    <Composer.Placeholder>{placeholder}</Composer.Placeholder>
+                )}
+                <Composer.Textarea
+                    data-attr="sandbox-composer-input"
+                    autoFocus={autoFocus}
+                    onPaste={onPaste}
+                    onKeyDown={handleReplySuggestionKeys}
+                />
             </Composer.Field>
         </ComposerCommandMenu>
     )
@@ -307,12 +348,21 @@ export function TaskRunComposer({
                         }
                         singleRow
                         meta={
-                            <div className="flex min-w-0 items-center gap-1 [&>fieldset]:min-w-0 [&>fieldset]:flex-nowrap">
-                                <span className="px-1 empty:hidden">
-                                    <QuillContextUsage />
-                                </span>
-                                {pickers(modelPicker, null)}
-                            </div>
+                            <>
+                                {codexBillingEnabled &&
+                                    !isPiTask &&
+                                    getRuntimeAdapterForModel(catalogue, selectedModel) === 'codex' && (
+                                        <ComposerCodexBillingIndicator
+                                            lockedCodexModelAccess={lockedCodexModelAccess}
+                                        />
+                                    )}
+                                <div className="flex min-w-0 items-center gap-1 [&>fieldset]:min-w-0 [&>fieldset]:flex-nowrap">
+                                    <span className="px-1 empty:hidden">
+                                        <QuillContextUsage />
+                                    </span>
+                                    {pickers(modelPicker, null)}
+                                </div>
+                            </>
                         }
                     />
                 ) : (

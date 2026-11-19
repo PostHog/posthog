@@ -14,13 +14,13 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 from posthog.schema_enums import InCohortVia, InlineCohortCalculation, PersonsOnEventsMode
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestTrinoSemantics(APIBaseTest):
@@ -194,7 +194,11 @@ class TestTrinoPersonsSemantics(SimpleTestCase):
     def test_logical_persons_table_rejects_unexported_fields(self) -> None:
         context = self._context()
 
-        with self.assertRaisesRegex(QueryError, "Last seen is not available for managed warehouse queries"):
+        with self.assertRaisesRegex(
+            TrinoLoweringError,
+            r"\[TRINO_PERSONS_LAST_SEEN_UNAVAILABLE\] Last seen is not available for managed warehouse queries\. "
+            r"Use max\(timestamp\) from events, grouped by person_id, instead\.",
+        ):
             prepare_and_print_ast(
                 parse_select("SELECT last_seen_at FROM persons"),
                 context,

@@ -15,13 +15,17 @@
             ],
             "description": "Integration holding this destination's credentials. Required for every type except the PostHog warehouse."
         },
+        "migration_item_id": {
+            "description": "The warehouse migration item that planned this destination. The integration must keep every setting the connect page prefilled from it, or creation fails before PostHog connects anywhere.",
+            "type": "string"
+        },
         "name": {
             "description": "Human-readable name shown when picking destinations for a source or table.",
             "maxLength": 400,
             "type": "string"
         },
         "type": {
-            "description": "Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n* `PostHogWarehouse` - PostHog warehouse\n* `Redshift` - Redshift\n* `Snowflake` - Snowflake\n* `BigQuery` - BigQuery\n* `Postgres` - Postgres\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `S3` - S3",
+            "description": "Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n* `PostHogWarehouse` - PostHog warehouse\n* `Redshift` - Redshift\n* `Snowflake` - Snowflake\n* `BigQuery` - BigQuery\n* `Postgres` - Postgres\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `S3` - S3\n* `MotherDuck` - MotherDuck",
             "enum": [
                 "PostHogWarehouse",
                 "Redshift",
@@ -30,7 +34,8 @@
                 "Postgres",
                 "Databricks",
                 "AzureBlob",
-                "S3"
+                "S3",
+                "MotherDuck"
             ],
             "type": "string"
         }

@@ -208,6 +208,19 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "1.5×",
     costSummary: "Input $3 · Output $15 per 1M tokens",
+    retired: true,
+  },
+  {
+    id: "moonshotai/kimi-k3.1-pro",
+    runtimeAdapter: "claude",
+    reasoningEfforts: [],
+    label: "Kimi K3.1 Pro",
+    cost: {
+      inputPerMtok: 2,
+      outputPerMtok: 10,
+    },
+    costMultiplier: "1×",
+    costSummary: "Input $2 · Output $10 per 1M tokens",
   },
   {
     id: "deepseek-ai/deepseek-v4-flash-0731",
@@ -340,6 +353,19 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "5×",
     costSummary: "Input $10 · Output $50 per 1M tokens",
+    supports1MContext: true,
+  },
+  {
+    id: "claude-fable-5-2",
+    runtimeAdapter: "claude",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultracode"],
+    label: "Claude Fable 5.2",
+    cost: {
+      inputPerMtok: 8,
+      outputPerMtok: 40,
+    },
+    costMultiplier: "4×",
+    costSummary: "Input $8 · Output $40 per 1M tokens",
     supports1MContext: true,
   },
   {

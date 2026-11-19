@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native'
 import * as SplashScreen from 'expo-splash-screen'
 
+import { viewRangesLoaded } from '@/features/views/rangeStore'
 import { track } from '@/lib/analytics'
 
 import RootLayout from '../../app/_layout'
@@ -33,12 +34,16 @@ jest.mock(
 jest.mock('@/auth/authStore', () => {
     const { create } = jest.requireActual<typeof import('zustand')>('zustand')
     return {
+        addSessionEndTask: jest.fn(),
         installAuthProvider: jest.fn(),
         useAuthStore: create(() => ({ status: 'loading', restore: async () => undefined })),
     }
 })
 jest.mock('@/auth/useAuthRedirect', () => ({ useAuthRedirect: jest.fn() }))
-jest.mock('@/demo/demoMode', () => ({ useDemoHydrated: () => true }))
+jest.mock('@/demo/demoMode', () => ({
+    useDemoHydrated: () => true,
+    useDemoMode: (selector: (state: { enabled: boolean }) => boolean) => selector({ enabled: false }),
+}))
 jest.mock('@/ui/appearanceStore', () => ({
     ...jest.requireActual('@/ui/appearanceStore'),
     useAppearanceHydrated: () => true,
@@ -48,6 +53,7 @@ jest.mock('@/features/updates/useAutomaticUpdates', () => ({ useAutomaticUpdates
 jest.mock('@/features/chat/draftPersistence', () => ({}))
 jest.mock('@/features/offlineCache', () => ({ installOfflineCache: jest.fn() }))
 jest.mock('@/features/hedgehog/useHedgehogWidgetSync', () => ({ useHedgehogWidgetSync: jest.fn() }))
+jest.mock('@/features/widgets/useChartWidgetSync', () => ({ useChartWidgetSync: jest.fn() }))
 jest.mock('@/features/notifications/pushRegistration', () => ({ configureNotifications: jest.fn() }))
 jest.mock('@/features/notifications/useNotificationRouting', () => ({ useNotificationRouting: jest.fn() }))
 jest.mock('@/features/notifications/usePushRegistration', () => ({ usePushRegistration: jest.fn() }))
@@ -58,7 +64,8 @@ jest.mock('@/ui/RouteErrorBoundary', () => ({ RouteErrorBoundary: jest.fn() }))
 jest.mock('@/ui/icons/AnimatedLogomark', () => ({ AnimatedLogomark: require('react-native').View }))
 
 describe('boot splash handoff', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
+        await viewRangesLoaded
         jest.useFakeTimers()
         jest.clearAllMocks()
         useAuthStore.setState({ status: 'loading' })
@@ -77,6 +84,7 @@ describe('boot splash handoff', () => {
 
             expect(SplashScreen.hideAsync).toHaveBeenCalledTimes(1)
             expect(screen.getByLabelText('Loading PostHog')).toBeTruthy()
+            expect(screen.getByLabelText('ph-no-capture')).toBeTruthy()
             expect(screen.queryByTestId('app-screens')).toBeNull()
 
             act(() => useAuthStore.setState({ status: 'signed_in' }))

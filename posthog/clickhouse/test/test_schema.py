@@ -15,6 +15,7 @@ from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_CLIC
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON, KAFKA_COLUMNS_WITH_PARTITION
 from posthog.clickhouse.logs import LOGS34_TO_PATTERN_BUCKETS_MV_SELECT, LOGS34_TO_VOLUME_BUCKETS_MV_SELECT
+from posthog.clickhouse.metrics import METRICS4_INPUT_TO_METRICS_KAFKA_METRICS_MV_SELECT
 from posthog.clickhouse.property_groups import flag_evaluations_property_group_definitions, iter_groups
 from posthog.clickhouse.schema import (
     CREATE_KAFKA_TABLE_QUERIES,
@@ -187,6 +188,41 @@ def test_logs_pattern_buckets_keep_stamped_empty_patterns_and_drop_unstamped_row
         + ") ORDER BY pattern, internal_source"
     )
     assert rows == [(5, "", "", 15, 1), (5, "GET <N>", "", 31, 2), (5, "GET <N>", "hog_flow", 15, 1)]
+
+
+@pytest.mark.usefixtures("clickhouse_database")
+def test_metrics_kafka_metrics_counts_rows_toward_both_hops() -> None:
+    select = METRICS4_INPUT_TO_METRICS_KAFKA_METRICS_MV_SELECT().replace(
+        f"FROM {django_settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.metrics4_input", "FROM checkpoint_input"
+    )
+    rows = sync_execute(
+        """
+        WITH checkpoint_input AS (
+            SELECT
+                row.1 AS _topic,
+                toUInt32(row.2) AS _partition,
+                toUInt64(row.3) AS _offset,
+                row.4 AS _source_topic,
+                toUInt32(row.5) AS _source_partition,
+                toDateTime64(row.6, 6, 'UTC') AS observed_timestamp
+            FROM (
+                SELECT arrayJoin([
+                    ('clickhouse_metrics', 3, 10, 'ingestion_metrics', 7, '2026-01-02 12:00:00'),
+                    ('clickhouse_metrics', 4, 20, 'ingestion_metrics', 7, '2026-01-02 12:00:30'),
+                    ('clickhouse_metrics', 5, 11, '', 0, '2026-01-02 12:01:00')
+                ]) AS row
+            )
+        )
+        SELECT _topic, _partition, max_offset, toString(max_observed_timestamp) FROM ("""
+        + select
+        + ") ORDER BY _topic, _partition",
+    )
+    assert rows == [
+        ("clickhouse_metrics", 3, 10, "2026-01-02 12:00:00.000000"),
+        ("clickhouse_metrics", 4, 20, "2026-01-02 12:00:30.000000"),
+        ("clickhouse_metrics", 5, 11, "2026-01-02 12:01:00.000000"),
+        ("ingestion_metrics", 7, 0, "2026-01-02 12:00:30.000000"),
+    ]
 
 
 def _column_definition_lines(block: str) -> Iterator[str]:

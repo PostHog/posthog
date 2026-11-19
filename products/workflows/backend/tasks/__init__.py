@@ -1,6 +1,7 @@
 from . import (
     audience_suggestions,
     data_suggestions,
+    email_sender_verification,
     email_sending_tiers,
     hog_flows,
     people_import,
@@ -11,6 +12,7 @@ from . import (
 __all__ = [
     "audience_suggestions",
     "data_suggestions",
+    "email_sender_verification",
     "email_sending_tiers",
     "hog_flows",
     "people_import",

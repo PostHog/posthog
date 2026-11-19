@@ -9,7 +9,7 @@ data.
 """
 
 from collections.abc import Collection
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import structlog
 
@@ -37,6 +37,7 @@ from products.tasks.backend.facade import (
     api as tasks_facade,
     usage as tasks_usage,
 )
+from products.tasks.backend.facade.profiles import get_task_profile
 
 from . import follow_ups
 from .commands import Answer, CommandContext, CommandOutcome, CommandTarget, PullRequestRef, SubjectRef
@@ -100,46 +101,33 @@ def docs_target(subject: SubjectRef, team_ids: tuple[int, ...]) -> CommandTarget
     )
 
 
-DOCS_REPLIES: dict[knowledge_writer_contracts.IntakeStatus, CommandOutcome] = {
-    "started": CommandOutcome(
-        accepted=True, message="Queued. The knowledge writer will open a docs pull request for this change."
-    ),
-    "joined": CommandOutcome(
-        accepted=True, message="Queued. The knowledge writer will add this change to its open docs pull request."
-    ),
-    "duplicate": CommandOutcome(accepted=True, message="The knowledge writer already has this pull request."),
-    "shadow": CommandOutcome(accepted=False, message="The knowledge writer isn't starting runs yet."),
-    "capped": CommandOutcome(accepted=False, message="The knowledge writer hit its run limit. Try again tomorrow."),
-    "section_busy": CommandOutcome(
-        accepted=False,
-        message="The knowledge writer is already updating that docs section. Try again once its pull request is up.",
-    ),
-    "docs_in_source_repo": CommandOutcome(
-        accepted=False,
-        message="Those docs pages live in this repository, so update them in this pull request.",
-    ),
-    "unconfigured": CommandOutcome(accepted=False, message="The knowledge writer isn't set up."),
-    "no_docs": CommandOutcome(accepted=False, message="The knowledge writer found no docs to change."),
-}
-
-
 def handle_docs(context: CommandContext, args: DocsArgs) -> CommandOutcome:
     pull_request = context.pull_request
     if pull_request.is_private:
         return CommandOutcome(accepted=False, message="The knowledge writer only runs on public repositories.")
-    outcome = knowledge_writer_facade.request_docs_for_pull_request(
-        knowledge_writer_contracts.DocsCommandRequest(
-            repository=pull_request.repository,
-            pull_request_number=pull_request.number,
-            pull_request_url=pull_request.url,
-            head_sha=pull_request.head_sha,
-            note=args.note,
-            requested_by=context.request.requester,
-            requested_by_user_id=context.members[0].user_id,
-        ),
-        team_id=context.members[0].team_id,
-    )
-    return DOCS_REPLIES[outcome.status]
+    waiter_id = None
+    follow_up = _follow_up(context)
+    if follow_up is not None:
+        waiter_id = uuid4().hex
+        follow_ups.remember(follow_ups.docs_check_key(waiter_id), follow_up)
+    try:
+        knowledge_writer_facade.request_docs_for_pull_request(
+            knowledge_writer_contracts.DocsCommandRequest(
+                repository=pull_request.repository,
+                pull_request_number=pull_request.number,
+                note=args.note,
+                requested_by=context.request.requester,
+                requested_by_user_id=context.members[0].user_id,
+            ),
+            team_id=context.members[0].team_id,
+            waiter_id=waiter_id,
+        )
+    except Exception:
+        # The dispatcher answers that the command failed, so a check that started anyway stays quiet.
+        if waiter_id is not None:
+            follow_ups.take(follow_ups.docs_check_key(waiter_id))
+        raise
+    return CommandOutcome(accepted=True, message="Checking whether this pull request changes the docs.")
 
 
 def _follow_up(context: CommandContext) -> follow_ups.FollowUp | None:
@@ -240,7 +228,7 @@ def handle_qa(context: CommandContext, args: QaArgs) -> CommandOutcome:
         team=team,
         title=f"QA {pull_request.repository}#{pull_request.number}",
         description=build_qa_instructions(context, args.focus),
-        origin_product=tasks_facade.TaskOriginProduct.USER_CREATED,
+        profile=get_task_profile("user"),
         user_id=member.user_id,
         repository=pull_request.repository,
         branch=pull_request.head_branch,

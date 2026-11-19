@@ -724,19 +724,21 @@ class RESTClient:
 
         The caller sets the deadline one time, before the first try, so the retries share it.
         """
-        prepared = self.session.prepare_request(request)
-        # Fail loud on a pagination/resume URL that points off the expected host before the
-        # request (and its Authorization header) ever leaves the process. Raised outside the
-        # retryable-error type so it propagates immediately rather than being retried.
-        self._check_allowed_host(prepared.url)
         # `send` reads the body eagerly (stream=False), so a connection dropped mid-stream
         # surfaces here as ChunkedEncodingError. A connection that never got established at all —
         # egress proxy refusing/resetting the connection, a connect timeout — surfaces as
         # ConnectionError. Both are transient network failures, so reissue them like a
         # truncated/partial body below rather than letting them skip this retry loop and fail the
-        # whole sync on one bad connection attempt.
+        # whole sync on one bad connection attempt. ``prepare_request`` is in scope here too: a
+        # lazily-minted auth token (e.g. OAuth2Auth._obtain_token) makes its own HTTP call from
+        # inside it, and a timeout or dropped connection there is exactly as transient.
         try:
             with request_deadline(deadline):
+                prepared = self.session.prepare_request(request)
+                # Fail loud on a pagination/resume URL that points off the expected host before the
+                # request (and its Authorization header) ever leaves the process. Raised outside the
+                # retryable-error type so it propagates immediately rather than being retried.
+                self._check_allowed_host(prepared.url)
                 response = self._send(prepared)
                 presigned_url = self._presigned_redirect_url(response)
                 if presigned_url is not None:
@@ -749,9 +751,11 @@ class RESTClient:
             # string. `_redact` only replaces a secret's raw value, not the percent-encoded form
             # a query-param API key takes there — so build the message from `_safe_url` (scheme/
             # host/path only) rather than the raw exception text, the same way the 5xx path below
-            # avoids leaking an encoded credential into the persisted `latest_error`.
+            # avoids leaking an encoded credential into the persisted `latest_error`. Built from
+            # `request.url`, not `prepared.url`: a failure in `prepare_request` itself never binds
+            # the latter.
             raise RESTClientRetryableError(
-                self._redact(f"Connection error ({type(e).__name__}) for {_safe_url(prepared.url or '')}")
+                self._redact(f"Connection error ({type(e).__name__}) for {_safe_url(request.url or '')}")
             ) from e
         except RequestsTimeout as e:
             # A connect/read timeout (a host that accepts the connection then stalls) is transient
@@ -760,7 +764,7 @@ class RESTClient:
             # still gets a few tries before the sync gives up. Built from `_safe_url` for the same
             # credential-in-query-string reason as the ConnectionError branch.
             raise RESTClientRetryableError(
-                self._redact(f"Request timed out ({type(e).__name__}) for {_safe_url(prepared.url or '')}")
+                self._redact(f"Request timed out ({type(e).__name__}) for {_safe_url(request.url or '')}")
             ) from e
         except TooManyRedirects as e:
             # requests already followed its redirect cap (30) chasing a final response and never
@@ -769,7 +773,7 @@ class RESTClient:
             # Re-fetching replays the same chain, so fail fast and non-retryably instead of burning
             # the retry budget on 30+ requests per attempt.
             raise RESTClientNonRetryableError(
-                self._redact(f"Too many redirects for {_safe_url(prepared.url or '')}")
+                self._redact(f"Too many redirects for {_safe_url(request.url or '')}")
             ) from e
 
         # With redirects disabled, a 3xx is not an error to `raise_for_status` and would fall
@@ -884,8 +888,9 @@ class RESTClient:
             # the response shape changed (e.g. an error object on a 200) — fail loud rather than
             # wrapping the stray object as a single row.
             if required and not isinstance(body, list):
+                keys = f" (body keys: {sorted(body.keys())[:20]})" if isinstance(body, dict) else ""
                 raise ValueError(
-                    f"Required a list response body, got {type(body).__name__}. "
+                    f"Required a list response body, got {type(body).__name__}{keys}. "
                     "The API response shape may have changed."
                 )
             data = body

@@ -10,6 +10,7 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import BoundedLimitOffsetPagination, page_link, previous_offset
@@ -20,7 +21,7 @@ from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.facade import api, contracts, enums
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness
 
 from .serializers import (
     MCP_SESSION_LIST_DEFAULT_LIMIT,
@@ -28,6 +29,7 @@ from .serializers import (
     MCPActivityOverviewQuerySerializer,
     MCPActivityOverviewSerializer,
     MCPAnalyticsSubmissionSerializer,
+    MCPCustomHarnessSerializer,
     MCPFeedbackCreateSerializer,
     MCPIntentClusterSnapshotSerializer,
     MCPIntentDigestSerializer,
@@ -236,6 +238,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit=params["limit"],
             offset=params["offset"],
             date_from=params.get("date_from"),
+            date_to=params.get("date_to"),
             properties=params["properties"],
             filter_test_accounts=params["filter_test_accounts"],
             user=cast(User, request.user),
@@ -371,7 +374,9 @@ class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: MCPIntentClusterSnapshotSerializer},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        snapshot = api.get_intent_cluster_snapshot(self.team, tool=request.query_params.get("tool") or None)
+        snapshot = api.get_intent_cluster_snapshot(
+            self.team, user=cast(User, request.user), tool=request.query_params.get("tool") or None
+        )
         serializer = self.get_serializer(snapshot)
         return Response(serializer.data)
 
@@ -387,7 +392,7 @@ class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["post"], url_path="recompute")
     def recompute(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         api.trigger_intent_cluster_recompute(self.team, cast(User, request.user))
-        snapshot = api.get_intent_cluster_snapshot(self.team)
+        snapshot = api.get_intent_cluster_snapshot(self.team, user=cast(User, request.user))
         serializer = self.get_serializer(snapshot)
         return Response(serializer.data, status=status.HTTP_202_ACCEPTED)
 
@@ -423,3 +428,33 @@ class MCPMissingCapabilityViewSet(BaseMCPAnalyticsSubmissionViewSet):
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._list_response(request, enums.SubmissionKind.MISSING_CAPABILITY)
+
+
+class MCPCustomHarnessViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """A team's own harness names, shown in place of "Other" in MCP analytics."""
+
+    serializer_class = MCPCustomHarnessSerializer
+    scope_object = "mcp_analytics"
+    queryset = MCPCustomHarness.objects.unscoped()
+    pagination_class = None
+
+    def safely_get_queryset(self, queryset: QuerySet[MCPCustomHarness]) -> QuerySet[MCPCustomHarness]:
+        # Rows save under the parent team (`TeamScopedRootMixin.save()`), so a child environment filters on it too.
+        return queryset.filter(team_id=self.team.parent_team_id or self.team.pk)
+
+    def _should_skip_parents_filter(self) -> bool:
+        # The default parent-lookup filter adds the raw URL team id, which hides the rows a child environment
+        # saved under its parent. safely_get_queryset already scopes every read.
+        return True
+
+    def perform_create(self, serializer: BaseSerializer[Any]) -> None:
+        super().perform_create(serializer)
+        api.invalidate_custom_harness_rules(self.team)
+
+    def perform_update(self, serializer: BaseSerializer[Any]) -> None:
+        super().perform_update(serializer)
+        api.invalidate_custom_harness_rules(self.team)
+
+    def perform_destroy(self, instance: MCPCustomHarness) -> None:
+        super().perform_destroy(instance)
+        api.invalidate_custom_harness_rules(self.team)

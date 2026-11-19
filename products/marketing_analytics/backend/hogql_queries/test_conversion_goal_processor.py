@@ -4,6 +4,7 @@ import pytest
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, events_cache_tests
 from unittest import skipIf
+from unittest.mock import patch
 
 from django.conf import settings
 
@@ -29,6 +30,9 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.models.event.util import bulk_create_events
 
 from products.actions.backend.facade.testing import create_action
+from products.marketing_analytics.backend.hogql_queries import (
+    conversion_goal_processor as conversion_goal_processor_module,
+)
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_conditions import (
     add_conversion_goal_property_filters,
 )
@@ -2124,6 +2128,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
         assert campaign_name != "spring_sale", f"Should not attribute to last touch spring_sale"
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+        with patch.object(conversion_goal_processor_module, "MAX_TOUCHPOINTS_PER_PERSON", 1):
+            capped_query = processor.generate_cte_query(additional_conditions)
+        capped_result = execute_hogql_query(query=capped_query, team=self.team).results[0]
+        assert (capped_result[1], capped_result[3]) == ("spring_sale", "google")
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_temporal_attribution_touchpoints_before_and_after_conversion(self):

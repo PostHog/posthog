@@ -30,6 +30,7 @@ export const trialFixtureConfig: SignalScoutConfigApi = {
     structured_output_schema: null,
     network_access: 'trusted',
     model: 'gpt-5.6-terra',
+    custom_image_id: null,
     precheck_query: null,
     precheck_disabled: false,
     effective_precheck_query: null,

@@ -83,7 +83,14 @@ class ResourcesCreateView(BearerResourceAPIView):
         if project_id:
             try:
                 team, scoped_teams = resolve_or_create_project_team(
-                    project_id, scoped_teams, user, configuration, access_token
+                    project_id,
+                    scoped_teams,
+                    user,
+                    configuration,
+                    access_token,
+                    enforce_ip_policy=lambda team: self.enforce_team_ip_policy(
+                        team, access_token, resource_id=str(team.id)
+                    ),
                 )
             except ProjectIdCollisionError:
                 capture_provisioning_event(

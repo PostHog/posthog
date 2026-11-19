@@ -19,7 +19,9 @@ import { GroupKeySelect } from 'lib/components/PropertyFilters/components/GroupK
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
+import { QuillPropertyValueSelect } from 'lib/components/PropertyFilters/components/QuillPropertyValueSelect'
 import { isGroupCardFilterKey, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -112,6 +114,7 @@ export function PropertyValue({
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
     const propertyOptions = options[propertyKey]
     const isFlagDependencyProperty = type === PropertyFilterType.Flag
+    const quillSurface = useQuillSurface()
 
     const isMultiSelect = forceSingleSelect ? false : operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
@@ -468,6 +471,16 @@ export function PropertyValue({
           : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
             ? 'Suggested values'
             : null
+    const refreshValues = (): void =>
+        loadPropertyValues({
+            endpoint,
+            type: propertyDefinitionType,
+            newInput: currentSearchInput.current || undefined,
+            propertyKey,
+            eventNames,
+            properties: [],
+            refresh: 'force_blocking',
+        })
     const refreshDisabledReason =
         propertyOptions?.status === 'loading' ? 'Loading values…' : isRefreshing ? 'Refreshing values…' : undefined
     const titleNode = suggestionsLabel ? (
@@ -479,76 +492,117 @@ export function PropertyValue({
                     icon={<IconRefresh />}
                     tooltip="Refresh values"
                     disabledReason={refreshDisabledReason}
-                    onClick={() =>
-                        loadPropertyValues({
-                            endpoint,
-                            type: propertyDefinitionType,
-                            newInput: currentSearchInput.current || undefined,
-                            propertyKey,
-                            eventNames,
-                            properties: [],
-                            refresh: 'force_blocking',
-                        })
-                    }
+                    onClick={refreshValues}
                     noPadding
                 />
             )}
         </span>
     ) : undefined
 
+    const handleValuesChange = (nextVal: any[]): void => {
+        // Trim whitespace so a stray leading/trailing space (common when pasting an ID)
+        // doesn't silently break the filter — the snack display hides the space. Only
+        // what the user just typed or pasted is trimmed: a suggested value, and one
+        // already committed, can end in a space, and flag evaluation matches exactly.
+        // Skip regex operators, where leading/trailing whitespace can be a meaningful
+        // part of the pattern (e.g. `^ foo`, `bar $`).
+        const trimmedVal = isOperatorRegex(operator)
+            ? nextVal
+            : nextVal.map((v) =>
+                  typeof v === 'string' && !offeredValues.current.has(v) && !formattedValues.includes(v) ? v.trim() : v
+              )
+        const newValues = trimmedVal.filter((v) => !formattedValues.includes(String(v)))
+        if (newValues.length > 0) {
+            const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
+            const fromSuggestion = newValues.every((v) => availableValues.has(toString(v)))
+
+            posthog.capture('property_value_selected', {
+                property_key: propertyKey,
+                property_type: type,
+                from_suggestion: fromSuggestion,
+                options_count: displayOptions.length,
+                had_search_input: currentSearchInput.current !== '',
+            })
+        }
+        // A loaded option keeps its own type, so a variant named "true" or "false" stays a string.
+        const typedVal = isFlagDependencyProperty
+            ? trimmedVal.map((v) => (displayOptions.some((o) => o.name === v) ? v : toFlagDependencyValue(v)))
+            : trimmedVal
+        isMultiSelect ? setValue(typedVal) : setValue(typedVal[0])
+    }
+
+    const allowCustomValues = staticValues ? true : (propertyOptions?.allowCustomValues ?? true)
+    const valuesLoading = !staticValues && (propertyOptions?.status === 'loading' || isRefreshing)
+    const restrictToNumbers = shouldRestrictToNumericInput
+        ? (input: string) => {
+              // Only allow numeric characters, decimal point, and +/- signs
+              return input.replace(/[^0-9+\-.]/g, '')
+          }
+        : undefined
+    const inlineValidationError = showInlineValidationErrors && validationError && (
+        <div className="text-danger flex items-center gap-1 text-sm mt-1">
+            <IconErrorOutline className="text-xl shrink-0" /> {validationError}
+        </div>
+    )
+
+    if (quillSurface) {
+        const optionValueByKey = new Map(displayOptions.map(({ name }) => [toString(name), name]))
+        return (
+            <div>
+                <QuillPropertyValueSelect
+                    className={inputClassName}
+                    values={formattedValues}
+                    multiple={!!isMultiSelect}
+                    allowCustomValues={allowCustomValues}
+                    loading={valuesLoading}
+                    onChange={(keys) =>
+                        handleValuesChange(
+                            keys.map((key) => (optionValueByKey.has(key) ? optionValueByKey.get(key) : key))
+                        )
+                    }
+                    onInputChange={onSearchTextChange}
+                    inputTransform={restrictToNumbers}
+                    splitOnComma={allowCustomValues && !!isMultiSelect && !isUserAgentProperty}
+                    placeholder={placeholder}
+                    invalid={!!validationError}
+                    suggestionsLabel={suggestionsLabel}
+                    onRefresh={staticValues ? undefined : refreshValues}
+                    refreshDisabledReason={refreshDisabledReason}
+                    valueTooltip={showGroupCardOnValue ? groupCardTooltip : undefined}
+                    autoFocus={autoFocus}
+                    options={displayOptions.map(({ name: _name }, index) => {
+                        const name = toString(_name)
+                        return {
+                            key: name,
+                            tooltip: showGroupCardOnValue ? groupCardTooltip(name) : undefined,
+                            content: (
+                                <span
+                                    data-attr={'prop-val-' + index}
+                                    className="ph-no-capture flex items-center gap-1.5"
+                                >
+                                    {formatLabelContent(isFlagDependencyProperty ? _name : name)}
+                                </span>
+                            ),
+                        }
+                    })}
+                />
+                {inlineValidationError}
+            </div>
+        )
+    }
+
     return (
         <div>
             <LemonInputSelect
                 className={inputClassName}
                 data-attr="prop-val"
-                loading={!staticValues && (propertyOptions?.status === 'loading' || isRefreshing)}
+                loading={valuesLoading}
                 value={formattedValues}
                 mode={isMultiSelect ? 'multiple' : 'single'}
                 singleValueAsSnack
-                allowCustomValues={staticValues ? true : (propertyOptions?.allowCustomValues ?? true)}
-                inputTransform={
-                    shouldRestrictToNumericInput
-                        ? (input: string) => {
-                              // Only allow numeric characters, decimal point, and +/- signs
-                              return input.replace(/[^0-9+\-.]/g, '')
-                          }
-                        : undefined
-                }
-                onChange={(nextVal) => {
-                    // Trim whitespace so a stray leading/trailing space (common when pasting an ID)
-                    // doesn't silently break the filter — the snack display hides the space. Only
-                    // what the user just typed or pasted is trimmed: a suggested value, and one
-                    // already committed, can end in a space, and flag evaluation matches exactly.
-                    // Skip regex operators, where leading/trailing whitespace can be a meaningful
-                    // part of the pattern (e.g. `^ foo`, `bar $`).
-                    const trimmedVal = isOperatorRegex(operator)
-                        ? nextVal
-                        : nextVal.map((v) =>
-                              typeof v === 'string' && !offeredValues.current.has(v) && !formattedValues.includes(v)
-                                  ? v.trim()
-                                  : v
-                          )
-                    const newValues = trimmedVal.filter((v) => !formattedValues.includes(String(v)))
-                    if (newValues.length > 0) {
-                        const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
-                        const fromSuggestion = newValues.every((v) => availableValues.has(toString(v)))
-
-                        posthog.capture('property_value_selected', {
-                            property_key: propertyKey,
-                            property_type: type,
-                            from_suggestion: fromSuggestion,
-                            options_count: displayOptions.length,
-                            had_search_input: currentSearchInput.current !== '',
-                        })
-                    }
-                    // A loaded option keeps its own type, so a variant named "true" or "false" stays a string.
-                    const typedVal = isFlagDependencyProperty
-                        ? trimmedVal.map((v) =>
-                              displayOptions.some((o) => o.name === v) ? v : toFlagDependencyValue(v)
-                          )
-                        : trimmedVal
-                    isMultiSelect ? setValue(typedVal) : setValue(typedVal[0])
-                }}
+                allowCustomValues={allowCustomValues}
+                inputTransform={restrictToNumbers}
+                onChange={handleValuesChange}
                 onInputChange={onSearchTextChange}
                 placeholder={placeholder}
                 size={size}
@@ -585,11 +639,7 @@ export function PropertyValue({
                         : []),
                 ]}
             />
-            {showInlineValidationErrors && validationError && (
-                <div className="text-danger flex items-center gap-1 text-sm mt-1">
-                    <IconErrorOutline className="text-xl shrink-0" /> {validationError}
-                </div>
-            )}
+            {inlineValidationError}
         </div>
     )
 }

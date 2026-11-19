@@ -87,7 +87,7 @@ export function MCPAnalyticsInstallHero(): JSX.Element {
                                     Authorize access to <strong>{currentTeam.name}</strong> when prompted.{' '}
                                 </>
                             ) : null}
-                            Then make a tool call — this page fills in the moment events arrive.
+                            Then make a tool call. This page fills in as soon as events arrive.
                         </p>
                     </div>
                 </div>

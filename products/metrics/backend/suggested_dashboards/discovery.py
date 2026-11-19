@@ -63,7 +63,7 @@ def name_fingerprints(now: dt.datetime) -> dict[int, int]:
                 .replace(minute=0, second=0, microsecond=0, tzinfo=None),
                 "limit": MAX_FINGERPRINT_TEAMS,
             },
-            workload=Workload.LOGS,
+            workload=Workload.METRICS,
         )
     return {int(team_id): _signed(int(fingerprint)) for team_id, fingerprint in rows}
 

@@ -17,6 +17,7 @@ from products.conversations.backend.temporal.ai_reply.gate import (
     format_suggested_question_comment,
 )
 from products.conversations.backend.temporal.ai_reply.publish import channel_allows_bot_reply
+from products.conversations.backend.temporal.ai_reply.run_citations import record_note_citations
 from products.conversations.backend.temporal.ai_reply.schemas import ClarifyInput, ClarifyOutput, coerce_dataclass
 
 
@@ -91,6 +92,8 @@ def _clarify_sync(input: ClarifyInput) -> ClarifyOutput:
             # the private suggested-question note and on ai_triage instead.
             item_context["investigation_summary"] = input.investigation_summary
             item_context["unknowns"] = input.unknowns
+        if input.run_id:
+            item_context["run_id"] = input.run_id
 
         Comment.objects.create(
             team_id=input.team_id,
@@ -99,6 +102,14 @@ def _clarify_sync(input: ClarifyInput) -> ClarifyOutput:
             content=content,
             rich_content=markdown_to_tiptap_doc(content),
             item_context=item_context,
+        )
+        record_note_citations(
+            team_id=input.team_id,
+            run_id=input.run_id,
+            ticket_id=str(ticket.id),
+            citations=input.citations,
+            persist_as="clarification",
+            confidence=input.confidence,
         )
         if publish:
             # Coordinator only scans pending + awaiting_clarification. Both have to land in

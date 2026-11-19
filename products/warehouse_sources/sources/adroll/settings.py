@@ -53,6 +53,12 @@ ADROLL_ENDPOINTS: dict[str, AdRollEndpointConfig] = {
         name="users",
         path="/api/v1/organization/get_users",
     ),
+    # Categories a Web Contextual campaign's adgroups can target. The reference documents no row
+    # schema beyond "EIDs and keyword names"; adgroup targeting refers to a category by its EID.
+    "contextual_categories": AdRollEndpointConfig(
+        name="contextual_categories",
+        path="/api/v1/contextual_categories/get_all_contextual_categories",
+    ),
     "campaigns": AdRollEndpointConfig(
         name="campaigns",
         path="/api/v1/campaign/get_all",

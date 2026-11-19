@@ -1,7 +1,7 @@
 from datetime import date
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
 from django.db import transaction
@@ -10,7 +10,8 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.events_plan_deletion import TeamEventsPlanDeletion
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig, TeamEventsRetentionConfig
@@ -316,6 +317,82 @@ class TestEventsRetentionAPI(APIBaseTest):
         assert TeamEventsRetentionConfig.objects.get(team=self.team).events_retention_months == 12
         assert not TeamEventsPlanDeletion.objects.filter(team=self.team).exists()
 
+    @parameterized.expand(
+        [
+            ("project_admin", "project_admin", "project", "deletion_count", 3, status.HTTP_403_FORBIDDEN),
+            ("project_admin", "project_admin", "organization", "deletion_count", 3, status.HTTP_403_FORBIDDEN),
+            (
+                "project_admin",
+                "project_admin",
+                "organization",
+                "downgrade_deletion_count",
+                3,
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "period_before_any_date",
+                "organization_admin",
+                "project",
+                "deletion_count",
+                100000,
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "period_before_any_date",
+                "organization_admin",
+                "organization",
+                "deletion_count",
+                100000,
+                status.HTTP_400_BAD_REQUEST,
+            ),
+        ]
+    )
+    def test_rejects_a_deletion_count(
+        self, _name: str, level: str, scope: str, count: str, months: int, expected_status: int
+    ) -> None:
+        self._set_membership(level)
+        url = self.url() if scope == "project" else self.organization_url()
+
+        response = self.client.get(f"{url}{count}/", {"retention_months": months})
+
+        assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            (
+                "organization_past_its_time_budget",
+                "organization",
+                "products.product_analytics.backend.events_retention.EVENTS_DELETED_QUERY_SECONDS",
+                {"new": 0},
+                status.HTTP_504_GATEWAY_TIMEOUT,
+            ),
+            (
+                "project_without_a_free_query_slot",
+                "project",
+                "products.product_analytics.backend.presentation.query_concurrency.app_org_concurrency_slot",
+                {"side_effect": ConcurrencyLimitExceeded("full")},
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            ),
+            (
+                "organization_without_a_free_query_slot",
+                "organization",
+                "products.product_analytics.backend.presentation.query_concurrency.app_org_concurrency_slot",
+                {"side_effect": ConcurrencyLimitExceeded("full")},
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            ),
+        ]
+    )
+    def test_stops_a_count_it_cannot_run_now(
+        self, _name: str, scope: str, target: str, patch_kwargs: dict, expected_status: int
+    ) -> None:
+        self._set_membership("organization_admin")
+        url = self.url() if scope == "project" else self.organization_url()
+
+        with patch(target, **patch_kwargs):
+            response = self.client.get(f"{url}deletion_count/", {"retention_months": 3})
+
+        assert response.status_code == expected_status
+
     @parameterized.expand([("patch",), ("put",), ("delete",)])
     def test_rejects_other_writes(self, method: str) -> None:
         self._set_membership("organization_admin")
@@ -455,3 +532,84 @@ class TestEventsRetentionAPI(APIBaseTest):
             assert captured["project_id"] == self.team.id
         else:
             assert "project_id" not in captured
+
+
+class TestEventsRetentionDeletionCountAPI(ClickhouseTestMixin, APIBaseTest):
+    @time_machine.travel("2026-11-05T12:00:00Z", tick=False)
+    def test_counts_the_events_the_next_cleanup_deletes(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save()
+        own_period_team = Team.objects.create(organization=self.organization, name="Own period")
+        TeamEventsRetentionConfig.objects.create(team=own_period_team, events_retention_months=12)
+        default_team = Team.objects.create(organization=self.organization, name="Default")
+        unset_period_team = Team.objects.create(organization=self.organization, name="Unset period")
+        TeamEventsRetentionConfig.objects.create(team=unset_period_team, events_retention_months=None)
+        for team, timestamp in [
+            (self.team, "2026-08-31T23:59:59Z"),
+            (self.team, "2026-09-01T00:00:00Z"),
+            (own_period_team, "2026-08-01T00:00:00Z"),
+            (default_team, "2026-08-01T00:00:00Z"),
+            (unset_period_team, "2026-08-01T00:00:00Z"),
+        ]:
+            _create_event(team=team, event="$pageview", distinct_id="user", timestamp=timestamp)
+
+        project = self.client.get(f"/api/projects/{self.team.id}/events_retention/deletion_count/?retention_months=3")
+        organization = self.client.get(
+            f"/api/organizations/{self.organization.id}/events_retention_setting/deletion_count/?retention_months=3"
+        )
+
+        assert project.json() == {"retention_months": 3, "events_deleted": 1}
+        assert organization.json() == {"retention_months": 3, "events_deleted": 3}
+
+    @time_machine.travel("2026-11-05T12:00:00Z", tick=False)
+    def test_counts_the_events_a_downgrade_deletes(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        shorter_period_team = Team.objects.create(organization=self.organization, name="Shorter period")
+        TeamEventsRetentionConfig.objects.create(team=shorter_period_team, events_retention_months=12)
+        longer_period_team = Team.objects.create(organization=self.organization, name="Longer period")
+        TeamEventsRetentionConfig.objects.create(team=longer_period_team, events_retention_months=24)
+        for team, timestamp in [
+            (self.team, "2026-02-28T23:59:59Z"),
+            (self.team, "2026-03-01T00:00:00Z"),
+            (shorter_period_team, "2026-01-01T00:00:00Z"),
+            (longer_period_team, "2026-01-01T00:00:00Z"),
+        ]:
+            _create_event(team=team, event="$pageview", distinct_id="user", timestamp=timestamp)
+
+        with override_settings(EVENTS_DATA_RETENTION_ENFORCED=False):
+            response = self.client.get(
+                f"/api/organizations/{self.organization.id}/events_retention_setting/downgrade_deletion_count/",
+                {"retention_months": 12},
+            )
+
+        assert response.json() == {"retention_months": 12, "events_deleted": 2}
+
+    @parameterized.expand(
+        [
+            ("project", "deletion_count", ["project:read"], status.HTTP_403_FORBIDDEN),
+            ("project", "deletion_count", ["project:read", "query:read"], status.HTTP_200_OK),
+            ("organization", "deletion_count", ["organization:read"], status.HTTP_403_FORBIDDEN),
+            ("organization", "deletion_count", ["organization:read", "query:read"], status.HTTP_200_OK),
+            ("organization", "downgrade_deletion_count", ["organization:read"], status.HTTP_403_FORBIDDEN),
+            ("organization", "downgrade_deletion_count", ["organization:read", "query:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_tokens_need_query_access_to_count(
+        self, scope: str, count: str, scopes: list[str], expected_status: int
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(scopes)}")
+        url = (
+            f"/api/projects/{self.team.id}/events_retention/"
+            if scope == "project"
+            else f"/api/organizations/{self.organization.id}/events_retention_setting/"
+        )
+
+        response = self.client.get(f"{url}{count}/", {"retention_months": 3})
+
+        assert response.status_code == expected_status

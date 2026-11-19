@@ -245,18 +245,6 @@ class SandboxCleanupError(ProcessTaskTransientError):
     pass
 
 
-class SnapshotNotFoundError(ProcessTaskTransientError):
-    """Snapshot does not exist."""
-
-    pass
-
-
-class SnapshotNotReadyError(ProcessTaskTransientError):
-    """Snapshot exists but is not ready for use."""
-
-    pass
-
-
 class SnapshotCreationError(ProcessTaskTransientError):
     """Failed to create snapshot."""
 
@@ -292,13 +280,6 @@ class RepositoryCloneError(ProcessTaskTransientError):
 
 
 class RepositoryAccessError(ProcessTaskFatalError, NonReportableError):
-    """GitHub refused to serve the repository with the credential the sandbox has.
-
-    The run has no token, or its token does not cover the repository. A retry reuses the same
-    credential, so it cannot succeed. This is an expected customer setup state, so it is not
-    captured to error tracking.
-    """
-
     def __init__(self, message: str, context: dict[str, Any]):
         ProcessTaskError.__init__(self, message, context, None, capture=False, non_retryable=True)
 
@@ -334,17 +315,11 @@ class CredentialUnavailableError(ProcessTaskFatalError, NonReportableError):
 
 
 class GatewayTokenUnavailableError(ProcessTaskFatalError, NonReportableError):
-    """No Go token for a posthog_code run, for a reason a retry won't change. Expected customer
+    """No Go token for a run, for a reason a retry won't change. Expected customer
     state, so not captured."""
 
     def __init__(self, message: str, context: dict[str, Any]):
         ProcessTaskError.__init__(self, message, context, None, capture=False, non_retryable=True)
-
-
-class PersonalAPIKeyError(ProcessTaskTransientError):
-    """Failed to create or inject personal API key."""
-
-    pass
 
 
 class OAuthTokenError(ProcessTaskTransientError):

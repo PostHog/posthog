@@ -1,0 +1,537 @@
+import json
+from datetime import timedelta
+from typing import Any
+
+import time_machine
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import AsyncMock, patch
+
+from django.utils import timezone
+
+from parameterized import parameterized
+
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
+from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
+from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.surveys.backend.models import Survey, SurveyMatchType
+from products.surveys.backend.site_snapshot import (
+    FAILED_RENDER_RETRY_AFTER,
+    PAINT_DELAY_SECONDS,
+    SiteSnapshot,
+    SiteStyle,
+    SnapshotDevice,
+    SnapshotStatus,
+    UrlTarget,
+    find_snapshot_moment,
+    get_site_snapshot,
+)
+
+DOCS = "https://example.com/docs/intro"
+PRICING = "https://example.com/pricing"
+MOBILE_HOME = "https://m.example.org/home"
+EARLY_START = "https://example.com/early-start"
+TWO_TABS = "https://example.com/two-tabs"
+SESSION_OFFSET_SECONDS = 10
+READ_STYLE: dict[str, Any] = {
+    "background_color": "#fdf6e3",
+    "text_color": "#2a2633",
+    "button_color": "#7b3fe4",
+    "button_text_color": "#ffffff",
+    "button_border_radius": 6,
+}
+NO_BUTTON: dict[str, Any] = {"button_color": None, "button_text_color": None, "button_border_radius": None}
+
+
+@time_machine.travel("2026-11-06 12:00:00", tick=False)
+class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team.session_recording_opt_in = True
+        self.team.save()
+        self._view("legacy", "https://example.com/legacy", hours_ago=24 * 8)
+        self._view("pricing", PRICING, hours_ago=48)
+        self._view("docs", DOCS, hours_ago=24)
+        self._view("mobile", MOBILE_HOME, hours_ago=12, viewport=(390, 844))
+        self._view("tablet", "https://example.com/tablet", hours_ago=6, viewport=(900, 1200))
+        self._view("no-replay", "https://example.com/no-replay", hours_ago=1, has_replay=False)
+        self._view("giant", "https://example.com/giant", hours_ago=2, viewport=(1440, 100_000))
+        self._view("early", EARLY_START, hours_ago=60, pageview_offset=timedelta(seconds=-30))
+        self._view("bounce", "https://example.com/bounce", hours_ago=72, left_after=timedelta(seconds=1))
+        self._view("two-tabs", TWO_TABS, hours_ago=84, left_after=timedelta(seconds=1), next_page_window="other-tab")
+        flush_persons_and_events()
+
+    def _view(
+        self,
+        session_id: str,
+        url: str,
+        *,
+        hours_ago: int,
+        viewport: tuple[int, int] = (1440, 900),
+        has_replay: bool = True,
+        pageview_offset: timedelta = timedelta(seconds=SESSION_OFFSET_SECONDS),
+        left_after: timedelta | None = None,
+        next_page_window: str = "first-tab",
+    ) -> None:
+        replay_start = timezone.now() - timedelta(hours=hours_ago)
+        _create_event(
+            team=self.team,
+            distinct_id=session_id,
+            event="$pageview",
+            timestamp=replay_start + pageview_offset,
+            properties={
+                "$session_id": session_id,
+                "$window_id": "first-tab",
+                "$current_url": url,
+                "$viewport_width": viewport[0],
+                "$viewport_height": viewport[1],
+            },
+        )
+        if left_after is not None:
+            _create_event(
+                team=self.team,
+                distinct_id=session_id,
+                event="$pageview",
+                timestamp=replay_start + pageview_offset + left_after,
+                properties={
+                    "$session_id": session_id,
+                    "$window_id": next_page_window,
+                    "$current_url": "https://example.com/next-page",
+                    "$viewport_width": viewport[0],
+                    "$viewport_height": viewport[1],
+                },
+            )
+        if has_replay:
+            produce_replay_summary(
+                team_id=self.team.pk,
+                session_id=session_id,
+                distinct_id=session_id,
+                first_timestamp=replay_start,
+                last_timestamp=replay_start + timedelta(minutes=1),
+                ensure_analytics_event_in_session=False,
+            )
+
+    def _survey(self, conditions: dict[str, Any] | None) -> Survey:
+        return Survey.objects.create(
+            team=self.team, name=f"Draft {Survey.objects.count()}", type="popover", conditions=conditions
+        )
+
+    @parameterized.expand(
+        [
+            ("regex", {"url": "/docs/.+", "urlMatchType": "regex"}, DOCS),
+            ("not_regex", {"url": "docs", "urlMatchType": "not_regex"}, PRICING),
+            ("exact", {"url": PRICING, "urlMatchType": "exact"}, PRICING),
+            ("is_not", {"url": DOCS, "urlMatchType": "is_not"}, PRICING),
+            ("icontains", {"url": "DOCS", "urlMatchType": "icontains"}, DOCS),
+            ("not_icontains", {"url": "docs", "urlMatchType": "not_icontains"}, PRICING),
+            ("missing_match_type_means_icontains", {"url": "DOCS"}, DOCS),
+            ("missing_url_means_any_page", {}, DOCS),
+            ("no_conditions_means_any_page", None, DOCS),
+            ("older_than_the_window", {"url": "legacy"}, None),
+            ("without_a_replay", {"url": "no-replay"}, None),
+            ("on_another_device", {"url": "tablet"}, None),
+            ("viewport_too_tall_to_render", {"url": "giant"}, None),
+            ("pageview_just_before_the_recorder_starts", {"url": "early-start"}, EARLY_START),
+            ("visitor_left_before_the_page_painted", {"url": "bounce"}, None),
+            ("another_tab_navigated_meanwhile", {"url": "two-tabs"}, TWO_TABS),
+            ("regex_clickhouse_cannot_compile", {"url": "^(?!.*admin).*", "urlMatchType": "regex"}, None),
+        ]
+    )
+    def test_picks_the_newest_matching_page_with_a_replay(
+        self, _name: str, conditions: dict[str, Any] | None, expected_url: str | None
+    ) -> None:
+        moment = find_snapshot_moment(self.team, UrlTarget.of(self._survey(conditions)), SnapshotDevice.DESKTOP)
+
+        assert (moment.page_url if moment else None) == expected_url
+
+    @parameterized.expand(
+        [
+            (SnapshotDevice.DESKTOP, "docs", DOCS),
+            (SnapshotDevice.MOBILE, "mobile", MOBILE_HOME),
+        ]
+    )
+    def test_filters_by_viewport_and_offsets_into_the_replay(
+        self, device: SnapshotDevice, expected_session: str, expected_url: str
+    ) -> None:
+        moment = find_snapshot_moment(self.team, UrlTarget.of(self._survey(None)), device)
+
+        assert moment is not None
+        assert (moment.session_id, moment.page_url) == (expected_session, expected_url)
+        assert moment.offset_seconds == SESSION_OFFSET_SECONDS + PAINT_DELAY_SECONDS
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_reuses_the_cached_snapshot(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey(None)
+
+        first = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+        asset = ExportedAsset.objects.get()
+        assert asset.export_context is not None
+        assert (
+            asset.export_context["session_recording_id"],
+            asset.export_context["width"],
+            asset.export_context["height"],
+        ) == ("docs", 1440, 900)
+        assert "page_url" not in asset.export_context
+        assert str(survey.id) not in json.dumps(asset.export_context)
+        assert "survey_site_snapshot" not in asset.export_context
+        assert (first.status, first.exported_asset_id, first.page_url, first.viewport_width) == (
+            SnapshotStatus.RENDERING,
+            asset.id,
+            DOCS,
+            1440,
+        )
+
+        asset.content = b"png"
+        asset.save()
+        second = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert (second.status, second.exported_asset_id, second.page_url) == (SnapshotStatus.READY, asset.id, DOCS)
+        assert ExportedAsset.objects.count() == 1
+
+    def _rendered_snapshot(self, survey: Survey, site_style: object) -> ExportedAsset:
+        get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+        asset = ExportedAsset.objects.get()
+        assert asset.export_context is not None
+        asset.export_context = {**asset.export_context, "site_style": site_style}
+        asset.content = b"png"
+        asset.save()
+        return asset
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_asks_the_exporter_to_read_the_site_style(self, _async_connect: AsyncMock) -> None:
+        snapshot = get_site_snapshot(self.team, self._survey(None), SnapshotDevice.DESKTOP, self.user)
+
+        export_context = ExportedAsset.objects.get().export_context
+        assert export_context is not None
+        assert export_context["read_site_style"] is True
+        assert snapshot.site_style is None
+
+    @parameterized.expand(
+        [
+            ("read_in_full", READ_STYLE, SiteStyle(**READ_STYLE)),
+            ("page_without_a_button", {**READ_STYLE, **NO_BUTTON}, SiteStyle(**{**READ_STYLE, **NO_BUTTON})),
+            (
+                "button_missing_its_text_color",
+                {**READ_STYLE, "button_text_color": None},
+                SiteStyle(**{**READ_STYLE, **NO_BUTTON}),
+            ),
+            (
+                "radius_that_is_not_a_number",
+                {**READ_STYLE, "button_border_radius": "6px"},
+                SiteStyle(**{**READ_STYLE, **NO_BUTTON}),
+            ),
+            ("export_from_before_style_reading", None, None),
+            ("css_instead_of_hex", {**READ_STYLE, "background_color": "url(https://example.com/x.png)"}, None),
+            ("not_a_dict", ["#ffffff"], None),
+        ]
+    )
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_returns_only_well_formed_site_style(
+        self, _name: str, stored: object, expected: SiteStyle | None, _async_connect: AsyncMock
+    ) -> None:
+        survey = self._survey(None)
+        self._rendered_snapshot(survey, stored)
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert (snapshot.status, snapshot.site_style) == (SnapshotStatus.READY, expected)
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_site_style_needs_access_to_the_recording(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey(None)
+        self._rendered_snapshot(survey, READ_STYLE)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert snapshot == SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_site_style_needs_access_to_page_urls(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey(None)
+        self._rendered_snapshot(survey, READ_STYLE)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        current_url = PropertyDefinition.objects.create(
+            team=self.team, name="$current_url", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=current_url, access_level=PropertyAccessLevel.NONE.value
+        )
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert snapshot == SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
+
+    @parameterized.expand(
+        [
+            ("saved_targeting", "", PRICING),
+            ("unsaved_targeting", "&url=docs", DOCS),
+            ("unsaved_targeting_with_match_type", "&url=/docs/.%2B&url_match_type=regex", DOCS),
+            ("unsaved_targeting_of_every_page", "&url=", DOCS),
+        ]
+    )
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_uses_the_editor_url_targeting_when_given(
+        self, _name: str, query: str, expected_url: str, _async_connect: AsyncMock
+    ) -> None:
+        survey = self._survey({"url": "pricing"})
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/site_snapshot/?device=desktop{query}"
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["page_url"] == expected_url
+
+    @patch("products.surveys.backend.site_snapshot.COLD_SNAPSHOTS_PER_TEAM_PER_HOUR", 2)
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_cold_snapshots_share_a_team_budget_across_url_targets(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey(None)
+
+        statuses = [
+            get_site_snapshot(
+                self.team,
+                survey,
+                SnapshotDevice.DESKTOP,
+                self.user,
+                UrlTarget(url=url, match_type=SurveyMatchType.ICONTAINS),
+            ).status
+            for url in ["docs", "pricing", "example.com"]
+        ]
+        cached = get_site_snapshot(
+            self.team,
+            survey,
+            SnapshotDevice.DESKTOP,
+            self.user,
+            UrlTarget(url="docs", match_type=SurveyMatchType.ICONTAINS),
+        )
+
+        assert statuses == [SnapshotStatus.RENDERING, SnapshotStatus.RENDERING, SnapshotStatus.UNAVAILABLE]
+        assert ExportedAsset.objects.count() == 2
+        assert cached.status == SnapshotStatus.RENDERING
+
+    @parameterized.expand(
+        [
+            ("same_url", {"url": "docs"}, {"url": "docs"}),
+            ("match_type_without_a_url", {"urlMatchType": "exact"}, {"urlMatchType": "regex"}),
+        ]
+    )
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_surveys_with_the_same_targeting_share_a_snapshot(
+        self, _name: str, conditions: dict[str, Any], other_conditions: dict[str, Any], _async_connect: AsyncMock
+    ) -> None:
+        first = get_site_snapshot(self.team, self._survey(conditions), SnapshotDevice.DESKTOP, self.user)
+
+        second = get_site_snapshot(self.team, self._survey(other_conditions), SnapshotDevice.DESKTOP, self.user)
+
+        assert second.exported_asset_id == first.exported_asset_id
+        assert ExportedAsset.objects.count() == 1
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_renders_again_when_a_teammate_cached_a_recording_the_user_cannot_view(
+        self, _async_connect: AsyncMock
+    ) -> None:
+        asset = self._rendered_snapshot(self._survey(None), READ_STYLE)
+        assert asset.export_context is not None
+        asset.export_context = {**asset.export_context, "session_recording_id": "pricing"}
+        asset.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        hidden = SessionRecording.objects.create(team=self.team, session_id="pricing", distinct_id="pricing")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="session_recording",
+            resource_id=str(hidden.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=self.user, organization=self.organization),
+        )
+
+        snapshot = get_site_snapshot(self.team, self._survey(None), SnapshotDevice.DESKTOP, self.user)
+
+        assert (snapshot.status, snapshot.page_url) == (SnapshotStatus.RENDERING, DOCS)
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_a_changed_url_condition_renders_a_new_snapshot(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey({"url": "docs"})
+        get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        survey.conditions = {"url": "pricing"}
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert (snapshot.status, snapshot.page_url) == (SnapshotStatus.RENDERING, PRICING)
+        assert ExportedAsset.objects.count() == 2
+
+    @parameterized.expand(
+        [
+            ("just_now", timedelta(0), SnapshotStatus.UNAVAILABLE, 1),
+            ("long_enough_ago_to_retry", FAILED_RENDER_RETRY_AFTER + timedelta(minutes=1), SnapshotStatus.RENDERING, 2),
+        ]
+    )
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_a_failed_render(
+        self, _name: str, failed_ago: timedelta, status: SnapshotStatus, assets: int, _async_connect: AsyncMock
+    ) -> None:
+        survey = self._survey(None)
+        get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+        ExportedAsset.objects.update(
+            exception="Render failed", exception_type="TimeoutError", created_at=timezone.now() - failed_ago
+        )
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert snapshot.status == status
+        assert ExportedAsset.objects.count() == assets
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_a_user_denied_the_newest_recording_does_not_search_again(self, _async_connect: AsyncMock) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+        survey = self._survey(None)
+
+        with patch(
+            "products.surveys.backend.site_snapshot.find_snapshot_moment", wraps=find_snapshot_moment
+        ) as moment_search:
+            snapshots = [get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user) for _ in range(3)]
+
+        assert {snapshot.status for snapshot in snapshots} == {SnapshotStatus.UNAVAILABLE}
+        assert moment_search.call_count == 1
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_renders_again_from_another_recording_when_the_cached_one_was_deleted(
+        self, _async_connect: AsyncMock
+    ) -> None:
+        survey = self._survey(None)
+        get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+        replay_start = timezone.now() - timedelta(hours=24)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="docs",
+            distinct_id="docs",
+            first_timestamp=replay_start,
+            last_timestamp=replay_start + timedelta(minutes=1),
+            ensure_analytics_event_in_session=False,
+            is_deleted=True,
+        )
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert (snapshot.status, snapshot.page_url) == (SnapshotStatus.RENDERING, PRICING)
+        assert ExportedAsset.objects.count() == 2
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_ignores_an_export_a_user_created_with_the_snapshot_key(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey(None)
+        get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+        ExportedAsset.objects.update(is_system=False, content=b"planted")
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert snapshot.status == SnapshotStatus.RENDERING
+        assert ExportedAsset.objects.count() == 2
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_renders_again_when_the_cached_one_did_not_read_the_site_style(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey(None)
+        asset = self._rendered_snapshot(survey, None)
+        assert asset.export_context is not None
+        asset.export_context = {k: v for k, v in asset.export_context.items() if k != "read_site_style"}
+        asset.save()
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert snapshot.status == SnapshotStatus.RENDERING
+        assert ExportedAsset.objects.count() == 2
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_renders_again_when_a_render_was_abandoned(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey(None)
+        get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+        ExportedAsset.objects.update(created_at=timezone.now() - EXPORT_WORKFLOW_TIMEOUT - timedelta(minutes=1))
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert snapshot.status == SnapshotStatus.RENDERING
+        assert ExportedAsset.objects.count() == 2
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_a_viewer_grant_on_the_recording_is_enough(self, _async_connect: AsyncMock) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        recording = SessionRecording.objects.create(team=self.team, session_id="docs", distinct_id="docs")
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team, resource="session_recording", access_level="none", organization_member=membership
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="session_recording",
+            resource_id=str(recording.id),
+            access_level="viewer",
+            organization_member=membership,
+        )
+
+        snapshot = get_site_snapshot(self.team, self._survey({"url": "docs"}), SnapshotDevice.DESKTOP, self.user)
+
+        assert (snapshot.status, snapshot.page_url) == (SnapshotStatus.RENDERING, DOCS)
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_is_unavailable_when_page_urls_are_restricted(self, _async_connect: AsyncMock) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        current_url = PropertyDefinition.objects.create(
+            team=self.team, name="$current_url", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=current_url, access_level=PropertyAccessLevel.NONE.value
+        )
+
+        snapshot = get_site_snapshot(self.team, self._survey(None), SnapshotDevice.DESKTOP, self.user)
+
+        assert snapshot == SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
+        assert not ExportedAsset.objects.exists()
+
+    @parameterized.expand(
+        [
+            ("replay_is_off", False, "viewer"),
+            ("user_cannot_view_recordings", True, "none"),
+        ]
+    )
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_is_unavailable_without_replay_access(
+        self, _name: str, replay_on: bool, recording_access: str, _async_connect: AsyncMock
+    ) -> None:
+        self.team.session_recording_opt_in = replay_on
+        self.team.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level=recording_access)
+
+        snapshot = get_site_snapshot(self.team, self._survey(None), SnapshotDevice.DESKTOP, self.user)
+
+        assert snapshot == SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
+        assert not ExportedAsset.objects.exists()

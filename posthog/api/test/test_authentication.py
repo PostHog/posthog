@@ -1,8 +1,9 @@
 import json
 import uuid
 from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import Any, cast
 
 import pytest
 import time_machine
@@ -30,7 +31,7 @@ from django_otp.util import random_hex
 from httpx import ASGITransport, AsyncClient
 from parameterized import parameterized
 from rest_framework import authentication, status
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
@@ -67,20 +68,24 @@ from posthog.helpers.user_devices import (
     build_known_device_cookie_value,
     has_valid_known_device_cookie,
 )
+from posthog.inbox_providers import InboxProvider
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.middleware import KnownLoginDeviceCookieMiddleware
 from posthog.models import User
 from posthog.models.activity_logging.signal_handlers import post_login
-from posthog.models.instance_setting import set_instance_setting
+from posthog.models.instance_setting import override_instance_config, set_instance_setting
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.authentication_checks import covers_authentication
+from posthog.workos_radar import RadarAttempt, RadarVerdict
+from posthog.workos_radar_signal_handlers import RADAR_LOGIN_ATTEMPT_CACHE_ALIAS
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -613,10 +618,12 @@ class TestLoginAPI(APIBaseTest):
         # route to /verify_email/<uuid> where the code entry form lives.
         self.user.is_email_verified = False
         self.user.save()
-        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        with patch.dict("posthog.inbox_providers._INBOX_PROVIDERS_BY_DOMAIN", {"posthog.com": InboxProvider.GMAIL}):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json()["code"], "verify_email_pending")
         self.assertEqual(response.json()["detail"], str(self.user.uuid))
+        self.assertEqual(response.json()["extra"]["inbox_provider"], "gmail")
         mock_send_code.assert_called_once()
 
         response = self.client.get("/api/users/@me/")
@@ -783,6 +790,208 @@ class TestLoginAPI(APIBaseTest):
             )
             # Second IP is not locked, so can attempt login
             self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+@override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key", WORKOS_RADAR_CLIENT_ID="client_123")
+class TestLoginRadar(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        self.user.is_email_verified = True
+        self.user.save()
+
+    @patch("posthog.workos_radar._call_radar_api", return_value=RadarAttempt(verdict=RadarVerdict.BLOCK))
+    def test_enforced_block_refuses_the_login_with_the_browser_signals(self, mock_call_api):
+        with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "enforce"):
+            response = self.client.post(
+                "/api/login",
+                {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD, "radar_signals_id": "signals_abc"},
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["code"] == "suspicious_attempt_blocked"
+        assert mock_call_api.call_args[1]["signals_id"] == "signals_abc"
+        assert self.client.get("/api/users/@me/").status_code == status.HTTP_401_UNAUTHORIZED
+
+    @patch("posthog.workos_radar._call_radar_api", return_value=RadarAttempt(verdict=RadarVerdict.BLOCK))
+    def test_enforced_blocks_count_toward_the_lockout(self, mock_call_api):
+        credentials = {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD}
+
+        with (
+            self.settings(AXES_ENABLED=True, AXES_FAILURE_LIMIT=2),
+            override_instance_config("WORKOS_RADAR_LOGIN_MODE", "enforce"),
+        ):
+            codes = [
+                self.client.post("/api/login", credentials, REMOTE_ADDR="3.3.3.3").json()["code"] for _ in range(3)
+            ]
+
+        # The attempt that reaches the limit gets the lockout response, as a wrong password does
+        assert codes == ["suspicious_attempt_blocked", "too_many_failed_attempts", "too_many_failed_attempts"]
+        assert mock_call_api.call_count == 2
+
+    @patch("posthog.workos_radar._call_radar_api", return_value=RadarAttempt(verdict=RadarVerdict.ALLOW))
+    def test_radar_gets_the_stored_address_when_the_typed_one_is_a_variant(self, mock_call_api):
+        with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "shadow"):
+            response = self.client.post(
+                "/api/login", {"email": self.user.email.upper(), "password": self.CONFIG_PASSWORD}
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_call_api.call_args[1]["email"] == self.user.email
+
+    RADAR_ATTEMPT_URL = "https://api.workos.com/radar/attempts/radar_att_01ABC"
+
+    def _password_login(self, password: str | None) -> Any:
+        with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "shadow"), self.captureOnCommitCallbacks(execute=True):
+            return self.client.post("/api/login", {"email": self.user.email, "password": password})
+
+    def _totp_login(self, device: Any) -> Any:
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post("/api/login/token", {"token": totp_str(device.bin_key)})
+
+    @parameterized.expand([("correct_password", True, 1), ("wrong_password", False, 0)])
+    @patch("posthog.workos_radar.requests.put")
+    @patch(
+        "posthog.workos_radar._call_radar_api",
+        return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
+    )
+    def test_a_login_reports_its_radar_attempt_only_when_it_signs_in(
+        self, _name, correct_password, expected_reports, _mock_call_api, mock_put
+    ):
+        mock_put.return_value.status_code = 200
+
+        self._password_login(self.CONFIG_PASSWORD if correct_password else "not-the-password")
+
+        assert mock_put.call_count == expected_reports
+        if expected_reports:
+            assert mock_put.call_args[0][0] == self.RADAR_ATTEMPT_URL
+            assert mock_put.call_args[1]["json"] == {"attempt_status": "success"}
+
+    @parameterized.expand(
+        [
+            ("without_2fa", False, False, 1),
+            ("with_2fa", True, False, 1),
+            ("without_2fa_while_the_cache_is_down", False, True, 1),
+            ("with_2fa_while_the_cache_is_down_signs_in_without_a_report", True, True, 0),
+        ]
+    )
+    @patch("posthog.workos_radar.requests.put")
+    @patch(
+        "posthog.workos_radar._call_radar_api",
+        return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
+    )
+    def test_a_login_reports_its_radar_attempt_after_the_second_factor(
+        self, _name, two_factor, cache_down, expected_reports, _mock_call_api, mock_put
+    ):
+        mock_put.return_value.status_code = 200
+        device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6) if two_factor else None  # type: ignore
+        # Signing in to another account first makes login() flush the session that holds the attempt
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "a-password-for-other")
+        self.client.force_login(other)
+        broken_cache = MagicMock(
+            **{f"{op}.side_effect": ConnectionError("cache down") for op in ("get", "set", "delete")}
+        )
+
+        broken_caches = {RADAR_LOGIN_ATTEMPT_CACHE_ALIAS: broken_cache}
+
+        with patch("posthog.workos_radar_signal_handlers.caches", broken_caches) if cache_down else nullcontext():
+            first = self._password_login(self.CONFIG_PASSWORD)
+            if device:
+                assert first.json()["code"] == "2fa_required"
+                mock_put.assert_not_called()
+                assert self._totp_login(device).status_code == 200
+            else:
+                assert first.status_code == 200
+
+        assert [c[0][0] for c in mock_put.call_args_list] == [self.RADAR_ATTEMPT_URL] * expected_reports
+
+    @parameterized.expand([("without_a_resend", None, 20), ("after_a_resend", 25, 50)])
+    @pytest.mark.disable_mock_code_based_verifier
+    @patch("posthog.workos_radar.requests.put")
+    @patch(
+        "posthog.workos_radar._call_radar_api",
+        return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
+    )
+    def test_an_emailed_code_login_reports_its_radar_attempt_while_the_code_is_valid(
+        self, _name, resend_after_minutes, verify_after_minutes, _mock_call_api, mock_put
+    ):
+        mock_put.return_value.status_code = 200
+
+        with (
+            patch("posthog.helpers.two_factor_session.is_email_available", return_value=True),
+            patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True),
+            patch("posthog.tasks.email.send_code_based_verification") as mock_send,
+        ):
+            assert self._password_login(self.CONFIG_PASSWORD).json()["code"] == "code_based_verification_required"
+            if resend_after_minutes is not None:
+                with time_machine.travel(timedelta(minutes=resend_after_minutes)):
+                    assert self.client.post("/api/login/code-based-verification/resend/").status_code == 200
+            with (
+                time_machine.travel(timedelta(minutes=verify_after_minutes)),
+                self.captureOnCommitCallbacks(execute=True),
+            ):
+                code = mock_send.call_args[0][1]
+                response = self.client.post("/api/login/code-based-verification/", {"code": code})
+
+        assert response.status_code == 200
+        assert [c[0][0] for c in mock_put.call_args_list] == [self.RADAR_ATTEMPT_URL]
+
+    @patch("posthog.workos_radar.requests.put")
+    @patch(
+        "posthog.workos_radar._call_radar_api",
+        return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
+    )
+    def test_a_passkey_login_after_an_abandoned_second_factor_does_not_report_the_password_attempt(
+        self, _mock_call_api, mock_put
+    ):
+        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        assert self._password_login(self.CONFIG_PASSWORD).json()["code"] == "2fa_required"
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.force_login(self.user, backend="posthog.auth.WebauthnBackend")
+
+        mock_put.assert_not_called()
+
+    @patch("posthog.workos_radar._call_radar_api", return_value=RadarAttempt(verdict=RadarVerdict.BLOCK))
+    def test_reauth_from_a_signed_in_session_skips_radar(self, mock_call_api):
+        self.client.force_login(self.user)
+
+        with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "enforce"):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_call_api.assert_not_called()
+
+    def test_a_signals_token_that_is_not_a_string_does_not_fail_the_login(self):
+        response = self.client.post(
+            "/api/login",
+            {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD, "radar_signals_id": {"id": 1}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(
+        [
+            ("off", "off", 100, None),
+            ("shadow", "shadow", 100, "client_123"),
+            # An unauthenticated caller must not learn which accounts are outside the sample
+            ("shadow_outside_sample", "shadow", 0, "client_123"),
+        ]
+    )
+    def test_precheck_names_the_radar_client_for_every_address_while_radar_checks_logins(
+        self, _name, mode, sample_percent, expected
+    ):
+        with (
+            override_instance_config("WORKOS_RADAR_LOGIN_MODE", mode),
+            override_instance_config("WORKOS_RADAR_LOGIN_SAMPLE_PERCENT", sample_percent),
+        ):
+            existing = self.client.post("/api/login/precheck", {"email": self.CONFIG_EMAIL}).json()
+            unknown = self.client.post("/api/login/precheck", {"email": "nobody@example.com"}).json()
+
+        assert existing.get("radar_client_id") == expected
+        assert unknown.get("radar_client_id") == expected
 
 
 class TestDevLoginAPI(APIBaseTest):
@@ -2852,6 +3061,28 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertEqual(user.project_secret_api_key.pk, self.psak.pk)
         self.assertEqual(authenticator.project_secret_api_key.pk, self.psak.pk)
 
+    @parameterized.expand([("203.0.113.7", True), ("198.51.100.7", False)])
+    def test_authenticate_checks_organization_ip_policy(self, ip: str, allowed: bool) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        request = self._request_with_header(self.token)
+        request.META["REMOTE_ADDR"] = ip
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        if allowed:
+            self.assertIsNotNone(authenticator.authenticate(request))
+        else:
+            with self.assertRaises(PermissionDenied):
+                authenticator.authenticate(request)
+
+    def test_authenticate_uses_destination_policy_after_team_transfer(self) -> None:
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        self.assertIsNotNone(authenticator.authenticate(self._request_with_header(self.token)))
+        destination = Organization.objects.create(name="Destination organization")
+        OrganizationIPRestrictions.objects.create(organization=destination, ip_restrictions=["203.0.113.0/24"])
+        self.team.organization = destination
+        self.team.save(update_fields=["organization"])
+        with self.assertRaises(PermissionDenied):
+            authenticator.authenticate(self._request_with_header(self.token))
+
     def test_authenticate_tags_queries_with_psak_access_method(self):
         authenticator = ProjectSecretAPIKeyAuthentication()
         with patch("posthog.auth.tag_authentication") as mock_tag_authentication:
@@ -2971,6 +3202,9 @@ class TestScoutPrivateCaptureAuthentication(SimpleTestCase):
             tags_context(is_scout_experiment=False),
             patch.object(OAuthAccessTokenAuthentication, "_validate_token", return_value=token),
             patch("posthog.auth.activity_storage.is_request_scoped", return_value=False),
+            # The authenticator enforces IP restrictions after resolving the principal. This case
+            # tests query tagging on a synthetic user, so the database-backed check is stubbed out.
+            patch("posthog.auth.enforce_ip_restrictions"),
         ):
             self.assertIsNotNone(OAuthAccessTokenAuthentication().authenticate(request))
             self.assertEqual(get_query_tags().is_scout_experiment, private)
@@ -2999,6 +3233,21 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             expires=timezone.now() + timedelta(hours=1),
             scope="openid profile",
         )
+
+    @parameterized.expand([(False,), (True,)])
+    def test_authenticate_checks_organization_ip_policy(self, impersonated: bool) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        if impersonated:
+            self.access_token.impersonated_by = self.user
+            self.access_token.save()
+        request = Request(
+            self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}", REMOTE_ADDR="198.51.100.7")
+        )
+        if impersonated:
+            self.assertIsNotNone(OAuthAccessTokenAuthentication().authenticate(request))
+        else:
+            with self.assertRaises(PermissionDenied):
+                OAuthAccessTokenAuthentication().authenticate(request)
 
     @covers_authentication(OAuthAccessTokenAuthentication)
     def test_authenticate_with_valid_oauth_token(self):
@@ -3308,7 +3557,7 @@ class TestOAuthLoginNotification(APIBaseTest):
 
         # test SMTP email notification
         set_instance_setting("EMAIL_HOST", "localhost")
-        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 1
 
@@ -3320,7 +3569,7 @@ class TestOAuthLoginNotification(APIBaseTest):
 
         # test SMTP email notification
         set_instance_setting("EMAIL_HOST", "localhost")
-        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 1
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
@@ -3335,7 +3584,7 @@ class TestOAuthLoginNotification(APIBaseTest):
 
         # test SMTP email notification
         set_instance_setting("EMAIL_HOST", "localhost")
-        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 1
             social_login_notification(self._build_strategy(rf, ua2, ip2), Backend(), user)
@@ -3349,7 +3598,7 @@ class TestOAuthLoginNotification(APIBaseTest):
         ua2, ip2 = "BrowserB/100.0 (Macintosh; Intel Mac OS X)", "2.2.2.2"
 
         set_instance_setting("EMAIL_HOST", "localhost")
-        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             # First login from device 1 — notification sent
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 1
@@ -3370,7 +3619,7 @@ class TestOAuthLoginNotification(APIBaseTest):
         ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
 
         set_instance_setting("EMAIL_HOST", "localhost")
-        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             # Attacker-forged cookie without a valid signature should not suppress the notification
             social_login_notification(
                 self._build_strategy(rf, ua1, ip1, cookies={KNOWN_DEVICE_COOKIE.format(user_id=user.id): "1"}),
@@ -3387,7 +3636,7 @@ class TestOAuthLoginNotification(APIBaseTest):
 
         # test SMTP email notification
         set_instance_setting("EMAIL_HOST", "localhost")
-        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             # simulating signup with post_login signal
             req_signup = rf.get("/", HTTP_USER_AGENT=ua1, REMOTE_ADDR=ip1)
             middleware = SessionMiddleware(lambda r: r)
@@ -3442,7 +3691,7 @@ class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):
     def test_known_cookie_suppresses_notification(self):
         set_instance_setting("EMAIL_HOST", "localhost")
         new_device_subject = "A new device logged into your account"
-        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             # First login - sets cookie and sends new-device notification
             self.client.post("/api/login/", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
             initial_count = sum(1 for m in mail.outbox if m.subject == new_device_subject)

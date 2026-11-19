@@ -1,14 +1,12 @@
 {% extends "admin_console/base.html" %}
-{% block title %}{{ operation.label }} · {{ team.name }} · PostHog Admin{% endblock %}
+{% block title %}{{ operation.label }} · {{ target.title }} · PostHog Admin{% endblock %}
 {% block content %}
     <nav class="text-xs text-muted-foreground" aria-label="Breadcrumb">
-        <a class="text-muted-foreground" href="{% url 'admin_console_home' %}">Teams</a>
-        ›
-        <a class="text-muted-foreground"
-           href="{% url 'admin_console_team' team_id=team.pk %}">{{ team.name }}</a>
-        ›
-        <a class="text-muted-foreground"
-           href="{% url 'admin_console_team' team_id=team.pk %}#panel-{{ panel.key }}">{{ panel.title }}</a>
+        <a class="text-muted-foreground" href="{% url 'admin_console_home' %}">Home</a>
+        {% for crumb in target.breadcrumbs %}
+            ›
+            <a class="text-muted-foreground" href="{{ crumb.href }}">{{ crumb.label }}</a>
+        {% endfor %}
     </nav>
     <h1 class="mt-1.5 mb-4 text-[22px] font-extrabold">{{ operation.label }}</h1>
     <section class="quill-card group/card flex flex-col max-w-xl{% if operation.danger %} console-danger{% endif %}"
@@ -17,38 +15,52 @@
              data-size="default">
         <div class="quill-card__header group/card-header" data-slot="card-header">
             <div class="flex flex-col gap-1 min-w-0">
-                <span class="text-xs text-muted-foreground">This acts on</span>
+                <span class="text-xs text-muted-foreground">{{ target.kicker }}</span>
                 <span class="flex flex-wrap items-center gap-2">
-                    <strong class="text-[15px] break-words">{{ team.name }}</strong>
-                    <span class="quill-badge inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap quill-badge--variant-default font-mono">Team {{ team.pk }}</span>
+                    <strong class="text-[15px] break-words">{{ target.title }}</strong>
+                    <span class="quill-badge inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap quill-badge--variant-default font-mono">{{ target.badge }}</span>
                     <span class="console-env-pill inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide whitespace-nowrap">
                         <span class="console-env-dot size-[7px] rounded-full"></span>{{ console_env_label }}
                     </span>
                 </span>
-                <span class="text-muted-foreground">{{ team.organization.name }}</span>
+                {% if target.subtitle %}<span class="text-muted-foreground">{{ target.subtitle }}</span>{% endif %}
             </div>
         </div>
-        <form method="post" class="flex flex-col" data-autofocus>
+        <form method="post"
+              class="flex flex-col"
+              {% if form.is_multipart %}enctype="multipart/form-data"{% endif %}
+              data-autofocus>
             {% csrf_token %}
             <input type="hidden" name="form_nonce" value="{{ form_nonce }}" />
-            <div class="quill-card__content flex flex-col gap-4"
+            <div class="quill-card__content flex flex-col gap-4 pb-4"
                  data-slot="card-content">
                 {% if operation.description %}<p class="m-0">{{ operation.description }}</p>{% endif %}
                 {% if operation.undo_hint %}<p class="m-0 text-muted-foreground">{{ operation.undo_hint }}</p>{% endif %}
                 {% for error in form.non_field_errors %}
                     <p class="quill-field__error m-0" role="alert">{{ error }}</p>
                 {% endfor %}
-                {% for field in form %}
+                {% for field in form.hidden_fields %}
+                    {{ field }}
+                    {% for error in field.errors %}
+                        <p class="quill-field__error m-0" role="alert">{{ error }}</p>
+                    {% endfor %}
+                {% endfor %}
+                {% for field in form.visible_fields %}
                     {% include "admin_console/_form_field.html" %}
                 {% endfor %}
             </div>
             <div class="quill-card__footer flex flex-wrap gap-2"
                  data-slot="card-footer">
                 <button type="submit"
+                        {% if operation.pending_label and not has_preview %}data-pending-label="{{ operation.pending_label }}"{% endif %}
                         class="quill-button {% if operation.danger %}quill-button--variant-destructive{% else %}quill-button--variant-primary{% endif %} quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">
-                    {{ operation.label }} for {{ team.name|truncatechars:40 }}
+                    {% if has_preview %}
+                        Review what changes
+                    {% else %}
+                        {{ operation.label }}{% if target.is_record %} for {{ target.title|truncatechars:40 }}{% endif %}
+                    {% endif %}
                 </button>
-                <a href="{% url 'admin_console_team' team_id=team.pk %}"
+                <a href="{{ target.back_url }}"
                    class="quill-button quill-button--variant-outline quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">Cancel</a>
             </div>
         </form>

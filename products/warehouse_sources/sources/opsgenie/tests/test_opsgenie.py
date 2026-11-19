@@ -71,6 +71,26 @@ class TestPagination:
         assert result.raised is None
         assert result.requests[0].param("query") == "createdAt >= 1767225600000"
 
+    @pytest.mark.parametrize(
+        "endpoint,path,body",
+        [
+            ("teams", "/v2/teams", {"data": [{"id": "t1"}, {"id": "t2"}]}),
+            ("maintenance", "/v1/maintenance", {"data": [{"id": "t1"}, {"id": "t2"}]}),
+            ("heartbeats", "/v2/heartbeats", {"data": {"heartbeats": [{"name": "t1"}, {"name": "t2"}]}}),
+        ],
+    )
+    def test_single_page_endpoint_reads_rows_under_its_selector(
+        self, endpoint: str, path: str, body: dict[str, Any]
+    ) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert result.paths == [path]
+        assert result.params("limit") == [None]
+        assert result.params("offset") == [None]
+        key = OPSGENIE_ENDPOINTS[endpoint].primary_keys[0]
+        assert [row[key] for row in result.rows] == ["t1", "t2"]
+
     def test_empty_page_stops_iteration(self) -> None:
         result = _driver().run("alerts", [_page([], has_next=True)])
 
@@ -133,36 +153,61 @@ class TestFanout:
         assert [(row["incident_id"], row["id"]) for row in result.rows] == [("inc-1", "e1"), ("inc-1", "e2")]
         assert result.saved_states == []
 
-    def test_alert_logs_follow_each_alerts_next_link(self) -> None:
-        next_url = "https://api.opsgenie.com/v2/alerts/a1/logs?offset=o1&direction=next&limit=100&order=asc"
+    @pytest.mark.parametrize("endpoint,text_field", [("alert_logs", "log"), ("alert_notes", "note")])
+    def test_alert_child_follows_each_alerts_next_link(self, endpoint: str, text_field: str) -> None:
+        child_path = f"/v2/alerts/a1/{endpoint.removeprefix('alert_')}"
+        next_url = f"https://api.opsgenie.com{child_path}?offset=o1&direction=next&limit=100&order=asc"
         result = _driver().run(
-            "alert_logs",
+            endpoint,
             [
                 _page([{"id": "a1"}]),
-                ScriptedResponse(json={"data": [{"offset": "o1", "log": "created"}], "paging": {"next": next_url}}),
-                ScriptedResponse(json={"data": [{"offset": "o2", "log": "closed"}], "paging": {"first": next_url}}),
+                ScriptedResponse(json={"data": [{"offset": "o1", text_field: "first"}], "paging": {"next": next_url}}),
+                ScriptedResponse(
+                    json={"data": [{"offset": "o2", text_field: "second"}], "paging": {"first": next_url}}
+                ),
             ],
         )
 
         assert result.raised is None
-        assert result.paths == ["/v2/alerts", "/v2/alerts/a1/logs", "/v2/alerts/a1/logs"]
+        assert result.paths == ["/v2/alerts", child_path, child_path]
         assert result.requests[0].param("sort") == "createdAt"
         assert result.requests[1].param("order") == "asc"
+        assert result.requests[1].param("direction") == "next"
         assert result.params("offset") == ["0", None, "o1"]
         assert [(row["alert_id"], row["offset"]) for row in result.rows] == [("a1", "o1"), ("a1", "o2")]
 
-    def test_alert_logs_skip_alert_deleted_after_listing(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint,child_row,key_fields,expected_key",
+        [
+            ("alert_logs", {"offset": "o1", "log": "created"}, ("alert_id", "offset"), ("a2", "o1")),
+            ("alert_notes", {"offset": "o1", "note": "rollback started"}, ("alert_id", "offset"), ("a2", "o1")),
+            (
+                "alert_recipients",
+                {"user": {"id": "u1", "username": "a@example.com"}, "state": "action", "method": "Acknowledge"},
+                ("alert_id", "user_id", "username"),
+                ("a2", "u1", "a@example.com"),
+            ),
+            ("alert_recipients", {"state": "notactive", "method": ""}, ("alert_id", "user_id"), ("a2", None)),
+        ],
+    )
+    def test_alert_child_skips_alert_deleted_after_listing(
+        self,
+        endpoint: str,
+        child_row: dict[str, Any],
+        key_fields: tuple[str, ...],
+        expected_key: tuple[Any, ...],
+    ) -> None:
         result = _driver().run(
-            "alert_logs",
+            endpoint,
             [
                 _page([{"id": "gone"}, {"id": "a2"}]),
                 ScriptedResponse(status=404, json={"message": "Alert does not exist"}),
-                ScriptedResponse(json={"data": [{"offset": "o1", "log": "created"}]}),
+                ScriptedResponse(json={"data": [child_row]}),
             ],
         )
 
         assert result.raised is None
-        assert [(row["alert_id"], row["offset"]) for row in result.rows] == [("a2", "o1")]
+        assert [tuple(row[field] for field in key_fields) for row in result.rows] == [expected_key]
 
     def test_alert_logs_refuse_next_link_to_another_host(self) -> None:
         result = _driver().run(

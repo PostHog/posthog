@@ -13,6 +13,8 @@ from collections.abc import Collection, Mapping, Sequence
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
+from django.core.cache import cache
+
 from posthog.schema import IntervalType
 
 from posthog.hogql import ast
@@ -34,6 +36,8 @@ BASELINE_WINDOW = datetime.timedelta(days=30)
 # One row is one series. Far more than the series of every active insight of one project.
 MAX_SERIES = 10_000
 MAX_BUCKETS = 2_000
+# Enough for an hourly series over 14 days, or a daily series over a year.
+MAX_SERIES_POINTS = 400
 # Each rate shrinks toward its baseline by this many buckets, so 1 flagged of 1 scored does not top a ranking.
 PRIOR_BUCKETS = 10
 # The prior when no series of the project has a scored baseline: about what a 0.95 threshold flags on noise.
@@ -43,6 +47,13 @@ DEFAULT_PRIOR_RATE = 0.05
 SCORED_INTERVALS = frozenset(DEFAULT_PROFILE.intervals)
 # The event scan reaches this far past the range, so a row whose timestamp ingestion moved stays in the scan.
 TIMESTAMP_DRIFT = datetime.timedelta(hours=1)
+# A project's scores are ready to rely on once this many days of the window have a scored daily bucket.
+SCORED_HISTORY_WINDOW = datetime.timedelta(days=28)
+SCORED_HISTORY_READY_DAYS = 14
+# The count changes at most once a day. A ready count stays cached longer, because a project leaves the
+# ready state only after it stops being scored for about two weeks.
+SCORED_DAYS_CACHE_TIMEOUT = datetime.timedelta(hours=3)
+SCORED_DAYS_READY_CACHE_TIMEOUT = datetime.timedelta(days=1)
 
 _LATEST_BUCKETS = """
 SELECT
@@ -102,12 +113,43 @@ ORDER BY bucket_start DESC, series_key
 LIMIT {{limit}}
 """
 
+_POINTS_QUERY = f"""
+SELECT insight_id, series_key, bucket_start, value, flag
+FROM ({_LATEST_BUCKETS})
+WHERE score IS NOT NULL AND series_key IN {{series_keys}}
+ORDER BY insight_id, series_key, bucket_start DESC
+LIMIT {{limit}} BY insight_id, series_key
+LIMIT {{total_limit}}
+"""
+
+_SCORED_DAYS_QUERY = """
+SELECT count(DISTINCT toDate(toTimeZone(bucket_start, 'UTC')))
+FROM (
+    SELECT coalesce(toDateTime(properties.$anomaly_bucket_start), timestamp) AS bucket_start
+    FROM events
+    WHERE event = {event}
+        AND properties.$anomaly_source = {source}
+        AND properties.$anomaly_interval = {interval}
+        AND toFloat(properties.$anomaly_score) IS NOT NULL
+        AND timestamp >= {scan_since}
+        AND timestamp <= {scan_until}
+)
+WHERE bucket_start >= {since} AND bucket_start <= {until}
+"""
+
 
 @frozen
 class FlaggedPoint:
     bucket_start: datetime.datetime
     value: float | None
     score: float | None
+
+
+@frozen
+class SeriesPoint:
+    bucket_start: datetime.datetime
+    value: float | None
+    flag: bool
 
 
 @frozen
@@ -186,6 +228,10 @@ class SeriesImportance:
 class _RankKey:
     """Sorts smallest first, field by field, so each measure is negated to put the largest first."""
 
+    # 0 for every series unless the newest flag sorts first. Not negated, because fewer buckets ago is newer.
+    flag_buckets_ago: float
+    # 0 for every series unless the anomaly rate sorts first.
+    negative_rate: float
     negative_lift: float
     negative_flagged_buckets: int
     negative_last_flagged: float
@@ -351,6 +397,37 @@ def series_summaries(
     return SeriesSummaries(series=series, truncated=len(rows) > MAX_SERIES)
 
 
+def scored_days(team: Team, *, now: datetime.datetime) -> int:
+    """Distinct UTC days with a scored daily bucket of any insight series from ``SCORED_HISTORY_WINDOW`` before ``now``.
+
+    The count is cached for each team, so ``now`` applies only when the cache is empty.
+    """
+    cache_key = f"signals:anomaly_scores:scored_days:v1:{team.id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return int(cached)
+    days = _count_scored_days(team, now=now)
+    timeout = SCORED_DAYS_READY_CACHE_TIMEOUT if days >= SCORED_HISTORY_READY_DAYS else SCORED_DAYS_CACHE_TIMEOUT
+    cache.set(cache_key, days, timeout=int(timeout.total_seconds()))
+    return days
+
+
+def _count_scored_days(team: Team, *, now: datetime.datetime) -> int:
+    tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
+    response = execute_hogql_query(
+        _SCORED_DAYS_QUERY,
+        team,
+        query_type="AnomalyScoresScoredDays",
+        placeholders={
+            **_placeholders(since=now - SCORED_HISTORY_WINDOW, until=now, insight_ids=None, series_key=None),
+            "interval": ast.Constant(value=IntervalType.DAY.value),
+        },
+        ch_user=ClickHouseUser.DEFAULT,
+    )
+    rows = cast(list[tuple[Any, ...]], response.results or [])
+    return int(rows[0][0]) if rows else 0
+
+
 def latest_buckets(
     team: Team,
     *,
@@ -392,6 +469,50 @@ def latest_buckets(
         if key
     ]
     return ScoredBuckets(buckets=buckets, truncated=len(rows) > limit)
+
+
+def series_points(
+    team: Team,
+    *,
+    date_from: datetime.datetime,
+    date_to: datetime.datetime,
+    series: Collection[tuple[int, str]],
+) -> dict[tuple[int, str], list[SeriesPoint]]:
+    """The newest ``MAX_SERIES_POINTS`` scored buckets of each ``(insight_id, series_key)`` in the range, oldest first.
+
+    Warm-up rows are left out. A bucket that was not scored has no point, so a gap stays a gap.
+    """
+    if not series:
+        return {}
+    tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
+    response = execute_hogql_query(
+        _POINTS_QUERY,
+        team,
+        query_type="AnomalyScoresSeriesPoints",
+        placeholders={
+            **_placeholders(
+                since=date_from,
+                until=date_to,
+                insight_ids={insight_id for insight_id, _ in series},
+                series_key=None,
+            ),
+            "series_keys": ast.Tuple(exprs=[ast.Constant(value=key) for key in sorted({key for _, key in series})]),
+            "limit": ast.Constant(value=MAX_SERIES_POINTS),
+            # Without a limit of its own, the query gets the default HogQL row cap, and most series lose their points.
+            "total_limit": ast.Constant(value=MAX_SERIES_POINTS * len(series)),
+        },
+        ch_user=ClickHouseUser.DEFAULT,
+    )
+    rows = cast(list[tuple[Any, ...]], response.results or [])
+    timezone = team.timezone_info
+    points: dict[tuple[int, str], list[SeriesPoint]] = {key: [] for key in series}
+    for insight_id, key, start, value, flag in reversed(rows):
+        # The scope matches insights and keys apart, so a key of another insight on the page can match too.
+        if (insight_id, key) in points:
+            points[(insight_id, key)].append(
+                SeriesPoint(bucket_start=_local(start, timezone), value=_float(value), flag=bool(flag))
+            )
+    return points
 
 
 def _previous_start(start: datetime.datetime, interval: IntervalType) -> datetime.datetime:
@@ -443,22 +564,51 @@ def rate_lift(summary: SeriesSummary, prior: float) -> float:
     return rate - smoothed_baseline
 
 
+def _buckets_between(older: datetime.datetime, newer: datetime.datetime, interval: IntervalType) -> int:
+    """Whole buckets from one bucket start to a later one of the same interval, in the project's timezone."""
+    if interval == IntervalType.HOUR:
+        # Aware datetimes with the same timezone subtract as wall-clock times, so step in UTC across DST changes.
+        return round((newer.astimezone(datetime.UTC) - older.astimezone(datetime.UTC)).total_seconds() / 3600)
+    if interval == IntervalType.MONTH:
+        return (newer.year - older.year) * 12 + newer.month - older.month
+    days = (newer.date() - older.date()).days
+    return days // 7 if interval == IntervalType.WEEK else days
+
+
 def rank_series(
-    series: Sequence[SeriesSummary], *, prior: float, importance: Mapping[int, SeriesImportance]
+    series: Sequence[SeriesSummary],
+    *,
+    prior: float,
+    importance: Mapping[int, SeriesImportance],
+    recent_first: bool = False,
+    rate_first: bool = False,
 ) -> list[SeriesSummary]:
     """Most anomalous first, using only measures that compare across series and intervals.
 
     Rate lift first, then flagged buckets, then the newest flag, then the insight's importance.
+    With ``recent_first``, the fewest buckets since the newest flag sorts first, and a series without a flag sorts
+    last. Buckets count back from the newest bucket of any series of the same interval, so the latest hour ties the
+    latest day, and a series that stopped being scored does not keep its last flag current.
+    With ``rate_first``, the anomaly rate in the range sorts first, as a person reads it off a row.
     """
     unknown = SeriesImportance(on_dashboard=False, viewers=0)
+    newest: dict[IntervalType, datetime.datetime] = {}
+    for summary in series:
+        newest[summary.interval] = max(summary.newest_bucket, newest.get(summary.interval, summary.newest_bucket))
 
     def key(summary: SeriesSummary) -> _RankKey:
         last_flagged = summary.last_flagged_bucket
+        negative_last_flagged = -last_flagged.timestamp() if last_flagged else math.inf
+        flag_buckets_ago = (
+            _buckets_between(last_flagged, newest[summary.interval], summary.interval) if last_flagged else math.inf
+        )
         insight_importance = importance.get(summary.insight_id, unknown)
         return _RankKey(
+            flag_buckets_ago=flag_buckets_ago if recent_first else 0.0,
+            negative_rate=-(summary.anomaly_rate or 0.0) if rate_first else 0.0,
             negative_lift=-rate_lift(summary, prior),
             negative_flagged_buckets=-summary.flagged_buckets,
-            negative_last_flagged=-last_flagged.timestamp() if last_flagged else math.inf,
+            negative_last_flagged=negative_last_flagged,
             off_dashboard=not insight_importance.on_dashboard,
             negative_viewers=-insight_importance.viewers,
             insight_id=summary.insight_id,

@@ -32,6 +32,7 @@ import {
 import type { EmailTemplate } from '../../../../frontend/src/scenes/hog-functions/email-templater/types'
 import type { HogFunctionType, ResourceEditedEvent, UserBasicType } from '../../../../frontend/src/types'
 import type { IntegrationType } from '../../../../frontend/src/types'
+import { opensRunLogs, withoutRunLogFilters } from '../Transactional/runLogLinks'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import { NEW_TEMPLATE } from './constants'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
@@ -39,7 +40,23 @@ import { omitNullDesign } from './omitNullDesign'
 import { TemplateSection, templateLibraryUrl, templateSectionFor, templateUrlInSection } from './templateSection'
 import { MessageTemplate } from './types'
 
-export type TransactionalTemplateTab = 'design' | 'metrics' | 'sends' | 'versions' | 'api'
+export type TransactionalTemplateTab = 'design' | 'impact' | 'metrics' | 'sends' | 'runs' | 'versions' | 'api'
+
+const TEMPLATE_PAGE_ROUTES = [
+    '/transactional/library/templates/:id',
+    '/workflows/library/templates/:id',
+    '/broadcasts/library/templates/:id',
+]
+// pinned: values of the `tab` URL search param - renaming breaks shared links
+const TRANSACTIONAL_TEMPLATE_TABS: TransactionalTemplateTab[] = [
+    'design',
+    'impact',
+    'metrics',
+    'sends',
+    'runs',
+    'versions',
+    'api',
+]
 
 type TemplateContent = MessageTemplate['content']
 
@@ -760,6 +777,14 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
     })),
     listeners(({ actions, props, values }) => ({
+        setTransactionalTab: ({ tab }) => {
+            const { tab: _shownTab, ...searchParams } = router.values.searchParams
+            const kept = tab === 'sends' ? withoutRunLogFilters(searchParams) : searchParams
+            const next = tab === 'design' ? kept : { ...kept, tab }
+            if (!objectsEqual(next, { ...router.values.searchParams })) {
+                router.actions.replace(router.values.location.pathname, next, router.values.hashParams)
+            }
+        },
         resourceEdited: ({ event }) => {
             if (event.resource_type === 'MessageTemplate' && event.resource_id === props.id) {
                 actions.templateEditedElsewhere(event)
@@ -1075,14 +1100,24 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             })
         },
     })),
-    urlToAction(({ actions, props }) => ({
-        // The escape hatch from the AI composer changes only the search params, so this logic sees no remount.
-        [urls.workflowsLibraryTemplateNew()]: (_, searchParams) => {
-            if (props.id === 'new' && !props.messageId && searchParams[EDITOR_MODE_PARAM] === EDITOR_MODE_VALUE) {
-                actions.setTemplatePickerOpen(true)
+    urlToAction(({ actions, props, values }) => {
+        const readTab = ({ id }: { id?: string }, searchParams: Record<string, any>): void => {
+            const tab = opensRunLogs(searchParams)
+                ? 'runs'
+                : (TRANSACTIONAL_TEMPLATE_TABS.find((known) => known === searchParams.tab) ?? 'design')
+            if (id === props.id && tab !== values.transactionalTab) {
+                actions.setTransactionalTab(tab)
             }
-        },
-    })),
+        }
+        return {
+            [urls.workflowsLibraryTemplateNew()]: (_, searchParams) => {
+                if (props.id === 'new' && !props.messageId && searchParams[EDITOR_MODE_PARAM] === EDITOR_MODE_VALUE) {
+                    actions.setTemplatePickerOpen(true)
+                }
+            },
+            ...Object.fromEntries(TEMPLATE_PAGE_ROUTES.map((route) => [route, readTab])),
+        }
+    }),
     afterMount(({ props, actions, values }) => {
         if (props.id !== 'new') {
             actions.loadTemplate()

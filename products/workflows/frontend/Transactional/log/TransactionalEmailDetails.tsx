@@ -1,8 +1,9 @@
+import clsx from 'clsx'
+
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
-import { urls } from 'scenes/urls'
 
 import type { TransactionalEmailLogDetailApi } from 'products/messaging/frontend/generated/api.schemas'
 
@@ -21,7 +22,9 @@ function DetailRow({
     return (
         <div
             className={
-                stacked ? 'flex flex-col gap-0.5 text-sm' : 'flex justify-between items-baseline gap-4 text-sm min-w-0'
+                stacked
+                    ? 'flex flex-col gap-0.5 text-sm min-w-0'
+                    : 'flex justify-between items-baseline gap-4 text-sm min-w-0'
             }
         >
             <dt className="text-secondary shrink-0">{label}</dt>
@@ -30,7 +33,33 @@ function DetailRow({
     )
 }
 
-export function TransactionalEmailDetails({ email }: { email: TransactionalEmailLogDetailApi }): JSX.Element {
+/** Long IDs truncate beside their copy button, so the button stays in view. */
+function CopyableId({
+    description,
+    value,
+    className,
+}: {
+    description: string
+    value: string
+    className?: string
+}): JSX.Element {
+    return (
+        <div className={clsx('flex items-center gap-1 min-w-0', className)}>
+            <span className="truncate font-mono text-xs" title={value}>
+                {value}
+            </span>
+            <CopyToClipboardInline description={description} explicitValue={value} iconSize="xsmall" />
+        </div>
+    )
+}
+
+export function TransactionalEmailDetails({
+    email,
+    emailUrl,
+}: {
+    email: TransactionalEmailLogDetailApi
+    emailUrl: string | null
+}): JSX.Element {
     return (
         <section className="border rounded bg-surface-primary p-4 flex flex-col gap-3">
             <h3 className="text-sm font-semibold m-0">Details</h3>
@@ -41,10 +70,8 @@ export function TransactionalEmailDetails({ email }: { email: TransactionalEmail
                     </Tooltip>
                 </DetailRow>
                 <DetailRow label="Email">
-                    {email.template_id ? (
-                        <Link to={urls.transactionalTemplate(email.template_id)}>
-                            {email.template_name || 'Unnamed email'}
-                        </Link>
+                    {emailUrl ? (
+                        <Link to={emailUrl}>{email.template_name || 'Unnamed email'}</Link>
                     ) : email.template_name ? (
                         email.template_name
                     ) : (
@@ -57,21 +84,11 @@ export function TransactionalEmailDetails({ email }: { email: TransactionalEmail
                 {email.sending_domain && <DetailRow label="Sending domain">{email.sending_domain}</DetailRow>}
                 {email.distinct_id && (
                     <DetailRow label="Distinct ID" stacked>
-                        <span className="ph-no-capture">
-                            <CopyToClipboardInline
-                                description="distinct ID"
-                                explicitValue={email.distinct_id}
-                                iconSize="xsmall"
-                            >
-                                <span className="font-mono text-xs">{email.distinct_id}</span>
-                            </CopyToClipboardInline>
-                        </span>
+                        <CopyableId description="distinct ID" value={email.distinct_id} className="ph-no-capture" />
                     </DetailRow>
                 )}
                 <DetailRow label="Message ID" stacked>
-                    <CopyToClipboardInline description="message ID" explicitValue={email.message_id} iconSize="xsmall">
-                        <span className="font-mono text-xs">{email.message_id}</span>
-                    </CopyToClipboardInline>
+                    <CopyableId description="message ID" value={email.message_id} />
                 </DetailRow>
             </dl>
         </section>

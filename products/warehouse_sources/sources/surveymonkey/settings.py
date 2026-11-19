@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
@@ -32,10 +32,18 @@ class SurveyMonkeyEndpointConfig:
     default_incremental_field: Optional[str] = None
     # Partition on a STABLE field (date_created), never date_modified.
     partition_key: Optional[str] = None
-    page_size: int = DEFAULT_PAGE_SIZE
-    primary_key: str = "id"
+    # None sends no `per_page`, for endpoints that do not document it.
+    page_size: Optional[int] = DEFAULT_PAGE_SIZE
+    primary_key: list[str] = field(default_factory=lambda: ["id"])
     # The `sort_by` value to request when paging incrementally (must be a server-side enum).
     sort_by: Optional[str] = None
+    extra_params: dict[str, Any] = field(default_factory=dict)
+    # Collector-scoped endpoints are reached through surveys -> collectors, and only email and SMS
+    # collectors send messages. Such a chain carries no resume state.
+    is_collector_fanout: bool = False
+    # Contact listings return only one status per request (default `active`), so they are read once
+    # per status in CONTACT_STATUSES.
+    is_contact_status_fanout: bool = False
 
 
 SURVEYMONKEY_ENDPOINTS: dict[str, SurveyMonkeyEndpointConfig] = {
@@ -83,7 +91,79 @@ SURVEYMONKEY_ENDPOINTS: dict[str, SurveyMonkeyEndpointConfig] = {
         # The collectors list returns only id/name/href by default, so there is no stable
         # date field to partition on — full refresh, unpartitioned.
     ),
+    "survey_trends": SurveyMonkeyEndpointConfig(
+        name="survey_trends",
+        path="/surveys/{survey_id}/trends",
+        is_fanout=True,
+        # One row per question, carrying its answer counts bucketed by day. Page- and question-level
+        # trends are subsets of this, so they get no table of their own.
+        page_size=None,
+        extra_params={"trend_by": "day"},
+        primary_key=["survey_id", "id"],
+    ),
+    "collector_messages": SurveyMonkeyEndpointConfig(
+        name="collector_messages",
+        path="/collectors/{collector_id}/messages",
+        is_collector_fanout=True,
+        primary_key=["collector_id", "id"],
+    ),
+    "collector_recipients": SurveyMonkeyEndpointConfig(
+        name="collector_recipients",
+        path="/collectors/{collector_id}/recipients",
+        is_collector_fanout=True,
+        extra_params={
+            # Survey and invite links are personal to each recipient, so they are not requested.
+            "include": "survey_response_status,mail_status,custom_fields,extra_fields",
+            "sort_order": "asc",
+        },
+        primary_key=["collector_id", "id"],
+    ),
+    "collector_message_stats": SurveyMonkeyEndpointConfig(
+        name="collector_message_stats",
+        path="/collectors/{collector_id}/messages/{message_id}/stats",
+        is_collector_fanout=True,
+        page_size=None,
+        primary_key=["collector_id", "message_id"],
+    ),
+    "survey_rollups": SurveyMonkeyEndpointConfig(
+        name="survey_rollups",
+        path="/surveys/{survey_id}/rollups",
+        is_fanout=True,
+        # One row per question, carrying its answered/skipped and per-choice counts. Page- and
+        # question-level rollups are subsets of this, so they get no table of their own.
+        page_size=None,
+        primary_key=["survey_id", "id"],
+    ),
+    "collector_stats": SurveyMonkeyEndpointConfig(
+        name="collector_stats",
+        path="/collectors/{collector_id}/stats",
+        is_collector_fanout=True,
+        page_size=None,
+        primary_key=["collector_id"],
+    ),
+    "contacts": SurveyMonkeyEndpointConfig(
+        name="contacts",
+        # The bulk listing returns every contact field, including custom_fields.
+        path="/contacts/bulk",
+        is_contact_status_fanout=True,
+    ),
+    "contact_lists": SurveyMonkeyEndpointConfig(
+        name="contact_lists",
+        path="/contact_lists",
+    ),
+    "contact_list_contacts": SurveyMonkeyEndpointConfig(
+        name="contact_list_contacts",
+        path="/contact_lists/{contact_list_id}/contacts/bulk",
+        is_contact_status_fanout=True,
+        primary_key=["contact_list_id", "id"],
+    ),
 }
+
+# Collector types that send messages and so have messages and recipients.
+MESSAGING_COLLECTOR_TYPES = frozenset({"email", "sms"})
+
+# Every value the contact listings' `status` filter accepts.
+CONTACT_STATUSES = ("active", "optout", "bounced")
 
 ENDPOINTS = tuple(SURVEYMONKEY_ENDPOINTS.keys())
 

@@ -10,6 +10,7 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.facade.codebase_detection import Detection, NotDetectable
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import WebhookEvents
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
@@ -245,6 +246,11 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # still decided by `SourceSchema.supports_xmin` at discovery. The API branches on this flag
     # instead of naming the source type.
     supports_xmin: bool = False
+
+    # `False` for sources whose incremental sync can replace rows by origin (a file) instead of merging
+    # them on a key. A history table orders each key's versions, so the API offers it only where this
+    # stays `True`.
+    supports_incremental_history: bool = True
 
     # Direct-only connectors opt out so API clients cannot create a source that is accepted by
     # discovery but can never run a scheduled import.
@@ -619,6 +625,9 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """Check for legacy OAuth tokens without network calls."""
         return False
 
+    def legacy_oauth_keys(self) -> tuple[str, ...]:
+        return ()
+
     def adopt_legacy_oauth(self, job_inputs: Mapping[str, Any]) -> LegacyOAuthGrant | None:
         """Prepare a grant for storage. This method can make network calls and raise LegacyOAuthGrantUnusable.
 
@@ -847,6 +856,13 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
     @abstractmethod
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         raise NotImplementedError()
+
+    def webhook_events(self, schema_name: str) -> WebhookEvents | None:
+        """How one table's webhook rows fill the event columns, so the table can keep history.
+
+        None when the table has no change time to order its events by, or already keeps one row per event.
+        """
+        return None
 
     def create_webhook(
         self, config: ConfigType, webhook_url: str, team_id: int, api_version: str | None = None

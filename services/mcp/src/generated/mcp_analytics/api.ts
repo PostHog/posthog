@@ -254,6 +254,12 @@ export const McpAnalyticsSessionsToolCallsQueryParams = () => zod.object({
         .describe(
             "Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable."
         ),
+    date_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            "Absolute ISO timestamp upper bound for the event scan. Pass the session's end so the scan stops there instead of reading up to now. Unbounded when omitted or unparseable."
+        ),
     filter_test_accounts: zod
         .boolean()
         .default(mcpAnalyticsSessionsToolCallsQueryFilterTestAccountsDefault)

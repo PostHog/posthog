@@ -1,1 +1,1 @@
-0369_person_group_membership_ingestion
+0389_drop_surfacing_score_from_session_replay_events

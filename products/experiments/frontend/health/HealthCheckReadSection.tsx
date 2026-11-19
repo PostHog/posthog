@@ -1,6 +1,9 @@
 import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
+import { healthCheckRowsTable, healthDetectableEffects } from './healthCheckRows'
+import { HealthCheckRowsTable } from './HealthCheckRowsTable'
 import { type HealthReading, healthCheckReadings, healthExposureSplit } from './healthCheckValues'
+import { HealthDetectableEffectLine } from './HealthDetectableEffectLine'
 import { HealthExposureSplitTable } from './HealthExposureSplitTable'
 import type { HealthPanelCheck } from './healthPanelChecks'
 import { HealthPanelSection } from './HealthPanelSection'
@@ -18,8 +21,10 @@ export function HealthCheckReadSection({
     units: string
     exposures: ExperimentExposureQueryResponse | null
 }): JSX.Element | null {
+    const table = healthCheckRowsTable(check, units)
     // An exposure answer cached before the server added the values keeps the layout without them.
-    if (!check.values || Object.keys(check.values).length === 0) {
+    const hasValues = !!check.values && Object.keys(check.values).length > 0
+    if (!hasValues && !table) {
         return null
     }
     const split = CHECKS_WITH_SPLIT.has(check.key) ? healthExposureSplit(exposures) : null
@@ -33,6 +38,10 @@ export function HealthCheckReadSection({
         <HealthPanelSection title="What it read">
             {split && <HealthExposureSplitTable rows={split} units={units} />}
             {readings.length > 0 && <HealthReadingList readings={readings} />}
+            {table && <HealthCheckRowsTable table={table} />}
+            {healthDetectableEffects(check).map((effect) => (
+                <HealthDetectableEffectLine key={effect.variant} effect={effect} />
+            ))}
         </HealthPanelSection>
     )
 }

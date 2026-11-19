@@ -19,7 +19,7 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
 from posthog.kafka_client.topics import KAFKA_PERSON
-from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.person import Person
 from posthog.models.person.divergence.datatypes import (
     DivergentPerson,
@@ -55,6 +55,7 @@ from posthog.test.persons import add_distinct_id, create_person
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 
 PG_PROPERTIES = {"email": "postgres@example.com"}
 CH_PROPERTIES = {"email": "clickhouse@example.com"}
@@ -796,10 +797,14 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         stored = fake.stored_person(self.team.pk, str(person.uuid))
         assert stored is not None
         replica_view.CopyFrom(stored)
+        replica_ids = fake.get_distinct_ids_for_persons(
+            person_pb2.GetDistinctIdsForPersonsRequest(team_id=self.team.pk, person_ids=[stored.id])
+        )
         tombstone_persons_in_postgres(self.team.pk, [person.uuid])
 
-        with patch.object(
-            fake, "get_persons_by_uuids", return_value=person_pb2.PersonsResponse(persons=[replica_view])
+        with (
+            patch.object(fake, "get_persons_by_uuids", return_value=person_pb2.PersonsResponse(persons=[replica_view])),
+            patch.object(fake, "get_distinct_ids_for_persons", return_value=replica_ids),
         ):
             _, actions = self._repair(person.uuid)
 

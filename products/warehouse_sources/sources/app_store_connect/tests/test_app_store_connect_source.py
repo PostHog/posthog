@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.sources.app_store_connect._config import AppStoreConnectSourceConfig
 from products.warehouse_sources.sources.app_store_connect.app_store_connect import (
+    APP_STORE_CONNECT_AGREEMENT_REQUIRED_ERROR,
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
     APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR,
@@ -16,7 +17,12 @@ from products.warehouse_sources.sources.app_store_connect.settings import (
     ENDPOINTS,
     REPORT_ENDPOINTS,
 )
-from products.warehouse_sources.sources.app_store_connect.source import AppStoreConnectSource
+from products.warehouse_sources.sources.app_store_connect.source import (
+    APP_STORE_CONNECT_NOT_ANSWERING_MESSAGE,
+    APP_STORE_CONNECT_RATE_LIMITED_MESSAGE,
+    APP_STORE_CONNECT_SERVER_ERROR_MESSAGE,
+    AppStoreConnectSource,
+)
 from products.warehouse_sources.sources.sdk import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -231,6 +237,7 @@ class TestAppStoreConnectSource:
             ("analytics_create", APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR),
             ("analytics_inactive", APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR),
             ("read", APP_STORE_CONNECT_READ_FORBIDDEN_ERROR),
+            ("agreement_required", APP_STORE_CONNECT_AGREEMENT_REQUIRED_ERROR),
         ]
     )
     def test_each_forbidden_case_resolves_to_its_own_copy(self, _name: str, constant: str) -> None:
@@ -253,23 +260,34 @@ class TestAppStoreConnectSource:
                 "HTTPSConnectionPool(host='api.appstoreconnect.apple.com', port=443): Max retries exceeded "
                 'with url: /v1/apps?limit=200 (Caused by ReadTimeoutError("HTTPSConnectionPool'
                 "(host='api.appstoreconnect.apple.com', port=443): Read timed out. (read timeout=60)\"))",
+                APP_STORE_CONNECT_NOT_ANSWERING_MESSAGE,
             ),
             (
                 "read_timeout",
                 "HTTPSConnectionPool(host='api.appstoreconnect.apple.com', port=443): Read timed out. (read timeout=60)",
+                APP_STORE_CONNECT_NOT_ANSWERING_MESSAGE,
             ),
             (
                 "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.appstoreconnect.apple.com/v1/salesReports?filter%5Bfrequency%5D=DAILY",
+                "500 Server Error: Internal Server Error for url: https://api.appstoreconnect.apple.com/v1/apps/1/analyticsReportRequests?limit=200",
+                APP_STORE_CONNECT_SERVER_ERROR_MESSAGE,
             ),
             (
                 "rate_limited",
                 "429 Client Error: Too Many Requests for url: https://api.appstoreconnect.apple.com/v1/salesReports",
+                APP_STORE_CONNECT_RATE_LIMITED_MESSAGE,
             ),
         ]
     )
-    def test_retryable_errors_match_transient_network_failures(self, _name: str, observed_error: str) -> None:
-        # `_get` has no retry loop of its own — it relies on the tracked session's urllib3 adapter.
-        # Once that's exhausted, this keeps the benign, self-recovering failure out of error tracking.
-        retryable_errors = AppStoreConnectSource().get_retryable_errors()
-        assert any(key in observed_error for key in retryable_errors)
+    def test_transient_failures_stay_retryable_with_customer_copy(
+        self, _name: str, observed_error: str, expected_copy: str
+    ) -> None:
+        source = AppStoreConnectSource()
+        assert _resolve_friendly_error(observed_error) is None
+        assert error_message_matches(observed_error, source.get_retryable_errors())
+        messages = [
+            message
+            for pattern, message in source.get_retry_exhausted_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert messages == [expected_copy]

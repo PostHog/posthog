@@ -168,10 +168,11 @@ async def test_started_and_ready_fire_expected_captures(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_failed_fires_completed_with_failure_reason(ateam):
+@pytest.mark.parametrize("initial_status", [SignalReport.Status.IN_PROGRESS, SignalReport.Status.CANDIDATE])
+async def test_failed_fires_completed_with_failure_reason(ateam, initial_status):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
-        status=SignalReport.Status.IN_PROGRESS,
+        status=initial_status,
         signal_count=3,
         total_weight=2.0,
     )
@@ -198,6 +199,9 @@ async def test_failed_fires_completed_with_failure_reason(ateam):
     assert kwargs["properties"]["failure_reason"] == "safety_judge_rejected"
     assert kwargs["properties"]["signal_count"] == 3
     assert kwargs["properties"]["source_products"] == ["zendesk"]
+    await report.arefresh_from_db()
+    assert report.status == SignalReport.Status.FAILED
+    assert report.error == "Failed safety review: contains PII"
 
 
 @pytest.mark.asyncio
@@ -304,6 +308,80 @@ async def test_ready_is_idempotent_after_partial_commit(ateam, preexisting_statu
     assert refreshed.status == preexisting_status
     assert refreshed.title == "existing title"
     assert refreshed.summary == "existing summary"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "report_status",
+    [
+        SignalReport.Status.SUPPRESSED,
+        SignalReport.Status.POTENTIAL,
+        SignalReport.Status.CLOSED,
+        SignalReport.Status.RESOLVED,
+        SignalReport.Status.DELETED,
+    ],
+)
+@pytest.mark.parametrize("outcome", ["ready", "pending_input", "potential", "failed"])
+async def test_research_completion_preserves_user_status(
+    ateam: Team, report_status: SignalReport.Status, outcome: str
+) -> None:
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        title="Existing title",
+        summary="Existing summary",
+        error="Existing reason",
+        signal_count=3,
+        total_weight=2.0,
+        run_count=1,
+    )
+    if report_status in (SignalReport.Status.SUPPRESSED, SignalReport.Status.POTENTIAL):
+        updated_fields = report.transition_to(report_status, snooze_for=5)
+        await database_sync_to_async(report.save)(update_fields=updated_fields)
+    else:
+        await SignalReport.objects.filter(id=report.id).aupdate(status=report_status)
+    original = await SignalReport.objects.values().aget(id=report.id)
+    report_id = str(report.id)
+
+    with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture:
+        match outcome:
+            case "ready":
+                has_new_signals = await mark_report_ready_activity(
+                    MarkReportReadyInput(
+                        team_id=ateam.id,
+                        report_id=report_id,
+                        title="New title",
+                        summary="New summary",
+                        processed_signal_count=1,
+                        charts=[CHART_PAYLOAD],
+                    )
+                )
+                assert has_new_signals is None
+            case "pending_input":
+                await mark_report_pending_input_activity(
+                    MarkReportPendingInput(
+                        team_id=ateam.id,
+                        report_id=report_id,
+                        title="New title",
+                        summary="New summary",
+                        reason="New reason",
+                        charts=[CHART_PAYLOAD],
+                        note="Research needs input",
+                    )
+                )
+            case "potential":
+                await reset_report_to_potential_activity(
+                    ResetReportToPotentialInput(team_id=ateam.id, report_id=report_id, reason="New reason")
+                )
+            case "failed":
+                await mark_report_failed_activity(
+                    MarkReportFailedInput(team_id=ateam.id, report_id=report_id, error="Research failed")
+                )
+
+    assert await SignalReport.objects.values().aget(id=report.id) == original
+    assert not await SignalReportArtefact.objects.filter(report_id=report.id).aexists()
+    capture.assert_not_called()
 
 
 @pytest.mark.asyncio

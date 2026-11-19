@@ -29,7 +29,7 @@ AUTH_TOKEN_INVALIDATION_FAILURE_COUNTER = Counter(
 
 
 def _sync_with_async_fallback(
-    action: Callable[[], None],
+    action: Callable[[], object],
     fallback_task: Task,
     fallback_args: list[Any],
     result_context: dict,
@@ -112,6 +112,33 @@ def invalidate_user_tokens_task(self: Task, user_id: int) -> dict:
             raise
 
 
+@shared_task(bind=True, max_retries=3, ignore_result=True)
+def invalidate_team_tokens_task(self: Task, team_id: int) -> dict:
+    """Invalidate all cached flags-service auth tokens for a team.
+
+    Used as the async retry fallback for invalidate_team_tokens_sync.
+    """
+    try:
+        token_auth_cache.invalidate_team_tokens(team_id)
+        return {"status": "success", "team_id": team_id}
+    except Exception as e:
+        logger.exception("Failed to invalidate team tokens", team_id=team_id)
+        try:
+            raise self.retry(exc=e)
+        except self.MaxRetriesExceededError:
+            AUTH_TOKEN_INVALIDATION_FAILURE_COUNTER.labels(invalidation_type="team_tokens").inc()
+            capture_exception(e)
+            # Use the explicit exc_info tuple so stdlib logging attaches the original
+            # Redis/invalidation traceback, not the current MaxRetriesExceededError context.
+            logger.exception(
+                "Auth token cache invalidation for team exhausted all retries",
+                team_id=team_id,
+                max_retries=self.max_retries,
+                exc_info=(type(e), e, e.__traceback__),
+            )
+            raise
+
+
 # --- Synchronous invalidation (called by signal handlers) ---
 
 
@@ -136,4 +163,18 @@ def invalidate_user_tokens_sync(user_id: int) -> dict:
         fallback_task=invalidate_user_tokens_task,
         fallback_args=[user_id],
         result_context={"user_id": user_id},
+    )
+
+
+def invalidate_team_tokens_sync(team_id: int) -> dict:
+    """Synchronously invalidate all cached flags-service auth tokens for a team with async retry fallback.
+
+    A secret-key entry caches the team's project API token. After a token reset, the flags
+    service would resolve that cached old token and fail with 401 once its metadata entry is gone.
+    """
+    return _sync_with_async_fallback(
+        action=lambda: token_auth_cache.invalidate_team_tokens(team_id),
+        fallback_task=invalidate_team_tokens_task,
+        fallback_args=[team_id],
+        result_context={"team_id": team_id},
     )

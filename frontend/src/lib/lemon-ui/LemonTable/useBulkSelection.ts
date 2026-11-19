@@ -196,16 +196,30 @@ export function useBulkSelection<T extends Record<string, any>, K extends BulkSe
         [selectedKeys, selectedRecords, clearSelection, setSelectedKeys]
     )
 
-    return {
-        selectedKeys,
-        selectedKeysSet,
-        isAllOnPageSelected,
-        isSomeOnPageSelected,
-        pageHasSelectableRows: selectableKeysOnPage.length > 0,
-        toggleRow,
-        toggleAllOnPage,
-        clearSelection,
-        setSelectedKeys,
-        context,
-    }
+    return useMemo(
+        () => ({
+            selectedKeys,
+            selectedKeysSet,
+            isAllOnPageSelected,
+            isSomeOnPageSelected,
+            pageHasSelectableRows: selectableKeysOnPage.length > 0,
+            toggleRow,
+            toggleAllOnPage,
+            clearSelection,
+            setSelectedKeys,
+            context,
+        }),
+        [
+            selectedKeys,
+            selectedKeysSet,
+            isAllOnPageSelected,
+            isSomeOnPageSelected,
+            selectableKeysOnPage.length,
+            toggleRow,
+            toggleAllOnPage,
+            clearSelection,
+            setSelectedKeys,
+            context,
+        ]
+    )
 }

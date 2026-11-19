@@ -16,6 +16,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     build_dependent_resource,
+    capture_exception,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -315,10 +316,22 @@ def _save_fanout_state(
         resumable_source_manager.save_state(AblyResumeConfig(fanout_state=state))
 
 
+MALFORMED_API_KEY_ERROR = (
+    "Your Ably API key is incomplete. Copy the whole key from your Ably dashboard, including the part after the colon."
+)
+# The check calls the stats endpoint, so a key without the `stats` capability is rejected too.
+REJECTED_API_KEY_ERROR = (
+    "Ably rejected your API key. Check that you copied the whole key and that it has the `stats` capability, "
+    "then reconnect."
+)
+UNREACHABLE_ERROR = "PostHog couldn't reach Ably to check your API key. Wait a few minutes, then try again."
+UNVERIFIED_API_KEY_ERROR = "PostHog couldn't verify your Ably API key. Check the key, then try again."
+
+
 def validate_credentials(api_key: str, api_version: str) -> tuple[bool, str | None]:
     username, password = split_api_key(api_key)
     if not password:
-        return False, "Ably API key is malformed — expected the format `{app-id}.{key-id}:{key-secret}`."
+        return False, MALFORMED_API_KEY_ERROR
 
     session = make_tracked_session(headers=version_header(api_version), redact_values=(password, api_key))
     try:
@@ -327,11 +340,12 @@ def validate_credentials(api_key: str, api_version: str) -> tuple[bool, str | No
             params={"limit": 1},
             auth=(username, password),
         )
-    except RequestException as e:
-        return False, str(e)
+    except RequestException:
+        return False, UNREACHABLE_ERROR
 
     if response.status_code == 200:
         return True, None
     if response.status_code in (401, 403):
-        return False, "Ably authentication failed. Please check your API key."
-    return False, f"Ably returned an unexpected status code ({response.status_code})."
+        return False, REJECTED_API_KEY_ERROR
+    capture_exception(Exception(f"Unexpected Ably credential validation response ({response.status_code})"))
+    return False, UNVERIFIED_API_KEY_ERROR

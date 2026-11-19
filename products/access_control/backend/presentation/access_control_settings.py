@@ -7,14 +7,14 @@ controls every product viewset mixes in stay in access_control.py.
 """
 
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 from django.core.cache import cache as django_cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Count, Max, Model, Prefetch, Q
+from django.db.models import Count, Max, Model, Prefetch, Q, QuerySet
 from django.db.models.functions import Coalesce
 
 from drf_spectacular.types import OpenApiTypes
@@ -26,12 +26,13 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.documentation import OpenApiParameter, extend_schema
-from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
+from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.oauth_provenance import is_sandbox_oauth_request
 from posthog.permissions import get_authenticator_scoped_team_ids
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.contracts import (
@@ -44,6 +45,7 @@ from products.access_control.backend.facade.object_names import (
     model_has_field,
     resolve_object_names,
     resources_with_object_access_controls,
+    visible_object_ids,
 )
 from products.access_control.backend.facade.resolution_preview import build_resolution_preview
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
@@ -217,19 +219,31 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             count=Count("id"), latest=Max("updated_at")
         )
         visible_ids = ",".join(str(candidate.id) for candidate, _ in visible_teams)
+        # Per requester and credential, because a product's visibility rule can hide some objects
+        # from them, and a sandbox token may see less than its user
+        sandboxed = is_sandbox_oauth_request(request)
         cache_key = (
-            f"access_control_resolution_preview/{team.organization_id}"
+            f"access_control_resolution_preview/{team.organization_id}/{request.user.pk}/{int(sandboxed)}"
             f"/{visible_ids}/{fingerprint['count']}/{fingerprint['latest']}"
         )
         cached = django_cache.get(cache_key)
         if cached is not None:
             return Response(cached)
 
-        changes = [
-            {**asdict(change), "project_id": candidate.id, "project_name": candidate.name}
-            for candidate, candidate_access in visible_teams
-            for change in build_resolution_preview(candidate, candidate_access)
-        ]
+        changes: list[dict[str, Any]] = []
+        for candidate, candidate_access in visible_teams:
+            candidate_changes = build_resolution_preview(candidate, candidate_access)
+            visible_by_resource = {
+                resource: self._visible_ids(candidate, resource)
+                for resource in {change.resource for change in candidate_changes if change.scope == "object"}
+            }
+            changes.extend(
+                {**asdict(change), "project_id": candidate.id, "project_name": candidate.name}
+                for change in candidate_changes
+                if change.scope != "object"
+                or (visible := visible_by_resource[change.resource]) is None
+                or str(change.object_id) in visible
+            )
         payload = {
             "changes": changes,
             "summary": {
@@ -476,7 +490,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                         "last_name": user.last_name,
                         "email": user.email,
                     },
-                    "organization_level": member.level,
+                    "organization_level": member.effective_level,
                     "role_ids": role_ids,
                     "project": _project_entry(subject, team),
                     "resources": {
@@ -547,15 +561,16 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 resource="project"
             )
         )
+        rows = self._rows_on_visible_objects(team, rows)
         if not rows:
             return Response(AccessControlObjectRulesResponseSerializer({"results": []}).data)
 
         ids_by_resource: dict[str, list[str]] = defaultdict(list)
         for ac in rows:
             ids_by_resource[ac.resource].append(ac.resource_id)
-        # Names resolve for every rule, including objects the caller cannot access themselves:
-        # rules lists show what is configured, while the picker search and the rule write are the
-        # surfaces that hide inaccessible objects
+        # Names resolve for every rule on an object the product lets the caller open, including
+        # ones their access level hides: rules lists show what is configured, while the picker
+        # search and the rule write are the surfaces that hide those
         names_by_resource = {
             resource: resolve_object_names(resource, ids, team.id) for resource, ids in ids_by_resource.items()
         }
@@ -593,23 +608,20 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             organization_member_id=organization_member.id if organization_member else None,
             role_id=role.id if role else None,
         )
-        definitions_by_id = {
-            str(pd.id): pd
-            for pd in PropertyDefinition.objects.filter(
-                team_id=team.id, id__in=[rule.property_definition_id for rule in rules]
-            )
-        }
+        labels = access_control_api.get_property_definition_labels(
+            team_id=team.id, property_definition_ids=[rule.property_definition_id for rule in rules]
+        )
 
         results = []
         for rule in rules:
-            pd = definitions_by_id.get(str(rule.property_definition_id))
-            if pd is None:
+            label = labels.get(rule.property_definition_id)
+            if label is None:
                 continue
             results.append(
                 {
-                    "property_definition_id": str(pd.id),
-                    "property": pd.name,
-                    "property_type": "person" if pd.type == pd.Type.PERSON else "event",
+                    "property_definition_id": str(label.id),
+                    "property": label.name,
+                    "property_type": "person" if label.is_person else "event",
                     "access_level": rule.access_level.value,
                 }
             )
@@ -713,9 +725,12 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
 
         search = request.query_params.get("search") or ""
         lookup = request.query_params.get("id") or ""
-        qs = display.model._default_manager.filter(team_id=team.id)
+        manager = display.model._default_manager
+        # A team-scoped manager refuses a query outside a team scope, and this root project route sets none
+        qs = manager.for_team(team.id) if isinstance(manager, TeamScopedManager) else manager.filter(team_id=team.id)
+        qs = self._only_visible_objects(team, resource, qs)
         # Objects the requester cannot see are not theirs to find or configure. Org admins see
-        # everything, matching how they can already configure access anywhere
+        # everything the product lets them open, matching how they can already configure access anywhere
         qs = user_access_control.filter_queryset_by_access_level(
             qs, include_all_if_admin=True, resource=cast(APIScopeObject, resource)
         )
@@ -790,6 +805,42 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             build_serializer=self._rule_serializer_builder(team, user_access_control, target, data),
         )
 
+    def _rows_on_visible_objects(self, team: Team, rows: list[AccessControl]) -> list[AccessControl]:
+        """Drops rules on objects a product's own visibility rule hides from the requester, such as a canvas in another member's space."""
+        ids_by_resource: dict[str, set[str]] = defaultdict(set)
+        for ac in rows:
+            ids_by_resource[ac.resource].add(str(ac.resource_id))
+        hidden: set[tuple[str, str]] = set()
+        for resource, ids in ids_by_resource.items():
+            display = display_model(resource)
+            visible_ids = self._visible_ids(team, resource)
+            if display is None or visible_ids is None:
+                continue
+            try:
+                visible = {
+                    str(pk)
+                    for pk in display.model._base_manager.filter(team_id=team.id, pk__in=ids)
+                    .filter(pk__in=visible_ids)
+                    .values_list("pk", flat=True)
+                }
+            except (ValueError, DjangoValidationError):
+                visible = set()
+            hidden.update((resource, resource_id) for resource_id in ids - visible)
+        return [ac for ac in rows if (ac.resource, str(ac.resource_id)) not in hidden]
+
+    def _visible_ids(self, team: Team, resource: str) -> Collection[str] | None:
+        user = self.request.user
+        return visible_object_ids(
+            resource,
+            team_id=team.id,
+            user_id=user.id if isinstance(user, User) else None,
+            sandboxed=is_sandbox_oauth_request(self.request),
+        )
+
+    def _only_visible_objects(self, team: Team, resource: str, objects: QuerySet) -> QuerySet:
+        visible = self._visible_ids(team, resource)
+        return objects if visible is None else objects.filter(pk__in=visible)
+
     def _visible_object(
         self,
         team: Team,
@@ -805,7 +856,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         # _base_manager, not the default one: a rule on a soft-deleted object is hidden from the
         # rules list, and the write with access_level None is the only way to clear it
         visible = user_access_control.filter_queryset_by_access_level(
-            display.model._base_manager.filter(team_id=team.id),
+            self._only_visible_objects(team, resource, display.model._base_manager.filter(team_id=team.id)),
             include_all_if_admin=True,
             resource=cast(APIScopeObject, resource),
         )

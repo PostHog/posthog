@@ -16,6 +16,7 @@ from rest_framework.test import APIClient
 
 from posthog.auth import WidgetAuthentication
 from posthog.models.comment import Comment
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.rate_limit import WidgetTeamPollThrottle
 from posthog.test.authentication_checks import covers_authentication
 
@@ -31,12 +32,15 @@ from products.conversations.backend.services.identity import (
 )
 
 
-def _verification_counter(outcome: str, source: str) -> float:
+def _verification_counter(outcome: str, source: str, team_id: int) -> float:
     # Process-global, so callers compare deltas rather than absolute values.
     from prometheus_client import REGISTRY
 
     return (
-        REGISTRY.get_sample_value("conversations_identity_verification_total", {"outcome": outcome, "source": source})
+        REGISTRY.get_sample_value(
+            "conversations_identity_verification_total",
+            {"outcome": outcome, "source": source, "team_id": str(team_id)},
+        )
         or 0.0
     )
 
@@ -85,8 +89,13 @@ class TestWidgetAPI(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @parameterized.expand([(False,), (True,)])
     @covers_authentication(WidgetAuthentication)
-    def test_create_message_creates_ticket(self):
+    def test_create_message_creates_ticket(self, signed_in: bool) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        cache.clear()
+        if signed_in:
+            self.client.force_login(self.user)
         response = self.client.post(
             "/api/conversations/v1/widget/message",
             {
@@ -790,7 +799,7 @@ class TestWidgetAPI(BaseTest):
 
 
 class TestWidgetCacheInvalidation(BaseTest):
-    """Test that widget message creation invalidates unread count cache."""
+    """Test that widget caches reflect new messages and ticket changes."""
 
     def setUp(self):
         super().setUp()
@@ -842,6 +851,67 @@ class TestWidgetCacheInvalidation(BaseTest):
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             mock_invalidate.assert_called_once_with(self.team.id)
+
+    def _create_widget_ticket(self) -> Ticket:
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+
+    def _create_message(self, ticket: Ticket, content: str, author_type: str) -> Comment:
+        with self.captureOnCommitCallbacks(execute=True):
+            comment = Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=content,
+                created_by=self.user if author_type == "team" else None,
+                item_context={"author_type": author_type, "is_private": False},
+            )
+        return comment
+
+    @parameterized.expand(
+        [
+            ("first_load", False, ["Question", "Reply"]),
+            ("poll", True, ["Reply"]),
+        ]
+    )
+    def test_get_messages_returns_a_reply_that_arrives_after_the_response_is_cached(
+        self, _name: str, poll_after_first_message: bool, expected_contents: list[str]
+    ) -> None:
+        cache.clear()
+        ticket = self._create_widget_ticket()
+        url = f"/api/conversations/v1/widget/messages/{ticket.id}"
+
+        with time_machine.travel(timezone.now(), tick=False) as traveller:
+            first = self._create_message(ticket, "Question", author_type="customer")
+            query: dict[str, str | int] = {"widget_session_id": self.widget_session_id, "limit": 50}
+            if poll_after_first_message:
+                query["after"] = first.created_at.isoformat()
+            self.client.get(url, query, **self._get_headers())
+
+            traveller.shift(timedelta(seconds=5))
+            self._create_message(ticket, "Reply", author_type="team")
+            response = self.client.get(url, query, **self._get_headers())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([m["content"] for m in response.json()["messages"]], expected_contents)
+
+    def test_get_messages_returns_the_current_ticket_status_when_messages_are_cached(self) -> None:
+        cache.clear()
+        ticket = self._create_widget_ticket()
+        url = f"/api/conversations/v1/widget/messages/{ticket.id}"
+        query: dict[str, str | int] = {"widget_session_id": self.widget_session_id, "limit": 50}
+        self.client.get(url, query, **self._get_headers())
+
+        ticket.status = Status.RESOLVED
+        ticket.save()
+        response = self.client.get(url, query, **self._get_headers())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["ticket_status"], Status.RESOLVED)
 
 
 class TestWidgetIdentityVerification(BaseTest):
@@ -1004,7 +1074,7 @@ class TestWidgetIdentityVerification(BaseTest):
         )
         self._create_ticket()
         before_stale = _stale_counter()
-        before_outcome = _verification_counter(outcome, source)
+        before_outcome = _verification_counter(outcome, source, self.team.id)
 
         response = self.client.get(
             "/api/conversations/v1/widget/tickets",
@@ -1017,7 +1087,7 @@ class TestWidgetIdentityVerification(BaseTest):
 
         self.assertEqual(response.status_code, expected_status)
         self.assertEqual(_stale_counter() - before_stale, 0.0)
-        self.assertEqual(_verification_counter(outcome, source) - before_outcome, 1.0)
+        self.assertEqual(_verification_counter(outcome, source, self.team.id) - before_outcome, 1.0)
 
     def test_list_tickets_legacy_hash_rejected_after_independent_rotation(self):
         # Even with the kill switch on, an independent rotation must revoke the legacy
@@ -1045,8 +1115,8 @@ class TestWidgetIdentityVerification(BaseTest):
         # what gates dropping the plaintext column — silently reports legacy forever.
         SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=self.secret)
         self._create_ticket()
-        before_signing = _verification_counter("verified", "signing_secret")
-        before_legacy = _verification_counter("verified", "legacy_token")
+        before_signing = _verification_counter("verified", "signing_secret", self.team.id)
+        before_legacy = _verification_counter("verified", "legacy_token", self.team.id)
 
         response = self.client.get(
             "/api/conversations/v1/widget/tickets",
@@ -1058,8 +1128,8 @@ class TestWidgetIdentityVerification(BaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(_verification_counter("verified", "signing_secret") - before_signing, 1.0)
-        self.assertEqual(_verification_counter("verified", "legacy_token") - before_legacy, 0.0)
+        self.assertEqual(_verification_counter("verified", "signing_secret", self.team.id) - before_signing, 1.0)
+        self.assertEqual(_verification_counter("verified", "legacy_token", self.team.id) - before_legacy, 0.0)
 
     def test_list_tickets_non_hex_identity_hash_is_rejected_not_a_server_error(self):
         # hmac.compare_digest raises TypeError on non-ASCII str, so a 64-character non-hex

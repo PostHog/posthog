@@ -66,6 +66,26 @@ def test_skill_delivery_defaults_to_bundled_and_allows_exec(argv: list[str], exp
 
 
 @pytest.mark.parametrize(
+    "argv,expected_surface",
+    [
+        ([], "mcp"),
+        (["--surface", "app"], "app"),
+        (["--surface", "mcp", "--skill-delivery", "exec"], "mcp"),
+        # The app does not get exec skills, so this pair models no real setup.
+        (["--surface", "app", "--skill-delivery", "exec"], None),
+        (["--surface", "apps"], None),
+    ],
+)
+def test_surface_defaults_to_mcp_and_rejects_app_with_exec(argv: list[str], expected_surface: str | None) -> None:
+    if expected_surface is None:
+        with pytest.raises(SystemExit) as error:
+            parse_args(argv)
+        assert error.value.code == 2
+    else:
+        assert parse_args(argv).surface == expected_surface
+
+
+@pytest.mark.parametrize(
     "argv,expected",
     [([], 2), (["--infra-retries", "0"], 0), (["--infra-retries", "3"], 3), (["--infra-retries", "-1"], None)],
 )

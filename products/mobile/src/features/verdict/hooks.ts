@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 
 import { NotSignedInError } from '@/api/client'
-import { dismissReport, reportKeys, resolveReport } from '@/api/reports'
+import { dismissReport, type ProjectScope, reportKeys, resolveReport } from '@/api/reports'
 import { sessionGeneration } from '@/auth/tokens'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDemoMode } from '@/demo/demoMode'
@@ -11,7 +11,7 @@ import { type AsyncAction, useAsyncAction } from '@/lib/useAsyncAction'
 import type { DismissReason, ResolveReason } from '@/model/verdictReasons'
 
 interface VerdictTarget<Reason extends string> {
-    send: (reportId: string, reason: Reason, note: string) => Promise<unknown>
+    send: (scope: ProjectScope, reportId: string, reason: Reason, note: string) => Promise<unknown>
     sendDemo: (reportId: string, reason: Reason) => void
     event: AnalyticsEvent
 }
@@ -33,7 +33,7 @@ function useVerdictAction<Reason extends string>(
         }
         const session = sessionGeneration()
         try {
-            await send(reportId, reason, note)
+            await send(scope, reportId, reason, note)
         } catch (error) {
             if (sessionGeneration() === session) {
                 reportScopeError(error, 'inbox')

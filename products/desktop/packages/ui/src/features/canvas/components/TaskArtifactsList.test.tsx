@@ -242,7 +242,7 @@ describe("TaskArtifactsList", () => {
     const row = screen.getByText("report.md").closest("[data-artifact-card]");
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByText("2")).toBeTruthy();
-    expect(within(row as HTMLElement).getByText("Agent · 17 KB")).toBeTruthy();
+    expect(within(row as HTMLElement).getByText("17 KB")).toBeTruthy();
   });
 
   it("lists a PostHog reference beside file artifacts and opens its artifact tab", () => {
@@ -325,7 +325,7 @@ describe("TaskArtifactsList", () => {
     render(<TaskArtifactsList task={task} timeline={[]} />);
 
     expect(screen.getByText("report.md")).toBeInTheDocument();
-    expect(screen.getByText("Agent · 17 KB")).toBeInTheDocument();
+    expect(screen.getByText("17 KB")).toBeInTheDocument();
   });
 
   // The threads themselves live in the Comments tab now, so the pane must not
@@ -450,7 +450,7 @@ describe("TaskArtifactsList", () => {
     render(<TaskArtifactsList task={task} timeline={[]} />);
 
     expect(screen.getAllByText("report.md")).toHaveLength(1);
-    expect(screen.getByText(/ · 2 KB$/)).toBeInTheDocument();
+    expect(screen.getByText(/^2 KB · /)).toBeInTheDocument();
     expect(
       screen.getByLabelText("Choose a version of report.md"),
     ).toHaveTextContent("v2");
@@ -506,7 +506,7 @@ describe("TaskArtifactsList", () => {
 
     render(<TaskArtifactsList task={task} timeline={[]} />);
 
-    expect(screen.getByText(/ · 1 KB$/)).toBeInTheDocument();
+    expect(screen.getByText(/^1 KB · /)).toBeInTheDocument();
     fireEvent.click(screen.getByText("report.md"));
     expect(mocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
       runId: "run-1",

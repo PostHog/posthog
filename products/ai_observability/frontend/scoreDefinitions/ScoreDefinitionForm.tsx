@@ -4,8 +4,9 @@ import { useId } from 'react'
 import { IconCheck, IconX } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCard,
+    LemonCollapse,
     LemonCheckbox,
-    LemonDivider,
     LemonInput,
     LemonSelect,
     LemonSwitch,
@@ -17,6 +18,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { CompositeScorerForm } from './CompositeScorerForm'
 import {
     CATEGORICAL_SELECTION_MODE_OPTIONS,
     formatKindLabel,
@@ -52,221 +54,265 @@ export function ScoreDefinitionForm({
     const threshold = getNumericInputValue(draft.numericPassingThreshold)
 
     return (
-        <div className="space-y-6 @container/scorer-form">
-            <section className="space-y-4" aria-labelledby={`${id}-details`}>
-                <h3 id={`${id}-details`} className="mb-0">
-                    Details
-                </h3>
-                <LemonField.Pure label="Name" htmlFor={`${id}-name`}>
-                    <LemonInput
-                        id={`${id}-name`}
-                        value={draft.name}
-                        onChange={(value) => setDraftField('name', value)}
-                        disabled={disabled}
-                        placeholder="e.g. Answer quality"
-                        data-attr="llma-scorer-name-input"
-                    />
-                </LemonField.Pure>
-                <LemonField.Pure
-                    label="Short name (optional)"
-                    htmlFor={`${id}-short-name`}
-                    help="Used in table headers and other compact views. Leave blank to use the full name."
-                >
-                    <LemonInput
-                        id={`${id}-short-name`}
-                        value={draft.shortName}
-                        onChange={(value) => setDraftField('shortName', value)}
-                        maxLength={40}
-                        disabled={disabled}
-                        placeholder="e.g. Quality"
-                        data-attr="aio-scorer-short-name-input"
-                    />
-                </LemonField.Pure>
-                <LemonField.Pure label="Description (optional)" htmlFor={`${id}-description`}>
-                    <LemonTextArea
-                        id={`${id}-description`}
-                        value={draft.description}
-                        onChange={(value) => setDraftField('description', value)}
-                        disabled={disabled}
-                        placeholder="What does this scorer measure?"
-                        data-attr="llma-scorer-description-input"
-                    />
-                </LemonField.Pure>
-            </section>
-
-            <LemonDivider />
-
-            <section className="space-y-4" aria-labelledby={`${id}-format`}>
-                <h3 id={`${id}-format`} className="mb-0">
-                    Score format
-                </h3>
-                <LemonField.Pure
-                    label="Kind"
-                    htmlFor={isNew ? `${id}-kind` : undefined}
-                    help={isNew ? undefined : 'The kind stays the same across scorer versions.'}
-                >
-                    {isNew ? (
-                        <LemonSelect
-                            id={`${id}-kind`}
-                            value={draft.kind}
-                            onChange={(value) => setDraftField('kind', value)}
-                            options={[
-                                { label: 'Categorical', value: 'categorical' },
-                                { label: 'Numeric', value: 'numeric' },
-                                { label: 'Boolean', value: 'boolean' },
-                            ]}
-                            disabledReason={disabledReason}
-                            data-attr="llma-scorer-kind-select"
+        <div className="flex flex-col gap-6 @container/scorer-form">
+            <LemonCard hoverEffect={false} className="p-4">
+                <section className="flex flex-col gap-4" aria-labelledby={`${id}-details`}>
+                    <h3 id={`${id}-details`} className="mb-0">
+                        Details
+                    </h3>
+                    <LemonField.Pure label="Name" htmlFor={`${id}-name`}>
+                        <LemonInput
+                            id={`${id}-name`}
+                            value={draft.name}
+                            onChange={(value) => setDraftField('name', value)}
+                            disabled={disabled}
+                            placeholder="e.g. Answer quality"
+                            data-attr="llma-scorer-name-input"
                         />
-                    ) : (
-                        <LemonTag type="muted" className="self-start">
-                            {formatKindLabel(draft.kind)}
-                        </LemonTag>
-                    )}
-                </LemonField.Pure>
+                    </LemonField.Pure>
+                    <LemonCollapse
+                        embedded
+                        panels={[
+                            {
+                                key: 'details',
+                                header: `Optional details${draft.shortName || draft.description ? ` (${[draft.shortName, draft.description].filter(Boolean).length} set)` : ''}`,
+                                content: (
+                                    <div className="flex flex-col gap-4 pt-2">
+                                        <LemonField.Pure
+                                            label="Short name (optional)"
+                                            htmlFor={`${id}-short-name`}
+                                            help="Used in table headers and other compact views. Leave blank to use the full name."
+                                        >
+                                            <LemonInput
+                                                id={`${id}-short-name`}
+                                                value={draft.shortName}
+                                                onChange={(value) => setDraftField('shortName', value)}
+                                                maxLength={40}
+                                                disabled={disabled}
+                                                placeholder="e.g. Quality"
+                                                data-attr="aio-scorer-short-name-input"
+                                            />
+                                        </LemonField.Pure>
+                                        <LemonField.Pure label="Description (optional)" htmlFor={`${id}-description`}>
+                                            <LemonTextArea
+                                                id={`${id}-description`}
+                                                value={draft.description}
+                                                onChange={(value) => setDraftField('description', value)}
+                                                disabled={disabled}
+                                                placeholder="What does this scorer measure?"
+                                                data-attr="llma-scorer-description-input"
+                                            />
+                                        </LemonField.Pure>
+                                    </div>
+                                ),
+                            },
+                        ]}
+                    />
+                </section>
+            </LemonCard>
 
-                {draft.kind === 'numeric' && (
-                    <>
-                        <div className="grid gap-4 @min-[36rem]/scorer-form:grid-cols-3">
+            <LemonCard hoverEffect={false} className="p-4">
+                <section className="flex flex-col gap-4" aria-labelledby={`${id}-format`}>
+                    <h3 id={`${id}-format`} className="mb-0">
+                        Score format
+                    </h3>
+                    <div className="grid gap-4 @min-[30rem]/scorer-form:grid-cols-2">
+                        <LemonField.Pure label="Calculation">
+                            <LemonSelect
+                                value={draft.calculation}
+                                onChange={(value) => setDraftField('calculation', value)}
+                                options={[
+                                    { value: 'reported', label: 'Reported score' },
+                                    { value: 'composite', label: 'Composite formula' },
+                                ]}
+                                disabledReason={
+                                    !isNew ? 'Calculation cannot be changed after creation' : disabledReason
+                                }
+                                data-attr="aio-scorer-calculation-select"
+                            />
+                        </LemonField.Pure>
+                        <LemonField.Pure label="Output" htmlFor={isNew ? `${id}-kind` : undefined}>
+                            {isNew ? (
+                                <LemonSelect
+                                    id={`${id}-kind`}
+                                    value={draft.kind}
+                                    onChange={(value) => setDraftField('kind', value)}
+                                    options={[
+                                        { label: 'Categorical', value: 'categorical' },
+                                        { label: 'Numeric', value: 'numeric' },
+                                        { label: 'Boolean', value: 'boolean' },
+                                    ]}
+                                    disabledReason={disabledReason}
+                                    data-attr="llma-scorer-kind-select"
+                                />
+                            ) : (
+                                <LemonTag type="muted" className="self-start">
+                                    {formatKindLabel(draft.kind)}
+                                </LemonTag>
+                            )}
+                        </LemonField.Pure>
+                    </div>
+                    {draft.calculation === 'composite' && (
+                        <p className="text-sm text-muted mb-0">
+                            A composite scorer calculates an item score from the results of other scorers.
+                        </p>
+                    )}
+
+                    {draft.kind === 'numeric' && (
+                        <>
+                            <div
+                                className={`grid gap-4 ${draft.calculation === 'reported' ? '@min-[36rem]/scorer-form:grid-cols-3' : '@min-[30rem]/scorer-form:grid-cols-2'}`}
+                            >
+                                {(
+                                    [
+                                        ['numericMin', 'Minimum (optional)'],
+                                        ['numericMax', 'Maximum (optional)'],
+                                        ['numericStep', 'Increment (optional)'],
+                                    ] as const
+                                )
+                                    .filter(([field]) => field !== 'numericStep' || draft.calculation === 'reported')
+                                    .map(([field, label]) => (
+                                        <LemonField.Pure key={field} label={label} htmlFor={`${id}-${field}`}>
+                                            <LemonInput
+                                                id={`${id}-${field}`}
+                                                type="number"
+                                                value={getNumericInputValue(draft[field])}
+                                                onChange={(value) =>
+                                                    setDraftField(field, formatNumericInputValue(value))
+                                                }
+                                                disabled={disabled}
+                                                placeholder="Not set"
+                                                step="any"
+                                            />
+                                        </LemonField.Pure>
+                                    ))}
+                            </div>
+                            <p className="text-sm text-muted mb-0">
+                                Bounds are inclusive.
+                                {draft.calculation === 'reported' &&
+                                    ' The increment guides manual scoring, for example 1 or 0.5.'}
+                            </p>
+                        </>
+                    )}
+
+                    {draft.kind === 'boolean' && (
+                        <div className="grid gap-4 @min-[30rem]/scorer-form:grid-cols-2">
                             {(
                                 [
-                                    ['numericMin', 'Minimum (optional)'],
-                                    ['numericMax', 'Maximum (optional)'],
-                                    ['numericStep', 'Increment (optional)'],
+                                    ['trueLabel', 'True label (optional)', 'True'],
+                                    ['falseLabel', 'False label (optional)', 'False'],
                                 ] as const
-                            ).map(([field, label]) => (
+                            ).map(([field, label, placeholder]) => (
                                 <LemonField.Pure key={field} label={label} htmlFor={`${id}-${field}`}>
                                     <LemonInput
                                         id={`${id}-${field}`}
-                                        type="number"
-                                        value={getNumericInputValue(draft[field])}
-                                        onChange={(value) => setDraftField(field, formatNumericInputValue(value))}
+                                        value={draft[field]}
+                                        onChange={(value) => setDraftField(field, value)}
+                                        placeholder={placeholder}
                                         disabled={disabled}
-                                        placeholder="Not set"
-                                        step="any"
                                     />
                                 </LemonField.Pure>
                             ))}
                         </div>
-                        <p className="text-sm text-muted mb-0">
-                            Bounds are inclusive. The increment guides manual scoring, for example 1 or 0.5.
-                        </p>
-                    </>
-                )}
+                    )}
 
-                {draft.kind === 'boolean' && (
-                    <div className="grid gap-4 @min-[30rem]/scorer-form:grid-cols-2">
-                        {(
-                            [
-                                ['trueLabel', 'True label (optional)', 'True'],
-                                ['falseLabel', 'False label (optional)', 'False'],
-                            ] as const
-                        ).map(([field, label, placeholder]) => (
-                            <LemonField.Pure key={field} label={label} htmlFor={`${id}-${field}`}>
-                                <LemonInput
-                                    id={`${id}-${field}`}
-                                    value={draft[field]}
-                                    onChange={(value) => setDraftField(field, value)}
-                                    placeholder={placeholder}
-                                    disabled={disabled}
-                                />
-                            </LemonField.Pure>
-                        ))}
-                    </div>
-                )}
-
-                {draft.kind === 'categorical' && (
-                    <>
-                        <div className="grid gap-4 @min-[36rem]/scorer-form:grid-cols-3">
-                            <LemonField.Pure label="Selection mode" htmlFor={`${id}-selection-mode`}>
-                                <LemonSelect
-                                    id={`${id}-selection-mode`}
-                                    value={draft.selectionMode}
-                                    onChange={(value) => setDraftField('selectionMode', value)}
-                                    options={CATEGORICAL_SELECTION_MODE_OPTIONS}
-                                    disabledReason={disabledReason}
-                                    data-attr="llma-scorer-selection-mode"
-                                />
-                            </LemonField.Pure>
-                            {draft.selectionMode === 'multiple' &&
-                                (
-                                    [
-                                        ['categoricalMinSelections', 'Minimum selections'],
-                                        ['categoricalMaxSelections', 'Maximum selections'],
-                                    ] as const
-                                ).map(([field, label]) => (
-                                    <LemonField.Pure key={field} label={label} htmlFor={`${id}-${field}`}>
-                                        <LemonInput
-                                            id={`${id}-${field}`}
-                                            type="number"
-                                            value={getIntegerInputValue(draft[field])}
-                                            onChange={(value) => setDraftField(field, formatNumericInputValue(value))}
-                                            min={1}
-                                            max={draft.options.length}
-                                            step={1}
-                                            placeholder="Not set"
-                                            disabled={disabled}
-                                        />
+                    {draft.kind === 'categorical' && (
+                        <>
+                            <div className="grid gap-4 @min-[36rem]/scorer-form:grid-cols-3">
+                                <LemonField.Pure label="Selection mode" htmlFor={`${id}-selection-mode`}>
+                                    <LemonSelect
+                                        id={`${id}-selection-mode`}
+                                        value={draft.selectionMode}
+                                        onChange={(value) => setDraftField('selectionMode', value)}
+                                        options={CATEGORICAL_SELECTION_MODE_OPTIONS}
+                                        disabledReason={disabledReason}
+                                        data-attr="llma-scorer-selection-mode"
+                                    />
+                                </LemonField.Pure>
+                                {draft.selectionMode === 'multiple' &&
+                                    (
+                                        [
+                                            ['categoricalMinSelections', 'Minimum selections'],
+                                            ['categoricalMaxSelections', 'Maximum selections'],
+                                        ] as const
+                                    ).map(([field, label]) => (
+                                        <LemonField.Pure key={field} label={label} htmlFor={`${id}-${field}`}>
+                                            <LemonInput
+                                                id={`${id}-${field}`}
+                                                type="number"
+                                                value={getIntegerInputValue(draft[field])}
+                                                onChange={(value) =>
+                                                    setDraftField(field, formatNumericInputValue(value))
+                                                }
+                                                min={1}
+                                                max={draft.options.length}
+                                                step={1}
+                                                placeholder="Not set"
+                                                disabled={disabled}
+                                            />
+                                        </LemonField.Pure>
+                                    ))}
+                            </div>
+                            <div className="space-y-3">
+                                {draft.options.map((option, index) => (
+                                    <LemonField.Pure
+                                        key={`${index}-${option.key}`}
+                                        label={`Option ${index + 1}`}
+                                        htmlFor={`${id}-option-${index}`}
+                                    >
+                                        <div className="flex items-start gap-2">
+                                            <LemonInput
+                                                id={`${id}-option-${index}`}
+                                                className="flex-1 min-w-0"
+                                                placeholder="Option label"
+                                                value={option.label}
+                                                onChange={(value) => updateOptionLabel(index, value)}
+                                                disabled={disabled}
+                                            />
+                                            <LemonButton
+                                                type="secondary"
+                                                status="danger"
+                                                onClick={() => removeOption(index)}
+                                                disabledReason={
+                                                    disabledReason ||
+                                                    (draft.options.length <= 1 ? 'Keep at least one option' : undefined)
+                                                }
+                                                data-attr="llma-scorer-remove-option"
+                                            >
+                                                Remove
+                                            </LemonButton>
+                                        </div>
                                     </LemonField.Pure>
                                 ))}
-                        </div>
-                        <div className="space-y-3">
-                            {draft.options.map((option, index) => (
-                                <LemonField.Pure
-                                    key={`${index}-${option.key}`}
-                                    label={`Option ${index + 1}`}
-                                    htmlFor={`${id}-option-${index}`}
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={addOption}
+                                    disabledReason={disabledReason}
+                                    data-attr="llma-scorer-add-option"
                                 >
-                                    <div className="flex items-start gap-2">
-                                        <LemonInput
-                                            id={`${id}-option-${index}`}
-                                            className="flex-1 min-w-0"
-                                            placeholder="Option label"
-                                            value={option.label}
-                                            onChange={(value) => updateOptionLabel(index, value)}
-                                            disabled={disabled}
-                                        />
-                                        <LemonButton
-                                            type="secondary"
-                                            status="danger"
-                                            onClick={() => removeOption(index)}
-                                            disabledReason={
-                                                disabledReason ||
-                                                (draft.options.length <= 1 ? 'Keep at least one option' : undefined)
-                                            }
-                                            data-attr="llma-scorer-remove-option"
-                                        >
-                                            Remove
-                                        </LemonButton>
-                                    </div>
-                                </LemonField.Pure>
-                            ))}
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={addOption}
-                                disabledReason={disabledReason}
-                                data-attr="llma-scorer-add-option"
-                            >
-                                Add option
-                            </LemonButton>
-                        </div>
-                    </>
-                )}
-            </section>
+                                    Add option
+                                </LemonButton>
+                            </div>
+                        </>
+                    )}
+                </section>
+            </LemonCard>
+
+            {draft.calculation === 'composite' && (
+                <LemonCard hoverEffect={false} className="p-4">
+                    <CompositeScorerForm draft={draft} disabled={disabled} setDraftField={setDraftField} />
+                </LemonCard>
+            )}
 
             {featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS] && (
-                <>
-                    <LemonDivider />
-                    <section className="space-y-4" aria-labelledby={`${id}-passing`}>
-                        <div className="space-y-1">
+                <LemonCard hoverEffect={false} className="p-4">
+                    <section className="flex flex-col gap-4" aria-labelledby={`${id}-passing`}>
+                        <div className="flex flex-col gap-1">
                             <h3 id={`${id}-passing`} className="mb-0">
                                 Passing rule
                             </h3>
-                            <p className="text-sm text-muted mb-0">
-                                Choose which results count as passes in offline evaluations. The stored scores stay the
-                                same.
-                            </p>
+                            <p className="text-sm text-muted mb-0">Choose which results count as passing.</p>
                         </div>
                         {draft.kind === 'boolean' ? (
                             <>
@@ -407,7 +453,7 @@ export function ScoreDefinitionForm({
                             <p className="text-sm text-muted mb-0">Scores stay neutral without a passing rule.</p>
                         )}
                     </section>
-                </>
+                </LemonCard>
             )}
         </div>
     )

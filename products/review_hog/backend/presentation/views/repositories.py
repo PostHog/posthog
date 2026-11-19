@@ -5,7 +5,7 @@ from uuid import UUID
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -35,6 +35,7 @@ from products.review_hog.backend.facade.api import (
 )
 from products.review_hog.backend.facade.contracts import (
     UNSET,
+    AdminOnlyChangeError,
     AutomaticReviewDecision,
     OwnershipConflict,
     PersonNotActiveMemberError,
@@ -103,7 +104,7 @@ class ReviewProjectRefSerializer(serializers.Serializer):
     )
 
 
-class ReviewHogSettingsErrorSerializer(serializers.Serializer):
+class CodeReviewSettingsErrorSerializer(serializers.Serializer):
     error = serializers.CharField(help_text="Why the request was rejected.")
     conflicting_project = ReviewProjectRefSerializer(
         allow_null=True, help_text="The project that already holds the repository or the installation, if any."
@@ -379,6 +380,22 @@ class EffectiveTeamStrictManagementPermission(EffectiveTeamMemberPermission):
         return request.method in SAFE_METHODS or view.is_effective_team_admin()
 
 
+class EffectiveTeamRaiseOnlyPermission(EffectiveTeamMemberPermission):
+    """Members read and may run the view's `member_write_actions`. Every other write needs an admin.
+
+    Those actions turn reviews only up for a member, and refuse anything else themselves.
+    """
+
+    message = "You don't have sufficient permissions in the project."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        if not super().has_permission(request, view):
+            return False
+        if request.method in SAFE_METHODS or view.is_effective_team_admin():
+            return True
+        return view.action in view.member_write_actions
+
+
 @extend_schema_view(
     destroy=extend_schema(
         summary="Remove a repository's settings",
@@ -389,12 +406,14 @@ class EffectiveTeamStrictManagementPermission(EffectiveTeamMemberPermission):
 class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericViewSet):
     """The repositories this project has settings for: selected repositories and repository exceptions.
 
-    Project members can read them. Only project admins can change them, and every change goes to the
-    activity log. A repository has settings in one project at most.
+    Project members can read them and turn a repository's reviews up. Only project admins can turn them
+    down or remove them. Every change goes to the activity log. A repository has settings in one project
+    at most.
     """
 
-    scope_object = "review_hog"
-    permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamStrictManagementPermission]
+    scope_object = "code_review"
+    permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamRaiseOnlyPermission]
+    member_write_actions = ("create", "add_person")
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewRepositorySerializer
     path_parameters = {
@@ -426,9 +445,10 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         request=ReviewRepositoryWriteSerializer,
         responses={
             200: OpenApiResponse(response=ReviewRepositoryWriteResponseSerializer, description="The saved settings."),
-            400: OpenApiResponse(response=ReviewHogSettingsErrorSerializer, description="The rules forbid the write."),
+            400: OpenApiResponse(response=CodeReviewSettingsErrorSerializer, description="The rules forbid the write."),
+            403: OpenApiResponse(description="A project member asked to turn the repository's reviews down."),
             409: OpenApiResponse(
-                response=ReviewHogSettingsErrorSerializer,
+                response=CodeReviewSettingsErrorSerializer,
                 description="Another project already has settings for the repository.",
             ),
         },
@@ -436,7 +456,8 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         description="Include a repository into this project, remove it, set or clear its exception, or turn its "
         "draft reviews on or off. Only the "
         "provided fields change. Including a repository that another project's 'all repositories' claim covers "
-        "takes it from that project; the response names it.",
+        "takes it from that project; the response names it. Project members can only turn reviews up: include "
+        "a repository, raise its exception, or turn draft reviews on. Everything else needs a project admin.",
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = ReviewRepositoryWriteSerializer(data=request.data)
@@ -455,7 +476,10 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
                 selected=data.get("selected"),
                 flash_for=flash_for,
                 review_drafts=data.get("review_drafts"),
+                raise_only=not self.is_effective_team_admin(),
             )
+        except AdminOnlyChangeError as error:
+            raise PermissionDenied(str(error))
         except OwnershipConflict as error:
             return conflict_response(error)
         except RepositorySettingsError as error:
@@ -471,11 +495,13 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
             200: OpenApiResponse(response=ReviewRepositorySerializer, description="The person was already on it."),
             201: OpenApiResponse(response=ReviewRepositorySerializer, description="The person was added."),
             400: OpenApiResponse(description="The user is not an active member of this project's organization."),
+            403: OpenApiResponse(description="A project member asked to add someone else, or to the 'excepted' list."),
         },
         summary="Add a person to a repository exception list",
-        description="Add a project member to the 'listed' or 'excepted' list of the repository exception.",
+        description="Add a project member to the 'listed' or 'excepted' list of the repository exception. A "
+        "project member who is not an admin can only add themselves to the 'listed' list.",
     )
-    @action(detail=True, methods=["POST"], url_path="people", required_scopes=["review_hog:write"])
+    @action(detail=True, methods=["POST"], url_path="people", required_scopes=["code_review:write"])
     def add_person(self, request: Request, **kwargs: Any) -> Response:
         repository = self._repository_or_404()
         serializer = ReviewRepositoryPersonRequestSerializer(data=request.data)
@@ -487,7 +513,10 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
                 repository.id,
                 person_user_id=serializer.validated_data["user_id"],
                 kind=ReviewRepositoryPersonKind(serializer.validated_data["kind"]),
+                raise_only=not self.is_effective_team_admin(),
             )
+        except AdminOnlyChangeError as error:
+            raise PermissionDenied(str(error))
         except PersonNotActiveMemberError as error:
             raise not_active_member_error(error)
         except RepositoryNotFoundError:
@@ -497,7 +526,7 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
     @extend_schema(
         responses={
             200: OpenApiResponse(response=ReviewRepositorySerializer, description="The person was removed."),
-            404: OpenApiResponse(response=ReviewHogSettingsErrorSerializer, description="No such list entry."),
+            404: OpenApiResponse(response=CodeReviewSettingsErrorSerializer, description="No such list entry."),
         },
         summary="Remove a person from a repository exception list",
         description="Remove one entry from the 'listed' or 'excepted' list of the repository exception.",
@@ -506,7 +535,7 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         detail=True,
         methods=["DELETE"],
         url_path=rf"people/(?P<person_id>{UUID_PATH_PATTERN})",
-        required_scopes=["review_hog:write"],
+        required_scopes=["code_review:write"],
     )
     def remove_person(self, request: Request, person_id: UUID, **kwargs: Any) -> Response:
         repository = self._repository_or_404()
@@ -523,7 +552,7 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
     ones without a claim.
     """
 
-    scope_object = "review_hog"
+    scope_object = "code_review"
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamStrictManagementPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewInstallationClaimSerializer
@@ -546,9 +575,9 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
         request=ReviewInstallationClaimCreateSerializer,
         responses={
             201: OpenApiResponse(response=ReviewInstallationClaimSerializer, description="The claim was saved."),
-            400: OpenApiResponse(response=ReviewHogSettingsErrorSerializer, description="The rules forbid it."),
+            400: OpenApiResponse(response=CodeReviewSettingsErrorSerializer, description="The rules forbid it."),
             409: OpenApiResponse(
-                response=ReviewHogSettingsErrorSerializer,
+                response=CodeReviewSettingsErrorSerializer,
                 description="Another project already takes all repositories of the installation.",
             ),
         },
@@ -576,7 +605,7 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
         responses={
             200: OpenApiResponse(response=ReviewInstallationClaimSerializer, description="The claim was changed."),
             409: OpenApiResponse(
-                response=ReviewHogSettingsErrorSerializer,
+                response=CodeReviewSettingsErrorSerializer,
                 description="Another project already takes all repositories of the installation.",
             ),
         },
@@ -628,7 +657,7 @@ class ReviewRepositoryChoiceViewSet(ReviewHogProjectViewSetMixin, viewsets.Gener
     user inherits, so picking the inherited value clears it.
     """
 
-    scope_object = "review_hog"
+    scope_object = "code_review"
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamMemberPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewRepositoryChoiceSerializer
@@ -651,7 +680,7 @@ class ReviewRepositoryChoiceViewSet(ReviewHogProjectViewSetMixin, viewsets.Gener
         responses={
             200: OpenApiResponse(response=ReviewRepositoryChoiceWriteResponseSerializer, description="Saved."),
             400: OpenApiResponse(
-                response=ReviewHogSettingsErrorSerializer, description="This project does not review the repository."
+                response=CodeReviewSettingsErrorSerializer, description="This project does not review the repository."
             ),
         },
         summary="Set my choice for a repository",

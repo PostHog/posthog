@@ -2,9 +2,10 @@ import { Fragment, useState } from 'react'
 
 import { cn } from '@posthog/quill'
 
+import { SidebarOption } from '~/layout/today/sidebar/SidebarOption'
+
 import { TodayListItemDetail } from './todayListAppearance'
 import { TodayOverflowText } from './TodayOverflowText'
-import { TodayPaneOption } from './TodayPaneOption'
 import { useHoverIntent } from './useHoverIntent'
 
 const HOVER_INTENT_MS = 120
@@ -126,7 +127,7 @@ export function TodaySpacesRow({
                     : undefined
             }
         >
-            <TodayPaneOption
+            <SidebarOption
                 value={optionValue}
                 to={to}
                 active={active}
@@ -143,7 +144,7 @@ export function TodaySpacesRow({
                 className={rowClassName}
             >
                 {content}
-            </TodayPaneOption>
+            </SidebarOption>
             {badge && (
                 // Like PostHog Desktop, the badges sit at the end of the row.
                 <div className="absolute right-1 flex min-w-0 items-center gap-0.5">

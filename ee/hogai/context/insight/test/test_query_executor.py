@@ -92,7 +92,13 @@ class TestHogQLErrorCode(SimpleTestCase):
 class TestSQLResultBudgets(SimpleTestCase):
     @parameterized.expand(["table", "fallback", "warnings"])
     async def test_sql_result_budget_reaches_formatting_and_fallback(self, kind: str) -> None:
-        response: dict[str, Any] = {"results": [["x" * 2000] for _ in range(100)]}
+        response: dict[str, Any] = {
+            "results": [["x" * 2000] for _ in range(100)],
+            "warehouse_suggestions": [
+                {"message": f"Materializing `view_{index}` would save time.", "url": f"https://example.com/{index}"}
+                for index in range(3)
+            ],
+        }
         if kind != "fallback":
             response["columns"] = ["example"]
         if kind == "warnings":
@@ -113,6 +119,10 @@ class TestSQLResultBudgets(SimpleTestCase):
         self.assertEqual(response["results"][0][0], "x" * 2000)
         if kind == "fallback":
             self.assertIn("JSON shown may be cut off", result)
+        if kind == "warnings":
+            self.assertNotIn("Warehouse suggestions", result)
+        else:
+            self.assertTrue(result.endswith("- Materializing `view_2` would save time."))
 
     def test_synchronous_execution_keeps_sql_budget(self) -> None:
         runner = AssistantQueryExecutor(
@@ -452,16 +462,30 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertEqual(context.exception.error_code, "query_result_error")
         self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
 
+    @parameterized.expand(
+        [
+            ("finished_by_first_poll", 0, [0.05]),
+            ("still_running_until_the_cap", 7, [0.05, 0.075, 0.1125, 0.1688, 0.2531, 0.3797, 0.5, 0.5]),
+        ]
+    )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
-    async def test_async_query_polling_success(self, mock_get_query_status, mock_process_query):
+    async def test_async_query_polling_success(
+        self,
+        _name: str,
+        running_polls: int,
+        expected_waits_s: list[float],
+        mock_get_query_status: Mock,
+        mock_process_query: Mock,
+    ) -> None:
         """Test successful async query polling"""
         # Initial response with incomplete query
         mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
 
         # Mock polling responses
+        still_running = Mock(model_dump=lambda mode: {"id": "test-query-id", "complete": False})
         mock_get_query_status.side_effect = [
-            Mock(model_dump=lambda mode: {"id": "test-query-id", "complete": False}),  # Still running
+            *[still_running] * running_polls,  # Still running
             Mock(
                 model_dump=lambda mode: {
                     "id": "test-query-id",
@@ -479,8 +503,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIsInstance(result, str)
         self.assertFalse(used_fallback)
         self.assertIn("Date|test", result)
-        self.assertEqual(mock_get_query_status.call_count, 2)
-        self.assertEqual(mock_sleep.call_count, 2)
+        self.assertEqual(mock_get_query_status.call_count, running_polls + 1)
+        self.assertEqual([round(wait.args[0], 4) for wait in mock_sleep.await_args_list], expected_waits_s)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")

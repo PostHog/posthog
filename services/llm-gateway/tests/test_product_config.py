@@ -57,7 +57,7 @@ def check_product_access(
 
 class TestGetProductConfig:
     def test_returns_config_for_known_product(self):
-        config = get_product_config("llm_gateway")
+        config = get_product_config("django")
         assert config is not None
         assert config.allow_api_keys is True
 
@@ -70,12 +70,8 @@ class TestCheckProductAccess:
     @pytest.mark.parametrize(
         "product,auth_method,application_id,model,expected_allowed,expected_error_contains",
         [
-            # llm_gateway allows API keys but rejects OAuth (no app IDs configured)
-            ("llm_gateway", "personal_api_key", None, "claude-3-opus", True, None),
-            ("llm_gateway", "oauth_access_token", "any-app-id", "gpt-4o", False, "not authorized"),
-            ("llm_gateway", "personal_api_key", None, None, True, None),
             (
-                "llm_gateway",
+                "django",
                 "personal_api_key",
                 None,
                 "deepseek-ai/deepseek-v4-flash-0731",
@@ -90,9 +86,9 @@ class TestCheckProductAccess:
                 True,
                 None,
             ),
-            ("llm_gateway", "personal_api_key", None, "zai-org/glm-5.3", False, "not allowed"),
+            ("django", "personal_api_key", None, "zai-org/glm-5.3", False, "not allowed"),
             ("review_hog", "personal_api_key", None, "zai-org/glm-5.3", True, None),
-            ("llm_gateway", "personal_api_key", None, "zai-org/glm-5.3-flash", False, "not allowed"),
+            ("django", "personal_api_key", None, "zai-org/glm-5.3-flash", False, "not allowed"),
             ("review_hog", "personal_api_key", None, "zai-org/glm-5.3-flash", True, None),
             (
                 "posthog_code",
@@ -102,9 +98,6 @@ class TestCheckProductAccess:
                 False,
                 "no longer runs on this gateway",
             ),
-            # ci allows API keys with any model (used by e2e test runs); OAuth rejected (no app IDs)
-            ("ci", "personal_api_key", None, "claude-3-opus", True, None),
-            ("ci", "oauth_access_token", "any-app-id", "gpt-4o", False, "not authorized"),
             ("posthog_code", "personal_api_key", None, None, False, "no longer runs on this gateway"),
             ("posthog_code", "oauth_access_token", "invalid-app-id", None, False, "no longer runs on this gateway"),
             (
@@ -137,9 +130,9 @@ class TestCheckProductAccess:
             ("wizard", "oauth_access_token", WIZARD_US_APP_ID, None, False, "npx @posthog/wizard@latest"),
             ("wizard", "oauth_access_token", WIZARD_EU_APP_ID, None, False, "npx @posthog/wizard@latest"),
             # django allows API keys with any model; OAuth rejected (no app IDs configured)
-            ("django", "personal_api_key", None, "gpt-4.1-mini", True, None),
+            ("django", "personal_api_key", None, "gpt-6-luna", True, None),
             ("django", "personal_api_key", None, "claude-3-opus", True, None),
-            ("django", "oauth_access_token", "any-app-id", "gpt-4.1-mini", False, "not authorized"),
+            ("django", "oauth_access_token", "any-app-id", "gpt-6-luna", False, "not authorized"),
             # Custom image scans accept only server-minted OAuth credentials.
             ("custom_image_scans", "personal_api_key", None, "@cf/zai-org/glm-5.2", False, "requires OAuth"),
             (
@@ -157,10 +150,10 @@ class TestCheckProductAccess:
             ("llma_summarization", "personal_api_key", None, "gpt-5-mini", True, None),
             ("llma_summarization", "personal_api_key", None, "gpt-4.1-nano", True, None),
             ("llma_summarization", "personal_api_key", None, "gpt-4o", False, "not allowed"),
-            # llma_translation allows API keys but only gpt-4.1-mini; OAuth rejected (no app IDs configured)
-            ("llma_translation", "personal_api_key", None, "gpt-4.1-mini", True, None),
+            # llma_translation allows API keys but only its listed models; OAuth rejected (no app IDs configured)
+            ("llma_translation", "personal_api_key", None, "gpt-6-luna", True, None),
             ("llma_translation", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
-            ("llma_translation", "oauth_access_token", "any-app-id", "gpt-4.1-mini", False, "not authorized"),
+            ("llma_translation", "oauth_access_token", "any-app-id", "gpt-6-luna", False, "not authorized"),
             # signals allows API keys (shared gateway key) with any model, and OAuth only from
             # the dedicated Signals app — a posthog_code (Desktop) token must not reach it
             ("signals", "personal_api_key", None, "claude-haiku-4-5", True, None),
@@ -234,7 +227,7 @@ class TestCheckProductAccess:
         "model", [" deepseek-ai/deepseek-v4-flash-0731 ", " zai-org/glm-5.3 ", " zai-org/glm-5.3-flash "]
     )
     def test_whitespace_cannot_bypass_restricted_model_products(self, model: str):
-        allowed, error = check_product_access("llm_gateway", "personal_api_key", None, model)
+        allowed, error = check_product_access("django", "personal_api_key", None, model)
         assert allowed is False
         assert error is not None
         assert "not allowed" in error
@@ -303,6 +296,7 @@ class TestCheckProductAccess:
             "claude-opus-5",
             "claude-fable-5",
             "claude-fable-5-1",
+            "claude-fable-5-2",
             "claude-sonnet-4-5",
             "claude-sonnet-5",
             "claude-haiku-4-5",
@@ -538,7 +532,7 @@ class TestCheckFreeTierModelAccess:
             # Staff bypass mirrors the cost-throttle exemption
             ("posthog_code", "claude-fable-5", False, True, True),
             # Other products keep their own allowlists; the gate is Code-only
-            ("llm_gateway", "claude-fable-5", False, False, True),
+            ("django", "claude-fable-5", False, False, True),
             # No model in the body: nothing to gate (product allowlist still applies)
             ("posthog_code", None, False, False, True),
         ],

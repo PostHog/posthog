@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -8,7 +9,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, Project, PropertyDefinition, Team, User
+from posthog.models import Organization, OrganizationMembership, Project, Team, User
 from posthog.models.event.util import bulk_create_events
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
@@ -16,6 +17,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.ai_observability.backend.models.provider_keys import LLMProvider
 from products.ai_observability.backend.models.taggers import Tagger, TaggerType
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 def _setup_team():
@@ -312,6 +314,25 @@ class TestTaggersApi(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data["results"]) == 1
         assert response.data["results"][0]["name"] == "Disabled Tagger"
+
+    def test_can_find_the_tagger_an_evaluation_replaced(self):
+        evaluation_id = uuid.uuid4()
+        for name, migrated_to in (("Kept", None), ("Moved", evaluation_id), ("Moved elsewhere", uuid.uuid4())):
+            Tagger.objects.create(
+                name=name,
+                tagger_config=_make_tagger_config(),
+                team=self.team,
+                migrated_to_evaluation_id=migrated_to,
+            )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/taggers/?migrated_to_evaluation_id={evaluation_id}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [(row["name"], row["migrated_to_evaluation_id"]) for row in response.data["results"]] == [
+            ("Moved", str(evaluation_id))
+        ]
 
     def test_cannot_access_other_teams_taggers(self):
         other_team = _setup_team()

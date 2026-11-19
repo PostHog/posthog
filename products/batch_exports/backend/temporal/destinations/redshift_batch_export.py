@@ -731,7 +731,7 @@ class RedshiftCopyActivityInputs:
     """Inputs for Redshift copy activity."""
 
     batch_export: BatchExportInsertInputs
-    connection: ConnectionParameters | ServerConnectionParameters
+    connection: ServerConnectionParameters
     table: TableParameters
     copy: CopyParameters
     integration_id: IntegrationID | None = None
@@ -742,7 +742,7 @@ class RedshiftInsertInputs:
     """Inputs for Redshift insert activity."""
 
     batch_export: BatchExportInsertInputs
-    connection: ConnectionParameters | ServerConnectionParameters
+    connection: ServerConnectionParameters
     table: TableParameters
     integration_id: IntegrationID | None = None
 
@@ -1012,21 +1012,16 @@ async def _get_redshift_client_inputs(
 ) -> _PostgreSQLClientInputsProtocol:
     """Return PostgreSQL client inputs to establish a connection from Redshift.
 
-    The inputs will be obtained from an integration when integration_id is set,
-    and otherwise we will assert they are present in the activity inputs to be
-    read directly.
+    The inputs are always obtained from the integration linked to the batch export.
     """
-    if inputs.integration_id is not None:
-        integration = await _get_redshift_integration(inputs.integration_id, inputs.batch_export.team_id)
-        return await _get_redshift_client_inputs_from_integration(integration, inputs)
-
-    if not isinstance(inputs.connection, ConnectionParameters):
+    if inputs.integration_id is None:
         raise IntegrationError(
-            "Redshift connection credentials are missing: the batch export has no linked integration "
-            "and no inline user and password configured"
+            "Redshift connection credentials are missing: the batch export has no linked integration. "
+            "Link a Redshift integration to the batch export."
         )
 
-    return inputs.connection
+    integration = await _get_redshift_integration(inputs.integration_id, inputs.batch_export.team_id)
+    return await _get_redshift_client_inputs_from_integration(integration, inputs)
 
 
 def _get_redshift_credentials_policy_statements(
@@ -1612,6 +1607,12 @@ async def _assume_role_for_stage_bucket(
     )
 
 
+_INLINE_COPY_KEYS_ERROR = (
+    "Inline AWS keys in the Redshift COPY '{field_name}' are no longer supported. "
+    "Set it to an AWS S3 integration instead."
+)
+
+
 async def _get_s3_bucket_aws_credentials(
     inputs: RedshiftCopyActivityInputs,
 ) -> tuple[AWSCredentials, RefreshCoroutine | None]:
@@ -1626,6 +1627,9 @@ async def _get_s3_bucket_aws_credentials(
         raise MissingRequiredInputsError("Scheduled Redshift exports require a data_interval_end")
 
     credentials = inputs.copy.s3_bucket.credentials
+    if isinstance(credentials, AWSCredentials):
+        raise IntegrationError(_INLINE_COPY_KEYS_ERROR.format(field_name="bucket_credentials"))
+
     if isinstance(credentials, IntegrationID):
         credentials = await _resolve_aws_s3_integration(credentials, inputs.batch_export.team_id)
 
@@ -1669,6 +1673,9 @@ async def _resolve_copy_authorization(
         raise MissingRequiredInputsError("Scheduled Redshift exports require a data_interval_end")
 
     authorization = inputs.copy.authorization
+    if isinstance(authorization, AWSCredentials):
+        raise IntegrationError(_INLINE_COPY_KEYS_ERROR.format(field_name="authorization"))
+
     if not isinstance(authorization, IntegrationID):
         return authorization, None
 
@@ -2062,24 +2069,13 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=redshift_default_fields(),
         )
-        connection_parameters: ConnectionParameters | ServerConnectionParameters
-        if inputs.user is not None and inputs.password is not None and inputs.host is not None:
-            connection_parameters = ConnectionParameters(
-                user=inputs.user,
-                password=inputs.password,
-                host=inputs.host,
-                port=inputs.port,
-                database=inputs.database,
-            )
-        else:
-            # Credentials live in the linked integration. The activity raises a clear,
-            # non-retryable error if there is no integration either; raising here would
-            # retry the workflow task forever.
-            connection_parameters = ServerConnectionParameters(
-                database=inputs.database,
-                port=inputs.port,
-                host=inputs.host,
-            )
+        # Credentials live in the linked integration. The activity raises a clear,
+        # non-retryable error if there is none; raising here would retry the workflow task forever.
+        connection_parameters = ServerConnectionParameters(
+            database=inputs.database,
+            port=inputs.port,
+            host=inputs.host,
+        )
         table_parameters = TableParameters(
             schema_name=inputs.schema,
             name=inputs.table_name,

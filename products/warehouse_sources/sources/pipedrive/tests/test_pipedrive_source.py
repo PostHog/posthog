@@ -7,6 +7,7 @@ from products.warehouse_sources.sources.pipedrive._config import PipedriveSource
 from products.warehouse_sources.sources.pipedrive.settings import ENDPOINTS
 from products.warehouse_sources.sources.pipedrive.source import PipedriveSource
 from products.warehouse_sources.sources.sdk import SourceFieldInputConfig, WebhookSourceManager
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, error_message_matches
 
 
 class TestPipedriveSource:
@@ -188,3 +189,11 @@ class TestPipedriveSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert isinstance(mock_pipedrive_source.call_args.kwargs["webhook_source_manager"], WebhookSourceManager)
+
+    def test_plan_restricted_response_is_classified_non_retryable(self) -> None:
+        # project_boards is a plain lookup endpoint (no fan-out/custom read), so one scripted
+        # answer drives the real request-and-raise path the pipeline actually runs.
+        result = SourceDriver(self.source, self.config).run("project_boards", [ScriptedResponse(status=402)])
+
+        assert result.raised is not None
+        assert error_message_matches(str(result.raised), self.source.get_non_retryable_errors())

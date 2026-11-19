@@ -121,6 +121,26 @@ jobs:
 
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/actions/docker-meta
+                      .dockerignore
+                      Dockerfile.recording-rasterizer
+                      bin/turbo
+                      common/esbuilder
+                      common/hogvm/typescript
+                      common/plugin_transpiler
+                      common/replay-headless
+                      common/replay-shared
+                      nodejs
+                      patches
+                      rust
+                      turbo.json
+                      tsconfig.json
+                      package.json
+                      pnpm-lock.yaml
+                      pnpm-workspace.yaml
+                  sparse-checkout-cone-mode: false
 
             - name: Set up Depot CLI
               uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1

@@ -4,32 +4,67 @@ Use this reference to decide where code belongs before editing it.
 
 ## Layer map
 
-| Layer                       | Location                                                     | Owns                                                                                                                                       |
-| --------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Pure lifecycle decisions    | `products/alerts/backend/facade/lifecycle.py`                | State transitions, policy decisions, and notification actions                                                                              |
-| Shared alert door           | `products/alerts/backend/facade/`                            | Contracts, constants, scheduling math, delivery SLOs, and insight alert reads and writes. Other products call it                           |
-| Shared alert implementation | `products/alerts/backend/logic/`                             | Destination configuration and persistence, internal-event delivery, and email transport. Only the facade calls it                          |
-| Insight alert evaluation    | `products/alerts/backend/evaluation/`                        | Insight query extraction, comparison, and breach formatting. Core still drives it directly                                                 |
-| Product adapter             | `products/<name>/backend/`                                   | Domain evaluation, model snapshots, the single mutator, event payloads, allowed destinations, due queries, history, and orchestration      |
-| Shared alert creation UI    | `frontend/src/lib/components/Alerting/AlertWizard/`          | Reusable HogFunction destination, trigger, and configuration flow                                                                          |
-| Shared product alert UI     | `products/alerts/frontend/components/`                       | Container-agnostic editor layout, definition primitives, advanced options, destination editor, schedule presentation, and evaluation chart |
-| Product UI                  | `products/<name>/frontend/` or `frontend/src/scenes/<name>/` | Form logic, API calls, product fields, normalized adapters, entry points, detail tables, and wizard configuration                          |
+| Layer                        | Location                                                     | Owns                                                                                                                                               |
+| ---------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pure lifecycle decisions     | `products/alerts_platform/backend/facade/lifecycle.py`       | State transitions, policy decisions, and notification actions                                                                                      |
+| Pure scheduling math         | `products/alerts_platform/backend/facade/scheduling.py`      | Shard offsets, cadence and calendar anchors, and schedule restrictions                                                                             |
+| Alerts platform door         | `products/alerts_platform/backend/facade/`                   | Platform contracts and enums, configuration reads and writes, ownership handover, source registration hooks, and delivery SLOs                     |
+| Alerts platform runtime      | `products/alerts_platform/backend/`                          | Models, the tick and source dispatch, outcome recording, native delivery, destinations, routes, and shadow comparison. Only its facade is imported |
+| Insight alert door           | `products/alerts/backend/facade/`                            | Insight alert contracts and event constants, HogFunction destinations, email, and insight alert reads and writes. Other products call it           |
+| Insight alert implementation | `products/alerts/backend/logic/`                             | Destination configuration and persistence, internal-event delivery, and email transport. Only the facade calls it                                  |
+| Insight alert evaluation     | `products/alerts/backend/evaluation/`                        | Insight query extraction, comparison, and breach formatting. Core still drives it directly                                                         |
+| Product adapter              | `products/<name>/backend/`                                   | Domain evaluation, model snapshots, the single mutator, event payloads, allowed destinations, due queries, history, and the platform source        |
+| Shared alert creation UI     | `frontend/src/lib/components/Alerting/AlertWizard/`          | Reusable HogFunction destination, trigger, and configuration flow                                                                                  |
+| Shared product alert UI      | `products/alerts/frontend/components/`                       | Container-agnostic editor layout, definition primitives, advanced options, destination editor, schedule presentation, and evaluation chart         |
+| Product UI                   | `products/<name>/frontend/` or `frontend/src/scenes/<name>/` | Form logic, API calls, product fields, normalized adapters, entry points, detail tables, and wizard configuration                                  |
 
 `products/billing_alerts` is the reference adopter for the backend boundary shape: it holds destination ids and the facade contracts, and never an alerts model or queryset.
 
-`products/logs` is the reference adopter for fixed-cadence scheduling, HogFunction destinations, delivery rollback, product-owned Temporal orchestration, and the shared product alert editor components.
+`products/logs` is the reference adopter for fixed-cadence scheduling, HogFunction destinations, delivery rollback, product-owned Temporal orchestration, and the shared product alert editor components. It was also the first platform source and the first product to cut over.
 
 Logs and insight alerts both adapt their product state to the shared lifecycle engine. Insight alerts are the reference adopter for calendar anchors, weekend skipping, and email delivery. Both products use shared schedule restrictions for quiet hours. Each product keeps its model, due query, and scheduling persistence. The evaluation package is shared across insight query kinds, but it is not a generic evaluator for unrelated products.
 
 ## Boundary
 
-Consumers import `products.alerts.backend.facade.*`. The tach interface also exposes `presentation.views.*` and `routes.*`, which carry the DRF surface other products mount or reuse in process.
+Consumers import `products.alerts.backend.facade.*` and `products.alerts_platform.backend.facade.*`. The `products.alerts` tach interface also exposes `presentation.views.*` and `routes.*`, which carry the DRF surface other products mount or reuse in process.
 
-- Models, querysets and DRF objects never cross the facade in either direction.
+- Models, querysets and DRF objects never cross either facade in either direction.
 - Facade functions take and return contracts, ids, and plain values.
 - Consumers hold ids and come back to the facade for anything else.
 
-Core still runs the insight-alert pipeline itself, so its imports of the alert models, the insight evaluation, the insight lifecycle adapter, the investigation episode reader and the Max tool stay open. Those five are named in the legacy-leaks block for `products.alerts` in `tach.toml`, and the product stays non-isolated until the block is empty.
+Core still runs the insight-alert pipeline itself, so its imports of the alert models, the insight evaluation, the insight lifecycle adapter, the investigation episode reader and the Max tool stay open. The legacy-leaks block for `products.alerts` in `tach.toml` names those paths, and keeps `backend:contract-check` off until it is empty. The alert models have a second exit of their own, because products outside core also import them.
+
+## Alerts platform
+
+The platform evaluates and delivers alerts for every source kind on one set of Temporal fleets. `docs/internal/alerts-platform-temporal.md` describes its queues, tick, source dispatch and worker capacity. Read its capacity section before adding a source or raising a pool.
+
+### Sources
+
+A source kind is one product's alerts on the platform, such as insight, logs, metrics or traces. `SourceKind` in `products/alerts_platform/backend/facade/contracts.py` lists them. A source plugs in through:
+
+1. An evaluation workflow that takes `SourceEvaluationInputs`, reads its data, decides, and returns. The platform's own activity records the outcomes, so a source never writes platform state itself.
+2. A `SourceBinding` in `SOURCE_BINDINGS` (`products/alerts_platform/backend/temporal/sources.py`), naming the workflow, its queue, its evaluation timeout and its discovery limit.
+3. Its workflows and activities in the worker registration for that queue.
+4. A `SourceConfigSpec`, which may carry a rollout flag.
+5. Hooks registered at app ready, keyed by `SourceKind`. `register_source_describer` and `register_source_config` are the minimum. Optional hooks add alert creation, viewing, recipients, subscriber access, images, legacy events, legacy webhook bodies and config drift checks. `products/alerts/backend/apps.py` and `products/logs/backend/apps.py` show the full set.
+
+### Ownership and cutover
+
+A product's own alert row and its platform copy share one `owner`: `source` or `platform`. The owner is the only stack that evaluates, delivers and writes the alert. `legacy_configuration_id` links the copy to the source row.
+
+- Ownership changes through `take_ownership` and `give_back_ownership` in the platform facade, which write the copy. The caller writes `owner` and `owner_changed_at` on its own row in the same transaction. For insight, `hand_over` and `roll_back_team` in `products/alerts/backend/platform_cutover.py` do this for the cutover and rollback commands and for new alerts.
+- An edit to a platform-owned alert goes through the source's API and is mirrored into the copy. `products/alerts/backend/platform_ownership.py` holds the insight version.
+- A new alert in a team that has cut over starts on the platform. Behind a flag, an insight alert can be created with no source row at all.
+- After a cutover, the source stack keeps evaluating the moved alerts for a shadow week without delivering, so the two stacks can be compared.
+
+### Destinations and delivery
+
+Each platform configuration has a second owner field, `destinations_owner`, because an alert moves its evaluation first and its destinations later.
+
+- With source-owned destinations, the alert still sends through its HogFunctions. A platform-owned alert on the `HOG_FUNCTION` delivery path has the source emit the internal events its own stack emitted, so customers receive exactly what they received before the cutover.
+- With platform-owned destinations, `AlertDestination` rows hold them, and the platform's own transports send each type natively. Team-wide `AlertReceiver` and `AlertRoute` rows match alerts by label.
+
+The HogFunction destination and delivery contracts below serve alerts whose destinations have not moved to the platform.
 
 ## Frontend contract
 
@@ -50,7 +85,7 @@ Read [frontend-alerting.md](frontend-alerting.md) before adding or extending a p
 
 ## Lifecycle contract
 
-`products/alerts/backend/facade/lifecycle.py` is pure Python.
+`products/alerts_platform/backend/facade/lifecycle.py` is pure Python.
 
 - `CheckInput` normalizes one product evaluation.
 - `AlertSnapshot` contains only fields needed for lifecycle decisions.
@@ -71,7 +106,7 @@ Error behavior is load-bearing:
 
 ## Destination contract
 
-Product-facing destination setup lives in `products.alerts.backend.facade.destinations`. Read that module for the full surface. An adopter starts from:
+Product-facing HogFunction destination setup lives in `products.alerts.backend.facade.destinations`. Read that module for the full surface. An adopter starts from:
 
 - `validate_destination_data`
 - `destination_handles_event_kind`
@@ -79,10 +114,9 @@ Product-facing destination setup lives in `products.alerts.backend.facade.destin
 - `create_alert_destination_hog_functions`
 - `soft_delete_alert_destinations`
 
-The module also holds the destination limits. The insight-alert event and destination-type constants live in `products.alerts.backend.facade.api`.
+The module also holds the destination limits. The insight-alert event and destination-type constants live in `products.alerts.backend.facade.contracts`.
 
-`send_alert_email` lives in `products.alerts.backend.facade.email`. The data types the
-functions above take and return live in `products.alerts.backend.facade.contracts`.
+`send_alert_email` lives in `products.alerts.backend.facade.email`. The data types the functions above take and return, such as `EventKindSpec`, `DestinationType` and `AlertDestinationValidationError`, live in `products.alerts_platform.backend.facade.contracts`.
 
 `create_alert_destination_hog_functions` returns the ids of the hog functions it created. It
 does not return model rows, so the caller keeps ids and asks for anything else through
@@ -112,13 +146,13 @@ HogFunction notification workers use `products.alerts.backend.facade.destination
 
 This acknowledgement confirms production to the internal-event transport, not downstream HogFunction execution or final Slack, Discord, webhook, or Microsoft Teams delivery. The helpers log and capture producer failures. The product owns rollback, retry timing, schedule advancement, and check-history semantics.
 
-Wrap the delivery step in `alert_delivery_slo(...)` from `products.alerts.backend.facade.delivery_slo`. Logs' Temporal activities are the reference.
+Wrap the delivery step in `alert_delivery_slo(...)` from `products.alerts_platform.backend.facade.delivery_slo`. Logs' Temporal activities are the reference.
 
 Email callers use `send_alert_email(...)` from `products.alerts.backend.facade.email`. The caller owns recipients, authorization, subject, template, context, error handling, and a stable `campaign_key` for the required retry and deduplication behavior.
 
 ## Scheduling contract
 
-`products/alerts/backend/facade/scheduling.py` is pure Python and owns reusable scheduling math:
+`products/alerts_platform/backend/facade/scheduling.py` is pure Python and owns reusable scheduling math:
 
 - `compute_shard_offset_seconds(...)` deterministically assigns a UUID-keyed alert to scheduler ticks.
 - `advance_next_check_at(...)` advances from the prior schedule, skips missed intervals, snaps to the midnight-anchored cadence grid, and applies the shard offset.

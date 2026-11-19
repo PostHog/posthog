@@ -5,9 +5,10 @@ from rest_framework.request import Request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.schema_property_group import SchemaPropertyGroupSerializer
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroup
 from posthog.permissions import is_scout_sandbox_request
 from posthog.taxonomy.scout_writes import refuse_scout_taxonomy_write
+
+from products.event_definitions.backend.models import EventDefinition, EventSchema, SchemaPropertyGroup
 
 
 class EventSchemaSerializer(serializers.ModelSerializer):

@@ -635,9 +635,9 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("sandbox_run_on_another_pipeline_takes_the_slot", "sandbox", 2, None, "team_daily_cap"),
+            ("sandbox_run_on_another_pipeline_takes_the_slot", "sandbox", 21, None, "team_daily_cap"),
             ("live_launch_without_a_task_yet_takes_the_slot", "launching", 2, None, "team_daily_cap"),
-            ("run_older_than_the_window_does_not_count", "sandbox", 25, None, "explore"),
+            ("yesterdays_sweep_run_has_left_the_window", "sandbox", 23, None, "explore"),
             ("external_agent_run_does_not_count", "external", 2, None, "explore"),
             ("team_override_raises_the_cap", "sandbox", 2, "this_team", "explore"),
             ("override_for_another_team_does_not_apply", "sandbox", 2, "other_team", "team_daily_cap"),
@@ -660,7 +660,7 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
             "default_team_config": {"max_training_runs_per_day": 1},
             "team_configs": {str(override_team_id): {"max_training_runs_per_day": 2}} if override_team_id else {},
         }
-        other_pipeline = self._create_pipeline(name="other pipeline")
+        other_pipeline = self._create_pipeline(name="other pipeline", status=AutoresearchPipeline.Status.PAUSED)
         with time_machine.travel(django_timezone.now() - timedelta(hours=hours_ago), tick=False):
             AutoresearchTrainingRun.objects.create(
                 pipeline=other_pipeline,
@@ -679,6 +679,71 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         assert result.reason == expected_reason
         assert result.error is None
         assert mock_run_training.called is (expected_reason == "explore")
+
+    @parameterized.expand(
+        [
+            ("no_champion_comes_first", 1, "no_champion", None, ["team_daily_cap", "scheduled"]),
+            ("longest_wait_comes_first", 1, "waited_longer", None, ["team_daily_cap", "scheduled"]),
+            ("gated_creator_holds_no_slot", 1, "no_champion", "tasks_usage_limited", ["scheduled", "tasks_gated"]),
+            ("departed_creator_holds_no_slot", 1, "no_champion", "left_the_team", ["scheduled", "team_daily_cap"]),
+            ("free_slot_for_every_due_pipeline", 2, "no_champion", None, ["scheduled", "scheduled"]),
+        ]
+    )
+    @patch("products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload")
+    @patch("products.autoresearch.backend.temporal.workflows.run_training")
+    def test_kickoff_shares_free_slots_by_rank(
+        self,
+        _name: str,
+        limit: int,
+        ahead_kind: str,
+        ahead_blocked: Optional[str],
+        expected_reasons: list[str],
+        mock_run_training: MagicMock,
+        mock_payload: MagicMock,
+    ) -> None:
+        mock_payload.return_value = {"default_team_config": {"max_training_runs_per_day": limit}}
+
+        def launch(*, pipeline: AutoresearchPipeline, **_kwargs: Any) -> None:
+            AutoresearchTrainingRun.objects.create(
+                pipeline=pipeline,
+                status=AutoresearchTrainingRun.Status.RUNNING,
+                iteration_budget=3,
+                task_id=uuid.uuid4(),
+            )
+
+        mock_run_training.side_effect = launch
+        ahead_creator = self.user
+        if ahead_blocked == "tasks_usage_limited":
+            ahead_creator = User.objects.create_and_join(self.organization, "limited@example.com", None)
+            self.mock_usage_limited.side_effect = lambda creator, _team_id: creator.pk == ahead_creator.pk
+        elif ahead_blocked == "left_the_team":
+            ahead_creator = User.objects.create(email="departed@example.com")
+
+        def maintain_pipeline(status: str, last_run_day: int, creator: User) -> AutoresearchPipeline:
+            with time_machine.travel(datetime(2026, 8, 1, tzinfo=UTC), tick=False):
+                pipeline = self._create_pipeline(status=status, research_interval_days=7, created_by=creator)
+            with time_machine.travel(datetime(2026, 9, last_run_day, 2, tzinfo=UTC), tick=False):
+                AutoresearchTrainingRun.objects.create(
+                    pipeline=pipeline,
+                    status=AutoresearchTrainingRun.Status.COMPLETED,
+                    kickoff_reason="scheduled",
+                    iteration_budget=3,
+                    summary={"champion_promoted": False},
+                )
+            return pipeline
+
+        behind = maintain_pipeline(AutoresearchPipeline.Status.RUNNING, 3, self.user)
+        if ahead_kind == "no_champion":
+            ahead = maintain_pipeline(AutoresearchPipeline.Status.BOOTSTRAPPING, 3, ahead_creator)
+        else:
+            ahead = maintain_pipeline(AutoresearchPipeline.Status.RUNNING, 2, ahead_creator)
+
+        results = [
+            activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
+            for pipeline in (behind, ahead)
+        ]
+
+        assert [result.reason for result in results] == expected_reasons
 
     @parameterized.expand(
         [
@@ -775,6 +840,57 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         else:
             assert not result.kicked_off
             mock_run_training.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("first_champion_rolled_back", [AutoresearchTrainingRun.Status.COMPLETED], True, "scheduled"),
+            (
+                "training_run_live",
+                [AutoresearchTrainingRun.Status.COMPLETED, AutoresearchTrainingRun.Status.RUNNING],
+                False,
+                "not_eligible",
+            ),
+            ("no_completed_run", [AutoresearchTrainingRun.Status.FAILED], False, "not_eligible"),
+        ]
+    )
+    @patch("products.autoresearch.backend.temporal.workflows.run_training")
+    def test_bootstrapping_pipeline_trains_again_after_its_first_champion_rolled_back(
+        self,
+        _name: str,
+        run_statuses: list[str],
+        expected_listed: bool,
+        expected_reason: str,
+        mock_run_training: MagicMock,
+    ) -> None:
+        with time_machine.travel(datetime(2026, 8, 1, tzinfo=UTC), tick=False):
+            pipeline = self._create_pipeline(status=AutoresearchPipeline.Status.BOOTSTRAPPING, research_interval_days=7)
+        for run_status in run_statuses:
+            with time_machine.travel(datetime(2026, 9, 1, 2, tzinfo=UTC), tick=False):
+                run = AutoresearchTrainingRun.objects.create(
+                    pipeline=pipeline, status=run_status, iteration_budget=3, summary={"champion_promoted": False}
+                )
+        AutoresearchModel.objects.create(
+            pipeline=pipeline,
+            source_training_run=run,
+            role=AutoresearchModel.Role.CHALLENGER,
+            model_recipe={"stub": True},
+            recipe_hash="rolled-back",
+            metrics={"not_promoted_reason": "The champion fit failed"},
+        )
+
+        daily = activity_load_active_pipelines(LoadActivePipelinesInput())
+        catch_up = activity_load_active_pipelines(LoadActivePipelinesInput(catch_up_date="2026-09-11"))
+        result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
+
+        listed = [p for p in daily.pipelines if p.pipeline_id == str(pipeline.id)]
+        assert listed == (
+            [ActivePipeline(pipeline_id=str(pipeline.id), team_id=self.team.id, score_due=True, kickoff_only=True)]
+            if expected_listed
+            else []
+        )
+        assert str(pipeline.id) not in [p.pipeline_id for p in catch_up.pipelines]
+        assert result.reason == expected_reason
+        assert mock_run_training.called is expected_listed
 
     @parameterized.expand([("transient_failure_raises", RuntimeError("boom")), ("refused_launch", ValueError("left"))])
     @patch("products.autoresearch.backend.temporal.workflows.run_training")
@@ -924,11 +1040,15 @@ async def test_coordinator_fails_the_runs_of_a_failed_inference_child(catch_up: 
     async def load(inp: LoadActivePipelinesInput) -> LoadActivePipelinesResult:
         load_inputs.append(inp)
         return LoadActivePipelinesResult(
-            pipelines=[ActivePipeline(pipeline_id=pid, team_id=1, score_due=True) for pid in ("lost", "scored")]
+            pipelines=[
+                *[ActivePipeline(pipeline_id=pid, team_id=1, score_due=True) for pid in ("lost", "scored")],
+                ActivePipeline(pipeline_id="waiting", team_id=1, score_due=True, kickoff_only=True),
+            ]
         )
 
     @activity.defn(name="autoresearch-inference.run_inference")
     async def infer(inp: RunInferenceInput) -> RunInferenceResult:
+        steps.append(f"inference-{inp.pipeline_id}")
         if inp.pipeline_id == "lost":
             raise ApplicationError("worker lost", non_retryable=True)
         return RunInferenceResult(run_id=f"run-{inp.pipeline_id}", rows_scored=1, status="completed")
@@ -944,12 +1064,12 @@ async def test_coordinator_fails_the_runs_of_a_failed_inference_child(catch_up: 
 
     @activity.defn(name="autoresearch-validation.run_validation")
     async def validate(inp: RunValidationInput) -> RunValidationResult:
-        steps.append("validation")
+        steps.append(f"validation-{inp.pipeline_id}")
         return RunValidationResult(dates_validated=1, total_rows=1, status="completed")
 
     @activity.defn(name="autoresearch-coordinator.kickoff_training")
     async def kickoff(inp: KickoffTrainingInput) -> KickoffTrainingResult:
-        steps.append("kickoff")
+        steps.append(f"kickoff-{inp.pipeline_id}")
         return KickoffTrainingResult(kicked_off=False, reason="not_due")
 
     @activity.defn(name="autoresearch-coordinator.run_shadow_scoring")
@@ -978,8 +1098,10 @@ async def test_coordinator_fails_the_runs_of_a_failed_inference_child(catch_up: 
     ]
     # Cleanup is scoped to the failed child's execution, so a catch-up child's live row stays open.
     assert failed_runs[0].workflow_run_id
-    assert (result.pipelines_processed, result.pipelines_errored) == (1, 1)
+    assert (result.pipelines_processed, result.pipelines_errored) == (2, 1)
     assert "shadow-scored" in steps
     # The daily sweep already kicked off training and validated, so a catch-up only scores.
-    assert ("kickoff" in steps, "validation" in steps) == (not catch_up, not catch_up)
+    assert ("kickoff-scored" in steps, "validation-scored" in steps) == (not catch_up, not catch_up)
+    # A pipeline with no champion is never scored or validated, and only the daily sweep kicks off its training.
+    assert [step for step in steps if step.endswith("-waiting")] == ([] if catch_up else ["kickoff-waiting"])
     assert [step for step in steps if step.startswith("mark-")] == ([] if catch_up else ["mark-running", "mark-done"])

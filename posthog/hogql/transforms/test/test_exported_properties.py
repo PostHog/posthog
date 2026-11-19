@@ -19,10 +19,10 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.escape import substitute_params
-from posthog.models import PropertyDefinition
 from posthog.models.instance_setting import override_instance_config
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 STAR_EVENTS = "(SELECT * FROM events)"
@@ -139,10 +139,6 @@ class TestExportedProperties(BaseTest):
             ("blob_and_key", "SELECT properties, properties.email FROM (SELECT properties FROM events)"),
             ("json_function_on_the_blob", "SELECT JSONHas(properties, 'x') FROM (SELECT properties FROM events)"),
             ("distinct_inner", "SELECT properties.email FROM (SELECT DISTINCT properties FROM events)"),
-            (
-                "grouped_inner",
-                "SELECT properties.email FROM (SELECT properties, count() AS c FROM events GROUP BY properties)",
-            ),
             ("inner_order_by_alias", "SELECT p.email FROM (SELECT properties AS p FROM events ORDER BY p)"),
             (
                 "union_distinct",
@@ -167,14 +163,6 @@ class TestExportedProperties(BaseTest):
             (
                 "positional_order_by_at_the_events_level",
                 "SELECT p.email FROM (SELECT properties AS p, event FROM events ORDER BY 1 LIMIT 1)",
-            ),
-            (
-                "grouping_sets_ordinal_on_a_passthrough",
-                "SELECT properties.email FROM (SELECT properties, event FROM (SELECT properties, event FROM events) GROUP BY GROUPING SETS ((1)))",
-            ),
-            (
-                "group_by_all_on_a_passthrough",
-                "SELECT properties.email FROM (SELECT properties, event FROM (SELECT properties, event FROM events) GROUP BY ALL)",
             ),
             (
                 "second_alias_of_the_column_feeds_a_blob_branch",

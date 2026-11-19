@@ -16,7 +16,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.models import PropertyDefinition, Team
+from posthog.models import Team
 from posthog.temporal.ai_observability.eval_reports.activities import (
     _check_count_triggered_eval_report_sync,
     _check_count_triggered_eval_reports_batch,
@@ -48,6 +48,7 @@ from posthog.temporal.ai_observability.eval_reports.types import (
 
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 from products.ai_observability.backend.models.evaluations import Evaluation
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 def _scanned_window(query: ast.SelectQuery) -> list[dt.datetime]:
@@ -1036,8 +1037,9 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
             rrule="",
             starts_at=None,
             trigger_threshold=threshold,
-            # since = last_delivered_at; cooldown default is 60min and NOW is 3h later, so it passes.
+            # since = last_delivered_at; the minimum cooldown keeps every check here past it.
             last_delivered_at=since,
+            cooldown_minutes=EvaluationReport.COOLDOWN_MINUTES_MIN,
             delivery_targets=[{"type": "email", "value": "test@example.com"}],
         )
 

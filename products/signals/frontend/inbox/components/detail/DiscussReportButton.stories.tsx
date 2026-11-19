@@ -96,7 +96,7 @@ export const MetricSuggestion: Story = {
         }),
     ],
     parameters: {
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
         testOptions: { snapshotBrowsers: [] },
     },
     render: function MetricSuggestion(): JSX.Element {
@@ -113,6 +113,7 @@ export const MetricSuggestion: Story = {
                 <div className="flex-1 min-w-0 p-4">
                     <h2>{report.title}</h2>
                     <ReportCheckRow
+                        reportId={report.id}
                         row={{
                             check,
                             reportStatus: 'ready',
@@ -148,6 +149,22 @@ export const MetricSuggestion: Story = {
             },
             { timeout: 10000 }
         )
+    },
+}
+
+export const MonitoringUnavailable: Story = {
+    ...MetricSuggestion,
+    name: 'Monitoring unavailable',
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false },
+        testOptions: { snapshotBrowsers: [] },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        if (canvas.queryByText('Suggest a better metric')) {
+            throw new Error('Metric suggestions must be hidden without Monitoring')
+        }
+        await canvas.findByText('Cancel this check')
     },
 }
 

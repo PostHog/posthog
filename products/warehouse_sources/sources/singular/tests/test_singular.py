@@ -18,7 +18,14 @@ from products.warehouse_sources.sources.sdk.testing import (
     scripted_network,
 )
 from products.warehouse_sources.sources.singular._config import SingularSourceConfig
-from products.warehouse_sources.sources.singular.settings import HISTORY_DAYS, LOOKUPS
+from products.warehouse_sources.sources.singular.settings import (
+    AD_MONETIZATION_REPORT,
+    FIXED_REPORTS,
+    HISTORY_DAYS,
+    LOOKUPS,
+    SKADNETWORK_RAW_REPORT,
+    SKADNETWORK_REPORT,
+)
 from products.warehouse_sources.sources.singular.singular import (
     ACCESS_ERROR,
     AUTH_ERROR,
@@ -369,6 +376,169 @@ class TestReportShaping:
     def test_report_rows_rejects_an_unrecognized_file(self, body):
         with pytest.raises(ValueError):
             report_rows(body)
+
+
+def _run_fixed_report(
+    endpoint: str, script: Callable[[RecordedRequest], ScriptedResponse], last_value: str
+) -> DriveResult:
+    # The daily_report settings must not leak into the fixed reports.
+    config = SingularSourceConfig(api_key=_API_KEY, dimensions="invented_dimension", metrics="invented_metric")
+    return SourceDriver(SingularSource(), config).run(
+        endpoint, script, incremental_field="date", db_incremental_field_last_value=last_value
+    )
+
+
+@pytest.mark.usefixtures("_frozen_clock")
+class TestFixedReports:
+    @pytest.mark.parametrize(
+        "endpoint, path",
+        [
+            (SKADNETWORK_REPORT, "create_async_skadnetwork_report"),
+            (SKADNETWORK_RAW_REPORT, "create_async_skadnetwork_raw_report"),
+        ],
+    )
+    def test_skadnetwork_report_creates_one_report_per_day_with_its_own_fields(self, endpoint, path):
+        report = FIXED_REPORTS[endpoint]
+        script, created = _script(rows_by_day={"2026-06-30": [{"app": "Invented App", "skan_installs": 3}]})
+
+        result = _run_fixed_report(endpoint, script, last_value="2026-06-29")
+
+        assert result.raised is None
+        assert [request.path for request in result.requests if request.method == "POST"] == [f"/api/v2.0/{path}"] * 2
+        assert [body["start_date"] for body in created] == ["2026-06-29", "2026-06-30"]
+        for body in created:
+            assert body["end_date"] == body["start_date"]
+            assert body["dimensions"] == ",".join(report.dimensions)
+            assert body["metrics"] == ",".join(report.metrics)
+            assert body["time_breakdown"] == "day"
+            assert body["skadnetwork_date_type"] == "skan_postback_date"
+        assert result.response is not None
+        assert result.response.primary_keys == ["date", *report.dimensions]
+        assert result.saved_states[-1] == SingularResumeConfig(next_date="2026-07-01")
+
+    def test_ad_monetization_report_reads_each_day_with_one_get_and_commits_empty_days(self):
+        report = FIXED_REPORTS[AD_MONETIZATION_REPORT]
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            rows = [{"app": "Invented App", "ad_revenue": 1.5}] if request.param("start_date") == "2026-06-30" else []
+            return _envelope(value={"results": rows})
+
+        result = _run_fixed_report(AD_MONETIZATION_REPORT, respond, last_value="2026-06-27")
+
+        assert result.raised is None
+        days = ["2026-06-27", "2026-06-28", "2026-06-29", "2026-06-30"]
+        assert result.paths == ["/api/v2.0/admonetization/reporting"] * len(days)
+        assert result.params("start_date") == days
+        assert result.params("end_date") == days
+        assert result.params("time_breakdown") == ["day"] * len(days)
+        assert result.params("metrics") == [",".join(report.metrics)] * len(days)
+        assert result.params("skadnetwork_date_type") == [None] * len(days)
+        # Each empty day reaches a safe point, so its cursor commits without a yield.
+        assert result.committed_states == [
+            SingularResumeConfig(next_date=day) for day in ("2026-06-28", "2026-06-29", "2026-06-30")
+        ]
+        assert result.saved_states[-1] == SingularResumeConfig(next_date="2026-07-01")
+
+    @pytest.mark.parametrize(
+        "row, expected",
+        [
+            (
+                {"app": "Invented App", "source": None, "ad_revenue": 1.5},
+                {
+                    "app": "Invented App",
+                    "source": "",
+                    "os": "",
+                    "ad_country": "",
+                    "ad_type_name": "",
+                    "ad_revenue": 1.5,
+                    "date": dt.date(2026, 6, 30),
+                },
+            ),
+            (
+                {
+                    "app": "Invented App",
+                    "source": "Example Network",
+                    "os": "iOS",
+                    "ad_country": "USA",
+                    "ad_type_name": "Banner",
+                    "ad_revenue": None,
+                },
+                {
+                    "app": "Invented App",
+                    "source": "Example Network",
+                    "os": "iOS",
+                    "ad_country": "USA",
+                    "ad_type_name": "Banner",
+                    "ad_revenue": None,
+                    "date": dt.date(2026, 6, 30),
+                },
+            ),
+        ],
+    )
+    def test_report_rows_get_the_date_and_no_null_key_dimension(self, row, expected):
+        result = _run_fixed_report(
+            AD_MONETIZATION_REPORT, always(_envelope(value={"results": [row]})), last_value="2026-06-30"
+        )
+
+        assert result.rows == [expected]
+
+    def test_skadnetwork_report_on_an_account_without_skadnetwork_is_non_retryable(self):
+        vendor_message = "There is no SKAdNetwork data configured."
+        script, _ = _script(create_responses=[_envelope(400, vendor_message)])
+
+        result = _run_fixed_report(SKADNETWORK_REPORT, script, last_value="2026-06-30")
+
+        message = str(_raised(result, SingularNonRetryableError))
+        assert message.startswith(REQUEST_ERROR)
+        assert vendor_message in message
+        assert error_message_matches(message, SingularSource().get_non_retryable_errors())
+
+
+class TestFilters:
+    @pytest.mark.parametrize(
+        "value, expected_rows",
+        [
+            (
+                {
+                    "dimensions": [
+                        {
+                            "name": "os",
+                            "display_name": "OS",
+                            "values": [{"name": 4, "display_name": "Android"}, {"name": 1, "display_name": "iOS"}],
+                        },
+                        {
+                            "name": "source",
+                            "display_name": "Source",
+                            "values": [{"name": "example_ads", "display_name": "Example Ads"}],
+                        },
+                    ]
+                },
+                [
+                    {"dimension": "os", "dimension_display_name": "OS", "name": "4", "display_name": "Android"},
+                    {"dimension": "os", "dimension_display_name": "OS", "name": "1", "display_name": "iOS"},
+                    {
+                        "dimension": "source",
+                        "dimension_display_name": "Source",
+                        "name": "example_ads",
+                        "display_name": "Example Ads",
+                    },
+                ],
+            ),
+            ({"dimensions": [{"name": "app", "display_name": "App", "values": []}]}, []),
+            ({"dimensions": []}, []),
+            ({}, []),
+        ],
+    )
+    def test_filters_has_one_row_per_dimension_value(self, value, expected_rows):
+        result = SourceDriver(SingularSource(), SingularSourceConfig(api_key=_API_KEY)).run(
+            "filters", [_envelope(value=value)]
+        )
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        assert result.urls == ["https://api.singular.net/api/v2.0/reporting/filters"]
+        assert result.response is not None
+        assert result.response.primary_keys == ["dimension", "name"]
 
 
 class TestLookups:

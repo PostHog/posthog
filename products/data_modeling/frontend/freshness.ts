@@ -22,6 +22,7 @@ export const BEHIND_MULTIPLIER = 2
 
 export interface BehindScheduleModel {
     node: DataModelingNode
+    syncInterval: DataModelingSyncInterval
     intervalSeconds: number
     /** Seconds since the last successful run, or since creation when it has never finished one. */
     ageSeconds: number
@@ -53,7 +54,13 @@ export function modelsBehindSchedule(nodes: DataModelingNode[], now: number): Be
         if (ageSeconds <= intervalSeconds * BEHIND_MULTIPLIER) {
             continue
         }
-        behind.push({ node, intervalSeconds, ageSeconds, overdueSeconds: ageSeconds - intervalSeconds })
+        behind.push({
+            node,
+            syncInterval: runsAt,
+            intervalSeconds,
+            ageSeconds,
+            overdueSeconds: ageSeconds - intervalSeconds,
+        })
     }
 
     return behind.sort((a, b) => b.overdueSeconds - a.overdueSeconds)

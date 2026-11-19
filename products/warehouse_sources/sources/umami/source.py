@@ -73,7 +73,7 @@ class UmamiSource(ResumableSource[UmamiSourceConfig, UmamiResumeState], Validate
             label="Umami",
             iconPath="/static/services/umami.png",
             docsUrl="https://posthog.com/docs/cdp/sources/umami",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="Connect Umami Cloud with an API key. For self-hosted Umami, use an API key or username and password.",
             fields=[
                 SourceFieldInputConfig(

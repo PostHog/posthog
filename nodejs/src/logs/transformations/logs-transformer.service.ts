@@ -111,8 +111,8 @@ interface FunctionAggregates {
     errorLogs: LogEntry[]
 }
 
-const ATTR_TRANSFORMATIONS_FAILED = '$transformations_failed'
-const ATTR_TRANSFORMATIONS_SKIPPED = '$transformations_skipped'
+const ATTR_TRANSFORMATIONS_FAILED = 'posthog.transformations_failed'
+const ATTR_TRANSFORMATIONS_SKIPPED = 'posthog.transformations_skipped'
 
 /**
  * Runs a team's enabled log transformations over the records of one Kafka message,
@@ -163,7 +163,8 @@ export class LogsTransformerService {
     public async transformRecords(
         teamId: number,
         records: LogRecord[],
-        batchBudget?: TransformationBatchBudget
+        batchBudget?: TransformationBatchBudget,
+        sentAsInternalLogs = false
     ): Promise<{ recordsDropped: number; recordsDroppedByFunctionId: Map<string, number> }> {
         const recordsDroppedByFunctionId = new Map<string, number>()
         let recordsDropped = 0
@@ -270,7 +271,7 @@ export class LogsTransformerService {
         }
 
         transformationVmDurationHistogram.observe(messageVmMs / 1000)
-        this.queueAggregates(teamId, aggregates)
+        this.queueAggregates(teamId, aggregates, sentAsInternalLogs)
         return { recordsDropped, recordsDroppedByFunctionId }
     }
 
@@ -495,7 +496,11 @@ export class LogsTransformerService {
         return agg
     }
 
-    private queueAggregates(teamId: number, aggregates: Map<string, FunctionAggregates>): void {
+    private queueAggregates(
+        teamId: number,
+        aggregates: Map<string, FunctionAggregates>,
+        sentAsInternalLogs: boolean
+    ): void {
         for (const [functionId, agg] of aggregates) {
             if (agg.succeeded > 0) {
                 this.monitoring.queueAppMetric(
@@ -546,7 +551,7 @@ export class LogsTransformerService {
                 )
             }
             if (agg.errorLogs.length > 0) {
-                this.monitoring.queueLogs(agg.errorLogs, 'hog_function')
+                this.monitoring.queueLogs(agg.errorLogs, 'hog_function', { aboutInternalLogs: sentAsInternalLogs })
             }
         }
     }

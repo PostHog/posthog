@@ -1,5 +1,10 @@
+from datetime import date, datetime
 from typing import Any
 
+import pytest
+import time_machine
+
+from products.warehouse_sources.sources.sdk import IncrementalFieldType
 from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
@@ -10,7 +15,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     scripted_network,
 )
 from products.warehouse_sources.sources.smartlead._config import SmartleadSourceConfig
-from products.warehouse_sources.sources.smartlead.settings import PAGE_SIZE
+from products.warehouse_sources.sources.smartlead.settings import ANALYTICS_START_DATE, PAGE_SIZE
 from products.warehouse_sources.sources.smartlead.smartlead import SmartleadResumeConfig, validate_credentials
 from products.warehouse_sources.sources.smartlead.source import SmartleadSource
 
@@ -87,6 +92,73 @@ class TestSmartleadSource:
         assert [r["id"] for r in result.rows] == [PAGE_SIZE]
         assert len(result.requests) == 1
         assert result.requests[0].param("offset") == str(PAGE_SIZE)
+
+
+def _day_wise_body(request: RecordedRequest) -> ScriptedResponse:
+    return _json({"ok": True, "data": {"day_wise_stats": [{"date": request.param("start_date"), "sent": 3}]}})
+
+
+def _incremental(last_value: Any) -> dict[str, Any]:
+    return {
+        "incremental_field": "date",
+        "incremental_field_type": IncrementalFieldType.Date,
+        "db_incremental_field_last_value": last_value,
+    }
+
+
+class TestSmartleadDayWiseStats:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-11-07T12:00:00Z", tick=False):
+            yield
+
+    @pytest.mark.parametrize(
+        "inputs, expected_first_start",
+        [
+            ({}, ANALYTICS_START_DATE),
+            (_incremental("2026-09-30"), "2026-09-30"),
+            (_incremental(date(2026, 9, 30)), "2026-09-30"),
+            (_incremental(datetime(2026, 11, 7)), "2026-11-07"),
+        ],
+    )
+    def test_walks_contiguous_windows_up_to_today(self, inputs: dict[str, Any], expected_first_start: str) -> None:
+        result = _run("day_wise_overall_stats", _day_wise_body, **inputs)
+
+        assert result.raised is None
+        assert set(result.paths) == {"/api/v1/analytics/day-wise-overall-stats"}
+        starts = [date.fromisoformat(s) for s in result.params("start_date") if s]
+        ends = [date.fromisoformat(e) for e in result.params("end_date") if e]
+        assert starts[0].isoformat() == expected_first_start
+        assert ends[-1] == date(2026, 11, 7)
+        # Inclusive windows: each one starts the day after the last ended, so no day is read twice or skipped.
+        assert all((start - end).days == 1 for end, start in zip(ends, starts[1:]))
+        assert all(start <= end for start, end in zip(starts, ends))
+        assert [row["date"] for row in result.rows] == [start.isoformat() for start in starts]
+
+    @pytest.mark.parametrize("empty_body", [{"ok": True, "data": {}}, {"ok": True, "data": {"day_wise_stats": []}}])
+    def test_window_with_no_activity_yields_no_rows_and_walk_continues(self, empty_body: dict[str, Any]) -> None:
+        result = _run(
+            "day_wise_overall_stats",
+            [
+                _json(empty_body),
+                _json({"ok": True, "data": {"day_wise_stats": [{"date": "2026-11-07", "sent": 5, "replied": 1}]}}),
+            ],
+            **_incremental("2026-08-01"),
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == 2
+        assert result.rows == [{"date": "2026-11-07", "sent": 5, "replied": 1}]
+
+    def test_resumes_from_saved_window_start(self) -> None:
+        result = _run(
+            "day_wise_overall_stats",
+            _day_wise_body,
+            resume_state=SmartleadResumeConfig(next_start_date="2026-10-01"),
+        )
+
+        assert result.params("start_date") == ["2026-10-01"]
+        assert result.params("end_date") == ["2026-11-07"]
 
 
 class TestSmartleadFanout:

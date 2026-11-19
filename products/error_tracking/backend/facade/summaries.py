@@ -14,16 +14,12 @@ from products.error_tracking.backend.models import ErrorTrackingIssueSummary
 
 def _to_summary(summary: ErrorTrackingIssueSummary) -> contracts.ErrorTrackingIssueSummary:
     content = summary.content
-    category = content.get("category")
     return contracts.ErrorTrackingIssueSummary(
         issue_id=summary.issue_id,
         what_happened=content["what_happened"],
         likely_cause=content["likely_cause"],
         who_is_affected=content["who_is_affected"],
         suggested_next_step=content["suggested_next_step"],
-        category=contracts.IssueSummaryCategory(category)
-        if category in contracts.IssueSummaryCategory.values
-        else None,
         model=summary.model,
         generated_at=summary.generated_at,
         checked_at=summary.checked_at,

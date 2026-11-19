@@ -18,7 +18,7 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
-from products.replay_vision.backend.tests.helpers import create_experiment, snapshot_for
+from products.replay_vision.backend.tests.helpers import create_experiment, snapshot_for, update_experiment
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 
@@ -504,8 +504,7 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         # returns. Both sides of the end must answer the same not-found.
         experiment = create_experiment(self.team, "hidden-flag", launched=True)
         ended_at = timezone.now() - dt.timedelta(days=3)
-        experiment.end_date = ended_at
-        experiment.save()
+        update_experiment(experiment, end_date=ended_at)
         self._set_resource_default("replay_scanner", "editor")
         self._set_resource_default("session_recording", "editor")
         self._set_resource_default("experiment", "none")

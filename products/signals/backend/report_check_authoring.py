@@ -26,7 +26,12 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportCheck
+from products.signals.backend.models import (
+    SignalActorKind,
+    SignalReport,
+    SignalReportCheck,
+    SignalReportMonitoringAttempt,
+)
 from products.signals.backend.report_check_agent import agent_check_lane_available
 from products.signals.backend.report_check_artefacts import write_check_cancelled, write_check_scheduled
 from products.signals.backend.report_check_execution import resolve_check_query
@@ -42,6 +47,7 @@ from products.signals.backend.report_checks import (
     CheckConfigValidationError,
     CheckSpec,
     MetricThresholdConfig,
+    MetricThresholdReplacementConfig,
     authored_monitoring_interval_minutes,
     check_schedule_expires_at,
     monitoring_interval_minutes,
@@ -53,6 +59,8 @@ from products.signals.backend.report_checks import (
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_lifecycle import effective_report_status
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
+from products.signals.backend.report_monitoring_attempts import complete_implementation, current_monitoring_attempt
+from products.signals.backend.report_monitoring_outcomes import aggregate_monitoring_attempt_safely
 
 logger = structlog.get_logger(__name__)
 
@@ -102,7 +110,9 @@ def create_check(
     now = timezone.now()
 
     with transaction.atomic():
-        locked_report = SignalReport.objects.select_for_update().filter(id=report.id, team_id=report.team_id).first()
+        locked_report = (
+            SignalReport.objects.select_for_update(no_key=True).filter(id=report.id, team_id=report.team_id).first()
+        )
         if locked_report is None:
             raise CheckCreationError("The report this check belongs to is gone.")
         if soak_minutes is None:
@@ -451,29 +461,70 @@ def replace_check_with_metric(
     config: dict,
     attribution: ArtefactAttribution,
     access_policy: ReportMetricAccessPolicy,
+    soak_minutes: int | None = None,
+    run_interval_minutes: int | None = None,
+    runs_remaining: int | None = None,
 ) -> SignalReportCheck:
     """Keep the previous check live if replacement validation fails."""
     with transaction.atomic():
-        report = SignalReport.objects.select_for_update().get(id=check.report_id, team_id=check.team_id)
+        report = SignalReport.objects.select_for_update(no_key=True).get(id=check.report_id, team_id=check.team_id)
         locked = SignalReportCheck.objects.for_team(check.team_id).select_for_update().get(id=check.id)
         if locked.report_id != report.id:
             raise CheckCreationError("This check moved to another report. Reload the report before replacing it.")
+        attempt = current_monitoring_attempt(report)
+        if (
+            report.status != SignalReport.Status.MONITORING
+            and attempt is not None
+            and str(locked.id) in attempt.check_versions
+        ):
+            raise CheckCreationError("Return this report to Monitoring before replacing this check.")
+        if runs_remaining not in (None, 1):
+            raise CheckCreationError("Monitoring supports exactly one terminal evaluation.")
+        try:
+            MetricThresholdReplacementConfig.model_validate(config)
+            duration = soak_minutes if soak_minutes is not None else locked.soak_minutes
+            if duration is None:
+                duration = DEFAULT_CHECK_SOAK_HOURS * 60
+            interval = authored_monitoring_interval_minutes(duration, run_interval_minutes)
+        except ValueError as error:
+            raise CheckCreationError(str(error)) from None
         stored_config = _stored_config(report, SignalReportCheck.Kind.METRIC_THRESHOLD, config)
         if not access_policy.may_read_query(stored_config):
             raise CheckQueryAccessError("The measurement query is not available to you.")
         if not cancel_check(locked, reason="replaced_by_request", attribution=attribution):
             raise CheckCreationError("This check has already finished. Review its result before adding another.")
-        return create_check(
+        replacement = create_check(
             report=report,
             title=title,
             rationale=rationale,
             kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
             config=config,
             attribution=attribution,
-            soak_minutes=locked.soak_minutes if locked.soak_minutes is not None else DEFAULT_CHECK_SOAK_HOURS * 60,
-            run_interval_minutes=locked.run_interval_minutes,
-            runs_remaining=locked.runs_remaining,
+            soak_minutes=duration,
+            run_interval_minutes=interval,
+            runs_remaining=1,
         )
+        if report.status == SignalReport.Status.MONITORING:
+            try:
+                attempt = complete_implementation(
+                    team_id=report.team_id,
+                    report_id=report.id,
+                    monitoring_started_at=timezone.now(),
+                    attribution=attribution,
+                    restart_monitoring=True,
+                )
+            except ValueError as error:
+                raise CheckCreationError(str(error)) from None
+            if attempt is None:
+                raise CheckCreationError("Monitoring is not available for this report.")
+            arm_pending_checks(
+                team_id=report.team_id,
+                report_id=report.id,
+                resolved_at=attempt.monitoring_started_at,
+                expected_monitoring_started_at=attempt.monitoring_started_at,
+            )
+            replacement.refresh_from_db()
+        return replacement
 
 
 def cancel_check(
@@ -507,8 +558,34 @@ def cancel_check(
     )
     if cancelled:
         write_check_cancelled(check, reason=reason, attribution=attribution)
+        # Completion cancels leftover checks after it has already decided the outcome.
+        if reason != "monitoring_completed":
+            _reaggregate_monitoring_after_cancel(check)
     check.refresh_from_db()
     return bool(cancelled)
+
+
+def _reaggregate_monitoring_after_cancel(check: SignalReportCheck) -> None:
+    attempt_id = (
+        SignalReportMonitoringAttempt.objects.for_team(check.team_id)
+        .filter(
+            report_id=check.report_id,
+            report__status=SignalReport.Status.MONITORING,
+            monitoring_started_at=F("report__monitoring_started_at"),
+            check_versions__has_key=str(check.id),
+        )
+        .values_list("id", flat=True)
+        .first()
+    )
+    if attempt_id is not None:
+        transaction.on_commit(
+            partial(
+                aggregate_monitoring_attempt_safely,
+                team_id=check.team_id,
+                report_id=check.report_id,
+                attempt_id=attempt_id,
+            )
+        )
 
 
 def _arm_pending_checks(
@@ -595,7 +672,7 @@ def arm_pending_checks(
     expected_monitoring_started_at: datetime | None = None,
 ) -> int:
     with transaction.atomic():
-        report = SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
+        report = SignalReport.objects.select_for_update(no_key=True).filter(team_id=team_id, id=report_id).first()
         if report is None:
             return 0
         if not (

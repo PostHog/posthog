@@ -11,6 +11,52 @@ export interface ReportVerdict {
   body: string;
 }
 
+function deriveReadyReportVerdict(
+  report: SignalReport,
+  hasExistingPr: boolean,
+): ReportVerdict {
+  if (hasExistingPr) {
+    return {
+      tone: "decision",
+      title: "Review the open PR",
+      body: "Implementation is already in flight. Review the pull request, or ask about it for more context.",
+    };
+  }
+  if (report.already_addressed) {
+    return {
+      tone: "info",
+      title: "Likely already fixed",
+      body: "The evidence suggests this was already addressed. Skim the summary and dismiss the report if you agree.",
+    };
+  }
+  switch (report.actionability) {
+    case "immediately_actionable":
+      return {
+        tone: "decision",
+        title: "Needs your decision",
+        body: "The agent can fix this with code and open a pull request. The report keeps watching its signals and reopens if the problem comes back.",
+      };
+    case "requires_human_input":
+      return {
+        tone: "decision",
+        title: "Needs your direction",
+        body: "A fix needs your call first: business context, trade-offs, or a choice between approaches. Add direction when you start the PR, or ask about it in chat.",
+      };
+    case "not_actionable":
+      return {
+        tone: "info",
+        title: "For your awareness",
+        body: "No code change follows from this report. Read it, then dismiss it.",
+      };
+    default:
+      return {
+        tone: "decision",
+        title: "Ready for review",
+        body: "Read the summary and decide what happens next.",
+      };
+  }
+}
+
 /**
  * What a report is asking of its reader, stated before the prose. The detail
  * page leads with this so the decision doesn't hide at the bottom of a long
@@ -74,48 +120,19 @@ export function deriveReportVerdict(
         title: "Agent investigating",
         body: "The agent is still gathering evidence. This report updates as findings land.",
       };
-    case "ready":
-      break;
-  }
-
-  if (hasExistingPr) {
-    return {
-      tone: "decision",
-      title: "Review the open PR",
-      body: "Implementation is already in flight. Review the pull request, or ask about it for more context.",
-    };
-  }
-  if (report.already_addressed) {
-    return {
-      tone: "info",
-      title: "Likely already fixed",
-      body: "The evidence suggests this was already addressed. Skim the summary and dismiss the report if you agree.",
-    };
-  }
-  switch (report.actionability) {
-    case "immediately_actionable":
-      return {
-        tone: "decision",
-        title: "Needs your decision",
-        body: "The agent can fix this with code and open a pull request. The report keeps watching its signals and reopens if the problem comes back.",
-      };
-    case "requires_human_input":
-      return {
-        tone: "decision",
-        title: "Needs your direction",
-        body: "A fix needs your call first: business context, trade-offs, or a choice between approaches. Add direction when you start the PR, or ask about it in chat.",
-      };
-    case "not_actionable":
+    case "monitoring":
       return {
         tone: "info",
-        title: "For your awareness",
-        body: "No code change follows from this report. Read it, then dismiss it.",
+        title: "Monitoring",
+        body: "Implementation is complete. Outcome verification is pending.",
       };
-    default:
+    case "closed":
       return {
-        tone: "decision",
-        title: "Ready for review",
-        body: "Read the summary and decide what happens next.",
+        tone: "info",
+        title: "Closed",
+        body: "This implementation attempt ended without proving resolution.",
       };
+    case "ready":
+      return deriveReadyReportVerdict(report, hasExistingPr);
   }
 }

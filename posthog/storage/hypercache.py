@@ -160,6 +160,15 @@ def emit_cache_sync_metrics(
         CACHE_SYNC_COUNTER.labels(result=result, namespace=namespace, value=value).inc()
 
 
+_ZREM_IF_SCORE_UNCHANGED = """
+local score = redis.call('ZSCORE', KEYS[1], ARGV[1])
+if score and tonumber(score) == tonumber(ARGV[2]) then
+    return redis.call('ZREM', KEYS[1], ARGV[1])
+end
+return 0
+"""
+
+
 class HyperCacheStoreMissing:
     pass
 
@@ -347,6 +356,29 @@ class HyperCache:
         self._set_cache_value_redis(key, data)
         HYPERCACHE_CACHE_COUNTER.labels(result="hit_db", namespace=self.namespace, value=self.value).inc()
         return data, "db"
+
+    def peek_from_cache_with_source(self, key: KeyType) -> tuple[dict | None, str | None]:
+        """
+        Reads Redis, then S3, and writes nothing. Unlike get_from_cache_with_source, a miss in both
+        tiers returns (None, None) instead of loading the value and filling Redis, so a debug view
+        sees the cache as it is. (None, "redis") means Redis holds the "missing" marker.
+        """
+        cache_key = self.get_cache_key(key)
+        try:
+            data = self.cache_client.get(cache_key)
+        except _REDIS_READ_ERRORS as e:
+            # A debug view must still show the S3 copy during a Redis outage, like get_from_cache_with_source does.
+            capture_exception(e)
+            data = None
+        if data == _HYPER_CACHE_EMPTY_VALUE:
+            return None, "redis"
+        if data:
+            return json.loads(data), "redis"
+        if self.s3_enabled:
+            data = object_storage.read(cache_key, missing_ok=True)
+            if data:
+                return json.loads(data), "s3"
+        return None, None
 
     def batch_get_from_cache(self, teams: list[Team]) -> dict[int, tuple[dict | None, str, str | None]]:
         """
@@ -625,7 +657,14 @@ class HyperCache:
         """Test helper alias for delete_cache_entry."""
         return self.delete_cache_entry(key, kinds)
 
-    def delete_cache_entry(self, key: KeyType, kinds: Optional[list[str]] = None, *, strict_mirror: bool = False):
+    def delete_cache_entry(
+        self,
+        key: KeyType,
+        kinds: Optional[list[str]] = None,
+        *,
+        strict_mirror: bool = False,
+        tracked_expiry_score: float | None = None,
+    ):
         """Hard-delete an entry from the given tiers (default redis + s3).
 
         Production-safe: the gateway credential projection uses this to revoke a
@@ -634,9 +673,15 @@ class HyperCache:
         A failed Redis delete raises after the object-storage delete ran. With strict_mirror,
         a failed delete on the secondary cache raises too. Otherwise the secondary delete is
         best-effort.
+
+        The method removes the expiry tracking member even when a delete fails. With
+        tracked_expiry_score, it removes the member only after every delete succeeds and only while
+        the member still holds that score. The caller must pass a score that _track_expiry cannot
+        write. A write during the delete then re-scores the member, and the member stays.
         """
         kinds = kinds or ["redis", "s3"]
         redis_error: Exception | None = None
+        deleted = False
         try:
             cache_key = self.get_cache_key(key)
             if "redis" in kinds:
@@ -670,8 +715,10 @@ class HyperCache:
                 object_storage.delete(cache_key)
             if redis_error is not None:
                 raise redis_error
+            deleted = True
         finally:
-            self._remove_expiry_tracking(key)
+            if deleted or tracked_expiry_score is None:
+                self._remove_expiry_tracking(key, if_score=tracked_expiry_score)
 
     def _mirror_to_secondary(self, op: Callable[..., None]) -> Exception | None:
         """Best-effort mirror op; failures are logged, captured and returned, never raised."""
@@ -753,7 +800,7 @@ class HyperCache:
             # Use sort_keys for deterministic serialization (consistent ETags)
             object_storage.write(key, json.dumps(data, sort_keys=True))
 
-    def _remove_expiry_tracking(self, key: KeyType) -> None:
+    def _remove_expiry_tracking(self, key: KeyType, if_score: float | None = None) -> None:
         """
         Remove cache expiration entry from Redis sorted set.
 
@@ -775,7 +822,12 @@ class HyperCache:
                 return
 
             redis_client = get_client(self.redis_url)
-            redis_client.zrem(self.expiry_sorted_set_key, identifier)
+            if if_score is None:
+                redis_client.zrem(self.expiry_sorted_set_key, identifier)
+            else:
+                redis_client.register_script(_ZREM_IF_SCORE_UNCHANGED)(
+                    keys=[self.expiry_sorted_set_key], args=[identifier, repr(if_score)]
+                )
         except Exception as e:
             logger.warning(
                 "Failed to remove cache expiry tracking",
@@ -802,6 +854,9 @@ class HyperCache:
         try:
             identifier = self.get_cache_identifier(team)
             ttl_seconds = ttl if ttl is not None else self.cache_ttl
+            # The score must stay a whole number of seconds. cleanup_stale_expiry_tracking marks
+            # its retry members with a fractional score. delete_cache_entry compares scores to tell
+            # a rewrite from that marker.
             expiry_timestamp = int(time.time()) + ttl_seconds
 
             redis_client = get_client(self.redis_url)

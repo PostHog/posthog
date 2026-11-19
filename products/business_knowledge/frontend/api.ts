@@ -8,6 +8,7 @@ import {
     businessKnowledgeLibrariesDestroy,
     businessKnowledgeLibrariesList,
     businessKnowledgeLibrariesPartialUpdate,
+    businessKnowledgeLibrariesRetrieve,
     businessKnowledgePlaygroundChatsAskCreate,
     businessKnowledgePlaygroundChatsCreate,
     businessKnowledgePlaygroundChatsDestroy,
@@ -34,12 +35,14 @@ import type {
     KnowledgeSearchResultApi,
     KnowledgeSourceApi,
     PlaygroundChatApi,
-    PlaygroundChatListApi,
+    PaginatedPlaygroundChatListListApi,
     SandboxQuestionApi,
     KnowledgeSourceDocumentApi,
 } from './generated/api.schemas'
 
 export type { KnowledgeSourceApi as KnowledgeSourceDTOApi }
+
+export const PLAYGROUND_CHAT_PAGE_SIZE = 100
 
 // TODO: replace with generated types once the backend exposes URL source serializers
 export type RefreshIntervalValue = 'manual' | '1h' | '6h' | '24h' | '7d'
@@ -149,8 +152,11 @@ export async function deleteSource(id: string): Promise<void> {
     await businessKnowledgeSourcesDestroy(String(getCurrentTeamId()), id)
 }
 
-export async function listPlaygroundChats(): Promise<PlaygroundChatListApi[]> {
-    return await businessKnowledgePlaygroundChatsList(String(getCurrentTeamId()))
+export async function listPlaygroundChats(offset: number = 0): Promise<PaginatedPlaygroundChatListListApi> {
+    return await businessKnowledgePlaygroundChatsList(String(getCurrentTeamId()), {
+        limit: PLAYGROUND_CHAT_PAGE_SIZE,
+        offset,
+    })
 }
 
 export async function createPlaygroundChat(): Promise<PlaygroundChatApi> {
@@ -191,6 +197,10 @@ export type KnowledgeLibrary = KnowledgeLibraryApi
 
 export async function listLibraries(): Promise<KnowledgeLibrary[]> {
     return await businessKnowledgeLibrariesList(String(getCurrentTeamId()))
+}
+
+export async function getLibrary(id: string): Promise<KnowledgeLibrary> {
+    return await businessKnowledgeLibrariesRetrieve(String(getCurrentTeamId()), id)
 }
 
 export async function createLibrary(name: string): Promise<KnowledgeLibrary> {

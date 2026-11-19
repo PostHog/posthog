@@ -11,8 +11,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from parameterized import parameterized
 
-from posthog.helpers.encrypted_fields import EncryptedFieldMixin, check_encryption_salt_keys
-from posthog.settings.utils import get_list
+from posthog.helpers.encrypted_fields import EncryptedFieldMixin
 
 KEY_A = "a" * 32
 KEY_B = "b" * 32
@@ -206,47 +205,3 @@ class TestSecretKeyRotation(SimpleTestCase):
         assert _fernet(KEY_A).decrypt(token.encode("utf-8")).decode("utf-8") == PLAINTEXT
         with self.assertRaises(InvalidToken):
             _legacy_fernet(NEW).decrypt(token.encode("utf-8"))
-
-
-class TestEncryptionSaltKeysCheck(SimpleTestCase):
-    # System check that ENCRYPTION_SALT_KEYS entries are valid Fernet keys (exactly 32 bytes). Each is
-    # used directly as a Fernet key, so a wrong-length one would otherwise crash opaquely on first use.
-
-    @override_settings(ENCRYPTION_SALT_KEYS=["00beef0000beef0000beef0000beef00"])
-    def test_single_valid_key_passes(self):
-        assert check_encryption_salt_keys(None) == []
-
-    @override_settings(ENCRYPTION_SALT_KEYS=get_list("00beef0000beef0000beef0000beef00," + "a" * 32))
-    def test_two_valid_keys_pass(self):
-        assert check_encryption_salt_keys(None) == []
-
-    @override_settings(ENCRYPTION_SALT_KEYS=get_list(",".join(["a" * 32, "b" * 32, "c" * 32])))
-    def test_three_valid_keys_pass(self):
-        assert check_encryption_salt_keys(None) == []
-
-    @override_settings(ENCRYPTION_SALT_KEYS=["tooshort"])
-    def test_short_key_is_flagged(self):
-        errors = check_encryption_salt_keys(None)
-        assert len(errors) == 1
-        assert errors[0].id == "posthog.E004"
-        assert "ENCRYPTION_SALT_KEYS[0]" in errors[0].msg
-        assert "got 8" in errors[0].msg
-
-    @override_settings(ENCRYPTION_SALT_KEYS=["a" * 33])
-    def test_long_key_is_flagged(self):
-        errors = check_encryption_salt_keys(None)
-        assert len(errors) == 1
-        assert "got 33" in errors[0].msg
-
-    @override_settings(ENCRYPTION_SALT_KEYS=["a" * 32, "b" * 31])
-    def test_reports_index_of_offending_key(self):
-        errors = check_encryption_salt_keys(None)
-        assert len(errors) == 1
-        assert "ENCRYPTION_SALT_KEYS[1]" in errors[0].msg
-
-    @override_settings(ENCRYPTION_SALT_KEYS=["é" * 32])
-    def test_counts_bytes_not_characters(self):
-        # 32 'é' is 64 bytes in UTF-8 — must be flagged, since Fernet keys are byte-sized
-        errors = check_encryption_salt_keys(None)
-        assert len(errors) == 1
-        assert "got 64" in errors[0].msg

@@ -42,6 +42,10 @@ same way, and that changes nobody's workflow or feature.
 - The same edit that the pull request makes across many owners, with no effect on how their code behaves.
 - Scaffolding, docs, comments, or generated code.
 - A test change that adds or changes no assertion.
+- A part that only serves the author's own feature and leaves the owner's code working the same for everyone \
+else: calling the owner's existing functions, APIs or extension points as they are meant to be called, plugging a \
+new source, option or catalog entry into an existing extension point, or the UI, copy, logs or metrics of the \
+author's feature.
 
 Never cut an owner when any of these is true:
 - Their code behaves differently after the change: a check, a limit, a default, a permission, a response, stored \
@@ -263,16 +267,3 @@ def decide_cuts(
     if model_output is None:
         return _keep_all(candidates, LlmSkipReason.NO_ANSWER)
     return apply_cut_guards(candidates=candidates, model_output=model_output, owners_left_out=prompt.owners_left_out)
-
-
-def keep_pinned(candidates: Sequence[OwnerCandidate]) -> RoutingDecision:
-    """The owners of sensitive and new paths only, for a head that stamphog approved."""
-    return RoutingDecision(
-        kept=tuple(candidate for candidate in candidates if candidate.is_pinned),
-        cut=(),
-        llm_skipped=LlmSkipReason.STAMPHOG_APPROVED,
-        reasons={
-            candidate.owner: _guard_reason(candidate, frozenset()) or RoutingOwnerReason.STAMPHOG_APPROVED
-            for candidate in candidates
-        },
-    )

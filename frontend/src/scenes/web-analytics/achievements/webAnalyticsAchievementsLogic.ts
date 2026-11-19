@@ -31,6 +31,8 @@ import { webAnalyticsAchievementsPreferencesLogic } from './webAnalyticsAchievem
 
 const celebrationKey = (trackKey: string, stage: number): string => `${trackKey}:${stage}`
 
+const DATA_INTERACTION_DEBOUNCE_MS = 1000
+
 function sortByCloseness(
     tracks: AchievementDefinitionApi[],
     progressByTrack: Record<string, AchievementProgressApi>
@@ -61,9 +63,7 @@ export interface webAnalyticsAchievementsLogicValues {
     pendingCelebrations: PendingCelebrationApi[]
     pendingTrackKeys: Set<string>
     progressByTrack: Record<string, AchievementProgressApi>
-    sortedTeamTracks: AchievementDefinitionApi[]
     sortedUserTracks: AchievementDefinitionApi[]
-    teamProgress: AchievementProgressApi[]
     totalStages: number
     uncelebratedPending: PendingCelebrationApi[]
     unlockedStages: number
@@ -103,6 +103,9 @@ export interface webAnalyticsAchievementsLogicActions {
     openModal: () => {
         value: true
     }
+    recordDataInteraction: () => {
+        value: true
+    }
     recordInteraction: (kind: InteractionKindEnumApi) => {
         kind: InteractionKindEnumApi
     }
@@ -116,21 +119,13 @@ export interface webAnalyticsAchievementsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         definitions: (achievements: AchievementsListResponseApi | null) => AchievementDefinitionApi[]
         userProgress: (achievements: AchievementsListResponseApi | null) => AchievementProgressApi[]
-        teamProgress: (achievements: AchievementsListResponseApi | null) => AchievementProgressApi[]
         pendingCelebrations: (achievements: AchievementsListResponseApi | null) => PendingCelebrationApi[]
         uncelebratedPending: (
             pendingCelebrations: PendingCelebrationApi[],
             celebratedKeys: string[]
         ) => PendingCelebrationApi[]
-        progressByTrack: (
-            userProgress: AchievementProgressApi[],
-            teamProgress: AchievementProgressApi[]
-        ) => Record<string, AchievementProgressApi>
+        progressByTrack: (userProgress: AchievementProgressApi[]) => Record<string, AchievementProgressApi>
         sortedUserTracks: (
-            definitions: AchievementDefinitionApi[],
-            progressByTrack: Record<string, AchievementProgressApi>
-        ) => AchievementDefinitionApi[]
-        sortedTeamTracks: (
             definitions: AchievementDefinitionApi[],
             progressByTrack: Record<string, AchievementProgressApi>
         ) => AchievementDefinitionApi[]
@@ -167,6 +162,7 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
         closeModal: true,
         acknowledgeCelebration: (trackKey: string, stage: number) => ({ trackKey, stage }),
         recordInteraction: (kind: InteractionKindEnumApi) => ({ kind }),
+        recordDataInteraction: true,
         markCelebrated: (key: string) => ({ key }),
         toggleTrackExpanded: (trackKey: string) => ({ trackKey }),
     }),
@@ -214,11 +210,6 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
             (achievements: AchievementsListResponseApi | null): AchievementProgressApi[] =>
                 achievements?.user_progress ?? [],
         ],
-        teamProgress: [
-            (s) => [s.achievements],
-            (achievements: AchievementsListResponseApi | null): AchievementProgressApi[] =>
-                achievements?.team_progress ?? [],
-        ],
         pendingCelebrations: [
             (s) => [s.achievements],
             (achievements: AchievementsListResponseApi | null): PendingCelebrationApi[] =>
@@ -230,13 +221,10 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                 pending.filter((entry) => !celebrated.includes(celebrationKey(entry.track_key, entry.stage))),
         ],
         progressByTrack: [
-            (s) => [s.userProgress, s.teamProgress],
-            (
-                userProgress: AchievementProgressApi[],
-                teamProgress: AchievementProgressApi[]
-            ): Record<string, AchievementProgressApi> => {
+            (s) => [s.userProgress],
+            (userProgress: AchievementProgressApi[]): Record<string, AchievementProgressApi> => {
                 const byTrack: Record<string, AchievementProgressApi> = {}
-                for (const row of [...userProgress, ...teamProgress]) {
+                for (const row of userProgress) {
                     byTrack[row.track_key] = row
                 }
                 return byTrack
@@ -247,22 +235,7 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
             (
                 definitions: AchievementDefinitionApi[],
                 progressByTrack: Record<string, AchievementProgressApi>
-            ): AchievementDefinitionApi[] =>
-                sortByCloseness(
-                    definitions.filter((track) => track.scope === 'user'),
-                    progressByTrack
-                ),
-        ],
-        sortedTeamTracks: [
-            (s) => [s.definitions, s.progressByTrack],
-            (
-                definitions: AchievementDefinitionApi[],
-                progressByTrack: Record<string, AchievementProgressApi>
-            ): AchievementDefinitionApi[] =>
-                sortByCloseness(
-                    definitions.filter((track) => track.scope === 'team'),
-                    progressByTrack
-                ),
+            ): AchievementDefinitionApi[] => sortByCloseness(definitions, progressByTrack),
         ],
         pendingTrackKeys: [
             (s) => [s.uncelebratedPending],
@@ -321,7 +294,7 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                 track_key: trackKey,
                 stage,
                 stage_name: track?.stages[stage - 1]?.name,
-                scope: track?.scope,
+                scope: 'user',
             })
             actions.markCelebrated(celebrationKey(trackKey, stage))
             try {
@@ -354,22 +327,26 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                 // best-effort gamification signal: never surface recording failures
             }
         },
+        recordDataInteraction: async (_, breakpoint) => {
+            await breakpoint(DATA_INTERACTION_DEBOUNCE_MS)
+            actions.recordInteraction(InteractionKindEnumApi.Data)
+        },
         // Dashboard interactions count toward achievements. These reports fire only from web
         // analytics UI, where this logic is mounted via the scene menu bar.
         [eventUsageLogic.actionTypes.reportWebAnalyticsFilterApplied]: () => {
-            actions.recordInteraction(InteractionKindEnumApi.Data)
+            actions.recordDataInteraction()
         },
         [eventUsageLogic.actionTypes.reportWebAnalyticsFilterRemoved]: () => {
-            actions.recordInteraction(InteractionKindEnumApi.Data)
+            actions.recordDataInteraction()
         },
         [webAnalyticsLogic.actionTypes.reportWebAnalyticsDateRangeChanged]: () => {
-            actions.recordInteraction(InteractionKindEnumApi.Data)
+            actions.recordDataInteraction()
         },
         [eventUsageLogic.actionTypes.reportWebAnalyticsCompareToggled]: () => {
-            actions.recordInteraction(InteractionKindEnumApi.Data)
+            actions.recordDataInteraction()
         },
         [eventUsageLogic.actionTypes.reportWebAnalyticsPathCleaningToggled]: () => {
-            actions.recordInteraction(InteractionKindEnumApi.Data)
+            actions.recordDataInteraction()
         },
     })),
     urlToAction(({ actions, values }) => {

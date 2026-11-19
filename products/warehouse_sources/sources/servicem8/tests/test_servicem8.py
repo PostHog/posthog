@@ -86,12 +86,29 @@ class TestServiceM8SourceResumeBehavior:
             ("TaxRate", "/api_1.0/taxrate.json"),
             ("StaffTimeEvent", "/api_1.0/stafftimeevent.json"),
             ("Feedback", "/api_1.0/feedback.json"),
+            ("JobQueue", "/api_1.0/queue.json"),
+            ("Badge", "/api_1.0/badge.json"),
+            ("JobMaterialBundle", "/api_1.0/jobmaterialbundle.json"),
+            ("JobContact", "/api_1.0/jobcontact.json"),
         ],
     )
-    def test_requests_the_vendor_object_path(self, endpoint: str, path: str) -> None:
-        result = self._drive(endpoint, [_make_http_response([{"uuid": "a"}])])
+    @pytest.mark.parametrize("incremental", [False, True])
+    def test_requests_the_vendor_object_path(self, endpoint: str, path: str, incremental: bool) -> None:
+        result = self._drive(
+            endpoint,
+            [
+                _make_http_response([{"uuid": "a"}], {"x-next-cursor": "cursor-1"}),
+                _make_http_response([{"uuid": "b"}]),
+            ],
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value="2024-01-01 00:00:00",
+        )
 
-        assert result.paths == [path]
+        assert result.raised is None
+        assert result.rows == [{"uuid": "a"}, {"uuid": "b"}]
+        assert result.paths == [path, path]
+        assert result.params("cursor") == ["-1", "cursor-1"]
+        assert result.params("$filter") == ["edit_date gt '2024-01-01 00:00:00'" if incremental else None] * 2
 
     def test_starts_from_the_first_page_when_there_is_no_saved_state(self) -> None:
         result = self._drive("Job", [_make_http_response([{"uuid": "a"}])])

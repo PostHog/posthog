@@ -19,8 +19,7 @@ const SUMMARY: ErrorTrackingStoredIssueSummaryApi = {
     likely_cause: 'The cart is null after a session expires.',
     who_is_affected: 'Signed-in users on Safari.',
     suggested_next_step: 'Guard the null cart.',
-    category: 'own_code',
-    model: 'gpt-4.1-mini',
+    model: 'gpt-6-luna',
     generated_at: '2026-10-20T12:00:00Z',
     checked_at: '2026-10-20T12:00:00Z',
 }

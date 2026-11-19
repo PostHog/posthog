@@ -5,6 +5,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { ReviewRepositoryOverviewEntryApi } from 'products/review_hog/frontend/generated/api.schemas'
 
+import { reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 
 const ROSE = { id: 202, uuid: 'user-202', email: 'rose@example.com', hedgehog_config: null }
@@ -45,7 +46,7 @@ describe('reviewHogRepositoriesLogic', () => {
         overviewViews = []
         useMocks({
             get: {
-                '/api/projects/:team_id/review_hog/project_settings/': () => [
+                '/api/projects/:team_id/code_review/project_settings/': () => [
                     200,
                     {
                         flash_for: 'everyone',
@@ -64,7 +65,7 @@ describe('reviewHogRepositoriesLogic', () => {
                         can_edit: true,
                     },
                 ],
-                '/api/projects/:team_id/review_hog/repository_overview/': ({ request }) => {
+                '/api/projects/:team_id/code_review/repository_overview/': ({ request }) => {
                     overviewCalls += 1
                     overviewViews.push(new URL(request.url).searchParams.get('view') ?? '')
                     return [
@@ -83,27 +84,27 @@ describe('reviewHogRepositoriesLogic', () => {
                         },
                     ]
                 },
-                '/api/projects/:team_id/review_hog/settings/': () => [200, { default_review_mode: 'follow' }],
+                '/api/projects/:team_id/code_review/settings/': () => [200, { default_review_mode: 'follow' }],
             },
             post: {
-                '/api/projects/:team_id/review_hog/repository_choices/': async ({ request }) => {
+                '/api/projects/:team_id/code_review/repository_choices/': async ({ request }) => {
                     requests.push(`POST choice ${JSON.stringify(await request.json())}`)
                     return [200, { choice: null, my_result: { flash: false, reason: 'own_repository_choice' } }]
                 },
-                '/api/projects/:team_id/review_hog/repositories/': async ({ request }) => {
+                '/api/projects/:team_id/code_review/repositories/': async ({ request }) => {
                     requests.push(`POST repository ${JSON.stringify(await request.json())}`)
                     return [200, { repository: { id: 'repo-web' }, taken_from_project: null }]
                 },
-                '/api/projects/:team_id/review_hog/repositories/:id/people/': async ({ request, params }) => {
+                '/api/projects/:team_id/code_review/repositories/:id/people/': async ({ request, params }) => {
                     requests.push(`POST person ${params.id} ${JSON.stringify(await request.json())}`)
                     return [201, {}]
                 },
             },
             patch: {
-                '/api/projects/:team_id/review_hog/settings/': async ({ request }) => [200, await request.json()],
+                '/api/projects/:team_id/code_review/settings/': async ({ request }) => [200, await request.json()],
             },
             delete: {
-                '/api/projects/:team_id/review_hog/repository_choices/:id/': ({ params }) => {
+                '/api/projects/:team_id/code_review/repository_choices/:id/': ({ params }) => {
                     requests.push(`DELETE choice ${params.id}`)
                     return [204]
                 },
@@ -163,15 +164,30 @@ describe('reviewHogRepositoriesLogic', () => {
         expect(overviewViews.at(-1)).toEqual('all')
     })
 
-    it('a new exception starts as a copy of the project rule and its list', async () => {
+    it.each([
+        [
+            'everyone',
+            'copies the project rule and its except list',
+            [
+                'POST repository {"installation_id":"41","full_name":"example-org/web","github_repo_id":1001,"flash_for":"everyone"}',
+                'POST person repo-web {"user_id":202,"kind":"excepted"}',
+            ],
+        ],
+        [
+            'off',
+            'turns the repository on for everyone',
+            [
+                'POST repository {"installation_id":"41","full_name":"example-org/web","github_repo_id":1001,"flash_for":"everyone"}',
+            ],
+        ],
+    ] as const)('under a project default of %s, a new exception %s', async (projectFlashFor, _behavior, expected) => {
         await expectLogic(logic).toDispatchActions(['loadOverviewSuccess'])
+        const settings = reviewHogProjectSettingsLogic.values.projectSettings
+        reviewHogProjectSettingsLogic.actions.loadProjectSettingsSuccess({ ...settings!, flash_for: projectFlashFor })
 
         await expectLogic(logic, () => logic.actions.addException(entry({}))).toFinishAllListeners()
 
-        expect(requests).toEqual([
-            'POST repository {"installation_id":"41","full_name":"example-org/web","github_repo_id":1001,"flash_for":"everyone"}',
-            'POST person repo-web {"user_id":202,"kind":"excepted"}',
-        ])
+        expect(requests).toEqual(expected)
     })
 
     it('changing my default reloads the list, because the default decides every inherited result', async () => {

@@ -1,9 +1,12 @@
-import { Meta, StoryObj } from '@storybook/react'
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { Decorator, Meta, StoryObj } from '@storybook/react'
+
 import { App } from 'scenes/App'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import type { TeamRealtimeCohortsApi } from '~/generated/core/api.schemas'
 import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { CohortType } from '~/types'
@@ -16,8 +19,18 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-07-04',
         testOptions: { viewport: { width: 1300, height: 2000 } },
-        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING],
     },
+    decorators: [
+        (Story) => {
+            teamLogic.mount()
+            // A plan with no limit on realtime cohorts, so the usage line shows only in the stories about limits.
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                realtime_cohorts: { access: 'serving', cohorts_used: 3, max_cohorts: null },
+            })
+            return <Story />
+        },
+    ],
 }
 export default meta
 
@@ -51,6 +64,8 @@ const realtimeCohorts: CohortType[] = [
         state: 'ready',
         ready_at: '2023-07-03T09:40:00Z',
         build: null,
+        reason: null,
+        history_limit_days: null,
     }),
     // Just saved: the daily calculation and the realtime build run at the same time, and the page
     // has to keep the two apart.
@@ -58,6 +73,8 @@ const realtimeCohorts: CohortType[] = [
         state: 'building',
         ready_at: null,
         build: { phase: 'scanning', percent_complete: 45, updated_at: '2023-07-03T23:58:00Z' },
+        reason: null,
+        history_limit_days: null,
     }),
     withRealtime(
         { ...createCohort(6, 'Churn risk', 76, false), description: 'Logged in less than twice in the last month' },
@@ -65,6 +82,8 @@ const realtimeCohorts: CohortType[] = [
             state: 'needs_attention',
             ready_at: null,
             build: null,
+            reason: null,
+            history_limit_days: null,
         }
     ),
     // Event criteria the realtime path does not support, so flags cannot target it at all. A
@@ -73,6 +92,8 @@ const realtimeCohorts: CohortType[] = [
         state: 'daily',
         ready_at: null,
         build: null,
+        reason: null,
+        history_limit_days: null,
     }),
     // Person properties alone: flags read those as they evaluate, so this row carries no tag and
     // the page still answers the question. A bare row means one thing, and this is that one thing.
@@ -80,6 +101,15 @@ const realtimeCohorts: CohortType[] = [
         state: 'person_properties',
         ready_at: null,
         build: null,
+        reason: null,
+        history_limit_days: null,
+    }),
+    withRealtime(createCohort(9, 'Read the docs twice', 87, false), {
+        state: 'off',
+        ready_at: null,
+        build: null,
+        reason: null,
+        history_limit_days: null,
     }),
 ]
 
@@ -136,12 +166,6 @@ export const CohortEditRealtimeReady: Story = {
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/4/': realtimeCohorts[0], ...cohortApiMocks } })],
 }
 
-// Pins the flag-off page: without the rollout flag, a realtime cohort must look like any dynamic cohort.
-export const CohortEditRealtimeReadyFlagOff: Story = {
-    parameters: { pageUrl: urls.cohort(4), featureFlags: [] },
-    decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/4/': realtimeCohorts[0], ...cohortApiMocks } })],
-}
-
 export const CohortEditRealtimePreparing: Story = {
     parameters: {
         pageUrl: urls.cohort(5),
@@ -164,6 +188,8 @@ export const CohortEditRealtimeRebuilding: Story = {
                         state: 'rebuilding',
                         ready_at: null,
                         build: { phase: 'checking', percent_complete: null, updated_at: '2023-07-03T23:58:00Z' },
+                        reason: null,
+                        history_limit_days: null,
                     }
                 ),
                 ...cohortApiMocks,
@@ -182,9 +208,48 @@ export const CohortEditRealtimeDaily: Story = {
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/7/': realtimeCohorts[3], ...cohortApiMocks } })],
 }
 
+export const CohortEditRealtimeOff: Story = {
+    parameters: { pageUrl: urls.cohort(9) },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/9/': realtimeCohorts[5], ...cohortApiMocks } })],
+}
+
 export const CohortEditPersonProperties: Story = {
     parameters: { pageUrl: urls.cohort(8) },
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/8/': realtimeCohorts[4], ...cohortApiMocks } })],
+}
+
+const withRealtimeCohorts =
+    (field: TeamRealtimeCohortsApi): Decorator =>
+    (Story) => {
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, realtime_cohorts: field })
+        return <Story />
+    }
+
+export const CohortEditRealtimeOffAtPlanLimit: Story = {
+    parameters: { pageUrl: urls.cohort(9), testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        withRealtimeCohorts({ access: 'serving', cohorts_used: 10, max_cohorts: 10 }),
+        mswDecorator({ get: { '/api/projects/:team_id/cohorts/9/': realtimeCohorts[5], ...cohortApiMocks } }),
+    ],
+}
+
+export const CohortEditRealtimeOffPastPlanHistory: Story = {
+    parameters: { pageUrl: urls.cohort(9), testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        withRealtimeCohorts({ access: 'serving', cohorts_used: 3, max_cohorts: 10 }),
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/cohorts/9/': withRealtime(realtimeCohorts[5], {
+                    state: 'off',
+                    ready_at: null,
+                    build: null,
+                    reason: 'history_over_limit',
+                    history_limit_days: 30,
+                }),
+                ...cohortApiMocks,
+            },
+        }),
+    ],
 }
 
 export const CohortEditStatic: Story = {

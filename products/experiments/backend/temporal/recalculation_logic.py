@@ -52,6 +52,7 @@ from products.experiments.backend.metric_calculation.results import MetricResult
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.recalculation import _activity_task_queue, recalculation_clickhouse_user
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     CAPACITY_RETRY_BACKOFF_COEFFICIENT,
@@ -142,8 +143,11 @@ def _calc_route(
     """
     A metric that can read precomputed exposures and metric events goes to the precompute queue in the AUTO
     mode, and the runner checks the gates again when it calculates. The route does not use
-    PrecomputationMode.PRECOMPUTED, which is reserved for staff tools, so for now the check runs twice. Any other
-    metric goes to the activity queue and scans directly, so it never starts a precompute build there.
+    PrecomputationMode.PRECOMPUTED, which is reserved for staff tools, so for now the check runs twice.
+
+    A metric that can read precomputed exposures but not precomputed metric events (CUPED, breakdowns, unordered
+    funnels) goes to the activity queue in the AUTO mode, so the raw scan covers only the metric events. A metric
+    that can read neither goes to the activity queue in the DIRECT mode and never starts a precompute build there.
     """
     try:
         runner = ExperimentQueryRunner(
@@ -155,15 +159,18 @@ def _calc_route(
             user_facing=False,
             error_event_context=None,
         )
-        reads_precomputed = runner._exposures_precompute_applicable() and runner._metric_events_precompute_applicable()
+        reads_exposures = runner._exposures_precompute_applicable()
+        reads_metric_events = reads_exposures and runner._metric_events_precompute_applicable()
     except Exception as e:
         # The AUTO mode is what every run used before this routing, so a failed check falls back to it. Report
         # it, because a broken check sends every metric to the precompute queue.
         capture_exception(e, additional_properties={"tag": "experiment_recalculation_route_failed"})
-        reads_precomputed = True
+        reads_exposures = reads_metric_events = True
 
-    if reads_precomputed:
+    if reads_metric_events:
         return _CalcRoute(task_queue=settings.EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE, precomputation_mode=None)
+    if reads_exposures:
+        return _CalcRoute(task_queue=settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE, precomputation_mode=None)
     return _CalcRoute(
         task_queue=settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
         precomputation_mode=PrecomputationMode.DIRECT,
@@ -178,9 +185,6 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
     with team_scope(state.team_id, canonical=True):
         recalculation = ExperimentMetricsRecalculation.objects.select_related("experiment").get(id=recalculation_id)
         experiment = recalculation.experiment
-
-        # Deferred: recalculation.py imports temporal.models, whose package __init__ imports this module.
-        from products.experiments.backend.recalculation import _activity_task_queue  # noqa: PLC0415
 
         # The same flag check as the start step, so an organization off the flag (or a failed check) keeps the
         # AUTO mode on the run's queue and pays for no routing.
@@ -415,10 +419,10 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
             if recalc.started_at and recalc.created_at
             else None
         )
-        # Hours since the experiment launched, matching the legacy frontend definition exactly
+        # Hours since the start date, matching the legacy frontend definition exactly
         # (now - start_date, ignoring end_date) so dashboards can share the >12h filter across paths.
-        hours_since_launch = experiment.hours_since_launch
-        experiment_duration_hours = round(hours_since_launch) if hours_since_launch is not None else None
+        hours_since_start = experiment.hours_since_start
+        experiment_duration_hours = round(hours_since_start) if hours_since_start is not None else None
         # Count from the discovery list that also sets total_metrics, so saved metrics count and legacy
         # metrics that the run never calculates do not.
         roles = [metric.role for metric in get_metrics_for_calculation(experiment)]
@@ -430,6 +434,11 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
             distinct_id=distinct_id,
             event="experiment results refresh completed",
             properties={
+                **(
+                    {"$update_person_last_seen_at": False}
+                    if recalc.trigger == ExperimentMetricsRecalculation.Trigger.SCHEDULED
+                    else {}
+                ),
                 "experiment_id": experiment.id,
                 "team_id": team.id,
                 "recalculation_id": str(recalc.id),
@@ -617,8 +626,6 @@ def _capture_experiment_metric_event(
     threaded through the workflow + activity args so the capture path doesn't have to re-query the M2M to
     resolve it.
 
-    Every recalc trigger is user-originated (manual click, page load, stale/auto refresh), so context is
-    "ui" with mechanism "orchestrated"; `trigger` carries the finer-grained origin.
     """
     try:
         team = experiment.team
@@ -634,6 +641,11 @@ def _capture_experiment_metric_event(
                 "experiment_id": experiment.id,
                 "team_id": team.id,
                 "metric_uuid": metric_uuid,
+                **(
+                    {"$update_person_last_seen_at": False}
+                    if trigger == ExperimentMetricsRecalculation.Trigger.SCHEDULED
+                    else {}
+                ),
                 "metric_kind": (metric_dict or {}).get("metric_type"),
                 "is_primary": role == "primary",
                 "execution_mode": "recalculation",
@@ -701,6 +713,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
     attempt: int = 1,
     precomputation_mode: PrecomputationMode | None = None,
     calculation_key_version: int = 1,
+    task_queue: str = "",
 ) -> MetricRecalculationResult:
     close_old_connections()
 
@@ -852,9 +865,6 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 team_experiments_config=team_config,
             )
 
-            # Deferred: recalculation.py imports temporal.models, whose package __init__ imports this module.
-            from products.experiments.backend.recalculation import recalculation_clickhouse_user  # noqa: PLC0415
-
             # Attribute CH load back to this team + product so query_log analysis can tell whose recalc is
             # expensive without reverse-engineering the trigger string.
             with tags_context(
@@ -864,7 +874,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 feature=Feature.CACHE_WARMUP,
                 client_query_id=client_query_id,
                 # Also covers the precompute inserts, which run inside this context.
-                ch_user=recalculation_clickhouse_user(str(experiment.team.organization_id)),
+                ch_user=recalculation_clickhouse_user(task_queue),
             ):
                 result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             result_dict = sanitize_non_finite(result.model_dump(mode="json"))

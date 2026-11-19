@@ -13,13 +13,12 @@ from products.tasks.backend.facade.profiles import (
     Read,
     TaskProfile,
     WarmPolicy,
-    WarmQuota,
     task_profiles,
 )
 from products.tasks.backend.facade.run_config import WARMABLE_ORIGIN_PRODUCTS
 from products.tasks.backend.logic.services.compute_quota import is_billable_compute
 from products.tasks.backend.logic.services.sandbox import parse_requested_sandbox_template
-from products.tasks.backend.logic.services.warm import SandboxWarmer
+from products.tasks.backend.logic.services.warm import _CHECKERS_BY_WARM_QUOTA, SandboxWarmer
 from products.tasks.backend.models import MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN, Task, TaskClientProvenance
 from products.tasks.backend.presentation.views.api import (
     WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT,
@@ -27,7 +26,7 @@ from products.tasks.backend.presentation.views.api import (
 )
 from products.tasks.backend.temporal.oauth import _oauth_application_for_task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
-from products.tasks.backend.temporal.process_task.ai_gateway_token import resolve_sandbox_ai_product
+from products.tasks.backend.temporal.process_task.ai_gateway_token import mint_refusal, resolve_sandbox_ai_product
 from products.tasks.backend.temporal.process_task.utils import (
     USER_AUTHORABLE_ORIGIN_PRODUCTS,
     get_pr_authorship_mode,
@@ -73,7 +72,7 @@ def _master_warm_policy(origin_product: str) -> WarmPolicy | None:
     caps = SandboxWarmer.ORIGIN_PRODUCT_CAPS.get(origin_product, SandboxWarmer._DEFAULT_CAPS)
     checker = SandboxWarmer.ORIGIN_PRODUCT_QUOTA[origin_product]
     return WarmPolicy(
-        quota=WarmQuota.NONE if checker is None else WarmQuota.AI_CREDITS,
+        quota=next(quota for quota, check in _CHECKERS_BY_WARM_QUOTA.items() if check is checker),
         per_user_cap=caps.per_user,
         per_org_cap=caps.per_org,
         feature_flag=None
@@ -117,6 +116,22 @@ class TestTaskProfilesMatchMaster(SimpleTestCase):
     def test_billing_product_matches_master(self, _key: str, profile: TaskProfile) -> None:
         master = resolve_sandbox_ai_product(profile.origin_product, None, internal=not profile.listed)
         self.assertEqual(profile.billing_product, master)
+
+    @parameterized.expand(
+        [(key, profile) for key, profile in PROFILES if profile.billing_product == "background_agents"]
+    )
+    def test_background_agents_profile_can_mint_a_gateway_token(self, _key: str, profile: TaskProfile) -> None:
+        refusal = mint_refusal(
+            profile.billing_product,
+            team_id=1,
+            state=None,
+            model=None,
+            runtime=None,
+            internal=not profile.listed,
+            origin_product=profile.origin_product,
+        )
+        self.assertIsNone(refusal)
+        self.assertIn(profile.origin_product, Task.SERVER_ONLY_ORIGIN_PRODUCTS)
 
     @parameterized.expand(PROFILES)
     def test_bills_compute_matches_master(self, _key: str, profile: TaskProfile) -> None:
@@ -171,6 +186,10 @@ class TestTaskProfilesMatchMaster(SimpleTestCase):
     @parameterized.expand(PROFILES)
     def test_default_pr_authorship_matches_master(self, _key: str, profile: TaskProfile) -> None:
         self.assertEqual(profile.default_pr_authorship, get_pr_authorship_mode(_task(profile), None))
+
+    @parameterized.expand(PROFILES)
+    def test_create_pr_matches_master(self, _key: str, profile: TaskProfile) -> None:
+        self.assertEqual(profile.create_pr, profile.origin_product not in PRODUCT_PRIVATE_ORIGIN_PRODUCTS)
 
     @parameterized.expand(PROFILES)
     def test_default_runtime_matches_master(self, _key: str, profile: TaskProfile) -> None:

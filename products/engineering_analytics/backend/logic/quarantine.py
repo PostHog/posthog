@@ -1,25 +1,16 @@
 """Read and write sides of a repo's checked-in ``.test_quarantine.json``.
 
 The v1 schema contract lives with the hogli quarantine tooling
-(``tools/hogli-commands/hogli_commands/quarantine/core.py``); product isolation
+(``tools/hogli-commands/hogli_commands/quarantine/core.py``). Product isolation
 forbids importing tools code, so the minimal parsing is reimplemented here.
 
-Reading is fail-open to match the enforcement readers: malformed entries are
-dropped into ``parse_errors`` and the rest kept; unknown entry fields only warn;
-entries for runners without an enforcement adapter are kept (the UI shows the
-runner). Acquisition order: the server's own checkout in DEBUG (so the tab is
-live in local dev), then the caller-supplied ``repo``, then the connected GitHub
-source's most active repo over the last 30 days (``source_id`` selects which
-connected source; ``user_access_control`` filters out sources the caller can't
-read). Staying fail-open, a team with no connected source returns
-``available=false`` rather than the 4xx the curated read endpoints raise.
+Reading is fail-open to match the enforcement readers: a malformed entry goes to
+``parse_errors`` and the rest are kept, and a team with no connected source gets
+``available=false``. The file comes from the server's own checkout in DEBUG, then
+the caller-supplied ``repo``, then the connected source's most active repo.
 
-Writing is the opposite of fail-open: it refuses to edit a malformed file rather
-than silently drop entries, opens a tracking issue plus a PR through the team's
-GitHub App, and re-renders the file byte-for-byte the way ``core.render`` (and
-therefore ``hogli test:quarantine add``) would — locked by a golden test — so the
-bot's diff is indistinguishable from a human's. The file stays the single source
-of truth; CI enforcement never reads anything but the committed bytes.
+Writing is fail-closed: it refuses to edit a malformed file, and it renders the
+file byte-for-byte the way ``core.render`` does.
 """
 
 import re
@@ -67,8 +58,7 @@ QUARANTINE_FILENAME = ".test_quarantine.json"
 
 _SCHEMA_VERSION = 1
 _DEFAULT_RUNNER = "pytest"
-# Matches GRACE_DAYS in the quarantine contract: an expired entry stays
-# inert for this long before `quarantine check` makes its removal mandatory.
+# Must match GRACE_DAYS in the hogli quarantine contract.
 _GRACE_DAYS = 7
 _EXPIRING_SOON_DAYS = 7
 _ENTRY_FIELDS = ("id", "runner", "reason", "owner", "issue", "added", "expires", "mode")
@@ -78,11 +68,9 @@ _ENTRY_FIELDS = ("id", "runner", "reason", "owner", "issue", "added", "expires",
 _REPO_PART_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
 _FETCH_TIMEOUT_SECONDS = 3
 _CACHE_TTL_SECONDS = 60
-# A real quarantine file is tens of KB; this is generous headroom while bounding how
-# much a hostile public repo can make us buffer, cache, and parse from one request.
+# Bounds how much a hostile public repo can make one request buffer, cache, and parse.
 _MAX_QUARANTINE_BYTES = 5 * 1024 * 1024
 
-# Most urgent first; ties broken by soonest expiry, then id.
 _LIFECYCLE_URGENCY = {
     QuarantineLifecycle.OVERDUE: 0,
     QuarantineLifecycle.IN_GRACE: 1,
@@ -129,7 +117,6 @@ def build_quarantine(
         try:
             resolved = _most_active_repo(team, source_id=source_id, user_access_control=user_access_control)
         except GitHubSourceNotConnectedError as exc:
-            # Fail open: no connected source isn't an error here, just nothing to read.
             return _unavailable(generated_at, error=f"{exc} — pass ?repo=owner/name to read a specific repository")
         if resolved is None:
             return _unavailable(
@@ -159,7 +146,7 @@ def build_quarantine(
 
 
 def parse_quarantine_text(text: str, today: date) -> tuple[list[QuarantineEntry], list[str], list[str]]:
-    """Parse v1 quarantine JSON into sorted entries plus parse errors/warnings."""
+    """Return ``(entries, errors, warnings)``, with entries sorted most urgent first."""
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
@@ -265,14 +252,13 @@ def _read_local_text() -> str | None:
 def _most_active_repo(
     team: Team, *, source_id: str | None = None, user_access_control: "UserAccessControl | None" = None
 ) -> tuple[str, str] | None:
-    # Raises GitHubSourceNotConnectedError when the team has no source (caught upstream and turned
-    # into available=false) or ValueError for a bad source_id (propagated to a 4xx by the view).
     curated = _curated.CuratedGitHubSource.for_team(team, source_id=source_id, user_access_control=user_access_control)
-    sql = _REPO_SELECT.replace("__RUNS_SOURCE__", curated.run_source())
+    date_from = datetime.now(UTC) - timedelta(days=30)
+    sql = _REPO_SELECT.replace("__RUNS_SOURCE__", curated.run_source(since=date_from))
     response = curated.run(
         sql,
         query_type="engineering_analytics.quarantine_repo",
-        placeholders={"date_from": ast.Constant(value=datetime.now(UTC) - timedelta(days=30))},
+        placeholders={"date_from": ast.Constant(value=date_from)},
     )
     if not response.results:
         return None
@@ -287,10 +273,6 @@ def _repo_is_connected(
     *,
     user_access_control: "UserAccessControl | None" = None,
 ) -> bool:
-    """True when ``owner/name`` is one of the team's connected GitHub sources — the authorization
-    set for a client-supplied write repo override. Reads the same connected-source list the read
-    endpoint surfaces, so a connected-but-quiet repo still qualifies and a deleted source's repo
-    does not. A team with no connected source has none, so this is False."""
     target = f"{owner}/{name}".lower()
     return any(
         source.repo.lower() == target
@@ -299,9 +281,8 @@ def _repo_is_connected(
 
 
 def _fetch_quarantine_text(owner: str, name: str) -> tuple[str | None, str | None]:
-    """Returns ``(text, error)``: the file text on 200, ``(None, None)`` on 404
-    (no quarantine file is not an error), ``(None, message)`` on any other
-    failure — including a body over ``_MAX_QUARANTINE_BYTES``."""
+    """Return ``(text, error)``. A 404 returns ``(None, None)``, because a repo with no
+    quarantine file is not an error. Any other failure returns ``(None, message)``."""
     cache_key = f"engineering_analytics_quarantine:{owner}/{name}"
     cached = cache.get(cache_key)
     if isinstance(cached, str):
@@ -315,8 +296,7 @@ def _fetch_quarantine_text(owner: str, name: str) -> tuple[str | None, str | Non
                 return None, None
             if response.status_code != 200:
                 return None, f"could not fetch {QUARANTINE_FILENAME} for {owner}/{name}: HTTP {response.status_code}"
-            # Reject an advertised oversize body before reading it. Content-Length can be
-            # absent or wrong, so the streamed read below is the actual ceiling.
+            # Content-Length can be absent or wrong, so the streamed read below is the actual ceiling.
             declared = response.headers.get("Content-Length")
             if declared is not None and declared.isdigit() and int(declared) > _MAX_QUARANTINE_BYTES:
                 return None, too_large
@@ -348,15 +328,8 @@ def _unavailable(generated_at: datetime, *, repo: RepoRef | None = None, error: 
     )
 
 
-# ----------------------------------------------------------------------------
-# Write side: edit `.test_quarantine.json` via a GitHub PR + tracking issue.
-#
-# Mirrors the CLI's limits so a UI-opened PR passes the same `quarantine check`:
-# at most 30 days of quarantine, defaulting to 14 (see core.MAX_QUARANTINE_DAYS /
-# the `add --days` default). Everything below is one deep operation behind
-# `request_quarantine` — the facade, view, and UI never see a SHA or a branch.
-# ----------------------------------------------------------------------------
-
+# Must match core.MAX_QUARANTINE_DAYS and the `add --days` default of the hogli CLI,
+# so a PR opened here passes the same `quarantine check`.
 _MAX_QUARANTINE_DAYS = 30
 _DEFAULT_QUARANTINE_DAYS = 14
 
@@ -368,9 +341,8 @@ def request_quarantine(
     user_access_control: "UserAccessControl | None" = None,
 ) -> QuarantineRequestResult:
     """Open a PR (and, for a new quarantine, a tracking issue) that edits the repo's
-    ``.test_quarantine.json``. Raises ``QuarantineWriteError`` with a user-safe message
-    for anything the caller can fix (App not installed, malformed file, GitHub failure).
-    """
+    ``.test_quarantine.json``. Every failure raises ``QuarantineWriteError`` with a
+    user-safe message."""
     selector = request.selector.strip()
     if not selector:
         raise QuarantineWriteError("A test selector is required.")
@@ -383,14 +355,11 @@ def request_quarantine(
             user_access_control=user_access_control,
         )
     except QuarantineWriteError:
-        # Already a user-safe message — let it through to the 400 the view renders.
         raise
     except Exception as exc:
-        # Everything that can throw past this point is a GitHub integration call (the pure
-        # render/parse helpers only ever raise QuarantineWriteError, caught above). Those
-        # raise a grab-bag of plain Exception/ValueError/KeyError/GitHubIntegrationError that
-        # would otherwise escape handle_exception as a 500. Collapse them into a user-safe 400
-        # and keep the real cause in the logs.
+        # The GitHub integration calls raise plain Exception, ValueError, KeyError and
+        # GitHubIntegrationError. The view renders only QuarantineWriteError as a 400,
+        # so anything else would be a 500.
         logger.warning("quarantine_write_failed", team_id=team.pk, exc_info=exc)
         raise QuarantineWriteError(
             "Couldn't open the quarantine pull request — GitHub returned an unexpected error. "
@@ -423,7 +392,6 @@ def _open_quarantine_pr(
         expires = request.expires or today + timedelta(days=_DEFAULT_QUARANTINE_DAYS)
         _validate_quarantine_inputs(request, today=today, expires=expires)
 
-        # A new quarantine files its own issue; an extend carries the existing one forward.
         if request.operation == QuarantineRequestAction.QUARANTINE:
             issue_url = _open_tracking_issue(github, name, owner, selector, request, expires)
         else:
@@ -458,8 +426,6 @@ def _open_quarantine_pr(
         pr_title=commit_message,
         pr_body=pr_body,
     )
-    # Only a new quarantine files an issue; extend reuses the entry's existing one and
-    # remove files none, so the result surfaces a fresh issue only for `quarantine`.
     filed_issue_url = issue_url if request.operation == QuarantineRequestAction.QUARANTINE else ""
     return QuarantineRequestResult(pr_url=pr_url, issue_url=filed_issue_url, branch=branch)
 
@@ -484,9 +450,6 @@ def _resolve_write_target(
     *,
     user_access_control: "UserAccessControl | None" = None,
 ) -> tuple[GitHubIntegration, str, str]:
-    """Resolve the target ``(integration, owner, name)`` or raise a user-safe error.
-    Writing needs the App installed on the repo's org, so a mismatch fails loudly
-    instead of silently opening a PR on the wrong repo."""
     if repo is not None:
         owner, _, name = repo.partition("/")
     else:
@@ -501,10 +464,9 @@ def _resolve_write_target(
         raise QuarantineWriteError(
             f"Invalid repository {(repo or f'{owner}/{name}')!r}: expected an 'owner/name' slug."
         )
-    # An explicit repo is client-controlled. The org check below only proves the App lives on
-    # that org — without this gate a caller could aim the App's write token at any repo in the
-    # install's org. Constrain it to a repo the team has connected as a GitHub source; the default
-    # path is already constrained because _most_active_repo only returns the team's own repos.
+    # An explicit repo is client-controlled, and the org check below only proves the App is
+    # installed on that org. Without this gate a caller could aim the App's write token at
+    # any repo in that org.
     if repo is not None and not _repo_is_connected(team, owner, name, user_access_control=user_access_control):
         raise QuarantineWriteError(
             f"'{owner}/{name}' isn't one of this team's connected GitHub repositories — "
@@ -534,7 +496,6 @@ def _open_tracking_issue(
             "repository": repository,
         }
     )
-    # create_issue returns only number + repository; the org is the App's install account.
     return f"https://github.com/{owner}/{repository}/issues/{result['number']}"
 
 
@@ -552,8 +513,6 @@ def _commit_and_open_pr(
     branch_result = github.create_branch(repository, branch, default_branch)
     if not branch_result.get("success"):
         raise QuarantineWriteError(f"Couldn't create the quarantine branch: {branch_result.get('error', 'unknown')}")
-    # The branch was just cut from the default tip, so update_file's auto-fetched SHA is
-    # current — committing to a unique branch sidesteps any stale-SHA race by construction.
     update_result = github.update_file(repository, QUARANTINE_FILENAME, content, commit_message, branch)
     if not update_result.get("success"):
         raise QuarantineWriteError(f"Couldn't commit the quarantine change: {update_result.get('error', 'unknown')}")
@@ -570,13 +529,9 @@ def _branch_for(action: QuarantineRequestAction, selector: str) -> str:
     return f"{prefix}/{slug}-{stamp}"
 
 
-# --- File model: edit raw entry dicts, render byte-identical to core.render ---
-
-
 def _load_writable(text: str | None) -> tuple[list[dict], dict]:
-    """Parse the file into canonical entry dicts plus any top-level extras. Unlike the
-    read path this is fail-closed: a malformed file aborts the write so we never produce
-    a bad diff or drop a sibling entry."""
+    """Return the entry dicts and the top-level extras. A malformed file raises, so a
+    write never drops a sibling entry."""
     if text is None:
         return [], {}
     try:
@@ -593,9 +548,8 @@ def _load_writable(text: str | None) -> tuple[list[dict], dict]:
 
 
 def _canonical_entry(raw: object) -> dict:
-    """Re-key one entry into the on-disk order ``core._entry_to_dict`` uses: required
-    fields, then ``issue`` only when set, then any unknown fields sorted. Normalizes
-    dates through ``date.fromisoformat`` so output matches the CLI byte-for-byte."""
+    """Re-key one entry into the on-disk order ``core._entry_to_dict`` uses, so the
+    output matches the CLI byte-for-byte."""
     if not isinstance(raw, dict):
         raise QuarantineWriteError("The quarantine file has a non-object entry; fix it before editing.")
     try:
@@ -618,13 +572,13 @@ def _canonical_entry(raw: object) -> dict:
 
 
 def _upsert_entry(entries: list[dict], new_entry: dict) -> list[dict]:
-    """Replace any entry with the same (id, runner) — matching the CLI's `add` — then append."""
     key = (new_entry["id"], new_entry["runner"])
     return [e for e in entries if (e["id"], e["runner"]) != key] + [new_entry]
 
 
 def _resolve_request_runner(request: QuarantineRequest, selector: str, entries: list[dict]) -> QuarantineRunner:
-    """Preserve old clients while refusing to guess across ambiguous existing entries."""
+    """A request without a runner takes the runner of the selector's one existing entry,
+    and raises when entries for several runners exist."""
     if request.runner is not None:
         return request.runner
     matching_runners = {entry["runner"] for entry in entries if entry["id"] == selector}
@@ -644,23 +598,18 @@ def _resolve_request_runner(request: QuarantineRequest, selector: str, entries: 
 
 
 def _remove_entry(entries: list[dict], selector: str) -> list[dict]:
-    """Drop the selector for every runner, matching the CLI's `remove`."""
+    # Drops the selector for every runner, to match the CLI's `remove`.
     return [e for e in entries if e["id"] != selector]
 
 
 def render_quarantine_file(entries: list[dict], extras: dict) -> str:
-    """Serialize to the canonical on-disk form (``version`` then extras then ``entries``
-    sorted by id+runner, 4-space indent, trailing newline). Byte-identical to
-    ``core.render``; the golden test in ``test_quarantine.py`` keeps it that way."""
+    """Must stay byte-identical to ``core.render``. The golden test in
+    ``test_quarantine.py`` checks it."""
     payload: dict = {"version": _SCHEMA_VERSION, **extras}
     payload["entries"] = sorted(entries, key=lambda e: (e["id"], e["runner"]))
     return json.dumps(payload, indent=4) + "\n"
 
 
-# --- Issue / PR copy ---
-
-# Surfaced on every quarantine so reviewers know it isn't a fix and doesn't take
-# effect on in-flight runs.
 _GATE_FRESHNESS_NOTE = (
     "Note: a quarantine only affects CI runs that start after this PR merges; runs already in flight are unaffected."
 )
@@ -698,7 +647,7 @@ def _quarantine_pr_body(selector: str, request: QuarantineRequest, expires: date
         f"- **Owner:** {request.owner.strip()}",
     ]
     if issue_url:
-        # Tracked, not Closed: the issue must outlive this PR and close only when the test is fixed.
+        # "Tracked in" and not "Closes", because the issue must stay open until the test is fixed.
         lines.append(f"- **Tracked in:** {issue_url}")
     lines += ["", _GATE_FRESHNESS_NOTE]
     return "\n".join(lines)

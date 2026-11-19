@@ -1,12 +1,14 @@
 import { isAppReloadBlocked } from '@/lib/appReload'
 
 import { BUDGETS, BudgetExceededError, resetBudgets } from './budget'
-import { apiJson, apiStream, setAuthProvider } from './client'
+import { apiJson, apiStream, NotSignedInError, scopedPath, setAuthProvider } from './client'
 import { resetServerClock, serverOffsetMs } from './serverClock'
 import { createTask, sendTaskRunCommand, startTaskRun } from './tasks'
 import { REQUEST_TIMEOUT_MS, RequestTimeoutError, TransportError } from './transport'
 
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }))
+
+const LINKED_SCOPE = { host: 'https://app.example.com', projectId: 7 }
 
 describe('api client send path', () => {
     let fetchMock: jest.Mock
@@ -32,39 +34,59 @@ describe('api client send path', () => {
         setAuthProvider(null)
     })
 
-    test('identifies mobile creation, continuation and permission answers on every task action', async () => {
-        await createTask({
+    test('sends every task action to the given project, identified as mobile', async () => {
+        await createTask(LINKED_SCOPE, {
             title: '',
             description: 'Example',
             origin_product: 'posthog_ai',
             initial_permission_mode: 'default',
             pending_user_message: 'Example',
         })
-        await startTaskRun('task-1', {
+        await startTaskRun(LINKED_SCOPE, 'task-1', {
             mode: 'interactive',
             pending_user_message: 'Continue',
             resume_from_run_id: 'run-1',
         })
         await sendTaskRunCommand(
+            LINKED_SCOPE,
             'task-1',
             'run-1',
             { method: 'user_message', params: { content: 'Continue' } },
             { id: 'message-1' }
         )
         await sendTaskRunCommand(
+            LINKED_SCOPE,
             'task-1',
             'run-1',
             { method: 'permission_response', params: { requestId: 'question-1', optionId: 'allow' } },
             { id: 'answer-1' }
         )
         expect(fetchMock).toHaveBeenCalledTimes(4)
-        for (const [, init] of fetchMock.mock.calls) {
+        for (const [url, init] of fetchMock.mock.calls) {
+            expect(url).toMatch(/^https:\/\/app\.example\.com\/api\/projects\/7\//)
             expect(init).toEqual(
                 expect.objectContaining({
                     method: 'POST',
                     headers: expect.objectContaining({ 'X-PostHog-Client-Platform': 'mobile' }),
                 })
             )
+        }
+    })
+
+    test.each<[string, Parameters<typeof scopedPath>[0], string | (new () => Error)]>([
+        ['another project on the same host', LINKED_SCOPE, '/api/projects/7/signals/reports/'],
+        [
+            'the same host with a trailing slash',
+            { host: 'https://app.example.com/', projectId: 2 },
+            '/api/projects/2/signals/reports/',
+        ],
+        ['another host', { host: 'https://eu.example.com', projectId: 2 }, Error],
+        ['no project', null, NotSignedInError],
+    ])('scopes a path to %s', (_, scope, expected) => {
+        if (typeof expected === 'string') {
+            expect(scopedPath(scope, 'signals/reports/')).toBe(expected)
+        } else {
+            expect(() => scopedPath(scope, 'signals/reports/')).toThrow(expected)
         }
     })
 

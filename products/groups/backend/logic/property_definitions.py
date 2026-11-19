@@ -1,6 +1,9 @@
-from posthog.models import PropertyDefinition
-
-from products.event_definitions.backend.models import PropertyType, effective_project_id_expr, group_type_index_key_expr
+from products.event_definitions.backend.models import (
+    PropertyDefinition,
+    PropertyType,
+    effective_project_id_expr,
+    group_type_index_key_expr,
+)
 
 
 def detect_group_property_type(value: object) -> PropertyType:

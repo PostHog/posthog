@@ -58,6 +58,7 @@ class PRFileUpdate(BaseModel):
 
 class PRFile(BaseModel):
     filename: str
+    previous_filename: str | None = None
     status: str
     additions: int
     deletions: int

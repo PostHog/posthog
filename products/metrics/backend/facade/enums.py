@@ -74,6 +74,13 @@ class MetricAggregation(StrEnum):
 
     QUANTILE and HISTOGRAM_QUANTILE require the clause's `quantile` field.
 
+    COUNT_RATE and COUNT_INCREASE are RATE and INCREASE over the `count`
+    column instead of `value`, summed across series. On a histogram or
+    summary row, `value` holds the running sum of the observations and
+    `count` the number of observations, so these give requests per second
+    (or per bucket) from a latency histogram, like PromQL `rate(x_count)`.
+    They accept only histogram and summary series and take no range function.
+
     NONE combines nothing: the clause returns one series per physical series,
     capped at 100 series.
     """
@@ -88,6 +95,8 @@ class MetricAggregation(StrEnum):
     RATE = "rate"
     INCREASE = "increase"
     HISTOGRAM_QUANTILE = "histogram_quantile"
+    COUNT_RATE = "count_rate"
+    COUNT_INCREASE = "count_increase"
 
     @property
     def is_raw(self) -> bool:
@@ -99,7 +108,12 @@ class MetricAggregation(StrEnum):
 
     @property
     def is_counter_function(self) -> bool:
-        return self in (MetricAggregation.RATE, MetricAggregation.INCREASE)
+        return self in (
+            MetricAggregation.RATE,
+            MetricAggregation.INCREASE,
+            MetricAggregation.COUNT_RATE,
+            MetricAggregation.COUNT_INCREASE,
+        )
 
 
 class MetricRangeFunction(LabeledStrEnum):
@@ -112,6 +126,14 @@ class MetricRangeFunction(LabeledStrEnum):
 
     RATE = "rate", "rate"
     INCREASE = "increase", "increase"
+
+
+class MetricNameMatchMode(LabeledStrEnum):
+    """How a metric-names search matches a name: case-insensitive substring or prefix, or an RE2 regex."""
+
+    SUBSTRING = "substring", "substring"
+    PREFIX = "prefix", "prefix"
+    REGEX = "regex", "regex"
 
 
 class DashboardImportSource(LabeledStrEnum):

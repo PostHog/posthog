@@ -22,7 +22,7 @@ import * as localTools from "@posthog/harness/extensions/local-tools";
 import { zipSync } from "fflate";
 import jwt from "jsonwebtoken";
 import { HttpResponse, http } from "msw";
-import { type SetupServerApi, setupServer } from "msw/node";
+import { type SetupServer, setupServer } from "msw/node";
 import {
   afterAll,
   afterEach,
@@ -55,7 +55,9 @@ import { createPostHogHandlers } from "../test/mocks/msw-handlers";
 import type { StoredEntry, TaskRun } from "../types";
 import {
   AgentServer,
+  codexProcessCwd,
   isTurnCompleteNotification,
+  LAUNCH_BEFORE_REPO_READY_CAPABILITY,
   MESSAGE_DRIVEN_RESUME_CAPABILITY,
   PREWARMED_RESUME_IDLE_CAPABILITY,
   type PreparedInitialTaskMessage,
@@ -317,7 +319,7 @@ interface NativeResumeTestServer {
   ): Promise<{ sessionId: string; warm: boolean } | null>;
 }
 
-let nextTestPort = 20000;
+let nextTestPort = 20000 + Math.floor(Math.random() * 20000);
 
 function getNextTestPort(): number {
   const port = nextTestPort;
@@ -603,6 +605,45 @@ it.each([false, true])(
 );
 
 it.each([
+  {
+    config: {
+      repositoryPath: "/tmp/workspace/repos/posthog/posthog",
+      repoReadyFile: "/tmp/workspace/.repo-ready",
+    },
+    expected: "/tmp/workspace",
+  },
+  {
+    config: { repositoryPath: "/tmp/workspace/repos/posthog/posthog" },
+    expected: "/tmp/workspace/repos/posthog/posthog",
+  },
+  { config: {}, expected: "/tmp/workspace" },
+])("spawns codex in $expected for $config", ({ config, expected }) => {
+  expect(codexProcessCwd(config)).toBe(expected);
+});
+
+it("fails session setup when the repository never becomes ready", async () => {
+  const testServer = new AgentServer({
+    port: 0,
+    jwtPublicKey: TEST_PUBLIC_KEY,
+    apiUrl: "http://localhost:8000",
+    apiKey: "test-api-key",
+    projectId: 1,
+    mode: "interactive",
+    taskId: "test-task-id",
+    runId: "test-run-id",
+    repoReadyFile: join(tmpdir(), "missing-repo-ready-dir", ".repo-ready"),
+  }) as unknown as {
+    repoReadyTimeoutMs: number;
+    waitForRepoReady(): Promise<void>;
+  };
+  testServer.repoReadyTimeoutMs = 10;
+
+  await expect(testServer.waitForRepoReady()).rejects.toThrow(
+    "Repository was not ready",
+  );
+});
+
+it.each([
   ["request_failed", "transient"],
   ["openai_unavailable", "transient"],
   ["reauth_required", "requires_action"],
@@ -664,7 +705,7 @@ it.each([
 describe("AgentServer HTTP Mode", () => {
   let repo: TestRepo;
   let server: AgentServer | undefined;
-  let mswServer: SetupServerApi;
+  let mswServer: SetupServer;
   let appendLogCalls: unknown[][];
   let updateTaskRunCalls: unknown[];
   let port: number;
@@ -905,6 +946,7 @@ describe("AgentServer HTTP Mode", () => {
         capabilities: [
           PREWARMED_RESUME_IDLE_CAPABILITY,
           MESSAGE_DRIVEN_RESUME_CAPABILITY,
+          LAUNCH_BEFORE_REPO_READY_CAPABILITY,
         ],
       });
     }, 30000);
@@ -1149,6 +1191,49 @@ describe("AgentServer HTTP Mode", () => {
 
       expect(testServer.session?.sessionMeta.channelMode).toBeUndefined();
     }, 30000);
+
+    it.each(["knowledge_writer", "user_created"])(
+      "lets only a %s-origin task push its task branch when createPr is false",
+      async (originProduct) => {
+        await mkdir("/tmp/workspace", { recursive: true });
+        mswServer.use(
+          http.get(
+            "http://localhost:8000/api/projects/:projectId/tasks/:taskId/",
+            () =>
+              HttpResponse.json({
+                id: "test-task-id",
+                title: "Test task",
+                description: null,
+                origin_product: originProduct,
+                repository: null,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              }),
+          ),
+        );
+
+        const testServer = createServer({
+          createPr: false,
+        }) as unknown as TestableServer & { start(): Promise<void> };
+        await testServer.start();
+        const prompt = testServer.buildCloudSystemPrompt();
+
+        const isWriter = originProduct === "knowledge_writer";
+        expect(prompt.includes("push only to the branch your task names")).toBe(
+          isWriter,
+        );
+        expect(prompt.includes("Publishing is disabled for this run.")).toBe(
+          !isWriter,
+        );
+        expect(
+          prompt.includes("stop with local changes ready for review"),
+        ).toBe(!isWriter);
+        expect(prompt.includes("Always create the PR as a draft.")).toBe(
+          !isWriter,
+        );
+      },
+      30000,
+    );
 
     it("links native agent state before initializing the session", async () => {
       const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
@@ -2551,12 +2636,20 @@ describe("AgentServer HTTP Mode", () => {
         started = resolve;
       });
       const api = {
-        prepareContextSelection: vi.fn(() => {
-          started();
-          return new Promise<ContextSelectionResponse>((resolve) => {
-            finishPreparation = resolve;
-          });
-        }),
+        prepareContextSelection: vi
+          .fn()
+          .mockImplementationOnce(() => {
+            started();
+            return new Promise<ContextSelectionResponse>((resolve) => {
+              finishPreparation = resolve;
+            });
+          })
+          .mockResolvedValue({
+            selection_id: "s",
+            context: "",
+            mode: "treatment",
+            reason: "empty",
+          }),
       };
       testServer.session.contextSelection = new ContextSelection(api, "run-1");
       const result = testServer.runStartupTurn(() =>
@@ -2573,12 +2666,27 @@ describe("AgentServer HTTP Mode", () => {
       await testServer.executeCommand("cancel", {});
       finishPreparation({
         selection_id: "s",
-        context: "definition",
+        context: [
+          '<posthog_reference_context selection_id="s">',
+          JSON.stringify({
+            id: "c",
+            kind: "business_knowledge",
+            document_id: "doc-1",
+          }),
+          "</posthog_reference_context>",
+        ].join("\n"),
         mode: "treatment",
         reason: "selected",
       });
       await expect(result).resolves.toMatchObject({ stopReason: "cancelled" });
       expect(prompt).not.toHaveBeenCalled();
+      await testServer.session.contextSelection.prepare({
+        messageId: "next",
+        text: "Define activation",
+      });
+      expect(api.prepareContextSelection.mock.lastCall?.[0].exclude).toEqual(
+        [],
+      );
     });
 
     it("continues an unattended turn after a transient upstream stream death", async () => {
@@ -3783,6 +3891,53 @@ describe("AgentServer HTTP Mode", () => {
       });
       await selector.prepare({ messageId: "third", text: "Define activation" });
       expect(requests[2].history).toBe("");
+      testServer.session = null;
+    });
+
+    it("lets selection repeat references once the agent compacts", async () => {
+      const testServer = exposeRefresh(createServer());
+      attachSession(
+        testServer,
+        vi.fn(async () => ({ refreshed: true })),
+      );
+      const excludes: string[][] = [];
+      mswServer.use(
+        http.post(
+          "http://localhost:8000/api/projects/1/context_layer/selection/prepare/",
+          async ({ request }) => {
+            const body = (await request.json()) as { exclude: string[] };
+            excludes.push(body.exclude);
+            return HttpResponse.json({
+              selection_id: "s",
+              context: [
+                '<posthog_reference_context selection_id="s">',
+                JSON.stringify({
+                  id: "c",
+                  kind: "business_knowledge",
+                  document_id: "doc-1",
+                }),
+                "</posthog_reference_context>",
+              ].join("\n"),
+              mode: "treatment",
+              reason: "selected",
+            });
+          },
+        ),
+      );
+      if (!testServer.session) throw new Error("Missing test session");
+      const selector = testServer.session.contextSelection;
+      selector.recordInjected(
+        await selector.prepare({
+          messageId: "first",
+          text: "Define activation",
+        }),
+      );
+      await selector.prepare({ messageId: "second", text: "And retention?" });
+      testServer.handleAcpTransportMessage({
+        method: POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY,
+      });
+      await selector.prepare({ messageId: "third", text: "And churn?" });
+      expect(excludes).toEqual([[], ["business_knowledge:c"], []]);
       testServer.session = null;
     });
 
@@ -7680,13 +7835,11 @@ describe("AgentServer HTTP Mode", () => {
         expect(prompt).toContain("Generated-By: PostHog Desktop");
         expect(prompt).not.toContain("test-task-id");
         expect(prompt).not.toContain("gh pr create --draft");
-        // If the user does explicitly ask for a PR in this review-first mode,
-        // the agent must still use the PostHog Desktop footer, not Claude Code's default.
         expect(prompt).toContain(
           "If the user explicitly asks you to open a pull request",
         );
         expect(prompt).toContain(
-          "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
+          "*Created with [PostHog](https://posthog.com?ref=pr)*",
         );
         expect(prompt).toContain(".github/pull_request_template.md");
         expect(prompt).toContain(".github/PULL_REQUEST_TEMPLATE/*.md");
@@ -7783,6 +7936,45 @@ describe("AgentServer HTTP Mode", () => {
       },
     );
 
+    it.each([
+      {
+        mrUrl: undefined,
+        expected: [
+          "git push -u origin <branch>",
+          ".gitlab/merge_request_templates/",
+        ],
+      },
+      {
+        mrUrl: "https://gitlab.com/acme/platform/api/-/merge_requests/7",
+        expected: [
+          'operation "view"',
+          "git remote set-branches --add origin <branch>",
+          "git fetch origin +refs/heads/<branch>:refs/remotes/origin/<branch>",
+          "git checkout -b <branch> --track origin/<branch>",
+        ],
+      },
+    ])(
+      "gives GitLab instructions instead of GitHub ones for a GitLab auto-publish run (mr=$mrUrl)",
+      async ({ mrUrl, expected }) => {
+        vi.stubEnv("POSTHOG_GIT_PROVIDER", "gitlab");
+        vi.stubEnv("POSTHOG_CODE_INTERACTION_ORIGIN", "slack");
+        const s = createServer();
+        await openProduct(s, "slack");
+
+        const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt(
+          mrUrl,
+        );
+
+        expect(prompt).toContain("gitlab_merge_request");
+        for (const text of expected) {
+          expect(prompt).toContain(text);
+        }
+        for (const githubOnly of ["git_signed_commit", "gh pr", "gh_stack"]) {
+          expect(prompt).not.toContain(githubOnly);
+        }
+      },
+    );
+
     it("returns auto-PR prompt for Slack-origin runs", async () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
       const s = createServer();
@@ -7875,9 +8067,8 @@ describe("AgentServer HTTP Mode", () => {
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
       expect(prompt).toContain("gh pr create --draft");
       expect(prompt).not.toContain("stop with local changes ready for review");
-      // Manual runs keep the PostHog Desktop attribution.
       expect(prompt).toContain(
-        "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)",
+        "Created with [PostHog](https://posthog.com?ref=pr)",
       );
     });
 
@@ -8332,7 +8523,7 @@ describe("AgentServer HTTP Mode", () => {
         // brevity
         expect(prompt).toContain("Keep the PR description brief");
         expect(prompt).toContain("do NOT enumerate every change");
-        // plain footer, no Slack link; Slack-origin PRs are branded "PostHog"
+        // plain footer, no Slack link; without a thread link the PR is branded "PostHog"
         expect(prompt).toContain(
           "*Created with [PostHog](https://posthog.com?ref=pr)*",
         );
@@ -8346,7 +8537,7 @@ describe("AgentServer HTTP Mode", () => {
           origin: "slack",
           launchOptions: { slack_thread_url: SLACK_THREAD_URL },
           source: undefined,
-          footer: `*Created with [PostHog](https://posthog.com?ref=pr) from a [Slack thread](${SLACK_THREAD_URL})*`,
+          footer: `*Created by [PostHog Slack Bot](https://posthog.com/slack?ref=pr) from a [Slack thread](${SLACK_THREAD_URL})*`,
         },
         {
           label: "inbox report on a signal_report run",
@@ -8356,18 +8547,25 @@ describe("AgentServer HTTP Mode", () => {
           footer: `*Created with [PostHog](https://posthog.com?ref=pr) from an [inbox report](${INBOX_REPORT.url})*`,
         },
         {
-          label: "Slack thread over the inbox report",
+          label: "inbox report via a Slack thread",
           origin: "slack",
           launchOptions: { slack_thread_url: SLACK_THREAD_URL },
           source: INBOX_REPORT,
-          footer: `*Created with [PostHog](https://posthog.com?ref=pr) from a [Slack thread](${SLACK_THREAD_URL})*`,
+          footer: `*Created with [PostHog](https://posthog.com?ref=pr) from an [inbox report](${INBOX_REPORT.url}) via a [Slack thread](${SLACK_THREAD_URL})*`,
+        },
+        {
+          label: "inbox report via a Slack thread on a signal_report run",
+          origin: "signal_report",
+          launchOptions: { slack_thread_url: SLACK_THREAD_URL },
+          source: INBOX_REPORT,
+          footer: `*Created with [PostHog](https://posthog.com?ref=pr) from an [inbox report](${INBOX_REPORT.url}) via a [Slack thread](${SLACK_THREAD_URL})*`,
         },
         {
           label: "inbox report on a desktop run",
           origin: "desktop",
           launchOptions: {},
           source: INBOX_REPORT,
-          footer: `*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr) from an [inbox report](${INBOX_REPORT.url})*`,
+          footer: `*Created with [PostHog](https://posthog.com?ref=pr) from an [inbox report](${INBOX_REPORT.url})*`,
         },
         {
           label: "mobile client",
@@ -8405,7 +8603,7 @@ describe("AgentServer HTTP Mode", () => {
         expect(prompt).toContain("**Why**");
         expect(prompt).toContain("Keep the PR description brief");
         expect(prompt).toContain(
-          "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
+          "*Created with [PostHog](https://posthog.com?ref=pr)*",
         );
         expect(prompt).not.toContain("from a [Slack thread]");
       });
@@ -8419,7 +8617,7 @@ describe("AgentServer HTTP Mode", () => {
         ).buildCloudSystemPrompt();
 
         expect(prompt).toContain(
-          `*Created with [PostHog](https://posthog.com?ref=pr) from a [Slack thread](${SLACK_THREAD_URL})*`,
+          `*Created by [PostHog Slack Bot](https://posthog.com/slack?ref=pr) from a [Slack thread](${SLACK_THREAD_URL})*`,
         );
       });
     });

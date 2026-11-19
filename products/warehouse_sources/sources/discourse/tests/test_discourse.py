@@ -27,6 +27,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    error_message_matches,
     scripted_network,
 )
 
@@ -321,6 +322,21 @@ class TestErrorHandling:
         result = _driver().run("categories", always(ScriptedResponse(status=500, json={})))
         assert isinstance(result.raised, RESTClientRetryableError)
         assert len(result.requests) == 5
+        assert not error_message_matches(str(result.raised), DiscourseSource().get_non_retryable_errors())
+
+    @parameterized.expand([("categories",), ("tags",), ("admin_users",)])
+    def test_not_found_is_non_retryable_with_a_url_hint(self, endpoint: str) -> None:
+        source = DiscourseSource()
+        result = SourceDriver(
+            source, DiscourseSourceConfig(base_url=BASE_URL, api_key=API_KEY, api_username=API_USERNAME)
+        ).run(endpoint, always(ScriptedResponse(status=404, json={"errors": ["nope"]})))
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
+        raised = str(result.raised)
+        messages = [
+            m for key, m in source.get_non_retryable_errors().items() if m and error_message_matches(raised, [key])
+        ]
+        assert messages and "instance URL" in messages[0]
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     def test_permanent_statuses_raise_http_error(self, _name: str, status: int) -> None:

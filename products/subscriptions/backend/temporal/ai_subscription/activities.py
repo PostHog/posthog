@@ -190,6 +190,7 @@ def _capture_ai_credit_event(
                     "team_id": subscription.team_id,
                     "$process_person_profile": False,
                     **(properties or {}),
+                    "$update_person_last_seen_at": False,
                 },
                 groups={"organization": str(subscription.team.organization_id)},
             )

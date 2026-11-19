@@ -9,7 +9,11 @@ from parameterized import parameterized
 
 from posthog.schema import EventsNode, ExperimentMeanMetric, ExperimentQuery, PrecomputationMode
 
+from posthog.clickhouse.preaggregation.experiment_exposures_sql import SHARDED_EXPERIMENT_EXPOSURES_TABLE
+from posthog.clickhouse.preaggregation.experiment_metric_events_sql import SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE
+from posthog.models.deletion_targets import EVENTS, DeletionTarget
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.enums import PrecomputeSkipReason
@@ -19,6 +23,7 @@ from products.experiments.backend.hogql_queries.precompute_policy import (
     MIN_PRECOMPUTATION_DURATION_SECONDS,
     experiment_has_min_runtime_for_precomputation,
     has_uncalculated_cohorts,
+    precompute_person_resolution_enabled,
 )
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -49,6 +54,36 @@ class TestPrecomputationDurationGate:
 
         with time_machine.travel(now, tick=False):
             assert experiment_has_min_runtime_for_precomputation(start_date, end_date) is expected
+
+
+class TestPersonResolutionGate:
+    @parameterized.expand(
+        [
+            # name, flag_on, swept_tables, expected
+            (
+                "flag_on_both_tables_swept",
+                True,
+                (SHARDED_EXPERIMENT_EXPOSURES_TABLE(), SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE()),
+                True,
+            ),
+            ("flag_on_one_table_swept", True, (SHARDED_EXPERIMENT_EXPOSURES_TABLE(),), False),
+            ("flag_on_no_table_swept", True, (), False),
+            (
+                "flag_off_both_tables_swept",
+                False,
+                (SHARDED_EXPERIMENT_EXPOSURES_TABLE(), SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE()),
+                False,
+            ),
+        ]
+    )
+    def test_gate(self, _name, flag_on, swept_tables, expected):
+        deletion_targets = (EVENTS, *(DeletionTarget(data_table=table, read_table=table) for table in swept_tables))
+
+        with (
+            patch(f"{_POLICY_MODULE}.DEFAULT_DELETION_TARGETS", deletion_targets),
+            patch(f"{_POLICY_MODULE}.posthoganalytics.feature_enabled", return_value=flag_on),
+        ):
+            assert precompute_person_resolution_enabled(Team(id=1)) is expected
 
 
 def _cohort_exposure_criteria(cohort_id: int) -> dict:

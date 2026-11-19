@@ -84,8 +84,8 @@ Check directly, in this order, and ask only what the tools cannot answer:
 - Stored results may not exist yet for a fresh experiment.
   A read of the stored results that returns nothing in the first hours is expected.
   The scheduled calculation skips an experiment younger than 12 hours or with fewer than 50 exposures in total, so an empty experiment has stored results only when a calculation was started another way, for example from the experiment page.
-- In a project with precomputed exposures, an experiment older than 12 hours can lag today's new exposures by up to 15 minutes.
-  The total is 0 because of that only when every exposure is younger than 15 minutes.
+- In a project with precomputed exposures, an experiment older than 12 hours can lag today's new exposures by up to 30 minutes.
+  The total is 0 because of that only when every exposure is younger than 30 minutes.
 
 <!-- Source for maintainers (may rot): MIN_PRECOMPUTATION_DURATION_SECONDS and DEFAULT_EXPOSURE_TTL_SECONDS in
 products/experiments/backend/hogql_queries/precompute_policy.py; ExperimentResultsCacheMixin in

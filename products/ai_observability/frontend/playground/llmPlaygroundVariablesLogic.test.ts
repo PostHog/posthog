@@ -21,6 +21,12 @@ describe('llmPlaygroundVariablesLogic', () => {
                         ? [{ id: 'jev-1', name: 'jev-1', provider: 'System One', supports_chat: false }]
                         : [{ id: 'gpt-5-mini', name: 'GPT-5 Mini', provider: 'OpenAI', description: '' }],
                 ],
+                '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => [
+                    200,
+                    params.key_id
+                        ? [{ id: 'jev-1', name: 'jev-1', provider: 'System One', supports_chat: false }]
+                        : [{ id: 'gpt-5-mini', name: 'GPT-5 Mini', provider: 'OpenAI', description: '' }],
+                ],
             },
         })
     })

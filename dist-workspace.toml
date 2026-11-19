@@ -36,6 +36,10 @@ install-path = "~/.posthog"
 install-updater = false
 # A namespace to use when publishing this package to the npm registry
 npm-scope = "@posthog"
+# No npm-shrinkwrap.json: npm installs the devDependencies it lists (prettier)
+# into every consumer's node_modules, which leaves an extraneous entry in
+# their package-lock.json.
+npm-shrinkwrap = false
 # The tap the generated formula is published to. It has to exist already,
 # and it is the same one phrocs and hogland use.
 tap = "PostHog/homebrew-tap"
@@ -53,3 +57,5 @@ x86_64-unknown-linux-gnu = "ubuntu-22.04"
 x86_64-unknown-linux-musl = "ubuntu-22.04"
 global = "ubuntu-22.04"
 x86_64-pc-windows-msvc = "windows-2025"
+# macos-14 (the dist default for Apple Silicon) was retired by github on 2026-11-02
+aarch64-apple-darwin = "macos-15"

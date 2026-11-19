@@ -1,0 +1,44 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:id="@+id/chart_root"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:background="@drawable/chart_widget_background"
+  android:clipToOutline="true"
+  android:gravity="center"
+  android:orientation="vertical"
+  android:padding="16dp">
+
+  <TextView
+    android:id="@+id/chart_state_title"
+    style="@style/ChartWidgetText.State.Title"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:visibility="gone" />
+
+  <TextView
+    android:id="@+id/chart_state_message"
+    style="@style/ChartWidgetText.State"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="4dp"
+    android:text="@string/chart_widget_loading" />
+
+  <TextView
+    android:id="@+id/chart_state_detail"
+    style="@style/ChartWidgetText.State"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="2dp"
+    android:textColor="@color/chart_widget_tertiary"
+    android:visibility="gone" />
+
+  <ImageView
+    android:id="@+id/chart_state_placeholder"
+    android:layout_width="match_parent"
+    android:layout_height="28dp"
+    android:layout_marginTop="10dp"
+    android:importantForAccessibility="no"
+    android:scaleType="fitXY"
+    android:src="@drawable/chart_widget_placeholder"
+    android:visibility="gone" />
+</LinearLayout>

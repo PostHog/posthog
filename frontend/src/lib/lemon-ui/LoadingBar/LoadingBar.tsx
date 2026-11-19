@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // atan(1) / (PI / 2) puts the frozen Storybook bar at a 50% fill
 const STORYBOOK_FROZEN_PROGRESS = 1
@@ -26,7 +26,7 @@ export function LoadingBar({ className, loadId, setProgress, progress, wrapperCl
     const { isVisible: isPageVisible } = usePageVisibility()
     // The 50ms ticker below moves the fill on every frame, which makes each
     // Storybook visual regression capture differ. Freeze the fill there instead.
-    const frozenForStorybook = inStorybook() || inStorybookTestRunner()
+    const frozenForStorybook = inStorybook()
 
     useEffect(() => {
         if (loadId && progress) {

@@ -30,6 +30,7 @@ from .enums import (
     RoutingOwnerOutcome,
     RoutingOwnerReason,
     RoutingScope,
+    RoutingStatus,
 )
 
 
@@ -47,6 +48,8 @@ class RepoConfigDTO:
     review_mode: str = ""
     trigger_label: str = ""
     routing_mode: str = ""
+    routing_fork_labels: dict[str, str] = Field(default_factory=dict)
+    review_on_clean_external_review: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -72,6 +75,24 @@ class AddRepositoryResultDTO:
 
 
 @dataclass(frozen=True)
+class PullRequestRoutingDTO:
+    """The latest reviewer routing record of a pull request: its phase, never its plan."""
+
+    status: RoutingStatus
+    head_sha: str
+    mode: RoutingMode
+    trigger: str
+    scope: RoutingScope | None = None
+    # A claim this old may be taken over, which does not prove that its task died.
+    claim_expired: bool = False
+    waiting_since: datetime | None = None
+    claimed_at: datetime | None = None
+    routed_at: datetime | None = None
+    full_routed_head: str = ""
+    pinned_routed_head: str = ""
+
+
+@dataclass(frozen=True)
 class PullRequestDTO:
     """A pull request stamphog knows about, including merge state once it merges."""
 
@@ -91,6 +112,8 @@ class PullRequestDTO:
     merge_commit_sha: str = ""
     merged_at: datetime | None = None
     posted_comment_id: int | None = None
+    routing_mode: RoutingMode = RoutingMode.OFF
+    routing: PullRequestRoutingDTO | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -168,6 +191,7 @@ class RoutingFileDTO:
     status: str = ""
     additions: int = 0
     deletions: int = 0
+    owners_source: str | None = None
 
 
 @dataclass(frozen=True)
@@ -183,6 +207,26 @@ class RoutingRunOwnerDTO:
     files: list[RoutingFileDTO] = Field(default_factory=list)
     lines: int = 0
     file_count: int = 0
+    # The reviewer's clause about this owner's part, when its change summary has one.
+    summary: str | None = None
+
+
+@dataclass(frozen=True)
+class RoutingPullRequestDTO:
+    """The pull request a routing run routed, as stamphog last saw it rather than as it was at the run."""
+
+    title: str
+    author: str
+    url: str
+    merged_at: datetime | None = None
+    # Stamphog stores the size only when it records the merge, so these are None until the pull request merges.
+    additions: int | None = None
+    deletions: int | None = None
+    changed_files: int | None = None
+    # The reviewer's sentence about the whole change, from the newest completed review that wrote one.
+    summary: str | None = None
+    # Whether a standing stamphog approval covers the head that routing last decided on.
+    auto_approved: bool = False
 
 
 @dataclass(frozen=True)
@@ -193,6 +237,7 @@ class RoutingRunDTO:
     team_id: int
     repository: str
     pr_number: int
+    pull_request: RoutingPullRequestDTO
     head_sha: str
     mode: RoutingMode
     trigger: str
@@ -205,6 +250,15 @@ class RoutingRunDTO:
     owners_sha: str = ""
     owners: list[RoutingRunOwnerDTO] = Field(default_factory=list)
     created_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class RoutingOwnerCountDTO:
+    """An owner that routing runs decided about, with how many pull requests they touched."""
+
+    owner: str
+    kind: OwnerKind
+    pr_count: int
 
 
 @dataclass(frozen=True)

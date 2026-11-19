@@ -193,4 +193,47 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             comment="Text comment left with the feedback.",
         ),
     },
+    "JobQueue": {
+        "description": "A job queue that holds jobs awaiting action, such as Workshop or Pending Quotes.",
+        "docs_url": "https://developer.servicem8.com/reference/listjobqueues",
+        "columns": _columns(
+            name="Name of the job queue.",
+            default_timeframe="Default number of days a job stays in the queue before it needs attention.",
+            subscribed_staff="Semicolon-delimited list of UUIDs of staff subscribed to queue notifications.",
+            requires_assignment="Whether jobs in the queue must be assigned to a staff member.",
+        ),
+    },
+    "Badge": {
+        "description": "A badge used to classify jobs and clients, such as Warranty or VIP.",
+        "docs_url": "https://developer.servicem8.com/reference/listbadges",
+        "columns": _columns(
+            name="Display name of the badge.",
+            regarding_asset_type_uuid="UUID of the asset type the badge represents, for asset-based badges.",
+        ),
+    },
+    "JobMaterialBundle": {
+        "description": "A bundle of materials added to a job as one line item on its quote or invoice.",
+        "docs_url": "https://developer.servicem8.com/reference/listjobmaterialbundles",
+        "columns": _columns(
+            job_uuid="UUID of the job the bundle belongs to.",
+            material_bundle_uuid="UUID of the material bundle this job bundle was created from.",
+            item_number="Item number of the bundle, shown on the quote or invoice.",
+            name="Name of the bundle, shown on the quote or invoice.",
+            quantity="Quantity of the bundle line item on the invoice.",
+            sort_order="Display order of the bundle among the job's materials; lower values show first.",
+        ),
+    },
+    "JobContact": {
+        "description": "A contact person for a job, such as the job contact or the billing contact.",
+        "docs_url": "https://developer.servicem8.com/reference/listjobcontacts",
+        "columns": _columns(
+            job_uuid="UUID of the job the contact belongs to.",
+            first="First name of the contact.",
+            last="Last name of the contact.",
+            phone="Landline or office phone number of the contact.",
+            mobile="Mobile phone number of the contact.",
+            email="Email address of the contact.",
+            type="Relationship of the contact to the job: JOB, BILLING, or Property Manager.",
+        ),
+    },
 }

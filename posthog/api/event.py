@@ -38,7 +38,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Element, Person, PropertyDefinition, User
+from posthog.models import Element, Person, User
 from posthog.models.event.legacy_events_query import (
     EVENT_LIST_DEFAULT_AFTER_WINDOW,
     LegacyEventsListQuery,
@@ -59,6 +59,7 @@ from posthog.rate_limit import (
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.utils import convert_property_value, flatten, refresh_requested_by_client, relative_date_parse
 
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 tracer = trace.get_tracer(__name__)

@@ -4,6 +4,24 @@ from posthog.clickhouse.table_engines import AggregatingMergeTree, Buffer, Distr
 
 QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
 
+# Write path of earlier generations. A stack that ran part of the old migration chain can still have
+# these objects. None of them stores data, so they are dropped. The data tables of those generations
+# (sharded_query_log_archive, query_log_archive_v2) stay, and the operator decides when to drop them.
+# The cloud clusters do not run this cleanup: posthog-cloud-infra owns their archive objects, and the
+# v3 objects take over some of these names there.
+LEGACY_QUERY_LOG_ARCHIVE_VIEWS = (
+    "query_log_archive_mv",
+    "sharded_query_log_archive_mv",
+    "dist_query_log_archive_mv",
+    "ops_query_log_archive_mv",
+    "daily_aggregated_query_log_archive",
+)
+LEGACY_QUERY_LOG_ARCHIVE_WRITE_TABLES = (
+    "writable_query_log_archive",
+    "writable_sharded_query_log_archive",
+    "query_log_archive_buffer",
+)
+
 
 # ============================================================================
 # v3 generation: one row per query chain
@@ -238,13 +256,13 @@ def DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(cluster=None):
     )
 
 
-def QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL():
+def QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL(num_layers: int = 16):
     """Buffer on OPS in front of the v3 data table."""
     return _v3_plain_table_sql(
         QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE,
         Buffer(
             destination_table=SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE,
-            num_layers=16,
+            num_layers=num_layers,
             min_time=10,
             max_time=60,
             min_rows=10_000,

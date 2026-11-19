@@ -86,6 +86,9 @@ RESTORE_MAX_DISTINCT_IDS = 1000
 # The identity server's cap on person ids per lifecycle DeletePersons request.
 LIFECYCLE_DELETE_MAX_PERSON_IDS = 250
 
+# The replica's cap on person ids per InsertCohortMembers or DeleteCohortMembersByPersonIds request.
+COHORT_MEMBERS_MAX_PERSON_IDS = 10_000
+
 # team_id is narrowed to i32 server-side.
 _MAX_TEAM_ID = 2**31 - 1
 
@@ -194,6 +197,12 @@ class FakePersonHogClient:
         if uuid:
             self._persons_by_uuid[(team_id, uuid)] = person
         for did in distinct_ids or []:
+            previous = self._persons_by_distinct_id.get((team_id, did))
+            if previous is not None and previous.id != person_id:
+                # The replica keeps one row per distinct id, so the previous owner no longer lists it.
+                self._distinct_ids[(team_id, previous.id)] = [
+                    d for d in self._distinct_ids.get((team_id, previous.id), []) if d.distinct_id != did
+                ]
             self._persons_by_distinct_id[(team_id, did)] = person
             # A re-added mapping is live again, as a revival upsert makes it in the replica.
             self._tombstoned_distinct_ids.discard((team_id, did))
@@ -359,7 +368,7 @@ class FakePersonHogClient:
         self, request: person_pb2.GetDistinctIdsForPersonRequest
     ) -> person_pb2.GetDistinctIdsForPersonResponse:
         self.calls.append(_Call("get_distinct_ids_for_person", request))
-        dids = list(self._distinct_ids.get((request.team_id, request.person_id), []))
+        dids = self._live_distinct_ids(request.team_id, request.person_id)
         limit = request.limit if request.HasField("limit") and request.limit > 0 else None
         has_cursor = request.HasField("cursor_id")
         cursor_id = request.cursor_id if has_cursor else None
@@ -386,6 +395,14 @@ class FakePersonHogClient:
             next_cursor_id=next_cursor_id,
         )
 
+    def _live_distinct_ids(self, team_id: int, person_id: int) -> list[person_pb2.DistinctIdWithVersion]:
+        # The replica reads only rows with is_deleted = false, so a tombstoned mapping is never listed.
+        return [
+            d
+            for d in self._distinct_ids.get((team_id, person_id), [])
+            if (team_id, d.distinct_id) not in self._tombstoned_distinct_ids
+        ]
+
     def get_distinct_ids_for_persons(
         self, request: person_pb2.GetDistinctIdsForPersonsRequest
     ) -> person_pb2.GetDistinctIdsForPersonsResponse:
@@ -395,7 +412,7 @@ class FakePersonHogClient:
         )
         results = []
         for pid in request.person_ids:
-            dids = self._distinct_ids.get((request.team_id, pid), [])
+            dids = self._live_distinct_ids(request.team_id, pid)
             if limit is not None:
                 dids = _order_identified_first(dids)[:limit]
             results.append(person_pb2.PersonDistinctIds(person_id=pid, distinct_ids=dids))
@@ -417,16 +434,20 @@ class FakePersonHogClient:
         count = sum(1 for (cid, _) in self._cohort_members if cid in cohort_ids_set)
         return cohort_pb2.CountCohortMembersResponse(count=count)
 
+    def _remove_cohort_member(self, cohort_id: int, person_id: int) -> bool:
+        key = (cohort_id, person_id)
+        if key not in self._cohort_members:
+            return False
+        del self._cohort_members[key]
+        memberships = self._cohort_memberships.get(person_id, [])
+        self._cohort_memberships[person_id] = [m for m in memberships if m.cohort_id != cohort_id]
+        return True
+
     def delete_cohort_member(
         self, request: cohort_pb2.DeleteCohortMemberRequest, timeout: float | None = None
     ) -> cohort_pb2.DeleteCohortMemberResponse:
         self.calls.append(_Call("delete_cohort_member", request))
-        key = (request.cohort_id, request.person_id)
-        deleted = key in self._cohort_members
-        if deleted:
-            del self._cohort_members[key]
-            memberships = self._cohort_memberships.get(request.person_id, [])
-            self._cohort_memberships[request.person_id] = [m for m in memberships if m.cohort_id != request.cohort_id]
+        deleted = self._remove_cohort_member(request.cohort_id, request.person_id)
         return cohort_pb2.DeleteCohortMemberResponse(deleted=deleted)
 
     def delete_cohort_members_bulk(
@@ -446,10 +467,27 @@ class FakePersonHogClient:
             ]
         return cohort_pb2.DeleteCohortMembersBulkResponse(deleted_count=len(to_remove))
 
+    def delete_cohort_members_by_person_ids(
+        self, request: cohort_pb2.DeleteCohortMembersByPersonIdsRequest, timeout: float | None = None
+    ) -> cohort_pb2.DeleteCohortMembersByPersonIdsResponse:
+        self.calls.append(_Call("delete_cohort_members_by_person_ids", request))
+        self._validate_cohort_member_count(request.person_ids)
+        deleted = sum(1 for pid in request.person_ids if self._remove_cohort_member(request.cohort_id, pid))
+        return cohort_pb2.DeleteCohortMembersByPersonIdsResponse(deleted_count=deleted)
+
+    @staticmethod
+    def _validate_cohort_member_count(person_ids: Sequence[int]) -> None:
+        if len(person_ids) > COHORT_MEMBERS_MAX_PERSON_IDS:
+            raise _FakeRpcError(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                f"Maximum {COHORT_MEMBERS_MAX_PERSON_IDS} person IDs per request",
+            )
+
     def insert_cohort_members(
         self, request: cohort_pb2.InsertCohortMembersRequest, timeout: float | None = None
     ) -> cohort_pb2.InsertCohortMembersResponse:
         self.calls.append(_Call("insert_cohort_members", request))
+        self._validate_cohort_member_count(request.person_ids)
         inserted = 0
         for pid in request.person_ids:
             key = (request.cohort_id, pid)

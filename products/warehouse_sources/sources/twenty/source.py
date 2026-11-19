@@ -51,6 +51,11 @@ class TwentySource(ResumableSource[TwentySourceConfig, TwentyResumeConfig]):
             **auth_non_retryable_errors(service="Twenty"),
             HOST_NOT_ALLOWED_ERROR: "The Twenty instance URL is not allowed. Please use a publicly reachable host.",
             HTTP_NOT_ALLOWED_ERROR: "The Twenty instance URL must use HTTPS. Please update the instance URL to use https://.",
+            # `_is_host_safe` raises this when the self-hosted instance URL doesn't resolve via
+            # DNS — a hostname the customer typed wrong or one that's no longer publicly
+            # reachable. Deterministic and permanent until the URL is corrected, so stop
+            # retrying. Match the stable prefix, not the customer's hostname that follows it.
+            "Couldn't resolve the host": "The Twenty instance URL could not be resolved via DNS. Check that it's spelled correctly and reachable from the public internet, then reconnect.",
             # Twenty's own backend throws this for an unhandled server-side bug while building the
             # query (observed on `opportunities` with an incremental filter + sort); it is a bug in
             # Twenty, not in the request we send, and it reproduces identically on every retry since

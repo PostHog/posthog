@@ -39,7 +39,8 @@ pub fn consumer_client_config(
         ("queued.max.messages.kbytes", "102400"),
         ("metadata.max.age.ms", "30000"),
         ("socket.timeout.ms", "30000"),
-        ("enable.partition.eof", "true"),
+        // Node enables this, but rust-rdkafka logs every end-of-partition event at ERROR level, and nothing here needs them.
+        ("enable.partition.eof", "false"),
         // Node sets this in both consumer versions, so a new group starts at the oldest offset.
         ("auto.offset.reset", "earliest"),
     ] {

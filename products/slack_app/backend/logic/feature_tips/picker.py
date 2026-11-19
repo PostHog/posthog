@@ -1,13 +1,15 @@
 """Which feature a tip promotes, when more than one is a candidate.
 
 Jev, a System One decision model, reads the person's message and picks the feature that fits it,
-or ``none``. Below the confidence threshold, on ``none``, or on any failure, the candidate with
-the lowest rank wins. A tip does not have to match the message, so the model only orders the
-candidates and never decides whether a tip goes out.
+or ``none``. Below the confidence threshold or on ``none``, the message fits no candidate, so a
+random candidate wins, weighted toward the lower ranks, and the same tip does not lead every time.
+On any failure, the candidate with the lowest rank wins. A tip does not have to match the message,
+so the model only orders the candidates and never decides whether a tip goes out.
 """
 
 from __future__ import annotations
 
+import random
 from collections.abc import Sequence
 from typing import Literal
 
@@ -57,7 +59,7 @@ class FeatureTipVerdict:
 @frozen
 class TipChoice:
     feature: SlackFeature
-    source: Literal["contextual", "ranked"]
+    source: Literal["contextual", "ranked", "random"]
     confidence: float | None = None
 
 
@@ -128,8 +130,11 @@ def choose_tip(
     by_value = {tip.feature.value: tip for tip in candidates}
     if verdict is not None and verdict.choice in by_value and verdict.confidence >= FEATURE_TIP_MIN_CONFIDENCE:
         return TipChoice(feature=by_value[verdict.choice].feature, source="contextual", confidence=verdict.confidence)
-    return TipChoice(
-        feature=ranked.feature,
-        source="ranked",
-        confidence=verdict.confidence if verdict is not None else None,
-    )
+    if verdict is None:
+        return TipChoice(feature=ranked.feature, source="ranked")
+    return TipChoice(feature=_weighted_random(candidates).feature, source="random", confidence=verdict.confidence)
+
+
+def _weighted_random(candidates: Sequence[TipFeature]) -> TipFeature:
+    ordered = sorted(candidates, key=lambda tip: tip.rank)
+    return random.choices(ordered, weights=[1 / (position + 1) for position in range(len(ordered))])[0]

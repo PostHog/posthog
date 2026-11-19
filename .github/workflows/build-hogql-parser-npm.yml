@@ -32,14 +32,18 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  fetch-depth: 0
-                  filter: blob:none
+                  sparse-checkout: |
+                      /common/hogql_parser/package.json
+                      /.github/scripts/post-reminder-section.mjs
+                      /frontend/bin/ci-report/update-ci-report.mjs
+                  sparse-checkout-cone-mode: false
 
             - name: Check if common/hogql_parser/ has changed
               id: changed-files
               if: github.event_name == 'pull_request'
               uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
               with:
+                  use_rest_api: true
                   files_yaml: |
                       parser:
                       - common/hogql_parser/**
@@ -89,6 +93,11 @@ jobs:
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      /common/hogql_parser/
+                      /.github/actions/setup-emsdk/
+                  sparse-checkout-cone-mode: false
 
             - name: Setup Emscripten for WASM build
               uses: ./.github/actions/setup-emsdk

@@ -6,12 +6,12 @@
                 "backend/facade/**",
                 "backend/presentation/**",
                 "backend/routes.py",
-                "backend/delivery/email.py",
-                "backend/delivery/pagerduty.py",
-                "backend/delivery/team_flags.py",
                 "backend/models/**",
                 "backend/temporal/**",
-                "backend/migrations/**"
+                "backend/migrations/**",
+                "backend/activity_logging.py",
+                "backend/logic/source_configs.py",
+                "backend/apps.py"
             ],
             "outputs": [],
             "cache": true

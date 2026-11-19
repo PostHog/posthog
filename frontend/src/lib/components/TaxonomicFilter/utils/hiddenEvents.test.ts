@@ -3,6 +3,7 @@ import {
     eventsWithMoveNotice,
     hiddenEventMatchingSearch,
     hiddenEventNames,
+    hiddenEventStandInsMatchingSearch,
     moveAnnouncementUrl,
     withHiddenEventsExcluded,
 } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
@@ -26,6 +27,23 @@ describe('events hidden from query builders', () => {
         ['the picker opts out', FlagEvaluationsModeEnumApi.Number1, true],
     ])('hides nothing when %s', (_label, mode, includeHiddenEvents) => {
         expect(hiddenEventNames(mode, includeHiddenEvents)).toEqual([])
+    })
+
+    it('hides the event behind its stand-in even when the picker includes hidden events', () => {
+        expect(hiddenEventNames(FlagEvaluationsModeEnumApi.Number2, true, true)).toEqual(['$feature_flag_called'])
+    })
+
+    it.each([
+        ['the start of the name without its $', ' FEATURE_FLAG ', ['$feature_flag_called']],
+        ['the start of the label', 'feature flag c', ['$feature_flag_called']],
+        ['the name as typed', '$feature_flag_called', ['$feature_flag_called']],
+        ['the name without its $', 'feature_flag_called', ['$feature_flag_called']],
+        ['the label', 'Feature flag called', ['$feature_flag_called']],
+        ['the first word alone', 'feature', []],
+        ['the first word and a separator', '$feature_', []],
+        ['a word from inside the name', 'flag called', []],
+    ])('offers stand-ins for %s', (_label, searchQuery, expected) => {
+        expect(hiddenEventStandInsMatchingSearch(searchQuery).map(({ name }) => name)).toEqual(expected)
     })
 
     it.each([
