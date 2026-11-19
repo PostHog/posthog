@@ -22,6 +22,7 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
 
+from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
 from products.batch_exports.backend.facade.contracts import UnsupportedHogQLQueryError
 from products.batch_exports.backend.facade.enums import EXPORTABLE_EVENTS_MODEL_FIELDS
 
@@ -155,6 +156,7 @@ def recompile_stored_schema(
         team_id=team_id,
         enable_select_queries=True,
         limit_top_select=False,
+        use_new_events_schema=True,
         modifiers=HogQLQueryModifiers(
             materializationMode=MaterializationMode.DISABLED,
             personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
@@ -190,6 +192,7 @@ def parse_events_hogql_query(
             user=user,
             enable_select_queries=True,
             restricted_properties=restricted_properties,
+            use_new_events_schema=batch_exports_read_new_events_table(),
             modifiers=HogQLQueryModifiers(
                 personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
             ),
@@ -299,6 +302,7 @@ def serialize_events_query_schema(
         enable_select_queries=True,
         limit_top_select=False,
         restricted_properties=restricted_properties,
+        use_new_events_schema=batch_exports_read_new_events_table(),
         modifiers=HogQLQueryModifiers(
             personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
         ),
