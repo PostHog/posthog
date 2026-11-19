@@ -612,6 +612,30 @@ describe('insightSceneLogic', () => {
 
             expect(logic.values.insightDataLogicRef!.logic.values.query).toEqual(expectedQuery)
         })
+
+        it('switching to edit mode drops the dashboard overrides from the url', async () => {
+            const viewUrl = urls.insightView(Insight42, 6, undefined, {
+                breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
+            })
+            // The mode switch copies the browser's search params, which the test router does not write
+            window.history.replaceState({}, '', viewUrl)
+            try {
+                router.actions.push(viewUrl)
+                logic = insightSceneLogic()
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                logic.actions.setInsightMode(ItemMode.Edit, null)
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(logic.values.insightLogicRef!.logic).delay(150).toFinishAllListeners()
+
+                expect(router.values.searchParams).toEqual({ dashboard: 6 })
+                expect(logic.values.hasOverrides).toBe(false)
+                expect(logic.values.insightDataLogicRef!.logic.values.query).toEqual(storedQuery)
+            } finally {
+                window.history.replaceState({}, '', '/')
+            }
+        })
     })
 
     const CARD_NAME_OVERRIDE: Record<string, HogQLVariable> = {

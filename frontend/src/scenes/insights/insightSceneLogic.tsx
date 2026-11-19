@@ -100,6 +100,16 @@ function editsDashboardTileLogic(insightMode: ItemMode, props: InsightLogicProps
     )
 }
 
+// Editing discards a dashboard's overrides, as the Edit button warns, so a save cannot write them into the insight
+function withoutDashboardOverrides(search: string): string {
+    const params = new URLSearchParams(search)
+    for (const key of ['filters_override', 'variables_override', 'tile_filters_override']) {
+        params.delete(key)
+    }
+    const remaining = params.toString()
+    return remaining ? `?${remaining}` : ''
+}
+
 // Hand-built links skip `urls.insightNew()`, and this scene cannot edit a new SQL query
 function newInsightUrlOutsideScene(q: unknown, dashboard: unknown, tileGroup: unknown): string | null {
     const query = typeof q === 'string' ? parseDraftQueryFromURL(q) : (q as Node | undefined)
@@ -1077,8 +1087,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return [urls.insightNew(), window.location.search, window.location.hash]
             }
 
-            const baseUrl = insightMode === ItemMode.View ? urls.insightView(insightId) : urls.insightEdit(insightId)
-            return [baseUrl, window.location.search, window.location.hash]
+            if (insightMode === ItemMode.View) {
+                return [urls.insightView(insightId), window.location.search, window.location.hash]
+            }
+            return [
+                urls.insightEdit(insightId),
+                withoutDashboardOverrides(window.location.search),
+                window.location.hash,
+            ]
         }
 
         return {
