@@ -494,6 +494,57 @@ async fn a_handler_builds_no_more_partitions_at_once_than_its_limit() {
 }
 
 #[tokio::test]
+async fn a_partition_is_rebuilt_without_a_generation_retired_since_its_handoff() {
+    use personhog_common::partitioning::partition_for_person;
+
+    const OLD_TOPIC: &str = "personhog_updates_old";
+    let (cluster, producer) = create_mock_kafka().await;
+    cluster
+        .create_topic(OLD_TOPIC, NUM_PARTITIONS as i32, 1)
+        .expect("create the old topic");
+    // A record only the old generation holds, for a person of partition 0.
+    let moved = (1..)
+        .find(|id| partition_for_person(1, *id, NUM_PARTITIONS) == 0)
+        .expect("a person of partition 0");
+    let payload = make_person(1, moved).encode_to_vec();
+    producer
+        .send(
+            FutureRecord::to(OLD_TOPIC)
+                .key("moved")
+                .partition(0)
+                .payload(&payload),
+            Duration::from_secs(5),
+        )
+        .await
+        .expect("produce to the old topic");
+    let f = following("retired", &cluster, FOLLOW);
+    let changelog = LiveChangelog::new(f.config.clone());
+    let handler = FollowerHandler::new(Arc::clone(&f.follower), changelog.clone(), 4);
+    let draining = ChangelogConfig {
+        epoch: f.config.epoch + 1,
+        draining: vec![Generation {
+            topic: OLD_TOPIC.to_string(),
+            partitions: NUM_PARTITIONS,
+            epoch: f.config.epoch,
+            cluster: None,
+        }],
+        ..f.config.clone()
+    };
+    let retired = ChangelogConfig {
+        draining: Vec::new(),
+        ..draining.clone()
+    };
+
+    handler.capture_changelog(0, &draining).await;
+    assert!(changelog.adopt(&retired));
+    handler.verify_serving(0).await.expect("rebuild");
+
+    // Replaying the retired generation would have cached its record.
+    assert!(f.follower.is_following(0));
+    assert_eq!(version_of(&f.cache, 0, moved), None);
+}
+
+#[tokio::test]
 async fn a_build_that_waited_for_its_slot_is_built_under_the_config_live_by_then() {
     let (cluster, _producer) = create_mock_kafka().await;
     // Never confirmed current, so a build holds its slot until its deadline and then fails.
