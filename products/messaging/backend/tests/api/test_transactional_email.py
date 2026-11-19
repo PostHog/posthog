@@ -1343,6 +1343,12 @@ class TestTransactionalEmail(APIBaseTest):
                 )
             ),
             ("template_key_form_a_blank_time", "code_form", "", "invalid_format"),
+            (
+                "template_key_form_a_later_time_then_one_that_passed",
+                "code_form",
+                ["2026-11-21T09:00:00Z", "2026-11-19T09:00:00Z"],
+                "repeated",
+            ),
         ]
     )
     @time_machine.travel("2026-11-20T08:00:00Z", tick=False)

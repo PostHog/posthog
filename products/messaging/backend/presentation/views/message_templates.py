@@ -568,12 +568,18 @@ class ScheduledAtField(serializers.DateTimeField):
         "invalid_offset": "Use a UTC offset whose minutes run from 00 to 59, such as `+01:30`.",
         "invalid_format": "Use a time like `YYYY-MM-DDThh:mm:ss.sss` followed by a UTC offset, such as "
         "`2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. Seconds and their fraction are optional.",
+        "repeated": "Send `scheduled_at` once, so PostHog knows which time to send the email at.",
     }
 
     def get_value(self, dictionary: Mapping[str, Any]) -> Any:
-        # A form body has no null, and DRF reads a blank there as one, which would send the email now.
-        if html.is_html_input(dictionary) and dictionary.get(self.field_name) == "":
-            return ""
+        # A form body has no null, and DRF reads a blank there as one, which would send the email now. DRF also
+        # keeps only the last of repeated values, which can be an earlier time than the one before it.
+        if html.is_html_input(dictionary):
+            values = dictionary.getlist(self.field_name)
+            if len(values) > 1:
+                return values
+            if values == [""]:
+                return ""
         return super().get_value(dictionary)
 
     def enforce_timezone(self, value: datetime) -> datetime:
@@ -582,6 +588,8 @@ class ScheduledAtField(serializers.DateTimeField):
         return super().enforce_timezone(value)
 
     def to_internal_value(self, value: Any) -> datetime:
+        if isinstance(value, list):
+            self.fail("repeated")
         shape = SCHEDULED_AT_SHAPE.fullmatch(value) if isinstance(value, str) else None
         if isinstance(value, str) and shape is None:
             self.fail("invalid_format")
