@@ -44,6 +44,7 @@ from products.alerts.backend.facade.api import (
     snooze_alert_from_slack,
 )
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
+from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT
 from products.alerts.backend.judge import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
@@ -798,6 +799,33 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             {"destination_count": 1, "email_recipient_count": 0, "failed_delivery_channels": []},
         )
         assert (chat_post_message.call_count, mock_trigger.call_count) == (native_sends, hog_function_triggers)
+
+    def test_an_alert_stops_taking_destinations_when_its_rows_reach_the_cap(self) -> None:
+        with team_scope(self.team.id):
+            create_alert_destinations(
+                team_id=self.team.id,
+                configuration_id=self.copy_id,
+                destinations=tuple(
+                    NewAlertDestination(
+                        data=cast(
+                            AlertDestinationData,
+                            {"type": "webhook", "webhook_url": f"https://hooks.example.com/{index}"},
+                        ),
+                        event_kinds=(AlertEventKind.FIRING,),
+                    )
+                    for index in range(MAX_DESTINATIONS_PER_ALERT)
+                ),
+            )
+
+        response = self.client.post(
+            f"{self.url}/{self.alert.id}/destinations/webhook/",
+            {"type": "webhook", "webhook_url": "https://hooks.example.com/one-too-many"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == "This alert already has 5 destinations. Remove one to add another."
+        assert not HogFunction.objects.filter(team=self.team, deleted=False).exists()
 
     @parameterized.expand([("generic_hog_function_api",), ("alert_route",)])
     def test_a_deleted_destination_takes_its_platform_row_with_it(self, delete_path: str) -> None:

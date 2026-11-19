@@ -2866,13 +2866,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         configs: Sequence[AlertDestinationConfig],
     ) -> Response:
         user = cast(User, request.user)
-        # A PagerDuty destination is two functions, one per incident event, so it counts once.
-        existing = count_active_alert_destinations(
-            team_id=self.team_id,
-            alert_id=str(alert.id),
-            allowed_event_ids=(*INSIGHT_ALERT_EVENT_IDS, INSIGHT_ALERT_INCIDENT_OPENED_EVENT),
-        )
-        if existing >= MAX_DESTINATIONS_PER_ALERT:
+        # Counted as the alert's `destination_count` is, so a destination reset to send from its row still counts.
+        _show_destination_counts([alert])
+        if alert.destination_count >= MAX_DESTINATIONS_PER_ALERT:  # type: ignore[attr-defined]
             raise ValidationError(
                 f"This alert already has {MAX_DESTINATIONS_PER_ALERT} destinations. Remove one to add another."
             )
