@@ -6,6 +6,9 @@
 
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
 const {
     decideJsonTargets,
     decideSelection,
@@ -224,6 +227,35 @@ test('a product cascade gets the lowest phase that covers every file it changed'
     ]
     for (const [reason, changedFiles, phase] of cases) {
         assert.equal(productCascadePhase(reason, changedFiles), phase, `${reason} ${JSON.stringify(changedFiles)}`)
+    }
+})
+
+test('a module the models module re-exports is a model module, whatever the import style', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'turbo-discover-models-'))
+    const backend = path.join(root, 'products/shop/backend')
+    const files = {
+        'models/__init__.py': 'from .. import order_records\nfrom products.shop.backend.cart_records import Cart\nfrom products.shop.backend.pricing import Price\n',
+        'order_records.py': 'from django.db.models import Model\n\nclass Order(Model):\n    pass\n',
+        'cart_records.py': 'from django.db import models\n\nfrom .line_records import Line\n\nclass Cart(models.Model):\n    pass\n',
+        'line_records.py': 'import django.db.models\n\nclass Line(django.db.models.Model):\n    pass\n',
+        'pricing.py': 'from django.db.models import Q\n\nclass Price(BaseModel):\n    pass\n',
+    }
+    try {
+        for (const [file, source] of Object.entries(files)) {
+            fs.mkdirSync(path.dirname(path.join(backend, file)), { recursive: true })
+            fs.writeFileSync(path.join(backend, file), source)
+        }
+        const cases = [
+            ['order_records.py', null],
+            ['cart_records.py', null],
+            ['line_records.py', null],
+            ['pricing.py', 3],
+        ]
+        for (const [file, phase] of cases) {
+            assert.equal(productCascadePhase('non_isolated_product', [`products/shop/backend/${file}`], root), phase, file)
+        }
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true })
     }
 })
 

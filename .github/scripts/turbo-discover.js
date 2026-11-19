@@ -1417,9 +1417,10 @@ function isProductFixtureFile(file) {
 }
 
 // A module that defines models under another name, such as dev_stack_image_models.py, is
-// registered by a re-export from the product's models module. The models module re-exports
-// helpers too, so a re-exported module counts only when it imports Django's models, or when
-// it is gone from disk and its source cannot say.
+// registered by a re-export from the product's models module, directly or through another
+// model module. Indented imports, inside a function or a TYPE_CHECKING block, register nothing at
+// load time and are skipped. The models module re-exports helpers too, so a re-exported module counts only when it defines a Django model, or when it is gone
+// from disk and its source cannot say.
 function isProductModelOrMigrationFile(file, repoRoot) {
     if (PRODUCT_MODEL_OR_MIGRATION_FILE.test(file)) {
         return true
@@ -1427,47 +1428,91 @@ function isProductModelOrMigrationFile(file, repoRoot) {
     if (!file.endsWith('.py')) {
         return false
     }
-    const product = productOfFile(file)
     const modulePath = file.slice(0, -'.py'.length).replace(/\/__init__$/, '')
-    if (!productModelReexports(repoRoot, product).has(modulePath)) {
-        return false
-    }
-    try {
-        return DJANGO_MODELS_IMPORT.test(fs.readFileSync(path.join(repoRoot, file), 'utf-8'))
-    } catch {
-        return true
-    }
+    const { modelModules, missingModules } = productModelModules(repoRoot, productOfFile(file))
+    return modelModules.has(modulePath) || missingModules.has(modulePath)
 }
 
-const DJANGO_MODELS_IMPORT = /^\s*from\s+django\.db\s+import\b[^\n]*\bmodels\b/m
+const DJANGO_DB_IMPORT = /^(?:from|import)\s+django\.db\b/m
+const MODEL_CLASS = /^class\s+\w+\(([^)]*)\)/gm
+const FROM_IMPORT = /^from\s+(\.*)([\w.]*)\s+import\s+(\([^)]*\)|[^\n]*)/gm
 
-const productModelReexportsByKey = new Map()
+// A pydantic BaseModel is not a Django model, so it does not count.
+function definesDjangoModels(source) {
+    return (
+        DJANGO_DB_IMPORT.test(source) &&
+        [...source.matchAll(MODEL_CLASS)].some(([, bases]) => /\w*Model\b/.test(bases.replace(/\bBaseModel\b/g, '')))
+    )
+}
 
-function productModelReexports(repoRoot, product) {
+const productModelModulesByKey = new Map()
+
+function productModelModules(repoRoot, product) {
     const key = `${repoRoot}\0${product}`
-    if (!productModelReexportsByKey.has(key)) {
-        productModelReexportsByKey.set(key, readProductModelReexports(repoRoot, product))
+    if (!productModelModulesByKey.has(key)) {
+        productModelModulesByKey.set(key, readProductModelModules(repoRoot, product))
     }
-    return productModelReexportsByKey.get(key)
+    return productModelModulesByKey.get(key)
 }
 
-function readProductModelReexports(repoRoot, product) {
-    const backend = `${PRODUCTS_DIR}${product}/backend`
-    const modules = new Set()
-    for (const [entrypoint, packagePath] of [
-        [`${backend}/models.py`, backend],
-        [`${backend}/models/__init__.py`, `${backend}/models`],
-    ]) {
-        let source
-        try {
-            source = fs.readFileSync(path.join(repoRoot, entrypoint), 'utf-8')
-        } catch {
+function readProductModelModules(repoRoot, product) {
+    const productRoot = `${PRODUCTS_DIR}${product}/`
+    const modelModules = new Set()
+    const missingModules = new Set()
+    const pending = [`${productRoot}backend/models`]
+    const visited = new Set()
+    while (pending.length > 0) {
+        const modulePath = pending.pop()
+        if (visited.has(modulePath)) {
             continue
         }
-        for (const [, dots, dotted] of source.matchAll(/^\s*from\s+(\.*)([\w.]*)\s+import\b/gm)) {
-            const modulePath = dots ? resolveRelativeImport(packagePath, dots.length, dotted) : dotted.replaceAll('.', '/')
-            if (modulePath) {
-                modules.add(modulePath)
+        visited.add(modulePath)
+        const source = readModuleSource(repoRoot, modulePath)
+        if (source === null) {
+            continue
+        }
+        for (const [imported, isSurelyModule] of importedModules(repoRoot, source, modulePath)) {
+            if (!imported.startsWith(productRoot) || visited.has(imported)) {
+                continue
+            }
+            const importedSource = readModuleSource(repoRoot, imported)
+            if (importedSource === null) {
+                if (isSurelyModule) {
+                    missingModules.add(imported)
+                }
+                continue
+            }
+            if (PRODUCT_MODEL_OR_MIGRATION_FILE.test(`${imported}.py`) || definesDjangoModels(importedSource)) {
+                modelModules.add(imported)
+                pending.push(imported)
+            }
+        }
+    }
+    return { modelModules, missingModules }
+}
+
+function readModuleSource(repoRoot, modulePath) {
+    for (const file of [`${modulePath}.py`, `${modulePath}/__init__.py`]) {
+        try {
+            return fs.readFileSync(path.join(repoRoot, file), 'utf-8')
+        } catch {}
+    }
+    return null
+}
+
+// Each `from X import a, b` yields X, which is a module, and X/a and X/b, which may be
+// submodules or names defined in X.
+function importedModules(repoRoot, source, modulePath) {
+    const isPackage = fs.existsSync(path.join(repoRoot, modulePath, '__init__.py'))
+    const packagePath = isPackage ? modulePath : modulePath.split('/').slice(0, -1).join('/')
+    const modules = []
+    for (const [, dots, dotted, names] of source.matchAll(FROM_IMPORT)) {
+        const base = dots ? resolveRelativeImport(packagePath, dots.length, dotted) : dotted.replaceAll('.', '/')
+        modules.push([base, true])
+        for (const name of names.replace(/[()]/g, '').split(',')) {
+            const identifier = name.trim().split(/\s+/)[0]
+            if (/^\w+$/.test(identifier)) {
+                modules.push([`${base}/${identifier}`, false])
             }
         }
     }
