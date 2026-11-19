@@ -68,12 +68,11 @@ export const RECENT_OBJECT_COUNT = 4
 const RECENT_OBJECT_MORE_COUNT = 8
 const CLOCK_MS = 30_000
 
-// The personalized sort follows the Inbox's flag. Without a stored personal ranking the backend falls back to the
-// Recommended order.
-function todayReportListParams(personalSort: boolean): Record<string, string | undefined> {
+// Recommended serves the person's stored personal order when they have one.
+function todayReportListParams(): Record<string, string | undefined> {
     return {
         view: 'for_you',
-        sort: personalSort ? 'personal' : 'recommended',
+        sort: 'recommended',
         created_after: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
     }
 }
@@ -568,7 +567,7 @@ export const todayLogic = kea<todayLogicType>([
                     let response
                     try {
                         response = await signalsReportsList(String(values.currentProjectId), {
-                            ...todayReportListParams(!!values.featureFlags[FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]),
+                            ...todayReportListParams(),
                             limit: TOP_REPORT_COUNT,
                         })
                     } catch (error) {
@@ -598,7 +597,7 @@ export const todayLogic = kea<todayLogicType>([
                     const exclude = values.shownReportIds
                     const loaded = values.loadedMoreReports
                     const response = await signalsReportsList(String(values.currentProjectId), {
-                        ...todayReportListParams(!!values.featureFlags[FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]),
+                        ...todayReportListParams(),
                         limit: MORE_REPORTS_PAGE_SIZE,
                         offset: loaded.length,
                         exclude: exclude.length > 0 ? exclude : undefined,
