@@ -133,7 +133,9 @@ def _entry_type(entry: dict) -> str:
     For session/update events, returns the sessionUpdate value (e.g., 'agent_message_chunk').
     """
     notification = entry.get("notification")
-    method = _method(notification) if isinstance(notification, dict) else None
+    if not isinstance(notification, dict):
+        return ""
+    method = _method(notification)
     if method == "session/update":
         return str(_session_update(notification).get("sessionUpdate", method))
     return method or ""
