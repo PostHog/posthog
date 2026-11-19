@@ -162,6 +162,9 @@ export function addProjectIdIfMissing(path: string, teamId?: TeamType['id']): st
 
 const STAY_ON_SAME_PAGE_PATHS = ['settings']
 const REDIRECT_TO_PROJECT_ROOT_PATHS = ['products', 'onboarding']
+// The second segment of these paths is a tab, not a resource ID. The bare section root redirects
+// to one fixed tab, so the switch keeps the tab to stay on the same page.
+const TABBED_SECTION_PATHS = ['data-management']
 
 export function getProjectSwitchTargetUrl(
     currentPath: string,
@@ -192,6 +195,9 @@ export function getProjectSwitchTargetUrl(
         // If switching between teams in the same project, keep the resource ID
         if (currentProjectId && newProjectId && currentProjectId === newProjectId) {
             return `/project/${newTeamId}${route}`
+        }
+        if (TABBED_SECTION_PATHS.includes(resourcePath)) {
+            return `/project/${newTeamId}/${pathParts[1]}/${pathParts[2]}`
         }
         // Otherwise, go to the parent resource
         return `/project/${newTeamId}/${pathParts[1]}`

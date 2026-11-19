@@ -1,6 +1,7 @@
 import {
     addProjectIdIfMissing,
     ensureRoutablePathname,
+    getProjectSwitchTargetUrl,
     removeProjectIdIfPresent,
     stripTrailingSlash,
     stripTrailingSlashFromUrl,
@@ -118,6 +119,17 @@ describe('router-utils', () => {
             ['/', '/'],
         ])('turns %s into %s', (input, expected) => {
             expect(stripTrailingSlashFromUrl(input)).toEqual(expected)
+        })
+    })
+
+    describe('getProjectSwitchTargetUrl', () => {
+        it.each([
+            ['/project/1/data-management/sources', '/project/2/data-management/sources'],
+            ['/project/1/data-management/sources/managed-abc/schemas', '/project/2/data-management/sources'],
+            ['/project/1/data-management/actions/42', '/project/2/data-management/actions'],
+            ['/project/1/insights/abc123', '/project/2/insights'],
+        ])('switching to another project from %s lands on %s', (currentPath, expected) => {
+            expect(getProjectSwitchTargetUrl(currentPath, 2, 1, 2)).toEqual(expected)
         })
     })
 
