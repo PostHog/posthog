@@ -125613,7 +125613,7 @@ export namespace Schemas {
 
     export interface TraceTurnsRequest {
       /**
-         * The IDs of the traces to read the turns of, from 1 to 20. Items come back in this order, once per ID.
+         * The IDs of the traces to read the turns of, from 1 to 20. Items come back in this order, at most once per ID. A trace with no generation and no trace event is left out.
          * @minItems 1
          * @maxItems 20
          */

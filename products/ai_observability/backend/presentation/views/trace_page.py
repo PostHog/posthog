@@ -42,5 +42,5 @@ class TraceTurnsRequestSerializer(TracePageWithBoundsRequestSerializer):
         min_length=1,
         max_length=api.TRACE_TURNS_MAX_IDS,
         help_text=f"The IDs of the traces to read the turns of, from 1 to {api.TRACE_TURNS_MAX_IDS}. Items come back "
-        "in this order, once per ID.",
+        "in this order, at most once per ID. A trace with no generation and no trace event is left out.",
     )

@@ -438,7 +438,7 @@ export const AiObservabilityTracesTurnsCreateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .max(aiObservabilityTracesTurnsCreateBodyTraceIdsMax)
         .describe(
-            'The IDs of the traces to read the turns of, from 1 to 20. Items come back in this order, once per ID.'
+            'The IDs of the traces to read the turns of, from 1 to 20. Items come back in this order, at most once per ID. A trace with no generation and no trace event is left out.'
         ),
     earliest_created_at: zod.iso
         .datetime({ offset: true })

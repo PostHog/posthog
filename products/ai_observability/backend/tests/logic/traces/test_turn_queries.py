@@ -13,14 +13,13 @@ from posthog.models.event.util import bulk_create_events
 from products.ai_observability.backend.logic.message_normalizer.values import Value
 from products.ai_observability.backend.logic.traces import trace_queries
 from products.ai_observability.backend.logic.traces.preview_queries import PREVIEW_SOURCE_MAX_BYTES
-from products.ai_observability.backend.logic.traces.previews import PreviewSource
+from products.ai_observability.backend.logic.traces.previews import PreviewSource, TracePreviewSources
 from products.ai_observability.backend.logic.traces.turn import TIMED_OUT, TOO_LARGE, Side
 from products.ai_observability.backend.logic.traces.turn_queries import (
     TURN_INPUT_ITEMS,
     TURN_PICKS_QUERY_NAME,
     TURN_SIDE_MAX_BYTES,
     TURNS_QUERY_NAME,
-    TurnSources,
     load_turn_sources,
 )
 
@@ -40,6 +39,10 @@ def _read(value: Value) -> Side[Value]:
     return Side(value=value, unread=None)
 
 
+def _latest_input(sources: TracePreviewSources) -> Side[Value] | None:
+    return sources.latest_generation.input if sources.latest_generation else None
+
+
 class TestTurnQueries(ClickhouseTestMixin, BaseTest):
     def _events(self, *events: tuple[str, str, Mapping[str, object]]) -> list[dict[str, Any]]:
         return [
@@ -54,7 +57,7 @@ class TestTurnQueries(ClickhouseTestMixin, BaseTest):
             for index, (trace_id, event, properties) in enumerate(events)
         ]
 
-    def _sources(self, trace_id: str = "trace-1") -> TurnSources:
+    def _sources(self, trace_id: str = "trace-1") -> TracePreviewSources:
         loaded = load_turn_sources(self.team, self.user, [trace_id], earliest=T0, latest=T0 + timedelta(hours=1))
         return loaded[trace_id]
 
@@ -69,7 +72,6 @@ class TestTurnQueries(ClickhouseTestMixin, BaseTest):
 
         sources = self._sources()
 
-        assert sources.latest_generation_input == _read(history[-TURN_INPUT_ITEMS:])
         assert sources.first_generation == PreviewSource(
             event_id=_event_id(0), kind="generation", input=_read([_message("user", "opening")]), output=_read(None)
         )
@@ -88,18 +90,14 @@ class TestTurnQueries(ClickhouseTestMixin, BaseTest):
         sources = self._sources()
 
         assert sources.first_generation is not None
-        assert sources.latest_generation_input == sources.first_generation.input == _read([_message("user", "hi")])
+        assert _latest_input(sources) == sources.first_generation.input == _read([_message("user", "hi")])
 
     def test_a_trace_without_a_generation_has_no_latest_input(self) -> None:
         bulk_create_ai_events(self._events(("trace-1", "$ai_trace", {"$ai_input_state": {"step": "planned"}})))
 
         sources = self._sources()
 
-        assert (sources.first_generation, sources.latest_generation, sources.latest_generation_input) == (
-            None,
-            None,
-            None,
-        )
+        assert (sources.first_generation, sources.latest_generation) == (None, None)
         assert sources.state == PreviewSource(
             event_id=_event_id(0), kind="trace", input=_read({"step": "planned"}), output=_read(None)
         )
@@ -115,7 +113,7 @@ class TestTurnQueries(ClickhouseTestMixin, BaseTest):
             )
         )
 
-        assert self._sources().latest_generation_input == Side(
+        assert _latest_input(self._sources()) == Side(
             value=[_message("user", "kept"), _message("user", "last")], unread=TOO_LARGE
         )
 
@@ -126,7 +124,7 @@ class TestTurnQueries(ClickhouseTestMixin, BaseTest):
         assert 0 < fitting < len(history)
         bulk_create_ai_events(self._events(("trace-1", "$ai_generation", {"$ai_input": history})))
 
-        side = self._sources().latest_generation_input
+        side = _latest_input(self._sources())
 
         assert side is not None and isinstance(side.value, list)
         assert ([item["content"][:2] for item in side.value], side.unread) == (
@@ -148,11 +146,10 @@ class TestTurnQueries(ClickhouseTestMixin, BaseTest):
             input=_read([_message("user", "hi")] if heavy_properties_kept else None),
             output=_read("hello" if heavy_properties_kept else None),
         )
-        assert sources == TurnSources(
+        assert sources == TracePreviewSources(
             state=None,
             first_generation=generation,
             latest_generation=generation,
-            latest_generation_input=generation.input,
         )
 
     def test_a_trace_in_ai_events_is_not_read_from_events_again(self) -> None:
@@ -162,7 +159,7 @@ class TestTurnQueries(ClickhouseTestMixin, BaseTest):
         with self.capture_select_queries() as queries:
             sources = self._sources("here")
 
-        assert sources.latest_generation_input == _read("from ai_events")
+        assert _latest_input(sources) == _read("from ai_events")
         assert len(queries) == 2
 
     def test_timeout_marks_every_side(self) -> None:
@@ -184,14 +181,13 @@ class TestTurnQueries(ClickhouseTestMixin, BaseTest):
 
         timed_out = Side(value=None, unread=TIMED_OUT)
         generation = PreviewSource(event_id=_event_id(1), kind="generation", input=timed_out, output=timed_out)
-        assert sources == TurnSources(
+        assert sources == TracePreviewSources(
             state=PreviewSource(event_id=_event_id(0), kind="trace", input=timed_out, output=timed_out),
             first_generation=generation,
             latest_generation=generation,
-            latest_generation_input=timed_out,
         )
 
-    def _sources_when_a_picks_read_times_out(self, *, on_call: int) -> dict[str, TurnSources]:
+    def _sources_when_a_picks_read_times_out(self, *, on_call: int) -> dict[str, TracePreviewSources]:
         bulk_create_ai_events(self._events(("recent", "$ai_generation", {"$ai_input": "hi", "$ai_output": "hello"})))
         bulk_create_events(self._events(("aged", "$ai_generation", {"$ai_input": "hi"})))
         execute = trace_queries.execute_hogql_query
@@ -213,17 +209,16 @@ class TestTurnQueries(ClickhouseTestMixin, BaseTest):
         loaded = self._sources_when_a_picks_read_times_out(on_call=2)
 
         timed_out = Side(value=None, unread=TIMED_OUT)
-        assert loaded["recent"].latest_generation_input == _read("hi")
-        assert (loaded["aged"].state, loaded["aged"].latest_generation, loaded["aged"].latest_generation_input) == (
+        assert _latest_input(loaded["recent"]) == _read("hi")
+        assert (loaded["aged"].state, loaded["aged"].latest_generation) == (
             PreviewSource(event_id="", kind="trace", input=timed_out, output=timed_out),
             PreviewSource(event_id="", kind="generation", input=timed_out, output=timed_out),
-            timed_out,
         )
 
     def test_a_timed_out_ai_events_picks_read_times_out_every_trace(self) -> None:
         loaded = self._sources_when_a_picks_read_times_out(on_call=1)
 
-        assert {trace_id: sources.latest_generation_input for trace_id, sources in loaded.items()} == {
+        assert {trace_id: _latest_input(sources) for trace_id, sources in loaded.items()} == {
             "recent": Side(value=None, unread=TIMED_OUT),
             "aged": Side(value=None, unread=TIMED_OUT),
         }

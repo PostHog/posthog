@@ -2,14 +2,13 @@ from collections.abc import Callable, Mapping
 
 from ..message_normalizer.normalizer import RecipeNormalizer
 from ..message_normalizer.run_limits import time_limit
-from .previews import PREVIEWS_TIME_LIMIT_SECONDS, PreviewSource, out_of_time
+from .previews import PREVIEWS_TIME_LIMIT_SECONDS, PreviewSource, TracePreviewSources, out_of_time
 from .step_content import built_once, read_step
 from .turn import TIMED_OUT, Side, StepSide, TurnSides, TurnStep
-from .turn_queries import TurnSources
 
 
 def page_turn_sides(
-    sources: Mapping[str, TurnSources], *, build_normalizer: Callable[[], RecipeNormalizer], team_id: int
+    sources: Mapping[str, TracePreviewSources], *, build_normalizer: Callable[[], RecipeNormalizer], team_id: int
 ) -> dict[str, TurnSides]:
     """Each trace's turn sides, keyed by trace id. Once `PREVIEWS_TIME_LIMIT_SECONDS` is spent for the whole page, a
     side that failed and every trace not yet read time out. The team's normalizer is built at most once, and only when
@@ -28,7 +27,7 @@ def _timed_out() -> TurnSides:
 
 
 def _turn_sides(
-    trace_id: str, sources: TurnSources, normalizer: Callable[[], RecipeNormalizer], team_id: int
+    trace_id: str, sources: TracePreviewSources, normalizer: Callable[[], RecipeNormalizer], team_id: int
 ) -> TurnSides:
     def read(source: PreviewSource | None) -> TurnStep | None:
         if source is None:

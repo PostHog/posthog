@@ -2,12 +2,10 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Final
 
-from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.models import Team, User
 
 from ...facade.contracts import TraceNodeKind
-from ..message_normalizer.values import Value
 from .events_fallback import FallbackWindow, page_window
 from .preview_queries import PreviewEventRow, load_preview_event_rows, load_preview_values
 from .previews import (
@@ -31,25 +29,7 @@ TURN_SIDE_MAX_BYTES: Final = 524_288
 _DATABASE_TIMEOUTS = (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong)
 
 
-@frozen
-class TurnSources:
-    state: PreviewSource | None
-    first_generation: PreviewSource | None
-    latest_generation: PreviewSource | None
-    latest_generation_input: Side[Value] | None
-
-
-def _turn_sources(sources: TracePreviewSources) -> TurnSources:
-    latest = sources.latest_generation
-    return TurnSources(
-        state=sources.state,
-        first_generation=sources.first_generation,
-        latest_generation=latest,
-        latest_generation_input=latest.input if latest else None,
-    )
-
-
-def _timed_out_traces(trace_ids: Sequence[str]) -> dict[str, TurnSources]:
+def _timed_out_traces(trace_ids: Sequence[str]) -> dict[str, TracePreviewSources]:
     """Traces whose picks were not read in time, so no event is known to read from. Their sources have no event id."""
     timed_out = Side(value=None, unread=TIMED_OUT)
 
@@ -57,11 +37,8 @@ def _timed_out_traces(trace_ids: Sequence[str]) -> dict[str, TurnSources]:
         return PreviewSource(event_id="", kind=kind, input=timed_out, output=timed_out)
 
     return {
-        trace_id: TurnSources(
-            state=source("trace"),
-            first_generation=source("generation"),
-            latest_generation=source("generation"),
-            latest_generation_input=timed_out,
+        trace_id: TracePreviewSources(
+            state=source("trace"), first_generation=source("generation"), latest_generation=source("generation")
         )
         for trace_id in trace_ids
     }
@@ -73,7 +50,7 @@ def _read_sources(
     rows: Sequence[PreviewEventRow],
     picks: Mapping[str, PreviewPicks],
     window: FallbackWindow | None,
-) -> dict[str, TurnSources]:
+) -> dict[str, TracePreviewSources]:
     try:
         values = load_preview_values(
             team,
@@ -85,10 +62,8 @@ def _read_sources(
             tail_max_bytes=TURN_SIDE_MAX_BYTES,
         )
     except _DATABASE_TIMEOUTS:
-        sources = timed_out_sources(picks, rows)
-    else:
-        sources = preview_sources(picks, values)
-    return {trace_id: _turn_sources(trace_sources) for trace_id, trace_sources in sources.items()}
+        return timed_out_sources(picks, rows)
+    return preview_sources(picks, values)
 
 
 def _read_rows(
@@ -99,7 +74,7 @@ def _read_rows(
 
 def load_turn_sources(
     team: Team, user: User | None, trace_ids: Sequence[str], *, earliest: datetime, latest: datetime
-) -> dict[str, TurnSources]:
+) -> dict[str, TracePreviewSources]:
     """The values each trace's turn is built from, keyed by trace id: the state, the first generation's input, and the
     latest generation's input and output. A trace with no state event and no generation has no entry.
 
