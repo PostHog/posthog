@@ -132,12 +132,16 @@ export function getSectionGroupKey(section: DashboardSection): string {
     return section.kind === 'group' ? section.groupKey : UNGROUPED_TILES_TAB_KEY
 }
 
-/** Tabs show one group at a time, so tiles outside any group gather into one tab of their own, first. */
+/**
+ * Tabs show one group at a time, so tiles outside any group gather into one tab of their own.
+ * That tab comes last, because the first tab opens by default and a tile added without a group must not take the
+ * dashboard's landing view away from the groups that someone set up.
+ */
 export function getDashboardTabs(sections: DashboardSection[]): DashboardSection[] {
     const ungroupedTiles = sections.flatMap((section) => (section.kind === 'tiles' ? section.tiles : []))
     const groupSections = sections.filter((section) => section.kind === 'group')
     return ungroupedTiles.length > 0
-        ? [{ kind: 'tiles', key: 'tiles-ungrouped', tiles: ungroupedTiles }, ...groupSections]
+        ? [...groupSections, { kind: 'tiles', key: 'tiles-ungrouped', tiles: ungroupedTiles }]
         : groupSections
 }
 
@@ -256,7 +260,7 @@ export function getTileGroupMoveOptions(sections: DashboardSection[]): Record<nu
 }
 
 // Only the next band or tab can trade places, because empty groups always come last and the tab of tiles
-// outside any group always comes first. A band with no tiles has no rows to trade, and in tabs a group
+// outside any group always comes after the groups. A band with no tiles has no rows to trade, and in tabs a group
 // trades places only with another group.
 function getTileGroupSwapIndex(
     sections: DashboardSection[],

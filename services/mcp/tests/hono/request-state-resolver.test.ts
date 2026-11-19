@@ -157,7 +157,7 @@ vi.mock('@/hono/request-context', async () => {
 })
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { MCP_CURSOR_EXEC_MODE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
@@ -623,17 +623,19 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(props.mode).toBe('cli')
     })
 
-    it.each([MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INTERVIEW_RECRUITMENT_FLAG, MCP_INTENT_PROMPT_FLAG])(
-        'evaluates %s even though no generated tool declares it',
-        async (flag) => {
-            vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ flags: { [flag]: true }, payloads: {} })
+    it.each([
+        MCP_EXEC_SKILLS_FEATURE_FLAG,
+        MCP_INTERVIEW_RECRUITMENT_FLAG,
+        MCP_INTENT_PROMPT_FLAG,
+        MCP_CURSOR_EXEC_MODE_FLAG,
+    ])('evaluates %s even though no generated tool declares it', async (flag) => {
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ flags: { [flag]: true }, payloads: {} })
 
-            const result = await makeResolver().resolve(makeProps())
+        const result = await makeResolver().resolve(makeProps())
 
-            expect(evaluateFeatureFlags).toHaveBeenCalledWith(expect.arrayContaining([flag]), 'distinct-id', undefined)
-            expect(result.toolFeatureFlags?.[flag]).toBe(true)
-        }
-    )
+        expect(evaluateFeatureFlags).toHaveBeenCalledWith(expect.arrayContaining([flag]), 'distinct-id', undefined)
+        expect(result.toolFeatureFlags?.[flag]).toBe(true)
+    })
 
     it.each([[{ projectId: '1' }], [undefined]])('carries the analytics context %j', async (analyticsContext) => {
         mockAnalyticsContext.current = analyticsContext
@@ -1037,10 +1039,22 @@ describe('RequestStateResolver MCP client contexts', () => {
         await catalog.warmup()
         const resolver = new RequestStateResolver(catalog, {} as RedisLike, {} as Env)
 
-        const result = await resolver.resolve(makeProps({ apiToken: 'phs_test', mcpClientName: 'customer-agent' }))
+        mockTokenStore.set('projectSecretKeyProjectId', '42')
+
+        // The caller names project 7, and the key belongs to project 42.
+        const result = await resolver.resolve(
+            makeProps({
+                apiToken: 'phs_test',
+                mcpClientName: 'customer-agent',
+                projectId: '7',
+                organizationId: 'org-7',
+            })
+        )
 
         expect(result.allTools.map((tool) => tool.name).sort()).toEqual([...PROJECT_SECRET_KEY_TOOLS].sort())
         expect(result.useSingleExec).toBe(false)
+        expect(mockPinned.last).toMatchObject({ projectId: '42' })
+        expect(mockPinned.last?.orgId).toBeUndefined()
     })
 
     it('merges request excludeTools into catalog filter options', async () => {

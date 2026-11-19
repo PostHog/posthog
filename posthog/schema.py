@@ -190,6 +190,7 @@ from posthog.schema_enums import (
     LifecycleToggle as LifecycleToggle,
     LimitContext as LimitContext,
     LinkedinAdsDefaultSources as LinkedinAdsDefaultSources,
+    LLMDetectorModel as LLMDetectorModel,
     LogPropertyFilterType as LogPropertyFilterType,
     LogSeverityLevel as LogSeverityLevel,
     LogsOrderBy as LogsOrderBy,
@@ -372,6 +373,7 @@ from posthog.schema_enums import (
     WindowDays as WindowDays,
     XScale as XScale,
     YAxisPosition as YAxisPosition,
+    YAxisPosition2 as YAxisPosition2,
     YAxisScaleType as YAxisScaleType,
 )
 
@@ -2213,17 +2215,6 @@ class IntegrationFilter(BaseModel):
     )
 
 
-class LLMDetectorConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    instructions: constr(max_length=2000) | None = Field(
-        default=None,
-        description=("What counts as unusual or interesting for this metric, in your own words. Optional."),
-    )
-    type: Literal["llm"] = "llm"
-
-
 class LLMSentimentMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3455,6 +3446,7 @@ class ResultCustomizationBase(BaseModel):
     )
     color: DataColorToken | None = None
     hidden: bool | None = None
+    yAxisPosition: YAxisPosition2 | None = None
 
 
 class ResultCustomizationByPosition(BaseModel):
@@ -3464,6 +3456,7 @@ class ResultCustomizationByPosition(BaseModel):
     assignmentBy: Literal["position"] = "position"
     color: DataColorToken | None = None
     hidden: bool | None = None
+    yAxisPosition: YAxisPosition2 | None = None
 
 
 class ResultCustomizationByValue(BaseModel):
@@ -3475,6 +3468,7 @@ class ResultCustomizationByValue(BaseModel):
     customColor: str | None = None
     hidden: bool | None = None
     label: str | None = None
+    yAxisPosition: YAxisPosition2 | None = None
 
 
 class RetentionValue(BaseModel):
@@ -4125,6 +4119,12 @@ class AggregatedSpanRow(BaseModel):
     )
     avg_duration_nano: float
     count: int
+    entry_span_count: int | None = Field(
+        default=None,
+        description=(
+            "Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results."
+        ),
+    )
     error_count: int
     health_reason: str | None = Field(
         default=None,
@@ -6799,11 +6799,11 @@ class HogQLQueryModifiers(BaseModel):
         default=None,
         description=(
             "Read events from the native JSON events table (`true`) or the legacy"
-            " events table (`false`). When unset, a staff person's"
-            " `ph_new_events_schema` cookie applies, then the project's listing in the"
-            " `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the"
-            " `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an"
-            " internal rollout switch, and the project settings API ignores it."
+            " events table (`false`). When unset, a staff person's tab switch or"
+            " `ph_new_events_schema` cookie applies, then the project. A project reads"
+            " the native table once PostHog has moved it there. Before that, it can opt"
+            " in early by storing `true` here in its project settings. A stored `false`"
+            " is ignored."
         ),
     )
     usePreaggregatedIntermediateResults: bool | None = None
@@ -6874,6 +6874,24 @@ class InsightThreshold(BaseModel):
             "Whether bounds are compared as absolute values or as percentage change from the previous interval."
         ),
     )
+
+
+class LLMDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    instructions: constr(max_length=2000) | None = Field(
+        default=None,
+        description=("What counts as unusual or interesting for this metric, in your own words. Optional."),
+    )
+    model: LLMDetectorModel | None = Field(
+        default=None,
+        description=(
+            "The model that judges each check: claude-haiku-5-5 or gpt-6-luna."
+            " Optional. When it is not set, the alert uses claude-haiku-5-5."
+        ),
+    )
+    type: Literal["llm"] = "llm"
 
 
 class LLMTrace(BaseModel):
@@ -7389,7 +7407,7 @@ class MarketingAnalyticsRecommendationsSource(BaseModel):
     )
     adTable: str | None = Field(
         default=None,
-        description="Google Ads ad table, used to read the ad copy of each ad group.",
+        description=("Google Ads ad table, used to read the ad copy and landing pages of each ad group."),
     )
     campaignConversionActionTable: str | None = Field(
         default=None,
@@ -7718,6 +7736,14 @@ class MetricsQueryClause(BaseModel):
     aggregation: MetricsAggregation | None = Field(
         default=None,
         description=("Omit to get one line per series (at most 100), without combining them"),
+    )
+    apdexThresholdMs: float | None = Field(
+        default=None,
+        description=(
+            "Apdex threshold T in milliseconds for `posthog.derived.spans.apdex`: a"
+            " request is satisfied at or under T and tolerating up to 4T. Defaults to"
+            " 500."
+        ),
     )
     filters: list[MetricsQueryFilter] | None = None
     groupBy: list[MetricsQueryGroupBy] | None = None
@@ -10260,6 +10286,10 @@ class AssistantDataVisualizationChartSettings(BaseModel):
         description=(
             "Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair."
         ),
+    )
+    colorBarsByCategory: bool | None = Field(
+        default=None,
+        description=("Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts."),
     )
     goalLines: list[AssistantDataVisualizationGoalLine] | None = Field(
         default=None, description="Horizontal goal lines drawn across the chart."
@@ -18092,6 +18122,10 @@ class ChartSettings(BaseModel):
         default=None,
         description=("Chart rendering style overrides (line shape). Only applies to line and area charts."),
     )
+    colorBarsByCategory: bool | None = Field(
+        default=None,
+        description="Color each X-axis category in single-series bar charts.",
+    )
     goalLines: list[GoalLine] | None = None
     heatmap: HeatmapSettings | None = None
     leftYAxisSettings: YAxisSettings | None = None
@@ -18123,6 +18157,8 @@ class ChartSettings(BaseModel):
     showYAxisBorder: bool | None = None
     stackBars100: bool | None = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
     valueLabelBackground: bool | None = None
+    valueLabelBackgroundColor: str | None = None
+    valueLabelColor: str | None = None
     valueLabelFontSize: float | None = None
     valueLabelPosition: ValueLabelPosition | None = None
     valueLabelRotation: float | None = None
@@ -22448,6 +22484,10 @@ class MarketingAnalyticsRecommendation(BaseModel):
         ),
     )
     level: MarketingAnalyticsRecommendationLevel
+    minor: bool | None = Field(
+        default=None,
+        description=("True when the monthly impact is under 1% of the ad account's monthly spend."),
+    )
     reason: str
     resolution: MarketingAnalyticsRecommendationResolution | None = Field(
         default=None,
@@ -35230,10 +35270,6 @@ class RecordingsQuery(BaseModel):
     )
     person_uuid: str | None = None
     properties: list[AnyPropertyFilterDiscriminated] | None = None
-    recommended_only: bool | None = Field(
-        default=None,
-        description=("Restrict results to recordings above the replay relevance threshold."),
-    )
     response: RecordingsQueryResponse | None = None
     session_ids: list[str] | None = None
     session_recording_id: str | None = Field(
@@ -36470,6 +36506,7 @@ class FunnelsFilter(BaseModel):
             " funnels."
         ),
     )
+    showSummaryOnDashboards: bool | None = False
     showTrendLines: bool | None = Field(
         default=None,
         description=("Display linear regression trend lines on the chart (only for historical trends viz)"),
@@ -36709,6 +36746,10 @@ class TraceSpansQuery(BaseModel):
             " from `rootSpans`, which scopes whole-trace selection. The single-trace"
             " waterfall never sets this."
         ),
+    )
+    includeEvents: bool | None = Field(
+        default=None,
+        description=("Include each span's OpenTelemetry events. The column is large, so only set this on small lists"),
     )
     kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
     limit: int | None = None
@@ -37078,7 +37119,7 @@ class ErrorTrackingQuery(BaseModel):
     useQueryV2: bool | None = None
     useQueryV3: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-    volumeResolution: int
+    volumeResolution: conint(ge=0, le=200)
     withAggregations: bool | None = None
     withFirstEvent: bool | None = None
     withLastEvent: bool | None = None

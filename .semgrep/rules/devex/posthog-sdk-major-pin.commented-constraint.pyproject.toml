@@ -1,0 +1,12 @@
+[project]
+dependencies = [
+    # ruleid: posthog-sdk-major-pin-python
+    "posthoganalytics>=7.91.1",
+]
+
+[tool.uv]
+# constraint-dependencies = ["posthoganalytics<8"]
+constraint-dependencies = [
+    # "posthoganalytics<8",
+    "requests<3",
+]

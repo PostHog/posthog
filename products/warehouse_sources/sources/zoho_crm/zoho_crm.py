@@ -1,5 +1,7 @@
+import json
 import dataclasses
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 import requests
@@ -16,9 +18,16 @@ from products.warehouse_sources.sources.sdk import (
     make_tracked_session,
 )
 from products.warehouse_sources.sources.zoho_crm.settings import (
+    AUDITED_TIME_FIELD,
+    CUSTOM_MODULE_GENERATED_TYPES,
+    DEAL_TIMELINE_ENDPOINT,
+    DEALS_MODULE,
     MODIFIED_TIME_FIELD,
-    ZOHO_CRM_ENDPOINTS,
+    PIPELINE_LAYOUT_ID_FIELD,
+    PIPELINES_ENDPOINT,
+    TIMELINE_DEAL_ID_FIELD,
     ZohoCRMEndpointConfig,
+    endpoint_config,
 )
 
 DEFAULT_API_VERSION = "v8"
@@ -118,13 +127,17 @@ class ZohoCRMAuthError(Exception):
         return TOKEN_ERROR_MESSAGES.get(self.error_code or "", REFRESH_TOKEN_REJECTED_MESSAGE)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ZohoCRMResumeConfig:
     # 1-based page number for the `page` pagination window.
     page: int = 1
     # One `next_page_token` per field slice, in slice order. Empty until Zoho starts
     # returning tokens (i.e. once the page window is exhausted).
     page_tokens: list[str] = dataclasses.field(default_factory=list)
+    # Fan-out tables only: the last parent read, and the next page token inside it. An empty
+    # token means that parent is done.
+    parent_id: str = ""
+    child_page_token: str = ""
 
 
 def resolve_hosts(region: str) -> RegionHosts:
@@ -286,12 +299,13 @@ def readable_field_names(client: ZohoCRMClient, api_version: str, module: str) -
 def _fetch_page(
     client: ZohoCRMClient,
     api_version: str,
-    config: ZohoCRMEndpointConfig,
+    path: str,
+    data_key: str,
     params: dict[str, str],
-    headers: dict[str, str],
+    headers: Optional[dict[str, str]] = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
-        response = client.get(f"/crm/{api_version}/{config.path}", params=params, headers=headers)
+        response = client.get(f"/crm/{api_version}/{path}", params=params, headers=headers)
     except requests.HTTPError as e:
         raise _with_zoho_error_detail(e) from e
     if response.status_code in NO_CONTENT_STATUSES:
@@ -301,7 +315,7 @@ def _fetch_page(
     if body is None:
         return [], {}
 
-    return list(body.get(config.data_key) or []), dict(body.get("info") or {})
+    return list(body.get(data_key) or []), dict(body.get("info") or {})
 
 
 def _merge_slice(rows: dict[str, dict[str, Any]], order: list[str], records: list[dict[str, Any]]) -> None:
@@ -339,7 +353,20 @@ def get_rows(
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: Optional[str] = None,
 ) -> Iterator[list[dict[str, Any]]]:
-    config = ZOHO_CRM_ENDPOINTS[endpoint]
+    if endpoint == PIPELINES_ENDPOINT:
+        yield from get_pipeline_rows(client, api_version, resumable_source_manager)
+        return
+    if endpoint == DEAL_TIMELINE_ENDPOINT:
+        yield from get_deal_timeline_rows(
+            client,
+            api_version,
+            resumable_source_manager,
+            logger,
+            db_incremental_field_last_value if should_use_incremental_field else None,
+        )
+        return
+
+    config = endpoint_config(endpoint)
 
     headers: dict[str, str] = {}
     if config.incremental and should_use_incremental_field and db_incremental_field_last_value is not None:
@@ -382,7 +409,7 @@ def get_rows(
             else:
                 params["page"] = str(page)
 
-            records, slice_info = _fetch_page(client, api_version, config, params, headers)
+            records, slice_info = _fetch_page(client, api_version, config.path, config.data_key, params, headers)
             if index == 0:
                 info = slice_info
             _merge_slice(rows, order, records)
@@ -410,6 +437,172 @@ def get_rows(
         resumable_source_manager.save_state(ZohoCRMResumeConfig(page=page, page_tokens=page_tokens))
 
     resumable_source_manager.clear_state()
+
+
+def get_pipeline_rows(
+    client: ZohoCRMClient,
+    api_version: str,
+    resumable_source_manager: ResumableSourceManager[ZohoCRMResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Pipelines of every Deals layout. The pipeline API only answers for one layout at a time."""
+    layouts, _ = _fetch_page(client, api_version, "settings/layouts", "layouts", {"module": DEALS_MODULE})
+    for layout in layouts:
+        layout_id = layout.get("id")
+        if layout_id is None:
+            continue
+        pipelines, _ = _fetch_page(
+            client, api_version, "settings/pipeline", "pipeline", {PIPELINE_LAYOUT_ID_FIELD: str(layout_id)}
+        )
+        if pipelines:
+            yield [{**pipeline, PIPELINE_LAYOUT_ID_FIELD: str(layout_id)} for pipeline in pipelines]
+        else:
+            resumable_source_manager.safe_point()
+
+
+def _timeline_filters(since: Any, until: datetime) -> str:
+    return json.dumps(
+        {
+            "field": {"api_name": AUDITED_TIME_FIELD},
+            "comparator": "between",
+            "value": [format_modified_since(since), format_modified_since(until)],
+        }
+    )
+
+
+def _compare_ids(left: str, right: str) -> int:
+    """Order two Zoho record ids. They are numeric strings, so compare them as numbers."""
+    if left.isdigit() and right.isdigit():
+        left_key, right_key = int(left), int(right)
+        return (left_key > right_key) - (left_key < right_key)
+    return (left > right) - (left < right)
+
+
+def get_deal_timeline_rows(
+    client: ZohoCRMClient,
+    api_version: str,
+    resumable_source_manager: ResumableSourceManager[ZohoCRMResumeConfig],
+    logger: FilteringBoundLogger,
+    db_incremental_field_last_value: Optional[Any] = None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Timeline entries of every deal, read one deal at a time.
+
+    An incremental run reads only the deals modified since the watermark, and only their
+    entries since then. An entry that does not change the deal itself, such as a note added
+    to it, does not move `Modified_Time`, so an incremental run can miss it until the deal next
+    changes.
+    """
+    deal_headers: dict[str, str] = {}
+    timeline_params: dict[str, str] = {"sort_by": AUDITED_TIME_FIELD}
+    if db_incremental_field_last_value is not None:
+        deal_headers["If-Modified-Since"] = format_modified_since(db_incremental_field_last_value)
+        timeline_params["filters"] = _timeline_filters(db_incremental_field_last_value, datetime.now(UTC))
+    # Only the id is needed. An id sort keeps page boundaries still while deals change mid-sync.
+    deal_params = {
+        "per_page": str(PAGE_SIZE),
+        "fields": f"id,{MODIFIED_TIME_FIELD}",
+        "sort_by": "id",
+        "sort_order": "asc",
+    }
+
+    page, page_token, resume_deal_id, child_token = 1, "", "", ""
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None:
+        page = max(resume.page, 1)
+        page_token = resume.page_tokens[0] if resume.page_tokens else ""
+        resume_deal_id, child_token = resume.parent_id, resume.child_page_token
+        if not page_token and page > MAX_PAGE:
+            page, resume_deal_id, child_token = 1, "", ""
+
+    while True:
+        params = dict(deal_params)
+        if page_token:
+            params["page_token"] = page_token
+        else:
+            params["page"] = str(page)
+        deals, info = _fetch_page(client, api_version, DEALS_MODULE, "data", params, deal_headers)
+        deal_ids = [str(deal["id"]) for deal in deals if deal.get("id") is not None]
+        current_tokens = [page_token] if page_token else []
+
+        for deal_id in deal_ids:
+            # Deals come in id order, so the saved id still places the resume point when deals
+            # before it were deleted or added between attempts.
+            if resume_deal_id:
+                order = _compare_ids(deal_id, resume_deal_id)
+                if order < 0 or (order == 0 and not child_token):
+                    continue
+                if order > 0:
+                    child_token = ""
+                resume_deal_id = ""
+            while True:
+                request_params = dict(timeline_params)
+                if child_token:
+                    request_params["page_token"] = child_token
+                else:
+                    request_params["per_page"] = str(PAGE_SIZE)
+                entries, timeline_info = _fetch_page(
+                    client, api_version, f"{DEALS_MODULE}/{deal_id}/__timeline", "__timeline", request_params
+                )
+                next_child = str(timeline_info.get("next_page_token") or "")
+                child_token = next_child if timeline_info.get("more_records") else ""
+                resumable_source_manager.save_state(
+                    ZohoCRMResumeConfig(
+                        page=page,
+                        page_tokens=current_tokens,
+                        parent_id=deal_id,
+                        child_page_token=child_token,
+                    )
+                )
+                if entries:
+                    yield [{**entry, TIMELINE_DEAL_ID_FIELD: deal_id} for entry in entries]
+                else:
+                    resumable_source_manager.safe_point()
+                if not child_token:
+                    break
+
+        if not deals or not info.get("more_records"):
+            break
+        page += 1
+        page_token = str(info.get("next_page_token") or "")
+        if not page_token and page > MAX_PAGE:
+            logger.warning(
+                "Zoho CRM stopped paginating at the 2000-record page limit without a next page token",
+                endpoint=DEAL_TIMELINE_ENDPOINT,
+                page=page,
+            )
+            break
+
+    resumable_source_manager.clear_state()
+
+
+def list_custom_modules(client: ZohoCRMClient, api_version: str) -> list[str]:
+    """API names of the org's custom and linking modules that Get Records can read."""
+    try:
+        response = client.get(f"/crm/{api_version}/settings/modules")
+    except requests.HTTPError as e:
+        raise _with_zoho_error_detail(e) from e
+    if response.status_code in NO_CONTENT_STATUSES:
+        return []
+    body = _parse_json_body(response) or {}
+
+    names: list[str] = []
+    for module in body.get("modules") or []:
+        api_name = module.get("api_name")
+        if not api_name:
+            continue
+        if module.get("generated_type") not in CUSTOM_MODULE_GENERATED_TYPES or module.get("api_supported") is False:
+            continue
+        names.append(str(api_name))
+    return names
+
+
+def discover_custom_modules(
+    region: str,
+    client_id: str,
+    client_secret: str,
+    refresh_token: str,
+    api_version: str = DEFAULT_API_VERSION,
+) -> list[str]:
+    return list_custom_modules(ZohoCRMClient(region, client_id, client_secret, refresh_token), api_version)
 
 
 def validate_credentials(
@@ -446,7 +639,7 @@ def zoho_crm_source(
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: Optional[str] = None,
 ) -> SourceResponse:
-    config = ZOHO_CRM_ENDPOINTS[endpoint]
+    config = endpoint_config(endpoint)
 
     def items() -> Iterator[list[dict[str, Any]]]:
         return get_rows(
@@ -463,9 +656,9 @@ def zoho_crm_source(
     return SourceResponse(
         name=endpoint,
         items=items,
-        primary_keys=["id"],
+        primary_keys=list(config.primary_keys),
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode="asc",
+        sort_mode=config.sort_mode,
     )

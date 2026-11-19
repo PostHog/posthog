@@ -2,8 +2,8 @@ use replay_core_v4::gate::in_sample;
 use replay_core_v4::session::{drop_reason, start_ms, DropReason};
 use serde_json::Value;
 
-// Verdicts from the session feature recorder's gate, run in Node on the ID as the replay lanes normalize it, so the two
-// lanes keep selecting the same sessions in any casing.
+// Fixed verdicts that pin the gate, so a change to the hash or the comparison fails here instead of reshuffling the
+// sample.
 const GATE: &str = include_str!("vectors/gate.json");
 
 #[test]

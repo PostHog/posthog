@@ -2,6 +2,9 @@ import pytest
 from posthog.test.base import (
     QueryMatchingTest,
     _selective_flush,
+    also_test_with_different_timezones,
+    also_test_with_materialized_columns,
+    also_test_with_person_on_events_v2,
     run_clickhouse_statement_in_parallel,
     skip_clickhouse_query_snapshots,
     snapshot_clickhouse_queries,
@@ -50,6 +53,23 @@ def test_snapshot_clickhouse_queries_skips_marked_methods() -> None:
     snapshot_clickhouse_queries(ExampleTests)
 
     assert ExampleTests.test_behavior is test_behavior
+
+
+@pytest.mark.parametrize(
+    "decorator,expected_tests",
+    [
+        (also_test_with_materialized_columns(["$browser"]), {"test_behavior", "test_behavior_materialized"}),
+        (also_test_with_different_timezones, {"test_behavior", "test_behavior_minus_utc", "test_behavior_plus_utc"}),
+        (also_test_with_person_on_events_v2, {"test_behavior", "test_behavior_poe_v2"}),
+    ],
+)
+def test_variant_decorators_add_their_variants_to_the_class(decorator, expected_tests: set[str]) -> None:
+    class ExampleTests:
+        @decorator
+        def test_behavior(self) -> None:
+            pass
+
+    assert {name for name in vars(ExampleTests) if name.startswith("test_")} == expected_tests
 
 
 def test_run_clickhouse_statement_in_parallel_propagates_errors():

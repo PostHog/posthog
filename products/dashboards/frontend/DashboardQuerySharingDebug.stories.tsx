@@ -1,8 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { userEvent } from 'storybook/test'
+import { expect, userEvent } from 'storybook/test'
 
 import { DashboardQuerySharingDebug } from './DashboardQuerySharingDebug'
 import { summarizeSharingDebug, type DashboardSharingDebugRun } from './summarizeSharingDebug'
@@ -62,7 +63,10 @@ const run: DashboardSharingDebugRun = {
 const meta: Meta<typeof DashboardQuerySharingDebug> = {
     title: 'Products/Dashboards/Query sharing debug',
     component: DashboardQuerySharingDebug,
-    parameters: { featureFlags: [FEATURE_FLAGS.HOGQL_QUERY_SHARING], layout: 'fullscreen' },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.HOGQL_QUERY_SHARING],
+        layout: 'fullscreen',
+    },
     args: { dashboardName: 'Example dashboard', run, summary: summarizeSharingDebug(run) },
     decorators: [
         (Story): JSX.Element => (
@@ -72,10 +76,12 @@ const meta: Meta<typeof DashboardQuerySharingDebug> = {
         ),
     ],
     play: async ({ canvasElement }) => {
-        const toggle = canvasElement.querySelector<HTMLElement>('[data-attr="dashboard-query-sharing-debug-toggle"]')
-        if (toggle) {
-            await userEvent.click(toggle)
-        }
+        const toggle = await within(canvasElement).findByText('Query sharing debug', {
+            selector: 'summary',
+            exact: false,
+        })
+        await userEvent.click(toggle)
+        await expect(toggle.closest('details')).toHaveAttribute('open')
     },
 }
 export default meta

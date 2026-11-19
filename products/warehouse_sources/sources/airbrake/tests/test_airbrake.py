@@ -1,5 +1,9 @@
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any
+
+import pytest
+import time_machine
 
 import requests
 from parameterized import parameterized
@@ -12,14 +16,28 @@ from products.warehouse_sources.sources.airbrake.airbrake import (
     AirbrakeRetryableError,
     _build_groups_params,
     _format_start_time,
+    _stats_rows_from_response,
+    _stats_windows,
     validate_credentials,
 )
+from products.warehouse_sources.sources.airbrake.settings import AIRBRAKE_ENDPOINTS
 from products.warehouse_sources.sources.airbrake.source import AirbrakeSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _driver() -> SourceDriver:
     return SourceDriver(AirbrakeSource(), AirbrakeSourceConfig(api_key="user-key"))
+
+
+NOW = datetime(2026, 3, 10, 12, 30, tzinfo=UTC)
+
+
+def _epoch(year: int, month: int, day: int, hour: int = 0) -> int:
+    return int(datetime(year, month, day, hour, tzinfo=UTC).timestamp())
+
+
+def _stats(times: list[str], **series: list[Any]) -> ScriptedResponse:
+    return ScriptedResponse(json={"time": times, **series})
 
 
 def _page(collection: str, rows: list[dict[str, Any]], count: int | None = None) -> ScriptedResponse:
@@ -77,6 +95,183 @@ class TestIterPages:
             "2",
             "3",
         ]
+
+
+class TestStatsWindows:
+    @parameterized.expand(
+        [
+            # 90 days of daily buckets fit in one request, floored to the start of the day.
+            ("project_full_refresh", "project_stats", None, [(_epoch(2025, 12, 10), None)]),
+            # 7 days of hourly buckets need two requests, and only the first one is bounded.
+            (
+                "group_full_refresh",
+                "group_stats",
+                None,
+                [(_epoch(2026, 3, 3, 12), _epoch(2026, 3, 7, 16)), (_epoch(2026, 3, 7, 16), None)],
+            ),
+            (
+                "project_watermark_rereads_last_bucket",
+                "project_stats",
+                NOW.replace(hour=0, minute=0),
+                [(_epoch(2026, 3, 10), None)],
+            ),
+            (
+                "group_watermark_floored_to_hour",
+                "group_stats",
+                datetime(2026, 3, 10, 9, 15, tzinfo=UTC),
+                [(_epoch(2026, 3, 10, 9), None)],
+            ),
+            ("group_watermark_as_iso_string", "group_stats", "2026-03-10T09:00:00Z", [(_epoch(2026, 3, 10, 9), None)]),
+            # A watermark older than the lookback must not turn one sync into an unbounded backfill.
+            (
+                "group_stale_watermark_clamped_to_lookback",
+                "group_stats",
+                datetime(2025, 1, 1, tzinfo=UTC),
+                [(_epoch(2026, 3, 3, 12), _epoch(2026, 3, 7, 16)), (_epoch(2026, 3, 7, 16), None)],
+            ),
+        ]
+    )
+    def test_windows(self, _name: str, endpoint: str, last_value: Any, expected: list[tuple[int, int | None]]) -> None:
+        stats = AIRBRAKE_ENDPOINTS[endpoint].stats
+        assert stats is not None
+        windows = _stats_windows(stats, NOW, last_value)
+        assert windows == expected
+        # No window may hold more buckets than one request returns, or buckets are cut off.
+        for start, end in windows:
+            assert ((end or int(NOW.timestamp())) - start) // stats.period_seconds <= 100
+
+
+class TestStatsRowsFromResponse:
+    @parameterized.expand(
+        [
+            (
+                "parallel_arrays",
+                {"projectId": 9, "time": ["t1", "t2"], "accepted": [1, 2], "limited": [3, 4]},
+                [
+                    {"projectId": 1, "time": "t1", "accepted": 1, "limited": 3},
+                    {"projectId": 1, "time": "t2", "accepted": 2, "limited": 4},
+                ],
+            ),
+            (
+                "short_series_padded_with_none",
+                {"time": ["t1", "t2"], "accepted": [1]},
+                [{"projectId": 1, "time": "t1", "accepted": 1}, {"projectId": 1, "time": "t2", "accepted": None}],
+            ),
+            (
+                "null_bucket_skipped",
+                {"time": [None, "t2"], "accepted": [1, 2]},
+                [{"projectId": 1, "time": "t2", "accepted": 2}],
+            ),
+            ("missing_time", {"accepted": [1]}, []),
+            ("null_time", {"time": None, "accepted": [1]}, []),
+        ]
+    )
+    def test_rows(self, _name: str, data: dict[str, Any], expected: list[dict[str, Any]]) -> None:
+        assert _stats_rows_from_response(data, {"projectId": 1}) == expected
+
+
+class TestStatsFanOut:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self) -> Iterator[None]:
+        with time_machine.travel(NOW, tick=False):
+            yield
+
+    def test_project_stats_requests_and_rows(self) -> None:
+        result = _driver().run(
+            "project_stats",
+            [
+                _page("projects", [{"id": 1}, {"id": 2}]),
+                _stats(["2026-03-09T00:00:00Z"], accepted=[5], limited=[0], overQuota=[1]),
+                ScriptedResponse(status=404),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 9, tzinfo=UTC),
+        )
+        assert result.raised is None
+        assert result.rows == [
+            {"projectId": 1, "time": "2026-03-09T00:00:00Z", "accepted": 5, "limited": 0, "overQuota": 1}
+        ]
+        assert result.paths == ["/api/v4/projects", "/api/v4/projects/1/stats", "/api/v4/projects/2/stats"]
+        assert result.params("period")[1:] == ["24h", "24h"]
+        assert result.params("time__gte")[1:] == [str(_epoch(2026, 3, 9))] * 2
+        assert result.params("time__lt")[1:] == [None, None]
+        assert result.saved_states == [AirbrakeResumeConfig(project_id=2)]
+
+    def test_group_stats_reads_every_window_of_every_group(self) -> None:
+        result = _driver().run(
+            "group_stats",
+            [
+                _page("projects", [{"id": 1}]),
+                _page("groups", [{"id": "g1"}, {"id": "g2"}]),
+                _stats(["2026-03-03T12:00:00Z"], accepted=[1], limited=[0]),
+                _stats([]),
+                _stats([]),
+                _stats(["2026-03-10T12:00:00Z"], accepted=[7], limited=[2]),
+            ],
+        )
+        assert result.raised is None
+        assert result.rows == [
+            {"projectId": 1, "groupId": "g1", "time": "2026-03-03T12:00:00Z", "accepted": 1, "limited": 0},
+            {"projectId": 1, "groupId": "g2", "time": "2026-03-10T12:00:00Z", "accepted": 7, "limited": 2},
+        ]
+        assert (
+            result.paths[2:] == ["/api/v4/projects/1/groups/g1/stats"] * 2 + ["/api/v4/projects/1/groups/g2/stats"] * 2
+        )
+        assert result.params("period")[2:] == ["hour"] * 4
+        assert result.params("time__lt")[2:] == [str(_epoch(2026, 3, 7, 16)), None] * 2
+        # The bookmark moves to the next group only after the last window of the current one.
+        assert result.saved_states == [
+            AirbrakeResumeConfig(project_id=1, group_id="g1"),
+            AirbrakeResumeConfig(project_id=1, group_id="g2"),
+            AirbrakeResumeConfig(project_id=1, group_id="g2"),
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "project_stats",
+                AirbrakeResumeConfig(project_id=2),
+                [_page("projects", [{"id": 1}, {"id": 2}])],
+                "/api/v4/projects/2/stats",
+            ),
+            (
+                "group_stats",
+                AirbrakeResumeConfig(project_id=1, group_id="g2"),
+                [_page("projects", [{"id": 1}]), _page("groups", [{"id": "g1"}, {"id": "g2"}])],
+                "/api/v4/projects/1/groups/g2/stats",
+            ),
+        ]
+    )
+    def test_resume_skips_parents_before_bookmark(
+        self, endpoint: str, resume_state: AirbrakeResumeConfig, listing: list[ScriptedResponse], expected_path: str
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [*listing, *[_stats(["2026-03-10T00:00:00Z"], accepted=[1])] * 2],
+            resume_state=resume_state,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 10, tzinfo=UTC),
+        )
+        assert result.raised is None
+        assert result.paths[len(listing) :] == [expected_path]
+
+    def test_group_budget_caps_total_fan_out(self, monkeypatch: Any) -> None:
+        monkeypatch.setattr(airbrake, "GROUP_STATS_MAX_GROUPS_PER_SYNC", 1)
+        result = _driver().run(
+            "group_stats",
+            [
+                _page("projects", [{"id": 1}]),
+                _page("groups", [{"id": "g1"}, {"id": "g2"}]),
+                _stats([]),
+                _stats(["2026-03-10T12:00:00Z"], accepted=[1]),
+            ],
+        )
+        assert result.raised is None
+        assert result.paths[2:] == ["/api/v4/projects/1/groups/g1/stats"] * 2
+
+    def test_non_404_http_error_propagates(self) -> None:
+        result = _driver().run("project_stats", [_page("projects", [{"id": 1}]), ScriptedResponse(status=403)])
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestFetchPageRetries:
@@ -195,6 +390,21 @@ class TestGroupsFanOut:
         assert result.raised.response.status_code == 403
 
 
+class TestActivitiesFanOut:
+    def test_activities_are_read_per_project(self) -> None:
+        result = _driver().run(
+            "activities",
+            [
+                _page("projects", [{"id": 1}, {"id": 2}]),
+                _page("activities", [{"projectId": 1, "activity": "group.resolved", "trackableId": 5}]),
+                _page("activities", []),
+            ],
+        )
+        assert result.raised is None
+        assert result.rows == [{"projectId": 1, "activity": "group.resolved", "trackableId": 5}]
+        assert result.paths == ["/api/v4/projects", "/api/v4/projects/1/activities", "/api/v4/projects/2/activities"]
+
+
 class TestDeploysFanOut:
     def test_project_id_is_injected_into_deploy_rows(self) -> None:
         # The Airbrake deploy payload carries no project reference; without injection the table
@@ -289,6 +499,9 @@ class TestSourceResponse:
             ("groups", ["id"], ["createdAt"]),
             ("deploys", None, None),
             ("notices", ["groupId", "id"], ["createdAt"]),
+            ("activities", None, None),
+            ("project_stats", ["projectId", "time"], ["time"]),
+            ("group_stats", ["groupId", "time"], ["time"]),
         ]
     )
     def test_primary_and_partition_keys(

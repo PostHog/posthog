@@ -6,6 +6,7 @@ from products.warehouse_sources.sources.appsflyer._config import AppsFlyerSource
 from products.warehouse_sources.sources.appsflyer.appsflyer import (
     MASTER_API_NOT_IN_PLAN_ERROR,
     QUOTA_EXHAUSTED_ERROR,
+    RAW_DATA_NOT_IN_PLAN_ERROR,
     AppsFlyerCredentialsError,
     AppsFlyerResumeConfig,
     AppsFlyerRetryableError,
@@ -102,6 +103,7 @@ class AppsFlyerSource(ResumableSource[AppsFlyerSourceConfig, AppsFlyerResumeConf
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            RAW_DATA_NOT_IN_PLAN_ERROR: "Your AppsFlyer subscription doesn't include raw data reports, so this table can't sync. Turn off this table, or ask AppsFlyer to add raw data to your subscription.",
             "401 Client Error: Unauthorized for url: https://hq1.appsflyer.com": "AppsFlyer authentication failed. Please check your API token (V2).",
             "403 Client Error: Forbidden for url: https://hq1.appsflyer.com": "AppsFlyer denied access. Please check that your account's subscription includes the report being synced and the app id is correct.",
             MASTER_API_NOT_IN_PLAN_ERROR: "AppsFlyer couldn't return the Master API report. This usually means your AppsFlyer subscription doesn't include the Master API. If it does, check that the app still exists in AppsFlyer, then turn this table back on.",
@@ -135,7 +137,7 @@ class AppsFlyerSource(ResumableSource[AppsFlyerSourceConfig, AppsFlyerResumeConf
 
 You can find your API token (V2) in AppsFlyer under your account menu > Security center > AppsFlyer API tokens. You can find your app ID in AppsFlyer on the My apps page, under the app name (e.g. `id123456789` for iOS or the package name for Android). Add one source per app.
 
-Raw data tables (installs, in-app events, uninstalls, retargeting conversions, ad revenue and the Protect360 fraud reports) and the Master API report need an AppsFlyer subscription that covers them. Protect360 is a separate add-on. AppsFlyer limits raw data to the last 90 days.""",
+Raw data tables (installs, reinstalls, in-app events, uninstalls, retargeting conversions, postbacks, ad revenue and the Protect360 fraud reports), the Master API report and the SKAN report (iOS apps only) need an AppsFlyer subscription that covers them. Protect360 is a separate add-on. AppsFlyer limits raw data to the last 90 days.""",
             iconPath="/static/services/appsflyer.png",
             docsUrl="https://posthog.com/docs/cdp/sources/appsflyer",
             releaseStatus=ReleaseStatus.GA,

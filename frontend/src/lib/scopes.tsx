@@ -99,7 +99,7 @@ export type APIScope = {
     disabledActions?: ('read' | 'write')[]
     disabledWhenProjectScoped?: boolean
     warnings?: Partial<Record<'read' | 'write', string | JSX.Element>>
-    /** Mirrors `PRIVILEGED_SCOPES` in posthog/scopes.py — excluded from every unprivileged preset. */
+    /** Mirrors `PRIVILEGED_SCOPES` in posthog/scopes/exposure.py — excluded from every unprivileged preset. */
     unprivilegedExcluded?: boolean
 }
 
@@ -176,10 +176,11 @@ export const API_SCOPES: APIScope[] = Object.entries(SCOPE_DOCS).map(([key, doc]
 }))
 API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
-// Keep in sync with PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION in posthog/scopes.py.
+// Keep in sync with PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION in posthog/scopes/project_secret_api_key.py.
 // posthog/test/test_scopes.py compares the two lists.
 export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'endpoint:read',
+    'person:write',
     'feature_flag:read',
     'account:read',
     'account:write',

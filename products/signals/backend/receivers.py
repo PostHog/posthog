@@ -338,8 +338,19 @@ def _transition_actor_user(instance: SignalReport) -> User | None:
     return getattr(instance, "_transition_actor_user", None)
 
 
-def _actor_properties(actor: ArtefactAttribution | None, actor_user: User | None = None) -> dict[str, Any]:
-    """Actor properties for the status-change label. A transition with no caller-set actor is `system`."""
+def _credited_user(instance: SignalReport) -> User | None:
+    """The person an automated transition credits, such as the owner of the pull request that merged."""
+    return getattr(instance, "_credited_user", None)
+
+
+def _actor_properties(
+    actor: ArtefactAttribution | None, actor_user: User | None = None, credited_user: User | None = None
+) -> dict[str, Any]:
+    """Actor properties for the status-change label. A transition with no caller-set actor is `system`.
+
+    An actor without a user, such as the PR-merge resolve, keeps its kind and names `credited_user`, so
+    the person counts as active while the ranking labels still read the transition as automatic.
+    """
     actor = actor or ArtefactAttribution.system()
     properties: dict[str, Any] = {
         "actor_kind": actor.kind,
@@ -349,6 +360,9 @@ def _actor_properties(actor: ArtefactAttribution | None, actor_user: User | None
         "actor_task_id": actor.task_id,
     }
     if actor.user_id is None:
+        if credited_user is not None:
+            properties["actor_user_uuid"] = str(credited_user.uuid)
+            properties["actor_distinct_id"] = credited_user.distinct_id
         return properties
     # The bulk-state endpoint transitions up to 100 reports for one actor, so it passes the request
     # user to skip a repeat lookup per report.
@@ -541,6 +555,37 @@ def close_pr_when_report_dismissed(
             actor_user_id=actor_user_id,
         )
     )
+
+
+@receiver(post_save, sender=SignalReport)
+def release_claim_when_report_dismissed(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Release the active claim when a report is dismissed.
+
+    A claim left on a dismissed report shows the report as work in progress and keeps it in its
+    owner's claimed list. The release only appends to the work log, so the claim history stays.
+    Resolved, closed, and Monitoring reports keep their claim, because linking a late open pull
+    request moves them back to ready, and the owner must still hold the work then.
+    """
+    if instance.status != SignalReport.Status.SUPPRESSED:
+        return
+    if not _status_changed_on_this_save(
+        instance, created=created, update_fields=update_fields, prior_status=getattr(instance, "_prior_status", None)
+    ):
+        return
+    from products.signals.backend.report_assignments import (
+        release_claim,  # noqa: PLC0415 - keeps the GitHub integration off Django startup
+    )
+    from products.signals.backend.report_claims import get_active_claim  # noqa: PLC0415 - same
+
+    claim = get_active_claim(team_id=instance.team_id, report_id=str(instance.id))
+    if claim is not None:
+        release_claim(claim, _transition_actor(instance) or ArtefactAttribution.system())
 
 
 @receiver(post_save, sender=SignalReport)
@@ -1067,6 +1112,7 @@ def capture_status_change_analytics(
     wrote_dismissal_feedback = bool(getattr(instance, "_wrote_dismissal_feedback", False))
     actor = _transition_actor(instance)
     actor_user = _transition_actor_user(instance)
+    credited_user = _credited_user(instance)
 
     def _capture() -> None:
         try:
@@ -1092,7 +1138,7 @@ def capture_status_change_analytics(
                     **properties,
                     "previous_status": previous_status,
                     "is_first_report": _is_first_visible_report(instance.team_id, report_id),
-                    **_actor_properties(actor, actor_user),
+                    **_actor_properties(actor, actor_user, credited_user),
                     **_classification_snapshot(
                         report_id,
                         include_dismissal=wrote_dismissal_feedback

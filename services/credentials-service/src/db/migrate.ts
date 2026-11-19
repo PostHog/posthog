@@ -19,18 +19,23 @@ export interface MigrateOptions {
     dir?: string
     /** The role that gets the runtime grants. Unset skips them. */
     runtimeRole?: string
+    partmanOptional?: boolean
 }
 
 /** Applies or reverts the SQL migrations. Returns the names of the migrations it ran. */
 export async function runMigrations(options: MigrateOptions): Promise<string[]> {
+    const sessionOptions = [
+        ...(options.runtimeRole ? [`-c credentials_service.runtime_role=${options.runtimeRole}`] : []),
+        ...(options.partmanOptional ? ['-c credentials_service.partman_optional=on'] : []),
+    ].join(' ')
     const ran = await runner({
         // Queries stay unbounded: the advisory lock wait and a long migration are both legitimate.
         databaseUrl: {
             connectionString: options.databaseUrl,
             connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,
             keepAlive: true,
-            // Read by the grants migration through current_setting().
-            ...(options.runtimeRole ? { options: `-c credentials_service.runtime_role=${options.runtimeRole}` } : {}),
+            // The grants and partman migrations read these session settings.
+            ...(sessionOptions ? { options: sessionOptions } : {}),
         },
         dir: options.dir ?? MIGRATIONS_DIR,
         direction: options.direction,

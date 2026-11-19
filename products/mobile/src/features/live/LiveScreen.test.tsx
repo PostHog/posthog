@@ -13,6 +13,9 @@ jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock
 jest.mock('react-native-keyboard-controller', () => require('react-native-keyboard-controller/jest'))
 jest.mock('react-native-worklets', () => require('react-native-worklets/src/mock'))
 jest.mock('expo-router', () => ({
+    Stack: {
+        Toolbar: { Menu: () => null, Icon: () => null, Label: () => null, MenuAction: () => null, Button: () => null },
+    },
     useRouter: () => ({ canGoBack: () => true, back: jest.fn(), push: jest.fn() }),
     useFocusEffect: jest.fn(),
     useIsFocused: () => true,
@@ -57,10 +60,10 @@ function feed(): LiveFeed {
     }
 }
 
-function screen(): ReactElement {
+function screen(chrome: 'tab' | 'stack' = 'tab'): ReactElement {
     return (
         <SafeAreaProvider initialMetrics={insets}>
-            <LiveScreen from="tab" chrome="tab" />
+            <LiveScreen from="tab" chrome={chrome} />
         </SafeAreaProvider>
     )
 }
@@ -133,11 +136,23 @@ describe('LiveScreen', () => {
         view.unmount()
     })
 
-    test.each([true, false])('retains values with a refresh indicator only while reading=%s', (reading) => {
-        mockFeed = { ...feed(), reading }
-        const view = render(screen())
+    test.each([
+        { chrome: 'tab', reading: true },
+        { chrome: 'tab', reading: false },
+        { chrome: 'stack', reading: true },
+        { chrome: 'stack', reading: false },
+    ] as const)('retains values with a loading indicator in $chrome while reading=$reading', ({ chrome, reading }) => {
+        mockFeed = { ...feed(), reading, pulling: reading }
+        const view = render(screen(chrome))
         expect(view.getByText('Home')).toBeTruthy()
-        expect(!!view.queryByTestId('live-updating')).toBe(reading)
+        if (chrome === 'tab') {
+            expect(useTabHeaderStore.getState().slots.live?.refreshing).toBe(reading)
+        } else {
+            expect(view.getByLabelText('Live data').props.accessibilityState.busy).toBe(reading)
+        }
+        expect(view.queryByTestId('live-refreshing')).toBeNull()
+        expect(view.getByTestId('live-scroll').props.refreshControl.props.refreshing).toBe(false)
+        expect(view.queryByText('Updating…')).toBeNull()
         expect(view.getByTestId('live-stat-users-online-loading')).toBeTruthy()
         expect(view.queryByText("Couldn't load this yet. Live tries again every 30 seconds.")).toBeNull()
         view.unmount()

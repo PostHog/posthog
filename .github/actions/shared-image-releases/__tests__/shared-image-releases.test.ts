@@ -10,13 +10,24 @@ const literal = JSON.parse(readFileSync(path.join(__dirname, 'fixtures/shared-im
   {paths: Paths; bytes: string; sha256: string}[]
 describe('shared-image publication bindings and fingerprints', () => {
   test('binds every channel of the committed policy', () => {
-    const policy = loadPolicy(readFileSync(path.join(__dirname, '../../../..', POLICY_PATH), 'utf8'))
+    const repositoryRoot = path.join(__dirname, '../../../..')
+    const policy = loadPolicy(readFileSync(path.join(repositoryRoot, POLICY_PATH), 'utf8'))
     const channels = policy.images['posthog-cloud'].channels
     const bindings = bindChannels(policy, 'posthog-cloud')['posthog-cloud']
     expect(Object.keys(bindings).sort()).toEqual(Object.keys(channels).sort())
     for (const [name, channel] of Object.entries(channels)) {
       expect(bindings[name]).toEqual({repository: channel.repository})
     }
+
+    const workflow = yaml.load(readFileSync(path.join(repositoryRoot, '.github/workflows/container-images-cd.yml'), 'utf8')) as
+      {jobs: {shared_image_channels: {steps: {with?: Record<string, string>}[]}}}
+    const budgetInput = 'shared-image-budgets'
+    const budget = workflow.jobs.shared_image_channels.steps
+      .map(step => step.with?.[budgetInput])
+      .find(input => input !== undefined)
+    if (budget === undefined) throw new Error(`Missing ${budgetInput} in shared_image_channels`)
+    const {maxChannels} = JSON.parse(budget) as {maxChannels: number}
+    expect(Object.keys(bindings).length).toBeLessThanOrEqual(maxChannels)
   })
 
   test.each([

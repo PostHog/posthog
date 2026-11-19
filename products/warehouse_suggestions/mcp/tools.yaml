@@ -44,6 +44,7 @@ tools:
             Requires human typed confirmation.
         exclude_params:
             - surface
+            - bulk
         confirmed_action:
             message: >
                 About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table.
@@ -77,10 +78,12 @@ tools:
             idempotent: true
         title: Dismiss a warehouse suggestion
         description: >
-            Dismiss a proposed warehouse suggestion with a reason: not_useful, not_now or other, plus an optional note.
-            Nothing changes on the view or table. warehouse-suggestions-resume brings it back.
+            Dismiss a proposed warehouse suggestion with a reason: not_useful, not_now, wrong_estimate, already_handled,
+            not_owner or other, plus an optional note. Only not_now lets it come back, and only if the case for it grows
+            a lot. Nothing changes on the view or table. warehouse-suggestions-resume brings it back.
         exclude_params:
             - surface
+            - bulk
     warehouse-suggestions-get:
         operation: warehouse_suggestions_retrieve
         enabled: true

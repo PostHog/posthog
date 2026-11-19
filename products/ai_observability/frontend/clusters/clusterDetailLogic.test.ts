@@ -204,7 +204,7 @@ describe('clusterDetailLogic', () => {
                 expect(logic.values.scatterPlotSeries).toEqual([])
             })
 
-            it('returns item points and centroid for regular cluster', async () => {
+            it('plots only cluster members', async () => {
                 logic.actions.loadClusterDataSuccess({
                     cluster: mockCluster,
                     runTimestamp: '2025-01-05T00:00:00Z',
@@ -214,19 +214,10 @@ describe('clusterDetailLogic', () => {
                 })
 
                 const series = logic.values.scatterPlotSeries
-                expect(series).toHaveLength(2) // item points + centroid
-
-                // First series is item points
+                expect(series).toHaveLength(1)
                 expect(series[0].label).toBe('Test Cluster')
                 expect(series[0].points).toHaveLength(3)
                 expect(series[0].shape).toBe('circle')
-
-                // Second series is the centroid
-                expect(series[1].label).toBe('Centroid')
-                expect(series[1].points).toHaveLength(1)
-                expect(series[1].points[0].x).toBe(mockCluster.centroid_x)
-                expect(series[1].points[0].y).toBe(mockCluster.centroid_y)
-                expect(series[1].points[0].meta).toMatchObject({ isCentroid: true })
             })
 
             it('returns items without centroid for outlier cluster', async () => {
@@ -245,25 +236,22 @@ describe('clusterDetailLogic', () => {
             })
 
             it.each([
-                ['a subset', ['trace-2'], true],
-                ['nothing', [], false],
-            ])(
-                'plots only items that match active filters when they match %s',
-                async (_name, matchedIds, hasCentroid) => {
-                    logic.actions.loadClusterDataSuccess({
-                        cluster: mockCluster,
-                        runTimestamp: '2025-01-05T00:00:00Z',
-                        windowStart: '2025-01-01T00:00:00Z',
-                        windowEnd: '2025-01-05T00:00:00Z',
-                        clusteringLevel: 'trace',
-                    })
-                    logic.actions.loadFilteredItemIdsSuccess(new Set(matchedIds))
+                ['a subset', ['trace-2']],
+                ['nothing', []],
+            ])('plots only items that match active filters when they match %s', async (_name, matchedIds) => {
+                logic.actions.loadClusterDataSuccess({
+                    cluster: mockCluster,
+                    runTimestamp: '2025-01-05T00:00:00Z',
+                    windowStart: '2025-01-01T00:00:00Z',
+                    windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
+                })
+                logic.actions.loadFilteredItemIdsSuccess(new Set(matchedIds))
 
-                    const series = logic.values.scatterPlotSeries
-                    expect(series[0].points.map((point) => point.meta?.traceId)).toEqual(matchedIds)
-                    expect(series.some((s) => s.key === 'centroid')).toBe(hasCentroid)
-                }
-            )
+                const series = logic.values.scatterPlotSeries
+                expect(series[0].points.map((point) => point.meta?.traceId)).toEqual(matchedIds)
+                expect(series.some((s) => s.key === 'centroid')).toBe(false)
+            })
         })
 
         describe('sortedTraceIds', () => {

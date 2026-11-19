@@ -208,6 +208,11 @@ export const INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS = ['claudecode'] as const
 // user-agent fallback.
 export const ANTHROPIC_USER_AGENT_FRAGMENTS = ['claude-user'] as const
 
+// Claude Code connecting directly sends `claude-code/<version> (<entrypoint>, ...)`. The
+// entrypoint `cli` is the interactive terminal. Desktop sends `claude-desktop`, the IDE
+// extensions send `claude-vscode`, and headless and SDK runs send `sdk-*`.
+const TERMINAL_CLAUDE_CODE_USER_AGENT = /^claude-code\/\S+ \(cli[,)]/i
+
 // Published Claude artifact pages call the MCP from page code to fill in their data, so no model
 // reads the responses.
 export const ARTIFACT_RUNTIME_VENDOR_FRAGMENTS = ['claudeartifacts'] as const
@@ -283,16 +288,20 @@ export class MCPClientProfile {
         this.uiSupported = input.uiSupported
     }
 
+    isCursor(): boolean {
+        return (
+            matchesAnyFragment(this.clientName, TOOLS_MODE_CLIENT_NAME_FRAGMENTS) ||
+            matchesAnyFragment(this.userAgent, TOOLS_MODE_USER_AGENT_FRAGMENTS)
+        )
+    }
+
     isToolsModeClient(): boolean {
         // The only clients that auto-select the full per-tool roster; everyone
         // else defaults to CLI (single-exec) mode — see `resolveMode`. Matched on
         // the self-reported `clientInfo.name` and the User-Agent (older Cursor
         // builds identify only through the UA); never on the vendor header, so
         // Anthropic pooled transports can't land in tools mode.
-        return (
-            matchesAnyFragment(this.clientName, TOOLS_MODE_CLIENT_NAME_FRAGMENTS) ||
-            matchesAnyFragment(this.userAgent, TOOLS_MODE_USER_AGENT_FRAGMENTS)
-        )
+        return this.isCursor()
     }
 
     isCliModeEnabled(): boolean {
@@ -374,6 +383,13 @@ export class MCPClientProfile {
         // the exec UI-app branch suppresses it and re-homes the app data onto `_meta`.
         // The per-request vendor header (`ClaudeCode`) is the reliable signal.
         return matchesAnyFragment(this.vendorClient, INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS)
+    }
+
+    drawsTimeSeriesCharts(): boolean {
+        // Through a claude.ai connector, Claude Code sends `x-anthropic-client: ClaudeCode` with the
+        // `Claude-User` User-Agent from the terminal and from Desktop alike. Those requests are
+        // included too, because most Claude Code sessions connect that way.
+        return TERMINAL_CLAUDE_CODE_USER_AGENT.test(this.userAgent?.trim() ?? '') || this.isInlineExecUiHost()
     }
 
     isClaudeChatHost(): boolean {

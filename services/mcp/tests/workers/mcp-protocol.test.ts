@@ -112,14 +112,29 @@ describe('MCP HTTP entry point (Cloudflare Workers)', () => {
             expect(await response.text()).not.toContain('Invalid token')
         })
 
-        it('asks a project secret API key for its project instead of rejecting the key', async () => {
-            const response = await SELF.fetch('https://mcp.posthog.com/mcp', {
+        it('sends a project secret API key to the business knowledge URL', async () => {
+            const response = await SELF.fetch('https://mcp.posthog.com/mcp?project_id=1', {
                 method: 'POST',
                 headers: { Authorization: 'Bearer phs_test_key' },
             })
 
             expect(response.status).toBe(400)
-            expect(await response.text()).toContain('project_id')
+            expect(await response.text()).toContain('https://mcp.posthog.com/mcp/business-knowledge')
+        })
+
+        it.each([
+            ['no credential', undefined],
+            ['a personal API key', 'Bearer phx_test_key'],
+        ])('asks for a project secret API key on the business knowledge URL with %s', async (_, authorization) => {
+            const response = await SELF.fetch('https://mcp.posthog.com/mcp/business-knowledge', {
+                method: 'POST',
+                headers: authorization ? { Authorization: authorization } : {},
+            })
+
+            expect(response.status).toBe(401)
+            expect(await response.text()).toContain('project secret API key')
+            // An OAuth challenge would start a sign-in that cannot produce a project secret API key.
+            expect(response.headers.get('WWW-Authenticate')).toBeNull()
         })
     })
 

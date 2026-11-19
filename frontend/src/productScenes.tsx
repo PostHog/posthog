@@ -50,6 +50,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     PrecomputeDebug: () => import('../../products/analytics_platform/frontend/PrecomputeDebugScene'),
     Annotations: () => import('../../products/annotations/frontend/pages/Annotations'),
     ApplicationObservability: () => import('../../products/apm/frontend/ApplicationObservabilityScene'),
+    ApplicationObservabilityService: () => import('../../products/apm/frontend/servicePage/ServicePageScene'),
     Autoresearch: () => import('../../products/autoresearch/frontend/AutoresearchScene'),
     AutoresearchNew: () => import('../../products/autoresearch/frontend/AutoresearchNewScene'),
     AutoresearchPipeline: () => import('../../products/autoresearch/frontend/AutoresearchPipelineScene'),
@@ -62,6 +63,10 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/business_knowledge/frontend/scenes/usage/BusinessKnowledgeUsageScene'),
     BusinessKnowledgeSettings: () =>
         import('../../products/business_knowledge/frontend/scenes/settings/BusinessKnowledgeSettingsScene'),
+    BusinessKnowledgeLibraries: () =>
+        import('../../products/business_knowledge/frontend/scenes/libraries/BusinessKnowledgeLibrariesScene'),
+    BusinessKnowledgeLibrary: () =>
+        import('../../products/business_knowledge/frontend/scenes/library/KnowledgeLibraryScene'),
     BusinessKnowledgeSource: () =>
         import('../../products/business_knowledge/frontend/scenes/source/KnowledgeSourceScene'),
     CanvasNew: () => import('../../products/canvas/frontend/newCanvas/CanvasNewScene'),
@@ -187,9 +192,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     CommunitySkills: () => import('../../products/skills/frontend/CommunitySkillsScene'),
     SlackAppWorkspaceSetup: () =>
         import('../../products/slack_app/frontend/workspace-setup/SlackAppWorkspaceSetupScene'),
-    Stamphog: () => import('../../products/stamphog/frontend/scenes/StamphogScene/StamphogScene'),
-    StamphogRuns: () => import('../../products/stamphog/frontend/scenes/StamphogRunsScene/StamphogRunsScene'),
-    StamphogDigests: () => import('../../products/stamphog/frontend/scenes/StamphogDigestsScene/StamphogDigestsScene'),
     StreamlitApps: () => import('../../products/streamlit_apps/frontend/StreamlitApps'),
     StreamlitApp: () => import('../../products/streamlit_apps/frontend/StreamlitApp'),
     StreamlitAppEdit: () => import('../../products/streamlit_apps/frontend/StreamlitAppEdit'),

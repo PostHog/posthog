@@ -1401,6 +1401,7 @@ class TestGenerateTurnSuggestion(BaseTest):
     def test_a_conversation_past_the_resume_chain_depth_gets_no_card(self):
         run = self.task_run
         for _ in range(11):
+            TaskRun.objects.filter(id=run.id).update(status=TaskRun.Status.COMPLETED)
             run = run.task.create_run(mode="interactive", extra_state={"resume_from_run_id": str(run.id)})
         self.task_run = run
 

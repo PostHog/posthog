@@ -331,6 +331,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "Team",
         "User",
         # --- Instance-level config ---
+        "CIMDProvisioningReview",  # one row per self-registered OAuth partner app, read only by staff
         "DeletionRunLog",  # one row per deletion Dagster run, across all teams
         "AsyncMigration",
         "AsyncMigrationError",

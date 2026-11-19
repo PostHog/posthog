@@ -15,7 +15,6 @@ const meta: Meta<typeof DashboardTileGroupTabs> = {
 export default meta
 
 const SECTIONS: DashboardSection[] = [
-    { kind: 'tiles', key: UNGROUPED_TILES_TAB_KEY, tiles: [] },
     { kind: 'group', key: 'group-activation', groupKey: 'activation', group: { title: 'Activation' }, tiles: [] },
     {
         kind: 'group',
@@ -24,6 +23,7 @@ const SECTIONS: DashboardSection[] = [
         group: { title: 'Revenue', color: 'purple' },
         tiles: [],
     },
+    { kind: 'tiles', key: UNGROUPED_TILES_TAB_KEY, tiles: [] },
 ]
 
 function TabsWithMenu({ activeSectionKey }: { activeSectionKey: string }): JSX.Element {

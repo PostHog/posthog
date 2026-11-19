@@ -5,7 +5,7 @@ import {
     MCP_GUIDANCE_ERROR_TRACKING_EMPTY_FILTERS_FLAG,
     MCP_GUIDANCE_ERROR_TRACKING_EMPTY_RANGE_FLAG,
     MCP_GUIDANCE_ERROR_TRACKING_EMPTY_SETUP_FLAG,
-} from '@/hono/guidance/rules'
+} from '@/hono/guidance/rules/error-tracking'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 
 import { makeToolExecutorState } from '../shared/test-utils'

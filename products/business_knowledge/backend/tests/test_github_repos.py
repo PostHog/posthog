@@ -285,6 +285,37 @@ class TestBusinessKnowledgeGithubRepos(APIBaseTest):
         assert no_hits.status_code == 200, no_hits.json()
         assert no_hits.json()["results"] == []
 
+    def test_a_library_limited_key_reads_only_the_repos_in_its_library(self, _capture, _flag) -> None:
+        from products.business_knowledge.backend.models import KnowledgeKeyLibrary
+
+        self._connect()
+        assert self._select([BILLING, OTHER]).status_code == 200
+        self._cache(self.team, self.integration, BILLING, tree_paths="src/billing.py")
+        self._cache(self.team, self.integration, OTHER, tree_paths="src/other.py")
+        library = self._library("Billing")
+        assert (
+            self.client.patch(f"{self._libraries_url()}{library}/", {"repos": [BILLING]}, format="json").status_code
+            == 200
+        )
+        token = f"phs_{'b' * 40}"
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="billing agent",
+            mask_value="phs_...bbbb",
+            secure_value=hash_key_value(token),
+            scopes=["business_knowledge:read"],
+        )
+        KnowledgeKeyLibrary.objects.unscoped().create(team=self.team, key=key, library_id=library)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        search = self.client.get(f"{self.base}/search/", {"query": "src"})
+        read = self.client.get(f"{self.base}/file/", {"repo": OTHER, "path": "src/other.py"})
+
+        assert search.status_code == 200, search.json()
+        assert {hit["repo"] for hit in search.json()["results"]} == {BILLING}
+        assert read.status_code == 400, read.json()
+
     def test_a_repo_removed_from_every_environment_loses_its_library_link(self, _capture, _flag) -> None:
         from products.business_knowledge.backend.models import KnowledgeLibraryRepository
 

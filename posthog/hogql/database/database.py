@@ -70,7 +70,6 @@ from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.billing_usage_records import BillingUsageRecordsTable
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
-from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.document_embeddings import (
     HOGQL_MODEL_TABLES,
@@ -139,7 +138,6 @@ from posthog.hogql.database.schema.precalculated_events import PrecalculatedEven
 from posthog.hogql.database.schema.precalculated_person_properties import PrecalculatedPersonPropertiesTable
 from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
 from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable, SessionReplayEventsTable
-from posthog.hogql.database.schema.session_replay_features import SessionReplayFeaturesTable
 from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2, SessionsTableV2
 from posthog.hogql.database.schema.sessions_v3 import RawSessionsTableV3, SessionsTableV3
@@ -159,6 +157,7 @@ from posthog.hogql.database.schema.web_stats_frustration_preaggregated import We
 from posthog.hogql.database.schema.web_stats_paths_preaggregated import WebStatsPathsPreaggregatedTable
 from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreaggregatedTable
 from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
+from posthog.hogql.database.scoped_lazy_table import ScopedLazyTable
 from posthog.hogql.database.sources_cache import (
     SOURCES_CACHE_EVENTS,
     SourcesCacheKey,
@@ -184,7 +183,7 @@ from posthog.schema_enums import (
     SessionsV2JoinMode,
     SessionTableVersion,
 )
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.synthetic_user import SyntheticUser
 from posthog.week_start_day import WeekStartDay
 
@@ -392,7 +391,6 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     "session_replay_events": TableNode(name="session_replay_events", table=SessionReplayEventsTable()),
     "cohort_people": TableNode(name="cohort_people", table=CohortPeople()),
     "static_cohort_people": TableNode(name="static_cohort_people", table=StaticCohortPeople()),
-    "cohort_membership": TableNode(name="cohort_membership", table=CohortMembershipTable()),
     "precalculated_events": TableNode(name="precalculated_events", table=PrecalculatedEventsTable()),
     "precalculated_person_properties": TableNode(
         name="precalculated_person_properties", table=PrecalculatedPersonPropertiesTable()
@@ -622,7 +620,10 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     # `create_for` changes a table through its root name, such as the persons-on-events mode on
                     # `events`. `posthog.<name>` holds the same table object to read those changes. Each namespace
                     # keeps its own node, so a view named `events.x` and a view named `posthog.events.x` stay apart.
-                    **{name: TableNode(name=name, table=table_node.table) for name, table_node in root_tables.items()},
+                    **{
+                        name: TableNode(name=name, table=table_node.table, hidden=table_node.hidden)
+                        for name, table_node in root_tables.items()
+                    },
                     # Add new tables here
                     "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
                     "logs_pattern_buckets": TableNode(name="logs_pattern_buckets", table=LogsPatternBucketsTable()),
@@ -634,9 +635,6 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
                     "trace_spans_kafka_metrics": TableNode(
                         name="trace_spans_kafka_metrics", table=TraceSpansKafkaMetricsTable()
-                    ),
-                    "session_replay_features": TableNode(
-                        name="session_replay_features", table=SessionReplayFeaturesTable()
                     ),
                     "hog_invocation_results": TableNode(
                         name="hog_invocation_results", table=HogInvocationResultsTable()
@@ -711,8 +709,8 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
 
 
 @cache
-def _scoped_system_tables() -> Mapping[str, PostgresTable]:
-    """Table name -> the access-controlled Postgres system table itself.
+def _scoped_system_tables() -> Mapping[str, PostgresTable | ScopedLazyTable]:
+    """Table name -> the access-controlled system table itself, Postgres-backed or a scoped select over them.
 
     Cached for the process lifetime — this result directly gates table visibility in access-control
     decisions, so every entry here MUST remain process-static. Do NOT make a system table's
@@ -725,7 +723,8 @@ def _scoped_system_tables() -> Mapping[str, PostgresTable]:
         {
             name: table_node.table
             for name, table_node in SystemTables().children.items()
-            if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
+            if isinstance(table_node.table, PostgresTable | ScopedLazyTable)
+            and table_node.table.access_scope is not None
         }
     )
 
@@ -823,7 +822,7 @@ def _compute_system_table_access_decision(
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
     org_membership = user_access_control._organization_membership
-    if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
+    if org_membership and org_membership.effective_level >= OrganizationMembership.Level.ADMIN:
         return user_access_control, unentitled
 
     # Resources the user holds object-level grants on despite having no resource-level access. REST
@@ -1600,6 +1599,7 @@ class Database(BaseModel):
         ]
         return sorted(selected, key=_serialization_order)
 
+    @tracer.start_as_current_span("serialize_hogql_database")
     def serialize(
         self,
         context: HogQLContext,
@@ -1644,13 +1644,9 @@ class Database(BaseModel):
             if self._is_direct_query()
             else self.get_posthog_table_names(include_hidden=include_hidden_posthog_tables)
         )
-        posthog_node = self.tables.children.get("posthog")
-        # A hidden table stays readable by name, but the schema leaves it out.
-        hidden_table_names = {
-            f"posthog.{name}" for name, node in (posthog_node.children.items() if posthog_node else ()) if node.hidden
-        }
         for table_name in posthog_table_names:
-            if (include_only and table_name not in include_only) or table_name in hidden_table_names:
+            # A hidden table stays readable by name, but the schema leaves it out.
+            if (include_only and table_name not in include_only) or self.get_table_node(table_name).hidden:
                 continue
 
             fields_dict: dict[str, DatabaseSchemaField] = {}
@@ -1976,6 +1972,7 @@ class Database(BaseModel):
             timings = HogQLTimings()
 
         HOGQL_DATABASE_BUILD_TOTAL.labels(trigger=trigger).inc()
+        trace.get_current_span().set_attribute("trigger", str(trigger))
 
         cache_key = None
         if use_cached_sources and not schema_table_names:

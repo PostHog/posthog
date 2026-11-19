@@ -279,6 +279,28 @@ def _weekly(*rows: list[Any]) -> dict[str, Any]:
     return {"columns": ["week", "p50"], "results": list(rows)}
 
 
+class TestInsightDisplayNames(BaseTest):
+    @parameterized.expand(
+        [
+            ("Saved insight name", "Generated insight name", "Saved insight name"),
+            ("", "Generated insight name", "Generated insight name"),
+            (None, "Generated insight name", "Generated insight name"),
+        ]
+    )
+    def test_series_uses_the_insight_display_name(self, name: str | None, derived_name: str, expected: str) -> None:
+        insight = Insight.objects.create(
+            team=self.team,
+            name=name,
+            derived_name=derived_name,
+            query={"kind": "TrendsQuery", "series": [SIGNED_UP]},
+        )
+        with patch.object(insight_series, "_run", return_value={"results": [_result("signed up")]}):
+            found = get_insight_series(team=self.team, user=self.user, short_id=insight.short_id)
+
+        assert found is not None
+        self.assertEqual(found.name, expected)
+
+
 class TestSqlSeries(SimpleTestCase):
     @parameterized.expand(
         [

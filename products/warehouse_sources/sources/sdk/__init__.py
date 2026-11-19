@@ -134,7 +134,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fil
     normalize_column_name,
     normalize_delimiter,
     resolve_file_format,
-    uses_brotli_compression,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import tracked_interceptors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
@@ -186,6 +185,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     unbracket_host,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import PointerPath
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.added_tables import (
+    table_root_of_url,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     AzureBlobConfig,
     DiscoveryOptions,
@@ -319,6 +321,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.retry_limits import max_retry_after_seconds
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.row_shaping import (
+    camel_to_snake,
+    flatten_jsonapi,
+    flatten_nested,
+    lift_nested,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     UNKNOWN_RESOURCE_PREFIX,
@@ -567,6 +575,7 @@ __all__ = [
     "build_endpoint_schemas",
     "build_incremental_fields",
     "cache_for",
+    "camel_to_snake",
     "capture_exception",
     "coerce_datetime_to_utc",
     "config",
@@ -581,6 +590,8 @@ __all__ = [
     "file_option_fields",
     "filter_integration_accounts",
     "find_values",
+    "flatten_jsonapi",
+    "flatten_nested",
     "from_private_key",
     "frozen",
     "get_dlt_mapping_for_external_table",
@@ -596,6 +607,7 @@ __all__ = [
     "iter_file_rows",
     "iter_parent_pages_from_warehouse",
     "iter_worksheet_rows",
+    "lift_nested",
     "list_worksheets",
     "log_connection_open",
     "lookup_s3_bucket_region",
@@ -647,6 +659,7 @@ __all__ = [
     "strip_oauth2_permanent_marker",
     "submit_with_context",
     "suspend_adapter_retries",
+    "table_root_of_url",
     "text_field",
     "tracked_interceptors",
     "try_resolve_parent_table",
@@ -654,6 +667,5 @@ __all__ = [
     "unreachable_vendor_message",
     "update_sync_type_config_keys",
     "url_field",
-    "uses_brotli_compression",
     "validate_via_probe",
 ]
