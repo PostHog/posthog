@@ -6165,7 +6165,7 @@ export const SignalsMonthlyUsageQueryParams = () => zod.object({
         .regex(signalsMonthlyUsageQueryMonthRegExp)
         .optional()
         .describe(
-            'UTC calendar month in YYYY-MM format, from 2026-10 onward. Defaults to the current month. Usage is grouped by finalization time.'
+            'UTC calendar month in YYYY-MM format, from 2026-10 onward and entirely within the last three calendar months. Defaults to the current month. Usage is grouped by finalization time.'
         ),
 })
 
