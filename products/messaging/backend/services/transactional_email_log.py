@@ -859,6 +859,9 @@ def _persons_in_batch(team: Team, user: User | None, distinct_ids: list[str]) ->
     return dict(response.results or [])
 
 
+# HogQL anchors a bare range bound to the team timezone. A Distributed table on ClickHouse 26.6 sends that constant to
+# its shards as local wall time, so a bound in a repeated daylight-saving hour lands an hour early and drops events.
+# Bounds that are already UTC keep their instant.
 _RECIPIENT_EVENTS = """
     SELECT
         if(person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}),
@@ -868,7 +871,8 @@ _RECIPIENT_EVENTS = """
         {revenue} AS value
     FROM events
     WHERE event = {event}
-      AND timestamp >= fromUnixTimestamp64Milli({start_ms}) AND timestamp <= fromUnixTimestamp64Milli({end_ms})
+      AND timestamp >= toDateTime64(fromUnixTimestamp64Milli({start_ms}), 6, 'UTC')
+      AND timestamp <= toDateTime64(fromUnixTimestamp64Milli({end_ms}), 6, 'UTC')
       AND (distinct_id IN {distinct_ids}
            OR person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}))
 """
