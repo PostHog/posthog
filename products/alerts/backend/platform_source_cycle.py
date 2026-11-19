@@ -688,8 +688,9 @@ def _decide(
     snapshot = _snapshot(check)
     if not check.owned_by_platform:
         # The insight cutover is final, so a copy insight owns is a leftover shadow copy. Its edits
-        # never reach it, so it would check settings its alert no longer has.
-        return _skipped(check, snapshot, now=now)
+        # never reach it, so it would check settings its alert no longer has. It is switched off,
+        # because an enabled one stays on the schedule and keeps the parallel run admitting new copies.
+        return _skipped(check, snapshot, now=now, disable=True)
     # Built from the copy alone, so an insight row that is switched off, edited or deleted changes
     # nothing here. The copy's own `enabled` already decided that the check is due.
     alert = checked_alert(check)

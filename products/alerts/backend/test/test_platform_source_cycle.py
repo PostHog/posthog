@@ -822,7 +822,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         # A native message links to the alert on its insight, where the insight stack's messages link.
         assert all(delivery.source_alert_url == alert_url for delivery in self.deliveries)
 
-    def test_a_copy_insight_owns_is_skipped_without_a_query_and_stays_enabled(self) -> None:
+    def test_a_copy_insight_owns_is_skipped_without_a_query_and_switched_off(self) -> None:
         configuration = self._copy(self._alert(), owner=PlatformAlertOwner.SOURCE)
 
         outcome, query = self._evaluate(
@@ -831,7 +831,14 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         query.assert_not_called()
         assert outcome is not None
-        assert (outcome.groups[0].kind, outcome.disable, list(self.deliveries)) == (AlertEventKind.CHECK, False, [])
+        assert (outcome.groups[0].kind, list(self.deliveries)) == (AlertEventKind.CHECK, [])
+        record_outcomes(self.team.id, (outcome,), CUTOFF)
+        with team_scope(self.team.id):
+            copy = platform_facade.get_configuration(
+                team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=configuration.id
+            )
+        assert copy is not None
+        assert copy.enabled is False
 
     def test_a_snoozed_alert_is_recorded_without_a_query(self) -> None:
         configuration = self._copy(self._alert(snoozed_until=CUTOFF + timedelta(hours=1)))
