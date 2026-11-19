@@ -54,7 +54,7 @@ class AIGatewayReloadView(APIView):
       queue, which PostHog relays to the gateway's reload-outcome route.
     - 401 when the bearer token isn't the gateway's.
     - 403 when the organization doesn't buy AI credits.
-    - 503 when billing couldn't finish. Retry with the same key.
+    - 503 when billing couldn't start the reload. Retry with the same key.
     """
 
     # The view checks the gateway's token itself, so DRF authenticates nobody.
