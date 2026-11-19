@@ -57,21 +57,41 @@ describe('warehouseProvisioningLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess', expectedAction])
     })
 
-    // A transient error mid-provisioning must not strand the "in progress" spinner until reload.
-    it.each([
-        { name: 'keeps polling after a failed poll while provisioning', state: 'provisioning', polls: true },
-        { name: 'does not start polling after a failed load once ready', state: 'ready', polls: false },
-    ] as const)('$name', async ({ state, polls }) => {
-        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue(warehouseStatusFixture({ state }))
+    it('recovers from a failed status read while provisioning', async () => {
+        jest.useFakeTimers()
+        try {
+            jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve')
+                .mockResolvedValueOnce(warehouseStatusFixture({ state: 'provisioning' }))
+                .mockRejectedValueOnce({ status: 500 })
+                .mockResolvedValue(warehouseStatusFixture({ state: 'ready' }))
+
+            logic = warehouseProvisioningLogic()
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess'])
+
+            await jest.advanceTimersByTimeAsync(10_000)
+            await expectLogic(logic).toDispatchActions(['loadWarehouseStatusFailure'])
+
+            await jest.advanceTimersByTimeAsync(10_000)
+            await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess'])
+            await expectLogic(logic).toMatchValues({ warehouseStatus: expect.objectContaining({ state: 'ready' }) })
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('does not start polling after a failed status read once ready', async () => {
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue(
+            warehouseStatusFixture({ state: 'ready' })
+        )
 
         logic = warehouseProvisioningLogic()
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess', polls ? 'pollStatus' : 'stopPolling'])
+        await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess', 'stopPolling'])
 
-        const pollStatus = jest.spyOn(logic.actions, 'pollStatus')
-        logic.actions.loadWarehouseStatusFailure('boom')
-
-        expect(pollStatus).toHaveBeenCalledTimes(polls ? 1 : 0)
+        await expectLogic(logic, () => {
+            logic.actions.loadWarehouseStatusFailure('boom')
+        }).toNotHaveDispatchedActions(['pollStatus'])
     })
 
     // availableTabs depends on teamOnboarded, so a deprovision click that fails must not collapse the tabs.

@@ -693,7 +693,6 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 }
             },
 
-            // A transient error must not strand an in-flight provision or teardown on a stale spinner.
             loadWarehouseStatusFailure: () => {
                 if (values.pollingActive) {
                     actions.pollStatus()
@@ -706,10 +705,11 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 // previously observed state (see the `previousWarehouseState` reducer) — not on
                 // every 10s poll or on mount for a warehouse already provisioned earlier.
                 const previousState = values.previousWarehouseState
-                if ((previousState === 'pending' || previousState === 'provisioning') && state === 'ready') {
+                const wasProvisioning = previousState === 'pending' || previousState === 'provisioning'
+                if (wasProvisioning && state === 'ready') {
                     posthog.capture('managed warehouse provisioned')
                 }
-                if ((previousState === 'pending' || previousState === 'provisioning') && state === 'failed') {
+                if (wasProvisioning && state === 'failed') {
                     posthog.capture('managed warehouse provision failed')
                 }
                 if (previousState === 'deleting' && state === 'deleted') {

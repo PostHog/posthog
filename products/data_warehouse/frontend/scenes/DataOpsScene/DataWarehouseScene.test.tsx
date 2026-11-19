@@ -24,7 +24,6 @@ describe('DataWarehouseScene', () => {
         jest.restoreAllMocks()
     })
 
-    // The password is shown once, and provisioning finishing moves the scene off the Settings tab.
     it('shows the one-time password banner while another tab is active', async () => {
         jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue(warehouseStatusFixture())
         jest.spyOn(dwApi, 'dataWarehouseManagedWarehouseDataStatusRetrieve').mockReturnValue(new Promise(() => {}))
@@ -38,8 +37,7 @@ describe('DataWarehouseScene', () => {
             </Provider>
         )
 
-        // The tab bar only exists once the warehouse is ready, and Overview is its first tab.
-        expect(await screen.findByText('Monitoring')).toBeInTheDocument()
+        await screen.findByText('Loading warehouse data status...')
         warehouseProvisioningLogic.actions.setInitialPassword('example-password')
 
         expect(await screen.findByText("Save your password now. It won't be shown again.")).toBeInTheDocument()

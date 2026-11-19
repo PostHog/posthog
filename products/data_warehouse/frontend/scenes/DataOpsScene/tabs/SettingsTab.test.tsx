@@ -144,7 +144,6 @@ describe('SettingsTab', () => {
         expect(screen.queryByText('Provision warehouse')).not.toBeInTheDocument()
     })
 
-    // The backend requires an organization admin for these actions, so members must not be offered them.
     describe.each([
         { name: 'an admin', level: OrganizationMembershipLevel.Admin },
         { name: 'a member', level: OrganizationMembershipLevel.Member },
