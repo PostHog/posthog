@@ -824,6 +824,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "hog_function_fetch_calls_in_period": 0,
                     "cdp_billable_invocations_in_period": 0,
                     "rows_exported_in_period": 0,
+                    "pipelines_egress_mb_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.organization.id),
                     "organization_name": "Test",
@@ -928,6 +929,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "hog_function_fetch_calls_in_period": 0,
                             "cdp_billable_invocations_in_period": 0,
                             "rows_exported_in_period": 0,
+                            "pipelines_egress_mb_in_period": 0,
                             "ai_event_count_in_period": 7,
                             "mcp_event_count_in_period": 0,
                             "business_knowledge_chunks_in_period": 120,
@@ -1030,6 +1032,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "hog_function_fetch_calls_in_period": 0,
                             "cdp_billable_invocations_in_period": 0,
                             "rows_exported_in_period": 0,
+                            "pipelines_egress_mb_in_period": 0,
                             "ai_event_count_in_period": 0,
                             "mcp_event_count_in_period": 0,
                             "business_knowledge_chunks_in_period": 30,
@@ -1155,6 +1158,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "hog_function_fetch_calls_in_period": 0,
                     "cdp_billable_invocations_in_period": 0,
                     "rows_exported_in_period": 0,
+                    "pipelines_egress_mb_in_period": 0,
                     "ai_event_count_in_period": 0,
                     "mcp_event_count_in_period": 0,
                     "business_knowledge_chunks_in_period": 0,
@@ -1265,6 +1269,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "hog_function_fetch_calls_in_period": 0,
                             "cdp_billable_invocations_in_period": 0,
                             "rows_exported_in_period": 0,
+                            "pipelines_egress_mb_in_period": 0,
                             "ai_event_count_in_period": 0,
                             "mcp_event_count_in_period": 0,
                             "business_knowledge_chunks_in_period": 0,
@@ -3128,6 +3133,42 @@ class TestExternalDataSyncUsageReport(_ThreeOrgUsageReportTest):
         assert org_1_report["organization_name"] == "Org 1"
         assert org_1_report["rows_exported_in_period"] == 0
         assert org_1_report["teams"]["3"]["rows_exported_in_period"] == 0
+
+    @patch("posthog.tasks.usage_report.get_destination_bytes_exported_by_team")
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_pipelines_egress_mb_sums_destination_and_batch_export_bytes_before_flooring(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock, destination_bytes_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+        destination_bytes_mock.return_value = [{"team_id": 3, "total": 600_000}, {"team_id": 4, "total": 2_500_000}]
+
+        batch_export_id = batch_exports_testing.create_batch_export(
+            3,
+            name="Test export",
+            destination_type=BatchExportDestinationType.AWS_S3,
+            destination_config={"bucket_name": "test_bucket"},
+            model=BatchExportModel.EVENTS,
+        )
+        batch_exports_testing.create_batch_export_run(
+            batch_export_id=batch_export_id,
+            data_interval_end=now(),
+            data_interval_start=now() - timedelta(hours=1),
+            finished_at=now(),
+            status=BatchExportRunStatus.COMPLETED,
+            records_completed=10,
+            bytes_exported=600_000,
+        )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        all_reports = _get_all_org_reports(period=period)
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["teams"]["3"]["pipelines_egress_mb_in_period"] == 1
+        assert org_1_report["teams"]["4"]["pipelines_egress_mb_in_period"] == 2
+        assert org_1_report["pipelines_egress_mb_in_period"] == 3
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")

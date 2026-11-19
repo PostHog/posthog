@@ -103,6 +103,7 @@ from products.tasks.backend.facade.billing import (
     get_task_sandbox_usage_by_team,
 )
 from products.warehouse_sources.backend.facade.billing import (
+    get_destination_bytes_exported_by_team,
     get_free_historical_rows_synced_by_team,
     get_rows_synced_by_team,
 )
@@ -304,6 +305,9 @@ class UsageReportCounters:
     # Batch Exports metadata
     rows_exported_in_period: int
     active_batch_exports_in_period: int
+
+    # Bytes sent to external warehouse destinations and by batch exports, floored to MB once on the sum.
+    pipelines_egress_mb_in_period: int
 
     # Error Tracking
     issues_created_total: int
@@ -2399,6 +2403,17 @@ def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> li
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_pipelines_egress_bytes_in_period(begin: datetime, end: datetime) -> list:
+    totals: Counter[int] = Counter()
+    for row in get_destination_bytes_exported_by_team(begin, end):
+        totals[row["team_id"]] += row["total"]
+    for team_total in batch_exports_api.get_teams_with_billable_bytes_exported(begin, end):
+        totals[team_total.team_id] += team_total.total
+    return [{"team_id": team_id, "total": total} for team_id, total in totals.items()]
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_active_external_data_schemas_in_period() -> list:
     # get all external data schemas that are running or completed at run time
     return list(
@@ -3204,6 +3219,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.free_historical_rows_synced_in_period > 0
         or report.cdp_billable_invocations_in_period > 0
         or report.rows_exported_in_period > 0
+        or report.pipelines_egress_mb_in_period > 0
         or report.exceptions_captured_in_period > 0
         or report.ai_event_count_in_period > 0
         or report.ai_overage_bytes_in_period > 0
@@ -3495,6 +3511,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         ),
         "teams_with_active_external_data_schemas_in_period": get_teams_with_active_external_data_schemas_in_period(),
         "teams_with_active_batch_exports_in_period": get_teams_with_active_batch_exports_in_period(),
+        "teams_with_pipelines_egress_bytes_in_period": get_teams_with_pipelines_egress_bytes_in_period(
+            period_start, period_end
+        ),
         "teams_with_dwh_tables_storage_in_s3_in_mib": get_teams_with_dwh_tables_storage_in_s3(),
         "teams_with_dwh_mat_views_storage_in_s3_in_mib": get_teams_with_dwh_mat_views_storage_in_s3(),
         "teams_with_dwh_total_storage_in_s3_in_mib": get_teams_with_dwh_total_storage_in_s3(),
@@ -3676,6 +3695,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
             team.id, 0
         ),
         rows_exported_in_period=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
+        pipelines_egress_mb_in_period=int(
+            all_data["teams_with_pipelines_egress_bytes_in_period"].get(team.id, 0) // 1_000_000
+        ),
         active_external_data_schemas_in_period=all_data["teams_with_active_external_data_schemas_in_period"].get(
             team.id, 0
         ),
