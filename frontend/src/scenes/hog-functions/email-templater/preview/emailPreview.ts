@@ -134,3 +134,8 @@ export function personPropertiesUsed(templates: string[]): string[] {
     )
     return Array.from(new Set(keys))
 }
+
+/** Renders as plain text, with each missing value read out as its label, for one-line summaries. */
+export function renderEmailPreviewText(template: string, person: EmailPreviewPerson | null): string {
+    return splitUnresolved(renderEmailPreviewMarked(template, person)).join('')
+}

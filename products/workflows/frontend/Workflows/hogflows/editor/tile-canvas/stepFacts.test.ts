@@ -292,6 +292,24 @@ describe('stepFacts', () => {
         expect(stepFacts(workflow([action]), action).headline).toBe(headline)
     })
 
+    it.each([
+        ['falls back to the step name without a person', undefined, 'Pitch by role'],
+        ['renders the branch for the preview person', { id: 'p', properties: { role: 'founder' } }, 'Ask the team'],
+    ])('reads a subject with logic: %s', (_, person, headline) => {
+        const subject = "{% if person.properties.role == 'founder' %}Ask the team{% else %}See stuck users{% endif %}"
+        const action = step(
+            'pitch',
+            'function_email',
+            {
+                template_id: 'template-email',
+                inputs: inputs({ email: { subject, html: '<p>Hi</p>' } }),
+            },
+            'Pitch by role'
+        )
+
+        expect(stepFacts(workflow([action]), action, undefined, person).headline).toBe(headline)
+    })
+
     it('reads a step once for all its tiles, and again when its paths change', () => {
         const twoPaths = workflow([split], {
             edges: [
