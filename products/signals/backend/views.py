@@ -134,7 +134,7 @@ from products.signals.backend.billing import (
     refund_ineligibility_reason,
     report_pr_is_merged,
 )
-from products.signals.backend.briefing_reports import reports_for_person
+from products.signals.backend.briefing_reports import reports_for_person, reports_needing_person
 from products.signals.backend.contracts import alert_patterns_problem
 from products.signals.backend.dismissal_notes import forward_dismissal_note, principal_may_steer_scouts
 from products.signals.backend.enums import ReportPriority, ReportTaskActionKind, ReviewerRemovalReason
@@ -2023,6 +2023,18 @@ _REPORT_LIST_PARAMETERS = [
             "claims by MCP agents acting for them. Internal task claims are not included."
         ),
     ),
+    OpenApiParameter(
+        name="needs_you",
+        type=OpenApiTypes.BOOL,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "'true' keeps only the reports that need the requesting user: the ones waiting on their input "
+            "(pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or "
+            "through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by "
+            "the user's personal ranking."
+        ),
+    ),
 ]
 # Section counts set the status and the implementation PR condition themselves, so they reject these.
 _SECTION_DEFINING_PARAMETERS = frozenset({"status", "has_implementation_pr", "include_all_statuses", "view"})
@@ -2381,6 +2393,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_unclaimed_filter(qs)
         qs = self._apply_signal_report_assignee_filter(qs)
+        qs = self._apply_signal_report_needs_you_filter(qs)
         qs = self._apply_signal_report_channel_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._apply_signal_report_inbox_scope_filter(qs)
@@ -2732,6 +2745,13 @@ class SignalReportViewSet(
             raise serializers.ValidationError({"assignee": "Invalid value. Allowed: me, mine."})
         actor = self._request_attribution()
         return queryset.filter(reports_with_active_claim(team_id=self.team_id, actor=actor))
+
+    def _apply_signal_report_needs_you_filter(self, queryset):
+        wants_needs_you = self._bool_query_param("needs_you")
+        if wants_needs_you is None:
+            return queryset
+        needs_you = reports_needing_person(self.team_id, cast(User, self.request.user))
+        return queryset.filter(needs_you) if wants_needs_you else queryset.exclude(needs_you)
 
     def _channel_id_filter_value(self) -> uuid.UUID | None:
         # `channel_id=<uuid>` narrows to reports assigned to one space. Absent or empty

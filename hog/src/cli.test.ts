@@ -1,8 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 
-import { LEGACY_COMMANDS } from '@/commands/legacy'
-import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
+import { EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { VERSION } from '@/version'
 
 import { runHog } from './testing'
@@ -22,35 +21,6 @@ describe('hog', () => {
         const result = await runHog(argv)
         expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stdout).toContain(stdout)
-    })
-
-    test.each(Object.entries(LEGACY_COMMANDS).map(([name, command]) => [name, 'use' in command ? command.use : '']))(
-        '%s fails and points to %s',
-        async (name, use) => {
-            const result = await runHog([name, 'sub', "it's", '--flag'])
-            expect(result.exitCode).toBe(EXIT_FAILURE)
-            expect(result.error()).toMatchObject({ code: 'not_ported' })
-            expect(result.error().message).toContain(`${use} sub 'it'\\''s' --flag`)
-        }
-    )
-
-    test.each([
-        ['help for an unported command', ['help', 'logs', 'import'], 'posthog-cli exp logs import --help'],
-        ['an unported subcommand of a ported group', ['query', 'editor'], 'posthog-cli exp query editor'],
-        [
-            'hog globals that posthog-cli takes before the subcommand',
-            ['-o', 'json', '--host', 'https://eu.example.com', 'logs', 'import', '--dotenv-file=p.env', '--dir', 'x'],
-            'posthog-cli --host https://eu.example.com --dotenv-file p.env exp logs import --dir x',
-        ],
-        [
-            'an --output that the legacy command owns',
-            ['logs', 'import', '--output', './logs'],
-            'posthog-cli exp logs import --output ./logs',
-        ],
-    ])('%s points to posthog-cli', async (_name, argv, invocation) => {
-        const result = await runHog(argv)
-        expect(result.exitCode).toBe(EXIT_FAILURE)
-        expect(result.error().message).toEndWith(`Run this instead:\n  ${invocation}`)
     })
 
     test.each([
@@ -126,7 +96,6 @@ describe('hog', () => {
             'ci setup',
             'query run',
             'query check',
-            'query editor',
             'api groups',
             'api tools',
             'api search',
@@ -135,7 +104,6 @@ describe('hog', () => {
             'api call',
             'api access',
             'api refresh',
-            'api agents-md',
             'skills',
             'skills list',
             'skills search',
@@ -161,8 +129,8 @@ describe('hog', () => {
             'config check',
             'config schema',
             'commands',
+            'upgrade',
             'feedback',
-            ...Object.keys(LEGACY_COMMANDS),
         ])
     })
 })

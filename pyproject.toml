@@ -176,7 +176,6 @@ dependencies = [
     "elevenlabs~=2.75.0",
     "django-oauth-toolkit~=3.2.0",
     "azure-ai-projects~=1.0.0",
-    "azure-ai-inference~=1.0.0b9",
     "azure-storage-blob~=12.27.1",
     "opentelemetry-sdk==1.37.0",
     "opentelemetry-instrumentation-aiokafka==0.58b0",

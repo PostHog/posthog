@@ -407,11 +407,12 @@ describe('dashboardLogic', () => {
             )
         )
         const loadedShortIds = (): string[] => refreshInsight.mock.calls.map((call) => call[1].short_id)
-        const setDashboardV2 = (enabled: boolean): void => {
-            featureFlagLogic.actions.setFeatureFlags(
-                enabled ? [FEATURE_FLAGS.DASHBOARD_V2] : [],
-                enabled ? { [FEATURE_FLAGS.DASHBOARD_V2]: true } : {}
-            )
+        const setDashboardV2 = (enabled: boolean, users: boolean = enabled): void => {
+            const flags = [
+                ...(enabled ? [FEATURE_FLAGS.DASHBOARD_V2] : []),
+                ...(users ? [FEATURE_FLAGS.DASHBOARD_V2_USERS] : []),
+            ]
+            featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
         }
         const autoRefresh = async (): Promise<void> => {
             await expectLogic(logic, () => {
@@ -449,6 +450,20 @@ describe('dashboardLogic', () => {
 
             expect(loadedShortIds()).toEqual(tiles.map((tile) => tile.insight!.short_id))
             expect(logic.values.deferredTileIds).toEqual([])
+        })
+
+        it.each([
+            ['the project has dashboard-v2 but the person is not in dashboard-v2-users', true, false],
+            ['the person is in dashboard-v2-users but the project lacks dashboard-v2', false, true],
+        ])('queries every tile when %s', async (_case, project, person) => {
+            setDashboardV2(project, person)
+            logic = dashboardLogic({ id: 21 })
+            logic.mount()
+            logic.actions.setTileInView(tiles[0].id, true)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dashboardV2Enabled).toBe(false)
+            expect(loadedShortIds()).toEqual(tiles.map((tile) => tile.insight!.short_id))
         })
 
         it('queries the first screen up front and each later tile once it scrolls into view', async () => {
@@ -3399,38 +3414,36 @@ describe('dashboardLogic', () => {
                 }
             })
 
-            it.each(['/dashboard/5', urls.analyticsProductHome()])(
-                'restores filters when browser history changes the URL on %s',
-                async (pathname) => {
-                    await expectLogic(logic).toFinishAllListeners()
+            it('restores filters when browser history changes the URL', async () => {
+                const pathname = '/dashboard/5'
+                await expectLogic(logic).toFinishAllListeners()
 
-                    await expectLogic(logic, () => {
-                        logic.actions.setDates('-30d', null)
-                    }).toFinishAllListeners()
+                await expectLogic(logic, () => {
+                    logic.actions.setDates('-30d', null)
+                }).toFinishAllListeners()
 
-                    const searchParams = {
-                        [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d', date_to: null }),
-                    }
-                    await expectLogic(logic, () => {
-                        router.actions.locationChanged({
-                            method: 'POP',
-                            pathname,
-                            search: '',
-                            searchParams,
-                            hash: '',
-                            hashParams: {},
-                            url: pathname,
-                        })
-                    }).toFinishAllListeners()
-
-                    expect(logic.values.currentDashboardSettings.filters).toEqual(
-                        expect.objectContaining({ date_from: '-7d', date_to: null })
-                    )
-                    expect(logic.values.filtersOverrideForLoad).toEqual(
-                        expect.objectContaining({ date_from: '-7d', date_to: null })
-                    )
+                const searchParams = {
+                    [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d', date_to: null }),
                 }
-            )
+                await expectLogic(logic, () => {
+                    router.actions.locationChanged({
+                        method: 'POP',
+                        pathname,
+                        search: '',
+                        searchParams,
+                        hash: '',
+                        hashParams: {},
+                        url: pathname,
+                    })
+                }).toFinishAllListeners()
+
+                expect(logic.values.currentDashboardSettings.filters).toEqual(
+                    expect.objectContaining({ date_from: '-7d', date_to: null })
+                )
+                expect(logic.values.filtersOverrideForLoad).toEqual(
+                    expect.objectContaining({ date_from: '-7d', date_to: null })
+                )
+            })
         })
 
         describe('external filter overrides', () => {

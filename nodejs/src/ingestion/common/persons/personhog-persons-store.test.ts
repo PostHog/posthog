@@ -897,6 +897,42 @@ describe('PersonhogPersonsStore', () => {
         expect(repository.fetchPersonById).not.toHaveBeenCalled()
     })
 
+    it("a create that finds a person without properties writes the event's properties as an update", async () => {
+        person.properties = {}
+        repository.getOrCreatePersonByDistinctId.mockResolvedValue({ person, created: false } as never)
+        repository.fetchPersonById.mockResolvedValue(person as never)
+        const bound = store.forBatch(0)
+
+        const result = await bound.createPerson(
+            DateTime.fromMillis(3_600_000, { zone: 'utc' }),
+            { plan: 'pro', first: 'x' },
+            {},
+            {},
+            1,
+            null,
+            false,
+            'advisory-uuid',
+            { distinctId: 'd1' },
+            undefined
+        )
+        if (!result.success) {
+            throw new Error('create did not succeed')
+        }
+        expect(result.created).toBe(false)
+        await bound.applyEventOps(
+            result.person,
+            ops({ $set: { plan: 'pro' }, $set_once: { first: 'x' } }, '$pageview'),
+            'd1'
+        )
+        await bound.flush()
+
+        expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+        const sent = repository.updatePersonProperties.mock.calls[0][0]
+        expect(sent.personId).toEqual('7')
+        expect(sent.setProperties).toEqual({ plan: 'pro' })
+        expect(sent.setOnceProperties).toEqual({ first: 'x' })
+    })
+
     it('a create answer declined by a purge still clears the absence it contradicts', async () => {
         const bound = store.forBatch(0)
         // Identity has no mapping yet, so the update read caches an absence.

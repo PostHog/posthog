@@ -40578,6 +40578,10 @@
                 "level": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationLevel"
                 },
+                "minor": {
+                    "description": "True when the monthly impact is under 1% of the ad account's monthly spend.",
+                    "type": "boolean"
+                },
                 "reason": {
                     "type": "string"
                 },

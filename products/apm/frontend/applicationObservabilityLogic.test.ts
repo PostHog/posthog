@@ -41,6 +41,9 @@ const ENDPOINTS_RESPONSE: EndpointsHealthResponseApi = {
         {
             service_name: 'queue',
             endpoint: 'orders process',
+            span_name: 'orders process',
+            route_attribute: null,
+            route: null,
             environment: 'prod',
             status: 'serious',
             health: { request_rate: 1, error_rate: 0.5, p95_ms: 10, span_count: 2, error_count: 1 },

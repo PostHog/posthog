@@ -84,7 +84,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.dashboard(DASHBOARD_ID),
-        featureFlags: [FEATURE_FLAGS.DASHBOARD_V2],
+        featureFlags: [FEATURE_FLAGS.DASHBOARD_V2, FEATURE_FLAGS.DASHBOARD_V2_USERS],
         testOptions: {
             // Tiles below the fold keep their placeholder until they scroll into view, and it counts as a loader.
             waitForLoadersToDisappear: false,

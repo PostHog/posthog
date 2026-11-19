@@ -963,7 +963,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def request_ai_access(self, request: Request, **kwargs) -> Response:
         """Notify organization admins that a member is requesting PostHog AI be enabled."""
-        organization = self.organization
+        organization = self.get_object()
         user = cast(User, request.user)
 
         # Nothing to request if PostHog AI is already enabled for the org.
@@ -1027,7 +1027,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def data_freshness(self, request: Request, **kwargs) -> Response:
         """When each project in the organization last received data, broken down by kind of data."""
-        organization = self.organization
+        organization = self.get_object()
         user = cast(User, request.user)
         # `self.user_access_control` is scoped to the user's current organization, which on this route isn't
         # necessarily the one being requested - so build one for the organization actually in the URL

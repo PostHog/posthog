@@ -29,11 +29,14 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
 
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
+    DISAPPROVED,
+    LIMITED_APPROVALS,
     RECOMMENDATION_SOURCE_TYPES,
     Ad,
     CampaignStats,
     KeywordTracking,
     OrganicQueryStats,
+    PolicyAds,
     RankingPage,
     RecommendationInputs,
     SearchTermStats,
@@ -190,6 +193,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                         keyword_tracking=self._keyword_tracking(source),
                         ads=tuple(self._ads(source)),
                         excluded_searches=self._excluded_searches(source),
+                        policy_ads=tuple(self._policy_ads(source)),
                         customer_id=self._customer_id(source),
                     )
                 )
@@ -642,6 +646,25 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             for row in rows
             if row[0]
         ]
+
+    def _policy_ads(self, source: MarketingAnalyticsRecommendationsSource) -> list[PolicyAds]:
+        if not source.adTable or not self._readable(source.adTable):
+            return []
+        # Counted in the query, so the row limit on the ad list never cuts a campaign's totals.
+        rows = self._select(
+            """
+            SELECT toString(campaign_id), countIf({status} = {disapproved}), countIf(has({limited}, {status}))
+            FROM {table}
+            WHERE ad_group_ad_status = 'ENABLED'
+            GROUP BY campaign_id
+            HAVING countIf({status} = {disapproved}) + countIf(has({limited}, {status})) > 0
+            """,
+            source.adTable,
+            status=self._field(source.adTable, "ad_group_ad_policy_summary_approval_status"),
+            disapproved=ast.Constant(value=DISAPPROVED),
+            limited=ast.Array(exprs=[ast.Constant(value=status) for status in sorted(LIMITED_APPROVALS)]),
+        )
+        return [PolicyAds(campaign_id=row[0], disapproved=int(row[1]), limited=int(row[2])) for row in rows]
 
     def _organic_queries(self, source: MarketingAnalyticsRecommendationsSource) -> list[OrganicQueryStats]:
         if not source.queryTable or not self._readable(source.queryTable):

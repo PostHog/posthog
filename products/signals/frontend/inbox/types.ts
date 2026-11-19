@@ -415,12 +415,13 @@ export const INBOX_REPORT_SECTION_TAG: Partial<Record<InboxReportSectionKey, 'St
 export const INBOX_CONFIG_TAB_KEY: InboxTabKey = 'config'
 
 /**
- * `for-you` (suggested-reviewer reports), `claimed-by-you` (reports the user claimed), `entire-project`
- * (all), or `teammate:<uuid>`.
+ * `for-you` (suggested-reviewer reports), `needs-you` (reports waiting on the user's input or claimed by them),
+ * `claimed-by-you` (reports the user claimed), `entire-project` (all), or `teammate:<uuid>`.
  */
-export type InboxScope = 'for-you' | 'claimed-by-you' | 'entire-project' | `teammate:${string}`
+export type InboxScope = 'for-you' | 'needs-you' | 'claimed-by-you' | 'entire-project' | `teammate:${string}`
 
 export const INBOX_SCOPE_FOR_YOU: InboxScope = 'for-you'
+export const INBOX_SCOPE_NEEDS_YOU: InboxScope = 'needs-you'
 export const INBOX_SCOPE_CLAIMED_BY_YOU: InboxScope = 'claimed-by-you'
 export const INBOX_SCOPE_ENTIRE_PROJECT: InboxScope = 'entire-project'
 
