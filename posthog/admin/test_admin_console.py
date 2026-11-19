@@ -150,7 +150,7 @@ class _DuplicatePanel(Panel):
     record = "team"
     key = "overview"
     title = "Duplicate"
-    owner = Owner(name="Dev experience", crest="dev-experience")
+    owner = None
 
 
 class _UndeclaredOperationPanel(_DuplicatePanel):
@@ -163,7 +163,7 @@ class _UndeclaredOperationPanel(_DuplicatePanel):
 class _Tool(ConsoleTool):
     key = "some-report"
     title = "Some report"
-    owner = Owner(name="Dev experience", crest="dev-experience")
+    owner = None
     group = "Data"
 
 
@@ -450,7 +450,7 @@ class TestAdminConsoleAssets(SimpleTestCase):
             ),
             (
                 "owner_gate_for_an_owner_without_a_staff_group",
-                lambda: Gate.owner().resolve(Owner(name="Dev experience", crest="dev-experience")),
+                lambda: Gate.owner().resolve(Owner(name="Replay", crest="replay")),
                 "has no staff_group",
             ),
             ("fact_with_markup", lambda: Fact(label="Plan", value=format_html("<b>{}</b>", "Scale")), "plain text"),
