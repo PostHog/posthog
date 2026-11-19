@@ -164,8 +164,14 @@ jobs:
             - uses: ./.github/actions/paths-filter
               id: changes
               if: github.event_name == 'pull_request'
+              env:
+                  PATHS_FILTER_REUSE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  reuse-checks: Playwright tests pass
+                  reuse-proof-checks: Playwright E2E tests
+                  reuse-blocking-labels: ci-no-reuse
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       shouldRun:
                         # Any change that could affect E2E behavior triggers a run.
@@ -224,6 +230,16 @@ jobs:
                         - '!posthog/dags/**'
                       hogqlParser:
                         - 'common/hogql_parser/**'
+                      # No job reads this output. It exists so reuse also compares the files that
+                      # tools/playwright_spec_selection.py maps to specs and shouldRun does not match.
+                      specSelection:
+                        - 'products/*/backend/**'
+                        - tsconfig.json
+                        - 'tsconfig.*.json'
+                      reuseOnlyInputs:
+                        - manage.py
+                        - .nvmrc
+                        - 'products/*/manifest.tsx'
 
             # Visual Review auto-commits a snapshot baseline after human review and CI
             # approval. Re-running the full E2E stack for that bot push is pure waste;
@@ -606,8 +622,12 @@ jobs:
         if: |
             !cancelled()
             && needs.changes.outputs.shouldRun == 'true'
-        # The merge queue's full suite gates every merge, so it gets the larger runner. Other runs
-        # mostly run selected specs, where setup dominates. Talk to #team-devex before changing.
+        # The merge queue's full suite gates every merge, so it gets the larger runner: 252s for the test
+        # step at 12 workers on 16 vCPU against 426s at 6 workers on 8 vCPU, measured over ten full runs
+        # a side. Pull requests stay on 8 vCPU because their runs mostly select specs, where setup
+        # dominates and the larger runner only buys vCPU minutes. See "Sizing the Playwright job" in
+        # .agents/skills/authoring-ci-workflows/SKILL.md. Talk to #team-devex before changing the size or
+        # the worker counts below; they are tuned against each other.
         runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04-16' || 'depot-ubuntu-24.04-8' }}
         timeout-minutes: 45
         permissions:
@@ -623,8 +643,6 @@ jobs:
             ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
             GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
             INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
-            AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
-            AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
             # Tuned together per runner and doubled for the queue: more Playwright workers without more
             # Granian workers added test failures and no speedup. Talk to #team-devex before changing either.
             GRANIAN_WORKERS: ${{ startsWith(github.head_ref, 'trunk-merge/') && 8 || 4 }}
@@ -1173,10 +1191,43 @@ jobs:
                   quarantine: true
                   previous-step-outcome: ${{ steps.playwright-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
-            # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
-            # also covers the skipped gate on fork/Dependabot.
+            # Trunk quarantines a test, not a failure, so the gate also masks a change that breaks a quarantined test.
+            # The rerun treats a test that fails all three attempts as broken. The verdict step below then reds the job.
+            # --output and --reporter keep the main run's test-results/, junit file, and html report intact.
+            # The quarantine reporter stays so that a `mode: "run"` entry in .test_quarantine.json still applies.
+            # With no failed test ids, --last-failed runs the whole suite. The step fails in that case, because a failed main step with no failed test means setup or the run itself broke.
+            # Playwright writes .last-run.json at the end of every run. A missing or unreadable file means
+            # that the write failed. The step then fails because it cannot tell which tests to rerun.
+            - name: Rerun failures the quarantine masked
+              id: quarantine_rerun
+              continue-on-error: true
+              if: ${{ !cancelled() && steps.playwright-tests.outcome == 'failure' && vars.TRUNK_QUARANTINE_ENABLED == 'true' && steps.quarantine_gate.outcome == 'success' }}
+              timeout-minutes: 15
+              shell: bash
+              run: |
+                  last_run=playwright/test-results/.last-run.json
+                  failed=$(jq '.failedTests | if type == "array" then length else error("no failedTests array") end' "$last_run") || failed=
+                  if [[ ! "$failed" =~ ^[0-9]+$ ]]; then
+                      echo "::error::Could not read the failed tests from $last_run, so the masked failures cannot be rerun."
+                      exit 1
+                  fi
+                  if [ "$failed" -eq 0 ]; then
+                      echo "::error::The Playwright step failed but $last_run lists no failed test. Global setup, a run timeout, or an interrupted run is the likely cause."
+                      exit 1
+                  fi
+                  mkdir -p playwright/test-results-quarantine-rerun
+                  cp "$last_run" playwright/test-results-quarantine-rerun/.last-run.json
+                  if ! pnpm --filter=@posthog/playwright exec playwright test --last-failed --retries=2 \
+                      --output=test-results-quarantine-rerun --reporter=line,./playwright.quarantine.reporter.ts \
+                      --trace=off --workers=2 --update-snapshots; then
+                      echo "::error::The rerun of the failures the quarantine masked did not pass, so the job treats them as a real break. The rerun output above shows which test or setup step failed."
+                      exit 1
+                  fi
+            # Verdict: red a real failure the gate didn't clear as a quarantined flake, or a masked failure
+            # that the rerun did not clear. != 'success' also covers the skipped gate on fork/Dependabot
+            # and a rerun that timed out.
             - name: Fail on Playwright failure
-              if: ${{ !cancelled() && steps.playwright-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
+              if: ${{ !cancelled() && steps.playwright-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success' || steps.quarantine_rerun.outcome != 'success') }}
               shell: bash
               run: exit 1
 
@@ -1308,7 +1359,9 @@ jobs:
                         "selection_reason_category": ${{ toJSON(needs.select-specs.outputs.selection_reason_category || '') }},
                         "playwright_test_seconds": ${{ needs.playwright.outputs.test_seconds || 'null' }},
                         "playwright_result": ${{ toJSON(needs.playwright.result) }},
-                        "runner_billing_multiplier": 4,
+                        # Depot bills an 8 vCPU runner at 4x a 2 vCPU one and a 16 vCPU runner at 8x,
+                        # and the job picks its runner size above, so the multiplier follows the run.
+                        "runner_billing_multiplier": ${{ startsWith(github.head_ref, 'trunk-merge/') && 8 || 4 }},
                         "event_type": ${{ toJSON(github.event_name) }},
                         "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
                         "sha": ${{ toJSON(github.sha) }},

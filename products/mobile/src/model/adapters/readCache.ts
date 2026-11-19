@@ -1,4 +1,5 @@
 import type { QueryKey } from '@tanstack/react-query'
+import { LIVE_EXCLUDE_INTERNAL_CACHE_SUFFIX } from '@/api/readCacheKeys'
 import type { ProjectScope } from '@/api/reports'
 import { asRecord } from '@/lib/records'
 
@@ -6,7 +7,10 @@ export function isReadCacheKey(key: QueryKey, scope: ProjectScope): boolean {
     if (key[1] !== scope.host || key[2] !== scope.projectId) return false
     if (key[0] === 'read-inbox') return key.length === 3
     if (key[0] !== 'views') return false
-    const lengths: Record<string, number> = { insight: 7, web: 5, dashboard: 6, live: 5 }
+    if (key[3] === 'live') {
+        return key.length === 5 || (key.length === 6 && key[5] === LIVE_EXCLUDE_INTERNAL_CACHE_SUFFIX)
+    }
+    const lengths: Record<string, number> = { insight: 7, web: 5, dashboard: 6 }
     return key.length === lengths[String(key[3])]
 }
 

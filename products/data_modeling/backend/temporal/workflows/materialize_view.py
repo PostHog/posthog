@@ -48,8 +48,10 @@ from products.data_modeling.backend.temporal.activities import (
 )
 from products.data_modeling.backend.temporal.activities.enrich_view_semantics import EnrichViewSemanticsInputs
 from products.data_modeling.backend.temporal.metrics import (
+    NO_ERROR_LABEL,
     UNKNOWN_RUN_MODE,
     error_class,
+    error_code,
     get_node_duration_metric,
     get_node_finished_metric,
     get_node_rows_materialized_metric,
@@ -181,6 +183,7 @@ def _record_managed_warehouse_node_metrics(result: ManagedWarehouseShadowResult,
             tier=tier,
             run_mode=result.run_mode,
             error_class=error_class(result.error),
+            error_code=error_code(result.error),
         ).add(1)
         return
     get_node_finished_metric("completed", MANAGED_WAREHOUSE_ENGINE, tier=tier, run_mode=result.run_mode).add(1)
@@ -526,6 +529,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     tier=tier,
                     run_mode=UNKNOWN_RUN_MODE,
                     error_class="none" if shadow_cancelled else error_class(str(shadow_err)),
+                    error_code=NO_ERROR_LABEL if shadow_cancelled else error_code(str(shadow_err)),
                 ).add(1)
                 await self._finalize_orphaned_managed_warehouse_job(managed_warehouse_job_id, inputs, shadow_err)
                 temporalio.workflow.logger.warning(

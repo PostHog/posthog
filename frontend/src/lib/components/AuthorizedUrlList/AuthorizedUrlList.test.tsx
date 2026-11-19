@@ -12,11 +12,12 @@ import { AuthorizedUrlListType } from './authorizedUrlListLogic'
 describe('AuthorizedUrlList', () => {
     afterEach(() => cleanup())
 
-    // `app_urls` saves are admin-only on the backend, so a member must not get an Add button that only 403s.
+    // `app_urls` and `recording_domains` saves are admin-only on the backend, so a member must not get an Add button that only 403s.
     it.each([
         [AuthorizedUrlListType.WEB_ANALYTICS, OrganizationMembershipLevel.Member, 'true'],
         [AuthorizedUrlListType.WEB_ANALYTICS, OrganizationMembershipLevel.Admin, 'false'],
-        [AuthorizedUrlListType.RECORDING_DOMAINS, OrganizationMembershipLevel.Member, 'false'],
+        [AuthorizedUrlListType.RECORDING_DOMAINS, OrganizationMembershipLevel.Member, 'true'],
+        [AuthorizedUrlListType.RECORDING_DOMAINS, OrganizationMembershipLevel.Admin, 'false'],
     ])('for %s at level %s sets aria-disabled=%s on Add', (type, level, expected) => {
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, effective_membership_level: level })
 
