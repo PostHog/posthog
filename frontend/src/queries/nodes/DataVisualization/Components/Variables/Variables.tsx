@@ -28,24 +28,9 @@ import { NewVariableModal } from './NewVariableModal'
 import { DateField, ListVariableSelect } from './VariableFields'
 import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
-import { formatRelativeDateValue, getListVariableSelectedValues, isRelativeDateValue } from './variableUtils'
+import { getListVariableSelectedValues, getVariableDisplayValue, isRelativeDateValue } from './variableUtils'
 
-const getVariableDisplayValue = (variable: Variable): string => {
-    const value = variable.value ?? variable.default_value
-    if (variable.type === 'List') {
-        const selectedValues = getListVariableSelectedValues(variable)
-        if (variable.is_multi && selectedValues.length > 1) {
-            return `${selectedValues.length} selected`
-        }
-        return selectedValues[0] ?? ''
-    }
-    if (variable.type === 'Date' && typeof value === 'string' && isRelativeDateValue(value)) {
-        return formatRelativeDateValue(value)
-    }
-    return String(value ?? '')
-}
-
-export const VariablesForDashboard = (): JSX.Element => {
+export const VariablesForDashboard = ({ inlineLabels = false }: { inlineLabels?: boolean }): JSX.Element => {
     const { effectiveVariablesAndAssociatedInsights } = useValues(dashboardLogic)
     const { overrideVariableValue } = useActions(dashboardLogic)
 
@@ -65,6 +50,7 @@ export const VariablesForDashboard = (): JSX.Element => {
                     emptyState={<i className="text-xs">No override set</i>}
                     insightsUsingVariable={n.insightNames}
                     size="small"
+                    inlineLabel={inlineLabels}
                 />
             ))}
         </>
@@ -339,6 +325,8 @@ interface VariableComponentProps {
     insightsUsingVariable?: string[]
     emptyState?: JSX.Element | string
     size?: 'small' | 'medium'
+    /** Puts the variable name to the left of the control, so the control lines up with other controls in a row. */
+    inlineLabel?: boolean
 }
 
 interface BufferedMultiListVariableSelectProps {
@@ -386,8 +374,10 @@ export const VariableComponent = ({
     insightsUsingVariable,
     emptyState = '',
     size = 'medium',
+    inlineLabel = false,
 }: VariableComponentProps): JSX.Element => {
     const [isPopoverOpen, setPopoverOpen] = useState(false)
+    const fieldClassName = inlineLabel ? 'items-center gap-2' : 'gap-0'
 
     const variableAsHogQL = `{variables.${variable.code_name}}`
 
@@ -402,7 +392,7 @@ export const VariableComponent = ({
     if (!showEditingUI && variable.type === 'List') {
         const disabledReason = variableOverridesAreSet && 'Discard dashboard variables to change'
         return (
-            <LemonField.Pure label={variable.name} className="gap-0" info={tooltip}>
+            <LemonField.Pure label={variable.name} className={fieldClassName} inline={inlineLabel} info={tooltip}>
                 {variable.is_multi ? (
                     <BufferedMultiListVariableSelect
                         variable={variable}
@@ -448,7 +438,7 @@ export const VariableComponent = ({
             className="DataVizVariable_Popover"
         >
             <div>
-                <LemonField.Pure label={variable.name} className="gap-0">
+                <LemonField.Pure label={variable.name} className={fieldClassName} inline={inlineLabel}>
                     <div className="flex gap-x-2">
                         <LemonButton
                             type="secondary"
