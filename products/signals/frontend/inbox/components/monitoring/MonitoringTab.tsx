@@ -15,8 +15,8 @@ function plural(count: number, one: string, many: string): string {
 }
 
 export function MonitoringTab(): JSX.Element {
-    const { sortedReports, reports, reportsLoading, loadFailed, scope } = useValues(monitoringTabLogic)
-    const { loadReports, setScope } = useActions(monitoringTabLogic)
+    const { sortedReports, page, pageLoading, loadFailed, scope } = useValues(monitoringTabLogic)
+    const { loadReports, loadMore, setScope } = useActions(monitoringTabLogic)
     const now = useMinuteClock(true)
     const beingChecked = sortedReports.filter((report) => !report.monitoring_outcome).length
     const dueSoon = verdictsDueWithin(sortedReports, now, DAY_MS)
@@ -25,21 +25,20 @@ export function MonitoringTab(): JSX.Element {
         <div className="@container mx-auto flex max-w-6xl flex-col gap-3 px-6 py-4" data-attr="inbox-monitoring-tab">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-sm text-secondary">
-                    {reports ? (
+                    {page ? (
                         <>
                             <span className="font-semibold text-primary">
                                 {plural(dueSoon, 'verdict', 'verdicts')} in the next 24 hours
                             </span>
                             {' · '}
                             {plural(beingChecked, 'fix', 'fixes')} being checked
+                            {page.hasMore ? ` · ${page.results.length} of ${page.count} reports loaded` : null}
                         </>
                     ) : null}
                 </div>
                 <MonitoringScopeControl />
             </div>
-            {reports === null && reportsLoading ? (
-                <LemonSkeleton className="h-64 w-full" />
-            ) : loadFailed ? (
+            {loadFailed ? (
                 <div className="flex flex-col items-center gap-2 rounded border border-primary p-6 text-center text-sm">
                     <span>
                         Couldn't load the fixes being checked. Try again, and if it keeps happening, refresh the page.
@@ -48,6 +47,8 @@ export function MonitoringTab(): JSX.Element {
                         Try again
                     </LemonButton>
                 </div>
+            ) : page === null ? (
+                <LemonSkeleton className="h-64 w-full" />
             ) : sortedReports.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 rounded border border-dashed border-primary p-6 text-center text-sm text-secondary">
                     {scope.everyone ? (
@@ -69,7 +70,22 @@ export function MonitoringTab(): JSX.Element {
                     )}
                 </div>
             ) : (
-                <MonitoringTimeline reports={sortedReports} now={now} />
+                <>
+                    <MonitoringTimeline reports={sortedReports} now={now} />
+                    {page.hasMore ? (
+                        <div className="flex justify-center">
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                loading={pageLoading}
+                                onClick={() => loadMore()}
+                                data-attr="inbox-monitoring-load-more"
+                            >
+                                Load more
+                            </LemonButton>
+                        </div>
+                    ) : null}
+                </>
             )}
         </div>
     )

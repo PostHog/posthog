@@ -20,6 +20,7 @@ const OUTCOME_MARK: Record<string, string> = {
     resolved: 'bg-success',
     resolved_by_assessment: 'bg-success',
     resolved_manually: 'bg-border-bold',
+    resolved_unverified: 'bg-border-bold',
     closed: 'bg-warning',
 }
 
@@ -41,6 +42,7 @@ export function MonitoringTimelineBar({
     if (!span || span.end == null) {
         return null
     }
+    const verdictOnAxis = span.end >= axisStart && span.end <= axisEnd
     const outcome = report.monitoring_outcome
     const left = axisPercent(span.start, axisStart, axisEnd)
     const right = axisPercent(span.end, axisStart, axisEnd)
@@ -51,7 +53,8 @@ export function MonitoringTimelineBar({
                 className={clsx(
                     'absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full',
                     BAR_TONE[monitoringBarTone(report, now)],
-                    span.start < axisStart && 'rounded-l-none'
+                    span.start < axisStart && 'rounded-l-none',
+                    span.end > axisEnd && 'rounded-r-none'
                 )}
                 style={{ left: `${left}%`, width: `${Math.max(right - left, 0.8)}%` }}
             />
@@ -65,21 +68,23 @@ export function MonitoringTimelineBar({
                     style={{ left: `${axisPercent(Date.parse(reading.measured_at), axisStart, axisEnd)}%` }}
                 />
             ))}
-            <Tooltip
-                title={
-                    outcome
-                        ? `${statusLabel}, ${dayjs(outcome.ended_at).format('MMM D')}`
-                        : `Verdict due ${dayjs(span.end).format('MMM D, h:mm A')}`
-                }
-            >
-                <span
-                    className={clsx(
-                        'absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rotate-45 border border-primary',
-                        outcome ? OUTCOME_MARK[outcome.kind] : 'bg-surface-primary'
-                    )}
-                    style={{ left: `${right}%` }}
-                />
-            </Tooltip>
+            {verdictOnAxis ? (
+                <Tooltip
+                    title={
+                        outcome
+                            ? `${statusLabel}, ${dayjs(outcome.ended_at).format('MMM D')}`
+                            : `Verdict due ${dayjs(span.end).format('MMM D, h:mm A')}`
+                    }
+                >
+                    <span
+                        className={clsx(
+                            'absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rotate-45 border border-primary',
+                            outcome ? OUTCOME_MARK[outcome.kind] : 'bg-surface-primary'
+                        )}
+                        style={{ left: `${right}%` }}
+                    />
+                </Tooltip>
+            ) : null}
         </>
     )
 }

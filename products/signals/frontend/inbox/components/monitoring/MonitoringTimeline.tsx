@@ -7,7 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import type { SignalReportListApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { monitoringTabLogic } from '../../logics/monitoringTabLogic'
-import { axisPercent, MONITORING_AXIS_FUTURE_MS, MONITORING_AXIS_PAST_MS } from '../../utils/monitoringTimeline'
+import { axisPercent, monitoringAxis } from '../../utils/monitoringTimeline'
 import { MonitoringTimelineRow } from './MonitoringTimelineRow'
 
 const DAY_MS = 86_400_000
@@ -25,13 +25,14 @@ function LegendItem({ shape, children }: { shape: string; children: React.ReactN
 export function MonitoringTimeline({ reports, now }: { reports: SignalReportListApi[]; now: number }): JSX.Element {
     const { expandedReportIds } = useValues(monitoringTabLogic)
     const { toggleExpanded } = useActions(monitoringTabLogic)
-    const axisStart = now - MONITORING_AXIS_PAST_MS
-    const axisEnd = now + MONITORING_AXIS_FUTURE_MS
+    const { start: axisStart, end: axisEnd } = monitoringAxis(reports, now)
+    const days = Math.round((axisEnd - axisStart) / DAY_MS)
+    const step = Math.max(1, Math.ceil(days / 12))
     const nearNow = (time: number): boolean => Math.abs(time - now) < DAY_MS
-    const ticks = Array.from({ length: 12 }, (_, i) =>
+    const ticks = Array.from({ length: Math.ceil(days / step) }, (_, i) =>
         dayjs(axisStart)
             .startOf('day')
-            .add(i + 1, 'day')
+            .add((i + 1) * step, 'day')
             .valueOf()
     ).filter((tick) => tick < axisEnd - DAY_MS / 2)
 

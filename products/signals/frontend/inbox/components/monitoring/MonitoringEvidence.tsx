@@ -7,9 +7,11 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { ReportMonitoringSummaryApi, SignalReportListApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { monitoringTabLogic } from '../../logics/monitoringTabLogic'
 import { monitoringEvidence, monitoringReadingOverdue } from '../../utils/monitoringTimeline'
 import { monitoringDisplayState, monitoringFigures } from '../../utils/reportMonitoringSummary'
 import { MonitoringEvidenceChart } from './MonitoringEvidenceChart'
+import { MonitoringTime } from './MonitoringTime'
 import { MonitoringWaitingNote } from './MonitoringWaitingNote'
 
 function FiguresLine({
@@ -49,6 +51,7 @@ export function MonitoringEvidence({
     now: number
 }): JSX.Element {
     const { timezone } = useValues(teamLogic)
+    const { loadedAt } = useValues(monitoringTabLogic)
     const lead = summary.lead_check
     const evidence =
         monitoringDisplayState(summary, now) === 'readings_hidden' ? null : monitoringEvidence(report, timezone)
@@ -57,16 +60,23 @@ export function MonitoringEvidence({
         <div className="flex flex-col gap-2">
             {lead ? <div className="text-xs font-semibold text-secondary">{lead.title}</div> : null}
             {evidence ? (
-                <MonitoringEvidenceChart summary={summary} evidence={evidence} now={now} />
+                <>
+                    <MonitoringEvidenceChart summary={summary} evidence={evidence} now={now} />
+                    {evidence.metric.value_at ? (
+                        <div className="text-xs text-tertiary">
+                            Measured <MonitoringTime iso={evidence.metric.value_at} />
+                        </div>
+                    ) : null}
+                </>
             ) : (
                 <MonitoringWaitingNote summary={summary} now={now} />
             )}
             <FiguresLine report={report} summary={summary} />
-            {nextReading && monitoringReadingOverdue(report, now) ? (
+            {nextReading && loadedAt != null && monitoringReadingOverdue(report, loadedAt) ? (
                 <div className="flex items-center gap-1.5 text-xs text-warning">
                     <IconWarning className="size-3.5 shrink-0" />
-                    A reading was due {dayjs(nextReading).from(dayjs(now))} and hasn't run yet. The verdict still runs
-                    on time.
+                    A reading was due <span translate="no">{dayjs(nextReading).from(dayjs(now))}</span> and hadn't run
+                    when this page loaded. The verdict still runs on time.
                 </div>
             ) : null}
         </div>

@@ -43,6 +43,12 @@ export function monitoringRowStatus(report: SignalReportListApi, now: number): M
                     type: 'default',
                     description: 'A person resolved it before the checks decided.',
                 }
+            case 'resolved_unverified':
+                return {
+                    label: 'Not verified',
+                    type: 'default',
+                    description: 'Every check was canceled, so nothing verified the fix.',
+                }
             case 'closed':
                 return outcome.follow_up
                     ? {
@@ -150,4 +156,18 @@ export function monitoringEvidence(report: SignalReportListApi, timezone: string
     }
     const trend = monitoringTrend(summary, metric, timezone)
     return trend ? { metric, interval: interval as NonNullable<TrendsQuery['interval']>, trend } : null
+}
+
+// Bounds an axis stretched by one unusually long window, so the other bars stay readable.
+const MONITORING_AXIS_MAX_PAST_MS = 28 * DAY_MS
+const MONITORING_AXIS_MAX_FUTURE_MS = 30 * DAY_MS
+
+export function monitoringAxis(reports: readonly SignalReportListApi[], now: number): { start: number; end: number } {
+    const spans = reports.map(monitoringSpan).filter((span) => span !== null)
+    const start = Math.min(now - MONITORING_AXIS_PAST_MS, ...spans.map((span) => span.start))
+    const end = Math.max(now + MONITORING_AXIS_FUTURE_MS, ...spans.map((span) => (span.end ?? now) + HOUR_MS * 12))
+    return {
+        start: Math.max(start, now - MONITORING_AXIS_MAX_PAST_MS),
+        end: Math.min(end, now + MONITORING_AXIS_MAX_FUTURE_MS),
+    }
 }

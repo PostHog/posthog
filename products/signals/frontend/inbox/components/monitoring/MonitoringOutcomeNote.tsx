@@ -11,6 +11,7 @@ const OUTCOME_HEADING: Record<ReportMonitoringOutcomeApi['kind'], string> = {
     resolved: 'Resolved: every check passed',
     resolved_by_assessment: 'Resolved: an agent confirmed the fix from other evidence',
     resolved_manually: 'Resolved by a person',
+    resolved_unverified: 'Resolved without verification: every check was canceled',
     closed: 'Closed: the fix was not shown to work',
 }
 

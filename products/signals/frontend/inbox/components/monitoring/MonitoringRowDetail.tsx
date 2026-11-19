@@ -5,8 +5,9 @@ import { urls } from 'scenes/urls'
 import type { SignalReportListApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
+import { latestMergedPullRequest } from '../../utils/reportMonitoringSummary'
 import { parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
-import { primaryReportPullRequest } from '../../utils/reportPullRequests'
+import { primaryReportPullRequest, reportPullRequests } from '../../utils/reportPullRequests'
 import { MonitoringCheckList } from './MonitoringCheckList'
 import { MonitoringEvidence } from './MonitoringEvidence'
 import { MonitoringOutcomeNote } from './MonitoringOutcomeNote'
@@ -14,7 +15,9 @@ import { MonitoringRowFacts } from './MonitoringRowFacts'
 
 export function MonitoringRowDetail({ report, now }: { report: SignalReportListApi; now: number }): JSX.Element {
     const summary = report.monitoring_summary
-    const prUrl = safeHttpUrl(primaryReportPullRequest(report).url)
+    // Monitoring counts from the latest merge, so that PR is the one this window belongs to.
+    const pullRequest = latestMergedPullRequest(reportPullRequests(report)) ?? primaryReportPullRequest(report)
+    const prUrl = safeHttpUrl(pullRequest.url)
     const prNumber = prUrl ? parsePrUrlParts(prUrl)?.number : null
 
     return (

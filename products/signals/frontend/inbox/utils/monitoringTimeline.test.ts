@@ -6,6 +6,7 @@ import type {
 
 import { monitoringListParams } from '../logics/monitoringTabLogic'
 import {
+    monitoringAxis,
     monitoringEvidence,
     monitoringReadingOverdue,
     monitoringRowStatus,
@@ -78,6 +79,7 @@ describe('monitoringTimeline', () => {
         ['every check passed', report('a', { outcome: outcome('resolved', 2) }), 'Resolved'],
         ['an assessment decided', report('a', { outcome: outcome('resolved_by_assessment', 2) }), 'Resolved'],
         ['a person resolved it', report('a', { outcome: outcome('resolved_manually', 2) }), 'Verified manually'],
+        ['every check was canceled', report('a', { outcome: outcome('resolved_unverified', 2) }), 'Not verified'],
         ['closed with a follow-up', report('a', { outcome: outcome('closed', 2, true) }), 'Follow-up opened'],
         ['closed before grouping linked a follow-up', report('a', { outcome: outcome('closed', 2) }), 'Closed'],
         ['agent checks only', report('a', { summary: summary('final_check_only', 10) }), 'Watching'],
@@ -109,6 +111,19 @@ describe('monitoringTimeline', () => {
     ])('a reading counts as overdue when %s', (_, nextInHours, endsInHours, overdue) => {
         const row = report('a', { summary: summary('on_track', endsInHours, nextInHours) })
         expect(monitoringReadingOverdue(row, NOW)).toBe(overdue)
+    })
+
+    test('widens the axis to every window and verdict on the page, within bounds', () => {
+        const finishedTenDaysAgo = report('a', { outcome: outcome('resolved', 240) })
+        const longWindow = report('b', { summary: summary('on_track', 24 * 40) })
+
+        expect(monitoringAxis([], NOW)).toEqual({ start: NOW - 7 * 24 * HOUR, end: NOW + 4 * 24 * HOUR })
+        expect(monitoringAxis([finishedTenDaysAgo], NOW).start).toBe(NOW - 7 * 24 * HOUR)
+        expect(
+            monitoringAxis([{ ...finishedTenDaysAgo, monitoring_started_at: at(-264) } as SignalReportListApi], NOW)
+                .start
+        ).toBe(NOW - 264 * HOUR)
+        expect(monitoringAxis([longWindow], NOW).end).toBe(NOW + 30 * 24 * HOUR)
     })
 
     test('draws a chart only when the lead check has a metric snapshot that places the fix', () => {
@@ -150,6 +165,8 @@ describe('monitoringTimeline', () => {
         expect(monitoringListParams(scope)).toEqual({
             view: 'monitoring_recent',
             limit: 100,
+            offset: 0,
+            include_source_metadata: false,
             ...(connected ? { connected } : {}),
         })
     })
