@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::Error;
-use posthog_rs::CaptureExceptionOptions;
+use posthog::CaptureExceptionOptions;
 use serde::Deserialize;
 use tracing::debug;
 
@@ -271,7 +271,7 @@ fn capture_exception(metadata: ErrorTelemetryMetadata) {
         };
     }
 
-    if let Err(err) = posthog_rs::capture_exception_with(&SanitizedCliError, options) {
+    if let Err(err) = posthog::capture_exception_with(&SanitizedCliError, options) {
         debug!("Failed to capture exception: {err:?}");
     }
 }

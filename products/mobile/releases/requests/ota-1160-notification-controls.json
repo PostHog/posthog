@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-1160-notification-controls",
+    "kind": "ota",
+    "runtimeVersion": "1.16.0",
+    "previousRelease": "ota-1160-live-logo",
+    "notes": "Choose which report and chat notifications you receive in Settings. The Inbox shows when setup is needed and when you are caught up. The Errors list shows activity charts and can sort by users, sessions, or occurrences. Screen headers use consistent gradients. On iOS and Android, verify that notification preferences persist and alerts follow them."
+}

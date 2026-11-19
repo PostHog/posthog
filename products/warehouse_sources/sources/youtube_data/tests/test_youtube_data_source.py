@@ -13,6 +13,11 @@ from products.warehouse_sources.sources.youtube_data.source import YoutubeDataSo
         (200, {"items": [{"id": "UC_example"}]}, None),
         (200, {"items": []}, "YouTube channel was not found."),
         (
+            200,
+            {"kind": "youtube#channelListResponse", "etag": "x", "pageInfo": {"totalResults": 0, "resultsPerPage": 5}},
+            "YouTube channel was not found.",
+        ),
+        (
             400,
             {
                 "error": {

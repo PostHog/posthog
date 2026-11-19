@@ -216,9 +216,11 @@ def get_activity_overview(
     )
 
 
-def get_intent_cluster_snapshot(team: Team, tool: str | None = None) -> contracts.IntentClusterSnapshot:
-    """The latest snapshot, optionally narrowed to one tool's slice of it."""
-    return logic.get_intent_cluster_snapshot(team, tool=tool)
+def get_intent_cluster_snapshot(
+    team: Team, *, user: User | None, tool: str | None = None
+) -> contracts.IntentClusterSnapshot:
+    """The latest snapshot as ``user`` may read it, optionally narrowed to one tool's slice."""
+    return logic.get_intent_cluster_snapshot(team, user=user, tool=tool)
 
 
 def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
@@ -276,7 +278,7 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
 
     # Deterministic per team: Temporal refuses a second start while a run with
     # this id is live, so even a run that outlives STALE_COMPUTING_THRESHOLD
-    # (which is shorter than the 20-minute execution timeout) can't be
+    # (which is shorter than the 30-minute execution timeout) can't be
     # overlapped by a retry — the id frees up once the previous run closes.
     workflow_id = f"{CHILD_WORKFLOW_ID_PREFIX}-{team.id}-adhoc"
 

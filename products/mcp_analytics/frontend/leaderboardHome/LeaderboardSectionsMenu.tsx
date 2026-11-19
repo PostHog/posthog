@@ -23,10 +23,10 @@ export function LeaderboardSectionsMenu(): JSX.Element {
             <DropdownMenuTrigger
                 render={<Button variant="outline" className="whitespace-nowrap" data-attr="mcp-dashboard-customize" />}
             >
-                <span>{hiddenSections.length > 0 ? `${hiddenSections.length} hidden` : 'Customize'}</span>
+                <span>{hiddenSections.length > 0 ? `Sections (${hiddenSections.length} hidden)` : 'Sections'}</span>
                 <IconChevronDown />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-56">
+            <DropdownMenuContent align="end" className="min-w-56">
                 {LEADERBOARD_SECTION_IDS.map((id) => (
                     <DropdownMenuCheckboxItem
                         key={id}

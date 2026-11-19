@@ -32,10 +32,15 @@ the issuer, and
 its configuration, so ID-JAGs from the previous issuer stop working.
 
 The configuration is read-only in PostHog. Admins see it in the authentication settings and
-turn it off by deleting it. The scope stays out of `scopes_supported` and the scope pickers:
-only applications that PostHog staff marked with `can_manage_ema_issuer` can request it, and
-those know about it without discovery. Removing that mark stops new setups and makes the ID-JAG
-exchange reject every issuer the application registered, without deleting the configurations.
+turn it off by deleting it. Only applications that PostHog staff marked with
+`can_manage_ema_issuer` can request the scope. Removing that mark stops new setups and makes the
+ID-JAG exchange reject every issuer the application registered, without deleting the
+configurations.
+
+The scope is in `AUTHORIZATION_SERVER_ONLY_SCOPES`, so the authorization server metadata lists it
+and no other discovery document does. `posthog/scopes/oauth.py` explains that class. Because a client can
+copy the whole list into `/authorize`, `requests_ema_issuer` counts a request as an EMA setup only
+when the scope comes alone or with identity scopes.
 """
 
 import html
@@ -64,11 +69,10 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplic
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
+from posthog.scopes.oauth import ALWAYS_ALLOWED_SCOPES, EMA_ISSUER_MANAGE_SCOPE
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
-
-EMA_ISSUER_MANAGE_SCOPE = "ema_issuer:manage"
 
 # The token only has to last from the token response to the setup call that follows it.
 EMA_SETUP_TOKEN_EXPIRES_SECONDS = 300
@@ -81,8 +85,8 @@ _ISSUER_MAX_LENGTH = 512
 def requests_ema_issuer(scopes: Iterable[str] | str | None) -> bool:
     if not scopes:
         return False
-    tokens = scopes.split() if isinstance(scopes, str) else scopes
-    return EMA_ISSUER_MANAGE_SCOPE in tokens
+    tokens = set(scopes.split() if isinstance(scopes, str) else scopes)
+    return EMA_ISSUER_MANAGE_SCOPE in tokens and tokens - {EMA_ISSUER_MANAGE_SCOPE} <= ALWAYS_ALLOWED_SCOPES
 
 
 def client_may_manage_ema_issuer(application: OAuthApplication | None) -> bool:
@@ -131,7 +135,9 @@ def _ineligibility_reason(
 
 def ema_consent_context(user: User) -> dict[str, object]:
     """What the consent screen needs to name the organization and what approving turns on."""
-    memberships = list(OrganizationMembership.objects.filter(user=user).select_related("organization"))
+    memberships = list(
+        OrganizationMembership.objects.with_effective_level().filter(user=user).select_related("organization")
+    )
     domains = _verified_domains_by_organization(membership.organization_id for membership in memberships)
     organizations = []
     for membership in memberships:
@@ -142,7 +148,9 @@ def ema_consent_context(user: User) -> dict[str, object]:
                 "id": str(organization.id),
                 "name": organization.name,
                 "verified_domains": verified_domains,
-                "disabled_reason": _ineligibility_reason(user, organization, membership.level, verified_domains),
+                "disabled_reason": _ineligibility_reason(
+                    user, organization, membership.effective_level, verified_domains
+                ),
             }
         )
     organizations.sort(key=lambda org: (org["disabled_reason"] is not None, str(org["name"]).lower()))
@@ -185,7 +193,8 @@ def validate_ema_grant(
     if access_level != OAuthApplicationAccessLevel.ORGANIZATION.value or len(scoped_organization_ids) != 1:
         raise EmaSetupError("invalid_request", "Choose exactly one organization to set up enterprise-managed auth.")
     membership = (
-        OrganizationMembership.objects.filter(user=user, organization_id=scoped_organization_ids[0])
+        OrganizationMembership.objects.with_effective_level()
+        .filter(user=user, organization_id=scoped_organization_ids[0])
         .select_related("organization")
         .first()
     )
@@ -193,7 +202,7 @@ def validate_ema_grant(
         raise EmaSetupError("access_denied", "You aren't a member of this organization.", status.HTTP_403_FORBIDDEN)
     organization = membership.organization
     verified_domains = _verified_domains_by_organization([organization.id]).get(str(organization.id), [])
-    reason = _ineligibility_reason(user, organization, membership.level, verified_domains)
+    reason = _ineligibility_reason(user, organization, membership.effective_level, verified_domains)
     if reason:
         raise EmaSetupError("access_denied", reason, status.HTTP_403_FORBIDDEN)
     return organization

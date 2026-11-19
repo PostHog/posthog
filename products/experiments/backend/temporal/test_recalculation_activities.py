@@ -231,14 +231,16 @@ class TestRecalculationActivities(BaseTest):
 
     @parameterized.expand(
         [
-            # name, activity queue flag, team_enabled, runtime_hours, funnel_order_type, route_check_fails, expected route
-            ("eligible", "on", True, 36, "ordered", False, "precompute-q", None),
-            ("team_disabled", "on", False, 36, "ordered", False, "activity-q", PrecomputationMode.DIRECT),
-            ("below_min_runtime", "on", True, 6, "ordered", False, "activity-q", PrecomputationMode.DIRECT),
-            ("metric_not_eligible", "on", True, 36, "unordered", False, "activity-q", PrecomputationMode.DIRECT),
-            ("route_check_fails", "on", False, 36, "ordered", True, "precompute-q", None),
-            ("flag_off", "off", True, 36, "ordered", False, None, None),
-            ("flag_check_fails", "error", True, 36, "ordered", False, None, None),
+            # name, activity queue flag, team_enabled, team_cuped, runtime_hours, funnel_order_type, route_check_fails, expected route
+            ("eligible", "on", True, False, 36, "ordered", False, "precompute-q", None),
+            ("team_disabled", "on", False, False, 36, "ordered", False, "activity-q", PrecomputationMode.DIRECT),
+            ("below_min_runtime", "on", True, False, 6, "ordered", False, "activity-q", PrecomputationMode.DIRECT),
+            # Exposures stay precomputable when only the metric events are not, so the scan covers the metric alone.
+            ("metric_not_eligible", "on", True, False, 36, "unordered", False, "activity-q", None),
+            ("team_cuped", "on", True, True, 36, "ordered", False, "activity-q", None),
+            ("route_check_fails", "on", False, False, 36, "ordered", True, "precompute-q", None),
+            ("flag_off", "off", True, False, 36, "ordered", False, None, None),
+            ("flag_check_fails", "error", True, False, 36, "ordered", False, None, None),
         ]
     )
     @override_settings(
@@ -251,6 +253,7 @@ class TestRecalculationActivities(BaseTest):
         name: str,
         flag: str,
         team_enabled: bool,
+        team_cuped: bool,
         runtime_hours: int,
         funnel_order_type: str,
         route_check_fails: bool,
@@ -271,6 +274,7 @@ class TestRecalculationActivities(BaseTest):
         exp.save()
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
         config.experiment_precomputation_enabled = team_enabled
+        config.default_cuped_enabled = team_cuped
         config.save()
         recalc = self._recalc(exp)
 

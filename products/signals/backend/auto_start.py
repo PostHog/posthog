@@ -22,6 +22,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.oauth import McpScopePreset, grants_scratchpad_write
 from posthog.user_permissions import UserPermissions
 
+from products.signals.backend.agent_instructions import SignalAgentRole, resolve_custom_image_id
 from products.signals.backend.agent_runtime import STEP_IMPLEMENTATION, resolve_agent_runtime
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
@@ -564,6 +565,19 @@ SKIP_AUTOSTART_DISABLED = "autostart_disabled"
 SKIP_NO_RUNNER = "no_runner"
 SKIP_FREE_TRIAL = "free_trial"
 SKIP_REPOSITORY_NOT_NAMED = "repository_not_named"
+SKIP_SOURCE_PRODUCTS_TIMEOUT_SECONDS = 3
+
+
+def _skip_source_products(team: Team, report_id: str) -> list[str]:
+    # A failed lookup sends an empty list, so a ClickHouse failure never drops the skip count.
+    try:
+        meta = fetch_source_products_for_reports(
+            team, [report_id], max_execution_time=SKIP_SOURCE_PRODUCTS_TIMEOUT_SECONDS
+        ).get(report_id)
+    except Exception:
+        logger.exception("Failed to read source products for signals_autostart_skipped", report_id=report_id)
+        return []
+    return meta.source_products if meta else []
 
 
 def _capture_autostart_skipped(
@@ -573,7 +587,8 @@ def _capture_autostart_skipped(
     reports each gate holds back is readable against the share that started.
 
     Keyed on `team.uuid` like the rest of the signal lifecycle events, so it joins the same
-    person-level funnels.
+    person-level funnels. `source_products` lets a breakdown split a skip reason by where the report
+    came from, such as `already_addressed` for reports filed from GitHub issues.
     """
     try:
         team = Team.objects.select_related("organization").filter(pk=team_id).first()
@@ -588,6 +603,7 @@ def _capture_autostart_skipped(
                 "report_id": report_id,
                 "skip_reason": skip_reason,
                 "linked_report_id": linked_report_id,
+                "source_products": _skip_source_products(team, report_id),
             },
             groups=groups(team.organization, team),
         )
@@ -807,6 +823,7 @@ def _create_implementation_task_if_absent(
     """
     # Resolved outside the transaction: the flag read does network I/O and must not hold the row lock.
     agent_runtime = resolve_agent_runtime(team_id, STEP_IMPLEMENTATION)
+    custom_image_id = resolve_custom_image_id(team_id, SignalAgentRole.IMPLEMENTATION)
 
     # Create the task before the provider issue. A failed task creation must not leave an external
     # issue that says Self-driving started work when no run exists.
@@ -965,6 +982,7 @@ def _create_implementation_task_if_absent(
             stack_base_branch=stack_base_branch,
             github_access_repositories=access_repositories,
             service_tier=agent_runtime.service_tier,
+            extra_run_state={"custom_image_id": custom_image_id} if custom_image_id is not None else None,
         )
         if created.latest_run is None:
             raise RuntimeError(f"Task {created.task_id} auto-started without producing a TaskRun")

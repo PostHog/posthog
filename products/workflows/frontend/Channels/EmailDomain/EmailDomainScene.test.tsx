@@ -403,7 +403,7 @@ describe('EmailDomainScene', () => {
         expectStep(/You can send from/)
         expect(element('email-domain-ready-back-to-origin')).toHaveAttribute(
             'href',
-            expect.stringMatching(new RegExp(`${urls.transactional()}$`))
+            expect.stringMatching(/\/transactional\?guide=send-from-code$/)
         )
 
         cleanup()

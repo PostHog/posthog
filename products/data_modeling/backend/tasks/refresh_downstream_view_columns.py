@@ -3,6 +3,7 @@ from uuid import UUID
 from django.db import transaction
 
 from celery import shared_task
+from opentelemetry import trace
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.models.scoping import with_team_scope
@@ -15,6 +16,7 @@ from products.data_modeling.backend.logic import view_column_refresh
 @shared_task(ignore_result=True, autoretry_for=(ConcurrencyLimitExceeded,), retry_backoff=True, max_retries=3)
 @with_team_scope()
 def refresh_downstream_view_columns(team_id: int, saved_query_id: str, user_id: int | None) -> None:
+    trace.get_current_span().set_attributes({"team_id": team_id, "saved_query_id": saved_query_id})
     team = Team.objects.get(pk=team_id)
     user = User.objects.filter(pk=user_id).first() if user_id is not None else None
     if user_id is not None and user is None:

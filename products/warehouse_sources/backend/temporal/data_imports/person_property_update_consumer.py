@@ -201,11 +201,11 @@ def _is_rebalance_commit_error(exc: Exception) -> bool:
     if not exc.args or not isinstance(exc.args[0], KafkaError):
         return False
     return exc.args[0].code() in {
-        KafkaError.REBALANCE_IN_PROGRESS,  # type: ignore[attr-defined]
-        KafkaError.UNKNOWN_MEMBER_ID,  # type: ignore[attr-defined]
-        KafkaError.ILLEGAL_GENERATION,  # type: ignore[attr-defined]
-        KafkaError._STATE,  # type: ignore[attr-defined]
-        KafkaError._NO_OFFSET,  # type: ignore[attr-defined]
+        KafkaError.REBALANCE_IN_PROGRESS,
+        KafkaError.UNKNOWN_MEMBER_ID,
+        KafkaError.ILLEGAL_GENERATION,
+        KafkaError._STATE,
+        KafkaError._NO_OFFSET,
     }
 
 

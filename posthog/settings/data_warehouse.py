@@ -220,6 +220,12 @@ DATA_WAREHOUSE_COMPACT_MAX_PARTITIONS_PER_PASS = get_from_env(
 DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES = get_from_env(
     "DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES", 20_000, type_cast=int
 )
+# A rebuild pass compacts each partition as its own bin, so its time grows with the partition count.
+# This caps the partitions of one pass, so a table of many tiny partitions cannot hold its batch past
+# the stuck-batch timeout of the loader.
+DATA_WAREHOUSE_REBUILD_COMPACT_MAX_PARTITIONS = get_from_env(
+    "DATA_WAREHOUSE_REBUILD_COMPACT_MAX_PARTITIONS", 2_000, type_cast=int
+)
 
 # delta-rs merge spill-to-disk. A merge decompresses the target partition into an Arrow working set that
 # can exceed the 29 GB pod limit and OOM — killing every co-tenant activity on the pod. When set, delta-rs

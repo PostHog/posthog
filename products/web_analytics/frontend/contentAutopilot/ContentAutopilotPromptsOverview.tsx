@@ -1,6 +1,7 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCard } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard, Spinner } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
@@ -69,7 +70,10 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     const header = (
         <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0 flex-1 basis-80">
-                <h3 className="m-0 text-sm font-semibold">{filtersHeading(overview)}</h3>
+                <h3 className="m-0 flex items-center gap-2 text-sm font-semibold">
+                    {filtersHeading(overview)}
+                    {overviewLoading ? <Spinner data-attr="content-autopilot-prompts-overview-loading" /> : null}
+                </h3>
                 <p className="m-0 text-xs text-secondary" data-attr="content-autopilot-prompts-overview-answers">
                     {brandedAnswersNote(overview.branded, overview.current.checks - overview.current.failed)}{' '}
                     {overview.current.failed
@@ -117,7 +121,12 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
 
     return (
         <section
-            className="@container/prompts-overview flex flex-col gap-4"
+            className={clsx(
+                '@container/prompts-overview flex flex-col gap-4 transition-opacity motion-reduce:transition-none',
+                // The numbers on screen belong to the previous filters until the new overview arrives.
+                overviewLoading && 'opacity-50'
+            )}
+            aria-busy={overviewLoading}
             data-attr="content-autopilot-prompts-overview"
         >
             {header}
@@ -177,7 +186,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader
                         title="Mentions by topic"
-                        description="Pick a topic to see its prompts."
+                        description="Pick a topic to filter this page to it. Pick it again to clear the filter."
                     />
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-topics">
                         <ContentAutopilotPromptsTopicTable

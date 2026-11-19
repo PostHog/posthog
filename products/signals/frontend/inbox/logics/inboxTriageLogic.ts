@@ -41,7 +41,6 @@ function clampIndex(index: number, length: number): number {
 export interface inboxTriageLogicValues {
     createPrDisabledReason: string | null // inboxTaskKickoffLogic
     isCreatingPr: boolean // inboxTaskKickoffLogic
-    isPhaiSandboxFlagOn: boolean // inboxTaskKickoffLogic
     hasMore: boolean // reportListLogic
     isLoaded: boolean // reportListLogic
     isScopedToMe: boolean // reportListLogic
@@ -250,7 +249,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 'isScopedToMe',
             ],
             inboxTaskKickoffLogic,
-            ['isCreatingPr', 'createPrDisabledReason', 'isPhaiSandboxFlagOn'],
+            ['isCreatingPr', 'createPrDisabledReason'],
         ],
         actions: [
             reportListLogic(TRIAGE_LIST_PROPS),
@@ -512,7 +511,6 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             createPrForCurrent: () => {
                 const report = values.currentReport
                 if (
-                    !values.isPhaiSandboxFlagOn ||
                     !report ||
                     !values.canCreatePr ||
                     values.isCreatingPr ||

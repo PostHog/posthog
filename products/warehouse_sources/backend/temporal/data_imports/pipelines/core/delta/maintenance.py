@@ -253,15 +253,19 @@ def _partition_file_stats(
     ]
 
 
-def _partitions_up_to(partitions: list[_PartitionFileStats], removable_files: int) -> list[str] | None:
+def _partitions_up_to(
+    partitions: list[_PartitionFileStats], removable_files: int, max_partitions: int
+) -> list[str] | None:
     """The partitions with the most removable files, until together they reach `removable_files`.
 
+    Stops at `max_partitions` too: each partition is one bin, so the bin count sets how long a pass
+    takes, and a table of many tiny partitions reaches `removable_files` only across thousands of them.
     None means the whole table: it has no partition column, or every partition is needed anyway.
     """
     selected: list[str] = []
     reached = 0
     for partition in sorted(partitions, key=lambda p: p.removable_files, reverse=True):
-        if reached >= removable_files:
+        if reached >= removable_files or len(selected) >= max_partitions:
             break
         if partition.key is None:
             return None
@@ -894,12 +898,13 @@ class DeltaMaintenance:
         await self._logger.ainfo(f"{pass_name}: triggering compact ({stats}{_selected_partitions_note(partitions)})")
         return await self._compact(table, plan, partitions=partitions)
 
-    async def compact_during_rebuild(self, min_removable_files: int) -> RebuildCompactOutcome:
+    async def compact_during_rebuild(self, min_removable_files: int, max_partitions: int) -> RebuildCompactOutcome:
         """Compact a table that a rebuild run is still loading, once a compaction removes enough files.
 
         A rebuild run loads the table from empty, so every file here is one that the same run wrote.
         One pass compacts only the partitions with the most removable files, up to
-        `min_removable_files`, so a backlog takes several passes instead of one long batch. Never
+        `min_removable_files` and at most `max_partitions` partitions, so a backlog takes several
+        passes instead of one long batch. Never
         raises an `Exception`: the batch is committed, and the next check or the post-load pass
         compacts the same files.
         """
@@ -924,7 +929,7 @@ class DeltaMaintenance:
                     f"removable_files={removable_files}, partitions={len(partitions)}, "
                     f"min_removable_files={min_removable_files}"
                 ),
-                select_partitions=lambda stats: _partitions_up_to(stats, min_removable_files),
+                select_partitions=lambda stats: _partitions_up_to(stats, min_removable_files, max_partitions),
             )
             return "compacted" if compacted else "skipped"
         except Exception as e:

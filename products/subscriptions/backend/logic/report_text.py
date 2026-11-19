@@ -29,6 +29,49 @@ class ReportChangeItem(BaseModel):
     direction: Literal["increase", "decrease"]
 
 
+# Templates mark an empty line with a literal "\n", and the model sometimes copies it as text.
+_LITERAL_NEWLINE_LINE = re.compile(r"^[ \t]*(?:\\n[ \t]*)+$", re.MULTILINE)
+
+_EMPHASIS_MARKER = re.compile(r"\*\*|__|~~|\*|_")
+
+
+def _is_word_or_marker(char: str) -> bool:
+    return char.isalnum() or char in "*_~"
+
+
+def _trim_emphasis_padding(line: str) -> str:
+    """Remove spaces just inside each pair of emphasis markers on one line.
+
+    Item joining puts a space between a template's marker item and the next item, as in
+    "** Total **", and a space just inside a pair of markers stops it rendering as bold, italic, or
+    struck through. This is one pass over the markers, because report text has no length limit
+    and a backtracking regex took seconds on a long line.
+    """
+    open_ends: dict[str, int] = {}
+    removed: set[int] = set()
+    for marker in _EMPHASIS_MARKER.finditer(line):
+        start, end = marker.span()
+        token = marker.group()
+        opened_at = open_ends.get(token)
+        if opened_at is not None and (end == len(line) or not _is_word_or_marker(line[end])):
+            del open_ends[token]
+            if not line[opened_at:start].strip():
+                continue
+            index = opened_at
+            while line[index] in " \t":
+                removed.add(index)
+                index += 1
+            index = start - 1
+            while line[index] in " \t":
+                removed.add(index)
+                index -= 1
+        elif opened_at is None and (start == 0 or not _is_word_or_marker(line[start - 1])):
+            open_ends[token] = end
+    if not removed:
+        return line
+    return "".join(char for index, char in enumerate(line) if index not in removed)
+
+
 _TABLE_SEPARATOR_ROW = re.compile(r"^\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?$")
 
 
@@ -67,7 +110,7 @@ class ReportText(BaseModel):
 
     items: list[ReportTextItem | ReportLinkItem | ReportChangeItem]
 
-    def render(self) -> str:
+    def render(self, *, styled: bool = True) -> str:
         parts: list[str] = []
         previous_text = ""
         for item in self.items:
@@ -89,9 +132,10 @@ class ReportText(BaseModel):
                     except ValueError:
                         label = "Page"
                 parts.append(f"[{label}]({item.url})")
+            elif not styled:
+                parts.append(f"{_change_prefix(item)}{item.text}")
             elif item.kind == "change":
-                triangle = "▲" if item.direction == "increase" else "▼"
-                parts.append(_inline_code(item.text, prefix=f"{triangle} "))
+                parts.append(_inline_code(item.text, prefix=_change_prefix(item)))
             elif item.kind in ("name", "value"):
                 parts.append(_inline_code(item.text))
             elif item.kind == "time":
@@ -106,6 +150,12 @@ class ReportText(BaseModel):
         if not content:
             return ""
         return f"- {content}"
+
+
+def _change_prefix(item: ReportTextItem | ReportLinkItem | ReportChangeItem) -> str:
+    if not isinstance(item, ReportChangeItem):
+        return ""
+    return "▲ " if item.direction == "increase" else "▼ "
 
 
 def _wrap(text: str, marker: str, prefix: str = "") -> str:
@@ -175,12 +225,19 @@ class ReportDocument(BaseModel):
         description="Sections in decreasing order of importance. The first gives the main result, key evidence, and any necessary action or caveat. Later sections add supporting detail."
     )
     custom_layout: list[ReportText] = Field(
-        description="Use only when the user explicitly requests a fixed output template. Otherwise return an empty list."
+        description="Use only when the user explicitly requests a fixed output template. Otherwise return an empty list. One part per template line. Copy the template's own Markdown, such as bold markers, into text items exactly where the template has them."
     )
 
     def render(self) -> str:
         if self.custom_layout:
-            return _join_table_rows("".join(part.render() for part in self.custom_layout))
+            parts: list[str] = []
+            for part in self.custom_layout:
+                if parts and not parts[-1].endswith("\n"):
+                    parts.append("\n")
+                # The user's template decides the formatting, so item kinds add no code or italic styles here.
+                parts.append(part.render(styled=False))
+            markdown = _LITERAL_NEWLINE_LINE.sub("", "".join(parts))
+            return _join_table_rows("\n".join(_trim_emphasis_padding(line) for line in markdown.split("\n")))
         parts = [f"# {self.topic}"] if self.topic else []
         parts.extend(section.render() for section in self.sections)
         return _join_table_rows("\n\n".join(parts))
@@ -194,7 +251,7 @@ REPORT_TEXT_INSTRUCTIONS = """Return structured text items. The renderer applies
 - Use change items only for differences, not absolute values, dates, incomplete periods, or funnel step drop-offs. If the baseline or change is uncertain, use plain text. An increase is not automatically good and a decrease is not automatically bad.
 - Use kind=time for every date, clock time, duration, and reporting window, even when it contains numbers.
 - Use kind=text for connecting words, punctuation, and Markdown structure. Never include event names, measured values, or dates inside a text item.
-- Do not include bold, italic, or underline markers in item text. Keep each styled item to the relevant name, value, or time expression.
+- Outside a user's fixed template, do not include bold, italic, or underline markers in item text. Keep each styled item to the relevant name, value, or time expression.
 - Preserve sentence order, spaces, and line breaks across items. Write complete sentences; do not rearrange a sentence to group items by kind.
 - Keep inline code and code blocks literal; do not style their contents.
 - Review every mention before returning the report. Use the same kind for the same item throughout the report."""

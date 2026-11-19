@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -15,7 +15,15 @@ import type {
 } from './generated/api.schemas'
 import type { DataQualityOverviewCheckApi } from './generated/api.schemas'
 import { openFailingRowsInSqlEditor } from './openFailingRows'
-import { isTerminalSuiteRun, suiteRunOutcome, suiteRunPollListeners, suiteRunSummary } from './suiteRuns'
+import { suiteRunResultsLogic } from './suiteRunResultsLogic'
+import {
+    isTerminalSuiteRun,
+    suiteRunOutcome,
+    suiteRunPollListeners,
+    SUITE_RUN_TOAST_DISPOSABLE,
+    suiteRunToastId,
+    suiteRunToastMessage,
+} from './suiteRuns'
 
 const CHECKS_LIMIT = 100
 const SUITE_RUNS_LIMIT = 20
@@ -66,6 +74,7 @@ export interface dataQualityChecksLogicValues {
     checksLoaded: boolean
     checksLoading: boolean
     enabledChecksCount: number
+    expandedSuiteRunId: string | null
     health: DataQualitySubjectHealthApi | null
     healthLoading: boolean
     isSuiteRunning: boolean
@@ -189,6 +198,9 @@ export interface dataQualityChecksLogicActions {
         checkId: string
         runs: DataQualityCheckRunApi[]
     }
+    setExpandedSuiteRunId: (suiteRunId: string | null) => {
+        suiteRunId: string | null
+    }
     setPollTimedOut: () => {
         value: true
     }
@@ -200,6 +212,9 @@ export interface dataQualityChecksLogicActions {
         runs: DataQualityCheckRunApi[]
     ) => {
         runs: DataQualityCheckRunApi[]
+        suiteRunId: string
+    }
+    showSuiteRunResults: (suiteRunId: string) => {
         suiteRunId: string
     }
     toggleCheckEnabled: (
@@ -235,6 +250,9 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
     props({} as DataQualityChecksLogicProps),
     key((props: DataQualityChecksLogicProps) => `${props.subjectType}:${props.subjectId}`),
     path((key) => ['products', 'data_quality', 'frontend', 'dataQualityChecksLogic', key]),
+    connect(() => ({
+        logic: [suiteRunResultsLogic],
+    })),
     actions({
         upsertCheck: (check: DataQualityCheckApi) => ({ check }),
         removeCheck: (checkId: string) => ({ checkId }),
@@ -259,6 +277,8 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
         setCheckRuns: (checkId: string, runs: DataQualityCheckRunApi[]) => ({ checkId, runs }),
         loadSuiteRunCheckRuns: (suiteRunId: string) => ({ suiteRunId }),
         setSuiteRunCheckRuns: (suiteRunId: string, runs: DataQualityCheckRunApi[]) => ({ suiteRunId, runs }),
+        showSuiteRunResults: (suiteRunId: string) => ({ suiteRunId }),
+        setExpandedSuiteRunId: (suiteRunId: string | null) => ({ suiteRunId }),
         setAccessDenied: true,
     }),
     loaders(({ props }) => ({
@@ -286,7 +306,16 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
             false,
             {
                 openRunHistory: () => true,
+                showSuiteRunResults: () => true,
                 closeRunHistory: () => false,
+            },
+        ],
+        expandedSuiteRunId: [
+            null as string | null,
+            {
+                showSuiteRunResults: (_, { suiteRunId }) => suiteRunId,
+                setExpandedSuiteRunId: (_, { suiteRunId }) => suiteRunId,
+                closeRunHistory: () => null,
             },
         ],
         checksLoadError: [
@@ -545,12 +574,34 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
                 const outcome = suiteRunOutcome(suiteRun)
                 if (outcome === 'empty') {
                     lemonToast.info('No enabled checks to run')
-                } else if (outcome === 'errored') {
+                    return
+                }
+                if (outcome === 'errored') {
                     lemonToast.error(suiteRun.error || "Couldn't run checks. Try again.")
-                } else if (outcome === 'warning') {
-                    lemonToast.warning(suiteRunSummary(suiteRun))
-                } else {
-                    lemonToast.success(suiteRunSummary(suiteRun))
+                    return
+                }
+                const message = suiteRunToastMessage(suiteRun)
+                if (outcome === 'success') {
+                    lemonToast.success(message)
+                    return
+                }
+                const toastId = suiteRunToastId(suiteRun)
+                lemonToast.warning(message, {
+                    toastId,
+                    button: {
+                        label: 'View results',
+                        action: () => actions.showSuiteRunResults(suiteRun.id),
+                        dataAttr: 'data-quality-toast-view-results',
+                    },
+                })
+                cache.disposables.add(() => () => lemonToast.dismiss(toastId), SUITE_RUN_TOAST_DISPOSABLE, {
+                    pauseOnPageHidden: false,
+                })
+            },
+            showSuiteRunResults: ({ suiteRunId }) => {
+                suiteRunResultsLogic.actions.revealSubjectResults(subjectRef(props))
+                if (!values.suiteRunCheckRunsBySuiteRunId[suiteRunId]) {
+                    actions.loadSuiteRunCheckRuns(suiteRunId)
                 }
             },
             upsertCheck: (_, __, ___, previousState) => {

@@ -125,19 +125,28 @@ describe('render-ui tool', () => {
         expect((result.structuredContent as Record<string, unknown>).tool_input).toEqual({})
     })
 
-    it('carries preloaded data on app-only _meta and keeps it out of the model-visible result', async () => {
-        const data = { id: 'abc', name: 'NPS' }
-        const loadAppData = vi.fn().mockResolvedValue(data)
-        const tool = createRenderUiTool([surveyTool], mockContext, undefined, loadAppData)!
-        const result = (await tool.handler(mockContext, {
-            tool_name: 'survey-get',
-            tool_input: { surveyId: 'abc' },
-        })) as ToolResultPayload
+    it.each([
+        { host: 'a host that passes _meta to the app', appDataInStructuredContent: false },
+        { host: 'a host whose apps never receive _meta', appDataInStructuredContent: true },
+    ])(
+        'carries preloaded data on app-only _meta, or in the directive for $host',
+        async ({ appDataInStructuredContent }) => {
+            const data = { id: 'abc', name: 'NPS' }
+            const loadAppData = vi.fn().mockResolvedValue(data)
+            const tool = createRenderUiTool([surveyTool], mockContext, undefined, loadAppData, {
+                appDataInStructuredContent,
+            })!
+            const result = (await tool.handler(mockContext, {
+                tool_name: 'survey-get',
+                tool_input: { surveyId: 'abc' },
+            })) as ToolResultPayload
 
-        expect(loadAppData).toHaveBeenCalledExactlyOnceWith('survey-get', { surveyId: 'abc' }, 'survey')
-        expect(result._meta?.[APP_DATA_META_KEY]).toEqual(data)
-        expect(JSON.stringify([result.content, result.structuredContent])).not.toContain('NPS')
-    })
+            expect(loadAppData).toHaveBeenCalledExactlyOnceWith('survey-get', { surveyId: 'abc' }, 'survey')
+            expect(JSON.stringify(result.content)).not.toContain('NPS')
+            expect(result._meta?.[APP_DATA_META_KEY]).toEqual(appDataInStructuredContent ? undefined : data)
+            expect(result.structuredContent?.[APP_DATA_META_KEY]).toEqual(appDataInStructuredContent ? data : undefined)
+        }
+    )
 
     it('leaves the app to fetch its own data when nothing was preloaded', async () => {
         const tool = createRenderUiTool([surveyTool], mockContext, undefined, async () => undefined)!

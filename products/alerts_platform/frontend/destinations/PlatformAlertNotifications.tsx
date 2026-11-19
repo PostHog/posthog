@@ -10,6 +10,7 @@ import {
     AlertNotificationDestinationView,
     PendingAlertNotificationDestinationView,
 } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
+import { destinationMessageAction } from 'products/alerts/frontend/components/destinationMessageAction'
 import { PlatformAlertDestinationTypeEnumApi } from 'products/alerts_platform/frontend/generated/api.schemas'
 
 import {
@@ -25,6 +26,8 @@ export interface PlatformAlertNotificationsProps extends PlatformAlertDestinatio
     typeOptions?: typeof DESTINATION_TYPE_OPTIONS
     /** What the product adds to a saved destination's row, such as a link to edit its message. */
     destinationView?: (destination: AlertDestinationEntry) => Partial<AlertNotificationDestinationView>
+    /** Offer "Customize" and "Reset to standard message" on each saved destination. Needs `api.customize` and `api.reset`. */
+    messageCustomization?: boolean
 }
 
 /** An alert's own notification destinations, in the editor every alert product uses. */
@@ -34,6 +37,7 @@ export function PlatformAlertNotifications({
     api,
     typeOptions = DESTINATION_TYPE_OPTIONS,
     destinationView,
+    messageCustomization = false,
 }: PlatformAlertNotificationsProps): JSX.Element {
     const logic = platformAlertDestinationsLogic({ alertId, sourceKind, api })
     const {
@@ -41,6 +45,7 @@ export function PlatformAlertNotifications({
         destinationsLoading,
         destinationsLoadFailed,
         deletingDestinationIds,
+        changingMessageDestinationIds,
         pendingDestinations,
         integrationsLoading,
         integrationsFailed,
@@ -59,6 +64,8 @@ export function PlatformAlertNotifications({
         addSelectedDestination,
         removePendingDestination,
         deleteDestination,
+        customizeDestination,
+        resetDestinationMessage,
         setSelectedType,
         setSlackChannelValue,
         setWebhookUrl,
@@ -95,6 +102,14 @@ export function PlatformAlertNotifications({
         tags: destination.enabled ? undefined : [{ label: 'Paused' }],
         onDelete: () => deleteDestination(destination),
         deleting: deletingDestinationIds.has(destination.id),
+        messageAction: messageCustomization
+            ? destinationMessageAction({
+                  messageCustomized: !!destination.message_customized,
+                  loading: changingMessageDestinationIds.has(destination.id),
+                  onCustomize: () => customizeDestination(destination),
+                  onReset: () => resetDestinationMessage(destination),
+              })
+            : undefined,
         ...destinationView?.(destination),
     }))
 

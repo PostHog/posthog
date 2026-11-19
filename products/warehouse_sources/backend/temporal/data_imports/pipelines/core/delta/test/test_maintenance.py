@@ -858,18 +858,29 @@ class TestCompactDuringRebuild:
     @parameterized.expand(
         [
             # Seven tiny files per partition: a compaction removes six files from each.
-            ("below_the_budget_delta_rs", False, 2, 13, "skipped", 14),
-            ("at_the_budget_delta_rs", False, 2, 12, "compacted", 2),
-            ("below_the_budget_deltalite", True, 2, 13, "skipped", 14),
-            ("at_the_budget_deltalite", True, 2, 12, "compacted", 2),
+            ("below_the_budget_delta_rs", False, 2, 13, 100, "skipped", 14),
+            ("at_the_budget_delta_rs", False, 2, 12, 100, "compacted", 2),
+            ("below_the_budget_deltalite", True, 2, 13, 100, "skipped", 14),
+            ("at_the_budget_deltalite", True, 2, 12, 100, "compacted", 2),
             # A backlog over the budget compacts only the partitions that reach it.
-            ("backlog_capped_delta_rs", False, 4, 12, "compacted", 2 + 2 * 7),
-            ("backlog_capped_deltalite", True, 4, 12, "compacted", 2 + 2 * 7),
+            ("backlog_capped_delta_rs", False, 4, 12, 100, "compacted", 2 + 2 * 7),
+            ("backlog_capped_deltalite", True, 4, 12, 100, "compacted", 2 + 2 * 7),
+            # The budget needs every partition, but one pass takes at most the partition cap.
+            ("partition_capped_delta_rs", False, 4, 24, 3, "compacted", 3 + 1 * 7),
+            ("partition_capped_deltalite", True, 4, 24, 3, "compacted", 3 + 1 * 7),
+            ("partition_cap_of_one_deltalite", True, 4, 12, 1, "compacted", 1 + 3 * 7),
         ]
     )
     @pytest.mark.asyncio
     async def test_compacts_up_to_the_budget(
-        self, _name: str, deltalite_engine: bool, partitions: int, budget: int, outcome: str, files_after: int
+        self,
+        _name: str,
+        deltalite_engine: bool,
+        partitions: int,
+        budget: int,
+        max_partitions: int,
+        outcome: str,
+        files_after: int,
     ):
         with (
             tempfile.TemporaryDirectory() as path,
@@ -879,7 +890,7 @@ class TestCompactDuringRebuild:
             rows_before = deltalake.DeltaTable(path).to_pyarrow_table().sort_by("id").to_pydict()
 
             result = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(
-                min_removable_files=budget
+                min_removable_files=budget, max_partitions=max_partitions
             )
 
             table = deltalake.DeltaTable(path)
@@ -912,7 +923,7 @@ class TestCompactDuringRebuild:
             )
 
             with patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=plan)):
-                result = await maintenance.compact_during_rebuild(min_removable_files=6)
+                result = await maintenance.compact_during_rebuild(min_removable_files=6, max_partitions=100)
 
             files = deltalake.DeltaTable(path).file_uris()
             assert result == "compacted"
@@ -936,7 +947,9 @@ class TestCompactDuringRebuild:
         ):
             self._fill(path, partitions=2, files_per_partition=7)
 
-            result = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(min_removable_files=1)
+            result = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(
+                min_removable_files=1, max_partitions=100
+            )
 
             assert result == "failed"
             assert capture.called is expect_capture
@@ -951,7 +964,9 @@ class TestCompactDuringRebuild:
             self._fill(path, partitions=3, files_per_partition=4)
             version_before = deltalake.DeltaTable(path).version()
 
-            result = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(min_removable_files=9)
+            result = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(
+                min_removable_files=9, max_partitions=100
+            )
 
             table = deltalake.DeltaTable(path)
             assert result == "compacted"

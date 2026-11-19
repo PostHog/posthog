@@ -339,6 +339,12 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         context_id: 'replay-vision-requests',
         filters: { source: 'internal-events', events: [{ id: '$replay_vision_request_completed', type: 'events' }] },
     },
+    'signals-report-ready': {
+        sub_template_id: 'signals-report-ready',
+        type: 'internal_destination',
+        context_id: 'signals-reports',
+        filters: { source: 'internal-events', events: [{ id: '$signals_report_ready', type: 'events' }] },
+    },
 }
 
 const FLAG_ACTOR_NAME = "{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}"
@@ -1902,6 +1908,14 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'signals-report-ready': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['signals-report-ready'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook when an Inbox report is ready',
+            description: 'Send a webhook when a self-driving Inbox report is ready',
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -1911,50 +1925,54 @@ export const getSubTemplate = (
     return HOG_FUNCTION_SUB_TEMPLATES[subTemplateId].find((x) => x.template_id === template.id) || null
 }
 
-export const eventToHogFunctionContextId = (event: string | undefined): HogFunctionConfigurationContextId => {
-    switch (event) {
-        case '$error_tracking_issue_created':
-        case '$error_tracking_issue_reopened':
-        case '$error_tracking_issue_spiking':
-        case '$error_tracking_issue_resolved':
-        case '$error_tracking_issue_suppressed':
-        case '$error_tracking_issue_assigned':
-        case '$error_tracking_issue_unassigned':
-        case '$error_tracking_issue_merged':
-        case '$error_tracking_issue_split':
-            return 'error-tracking'
-        case '$insight_alert_firing':
-            return 'insight-alerts'
-        case '$experiment_metric_significant':
-            return 'experiment-alerts'
-        case '$activity_log_entry_created':
-            return 'activity-log'
-        case '$discussion_mention_created':
-            return 'discussion-mention'
-        case '$logs_alert_firing':
-        case '$logs_alert_resolved':
-        case '$logs_alert_auto_disabled':
-        case '$logs_alert_errored':
-            return 'logs-alerting'
-        case '$health_check_issue_firing':
-        case '$health_check_issue_resolved':
-            return 'health-alerts'
-        case '$batch_export_run_failed':
-            return 'batch-export-alerts'
-        case '$billing_alert_firing':
-        case '$billing_alert_resolved':
-        case '$billing_alert_errored':
-        case '$billing_alert_auto_disabled':
-            return 'billing-alerts'
-        case '$replay_vision_alert_firing':
-        case '$replay_vision_alert_resolved':
-        case '$replay_vision_alert_errored':
-        case '$replay_vision_alert_auto_disabled':
-        case '$replay_vision_alert_match':
-            return 'replay-vision-alerts'
-        case '$replay_vision_request_completed':
-            return 'replay-vision-requests'
-        default:
-            return 'standard'
-    }
-}
+const CONTEXT_EVENTS: [HogFunctionConfigurationContextId, string[]][] = [
+    [
+        'error-tracking',
+        [
+            '$error_tracking_issue_created',
+            '$error_tracking_issue_reopened',
+            '$error_tracking_issue_spiking',
+            '$error_tracking_issue_resolved',
+            '$error_tracking_issue_suppressed',
+            '$error_tracking_issue_assigned',
+            '$error_tracking_issue_unassigned',
+            '$error_tracking_issue_merged',
+            '$error_tracking_issue_split',
+        ],
+    ],
+    ['insight-alerts', ['$insight_alert_firing']],
+    ['experiment-alerts', ['$experiment_metric_significant']],
+    ['activity-log', ['$activity_log_entry_created']],
+    ['discussion-mention', ['$discussion_mention_created']],
+    [
+        'logs-alerting',
+        ['$logs_alert_firing', '$logs_alert_resolved', '$logs_alert_auto_disabled', '$logs_alert_errored'],
+    ],
+    ['health-alerts', ['$health_check_issue_firing', '$health_check_issue_resolved']],
+    ['batch-export-alerts', ['$batch_export_run_failed']],
+    [
+        'billing-alerts',
+        ['$billing_alert_firing', '$billing_alert_resolved', '$billing_alert_errored', '$billing_alert_auto_disabled'],
+    ],
+    [
+        'replay-vision-alerts',
+        [
+            '$replay_vision_alert_firing',
+            '$replay_vision_alert_resolved',
+            '$replay_vision_alert_errored',
+            '$replay_vision_alert_auto_disabled',
+            '$replay_vision_alert_match',
+        ],
+    ],
+    ['replay-vision-requests', ['$replay_vision_request_completed']],
+    ['signals-reports', ['$signals_report_ready']],
+]
+
+const EVENT_CONTEXT_IDS = new Map<string, HogFunctionConfigurationContextId>(
+    CONTEXT_EVENTS.flatMap(([contextId, events]) =>
+        events.map((event): [string, HogFunctionConfigurationContextId] => [event, contextId])
+    )
+)
+
+export const eventToHogFunctionContextId = (event: string | undefined): HogFunctionConfigurationContextId =>
+    (event ? EVENT_CONTEXT_IDS.get(event) : undefined) ?? 'standard'

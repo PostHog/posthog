@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -33,7 +34,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
@@ -1586,6 +1587,85 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.run_interval_minutes == 720
 
+    @parameterized.expand(
+        [
+            ("plain_member", False, False, "shared", False, None, False, status.HTTP_403_FORBIDDEN),
+            ("plain_member_resends_unchanged", False, False, "shared", True, None, False, status.HTTP_200_OK),
+            ("scout_author", True, False, "shared", False, None, False, status.HTTP_200_OK),
+            ("project_admin_private_image", False, True, "private", False, None, False, status.HTTP_400_BAD_REQUEST),
+            ("project_admin_missing_image", False, True, "missing", False, None, False, status.HTTP_400_BAD_REQUEST),
+            (
+                "scout_author_key_without_skill_scope",
+                True,
+                False,
+                "shared",
+                False,
+                ["signal_scout:write"],
+                False,
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "scout_author_key_with_skill_scope",
+                True,
+                False,
+                "shared",
+                False,
+                ["signal_scout:write", "llm_skill:write"],
+                False,
+                status.HTTP_200_OK,
+            ),
+            ("project_admin_without_skill_editor", False, True, "shared", False, None, True, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_custom_image_needs_the_acting_user_or_an_admin_and_a_shared_image(
+        self,
+        _name: str,
+        is_author: bool,
+        is_admin: bool,
+        lookup: str,
+        already_set: bool,
+        key_scopes: list[str] | None,
+        deny_skill_editor: bool,
+        expected: int,
+    ) -> None:
+        image_id = uuid4()
+        config = self._config(custom_image_id=image_id if already_set else None)
+        self._authored_by(self.user if is_author else self._other_member())
+        if is_admin:
+            self._become_admin()
+        found = None if lookup == "missing" else SimpleNamespace(private=lookup == "private")
+        if key_scopes:
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self._personal_api_key(key_scopes)}")
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def resource_access(
+            access: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+        ) -> bool:
+            if deny_skill_editor and resource == "llm_skill":
+                return False
+            return real_check(access, resource, required_level)
+
+        with (
+            patch("products.tasks.backend.facade.api.get_sandbox_custom_image", return_value=found),
+            patch.object(
+                UserAccessControl, "check_access_level_for_resource", autospec=True, side_effect=resource_access
+            ),
+        ):
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                data={"custom_image_id": str(image_id), "run_interval_minutes": 720},
+                format="json",
+            )
+
+        assert response.status_code == expected, response.json()
+        config.refresh_from_db()
+        if expected == status.HTTP_200_OK:
+            assert response.json()["custom_image_id"] == str(image_id)
+            assert config.custom_image_id == image_id
+            assert config.run_interval_minutes == 720
+        else:
+            assert config.custom_image_id is None
+
     def test_revoking_write_access_needs_the_same_claim(self) -> None:
         # Narrowing is safe, but the refusal keeps one rule to state: a member who cannot grant
         # cannot rewrite the field at all, so nobody can flip a scout's access behind its author.
@@ -1851,7 +1931,13 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         assert config.allowed_mcp_tools is None
         assert response.json()["attr"] == "allowed_mcp_tools"
 
-    @parameterized.expand([({"allowed_mcp_tools": []},), ({"tool_preset": "read_only"},)])
+    @parameterized.expand(
+        [
+            ({"allowed_mcp_tools": []},),
+            ({"tool_preset": "read_only"},),
+            ({"custom_image_id": "8f6d2c1e-4b7a-4e0f-9a3d-5c2b1e7f6a90"},),
+        ]
+    )
     def test_sandbox_token_cannot_select_tools(self, payload: dict) -> None:
         self._authored_by(self.user)
         config = self._config()
@@ -1862,6 +1948,7 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         assert response.status_code == 403, response.json()
         config.refresh_from_db()
         assert config.allowed_mcp_tools is None
+        assert config.custom_image_id is None
 
     def test_preset_is_snapshotted_and_reordered_list_does_not_log(self) -> None:
         config = self._config()
@@ -2676,6 +2763,60 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert NOT_IN_USE_WRITES_KEY not in (sibling_run.metadata or {})
 
 
+class TestScoutHarnessScratchpadDiscardAPI(APIBaseTest):
+    def _discard_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/scratchpad/discard/"
+
+    @parameterized.expand(
+        [
+            ("scout_scope_only", ["signal_scout:write"], status.HTTP_403_FORBIDDEN, True),
+            ("scratchpad_internal_scope_only", ["signal_scratchpad_internal:write"], status.HTTP_403_FORBIDDEN, True),
+            ("both_steering_scopes", ["signal_scout:write", "llm_skill:write"], status.HTTP_200_OK, False),
+        ]
+    )
+    def test_api_keys_need_the_steering_scopes(
+        self, _name: str, scopes: list[str], expected: int, entry_survives: bool
+    ) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        SignalScratchpad.objects.create(team=self.team, key="dedupe:stale", content="old marker")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            self._discard_url(), data={"key": "dedupe:stale"}, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}"
+        )
+
+        assert response.status_code == expected, response.content
+        assert SignalScratchpad.objects.filter(team=self.team, key="dedupe:stale").exists() == entry_survives
+
+    def test_session_discard_requires_skill_editor_rbac(self) -> None:
+        from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+        SignalScratchpad.objects.create(team=self.team, key="dedupe:stale", content="old marker")
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_llm_skill(
+            self_: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+        ) -> bool:
+            if resource == "llm_skill":
+                return False
+            return real_check(self_, resource, required_level)
+
+        with patch.object(UserAccessControl, "check_access_level_for_resource", autospec=True) as mock_check:
+            mock_check.side_effect = deny_llm_skill
+            denied = self.client.post(self._discard_url(), data={"key": "dedupe:stale"}, format="json")
+        assert denied.status_code == status.HTTP_403_FORBIDDEN
+        assert SignalScratchpad.objects.filter(team=self.team, key="dedupe:stale").exists()
+
+        allowed = self.client.post(self._discard_url(), data={"key": "dedupe:stale"}, format="json")
+        assert allowed.status_code == status.HTTP_200_OK
+        assert allowed.json() == {"deleted": True}
+        assert not SignalScratchpad.objects.filter(team=self.team, key="dedupe:stale").exists()
+
+
 class TestSearchMemoryQuerySerializer(SimpleTestCase):
     @parameterized.expand(
         [
@@ -2863,17 +3004,24 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         self._make_scout_skill()
         report = SignalReport.objects.create(team=self.team, title="Checkout 500s", status=SignalReport.Status.READY)
 
-        response = self.client.post(
-            self._list_url(),
-            data={
-                "content": "focus on the new checkout flow",
-                "skill_name": "signals-scout-web-analytics",
-                "report_id": str(report.id),
-            },
-            format="json",
-        )
+        with (
+            patch(
+                "products.signals.backend.report_note_mentions.send_report_note_mention_notifications.delay"
+            ) as mention_delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                self._list_url(),
+                data={
+                    "content": "focus on the new checkout flow @member:5",
+                    "skill_name": "signals-scout-web-analytics",
+                    "report_id": str(report.id),
+                },
+                format="json",
+            )
 
         assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert [call.kwargs["user_ids"] for call in mention_delay.call_args_list] == [[5]]
         note = response.json()
         assert str(report.id) in note["content"]
         assert "Checkout 500s" not in note["content"]
@@ -2885,7 +3033,7 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
             report=report, type=SignalReportArtefact.ArtefactType.SCOUT_NOTE_LEFT
         )
         assert json.loads(artefact.content) == {
-            "note": "focus on the new checkout flow",
+            "note": "focus on the new checkout flow @member:5",
             "skill_name": "signals-scout-web-analytics",
             "scout_note_id": note["id"],
         }
@@ -6468,6 +6616,42 @@ class TestScoutSpendOverview(APIBaseTest):
         assert data["period_start"] == start
         assert data["period_end"] == end
         assert data["total_credits"] == credits
+
+    @parameterized.expand([("2026-11", "2026-12-01"), ("2026-12", "2027-01-01")])
+    @time_machine.travel("2027-03-15T12:00:00Z", tick=False)
+    def test_usage_rejects_expired_and_partially_expired_months(self, month: str, end: str) -> None:
+        self.client.force_login(self.user)
+        monthly = self.client.get(f"/api/projects/{self.team.id}/signals/usage/?month={month}")
+        direct = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "InboxUsageQuery",
+                    "dateRange": {"date_from": f"{month}-01", "date_to": end, "explicitDate": True},
+                }
+            },
+            format="json",
+        )
+        for response in (monthly, direct):
+            assert response.status_code == 400, response.content
+            assert "Usage receipts expire after three calendar months" in response.json()["detail"]
+
+    @time_machine.travel("2027-02-01T00:00:00Z", tick=False)
+    def test_usage_rejects_expired_range_before_cache_lookup(self) -> None:
+        self.client.force_login(self.user)
+        path = f"/api/projects/{self.team.id}/signals/usage/?month=2026-11"
+        response = self.client.get(path)
+        assert response.status_code == 200, response.content
+        assert Decimal(response.json()["total_credits"]) == 0
+        assert response.json()["incomplete"] is False
+
+        with time_machine.travel("2027-02-01T00:00:01Z", tick=False):
+            expired = self.client.get(path)
+            retained = self.client.get(f"/api/projects/{self.team.id}/signals/usage/?month=2026-12")
+        assert expired.status_code == 400, expired.content
+        assert "Usage receipts expire after three calendar months" in expired.json()["detail"]
+        assert retained.status_code == 200, retained.content
+        assert Decimal(retained.json()["total_credits"]) == 0
 
     @parameterized.expand(["2026-13", "2026-09"])
     def test_monthly_usage_rejects_invalid_month(self, month: str) -> None:

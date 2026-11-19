@@ -91,13 +91,14 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
         config.experiment_precomputation_enabled = True
         config.save()
-        # Ratio metric-events precomputation has an additional default-off kill-switch
-        # flag; force it on so tests still exercise the precomputed metric-events path.
-        if not getattr(self, "_ratio_metric_events_precompute_patched", False):
-            patcher = patch.object(MetricEventsPrecompute, "ratio_flag_enabled", return_value=True)
-            patcher.start()
-            self.addCleanup(patcher.stop)
-            self._ratio_metric_events_precompute_patched = True
+        # Ratio and CUPED metric-events precomputation each have an additional default-off
+        # kill-switch flag; force them on so tests still exercise the precomputed metric-events path.
+        if not getattr(self, "_metric_events_precompute_flags_patched", False):
+            for flag_method in ("ratio_flag_enabled", "cuped_flag_enabled"):
+                patcher = patch.object(MetricEventsPrecompute, flag_method, return_value=True)
+                patcher.start()
+                self.addCleanup(patcher.stop)
+            self._metric_events_precompute_flags_patched = True
 
     def _disable_precomputation(self):
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)

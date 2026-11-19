@@ -20,6 +20,10 @@ Offline API uploads run through the Python SDK independently of `TEST` and `OPT_
 The harness's dedicated trace client captures `$ai_generation`, `$ai_span`, and `$ai_trace` events despite the harness's `TEST` database setting, and honors `OPT_OUT_CAPTURE`.
 During teardown, the harness waits up to five seconds for trace shutdown before continuing infrastructure cleanup.
 Pending traces may be lost if delivery does not finish before the process exits.
+A sandboxed trace has one `$ai_span` per tool call, under the `$ai_generation` that made the call, with the tool's input, output, latency, and error state.
+A failed call also sets `$ai_error` to its output.
+The `$ai_provider` of agent generations follows `--agent-runtime`: `anthropic` for Claude and `openai` for Codex.
+When the log names no model, the generations use the run's `--agent-model`.
 
 ## Result contents and scope
 
@@ -90,6 +94,13 @@ numeric, boolean, and categorical definitions are shared by offline experiments 
 from the setup screen; filtered lists keep their filters and results table.
 Dataset setup appears only when there are no active or archived datasets, so projects with only archived
 datasets can still browse and restore them from the list.
+
+Hosted datasets default to 100 per project, including archived datasets until they expire. Each dataset can hold
+2,000 items, including archived items. Each item can have 40 retained versions, and all datasets in a project
+share 25,000 retained item versions. Creating, editing, archiving, or restoring an item can add a version.
+Retention frees slots when it deletes version rows. An item payload can contain up to 406,666 bytes of compact
+UTF-8 JSON across its input, expected output, source output, and metadata. JSONL exports have a separate 250 MB limit,
+so a dataset with large items can exceed the size of a single export.
 
 Scorers have an optional **Short name** (up to 40 characters) for experiment table headers and other compact views.
 These views use the full name when the short name is blank. Editing or clearing a short name updates existing
@@ -499,6 +510,8 @@ Experiment lifecycle events include dataset source, run source, status, and expe
 Dataset source is classified as `posthog` for hosted revisions, `external` for a supplied external source, or `unknown` when omitted; the original source string is never captured.
 Dataset and experiment usage events exclude input, output, reasoning, metadata values, and resource names.
 Rejected requests, unchanged item updates, and exact ingestion retries emit no success event.
+Quota rejections emit `llma dataset limit reached`. Its `resource`, `current_count`, and `limit` properties
+identify the count or byte limit that blocked the write. Project groups identify affected projects.
 Dataset and experiment reporting failures are logged without failing successful API operations.
 
 Frontend controls use `data-attr` for autocapture action matching.
@@ -765,6 +778,15 @@ Passing the deadline makes a payload eligible for cleanup. It remains available 
 The sweep processes at most 20 batches of 500 candidates per payload type, alternating item and result payloads, with a three-minute work budget checked before each environment transaction. Each environment's batch commits independently; retries and overlapping runs are safe. Existing overdue payloads are included, and a backlog drains over subsequent runs.
 
 Each run emits `offline evaluation payload retention run` using scoped capture, including empty runs and handled failures. Properties include `run_id`, `status`, `batches` (committed environment batches), `item_payloads_expired`, `result_payloads_expired`, `payloads_expired`, `budget_exhausted`, and `duration_seconds`. Counts reflect committed work, and the same properties are logged. Event delivery is best-effort; a hard-killed worker cannot emit its completion event.
+The event also reports `item_payload_bytes_deleted`, `result_payload_bytes_deleted`, and their sum, `payload_bytes_deleted`.
+The dataset cleanup event, `dataset retention run`, reports `payload_bytes_deleted` for removed item versions, summing their input, expected output, source output, and metadata fields.
+Both measure the byte length of PostgreSQL's JSON text representation immediately before deletion and count only committed deletions.
+SQL null fields contribute zero; JSON null values and empty objects include their serialized bytes.
+These totals exclude indexes, row overhead, and storage compression, and do not measure disk space reclaimed by vacuum.
+Byte telemetry starts when these properties are deployed; older events without the properties cannot be treated as zero-byte deletions.
+Both cleanup events send aggregate run metrics to the US analytics project, retaining the deployment region in the `region` property.
+The events contain no customer payloads or customer identifiers. Filter by `region` for separate US and EU monitoring.
+EU history in the US project starts when centralized reporting is deployed; earlier EU events remain in the EU project.
 Expired input/output is not reconstructed from linked datasets or traces, and missing links do not prevent experiment reads.
 Opening those resources requires their own permissions.
 

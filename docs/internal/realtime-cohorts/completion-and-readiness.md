@@ -231,10 +231,14 @@ The realtime cohorts gate (`is_realtime_cohort_flag_targeting_enabled`) is open 
 That list also holds load-test teams, which is why the flag still decides there.
 The flag API accepts a cohort with event-based criteria, or one that depends on such a cohort, only when the gate is open and every such cohort is flag-compatible.
 The same gate lets the flag editor's cohort picker list these cohorts, and the team's `realtime_cohorts` field tells the frontend about it.
+Under each condition set, the flag editor lists the cohorts the set targets that flags can't target yet, and turns realtime on for an `off` one through the cohort API's `realtime` action, the same action the cohort page calls.
+For a team inside the gate, that field also carries how many of the project's cohorts hold a slot and the plan's slot limit, and it carries nulls for every other team.
 
 Behind the same gate, for teams at the `serving` level, the cohort API's `realtime` field reports one state per cohort that has event or person criteria: `static`, `person_properties`, `daily`, `off`, `building`, `rebuilding`, `ready`, or `needs_attention`.
 `off` is a cohort with event criteria that could be realtime and that nobody turned realtime on for.
-A `daily` cohort whose criteria look back further than `REALTIME_COHORT_MAX_HISTORY_DAYS` also carries `reason: history_over_limit` and the limit in `history_limit_days`.
+An `off` cohort whose criteria look back further than the [plan's history limit](definitions-and-eligibility.md#plan-limits) carries `reason: history_over_limit`, because it can't be turned on.
+A `daily` cohort whose criteria look back further than `REALTIME_COHORT_MAX_HISTORY_DAYS` carries it too.
+Both carry the plan's limit in `history_limit_days`, because that is the limit a person can raise.
 A `needs_attention` cohort carries `reason: too_large_to_build` when the save path refused its behavioral run on the scan limit, see [backfill coordination](backfill-coordination.md#when-things-go-wrong).
 
 ### In the feature flags service

@@ -228,6 +228,44 @@ class TestOffsetRows:
         assert result.requests[0].param("offset") == "2"
 
 
+class TestRowOffsetRows:
+    @staticmethod
+    def _page(n: int, start: int = 0, total: int | None = None) -> dict[str, Any]:
+        page: dict[str, Any] = {"entries": [{"id": f"a{start + i}"} for i in range(n)]}
+        if total is not None:
+            page["total"] = total
+        return page
+
+    @pytest.mark.parametrize(
+        ("endpoint", "pages", "expected_offsets", "expected_saved"),
+        [
+            ("audit_logs", [_page(PAGE_SIZE, total=PAGE_SIZE)], ["0"], []),
+            # The server caps pageSize below what we ask for: a short page is not the end.
+            ("audit_logs", [_page(3, total=5), _page(2, start=3, total=5)], ["0", "3"], [3]),
+            ("access_logs", [_page(2), _page(0)], ["0", "2"], [2]),
+        ],
+        ids=["total_ends_full_page", "short_page_before_total", "no_total_stops_at_empty_page"],
+    )
+    def test_walks_row_offsets(
+        self, endpoint: str, pages: list[Any], expected_offsets: list[str], expected_saved: list[int]
+    ) -> None:
+        result = _run_get_rows(endpoint, pages)
+
+        assert result.params("offset") == expected_offsets
+        assert result.params("pageSize") == [str(PAGE_SIZE)] * len(expected_offsets)
+        assert result.saved_states == [InstanaResumeConfig(next_row_offset=offset) for offset in expected_saved]
+        assert len(result.rows) == sum(len(page["entries"]) for page in pages)
+
+    def test_resume_starts_at_saved_row_offset(self) -> None:
+        result = _run_get_rows(
+            "audit_logs",
+            [self._page(1, start=40, total=41)],
+            resume_state=InstanaResumeConfig(next_row_offset=40),
+        )
+
+        assert result.params("offset") == ["40"]
+
+
 def _run_metric_rows(
     endpoint: str,
     pages: list[Any],
