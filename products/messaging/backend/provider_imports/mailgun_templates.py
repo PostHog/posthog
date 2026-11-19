@@ -11,7 +11,7 @@ https://documentation.mailgun.com/docs/mailgun/user-manual/sending-messages/send
 
 import re
 from collections.abc import Mapping
-from dataclasses import field, replace
+from dataclasses import field
 from typing import Any, Literal
 
 from posthog.dataclasses import frozen
@@ -44,27 +44,7 @@ _FIXED_VARIABLE = re.compile(
     r"%(recipient|recipient_email|recipient_name|recipient_fname|recipient_lname"
     r"|unsubscribe_url|tag_unsubscribe_url|mailing_list_unsubscribe_url|unsubscribe_email)%"
 )
-# Attributes Go's html/template treats as URLs.
-_MAX_ATTRIBUTE_NAME = 16
-_URL_ATTRIBUTES = frozenset(
-    {
-        "action",
-        "background",
-        "cite",
-        "codebase",
-        "data",
-        "formaction",
-        "href",
-        "icon",
-        "longdesc",
-        "manifest",
-        "poster",
-        "profile",
-        "src",
-        "usemap",
-        "xmlns",
-    }
-)
+_RAW_ELEMENTS = frozenset({"script", "style"})
 _IDENTIFIER = re.compile(r"^[A-Za-z_][\w-]*$")
 # Text every Handlebars or Go parser would read as an argument, such as "x", 5 or true.
 _LITERAL_ARGUMENT = re.compile(r"""^(?:"[^"\\{}%]*"|'[^'\\{}%]*'|-?\d+(?:\.\d+)?|true|false)$""")
@@ -102,14 +82,11 @@ class _TagState:
 
     in_tag: bool = False
     quote: str = ""
-    # The attribute named last, and whether the text is inside its value.
-    attribute: str = ""
+    # The name of the tag being read, up to the length of the longest name it is checked against.
+    name: str = ""
     name_done: bool = False
-    after_equals: bool = False
-    in_value: bool = False
-    # Whether the value has text before this point, and whether that text reached a URL's query or fragment.
-    value_started: bool = False
-    value_query: bool = False
+    # `script` or `style` while inside that element, where Go escapes values as code.
+    raw_element: str = ""
 
 
 @frozen
@@ -183,8 +160,8 @@ def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
         notes.append("This template is too large to convert, so it appears as plain text. Rewrite it in Liquid.")
     if any(part.go_value_in_tag for part in parts):
         notes.append(
-            "Go templates check values inside HTML tags, such as a link's address, and PostHog doesn't. Make sure "
-            "those values come from a source you trust."
+            "Go templates escape a value by where it lands, such as a link's address or a script, and PostHog can't. "
+            "Values inside HTML tags, scripts and styles stay as plain text, so rewrite them in Liquid."
         )
     if engine == "go":
         notes.append(
@@ -293,7 +270,6 @@ class _Converter:
         self.go_variables: dict[str, str] = {}
         self.tag = _TagState()
         self.go_value_in_tag = False
-        self.url_count = 0
         # Per open block: the tag state where it opened, and where each earlier branch ended.
         self.tag_branches: list[tuple[_TagState, list[_TagState]]] = []
         # Set by the token just read when it started another branch of the open block.
@@ -355,76 +331,47 @@ class _Converter:
     def _track_tag(self, text: str) -> None:
         # A `>` inside a quoted attribute value doesn't close the tag. Long values, such as an inline image, are only
         # scanned for a quote, never copied.
-        if not text:
-            return
         state = self.tag
-        in_tag, quote, attribute, name_done = state.in_tag, state.quote, state.attribute, state.name_done
-        after_equals, in_value, started, query = (
-            state.after_equals,
-            state.in_value,
-            state.value_started,
-            state.value_query,
+        in_tag, quote, name, name_done, raw_element = (
+            state.in_tag,
+            state.quote,
+            state.name,
+            state.name_done,
+            state.raw_element,
         )
         index = 0
         while index < len(text):
-            character = text[index]
+            if raw_element:
+                close = text.lower().find(f"</{raw_element}", index)
+                if close < 0:
+                    break
+                raw_element, index = "", close
+                continue
             if not in_tag:
                 next_open = text.find("<", index)
                 if next_open < 0:
                     break
-                in_tag, quote, attribute, name_done, after_equals, in_value = True, "", "", False, False, False
+                in_tag, quote, name, name_done = True, "", "", False
                 index = next_open + 1
                 continue
-            if in_value and quote:
+            if quote:
                 close = text.find(quote, index)
-                segment = text[index:] if close < 0 else text[index:close]
-                started = started or bool(segment.strip())
-                query = query or "?" in segment or "#" in segment
                 if close < 0:
                     break
-                quote, in_value, attribute, name_done = "", False, "", False
-                index = close + 1
+                quote, index = "", close + 1
                 continue
-            if in_value:
-                if character.isspace():
-                    in_value, attribute, name_done = False, "", False
-                elif character == ">":
-                    in_tag, in_value = False, False
-                else:
-                    started, query = True, query or character in "?#"
-            elif after_equals:
-                if character in "\"'":
-                    quote, in_value, after_equals, started, query = character, True, False, False, False
-                elif character == ">":
-                    in_tag, after_equals = False, False
-                elif not character.isspace():
-                    in_value, after_equals, started, query = True, False, True, character in "?#"
+            character = text[index]
+            if character in "\"'":
+                quote, name_done = character, True
             elif character == ">":
                 in_tag = False
-            elif character == "=":
-                after_equals = True
-            elif character in "\"'":
-                quote, in_value, attribute, started, query = character, True, "", False, False
-            elif character.isspace():
-                name_done = bool(attribute)
-            elif name_done or not attribute:
-                attribute, name_done = character.lower(), False
-            elif len(attribute) < _MAX_ATTRIBUTE_NAME:
-                attribute += character.lower()
+                raw_element = name if name in _RAW_ELEMENTS else ""
+            elif not name_done and character.isalnum():
+                name = (name + character.lower()) if len(name) < 6 else "-"
             else:
-                # Longer than any URL attribute, so only that it can't match is kept.
-                attribute = "-"
+                name_done = True
             index += 1
-        self.tag = _TagState(
-            in_tag=in_tag,
-            quote=quote,
-            attribute=attribute,
-            name_done=name_done,
-            after_equals=after_equals,
-            in_value=in_value,
-            value_started=started,
-            value_query=query,
-        )
+        self.tag = _TagState(in_tag=in_tag, quote=quote, name=name, name_done=name_done, raw_element=raw_element)
 
     def _track_branches(self, depth: int) -> None:
         """Only one branch of an if/else renders, so after the block a value is inside a tag if any branch left one
@@ -435,15 +382,7 @@ class _Converter:
         elif len(self.blocks) < depth and self.tag_branches:
             opened, ended = self.tag_branches.pop()
             states = [*ended, self.tag, opened]
-            chosen = next((state for state in states if state.in_tag), states[-1])
-            # A branch that rendered nothing can leave a value at the start of the address, so only text every branch
-            # wrote counts.
-            in_value = [state for state in states if state.in_value]
-            self.tag = replace(
-                chosen,
-                value_started=all(state.value_started for state in in_value),
-                value_query=all(state.value_query for state in in_value),
-            )
+            self.tag = next((state for state in states if state.in_tag or state.raw_element), states[-1])
         elif self.took_branch and self.tag_branches:
             opened, ended = self.tag_branches[-1]
             ended.append(self.tag)
@@ -735,34 +674,12 @@ class _Converter:
             return self._unsupported(token)
         if not self.is_html:
             return f"{{{{ {path} }}}}"
-        if not self.tag.in_tag:
-            return _escaped(path)
-        self.go_value_in_tag = True
-        return self._go_value_in_tag(path)
-
-    def _go_value_in_tag(self, path: str) -> str:
-        """Go escapes a value by where it lands. In a link's address it blocks schemes such as `javascript:` at the
-        start, and percent-encodes a value in the query, so `&` or `=` can't add a parameter."""
-        tag = self.tag
-        if tag.after_equals:
-            # A value right after `=` starts an unquoted attribute value.
-            tag = self.tag = replace(tag, after_equals=False, in_value=True, value_started=False, value_query=False)
-        if not (tag.in_value and tag.attribute in _URL_ATTRIBUTES):
-            return _escaped(path)
-        # Only text from the template counts as the start of an address, since a value before this one can be empty.
-        if tag.value_query:
-            return f"{{{{ {path} | url_encode }}}}"
-        if tag.value_started:
-            return _escaped(path)
-        self.url_count += 1
-        url, head, scheme = f"url{self.url_count}", f"url{self.url_count}_head", f"url{self.url_count}_scheme"
-        return (
-            f'{{% assign {url} = {path} | append: "" %}}{{% assign {head} = {url} | split: "/" | first %}}'
-            f'{{% assign {scheme} = "http" %}}{{% if {head} contains ":" %}}'
-            f'{{% assign {scheme} = {head} | split: ":" | first | downcase %}}{{% endif %}}'
-            f'{{% if {scheme} == "http" or {scheme} == "https" or {scheme} == "mailto" %}}{_escaped(url)}'
-            "{% else %}#ZgotmplZ{% endif %}"
-        )
+        if self.tag.in_tag or self.tag.raw_element:
+            # Go escapes a value by where it lands, such as a link's address, an attribute name or a script, and
+            # Liquid can't, so a person rewrites these.
+            self.go_value_in_tag = True
+            return self._unsupported(token)
+        return _escaped(path)
 
     def _open_go_condition(self, token: str, keyword: str, source: str) -> str:
         if keyword == "with":

@@ -119,7 +119,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("list_unsubscribe", {"template": "%mailing_list_unsubscribe_url%"}, "imported from the list"),
             ("unknown_engine", {"template": "x", "engine": "mustache"}, "lists the engine mustache"),
             ("unclosed", {"template": "{{#if a}}x"}, "never closed"),
-            ("go_value_in_a_tag", {"engine": "go", "template": '<a href="{{.URL}}">x</a>'}, "inside HTML tags"),
+            ("go_value_in_a_tag", {"engine": "go", "template": '<a href="{{.URL}}">x</a>'}, "rewrite them in Liquid"),
         ]
     )
     def test_notes_name_what_to_review(self, _name: str, version: dict, expected: str) -> None:
@@ -143,21 +143,25 @@ class TestMailgunTemplateConversion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("unquoted", "<a href={{.U}}>x</a>", 1),
-            ("after_another_value", '<a href="{{.P}}{{.U}}">x</a>', 2),
-            ("after_a_space", '<a href=" {{.U}}">x</a>', 1),
-            ("after_a_branch_that_can_render_nothing", '<a href="{{if .A}}pre{{end}}{{.U}}">x</a>', 1),
+            ("quoted_link", '<a href="{{.U}}">x</a>', "{{.U}}"),
+            ("unquoted_link", "<a href={{.U}}>x</a>", "{{.U}}"),
+            ("attribute_name", '<a {{.A}}="x">x</a>', "{{.A}}"),
+            ("event_handler", '<a onclick="send({{.X}})">x</a>', "{{.X}}"),
+            ("script", "<script>var x = {{.X}};</script>", "{{.X}}"),
+            ("style", "<style>p { color: {{.C}} }</style>", "{{.C}}"),
         ]
     )
-    def test_a_go_value_that_can_start_a_link_is_checked(self, _name: str, source: str, checks: int) -> None:
-        assert convert_text(source, engine="go").text.count("#ZgotmplZ") == checks
+    def test_a_go_value_where_go_escapes_by_context_stays_text(self, _name: str, source: str, value: str) -> None:
+        converted = convert_version({"engine": "go", "template": source})
 
-    def test_a_long_attribute_name_is_not_kept(self) -> None:
-        converter = mailgun_templates._Converter("", "handlebars", True)
+        assert f"{{% raw %}}{value}{{% endraw %}}" in converted.html
+        assert "variables." not in converted.html
+        assert any("rewrite them in Liquid" in note for note in converted.notes)
 
-        converter._track_tag("<a " + "b" * 100000)
+    def test_a_go_value_after_a_script_converts(self) -> None:
+        converted = convert_text("<script>x</script><p>{{.Name}}</p>", engine="go")
 
-        assert len(converter.tag.attribute) <= mailgun_templates._MAX_ATTRIBUTE_NAME
+        assert ESCAPED_X.replace("variables.x", "variables.Name") in converted.text
 
     def test_a_long_comment_renders_nothing(self) -> None:
         source = "{{!-- " + "x" * 30000 + " {{secret}} --}}after"
