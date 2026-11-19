@@ -309,6 +309,7 @@ tools:
                 - description
                 - type
                 - feature_flag_key
+                - feature_flag.id
                 - status
                 - archived
                 - start_date
@@ -745,6 +746,7 @@ tools:
                 - description
                 - type
                 - feature_flag_key
+                - feature_flag.id
                 - status
                 - archived
                 - start_date
