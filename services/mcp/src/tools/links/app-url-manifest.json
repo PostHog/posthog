@@ -599,8 +599,18 @@
         "params": ["id", "tileId"],
         "scope": "project"
     },
+    "dashboardV2": {
+        "template": "/d/{uid}",
+        "params": ["uid"],
+        "scope": "project"
+    },
     "dashboards": {
         "template": "/dashboard",
+        "params": [],
+        "scope": "project"
+    },
+    "dashboardsV2": {
+        "template": "/d",
         "params": [],
         "scope": "project"
     },

@@ -98,6 +98,7 @@ PRODUCTS_APPS = [
     "products.notifications.backend.apps.NotificationsConfig",
     "products.cross_project_dashboards.backend.apps.CrossProjectDashboardsConfig",
     "products.dashboards.backend.apps.DashboardsConfig",
+    "products.dashboards_v2.backend.apps.DashboardsV2Config",
     "products.messaging.backend.apps.MessagingConfig",
     "products.mcp_analytics.backend.apps.McpAnalyticsConfig",
     "products.mcp_registry.backend.apps.McpRegistryConfig",

@@ -94,6 +94,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/customer_analytics/frontend/scenes/CustomerJourneyTemplatesScene/CustomerJourneyTemplatesScene'),
     WarehouseProperties: () =>
         import('../../products/customer_analytics/frontend/scenes/WarehousePropertiesScene/WarehousePropertiesScene'),
+    DashboardsV2: () => import('../../products/dashboards_v2/frontend/list/DashboardV2ListScene'),
+    DashboardV2: () => import('../../products/dashboards_v2/frontend/dashboard/DashboardV2Scene'),
     DataCatalog: () => import('../../products/data_catalog/frontend/DataCatalogScene'),
     DataCatalogMetric: () => import('../../products/data_catalog/frontend/DataCatalogMetricScene'),
     DataCatalogNewMetric: () => import('../../products/data_catalog/frontend/DataCatalogNewMetricScene'),

@@ -170,6 +170,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-management/warehouse-properties': ['WarehouseProperties', 'warehouseProperties'],
     '/data-management/warehouse-properties/:tab': ['WarehouseProperties', 'warehouseProperties'],
+    '/d': ['DashboardsV2', 'dashboardsV2'],
+    '/d/:uid': ['DashboardV2', 'dashboardV2'],
     '/data-catalog': ['DataCatalog', 'dataCatalog'],
     '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
     '/data-catalog/new-metric': ['DataCatalogNewMetric', 'dataCatalogNewMetric'],
@@ -929,6 +931,8 @@ export const productConfiguration: Record<string, any> = {
         description: 'Add properties to your people and groups from a data warehouse table.',
         iconType: 'data_warehouse',
     },
+    DashboardsV2: { name: 'Dashboards', projectBased: true },
+    DashboardV2: { name: 'Dashboard', projectBased: true },
     DataCatalog: {
         projectBased: true,
         name: 'Data catalog',
@@ -1634,6 +1638,8 @@ export const productUrls = {
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
+    dashboardsV2: (): string => '/d',
+    dashboardV2: (uid: string): string => `/d/${uid}`,
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
     dataCatalogNewMetric: (): string => '/data-catalog/new-metric',
     dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage' | 'usage'): string =>
