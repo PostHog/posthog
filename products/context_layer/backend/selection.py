@@ -39,7 +39,7 @@ MAX_PROMPT_CHARS = 20_000
 MAX_HISTORY_CHARS = 12_000
 MAX_CONTEXT_CHARS = 8_000
 MAX_SOURCE_TEXT = 2_800
-CONFIG_VERSION = "context-selection-v14"
+CONFIG_VERSION = "context-selection-v15"
 # The Slack app renders the thread in a tagged block before the request. Thread participants' text sits inside
 # the block, so a tag they forge comes before the real closing tag, and the request is the text after the last one.
 _SLACK_THREAD_CLOSINGS = ("</slack_thread_context>", "</slack_thread_context_update>")
@@ -112,6 +112,10 @@ class SelectionRunNotFound(LookupError):
 
 class SelectionUnavailable(RuntimeError):
     pass
+
+
+def mentioned_names(request: str) -> set[str]:
+    return {token.strip("/`'\"‘’“”.,;:!?()[]{}<>*_") for token in request.split()} - {""}
 
 
 def elapsed_ms(started: float) -> int:
@@ -203,6 +207,7 @@ class ContextSelector:
         self.selection_id = str(uuid4())
         self.properties = {"task_id": str(run.task_id), "task_run_id": str(run.id), "message_id": selection.message_id}
         self.mode = "disabled"
+        self.explicit: frozenset[str] = frozenset()
         self.request = selection.prompt
         self.thread = ""
         if run.task.origin_product == Task.OriginProduct.SLACK:
@@ -405,7 +410,12 @@ class ContextSelector:
             return PreparedContext(selection_id=self.selection_id, mode=self.mode, reason="gate_skipped")
         remaining = time_remaining(deadline)
         candidates = self.timed("retrieval", lambda: self.retrieve(deadline - remaining / 2))
-        scored = self.timed("rerank", lambda: self.rerank(candidates, deadline))
+        # A skill the request names by its whole name is the context the user asked for, so it skips the rerank.
+        names = mentioned_names(self.request)
+        named = [c for c in candidates if c.kind == "skill" and c.id in names]
+        self.explicit = frozenset(c.id for c in named)
+        rest = [c for c in candidates if c not in named]
+        scored = [(c, 1.0) for c in named] + self.timed("rerank", lambda: self.rerank(rest, deadline))
         context = self.render(scored)
         reason = "selected" if context else "empty"
         self.capture_outcome(reason, scored)
@@ -426,6 +436,8 @@ class ContextSelector:
         candidates: list[dict[str, object]] = []
         for candidate, score in sorted(scored, key=lambda pair: -pair[1]):
             entry: dict[str, object] = {"kind": candidate.kind, "score": round(score, 4)}
+            if candidate.kind == "skill" and candidate.id in self.explicit:
+                entry["explicit"] = True
             if not privacy_mode:
                 entry["ref"] = self.candidate_ref(candidate)
             candidates.append(entry)
