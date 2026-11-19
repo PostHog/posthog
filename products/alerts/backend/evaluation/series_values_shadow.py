@@ -1,5 +1,6 @@
 import math
 import time
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Literal
 
@@ -208,13 +209,14 @@ def _sql_comparison(
     source: dict | None,
     rows: list,
     column_names: list[str] | None,
-    value_column: str | None,
+    resolve_value_column: Callable[[], str | None],
     evaluation: HogQLAlertEvaluation,
 ) -> ShadowComparison:
     if evaluation == HogQLAlertEvaluation.ANY_ROW:
         return ShadowComparison(outcome="unavailable", reason="any_row_evaluation")
     if not rows:
         return ShadowComparison(outcome="unavailable", reason="no_live_result")
+    value_column = None if source is None else resolve_value_column()
     if source is None or value_column is None:
         return ShadowComparison(outcome="unavailable", reason="value_column")
     closed = closed_sql_series_values(
@@ -233,7 +235,7 @@ def compare_sql_series_values_shadow(
     rows: list,
     column_names: list[str] | None,
     *,
-    value_column: str | None,
+    resolve_value_column: Callable[[], str | None],
     evaluation: HogQLAlertEvaluation,
     alert_kind: AlertKind,
 ) -> None:
@@ -241,7 +243,7 @@ def compare_sql_series_values_shadow(
     try:
         if not is_series_values_precompute_enabled(alert.team):
             return
-        comparison = _sql_comparison(alert, source, rows, column_names, value_column, evaluation)
+        comparison = _sql_comparison(alert, source, rows, column_names, resolve_value_column, evaluation)
     except _CANCELLATION:
         raise
     except Exception as err:

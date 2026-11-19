@@ -145,11 +145,9 @@ def _calculate_rows_and_columns(
 
 
 def _shadow_value_column(config: HogQLAlertConfig, fetched: _FetchedRows) -> str | None:
-    if not fetched.rows:
-        return None
     try:
         value_index = _resolve_value_column_index(config.column, fetched.column_names, fetched.rows)
-    except Exception:
+    except AlertExtractionError:
         return None
     return _value_column_label(fetched.column_names, value_index)
 
@@ -167,7 +165,7 @@ def _compare_with_stored_values(
         _sql_source(insight),
         fetched.rows,
         fetched.column_names,
-        value_column=_shadow_value_column(config, fetched),
+        resolve_value_column=lambda: _shadow_value_column(config, fetched),
         evaluation=config.evaluation,
         alert_kind=alert_kind,
     )
