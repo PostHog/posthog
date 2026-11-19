@@ -34,7 +34,7 @@ from posthog.exceptions import (
 )
 from posthog.models.event.new_events_schema import events_read_settings
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.person.sql import INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE
+from posthog.models.person.sql import INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE, REPLACE_ROW_OFFSET
 from posthog.settings import CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
 from posthog.test.persons import create_person
 
@@ -55,12 +55,14 @@ from products.cohorts.backend.models.util import (
     PopulationMarkerClockSkew,
     PopulationSuperseded,
     StaticCohortReadBackIncomplete,
+    _copy_static_cohort_rows_to_pg,
     _recalculate_cohortpeople_for_team,
     _recalculate_cohortpeople_for_team_hogql,
     _sanitize_query_for_cohort,
     _uuids_present_at_marker,
     count_cohort_members,
     delete_cohort_members_by_person_ids,
+    delete_failed_replace_attempt_rows,
     get_all_cohort_dependencies,
     get_friendly_error_message,
     get_nested_cohort_ids,
@@ -1798,6 +1800,51 @@ class TestAddDuringReplace(BaseTest):
             insert_static_cohort([uuid4()], 1, team_id=self.team.pk, quorum=True)
 
         self.assertEqual(mock_sync_execute.call_count, 2)
+
+    def test_append_query_after_failed_first_replace_ignores_lingering_replace_row(self) -> None:
+        run = uuid4().hex[:8]
+        person = create_person(
+            team=self.team, distinct_ids=[f"{run}-append"], properties={"tag": f"{run}-in"}, uuid=uuid4()
+        )
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="append after failed first replace",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-in'"},
+        )
+        attempt_marker = datetime(2026, 3, 1, 12, 0, 0, tzinfo=UTC)
+        sync_execute(
+            f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+            [(uuid4(), person.uuid, cohort.pk, self.team.pk, attempt_marker, REPLACE_ROW_OFFSET)],
+        )
+
+        written = insert_cohort_query_actors_into_ch(cohort, team=self.team)
+        self.assertEqual(written, 1)
+        delete_failed_replace_attempt_rows(cohort.pk, team_id=self.team.pk, marker=attempt_marker)
+
+        remaining_rows = sync_execute(
+            f"SELECT person_id, _offset FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.pk, "cohort_id": cohort.pk},
+        )
+        self.assertEqual([(str(pid), offset) for pid, offset in remaining_rows], [(str(person.uuid), 0)])
+
+    def test_append_copy_after_failed_first_replace_ignores_lingering_replace_row(self) -> None:
+        member = create_person(team=self.team, distinct_ids=["kept-member"], uuid=uuid4())
+        unkept = create_person(team=self.team, distinct_ids=["failed-replace-only"], uuid=uuid4())
+        flush_persons_and_events()
+        cohort = _create_cohort(team=self.team, name="copy after failed first replace", groups=[], is_static=True)
+        attempt_marker = datetime(2026, 3, 1, 12, 0, 0, tzinfo=UTC)
+        insert_static_cohort([member.uuid], cohort.pk, team_id=self.team.pk)
+        sync_execute(
+            f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+            [(uuid4(), unkept.uuid, cohort.pk, self.team.pk, attempt_marker, REPLACE_ROW_OFFSET)],
+        )
+
+        counted, any_resolved = _copy_static_cohort_rows_to_pg(cohort, team_id=self.team.pk, written_since=None)
+
+        self.assertEqual((counted, any_resolved), (1, True))
+        self.assertEqual(list_cohort_member_ids(self.team.pk, cohort.pk), [member.id])
 
 
 class TestGetNestedCohortIds(BaseTest):

@@ -1443,14 +1443,24 @@ def insert_actors_into_cohort_by_query(
         if replace_marker is not None
         else INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID
     )
-    # After a replace, the rows it removes can linger until its ClickHouse delete applies. An append must not
-    # read them as membership, or it would skip inserting a person the delete then removes.
+    # Rows a replace removes, or rows a failed first replace left before cleanup, can linger until ClickHouse
+    # deletes them. An append must not read them as membership, or it would skip inserting a person the delete
+    # then removes.
     kept_marker = cohort.last_replace_marker if replace_marker is None else None
-    kept_filter = f" AND {REPLACE_KEEPS_ROW}" if kept_marker is not None else ""
+    kept_filter = (
+        f" AND {REPLACE_KEEPS_ROW}"
+        if kept_marker is not None
+        else (" AND _offset != %(replace_offset)s" if replace_marker is None else "")
+    )
+    kept_params = (
+        replace_keeps_row_params(kept_marker, cohort.last_replace_floor)
+        if kept_marker is not None
+        else ({"replace_offset": REPLACE_ROW_OFFSET} if replace_marker is None else {})
+    )
     written = sync_execute(
         insert_sql.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query, kept_filter=kept_filter),
         {
-            **(replace_keeps_row_params(kept_marker, cohort.last_replace_floor) if kept_marker is not None else {}),
+            **kept_params,
             "cohort_id": cohort.pk,
             "_timestamp": replace_marker if replace_marker is not None else population_timestamp_now(),
             "team_id": team_id,
@@ -1587,7 +1597,7 @@ def _copy_static_cohort_rows_to_pg(
         if replace_marker is not None
         else (cohort.last_replace_floor or cohort.last_replace_marker)
     )
-    kept = REPLACE_KEEPS_ROW if keep_marker is not None else "1"
+    kept = REPLACE_KEEPS_ROW if keep_marker is not None else "_offset != %(replace_offset)s"
     counted = (
         "_offset = %(replace_offset)s AND _timestamp = %(marker)s"
         if replace_marker is not None
@@ -1631,7 +1641,11 @@ def _copy_static_cohort_rows_to_pg(
                     "cursor": cursor,
                     "limit": batch_size,
                     "counted_since": counted_since,
-                    **(replace_keeps_row_params(keep_marker, keep_floor) if keep_marker is not None else {}),
+                    **(
+                        replace_keeps_row_params(keep_marker, keep_floor)
+                        if keep_marker is not None
+                        else {"replace_offset": REPLACE_ROW_OFFSET}
+                    ),
                 },
                 settings=read_settings,
                 # Pinned to the data cluster while keeping team_id so settings, query tags, and kill switches still apply.

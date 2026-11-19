@@ -1303,14 +1303,19 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         table: str,
     ) -> set[str]:
         """Return the subset of person_uuids that already exist in the CH static cohort table."""
-        from posthog.models.person.sql import REPLACE_KEEPS_ROW, replace_keeps_row_params
+        from posthog.models.person.sql import REPLACE_KEEPS_ROW, REPLACE_ROW_OFFSET, replace_keeps_row_params
 
         if not person_uuids:
             return set()
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
-        # After a replace, the rows it removes can linger until its ClickHouse delete applies. They don't count
-        # as membership: an add that saw one would skip its insert, and lose the person once the delete applied.
-        kept_filter = f" AND {REPLACE_KEEPS_ROW}" if self.last_replace_marker is not None else ""
+        # Rows a replace removes, or rows a failed first replace left before cleanup, can linger until ClickHouse
+        # deletes them. They do not count as membership: an add that saw one would skip its insert, and lose the
+        # person once the delete applied.
+        kept_filter = (
+            f" AND {REPLACE_KEEPS_ROW}"
+            if self.last_replace_marker is not None
+            else " AND _offset != %(replace_offset)s"
+        )
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         rows = sync_execute(
             f"SELECT person_id FROM {table} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id IN %(person_uuids)s{kept_filter} GROUP BY person_id",
@@ -1321,7 +1326,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 **(
                     replace_keeps_row_params(self.last_replace_marker, self.last_replace_floor)
                     if self.last_replace_marker is not None
-                    else {}
+                    else {"replace_offset": REPLACE_ROW_OFFSET}
                 ),
             },
         )

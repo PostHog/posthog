@@ -13,7 +13,11 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.helpers.batch_iterators import FunctionBatchIterator
 from posthog.models import Person, Team
-from posthog.models.person.sql import INSERT_PERSON_STATIC_COHORT
+from posthog.models.person.sql import (
+    INSERT_PERSON_STATIC_COHORT,
+    PERSON_STATIC_COHORT_TABLE,
+    REPLACE_ROW_OFFSET,
+)
 from posthog.models.person.util import get_person_by_id
 from posthog.tasks.calculate_cohort import calculate_cohort_from_list
 from posthog.test.persons import add_cohort_members, create_person
@@ -25,7 +29,11 @@ from products.cohorts.backend.models.team_access import (
     RealtimeCohortLevel,
     RealtimeCohortTeamAccess,
 )
-from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
+from products.cohorts.backend.models.util import (
+    count_cohort_members,
+    delete_failed_replace_attempt_rows,
+    list_cohort_member_ids,
+)
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 
@@ -583,6 +591,25 @@ class TestCohort(BaseTest):
         )
         self.assertEqual(fresh_rows[0][0], 1)
         self.assertEqual(count_cohort_members(self.team.id, stale_cohort.pk), 1)
+
+    def test_add_after_failed_first_replace_ignores_lingering_replace_row(self):
+        person = create_person(team=self.team, distinct_ids=["failed-first-replace"], uuid=uuid.uuid4())
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+        attempt_marker = datetime(2026, 3, 1, 12, 0, 0, tzinfo=UTC)
+        sync_execute(
+            f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+            [(uuid.uuid4(), person.uuid, cohort.pk, self.team.pk, attempt_marker, REPLACE_ROW_OFFSET)],
+        )
+
+        cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk)
+        delete_failed_replace_attempt_rows(cohort.pk, team_id=self.team.pk, marker=attempt_marker)
+
+        remaining_rows = sync_execute(
+            f"SELECT person_id, _offset FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.pk, "cohort_id": cohort.pk},
+        )
+        self.assertEqual([(str(pid), offset) for pid, offset in remaining_rows], [(str(person.uuid), 0)])
+        self.assertEqual(count_cohort_members(self.team.id, cohort.pk), 1)
 
     def test_insert_users_by_list_avoids_duplicates_with_batching(self):
         """Test that batching with duplicates works correctly - people already in cohort are not re-inserted."""
