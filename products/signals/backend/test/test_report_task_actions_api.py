@@ -691,12 +691,18 @@ class TestScoutReportActionsAPI(_ReportActionFixtures):
 
     @parameterized.expand(
         [
-            ("make_it_green", "failing", False),
-            ("resolve_conflicts", "passing", True),
+            ("make_it_green", "failing", False, FIX_CI_REQUEST),
+            ("resolve_conflicts", "passing", True, RESOLVE_CONFLICTS_REQUEST),
         ]
     )
     def test_a_granted_scout_starts_the_action_and_the_work_log_names_it(
-        self, workflow: MagicMock, _flag_mock: MagicMock, action: str, ci_status: str, has_conflict: bool
+        self,
+        workflow: MagicMock,
+        _flag_mock: MagicMock,
+        action: str,
+        ci_status: str,
+        has_conflict: bool,
+        request: str,
     ) -> None:
         self.config.report_actions = [action]
         self.config.save()
@@ -709,7 +715,7 @@ class TestScoutReportActionsAPI(_ReportActionFixtures):
             response = self._run(report, {"action": action})
 
         assert response.status_code == status.HTTP_201_CREATED, response.data
-        assert capture.call_args.args[2]["report_action"] == action
+        assert Task.objects.get(id=response.json()["task_id"]).description.endswith(request)
         entry = SignalReportArtefact.objects.get(
             report=report, task_id=response.json()["task_id"], type=SignalReportArtefact.ArtefactType.TASK_RUN
         )
