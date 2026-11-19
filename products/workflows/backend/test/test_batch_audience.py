@@ -78,6 +78,26 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
 
         assert result == [_uuid(i) for i in expected_indices]
 
+    def test_test_account_filters_that_only_apply_to_events_are_left_out(self):
+        self.team.test_account_filters = [
+            {"key": "$host", "type": "event", "value": "localhost", "operator": "is_not"},
+            {"key": "email", "type": "person", "value": "@internal.example.com", "operator": "not_icontains"},
+        ]
+        self.team.save()
+        self._create_audience(["a@example.com", "b@internal.example.com", "c@example.com"])
+        filters = {**FILTERS, "filter_test_accounts": True}
+
+        snapshot = get_batch_audience_person_ids_snapshot(
+            self.team, filters, dedupe_key=None, limit=10, settings=bounded_memory_settings()
+        )
+        preview = get_audience_size(
+            team_id=self.team.pk, filters=filters, group_type_index=None, dedupe_key=None, sends_email=False
+        )
+
+        assert snapshot == [_uuid(1), _uuid(3)]
+        assert preview.affected == 2
+        assert preview.skipped_test_account_filters == ["$host"]
+
     def test_audience_without_dedupe_matches_legacy_query(self):
         self._create_audience(["a@x.com", "a@x.com", "b@x.com", None])
 

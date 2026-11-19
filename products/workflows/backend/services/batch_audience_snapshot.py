@@ -1,5 +1,6 @@
 """Resolve a batch run's person audience once, store it, and page the stored result for the resolver."""
 
+from dataclasses import field
 from itertools import batched
 from uuid import UUID
 
@@ -25,6 +26,7 @@ from products.workflows.backend.services.batch_audience import (
     get_batch_audience_person_ids_snapshot,
     person_audience_page_size,
 )
+from products.workflows.backend.services.batch_audience_test_accounts import skipped_test_account_filter_keys
 
 logger = structlog.get_logger(__name__)
 
@@ -48,15 +50,22 @@ class AudienceSnapshotStatus:
     status: HogFlowBatchJobAudienceStatus
     audience_size: int | None
     error: str | None
+    skipped_test_account_filters: list[str] = field(default_factory=list)
 
 
 def _snapshot_status(job: HogFlowBatchJob) -> AudienceSnapshotStatus:
     if job.audience_status is None:
         raise ValueError(f"Batch run {job.id} has no audience snapshot")
+    status = HogFlowBatchJobAudienceStatus(job.audience_status)
     return AudienceSnapshotStatus(
-        status=HogFlowBatchJobAudienceStatus(job.audience_status),
+        status=status,
         audience_size=job.audience_size,
         error=job.audience_error,
+        skipped_test_account_filters=(
+            skipped_test_account_filter_keys(job.team, batch_job_audience_filters(job))
+            if status == HogFlowBatchJobAudienceStatus.READY
+            else []
+        ),
     )
 
 
@@ -65,7 +74,7 @@ def request_audience_snapshot(
 ) -> AudienceSnapshotStatus:
     """Start resolving the run's audience, once. Later calls report where the resolution got to."""
     try:
-        job = HogFlowBatchJob.objects.get(id=batch_job_id, team_id=team_id)
+        job = HogFlowBatchJob.objects.select_related("team", "hog_flow").get(id=batch_job_id, team_id=team_id)
     except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
         # DjangoValidationError fires when the id is not a parseable UUID.
         raise WorkflowBatchJobNotFound()

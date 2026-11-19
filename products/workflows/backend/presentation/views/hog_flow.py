@@ -1506,6 +1506,14 @@ class BlastRadiusSerializer(serializers.Serializer):
             "project's daily email allowance to its other workflows, so it may reach more people over several days."
         ),
     )
+    skipped_test_account_filters = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Keys of the project's test account filters this audience leaves out because they only apply to events, "
+            "such as event properties. Empty unless the audience filters out test accounts."
+        ),
+    )
 
 
 class InternalBatchJobAudienceSnapshotSerializer(serializers.Serializer):
@@ -1521,6 +1529,13 @@ class InternalBatchJobAudienceSnapshotSerializer(serializers.Serializer):
     )
     error = serializers.CharField(
         allow_null=True, help_text="Why the audience could not be resolved, in words meant for the customer."
+    )
+    skipped_test_account_filters = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Keys of the project's test account filters this run left out because they only apply to events. "
+            "Empty until the audience is ready."
+        ),
     )
 
 
@@ -7481,6 +7496,7 @@ class HogFlowViewSet(
                     "confirm_token": mint_audience_confirm_token(
                         self.team_id, filters, group_type_index, size.dedupe_key
                     ),
+                    "skipped_test_account_filters": size.skipped_test_account_filters,
                     "realtime_cohort": (
                         {
                             "id": realtime_cohort.id,
@@ -8530,7 +8546,12 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             return Response({"error": "Internal server error"}, status=500)
         return Response(
             InternalBatchJobAudienceSnapshotSerializer(
-                {"status": snapshot.status, "audience_size": snapshot.audience_size, "error": snapshot.error}
+                {
+                    "status": snapshot.status,
+                    "audience_size": snapshot.audience_size,
+                    "error": snapshot.error,
+                    "skipped_test_account_filters": snapshot.skipped_test_account_filters,
+                }
             ).data
         )
 

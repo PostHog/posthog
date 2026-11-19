@@ -23212,6 +23212,8 @@ export namespace Schemas {
       realtime_cohort_with_other_conditions?: RealtimeCohortRef | null;
       /** Set when an email sending rate limit can raise 'limit'. A send at a slow enough rate leaves part of the project's daily email allowance to its other workflows, so it may reach more people over several days. */
       rate_limited?: RateLimitedAudience | null;
+      /** Keys of the project's test account filters this audience leaves out because they only apply to events, such as event properties. Empty unless the audience filters out test accounts. */
+      skipped_test_account_filters?: string[];
     }
 
     /**

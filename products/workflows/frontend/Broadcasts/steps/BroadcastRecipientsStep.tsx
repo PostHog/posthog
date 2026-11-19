@@ -19,6 +19,7 @@ import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../Workflows/hogflows/filters/HogFlowFilters'
 import { RealtimeCohortAudienceNotice } from '../../Workflows/hogflows/steps/components/RealtimeCohortAudienceNotice'
+import { SkippedTestAccountFiltersNotice } from '../../Workflows/hogflows/steps/components/SkippedTestAccountFiltersNotice'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from '../audience/broadcastAudienceCohortsLogic'
 import { broadcastAudienceListLogic } from '../audience/broadcastAudienceListLogic'
@@ -274,6 +275,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
                 operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
             />
             <RealtimeCohortAudienceNotice blastRadius={blastRadius} />
+            <SkippedTestAccountFiltersNotice blastRadius={blastRadius} />
             {!realtimeCohortAlone && (
                 <div>
                     <LemonButton

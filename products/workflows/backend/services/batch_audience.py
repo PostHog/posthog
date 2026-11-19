@@ -25,6 +25,7 @@ from products.feature_flags.backend.user_blast_radius import (
     unevaluable_filters_as_validation_errors,
 )
 from products.workflows.backend.services.batch_audience_cohorts import reject_excluded_cohort_without_members
+from products.workflows.backend.services.batch_audience_test_accounts import with_person_test_account_filters
 
 EMAIL_DEDUPE_KEY = "email"
 SUPPORTED_DEDUPE_KEYS = (EMAIL_DEDUPE_KEY,)
@@ -129,7 +130,7 @@ def get_batch_audience_person_ids(
         return get_user_blast_radius_persons(team, filters, group_type_index, cursor)
 
     with unevaluable_filters_as_validation_errors():
-        cleaned_filter = replace_proxy_properties(team, filters)
+        cleaned_filter = replace_proxy_properties(team, with_person_test_account_filters(team, filters))
         reject_excluded_cohort_without_members(team.project_id, cleaned_filter)
         select_query = _build_audience_person_query(team, cleaned_filter, cursor=cursor, dedupe_key=dedupe_key)
 
@@ -155,7 +156,7 @@ def get_batch_audience_person_ids_snapshot(
     """
     reject_unusable_audience_conditions(team, filters)
     with unevaluable_filters_as_validation_errors():
-        cleaned_filter = replace_proxy_properties(team, filters)
+        cleaned_filter = replace_proxy_properties(team, with_person_test_account_filters(team, filters))
         reject_excluded_cohort_without_members(team.project_id, cleaned_filter)
         select_query = _build_audience_person_query(team, cleaned_filter, dedupe_key=dedupe_key, limit=limit)
 
