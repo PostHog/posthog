@@ -15,9 +15,10 @@ from products.error_tracking.backend.temporal.issue_change_cleanup.types import 
 
 
 class TestIssueChangeCleanupActivity(BaseTest):
-    def _change(self, *, days_ago: int, dispatched: bool) -> ErrorTrackingIssueChange:
+    def _change(self, *, change_id: uuid.UUID, days_ago: int, dispatched: bool) -> ErrorTrackingIssueChange:
         created_at = timezone.now() - timedelta(days=days_ago)
         change = ErrorTrackingIssueChange.objects.for_team(self.team.id).create(
+            id=change_id,
             team_id=self.team.id,
             issue_id=uuid.uuid4(),
             kind="created",
@@ -25,15 +26,13 @@ class TestIssueChangeCleanupActivity(BaseTest):
             actor_type="ingestion",
             dispatched_at=created_at if dispatched else None,
         )
-        # `created_at` is set on insert, so the row's age is written after.
         ErrorTrackingIssueChange.objects.for_team(self.team.id).filter(id=change.id).update(created_at=created_at)
         return change
 
     def test_deletes_every_change_past_the_retention_in_batches(self) -> None:
-        self._change(days_ago=8, dispatched=True)
-        # Still undispatched after a week, so no longer news.
-        self._change(days_ago=8, dispatched=False)
-        recent = self._change(days_ago=6, dispatched=False)
+        self._change(change_id=uuid.UUID(int=3), days_ago=8, dispatched=True)
+        self._change(change_id=uuid.UUID(int=1), days_ago=8, dispatched=False)
+        recent = self._change(change_id=uuid.UUID(int=2), days_ago=6, dispatched=False)
 
         with patch("products.error_tracking.backend.temporal.issue_change_cleanup.activities.close_old_connections"):
             result = cleanup_issue_changes_activity(IssueChangeCleanupInputs(batch_size=1))

@@ -6,7 +6,6 @@ class IssueChangeCleanupInputs:
     # The longest reader is a few days back: the platform alert check reads at most a day, and the
     # dispatcher retries within minutes. A week covers both with margin.
     days_old: int = 7
-    # Rows one statement deletes, so a large backlog never holds one long lock.
     batch_size: int = 10_000
 
 

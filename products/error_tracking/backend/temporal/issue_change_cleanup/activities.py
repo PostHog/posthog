@@ -1,4 +1,5 @@
 import datetime
+from uuid import UUID
 
 from django.db import close_old_connections
 from django.utils import timezone
@@ -26,16 +27,18 @@ def cleanup_issue_changes_activity(inputs: IssueChangeCleanupInputs) -> IssueCha
 
     cutoff = timezone.now() - datetime.timedelta(days=inputs.days_old)
     # Every team's rows, so the scoped manager does not apply.
-    expired = ErrorTrackingIssueChange.objects.unscoped().filter(created_at__lt=cutoff)
+    expired = ErrorTrackingIssueChange.objects.unscoped().filter(created_at__lt=cutoff).order_by("id")
+    last_id: UUID | None = None
     deleted_count = 0
     while True:
-        batch_ids = list(expired.values_list("id", flat=True)[: inputs.batch_size])
+        batch = expired if last_id is None else expired.filter(id__gt=last_id)
+        batch_ids = list(batch.values_list("id", flat=True)[: inputs.batch_size])
         if not batch_ids:
             break
         # nosemgrep: idor-lookup-without-team (cross-team retention cleanup; ids are this run's expired rows)
         deleted, _ = ErrorTrackingIssueChange.objects.unscoped().filter(id__in=batch_ids).delete()
         deleted_count += deleted
-        # A direct call outside a worker, as a test makes, has no activity to heartbeat.
+        last_id = batch_ids[-1]
         if activity.in_activity():
             activity.heartbeat(deleted_count)
 
