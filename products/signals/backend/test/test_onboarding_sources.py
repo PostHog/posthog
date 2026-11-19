@@ -3,6 +3,8 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from products.signals.backend.facade.api import enable_onboarding_signal_sources
 from products.signals.backend.models import SignalSourceConfig
 
@@ -35,8 +37,19 @@ class TestOnboardingSignalSources(BaseTest):
             "failing health checks",
             "support tickets",
             "AI evals",
-            "metric swings",
+            "firing insight alerts",
         )
+
+    @parameterized.expand([("flag_on", True, {"alert_scope": "all_firing_alerts"}), ("flag_off", False, {})])
+    def test_product_analytics_turns_on_with_every_firing_alert(self, _name, flag_enabled, expected_config) -> None:
+        with patch(
+            "products.signals.backend.facade.source_configs.feature_enabled_or_false", return_value=flag_enabled
+        ):
+            enable_onboarding_signal_sources(self.team.id, self.user.id)
+
+        configs = dict(SignalSourceConfig.objects.filter(team_id=self.team.id).values_list("source_product", "config"))
+        assert configs.pop("analytics") == expected_config
+        assert all(config == {} for config in configs.values())
 
     def test_a_source_the_team_switched_off_is_never_switched_back_on(self) -> None:
         SignalSourceConfig.objects.create(

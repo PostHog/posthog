@@ -161,6 +161,24 @@ def get_analytics_alert_scope(*, team_id: int) -> AlertScope:
     return scope
 
 
+def config_with_default_alert_scope(
+    *, team_id: int, source_product: str, source_type: str, config: object
+) -> dict[str, object] | None:
+    """The config to store when a source turns on, or None to keep `config` as it is.
+
+    Call this only when the row is created enabled or changes from off to on, so a source that is
+    already on keeps its implicit `investigated_only`. It adds `all_firing_alerts` to the analytics
+    source when no `alert_scope` is stored and the rollout flag is on for the team's organization. A
+    stored or requested scope, `off` included, wins. A row written while the flag is off stays without
+    a scope, because it would otherwise start to emit when the flag opens without anyone turning it on.
+    """
+    if (source_product, source_type) != ALERT_SCOPE_SOURCE or not isinstance(config, dict):
+        return None
+    if ALERT_SCOPE_KEY in config or not _analytics_all_alerts_enabled(team_id):
+        return None
+    return {**config, ALERT_SCOPE_KEY: AlertScope.ALL_FIRING_ALERTS.value}
+
+
 @frozen
 class AlertNamePatterns:
     """The analytics source's allow and block patterns for firing insight alerts."""

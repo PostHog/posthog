@@ -695,6 +695,38 @@ describe('signalSourcesLogic', () => {
         updateSourceConfig.mockRestore()
     })
 
+    it.each([
+        { flag: true, stored: {}, expectedScope: SignalAlertScope.AllFiringAlerts },
+        { flag: true, stored: { alert_scope: SignalAlertScope.Off }, expectedScope: SignalAlertScope.Off },
+        { flag: false, stored: {}, expectedScope: SignalAlertScope.InvestigatedOnly },
+    ])(
+        'shows the $expectedScope scope while product analytics turns on with flag $flag and stored config $stored',
+        async ({ flag, stored, expectedScope }) => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SIGNALS_ANALYTICS_ALL_ALERTS]: flag })
+            let resolveUpdate: (value: SignalSourceConfigApi) => void = () => {}
+            const updateSourceConfig = jest
+                .spyOn(signalsApi, 'signalsSourceConfigsPartialUpdate')
+                .mockImplementation(() => new Promise((resolve) => (resolveUpdate = resolve)))
+            const analyticsConfig = {
+                ...githubIssuesConfig,
+                id: 'config-analytics',
+                source_product: SignalSourceProduct.Analytics,
+                source_type: SignalSourceType.AnomalyInvestigation,
+                enabled: false,
+                config: stored,
+            }
+            logic.actions.loadSourceConfigsSuccess([analyticsConfig])
+
+            logic.actions.toggleAnomalyInvestigation()
+
+            expect(logic.values.anomalyInvestigationConfig?.enabled).toBe(true)
+            expect(logic.values.analyticsAlertScope).toBe(expectedScope)
+            resolveUpdate({ ...analyticsConfig, enabled: true } as SignalSourceConfigApi)
+            await expectLogic(logic).toFinishAllListeners()
+            updateSourceConfig.mockRestore()
+        }
+    )
+
     it('uses only eval reports for the AI observability signal source', async () => {
         const createSourceConfig = jest.spyOn(signalsApi, 'signalsSourceConfigsCreate').mockResolvedValue({
             id: 'config-evaluation-reports',
