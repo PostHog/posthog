@@ -204,10 +204,10 @@ describe('pg.failover', () => {
             /-reader's capacity read has a timestamp outside the .* it asked for: /,
         ],
         [
-            'a capacity read with a negative value',
-            { liveReaderAcu: { maxima: [-1, -1, -1, -1, -1] } },
+            'a capacity read with a reading under the minimum its run manifest names',
+            { liveReaderAcu: { maxima: [1, 1, 0, 1, 1] } },
             () => undefined,
-            /-reader's capacity read has a value below 0 at /,
+            /-reader's capacity read has a value below 1 at /,
         ],
         [
             'a capacity read whose minutes sit off the minute',
@@ -244,6 +244,12 @@ describe('pg.failover', () => {
             {},
             (run) => delete run.manifest.readerIdleMaxAcu,
             /names no idle limit for .*-reader, so set readerAcu\.idleMax in the cloud profile/,
+        ],
+        [
+            'a run manifest without the reader minimum',
+            {},
+            (run) => delete run.manifest.readerMinAcu,
+            /names no minimum for .*-reader, so lease the run again/,
         ],
         [
             'a reader with fewer than five capacity minutes',

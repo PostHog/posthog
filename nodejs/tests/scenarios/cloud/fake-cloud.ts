@@ -272,6 +272,7 @@ export class FakeCloud implements Aws {
                 expiresAt,
                 stackName: cluster,
                 readerIdleMaxAcu: PROFILE.readerAcu.idleMax,
+                readerMinAcu: PROFILE.readerAcu.min,
             },
         }
     }

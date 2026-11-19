@@ -1239,6 +1239,39 @@ describe('cloud controller', () => {
             'reader above its 2.5 ACU idle limit before T0',
         ],
         [
+            'a maximum before T0 under the reader minimum',
+            {
+                readerAcu: IDLE_THEN_PROMOTED.map((minute) =>
+                    minute.minute === -3 ? { ...minute, max: 0, avg: 0 } : minute
+                ),
+            },
+            () => undefined,
+            'invalid',
+            'reader capacity under its 1 ACU minimum before T0',
+        ],
+        [
+            'an average before T0 under the reader minimum',
+            {
+                readerAcu: IDLE_THEN_PROMOTED.map((minute) =>
+                    minute.minute === -3 ? { ...minute, avg: 0.5 } : minute
+                ),
+            },
+            () => undefined,
+            'invalid',
+            'reader capacity under its 1 ACU minimum before T0',
+        ],
+        [
+            'an average before T0 above its maximum, both under the idle limit',
+            {
+                readerAcu: IDLE_THEN_PROMOTED.map((minute) =>
+                    minute.minute === -3 ? { ...minute, avg: 1.2 } : minute
+                ),
+            },
+            () => undefined,
+            'invalid',
+            'reader average above its maximum before T0',
+        ],
+        [
             'a reader above the idle limit while the failover waits for its offset',
             {
                 readerAcu: [

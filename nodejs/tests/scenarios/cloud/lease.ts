@@ -23,6 +23,7 @@ export type Manifest = {
     inputs: Record<string, string>
     card: string
     readerIdleMaxAcu?: number
+    readerMinAcu?: number
 }
 
 const HOUR_MS = 60 * 60 * 1000
@@ -135,6 +136,7 @@ export async function lease(
         inputs: Object.fromEntries(inputs.map(({ file, sha256 }) => [file, sha256])),
         card: card.id,
         readerIdleMaxAcu: profile.readerAcu.idleMax,
+        readerMinAcu: profile.readerAcu.min,
     }
     const bucket = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
     const body = JSON.stringify(manifest, null, 2)
@@ -191,9 +193,16 @@ export async function manifestOf(controller: Controller, evidenceBucket: string,
     return parsed.data as unknown as Manifest
 }
 
-const HostManifest = StoredManifest.extend({ account: z.string(), readerIdleMaxAcu: z.number().positive().optional() })
+const HostManifest = StoredManifest.extend({
+    account: z.string(),
+    readerIdleMaxAcu: z.number().positive().optional(),
+    readerMinAcu: z.number().nonnegative().optional(),
+})
 
-export type RunManifest = Pick<Manifest, 'runId' | 'account' | 'expiresAt' | 'stackName' | 'readerIdleMaxAcu'>
+export type RunManifest = Pick<
+    Manifest,
+    'runId' | 'account' | 'expiresAt' | 'stackName' | 'readerIdleMaxAcu' | 'readerMinAcu'
+>
 
 export function runManifestOf(env: NodeJS.ProcessEnv): RunManifest | undefined {
     const file = env.SCENARIO_RUN_MANIFEST
