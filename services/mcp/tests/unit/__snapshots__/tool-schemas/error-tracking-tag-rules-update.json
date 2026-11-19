@@ -3,6 +3,7 @@
     "properties": {
         "description": {
             "description": "Replacement description. Omit to keep the existing description.",
+            "maxLength": 1000,
             "type": "string"
         },
         "filters": {

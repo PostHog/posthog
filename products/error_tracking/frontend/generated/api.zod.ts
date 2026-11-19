@@ -1423,6 +1423,8 @@ export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ 
 export const errorTrackingTagRulesCreateBodyLabelMax = 128
 
 export const errorTrackingTagRulesCreateBodyDescriptionDefault = ``
+export const errorTrackingTagRulesCreateBodyDescriptionMax = 1000
+
 export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemOneValuesItemOperatorDefault = `exact`
 export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemOneValuesItemTypeDefault = `event`
 export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
@@ -1438,6 +1440,7 @@ export const ErrorTrackingTagRulesCreateBody = /* @__PURE__ */ zod.object({
         .describe('Display name of the tag the rule applies to each new issue whose first event matches the filters.'),
     description: zod
         .string()
+        .max(errorTrackingTagRulesCreateBodyDescriptionMax)
         .default(errorTrackingTagRulesCreateBodyDescriptionDefault)
         .describe('What the tag means. Shown with the tag. Defaults to empty.'),
     filters: zod
@@ -1596,6 +1599,8 @@ export const ErrorTrackingTagRulesCreateBody = /* @__PURE__ */ zod.object({
 
 export const errorTrackingTagRulesUpdateBodyLabelMax = 128
 
+export const errorTrackingTagRulesUpdateBodyDescriptionMax = 1000
+
 export const errorTrackingTagRulesUpdateBodyFiltersOneValuesItemOneValuesItemOperatorDefault = `exact`
 export const errorTrackingTagRulesUpdateBodyFiltersOneValuesItemOneValuesItemTypeDefault = `event`
 export const errorTrackingTagRulesUpdateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
@@ -1607,7 +1612,11 @@ export const ErrorTrackingTagRulesUpdateBody = /* @__PURE__ */ zod.object({
         .max(errorTrackingTagRulesUpdateBodyLabelMax)
         .optional()
         .describe('Replacement display name for the tag. Omit to keep the existing label.'),
-    description: zod.string().optional().describe('Replacement description. Omit to keep the existing description.'),
+    description: zod
+        .string()
+        .max(errorTrackingTagRulesUpdateBodyDescriptionMax)
+        .optional()
+        .describe('Replacement description. Omit to keep the existing description.'),
     filters: zod
         .object({
             type: zod.enum(['AND', 'OR']),
@@ -1759,6 +1768,8 @@ export const ErrorTrackingTagRulesUpdateBody = /* @__PURE__ */ zod.object({
 
 export const errorTrackingTagRulesPartialUpdateBodyLabelMax = 128
 
+export const errorTrackingTagRulesPartialUpdateBodyDescriptionMax = 1000
+
 export const errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemOneValuesItemOperatorDefault = `exact`
 export const errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemOneValuesItemTypeDefault = `event`
 export const errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
@@ -1770,7 +1781,11 @@ export const ErrorTrackingTagRulesPartialUpdateBody = /* @__PURE__ */ zod.object
         .max(errorTrackingTagRulesPartialUpdateBodyLabelMax)
         .optional()
         .describe('Replacement display name for the tag. Omit to keep the existing label.'),
-    description: zod.string().optional().describe('Replacement description. Omit to keep the existing description.'),
+    description: zod
+        .string()
+        .max(errorTrackingTagRulesPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('Replacement description. Omit to keep the existing description.'),
     filters: zod
         .object({
             type: zod.enum(['AND', 'OR']),

@@ -15470,6 +15470,8 @@ export const ErrorTrackingTagRulesCreateParams = () => zod.object({
 export const errorTrackingTagRulesCreateBodyLabelMax = 128
 
 export const errorTrackingTagRulesCreateBodyDescriptionDefault = ``
+export const errorTrackingTagRulesCreateBodyDescriptionMax = 1000
+
 export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemOneValuesItemOperatorDefault = `exact`
 export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemOneValuesItemTypeDefault = `event`
 export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
@@ -15485,6 +15487,7 @@ export const ErrorTrackingTagRulesCreateBody = () => zod.object({
         .describe('Display name of the tag the rule applies to each new issue whose first event matches the filters.'),
     description: zod
         .string()
+        .max(errorTrackingTagRulesCreateBodyDescriptionMax)
         .default(errorTrackingTagRulesCreateBodyDescriptionDefault)
         .describe('What the tag means. Shown with the tag. Defaults to empty.'),
     filters: zod
@@ -15652,6 +15655,8 @@ export const ErrorTrackingTagRulesPartialUpdateParams = () => zod.object({
 
 export const errorTrackingTagRulesPartialUpdateBodyLabelMax = 128
 
+export const errorTrackingTagRulesPartialUpdateBodyDescriptionMax = 1000
+
 export const errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemOneValuesItemOperatorDefault = `exact`
 export const errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemOneValuesItemTypeDefault = `event`
 export const errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
@@ -15663,7 +15668,11 @@ export const ErrorTrackingTagRulesPartialUpdateBody = () => zod.object({
         .max(errorTrackingTagRulesPartialUpdateBodyLabelMax)
         .optional()
         .describe('Replacement display name for the tag. Omit to keep the existing label.'),
-    description: zod.string().optional().describe('Replacement description. Omit to keep the existing description.'),
+    description: zod
+        .string()
+        .max(errorTrackingTagRulesPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('Replacement description. Omit to keep the existing description.'),
     filters: zod
         .object({
             type: zod.enum(['AND', 'OR']),

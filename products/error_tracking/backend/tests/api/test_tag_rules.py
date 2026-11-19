@@ -22,6 +22,8 @@ from products.error_tracking.backend.logic.issue_tags.runner import run_issue_ta
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag, ErrorTrackingIssueTagRule
 from products.event_definitions.backend.models import PropertyDefinition
 
+from common.hogvm.python.utils import MAX_REGEX_PATTERN_LENGTH
+
 Source = ErrorTrackingIssueTag.Source
 
 
@@ -80,8 +82,8 @@ class TestIssueTagRuleAPI(APIBaseTest):
                 {
                     "type": "OR",
                     "values": [
-                        ENTERPRISE_PLAN,
-                        _event_filter("email", ["a@example.com"], filter_type="person"),
+                        ENTERPRISE_PLAN["values"][0],
+                        _event_filter("email", ["a@example.com"], filter_type="person")["values"][0],
                     ],
                 },
             ),
@@ -92,6 +94,8 @@ class TestIssueTagRuleAPI(APIBaseTest):
             ("empty_property_key", _event_filter("", "4", operator="icontains")),
             ("empty_filter_beside_an_event_filter", {"type": "OR", "values": [{}, ENTERPRISE_PLAN]}),
             ("date_operator_with_a_number", _event_filter("plan", 5, operator="is_date_exact")),
+            ("regex_over_the_vm_limit", _event_filter("plan", "a" * (MAX_REGEX_PATTERN_LENGTH + 1), operator="regex")),
+            ("three_levels_of_groups", {"type": "AND", "values": [ENTERPRISE_PLAN]}),
         ]
     )
     def test_create_and_edit_reject_filters_a_rule_cannot_run(self, _name: str, filters: dict[str, Any]) -> None:
@@ -200,24 +204,36 @@ class TestIssueTagRuleAPI(APIBaseTest):
         assert reorder.status_code == status.HTTP_204_NO_CONTENT
         assert [rule["id"] for rule in self.client.get(self._url()).json()["results"]] == [second["id"], first["id"]]
 
-    @parameterized.expand([("above", 2**31), ("below", -(2**31) - 1)])
-    def test_create_and_reorder_reject_an_order_key_the_column_cannot_store(self, _name: str, order_key: int) -> None:
+    @parameterized.expand(
+        [
+            ("order_key_above_the_column", {"order_key": 2**31}),
+            ("order_key_below_the_column", {"order_key": -(2**31) - 1}),
+            ("description_over_the_limit", {"description": "x" * 1001}),
+        ]
+    )
+    def test_create_and_change_reject_a_value_the_rule_cannot_store(self, _name: str, value: dict[str, Any]) -> None:
         rule = self._create()
 
         create = self.client.post(
-            self._url(), data={"label": "Far", "filters": ENTERPRISE_PLAN, "order_key": order_key}, format="json"
+            self._url(), data={"label": "Far", "filters": ENTERPRISE_PLAN, **value}, format="json"
         )
-        reorder = self.client.patch(self._url("reorder"), data={"orders": {rule["id"]: order_key}}, format="json")
+        if "order_key" in value:
+            change = self.client.patch(
+                self._url("reorder"), data={"orders": {rule["id"]: value["order_key"]}}, format="json"
+            )
+        else:
+            change = self.client.patch(self._url(rule["id"]), data=value, format="json")
 
-        assert (create.status_code, reorder.status_code) == (status.HTTP_400_BAD_REQUEST, status.HTTP_400_BAD_REQUEST)
-        assert ErrorTrackingIssueTagRule.objects.for_team(self.team.id).get().order_key == 0
+        assert (create.status_code, change.status_code) == (status.HTTP_400_BAD_REQUEST, status.HTTP_400_BAD_REQUEST)
+        stored = ErrorTrackingIssueTagRule.objects.for_team(self.team.id).get()
+        assert (stored.order_key, stored.description) == (0, "")
 
     def test_a_member_cannot_see_or_change_a_rule_on_a_property_they_may_not_read(self) -> None:
         hidden = ErrorTrackingIssueTagRule.objects.for_team(self.team.id).create(
             team=self.team, label="Big order", filters=BIG_ORDER, bytecode=[], order_key=5
         )
         visible = self._create()
-        self._restrict_revenue_for_the_user()
+        self._restrict_revenue_and_email_for_the_user()
 
         listed = [rule["id"] for rule in self.client.get(self._url()).json()["results"]]
         statuses = {
@@ -236,6 +252,11 @@ class TestIssueTagRuleAPI(APIBaseTest):
             "create_untyped": self.client.post(
                 self._url(), data={"label": "Pro plan", "filters": UNTYPED_PRO_PLAN}, format="json"
             ).status_code,
+            "create_on_person_properties_in_set": self.client.post(
+                self._url(),
+                data={"label": "Acme", "filters": _event_filter("$set", "@acme.com", operator="icontains")},
+                format="json",
+            ).status_code,
         }
 
         assert listed == [visible["id"]]
@@ -247,6 +268,7 @@ class TestIssueTagRuleAPI(APIBaseTest):
             "edit_into": status.HTTP_400_BAD_REQUEST,
             "reorder": status.HTTP_204_NO_CONTENT,
             "create_untyped": status.HTTP_201_CREATED,
+            "create_on_person_properties_in_set": status.HTTP_400_BAD_REQUEST,
         }
         rules = ErrorTrackingIssueTagRule.objects.for_team(self.team.id)
         assert {(rule.label, rule.order_key, rule.filters == BIG_ORDER) for rule in rules} == {
@@ -299,18 +321,22 @@ class TestIssueTagRuleAPI(APIBaseTest):
         assert response.json()["detail"] == "Issue tags are off for this project."
         assert not [query for query in queries if ErrorTrackingIssueTagRule._meta.db_table in query["sql"]]
 
-    def _restrict_revenue_for_the_user(self) -> None:
+    def _restrict_revenue_and_email_for_the_user(self) -> None:
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
         self.organization.save()
-        revenue = PropertyDefinition.objects.create(team=self.team, name="revenue", type=PropertyDefinition.Type.EVENT)
-        upsert_property_access_control(
-            team_id=self.team.id,
-            created_by_id=self.user.id,
-            input=UpsertPropertyAccessControlInput(
-                property_definition_id=str(revenue.id),
-                access_level=PropertyAccessLevel.NONE,
-                organization_member_id=self.organization_membership.id,
-            ),
-        )
+        for name, property_type in (
+            ("revenue", PropertyDefinition.Type.EVENT),
+            ("email", PropertyDefinition.Type.PERSON),
+        ):
+            definition = PropertyDefinition.objects.create(team=self.team, name=name, type=property_type)
+            upsert_property_access_control(
+                team_id=self.team.id,
+                created_by_id=self.user.id,
+                input=UpsertPropertyAccessControlInput(
+                    property_definition_id=str(definition.id),
+                    access_level=PropertyAccessLevel.NONE,
+                    organization_member_id=self.organization_membership.id,
+                ),
+            )

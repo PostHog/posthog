@@ -4,6 +4,7 @@
         "description": {
             "default": "",
             "description": "What the tag means. Shown with the tag. Defaults to empty.",
+            "maxLength": 1000,
             "type": "string"
         },
         "filters": {

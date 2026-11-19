@@ -101,7 +101,11 @@ class ErrorTrackingIssueTagRuleListResponseSerializer(serializers.Serializer):
 class ErrorTrackingIssueTagRuleCreateRequestSerializer(serializers.Serializer):
     label = serializers.CharField(max_length=128, help_text=LABEL_HELP_TEXT)  # type: ignore[assignment]
     description = serializers.CharField(
-        required=False, allow_blank=True, default="", help_text=f"{DESCRIPTION_HELP_TEXT} Defaults to empty."
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=1000,
+        help_text=f"{DESCRIPTION_HELP_TEXT} Defaults to empty.",
     )
     filters = ErrorTrackingIssueTagRuleFiltersField(help_text=FILTERS_HELP_TEXT)
     order_key = serializers.IntegerField(
@@ -122,6 +126,7 @@ class ErrorTrackingIssueTagRuleUpdateRequestSerializer(serializers.Serializer):
     description = serializers.CharField(
         required=False,
         allow_blank=True,
+        max_length=1000,
         help_text="Replacement description. Omit to keep the existing description.",
     )
     filters = ErrorTrackingIssueTagRuleFiltersField(

@@ -3,7 +3,7 @@ from typing import Any
 
 from django.db import connection, transaction
 
-from posthog.schema import EmptyPropertyFilter, EventPropertyFilter, PropertyGroupFilterValue
+from posthog.schema import EmptyPropertyFilter, EventPropertyFilter, PropertyGroupFilterValue, PropertyOperator
 
 from posthog.hogql.errors import BaseHogQLError
 
@@ -22,6 +22,8 @@ from products.error_tracking.backend.logic.rules import (
     has_filter_values,
 )
 from products.error_tracking.backend.models import ErrorTrackingIssueTag, ErrorTrackingIssueTagRule
+
+from common.hogvm.python.utils import MAX_REGEX_PATTERN_LENGTH
 
 MAX_ISSUE_TAG_RULES_PER_TEAM = 100
 # Every new issue loads all of a team's active rules, so a rule's literals must stay small.
@@ -216,11 +218,13 @@ def _read_properties(filters: object) -> set[str]:
     return {key} if isinstance(key, str) else set()
 
 
-def _normalized_group(group: PropertyGroupFilterValue) -> dict:
+def _normalized_group(group: PropertyGroupFilterValue, *, nested: bool = False) -> dict:
     values: list[dict] = []
     for value in group.values:
         if isinstance(value, PropertyGroupFilterValue):
-            values.append(_normalized_group(value))
+            if nested:
+                raise IssueTagRuleFiltersError("Tag rule filter groups can hold groups only one level deep.")
+            values.append(_normalized_group(value, nested=True))
         elif isinstance(value, EmptyPropertyFilter):
             # An empty filter compiles to true, which turns an OR group into match-all and reads no property the
             # access check can see.
@@ -232,6 +236,11 @@ def _normalized_group(group: PropertyGroupFilterValue) -> dict:
         elif not value.key.strip():
             # The compiler reads an empty key as the whole properties object, which the access check cannot see.
             raise IssueTagRuleFiltersError("Each tag rule filter needs a property name.")
+        elif value.operator in (PropertyOperator.REGEX, PropertyOperator.NOT_REGEX) and any(
+            isinstance(pattern, str) and len(pattern) > MAX_REGEX_PATTERN_LENGTH
+            for pattern in (value.value if isinstance(value.value, list) else [value.value])
+        ):
+            raise IssueTagRuleFiltersError(f"A regex filter cannot exceed {MAX_REGEX_PATTERN_LENGTH} characters.")
         else:
             values.append(value.model_dump(mode="json", exclude_none=True))
     return {"type": group.type.value, "values": values}

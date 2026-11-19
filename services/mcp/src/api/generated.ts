@@ -45171,7 +45171,10 @@ export namespace Schemas {
          * @maxLength 128
          */
       label: string;
-      /** What the tag means. Shown with the tag. Defaults to empty. */
+      /**
+         * What the tag means. Shown with the tag. Defaults to empty.
+         * @maxLength 1000
+         */
       description?: string;
       /** Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
       filters: ErrorTrackingIssueTagRuleFilters;
@@ -45194,7 +45197,10 @@ export namespace Schemas {
          * @maxLength 128
          */
       label?: string;
-      /** Replacement description. Omit to keep the existing description. */
+      /**
+         * Replacement description. Omit to keep the existing description.
+         * @maxLength 1000
+         */
       description?: string;
       /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
       filters?: ErrorTrackingIssueTagRuleFilters;
@@ -90966,7 +90972,10 @@ export namespace Schemas {
          * @maxLength 128
          */
       label?: string;
-      /** Replacement description. Omit to keep the existing description. */
+      /**
+         * Replacement description. Omit to keep the existing description.
+         * @maxLength 1000
+         */
       description?: string;
       /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
       filters?: ErrorTrackingIssueTagRuleFilters;
