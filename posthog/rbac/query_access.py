@@ -8,18 +8,15 @@ those, so resolution is the only faithful definition of "what this query reads".
 
 from rest_framework import exceptions
 
-from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
-from posthog.hogql.database.schema.log_entries import LogEntriesTable
-from posthog.hogql.database.schema.logs import InternalLogsAccessTable
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError, TableAccessDeniedError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
-from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import User
+
+from products.access_control.backend.facade import api as access_control_api
 
 
 def assert_user_can_read_sql(sql: str, team_id: int, user: User, database: Database | None = None) -> None:
@@ -36,7 +33,7 @@ def assert_user_can_read_sql(sql: str, team_id: int, user: User, database: Datab
     context = HogQLContext(team_id=team_id, user=user, enable_select_queries=True, database=database)
     try:
         # Resolution is where access is enforced, so this doesn't need to print.
-        prepared = prepare_ast_for_printing(node=parse_select(sql), context=context, dialect="clickhouse")
+        prepare_ast_for_printing(node=parse_select(sql), context=context, dialect="clickhouse")
     except TableAccessDeniedError as err:
         raise exceptions.PermissionDenied(str(err))
     except (ExposedHogQLError, ResolutionError) as err:
@@ -44,30 +41,10 @@ def assert_user_can_read_sql(sql: str, team_id: int, user: User, database: Datab
         # published either, but the user is not denied anything, so it is a bad request.
         raise exceptions.ValidationError(str(err))
 
-    # A published copy runs without the user, so the user's property rules would no longer hide pipeline rows.
-    if context.restricted_properties and prepared is not None and _PipelineTableFinder.reads_pipeline_rows(prepared):
+    # A materialized copy runs without the user and keeps only the team's default property rules.
+    if context.restricted_properties and not context.restricted_properties.issubset(
+        access_control_api.get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team_id)
+    ):
         raise exceptions.PermissionDenied(
-            "Your property access permissions do not allow publishing queries that read pipeline logs."
+            "Your property access permissions do not allow materializing queries. Ask a project administrator for help."
         )
-
-
-class _PipelineTableFinder(TraversingVisitor):
-    def __init__(self) -> None:
-        super().__init__()
-        self.found = False
-
-    @classmethod
-    def reads_pipeline_rows(cls, node: ast.AST) -> bool:
-        finder = cls()
-        finder.visit(node)
-        return finder.found
-
-    def visit_join_expr(self, node: ast.JoinExpr) -> None:
-        table_type = node.type
-        while isinstance(table_type, ast.TableAliasType):
-            table_type = table_type.table_type
-        if isinstance(table_type, ast.TableType) and isinstance(
-            table_type.table, (InternalLogsAccessTable, LogEntriesTable, HogInvocationResultsTable)
-        ):
-            self.found = True
-        super().visit_join_expr(node)

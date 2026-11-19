@@ -262,8 +262,17 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200, response.json()
 
-    @parameterized.expand([("restricted", 403), ("granted", 201)])
-    def test_platform_logs_alert_follows_property_access(self, access: PropertyAccess, expected: int) -> None:
+    @parameterized.expand(
+        [
+            ("restricted_pipeline", "restricted", [_PIPELINE], 403),
+            ("restricted_all_services", "restricted", [], 403),
+            ("restricted_app", "restricted", [_APP], 201),
+            ("granted_pipeline", "granted", [_PIPELINE], 201),
+        ]
+    )
+    def test_platform_logs_alert_follows_property_access(
+        self, _name: str, access: PropertyAccess, services: list[str], expected: int
+    ) -> None:
         set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
 
         with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
@@ -272,7 +281,7 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
                 {
                     "source_kind": "logs",
                     "source_config": {
-                        "filters": {"serviceNames": [_PIPELINE]},
+                        "filters": {"serviceNames": services},
                         "condition": {"threshold_count": 0, "threshold_operator": "above", "window_minutes": 5},
                     },
                 },

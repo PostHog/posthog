@@ -17,6 +17,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.hogql.database.schema.logs import PIPELINE_LOG_SERVICE_NAMES
+
 from posthog import permissions
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PrecountedLimitOffsetPagination
@@ -726,21 +728,22 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             for source_kind, resource in SOURCE_KIND_RESOURCE.items()
             if source_kind in self.open_source_kinds
             and resource_permitted(self.request, self.user_access_control, resource, access_level, scope_action)
-            and not (
-                scope_action == "write"
-                and source_kind == PlatformAlertConfigurationSourceKind.LOGS.value
-                and self._property_access_restricted
-            )
         ]
 
-    @cached_property
-    def _property_access_restricted(self) -> bool:
+    def _require_pipeline_log_access(self, source_kind: str, source_config: dict[str, Any]) -> None:
         # Logs checks run without the member, so the member's property rules cannot hide pipeline logs from them.
-        return bool(
-            access_control_api.get_restricted_properties_with_group_type_index_for_team(
-                team_id=self._canonical_team_id(), user=cast(User, self.request.user)
+        if source_kind != PlatformAlertConfigurationSourceKind.LOGS.value:
+            return
+        services = set((source_config.get("filters") or {}).get("serviceNames") or [])
+        if services and not services & PIPELINE_LOG_SERVICE_NAMES:
+            return
+        if access_control_api.get_restricted_properties_with_group_type_index_for_team(
+            team_id=self._canonical_team_id(), user=cast(User, self.request.user)
+        ):
+            raise PermissionDenied(
+                "Your property access permissions do not allow alerts on pipeline logs. "
+                "Pick the services this alert watches, without PostHog pipeline services."
             )
-        )
 
     def _readable_source_kinds(self) -> list[str]:
         return self._source_kinds_with("viewer", "read")
@@ -764,6 +767,15 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         if current.source_kind not in self._writable_source_kinds:
             raise PermissionDenied(f"You cannot {verb} {current.source_kind} alerts.")
         return current
+
+    def _checked_edit(
+        self, source_kind: str, stored: PlatformAlertConfigurationEdit, fields: dict[str, Any]
+    ) -> PlatformAlertConfigurationEdit:
+        edited = replace(stored, **fields)
+        # Snoozing or renaming an enabled alert shows nothing new, so only new reads are checked.
+        if edited.enabled and ("source_config" in fields or not stored.enabled):
+            self._require_pipeline_log_access(source_kind, edited.source_config)
+        return edited
 
     def _edit(self, request: Request, pk: str, *, partial: bool) -> Response:
         configuration_id = serializers.UUIDField().run_validation(pk)
@@ -791,7 +803,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
                 source_kinds=self._writable_source_kinds,
                 configuration_id=configuration_id,
                 # A partial update names only the fields it changes. The rest keep what is stored.
-                change=lambda stored: replace(stored, **fields),
+                change=lambda stored: self._checked_edit(current.source_kind, stored, fields),
                 check_interval_minutes=check_interval_minutes,
             )
         except PlatformAlertNotEditable as error:
@@ -831,6 +843,8 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         serializer.is_valid(raise_exception=True)
         fields = dict(serializer.validated_data)
         fields.pop("source_kind")
+        if fields.get("enabled", True):
+            self._require_pipeline_log_access(source_kind, fields["source_config"])
         try:
             created = platform_api.create_configuration(
                 team_id=self._canonical_team_id(),
@@ -1162,6 +1176,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
     @destinations.mapping.post
     def create_destination(self, request: Request, pk: str, **kwargs: Any) -> Response:
         configuration = self._destination_configuration(pk, write=True)
+        self._require_pipeline_log_access(configuration.source_kind, configuration.source_config)
         team_id = self._canonical_team_id()
         serializer = PlatformAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

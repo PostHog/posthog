@@ -10,6 +10,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotFound, ValidationError
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.pagination import FacadeCursorPagination, facade_cursor_page_response
 from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -96,6 +97,7 @@ class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMix
     Allows creating and reading backfills, but not updating or deleting them.
     """
 
+    permission_classes = [CDPPropertyAccessPermission]
     path_parameters = {
         "pk": PathParameter(type=UUID, description="A UUID string identifying this batch export backfill."),
         "batch_export_id": PathParameter(type=UUID, description="The BatchExport this backfill belongs to."),
