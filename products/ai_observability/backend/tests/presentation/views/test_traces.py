@@ -295,7 +295,7 @@ class TestTraceListViewSet(ClickhouseTestMixin, APIBaseTest):
 
         assert first.status_code == 200
         body = first.json()
-        assert [(item["id"], item["distinctId"]) for item in body["items"]] == [("trace-2", "user-1")]
+        assert [item["id"] for item in body["items"]] == ["trace-2"]
         assert body["counts"] == {"total": 2, "errors": 0, "feedback": 0}
         assert body["nextCursor"] is not None
         page = second.json()

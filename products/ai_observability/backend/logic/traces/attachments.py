@@ -11,6 +11,7 @@ _MEDIA_TYPE_BY_ITEM_TYPE: dict[str, contracts.TraceAttachmentMediaType] = {
     "audio": "audio",
     "input_audio": "audio",
     "video": "video",
+    "video_url": "video",
     "file": "file",
     "document": "file",
     "input_file": "file",
