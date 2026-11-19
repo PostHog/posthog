@@ -50,8 +50,10 @@ Each rule is tagged with what catches a violation.
 
 ## Django admin
 
-- **The Django admin shows and edits rows through Python, and has no pages, templates or scripts of its own.** `[lint: no-new-custom-admin-views, no-new-custom-admin-templates]`
-  Templates and scripts depend on admin markup that Django changes between releases, and team-devex does not carry them across upgrades.
+- **The Django admin shows and edits rows through Python, and has no pages, template overrides or scripts of its own.** `[lint: no-new-custom-admin-views, no-new-custom-admin-templates]`
+  Template overrides and scripts depend on admin markup that Django changes between releases, and team-devex does not carry them across upgrades.
+  An existing template that a display method renders does not depend on that markup.
+  It stays until the console adds something for staff, such as a gate, an audit log or a view they need. Converting it to `format_html` alone gains nothing.
   A Python tweak of a field or a form stays in the admin when the alternative is a console page: a display method that returns `format_html` with no `<script>`, `<form>` or `<button>`, a documented hook such as `get_form` or `formfield_for_foreignkey`, or a small widget subclass.
   These go into PostHog Admin: a staff page or custom view, a URL added in `get_urls`, a template override, admin JavaScript or CSS, and a save that starts a workflow.
   Read [`posthog/admin/console/AGENTS.md`](../posthog/admin/console/AGENTS.md) when you move one of these into PostHog Admin.

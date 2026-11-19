@@ -100,6 +100,12 @@ RedshiftErrors = {
     "SSL connection has been closed unexpectedly": "SSL connection error. Please check your SSL settings.",
     "server does not support SSL": "The server does not support SSL, which we require for Redshift. Please check the host and port point to your Redshift cluster.",
     "Connection refused": "Connection refused. Please check the host and port.",
+    # Through an SSH tunnel libpq connects to 127.0.0.1, so a bastion that can't reach the cluster
+    # shows up as the local forward closing the connection during the startup handshake.
+    "server closed the connection unexpectedly": (
+        "Redshift closed the connection before PostHog could sign in. Check the host and port, and if you "
+        "use an SSH tunnel, check that the bastion can reach the cluster."
+    ),
 }
 
 

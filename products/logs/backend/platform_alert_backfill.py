@@ -76,6 +76,7 @@ def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
         next_check_at=alert.next_check_at,
         snooze_until=alert.snooze_until,
         created_by_id=alert.created_by_id,
+        created_at=alert.created_at,
         first_enabled_at=alert.first_enabled_at,
     )
 

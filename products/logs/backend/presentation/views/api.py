@@ -10,6 +10,7 @@ from django.http import HttpRequest, HttpResponseBase
 from django.utils import timezone
 
 import structlog
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field
 from opentelemetry import trace
@@ -1631,6 +1632,16 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             sessionId=query_data.get("sessionId", None),
         )
 
+    def _session_team_has_logs(self) -> bool:
+        try:
+            return team_has_logs(self.team, cache_negative=True)
+        except (NetworkError, SocketTimeoutError):
+            # The logs cluster drops connections for short periods. Replay shows an empty logs panel for
+            # the recording instead of an error. The answer is not cached, so the next recording open checks again.
+            # Capacity, memory and S3 errors keep their error response so clients can tell the query did not run.
+            logger.warning("logs_session_has_logs_check_unavailable", team_id=self.team_id, exc_info=True)
+            return False
+
     @staticmethod
     def _filter_analytics_props(query_data: dict) -> dict:
         """The filter-shape properties every logs query action reports."""
@@ -1724,7 +1735,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query_started_at = monotonic()
         try:
             # Replay asks for session logs on every recording open, and most of those teams send no logs.
-            if query.sessionId and not team_has_logs(self.team, cache_negative=True):
+            if query.sessionId and not self._session_team_has_logs():
                 results: list[Any] = []
             elif live_logs_checkpoint:
                 response = LogsQueryRunner(query, self.team).run(

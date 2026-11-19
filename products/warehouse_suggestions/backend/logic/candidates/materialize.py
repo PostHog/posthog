@@ -320,6 +320,7 @@ class MaterializeCandidate(Candidate):
             incremental,
             basis=WarehouseSuggestionRefreshIntervalBasis.CONSUMER_REFRESH,
             recomputed_by_views=recomputations.consumers,
+            measurement_capped=cost.capped,
         )
 
     def _read_floor_rejection(self, context: CandidateContext, reads: SubjectReads) -> str | None:
@@ -372,6 +373,7 @@ def _proposal(
     *,
     basis: WarehouseSuggestionRefreshIntervalBasis,
     recomputed_by_views: int = 0,
+    measurement_capped: bool = False,
 ) -> _Proposal:
     sources = _classify_sources(context, saved_query.id, frequency)
     freshness_today = int(frequency.max_data_age.total_seconds()) or None
@@ -391,6 +393,7 @@ def _proposal(
         unknown_sources=sources.unknown,
         refresh_interval_basis=basis,
         recomputed_by_views=recomputed_by_views,
+        measurement_capped=measurement_capped,
     )
     return _Proposal(
         payload=_with_refresh_mode(
@@ -491,7 +494,7 @@ def evaluation_cost(
         return None
     if unfinished.failed:
         return "its cost could not be measured"
-    return QueryCost(seconds=unfinished.seconds, read_bytes=0)
+    return QueryCost(seconds=unfinished.seconds, read_bytes=0, capped=True)
 
 
 def recomputation_savings(

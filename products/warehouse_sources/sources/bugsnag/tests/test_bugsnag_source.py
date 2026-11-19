@@ -92,6 +92,8 @@ class TestBugsnagSource:
         for config in BUGSNAG_ENDPOINTS.values():
             if config.scope is BugsnagScope.PER_ORG:
                 assert "organization_id" in config.primary_keys, config.name
+            elif config.scope is BugsnagScope.PER_ORG_TEAM:
+                assert {"organization_id", "team_id"} <= set(config.primary_keys), config.name
             elif config.scope in project_scopes:
                 assert "project_id" in config.primary_keys, config.name
 

@@ -44,9 +44,12 @@ from products.alerts.backend.evaluation.contract import (
 )
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
 from products.alerts.backend.judge.contract import (
+    FORECAST_DETECTOR_PAUSED_ERROR_CODE,
+    FORECAST_DETECTOR_UNAVAILABLE_MESSAGE,
     LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    ForecastDetectorPausedError,
     LLMDetectorMisconfiguredError,
     LLMDetectorPausedError,
     LLMDetectorUnavailableError,
@@ -147,6 +150,7 @@ _AGENT_ON: Final = {
 # Rows draw first, then alerts with no insight row, each oldest first.
 _ROW_FIRST: Final = [("alert upper threshold", 100.0), ("sibling lower threshold", 5.0)]
 _SIBLING_FIRST: Final = [("sibling lower threshold", 5.0), ("alert upper threshold", 100.0)]
+_MOVED_FIRST: Final = [("sibling lower threshold", 5.0), ("alert upper threshold", 200.0)]
 
 
 class TestPlatformInsightEvaluation(APIBaseTest):
@@ -193,7 +197,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             alert,
             legacy_configuration_id=None,
             owner=PlatformAlertOwner.PLATFORM,
-            destinations_owner=PlatformAlertOwner.PLATFORM,
             created_by=self.user,
             source_config={
                 "insight_id": alert.insight_id,
@@ -432,13 +435,9 @@ class TestPlatformInsightEvaluation(APIBaseTest):
     @parameterized.expand(
         [
             ("a_row_with_a_slack_function", "row", "hog_function", [_ROW_FIRST]),
-            # Its row's threshold drifted from the copy's, which the platform owns.
-            (
-                "a_moved_alert_with_a_slack_function",
-                "copy",
-                "hog_function",
-                [[("sibling lower threshold", 5.0), ("alert upper threshold", 200.0)]],
-            ),
+            # Its row's threshold and creator were edited in a shell, and the copy's, which the platform owns, win.
+            ("a_moved_alert_with_a_slack_function", "copy", "hog_function", [_MOVED_FIRST]),
+            ("a_moved_alert_with_a_platform_slack_destination", "copy", "platform", [_MOVED_FIRST]),
             ("a_native_alert_with_a_slack_function", "native", "hog_function", [_SIBLING_FIRST]),
             ("a_native_alert_with_a_platform_slack_destination", "native", "platform", [_SIBLING_FIRST]),
             ("a_native_alert_without_slack", "native", None, []),
@@ -455,7 +454,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 enabled=enabled,
                 legacy_configuration_id=None,
                 owner=PlatformAlertOwner.PLATFORM,
-                destinations_owner=PlatformAlertOwner.PLATFORM,
                 source_config={
                     "insight_id": alert.insight_id,
                     SOURCE_CONDITION_KEY: {
@@ -464,10 +462,12 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                     },
                 },
             )
+        destination_owner_id = None
         if kind == "copy":
-            self._copy(
+            destination_owner_id = self._copy(
                 alert,
                 owner=PlatformAlertOwner.PLATFORM,
+                created_by=self.user,
                 source_config={
                     "insight_id": alert.insight_id,
                     SOURCE_CONDITION_KEY: {
@@ -475,8 +475,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                         "threshold": {"type": "absolute", "bounds": {"upper": 200.0}},
                     },
                 },
+            ).id
+            AlertConfiguration.objects.filter(id=alert.id).update(
+                owner=PlatformAlertOwner.PLATFORM,
+                created_by=User.objects.create_and_join(self.organization, "shell-edit@example.com", None),
             )
-            AlertConfiguration.objects.filter(id=alert.id).update(owner=PlatformAlertOwner.PLATFORM)
         chart_alert_id = self._native(alert).id if kind == "native" else alert.id
         if slack == "hog_function":
             HogFunction.objects.create(
@@ -497,7 +500,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         elif slack == "platform":
             create_alert_destinations(
                 team_id=self.team.id,
-                configuration_id=chart_alert_id,
+                configuration_id=destination_owner_id or chart_alert_id,
                 destinations=(
                     NewAlertDestination(
                         data=cast(
@@ -1014,10 +1017,18 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         # The error message names and links the insight, as a firing's does.
         assert set(outcome.failure.source_detail) == {"insight_name", "insight_short_id"}
 
-    def test_a_paused_ai_detector_errors_and_stays_enabled(self) -> None:
+    @parameterized.expand(
+        [
+            ("ai", {"type": "llm"}, LLMDetectorPausedError, LLM_DETECTOR_PAUSED_ERROR_CODE),
+            ("forecast", {"type": "forecast"}, ForecastDetectorPausedError, FORECAST_DETECTOR_PAUSED_ERROR_CODE),
+        ]
+    )
+    def test_a_paused_gateway_detector_errors_and_stays_enabled(
+        self, _name: str, detector_config: dict, paused_error: type[LLMDetectorPausedError], code: str
+    ) -> None:
         outcome, _ = self._evaluate(
-            self._copy(self._alert(detector_config={"type": "llm"})),
-            result=LLMDetectorPausedError("consent withdrawn"),
+            self._copy(self._alert(detector_config=detector_config)),
+            result=paused_error("consent withdrawn"),
             uses_llm_detector=True,
         )
 
@@ -1027,7 +1038,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "consent withdrawn",
             False,
         )
-        assert outcome.failure.source_detail["error_code"] == LLM_DETECTOR_PAUSED_ERROR_CODE
+        assert outcome.failure.source_detail["error_code"] == code
 
     @parameterized.expand([("single", False), ("breakdown", True)])
     def test_a_check_without_enough_data_errors_and_stays_enabled(self, _name: str, breakdown: bool) -> None:
@@ -1103,6 +1114,12 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 True,
                 "LLMDetectorUnavailableError",
                 (AlertEventKind.ERRORED, "errored", LLM_DETECTOR_UNAVAILABLE_MESSAGE, False, 1),
+            ),
+            (
+                "forecast_unreachable",
+                True,
+                "ForecastDetectorUnavailableError",
+                (AlertEventKind.ERRORED, "errored", FORECAST_DETECTOR_UNAVAILABLE_MESSAGE, False, 1),
             ),
             # As production: switching an alert off mid-check is not a failure of the alert.
             ("switched_off", False, None, None),

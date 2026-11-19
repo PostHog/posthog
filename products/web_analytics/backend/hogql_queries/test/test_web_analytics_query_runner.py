@@ -176,6 +176,17 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert user_run.get_cache_key() != bypass_run.get_cache_key()
         assert user_run.single_flight_variant() != bypass_run.single_flight_variant()
 
+    @parameterized.expand([("toggle_on", True, True), ("toggle_off", False, False)])
+    def test_precompute_toggle_shares_cache_only_when_on(self, _name: str, toggle: bool, shares_key: bool) -> None:
+        date_range = DateRange(date_from="2023-12-08", date_to="2023-12-15")
+        untouched = WebOverviewQuery(dateRange=date_range, properties=[])
+        toggled = WebOverviewQuery(dateRange=date_range, properties=[], useWebAnalyticsPrecompute=toggle)
+
+        untouched_key = WebOverviewQueryRunner(team=self.team, query=untouched).get_cache_key()
+        toggled_key = WebOverviewQueryRunner(team=self.team, query=toggled).get_cache_key()
+
+        assert (untouched_key == toggled_key) is shares_key
+
 
 class TestWebAnalyticsBreakdownTagging(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(

@@ -121,6 +121,7 @@ def build_reviewer_invocation(
     context_path: str,
     self_driving_review: bool = False,
     review_trigger: str = "",
+    admitted_bot: str = "",
     review_evidence: list[dict] | None = None,
 ) -> ReviewerInvocation:
     """Assemble the context payload + command that reviews this PR in the sandbox.
@@ -156,6 +157,9 @@ def build_reviewer_invocation(
     It stays separate from ``self_driving_review`` on purpose. That flag relaxes two security gates,
     this string only describes, and folding them together would put the carve-out back in play for
     a change to descriptive text. Empty for a local run, where there is no trigger to report.
+    ``admitted_bot`` is the login of a bot author the repo policy admits (``logic/bot_admission.py``).
+    The engine checks it against the policy again, keeps every gate, and also requires an
+    attestation to vouch for every file in the PR.
     """
     context = {
         "repo": repo,
@@ -176,6 +180,7 @@ def build_reviewer_invocation(
         "commit_messages": commit_messages,
         "self_driving_review": self_driving_review,
         "review_trigger": review_trigger,
+        "admitted_bot": admitted_bot,
     }
     command = ["uv", "run", f"{engine_dir}/review_local.py", "--context", context_path]
     return ReviewerInvocation(

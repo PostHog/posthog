@@ -1,6 +1,7 @@
-# The aux log_entries Kafka consumer trio. Cloud placement is asymmetric (EU
-# ingestion-small, US ingestion-medium) and cloud ingestion nodes are not in the
-# managed set yet, so this layer is composed only on the local small node.
+# The aux log_entries Kafka consumer trio. The cloud deployments run it on the
+# ingestion-medium nodes (migration 0387). Cloud ingestion nodes are not in the
+# managed set yet, so this layer is composed only on the local small node, where
+# the multinode stack runs it.
 database "posthog" {
   table "writable_log_entries_aux" {
     column "team_id" { type = "UInt64" }

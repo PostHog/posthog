@@ -11,6 +11,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig, Team } from '../../types'
 import type { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Worker } from '../services/cyclotron-v2'
 import {
+    BatchResolverFailureReason,
     BatchResolverState,
     MAX_RESOLVER_ATTEMPTS,
     deserializeResolverState,
@@ -20,7 +21,6 @@ import {
     AudienceFetchTimeoutError,
     HogFlowBatchPersonQueryService,
 } from '../services/hogflows/hogflow-batch-person-query.service'
-import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from '../services/hogflows/hogflow-quota-limiting'
 import { hasSensitiveMessageStep } from '../services/hogflows/hogflow-sensitivity'
 import { RealtimeCohortAudienceService } from '../services/hogflows/realtime-cohort-audience.service'
 import { invocationToV2JobInit } from '../services/job-queue/job-queue-postgres-v2'
@@ -82,7 +82,8 @@ const counterBatchHogFlowResolverSnapshotWait = new Counter({
 const counterBatchHogFlowResolverJobs = new Counter({
     name: 'cdp_batch_hog_flow_resolver_jobs',
     help: 'Batch hog flow resolver jobs by lifecycle outcome',
-    labelNames: ['outcome'], // started | completed | failed | canceled
+    // `reason` is empty unless `outcome` is failed, so alerting can skip a billing refusal.
+    labelNames: ['outcome', 'reason'], // started | completed | failed | canceled
 })
 
 /**
@@ -152,7 +153,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             // older deploy. None should happen in steady state — alert on
             // the counter so we notice fast.
             counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'invalid_state' }).inc()
-            counterBatchHogFlowResolverJobs.labels({ outcome: 'failed' }).inc()
+            counterBatchHogFlowResolverJobs.labels({ outcome: 'failed', reason: 'invalid_state' }).inc()
             logger.error('🔴', `${this.name} - invalid resolver state, failing job`, {
                 jobId: job.id,
                 teamId: job.teamId,
@@ -180,7 +181,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             state.attempts === 0 &&
             !state.audienceSnapshot?.requested
         ) {
-            counterBatchHogFlowResolverJobs.labels({ outcome: 'started' }).inc()
+            counterBatchHogFlowResolverJobs.labels({ outcome: 'started', reason: '' }).inc()
         }
 
         // Heartbeat the lock while the page (or terminal write) runs: the audience fetch alone
@@ -271,6 +272,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         await this.transitionToFailedTerminal(
             job,
             state,
+            'cohort_timeout',
             "the cohort didn't finish calculating in time, so nobody was sent this run. Start it again once the cohort is ready."
         )
     }
@@ -283,7 +285,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         const snapshot = state.audienceSnapshot!
         const team = await this.deps.teamManager.getTeam(state.teamId)
         if (!team) {
-            await this.transitionToFailedTerminal(job, state, 'Workflow or team was deleted mid-run')
+            await this.transitionToFailedTerminal(job, state, 'missing_entity', 'Workflow or team was deleted mid-run')
             return
         }
 
@@ -304,7 +306,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                     `${this.name} - audience snapshot request failed permanently after ${MAX_RESOLVER_ATTEMPTS} attempts`,
                     { batchJobId: state.batchJobId, error: serializeError(err) }
                 )
-                await this.transitionToFailedTerminal(job, state, audienceFailureReason(err))
+                await this.transitionToFailedTerminal(job, state, 'fetch_failure', audienceFailureReason(err))
                 return
             }
             logger.warn('⚠️', `${this.name} - audience snapshot request failed, will retry`, {
@@ -337,7 +339,12 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
 
         if (response.status === 'failed') {
             counterBatchHogFlowResolverSnapshotWait.labels({ outcome: 'failed' }).inc()
-            await this.transitionToFailedTerminal(job, state, response.error || 'Audience query failed')
+            await this.transitionToFailedTerminal(
+                job,
+                state,
+                'audience_query_failed',
+                response.error || 'Audience query failed'
+            )
             return
         }
 
@@ -347,6 +354,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             await this.transitionToFailedTerminal(
                 job,
                 state,
+                'audience_snapshot_timeout',
                 "the audience didn't finish resolving in time, so nobody was sent this run. Use fewer or simpler audience filters, or start it again later."
             )
             return
@@ -372,7 +380,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
      * before processResolverJob's finally-flush.
      */
     private async cancelResolverJob(job: CyclotronV2DequeuedJob): Promise<void> {
-        counterBatchHogFlowResolverJobs.labels({ outcome: 'canceled' }).inc()
+        counterBatchHogFlowResolverJobs.labels({ outcome: 'canceled', reason: '' }).inc()
         this.hogFunctionMonitoringService.queueLogs(
             [
                 {
@@ -405,7 +413,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
     private async processOnePage(job: CyclotronV2DequeuedJob, state: BatchResolverState): Promise<void> {
         const [team, hogFlow] = await Promise.all([
             this.deps.teamManager.getTeam(state.teamId),
-            this.hogFlowManager.getHogFlow(state.hogFlowId),
+            this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(state.hogFlowId),
         ])
 
         if (!team || !hogFlow) {
@@ -415,12 +423,17 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 batchJobId: state.batchJobId,
             })
             counterBatchHogFlowTriggerFailed.labels({ hog_flow_id: state.hogFlowId, reason: 'missing_entity' }).inc()
-            await this.transitionToFailedTerminal(job, state, 'Workflow or team was deleted mid-run')
+            await this.transitionToFailedTerminal(job, state, 'missing_entity', 'Workflow or team was deleted mid-run')
             return
         }
 
         if (state.pagesProcessed === 0 && (await this.isHogFlowQuotaLimited(hogFlow))) {
-            await this.transitionToFailedTerminal(job, state, HOG_FLOW_QUOTA_LIMITED_MESSAGE)
+            await this.transitionToFailedTerminal(
+                job,
+                state,
+                'quota_limited',
+                'this project is over its workflows billing limit, so nobody was enrolled in this run. Raise the limit in billing, then start the run again.'
+            )
             return
         }
 
@@ -458,6 +471,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                     await this.transitionToFailedTerminal(
                         job,
                         state,
+                        'realtime_cohort_unavailable',
                         "Sending to a realtime cohort isn't available here yet. Use a different audience."
                     )
                     return
@@ -514,7 +528,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                         error: serializeError(err),
                     }
                 )
-                await this.transitionToFailedTerminal(job, state, audienceFailureReason(err))
+                await this.transitionToFailedTerminal(job, state, 'fetch_failure', audienceFailureReason(err))
                 return
             }
             logger.warn('⚠️', `${this.name} - page fetch failed, will retry`, {
@@ -662,7 +676,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         )
 
         if (pageTruncated) {
-            this.emitTruncationLog(newState)
+            this.recordTruncatedRunAfterCommit(newState)
         }
 
         counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'success' }).inc()
@@ -670,6 +684,22 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         logger.info(
             '📝',
             `${this.name} - processed page for batch ${state.batchJobId}: ${children.length} ${isAccountAudience ? 'accounts' : 'persons'} enqueued, ${masked.length} masked (${newState.totalEnqueued} total resolved, ${newState.pagesProcessed} pages)`
+        )
+    }
+
+    private recordTruncatedRunAfterCommit(state: BatchResolverState): void {
+        this.emitTruncationLog(state)
+        this.hogFunctionMonitoringService.queueAppMetrics(
+            [
+                {
+                    team_id: state.teamId,
+                    app_source_id: state.batchJobId,
+                    metric_kind: 'other',
+                    metric_name: 'audience_truncated',
+                    count: 1,
+                },
+            ],
+            'hog_flow'
         )
     }
 
@@ -696,20 +726,27 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
     }
 
     private async transitionToTruncatedTerminal(job: CyclotronV2DequeuedJob, state: BatchResolverState): Promise<void> {
-        this.emitTruncationLog(state)
         const newState: BatchResolverState = {
             ...state,
             pendingTerminal: 'completed',
             attempts: 0, // give the terminal write a fresh retry budget
         }
         await job.reschedule({ scheduledAt: new Date(), state: serializeResolverState(newState) })
+        this.recordTruncatedRunAfterCommit(state)
     }
 
     private async transitionToFailedTerminal(
         job: CyclotronV2DequeuedJob,
         state: BatchResolverState,
+        reason: BatchResolverFailureReason,
         reasonMessage: string
     ): Promise<void> {
+        logger.warn('⚠️', `${this.name} - batch ${state.batchJobId} failing: ${reasonMessage}`, {
+            teamId: state.teamId,
+            hogFlowId: state.hogFlowId,
+            batchJobId: state.batchJobId,
+            reason,
+        })
         this.hogFunctionMonitoringService.queueLogs(
             [
                 {
@@ -726,6 +763,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         const newState: BatchResolverState = {
             ...state,
             pendingTerminal: 'failed',
+            terminalReason: reason,
             attempts: 0, // give the terminal write a fresh retry budget
         }
         await job.reschedule({ scheduledAt: new Date(), state: serializeResolverState(newState) })
@@ -743,7 +781,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'terminal_write_failure' }).inc()
             const nextAttempts = state.attempts + 1
             if (nextAttempts >= MAX_RESOLVER_ATTEMPTS) {
-                counterBatchHogFlowResolverJobs.labels({ outcome: 'failed' }).inc()
+                counterBatchHogFlowResolverJobs.labels({ outcome: 'failed', reason: 'terminal_write_failure' }).inc()
                 logger.error(
                     '🔴',
                     `${this.name} - terminal status write failed permanently after ${MAX_RESOLVER_ATTEMPTS} attempts; failing job`,
@@ -771,13 +809,19 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         }
 
         counterBatchHogFlowResolverJobs
-            .labels({ outcome: state.pendingTerminal === 'completed' ? 'completed' : 'failed' })
+            .labels({
+                outcome: state.pendingTerminal === 'completed' ? 'completed' : 'failed',
+                reason: state.pendingTerminal === 'completed' ? '' : (state.terminalReason ?? ''),
+            })
             .inc()
 
         // Monitoring flush happens in processResolverJob's finally block so every
         // dequeue clears its own queued logs/metrics, not just terminal writes.
         await job.ack()
         logger.info('✅', `${this.name} - batch ${state.batchJobId} → ${state.pendingTerminal}`, {
+            teamId: state.teamId,
+            hogFlowId: state.hogFlowId,
+            reason: state.terminalReason,
             totalEnqueued: state.totalEnqueued,
             pagesProcessed: state.pagesProcessed,
         })

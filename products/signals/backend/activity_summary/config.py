@@ -4,6 +4,8 @@ The parse fails closed: a missing, malformed or unreadable payload turns the tic
 field falls back to its default, and no default is unbounded.
 """
 
+import math
+import hashlib
 import datetime
 import dataclasses
 from typing import Any
@@ -22,6 +24,12 @@ from products.signals.backend.activity_summary.logic import (
     VIEW_UPDATE_INTERVAL,
 )
 from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RenderLimits
+from products.signals.backend.activity_summary.summaries import (
+    DEFAULT_VARIANT,
+    ServiceTier,
+    SummaryVariant,
+    is_valid_variant,
+)
 from products.signals.backend.scout_harness.team_limits import read_flag_payload
 
 logger = structlog.get_logger(__name__)
@@ -33,6 +41,10 @@ ACTIVITY_SUMMARY_FLAG_DISTINCT_ID = "signals_activity_summary"
 MAX_SOURCE_WEIGHT = 10.0
 MAX_MCP_CALLS_PER_DAY = 500
 MAX_MCP_BUFFER_DAYS = 30
+# A new salt reassigns every pair to a variant, so change it only to start a new comparison.
+DEFAULT_MODEL_SPLIT_SALT = "activity-summary-model-split-v1"
+# 48 bits of the hash, so the unit draw of `variant_for_pair` is exact in a float and never reaches 0 or 1.
+_MODEL_SPLIT_BITS = 48
 
 
 @frozen
@@ -50,6 +62,13 @@ class SourceWeights:
     scene_views: float = 0.0
     # A distinct MCP session after the pair's watermark, without plumbing routes.
     mcp: float = 1.0
+
+
+@frozen
+class ModelVariant:
+    variant: SummaryVariant
+    # Relative to the weights of the other variants, so the weights do not have to add up to 100.
+    weight: float
 
 
 @frozen
@@ -106,6 +125,8 @@ class ActivitySummaryConfig:
     rebuild_budget_share: float = 0.3
     # The share of a tick kept for the first summary of pairs that opened the Inbox. The other passes get the unused part.
     inbox_visit_budget_share: float = 0.2
+    # The largest share of a tick that overdue pairs can take. Zero stops overdue updates.
+    overdue_budget_share: float = 0.2
     # An outdated summary older than this is due as stale, inside `rebuild_budget_share`. Null means never.
     outdated_rebuild_after_days: float | None = None
     mcp_buffer_enabled: bool = False
@@ -122,6 +143,9 @@ class ActivitySummaryConfig:
     mcp_render_enabled: bool = False
     # Drains the buffer's dirty set into the queue, so a pair with only MCP calls can come due. Needs `mcp_render_enabled`.
     mcp_queue_enabled: bool = False
+    # The variants of the summary updates and their weights. Empty means every update uses `DEFAULT_VARIANT`.
+    model_variants: tuple[ModelVariant, ...] = ()
+    model_split_salt: str = DEFAULT_MODEL_SPLIT_SALT
 
 
 DISABLED = ActivitySummaryConfig()
@@ -145,6 +169,12 @@ def _optional_positive_number(value: Any) -> float | None:
 def _fraction(value: Any, default: float) -> float:
     number = _positive_number(value, default)
     return number if number <= 1 else default
+
+
+def _share(value: Any, default: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 1:
+        return default
+    return float(value)
 
 
 def _percentage(value: Any, default: float) -> float:
@@ -174,6 +204,70 @@ def parse_source_weights(payload: Any) -> SourceWeights:
             for field in dataclasses.fields(SourceWeights)
         }
     )
+
+
+def _service_tier(value: Any) -> ServiceTier | None:
+    if value is None:
+        return ServiceTier.STANDARD
+    return ServiceTier(value) if isinstance(value, str) and value in tuple(ServiceTier) else None
+
+
+def parse_variant(model: Any, service_tier: Any) -> SummaryVariant | None:
+    """A variant from a payload entry or a command line. None when the tier is unknown or `is_valid_variant`
+    rejects it. A missing tier means the standard tier."""
+    tier = _service_tier(service_tier)
+    if not isinstance(model, str) or tier is None:
+        return None
+    variant = SummaryVariant(model=model, service_tier=tier)
+    return variant if is_valid_variant(variant) else None
+
+
+def parse_model_variants(payload: Any) -> tuple[ModelVariant, ...]:
+    """The `model_variants` list of the payload, in payload order, with the weights of a repeated variant added up.
+
+    An entry is dropped when `parse_variant` rejects it or its weight is not a positive finite number.
+    A variant without prices has no cost bound for the daily cap, and a typo in the payload must not call any model.
+    """
+    if not isinstance(payload, list):
+        return ()
+    weights: dict[SummaryVariant, float] = {}
+    for entry in payload:
+        if not isinstance(entry, dict):
+            continue
+        variant = parse_variant(entry.get("model"), entry.get("service_tier"))
+        weight = _positive_number(entry.get("weight"), 0.0)
+        if variant is not None and math.isfinite(weight) and weight > 0:
+            weights[variant] = weights.get(variant, 0.0) + weight
+    return tuple(ModelVariant(variant=variant, weight=weight) for variant, weight in weights.items())
+
+
+def split_variants(variants: tuple[ModelVariant, ...]) -> tuple[SummaryVariant, ...]:
+    """Every variant that an update can use."""
+    return tuple(variant.variant for variant in variants) or (DEFAULT_VARIANT,)
+
+
+def variant_for_pair(variants: tuple[ModelVariant, ...], salt: str, team_id: int, user_id: int) -> SummaryVariant:
+    """The variant of every update of the pair. An update reads the previous summary, so one summary never mixes the
+    output of two models.
+
+    Weighted rendezvous hashing: each variant gets a fixed score from the salt, the pair and the variant, and the
+    highest score wins with a probability of its weight over the total weight. Raising the weight of one variant,
+    or adding a variant, moves pairs only into that variant, whatever the order of the variants.
+    """
+    if not variants:
+        return DEFAULT_VARIANT
+
+    def score(entry: ModelVariant) -> float:
+        key = f"{salt}:{team_id}:{user_id}:{entry.variant.model}:{entry.variant.service_tier}"
+        digest = hashlib.sha256(key.encode()).digest()
+        unit = (int.from_bytes(digest[: _MODEL_SPLIT_BITS // 8], "big") + 1) / (2**_MODEL_SPLIT_BITS + 1)
+        return -entry.weight / math.log(unit)
+
+    return max(variants, key=score).variant
+
+
+def _salt(value: Any, default: str) -> str:
+    return value if isinstance(value, str) and value else default
 
 
 def _team_ids(value: Any) -> tuple[int, ...]:
@@ -263,6 +357,7 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         rebuild_before=_timestamp(payload.get("rebuild_before")),
         rebuild_budget_share=_fraction(payload.get("rebuild_budget_share"), defaults.rebuild_budget_share),
         inbox_visit_budget_share=_fraction(payload.get("inbox_visit_budget_share"), defaults.inbox_visit_budget_share),
+        overdue_budget_share=_share(payload.get("overdue_budget_share"), defaults.overdue_budget_share),
         outdated_rebuild_after_days=_optional_positive_number(payload.get("outdated_rebuild_after_days")),
         mcp_buffer_enabled=_bool(payload.get("mcp_buffer_enabled"), defaults.mcp_buffer_enabled),
         mcp_buffer_organization_ids=_organization_ids(payload.get("mcp_buffer_organization_ids")),
@@ -275,6 +370,8 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         ),
         mcp_render_enabled=_bool(payload.get("mcp_render_enabled"), defaults.mcp_render_enabled),
         mcp_queue_enabled=_bool(payload.get("mcp_queue_enabled"), defaults.mcp_queue_enabled),
+        model_variants=parse_model_variants(payload.get("model_variants")),
+        model_split_salt=_salt(payload.get("model_split_salt"), defaults.model_split_salt),
     )
 
 
@@ -287,5 +384,10 @@ def read_config() -> ActivitySummaryConfig:
         organizations=len(config.organization_ids),
         self_driving_organization_percentage=config.self_driving_organization_percentage,
         denied_organizations=len(config.deny_organization_ids),
+        model_variants=[
+            {"model": entry.variant.model, "service_tier": str(entry.variant.service_tier), "weight": entry.weight}
+            for entry in config.model_variants
+        ],
+        model_split_salt=config.model_split_salt,
     )
     return config

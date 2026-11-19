@@ -1,5 +1,6 @@
 import { defineCommand } from '@/core/command'
 import { DiagnosticsReport, printDiagnostics } from '@/core/diagnostics'
+import { EXIT_FAILURE, EXIT_SUCCESS } from '@/core/errors'
 
 export default defineCommand({
     description: 'Check the syntax and types of a HogQL query without running it',
@@ -28,5 +29,5 @@ export default defineCommand({
         out.json(result.response)
     },
 
-    exitCode: ({ response }) => ((response.errors ?? []).length > 0 ? 1 : 0),
+    exitCode: ({ response }) => ((response.errors ?? []).length > 0 ? EXIT_FAILURE : EXIT_SUCCESS),
 })

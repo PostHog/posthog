@@ -498,7 +498,7 @@ strict = false
 
             # Install posthog SDK and mypy in the venv
             install_result = subprocess.run(
-                [str(venv_pip), "install", "posthog", "mypy"],
+                [str(venv_pip), "install", "posthog<8", "mypy"],
                 capture_output=True,
                 text=True,
                 timeout=120,

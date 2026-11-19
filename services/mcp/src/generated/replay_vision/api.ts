@@ -1081,13 +1081,6 @@ export const VisionScannersCreateBody = () => zod
             .describe(
                 '0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.'
             ),
-        sampling_mode: zod
-            .enum(['focused', 'balanced', 'comprehensive'])
-            .describe('\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive')
-            .optional()
-            .describe(
-                'Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive'
-            ),
         credit_limit: zod
             .number()
             .min(1)
@@ -1259,13 +1252,6 @@ export const VisionScannersPartialUpdateBody = () => zod
             .optional()
             .describe(
                 '0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.'
-            ),
-        sampling_mode: zod
-            .enum(['focused', 'balanced', 'comprehensive'])
-            .describe('\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive')
-            .optional()
-            .describe(
-                'Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive'
             ),
         credit_limit: zod
             .number()
@@ -2058,6 +2044,11 @@ export const visionScannersScoutsCreateBodyConfigOneRepositoriesMax = 10
 
 export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 16
 
+export const visionScannersScoutsCreateBodyConfigOneReportActionsMax = 1
+
+export const visionScannersScoutsCreateBodyConfigOneMaxReportActionsPerDayMin = 0
+export const visionScannersScoutsCreateBodyConfigOneMaxReportActionsPerDayMax = 20
+
 export const visionScannersScoutsCreateBodyConfigOnePrecheckQueryMax = 10000
 
 export const visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMin = 30
@@ -2111,6 +2102,12 @@ export const VisionScannersScoutsCreateBody = () => zod
                     .describe(
                         "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
                     ),
+                custom_image_id: zod
+                    .string()
+                    .nullish()
+                    .describe(
+                        "ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image."
+                    ),
                 tags: zod
                     .array(zod.string())
                     .max(visionScannersScoutsCreateBodyConfigOneTagsMax)
@@ -2144,6 +2141,21 @@ export const VisionScannersScoutsCreateBody = () => zod
                     .optional()
                     .describe(
                         "Write access granted to this one scout, as scope strings. The grantable set is `account_note:write`, `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. `account_note:write` lets the scout write and retag notes on Customer analytics accounts. Its notes are always tagged `scout` and with its skill name, and the account notes API refuses its deletes. Account notes are also notebooks, so `notebook:write` can still edit or trash one. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+                    ),
+                report_actions: zod
+                    .array(zod.string())
+                    .max(visionScannersScoutsCreateBodyConfigOneReportActionsMax)
+                    .optional()
+                    .describe(
+                        "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+                    ),
+                max_report_actions_per_day: zod
+                    .number()
+                    .min(visionScannersScoutsCreateBodyConfigOneMaxReportActionsPerDayMin)
+                    .max(visionScannersScoutsCreateBodyConfigOneMaxReportActionsPerDayMax)
+                    .optional()
+                    .describe(
+                        "Report actions this scout may start per rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it."
                     ),
                 lifecycle_locked: zod
                     .boolean()
@@ -2373,7 +2385,7 @@ export const VisionScannersDraftCreateBody = () => zod
             .max(visionScannersDraftCreateBodyMonthlyCreditBudgetMax)
             .optional()
             .describe(
-                'Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Ask the person for it rather than guessing. Required unless `free_only` is true, and not allowed with it.'
+                'Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Ask the person for it rather than guessing. Required unless `free_only` is true, and not allowed with it.'
             ),
         free_only: zod
             .boolean()
@@ -2393,7 +2405,7 @@ export const VisionScannersDraftCreateBody = () => zod
             .unknown()
             .optional()
             .describe(
-                "A `RecordingsQuery` the person already chose, as the replay list holds it. The draft starts from it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND its own page, event, action or cohort filters onto it. It keeps them only when the combined filter still matches recent recordings, returns them in `query_additions`, and sizes the sampling dials against the combined `query`. `experiment_exposure` becomes the scanner's experiment and variants, which the draft keeps as they are. `date_from`\/`date_to` are dropped, because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session exposure are refused, because a scanner cannot apply them. A query with no filters starts from every new recording. Omit to let the draft pick the sessions."
+                "A `RecordingsQuery` the person already chose, as the replay list holds it. The draft starts from it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND its own page, event, action or cohort filters onto it. It keeps them only when the combined filter still matches recent recordings, returns them in `query_additions`, and sizes the sampling rate against the combined `query`. `experiment_exposure` becomes the scanner's experiment and variants, which the draft keeps as they are. `date_from`\/`date_to` are dropped, because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session exposure are refused, because a scanner cannot apply them. A query with no filters starts from every new recording. Omit to let the draft pick the sessions."
             ),
     })
     .describe("Body of POST \/vision\/scanners\/draft\/ — the user's goal, stated in their own words.")
@@ -2413,7 +2425,6 @@ export const visionScannersEstimateCreateBodySamplingRateDefault = 1
 export const visionScannersEstimateCreateBodySamplingRateMin = 0
 export const visionScannersEstimateCreateBodySamplingRateMax = 1
 
-export const visionScannersEstimateCreateBodySamplingModeDefault = `comprehensive`
 export const visionScannersEstimateCreateBodyModelDefault = `gemini-3-flash-preview`
 export const visionScannersEstimateCreateBodyExperimentTargetingOneVariantMax = 400
 
@@ -2427,13 +2438,6 @@ export const VisionScannersEstimateCreateBody = () => zod
             .max(visionScannersEstimateCreateBodySamplingRateMax)
             .default(visionScannersEstimateCreateBodySamplingRateDefault)
             .describe('0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).'),
-        sampling_mode: zod
-            .enum(['focused', 'balanced', 'comprehensive'])
-            .describe('\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive')
-            .default(visionScannersEstimateCreateBodySamplingModeDefault)
-            .describe(
-                "Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. Defaults to comprehensive (no filter).\n\n\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive"
-            ),
         scanner_id: zod
             .string()
             .nullish()

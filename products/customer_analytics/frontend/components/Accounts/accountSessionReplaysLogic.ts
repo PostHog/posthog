@@ -74,10 +74,17 @@ export interface accountSessionReplaysLogicActions {
         initialTimestamp?: number | null | undefined,
         modalContext?:
             | import('scenes/session-recordings/player/modal/sessionPlayerModalLogic').SessionPlayerModalContext
+            | undefined,
+        recordingList?:
+            | null
+            | import('scenes/session-recordings/player/modal/sessionPlayerModalLogic').SessionPlayerModalRecordingList
             | undefined
     ) => {
         initialTimestamp: number | null
         modalContext: import('scenes/session-recordings/player/modal/sessionPlayerModalLogic').SessionPlayerModalContext
+        recordingList:
+            | null
+            | import('scenes/session-recordings/player/modal/sessionPlayerModalLogic').SessionPlayerModalRecordingList
         sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>
     } // sessionPlayerModalLogic
     loadMore: () => {

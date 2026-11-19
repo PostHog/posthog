@@ -462,12 +462,23 @@ jobs:
                   aws-region: us-east-1
             - name: Publish frontend assets to dev
               if: vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE != ''
-              timeout-minutes: 5
+              timeout-minutes: 10
               env:
                   BUCKET: posthog-cloud-dev-us-east-1-static-assets
               run: |
                   set -euo pipefail
-                  aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  # One failed object fails the whole copy and skips every deploy of this commit. A
+                  # retry uploads only the objects still missing, because the copy never overwrites.
+                  for attempt in 1 2 3; do
+                    if aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"; then
+                      break
+                    fi
+                    if [ "$attempt" -eq 3 ]; then
+                      exit 1
+                    fi
+                    echo "::warning::Frontend asset upload to $BUCKET failed on attempt $attempt. Retrying."
+                    sleep 10
+                  done
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             - name: Assume the prod-us static-assets role
@@ -478,12 +489,23 @@ jobs:
                   aws-region: us-east-1
             - name: Publish frontend assets to prod-us
               if: vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE != ''
-              timeout-minutes: 5
+              timeout-minutes: 10
               env:
                   BUCKET: posthog-cloud-prod-us-east-1-static-assets
               run: |
                   set -euo pipefail
-                  aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  # One failed object fails the whole copy and skips every deploy of this commit. A
+                  # retry uploads only the objects still missing, because the copy never overwrites.
+                  for attempt in 1 2 3; do
+                    if aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"; then
+                      break
+                    fi
+                    if [ "$attempt" -eq 3 ]; then
+                      exit 1
+                    fi
+                    echo "::warning::Frontend asset upload to $BUCKET failed on attempt $attempt. Retrying."
+                    sleep 10
+                  done
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             - name: Assume the prod-eu static-assets role
@@ -494,12 +516,23 @@ jobs:
                   aws-region: eu-central-1
             - name: Publish frontend assets to prod-eu
               if: vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE != ''
-              timeout-minutes: 5
+              timeout-minutes: 10
               env:
                   BUCKET: posthog-cloud-prod-eu-central-1-static-assets
               run: |
                   set -euo pipefail
-                  aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  # One failed object fails the whole copy and skips every deploy of this commit. A
+                  # retry uploads only the objects still missing, because the copy never overwrites.
+                  for attempt in 1 2 3; do
+                    if aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"; then
+                      break
+                    fi
+                    if [ "$attempt" -eq 3 ]; then
+                      exit 1
+                    fi
+                    echo "::warning::Frontend asset upload to $BUCKET failed on attempt $attempt. Retrying."
+                    sleep 10
+                  done
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             # The role action exports its session keys to the job environment, where they stay until the
@@ -548,6 +581,7 @@ jobs:
                         - 'products/batch_exports/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -567,6 +601,7 @@ jobs:
                         - 'posthog/settings/temporal.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -574,12 +609,25 @@ jobs:
                       # An edit that adds a path here also deploys once, through
                       # check_general_purpose_coverage_added below.
                       generalPurpose:
+                        # MCPA_TASK_QUEUE defaults to the general-purpose queue, and prod runs no
+                        # separate MCP analytics worker, so this worker runs intent clustering.
+                        - 'products/mcp_analytics/backend/**'
+                        - 'posthog/temporal/mcp_analytics/**'
                         - 'products/notebooks/backend/**'
                         - 'products/subscriptions/backend/temporal/**'
                         - 'products/subscriptions/backend/facade/temporal.py'
                         - 'products/engineering_analytics/backend/**'
                         - 'products/canvas/backend/**'
                         - 'products/today/backend/**'
+                        - 'products/messaging/backend/facade/contracts.py'
+                        - 'products/messaging/backend/facade/temporal.py'
+                        - 'products/messaging/backend/models/**'
+                        - 'products/messaging/backend/provider_imports/**'
+                        - 'products/messaging/backend/services/customerio_client.py'
+                        - 'products/messaging/backend/services/customerio_config.py'
+                        - 'products/messaging/backend/services/customerio_import_service.py'
+                        - 'products/messaging/backend/services/suppression.py'
+                        - 'products/messaging/backend/temporal/**'
                         - 'products/product_analytics/backend/insight_series.py'
                         - 'posthog/llm/**'
                         - 'posthog/temporal/dlq_replay/**'
@@ -598,9 +646,15 @@ jobs:
                         - 'products/security/backend/logic/**'
                         - 'products/metrics/backend/temporal/**'
                         - 'products/metrics/backend/suggested_dashboards/**'
+                        - 'posthog/temporal/cimd_provisioning_review/**'
+                        - 'posthog/api/oauth/provisioning_review.py'
+                        - 'posthog/api/oauth/provisioning_review_slack.py'
+                        - 'posthog/models/oauth_provisioning_review.py'
+                        - 'posthog/egress/firecrawl/**'
                         - 'posthog/kafka_client/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -609,6 +663,7 @@ jobs:
                         - 'products/experiments/backend/temporal/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -618,6 +673,7 @@ jobs:
                         - 'ee/billing/salesforce_enrichment/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -630,6 +686,7 @@ jobs:
                         - 'posthog/temporal/usage_report/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -646,6 +703,7 @@ jobs:
                         - 'products/knowledge_writer/merge_check/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -661,6 +719,7 @@ jobs:
                         - 'posthog/settings/temporal.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -670,6 +729,7 @@ jobs:
                         - 'products/signals/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -679,6 +739,7 @@ jobs:
                         - '.github/workflows/container-images-cd.yml'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -700,6 +761,7 @@ jobs:
                         - 'posthog/temporal/schedule.py'
                         - 'posthog/settings/temporal.py'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -714,6 +776,7 @@ jobs:
                         - 'posthog/temporal/common/**'
                         - 'posthog/settings/temporal.py'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -725,6 +788,7 @@ jobs:
                         - 'posthog/models/organization_notification_lock.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -733,6 +797,7 @@ jobs:
                       # import analysis in check_python_changes_analytics_platform_temporal_worker.
                       analyticsPlatform:
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -747,6 +812,7 @@ jobs:
                         - 'products/llm_analytics/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -757,6 +823,7 @@ jobs:
                         - '!products/managed_warehouse/backend/tests/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -775,7 +842,7 @@ jobs:
                       dataWarehouseCdpProducer:
                         - 'posthog/hogql*/**'
                         - 'products/warehouse_sources_queue/**'
-                        - 'posthog/temporal/data_modeling/**'
+                        - 'products/data_modeling/backend/temporal/**'
                         - 'products/customer_analytics/backend/**'
                         - 'products/warehouse_sources/backend/temporal/data_imports/**'
                         - '!products/warehouse_sources/backend/temporal/data_imports/sources/!(common)/*'
@@ -784,6 +851,7 @@ jobs:
                         - 'posthog/warehouse/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -808,6 +876,7 @@ jobs:
                         - '!products/*/backend/temporal/health_checks/tests/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -818,6 +887,7 @@ jobs:
                         - 'products/logs/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -826,7 +896,7 @@ jobs:
                         - 'products/managed_warehouse/backend/**'
                         - '!products/managed_warehouse/backend/temporal/**'
                         - '!products/managed_warehouse/backend/tests/temporal/**'
-                        - 'posthog/temporal/data_modeling/**'
+                        - 'products/data_modeling/backend/temporal/**'
                         - 'posthog/temporal/data_warehouse/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/warehouse/**'
@@ -847,6 +917,7 @@ jobs:
                         - 'products/mcp_analytics/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -860,6 +931,7 @@ jobs:
                         - 'posthog/egress/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -1742,11 +1814,6 @@ jobs:
               shell: bash
               run: bash .github/scripts/ordered-image-release.sh tag
 
-            - name: Warn when ordered image alias tag is unavailable
-              if: ${{ steps.ordered-release.outputs.tag == '' }}
-              shell: bash
-              run: echo "::warning title=Ordered image alias tag unavailable::Ordered image alias publication was skipped because no ordered release tag was generated."
-
             - name: Install ordered image copy client
               if: ${{ steps.ordered-release.outputs.tag != '' }}
               timeout-minutes: 1
@@ -1778,12 +1845,10 @@ jobs:
               run: bash .github/scripts/ordered-image-release.sh publish
 
             - name: Fail when the ordered image alias is missing
-              if: ${{ steps.ordered-release.outputs.tag == '' || steps.publish-alias.outputs.outcome != 'present-at-expected-digest' }}
               env:
-                  OUTCOME: ${{ steps.publish-alias.outputs.outcome || 'not published' }}
-              run: |
-                  echo "::error title=Ordered image alias missing::Kargo only creates freight from the ordered alias, so Kargo-delivered apps stay on the previous image (outcome: ${OUTCOME})."
-                  exit 1
+                  ORDERED_ALIAS: ${{ steps.ordered-release.outputs.tag }}
+                  OUTCOME: ${{ steps.publish-alias.outputs.outcome }}
+              run: bash .github/scripts/ordered-image-release.sh require "$ORDERED_ALIAS" "$OUTCOME"
 
     shared_image_channels:
         name: Publish eligible shared-image channels
@@ -1856,7 +1921,7 @@ jobs:
                   shared-image-force: ${{ inputs.shared-image-force || '[]' }}
                   shared-image-bootstrap: ${{ inputs.shared-image-bootstrap }}
                   shared-image-regctl: ${{ runner.temp }}/regctl
-                  shared-image-budgets: '{"fetchMs":60000,"comparisonMs":30000,"maxBuffer":67108864,"registryMs":15000,"copySeconds":120,"readbackSeconds":30,"maxChannels":20,"concurrency":4,"channelMs":300000,"totalMs":720000}'
+                  shared-image-budgets: '{"fetchMs":60000,"comparisonMs":30000,"maxBuffer":67108864,"registryMs":15000,"copySeconds":120,"readbackSeconds":30,"maxChannels":40,"concurrency":8,"channelMs":300000,"totalMs":720000}'
 
             - name: Retain shared-image publication evidence
               if: ${{ !cancelled() && steps.shared-image-channels.outputs.channels == 'true' }}

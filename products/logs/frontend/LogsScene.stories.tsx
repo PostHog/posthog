@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import { MockSignature } from '~/mocks/utils'
 import { LogMessage, LogSeverityLevel } from '~/queries/schema/schema-general'
-import { PropertyFilterType } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType } from '~/types'
 
 import {
     FacetFilterTarget,
@@ -250,7 +250,8 @@ const queryMock: MockSignature = async ({ request }) => {
     const limit = body.query?.limit ?? 100
     const offset = body.query?.offset ?? 0
 
-    const results = logs.slice(offset, offset + limit)
+    const orderedLogs = body.query?.orderBy === 'earliest' ? logs : [...logs].reverse()
+    const results = orderedLogs.slice(offset, offset + limit)
 
     return [200, { results: results, maxExportableLogs: 5000 }]
 }
@@ -310,19 +311,21 @@ const sparklineMock: MockSignature = async ({ request }) => {
         counts.total += 1
     }
 
-    const results: { count: number; level: string; time: string }[] = []
+    const results: { count: number; severity: string; time: string }[] = []
 
     // Emit ordered response
     Array.from(bucketMap.entries())
         .sort(([a], [b]) => (a < b ? -1 : 1))
         .forEach(([timestamp, counts]) =>
-            Object.entries(counts).forEach(([level, count]) => {
-                results.push({
-                    count: count,
-                    level: level,
-                    time: timestamp,
+            Object.entries(counts)
+                .filter(([level]) => level !== 'total')
+                .forEach(([level, count]) => {
+                    results.push({
+                        count: count,
+                        severity: level,
+                        time: timestamp,
+                    })
                 })
-            })
         )
 
     return [200, results]
@@ -349,7 +352,13 @@ const facetValuesMock: MockSignature = async ({ request }) => {
               : resourceAttribute
                 ? { key: resourceAttribute, type: PropertyFilterType.LogResourceAttribute }
                 : null
-    const scopedGroup = own ? setFacetSelection(body.query?.filterGroup, own, EMPTY_SELECTION) : body.query?.filterGroup
+    const filterGroup = Array.isArray(body.query?.filterGroup)
+        ? {
+              type: FilterLogicalOperator.And,
+              values: [{ type: FilterLogicalOperator.And, values: body.query.filterGroup }],
+          }
+        : body.query?.filterGroup
+    const scopedGroup = own ? setFacetSelection(filterGroup, own, EMPTY_SELECTION) : filterGroup
     const { logs } = await getLogs({ query: { ...body.query, filterGroup: scopedGroup } })
 
     const counts = new Map<string, number>()
@@ -491,6 +500,15 @@ export default {
         // while the handwritten ApiRequest helpers are environment-scoped.
         mswDecorator({
             get: {
+                '/api/projects/:team_id/logs_config': () => [
+                    200,
+                    {
+                        logs_distinct_id_attribute_key: 'posthogDistinctId',
+                        logs_distinct_id_attribute_keys: ['posthogDistinctId'],
+                        logs_session_id_attribute_keys: ['sessionId'],
+                        logs_pattern_message_keys: ['message', 'msg', 'event'],
+                    },
+                ],
                 // Both prefixes, because both callers exist: the taxonomic filter asks the
                 // environment-scoped path, and facetPresenceLogic asks the project-scoped one through
                 // the generated client. Answering only one empties the other's list.
@@ -500,6 +518,7 @@ export default {
                 '/api/environments/:team_id/logs/has_logs': () => [200, { hasLogs: true }],
             },
             post: {
+                '/api/projects/:team_id/file_system/home_folder': () => [200, { id: 'home', path: 'Users/Example' }],
                 '/api/environments/:team_id/logs/query': queryMock,
                 '/api/projects/:team_id/logs/facet_values': facetValuesMock,
                 '/api/environments/:team_id/logs/sparkline': sparklineMock,
@@ -555,5 +574,13 @@ LogsSceneServicesTabV2.parameters = {
         // v2-specific, so this fails rather than passes if the gate falls through to the v1 table.
         // A rendered row also means the virtualized list measured its container.
         waitForSelector: '[data-attr="logs-services-row"]',
+    },
+}
+
+export const LogsSceneMobile = {
+    render: LogsScene,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.APM_MOBILE_TRIAGE],
+        testOptions: { viewport: { width: 390, height: 844 }, waitForSelector: '[data-attr="logs-mobile-row"]' },
     },
 }

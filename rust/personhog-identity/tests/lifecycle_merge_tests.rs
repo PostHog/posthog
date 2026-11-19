@@ -358,9 +358,8 @@ async fn insert_person_with_derived_uuid(
     let insert_sql = format!(
         r#"
         INSERT INTO {}
-            (created_at, properties, properties_last_updated_at, properties_last_operation,
-             team_id, is_identified, uuid, version)
-        VALUES (now(), '{{}}'::jsonb, '{{}}'::jsonb, '{{}}'::jsonb, $1, false, $2, 0)
+            (created_at, properties, team_id, is_identified, uuid, version)
+        VALUES (now(), '{{}}'::jsonb, $1, false, $2, 0)
         RETURNING id
         "#,
         ctx.tables.person
@@ -462,6 +461,7 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
     h.set_person(target, r#"{"a": "target"}"#, 3, false).await;
     h.set_person(source, r#"{"a": "source", "b": "source"}"#, 7, false)
         .await;
+    h.ctx.seed_retired_person_meta(source).await;
     // Satellite rows: the source's move, and a target-side hash-key
     // override that must win the dedupe.
     sqlx::query("INSERT INTO posthog_cohortpeople (cohort_id, person_id) VALUES (1, $1)")
@@ -513,6 +513,7 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
     assert!(is_deleted);
     assert_eq!(version, 8);
     assert_eq!(properties, json!({}));
+    assert_eq!(h.ctx.retired_person_meta(source).await, (None, None));
     let (target_deleted, target_version, _) = h.person_state(target).await;
     assert!(!target_deleted);
     assert_eq!(target_version, 3, "sync plane never writes the target");
@@ -1536,6 +1537,49 @@ async fn a_fold_without_a_live_target_mark_is_refused_and_the_op_aborts() {
 
 #[tokio::test]
 async fn a_leader_refusal_at_fence_aborts_instead_of_parking() {
+    a_definitive_fence_failure_aborts(semantic_refusal("injected fence refusal", "test-refusal"))
+        .await;
+}
+
+#[tokio::test]
+async fn a_source_the_leader_cannot_read_aborts_instead_of_retrying() {
+    a_definitive_fence_failure_aborts(Status::data_loss(
+        "stored person properties cannot be parsed",
+    ))
+    .await;
+}
+
+#[tokio::test]
+async fn a_target_the_leader_cannot_read_aborts_and_unfreezes_the_sources() {
+    let h = MergeHarness::new().await;
+    let team = h.ctx.team_id;
+    let source = h.ctx.insert_person_with_distinct_id("unread-source").await;
+    let target = h.ctx.insert_person_with_distinct_id("unread-target").await;
+
+    let op_id = Uuid::now_v7();
+    let request = merge_request("unread-target", &["unread-source"]);
+    h.leader.fail_next(
+        Rpc::Fold,
+        target,
+        Status::data_loss("stored person properties cannot be parsed"),
+    );
+
+    let outcome = h
+        .execute(op_id, &request)
+        .await
+        .expect("the unreadable target aborts the op cleanly");
+    assert!(outcome.aborted);
+    assert!(!parked_state(&h.ctx.pool, op_id).await.0);
+    assert!(h.leader.fence_for(source).is_none());
+    h.leader
+        .admit_write(team, source)
+        .await
+        .expect("the source unfroze");
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+async fn a_definitive_fence_failure_aborts(status: Status) {
     let h = MergeHarness::new().await;
     let team = h.ctx.team_id;
     let source_a = h.ctx.insert_person_with_distinct_id("sabort-a").await;
@@ -1546,11 +1590,7 @@ async fn a_leader_refusal_at_fence_aborts_instead_of_parking() {
     let request = merge_request("sabort-target", &["sabort-a", "sabort-b"]);
     // FencePerson has no refusals of its own (this one is scripted);
     // pins the policy that any pre-flip refusal backs the op out.
-    h.leader.fail_next(
-        Rpc::Fence,
-        source_b,
-        semantic_refusal("injected fence refusal", "test-refusal"),
-    );
+    h.leader.fail_next(Rpc::Fence, source_b, status);
 
     let outcome = h
         .execute(op_id, &request)

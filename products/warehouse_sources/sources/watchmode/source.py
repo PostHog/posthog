@@ -92,7 +92,7 @@ class WatchmodeSource(ResumableSource[WatchmodeSourceConfig, WatchmodeResumeConf
             name=ExternalDataSourceType.WATCHMODE,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Watchmode",
-            caption="Sync Watchmode's streaming catalog: titles, releases, streaming sources, regions, networks and genres.\n\nYou can find your API key in your [Watchmode dashboard](https://api.watchmode.com/). Syncs count against your Watchmode monthly request quota.",
+            caption="Sync Watchmode's streaming catalog: titles, releases, streaming sources, regions, networks and genres, plus per-title streaming availability, details, and cast and crew.\n\nYou can find your API key in your [Watchmode dashboard](https://api.watchmode.com/). Syncs count against your Watchmode monthly request quota. The per-title tables make one request for each title in the catalog.",
             keywords=["streaming", "movies", "tv"],
             docsUrl="https://posthog.com/docs/cdp/sources/watchmode",
             iconPath="/static/services/watchmode.png",

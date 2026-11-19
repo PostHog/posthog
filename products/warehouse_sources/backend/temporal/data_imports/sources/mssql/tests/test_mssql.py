@@ -348,6 +348,20 @@ class TestFetchTableStats:
         assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
         capture.assert_not_called()
 
+    def test_no_resultset_skips_capture(self, impl, cursor, logger, mocker):
+        # sp_spaceused can run without raising yet leave no result set to fetch for an object
+        # type it can't report on (e.g. an external table) — pymssql's fetchone then raises this
+        # instead of a sp_spaceused-side error. It recurs for that object every sync, so it must
+        # not flood error tracking.
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.capture_exception"
+        )
+        cursor.fetchone.side_effect = pymssql.OperationalError(
+            "Statement not executed or executed statement has no resultset"
+        )
+        assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
+        capture.assert_not_called()
+
 
 class TestFetchAverageRowSize:
     """MSSQL's `fetch_average_row_size` samples a separate `TOP 100` query
@@ -825,11 +839,22 @@ class TestMSSQLSourceRetryableErrors:
                 b"Transaction (Process ID 116) was deadlocked on lock resources with another process and has been "
                 b"chosen as the deadlock victim. Rerun the transaction.",
             ),
+            # pymssql's own InterfaceError, raised when the login succeeded but the driver's
+            # post-connect `SET` batch then failed outright (see `MSSQLSource.get_retryable_errors`)
+            # — the same connection-death class as "Not connected to any MS SQL server" above.
+            pymssql.InterfaceError("Could not set connection properties"),
         ],
     )
     def test_transient_connection_errors_are_retryable(self, error):
         retryable = MSSQLSource().get_retryable_errors()
         assert any(pattern.lower() in str(error).lower() for pattern in retryable), str(error)
+
+    def test_could_not_set_connection_properties_is_not_non_retryable(self):
+        # A sync hitting this must keep retrying rather than being disabled outright: the login
+        # succeeded, so it's a connection-death blip, not a permanent config problem.
+        error_msg = "Could not set connection properties"
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert not any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -929,6 +954,22 @@ class TestMSSQLSourceValidateCredentials:
         assert error == _CONNECTION_DROPPED_ERROR
         capture.assert_not_called()
 
+    def test_could_not_set_connection_properties_names_likely_causes_without_capturing(self, source, mocker):
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
+        )
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        # pymssql raises this as an `InterfaceError`, not an `OperationalError`, when the login
+        # succeeded but the driver's post-connect `SET` batch then failed outright.
+        connection_properties_error = pymssql.InterfaceError("Could not set connection properties")
+        mocker.patch.object(source, "get_schemas", side_effect=connection_properties_error)
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error == _CONNECTION_DROPPED_ERROR
+        capture.assert_not_called()
+
     @pytest.mark.parametrize(
         ("driver_error", "expected_guidance"),
         [
@@ -964,6 +1005,12 @@ class TestRetryOnTransientConnectionError:
             20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
         )
 
+    def _not_connected(self) -> pymssql.OperationalError:
+        # pymssql wraps the InterfaceError `assert_connected` raises mid-connect (e.g. starting the
+        # implicit transaction) as an OperationalError with this prefix — same DBPROCESS-death class
+        # as `_dbprocess_dead`, surfaced through a different internal code path.
+        return pymssql.OperationalError("Cannot start transaction: Not connected to any MS SQL server")
+
     def test_does_not_retry_non_transient(self, mocker):
         sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.time.sleep")
         operation = MagicMock(side_effect=pymssql.OperationalError("Login failed for user 'reporting'."))
@@ -973,9 +1020,10 @@ class TestRetryOnTransientConnectionError:
         assert operation.call_count == 1
         sleep.assert_not_called()
 
-    def test_gives_up_after_max_attempts(self, mocker):
+    @pytest.mark.parametrize("error_factory_name", ["_dbprocess_dead", "_not_connected"])
+    def test_gives_up_after_max_attempts(self, mocker, error_factory_name):
         mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.time.sleep")
-        operation = MagicMock(side_effect=self._dbprocess_dead())
+        operation = MagicMock(side_effect=getattr(self, error_factory_name)())
 
         with pytest.raises(pymssql.OperationalError):
             retry_on_transient_connection_error(operation, max_attempts=3)
@@ -1004,7 +1052,17 @@ class TestGetSchemasDeadline:
 
 
 class TestGetSchemasRetriesTransientDrop:
-    def test_get_schemas_retries_then_recovers(self, mocker):
+    @pytest.mark.parametrize(
+        "transient_error",
+        [
+            pymssql.OperationalError(
+                20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
+            ),
+            pymssql.OperationalError("Cannot start transaction: Not connected to any MS SQL server"),
+        ],
+        ids=["dbprocess_dead", "not_connected"],
+    )
+    def test_get_schemas_retries_then_recovers(self, mocker, transient_error):
         # A transient DBPROCESS death mid-discovery must retry the whole connect-and-discover cycle
         # in-process instead of failing the activity on the first blip.
         mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.time.sleep")
@@ -1017,12 +1075,7 @@ class TestGetSchemasRetriesTransientDrop:
         get_columns = mocker.patch.object(
             MSSQLImplementation,
             "get_columns",
-            side_effect=[
-                pymssql.OperationalError(
-                    20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
-                ),
-                {},
-            ],
+            side_effect=[transient_error, {}],
         )
 
         schemas = MSSQLSource().get_schemas(_make_config(), team_id=1)

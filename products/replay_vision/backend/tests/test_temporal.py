@@ -48,8 +48,9 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
 )
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.replay_vision.backend import quota
 from products.replay_vision.backend.api.observation_progress import _ObservationState, stream_observation_progress
-from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import (
     _RELEASE_GRACE_SECONDS,
     pending_enqueue_claims_for_scanner,
@@ -74,7 +75,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     call_scanner_provider_activity,
 )
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
-from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_by_team_activity
+from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_applies
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
 from products.replay_vision.backend.temporal.activities.embed_observation import embed_observation_activity
 from products.replay_vision.backend.temporal.activities.emit_classifier_tags import emit_classifier_tags_activity
@@ -110,6 +111,7 @@ from products.replay_vision.backend.temporal.activities.upload_video_to_gemini i
     upload_video_to_gemini_activity,
 )
 from products.replay_vision.backend.temporal.errors import (
+    BILLING_SYNC_PENDING_ERROR_TYPE,
     INELIGIBLE_SESSION_ERROR_TYPE,
     SCANNER_ADMISSION_BUSY_ERROR_TYPE,
     SCANNER_FAILURE_ERROR_TYPE,
@@ -177,8 +179,10 @@ from products.replay_vision.backend.temporal.workflow import (
     _root_cause_message,
 )
 from products.replay_vision.backend.tests.helpers import (
+    TEST_FREE_CREDITS,
     seed_scanner_spend,
     snapshot_for as _snapshot_for,
+    unsynced_allowance,
 )
 from products.signals.backend.contracts import ReplayVisionScannerFindingSignalInput
 from products.signals.backend.models import SignalSourceConfig
@@ -247,9 +251,7 @@ class TestCountInFlightAppliesActivity:
         _make_observation(sibling, session_id="s4", status=ObservationStatus.PENDING)  # team only
         _make_observation(other_team_scanner, session_id="s5", status=ObservationStatus.PENDING)  # other team
 
-        result = count_in_flight_by_team_activity(
-            CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-        )
+        result = count_in_flight_applies(CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
         assert result == InFlightApplyCounts(scanner=2, team=3)
 
@@ -265,9 +267,7 @@ class TestCountInFlightAppliesActivity:
             scanner_in_flight_rows=1,
         )
 
-        result = count_in_flight_by_team_activity(
-            CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-        )
+        result = count_in_flight_applies(CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
         assert result == InFlightApplyCounts(scanner=2, team=2)
 
@@ -304,7 +304,6 @@ class TestCreateObservationActivity:
         # Without these the config-versions history can't explain a sampling- or filter-only bump.
         assert observation.scanner_snapshot["query"] == scanner.query
         assert observation.scanner_snapshot["sampling_rate"] == scanner.sampling_rate
-        assert observation.scanner_snapshot["sampling_mode"] == str(scanner.sampling_mode)
         assert observation.started_at is None  # set when transitioning to running, not here
         assert observation.completed_at is None
 
@@ -539,6 +538,50 @@ class TestCreateObservationActivity:
         )
         assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-quota").exists()
 
+    def test_retries_instead_of_skipping_while_billing_has_not_synced_the_org(self) -> None:
+        scanner = _make_scanner()
+        scanner.team.organization.usage = None
+        scanner.team.organization.save()
+
+        with patch.object(quota, "UNSYNCED_ALLOWANCE", None), pytest.raises(ApplicationError) as raised:
+            create_observation_activity(
+                CreateObservationInputs(
+                    scanner_id=scanner.id,
+                    team_id=scanner.team_id,
+                    session_id="sess-unsynced",
+                    triggered_by=ObservationTrigger.SCHEDULE,
+                    triggered_by_user_id=None,
+                    workflow_id="wf-unsynced",
+                )
+            )
+
+        assert raised.value.type == BILLING_SYNC_PENDING_ERROR_TYPE
+        assert not raised.value.non_retryable
+        assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-unsynced").exists()
+
+    def test_retry_reclaims_its_own_pending_row_while_billing_has_not_synced_the_org(self) -> None:
+        scanner = _make_scanner()
+        existing = _make_observation(
+            scanner, session_id="sess-unsynced", workflow_id="wf-unsynced", status=ObservationStatus.PENDING
+        )
+        scanner.team.organization.usage = None
+        scanner.team.organization.save()
+
+        with patch.object(quota, "UNSYNCED_ALLOWANCE", None):
+            result = create_observation_activity(
+                CreateObservationInputs(
+                    scanner_id=scanner.id,
+                    team_id=scanner.team_id,
+                    session_id="sess-unsynced",
+                    triggered_by=ObservationTrigger.SCHEDULE,
+                    triggered_by_user_id=None,
+                    workflow_id="wf-unsynced",
+                )
+            )
+
+        assert result.observation_id == existing.id
+        assert result.was_created is True
+
     def test_skips_insert_when_ai_data_processing_not_approved(self) -> None:
         scanner = _make_scanner()
         org = scanner.team.organization
@@ -563,7 +606,7 @@ class TestCreateObservationActivity:
     @parameterized.expand(
         [
             # Billing allows far more spend, so only the free credits stop the scanner.
-            ("free_credits_bind", 1_000_000, FREE_TIER_MONTHLY_CREDITS, "free_credits"),
+            ("free_credits_bind", 1_000_000, TEST_FREE_CREDITS, "free_credits"),
             # The org's own limit sits below the free credits, so it is the org that is out.
             ("org_limit_binds", 1_000, 1_000, "quota"),
         ]
@@ -574,7 +617,7 @@ class TestCreateObservationActivity:
         scanner = _make_scanner(free_only=True)
         seed_scanner_spend(_make_scanner(team=scanner.team, name="spender"), spent)
         with (
-            patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", org_limit),
+            unsynced_allowance(credit_limit=org_limit),
             patch(
                 "products.replay_vision.backend.temporal.activities.create_observation.posthoganalytics.capture"
             ) as capture,
@@ -693,7 +736,7 @@ class TestCreateObservationActivity:
         seed_scanner_spend(scanner, already_spent_credits)
 
         # This test isolates the scanner gate; keep the unsynced-org fallback quota out of the way.
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+        with unsynced_allowance(credit_limit=1_000_000):
             result = create_observation_activity(
                 CreateObservationInputs(
                     scanner_id=scanner.id,
@@ -725,7 +768,7 @@ class TestCreateObservationActivity:
         # The fast path is the point of the cache: an admission inside the TTL must not re-run
         # compute_scanner_budget, or every capped admission pays the aggregate queries again.
         scanner = _make_scanner(credit_limit=1_000)
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+        with unsynced_allowance(credit_limit=1_000_000):
             assert self._admit(scanner, "sess-cache-warmup").was_created
             with patch(
                 "products.replay_vision.backend.temporal.activities.create_observation.compute_scanner_budget",
@@ -738,7 +781,7 @@ class TestCreateObservationActivity:
         # first admission's cached spend must refuse the second, not just the next refresh.
         credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner = _make_scanner(credit_limit=credits)
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+        with unsynced_allowance(credit_limit=1_000_000):
             assert self._admit(scanner, "sess-warm-a").was_created
             assert not self._admit(scanner, "sess-warm-b").was_created
         assert ReplayObservation.objects.filter(scanner=scanner, status=ObservationStatus.PENDING).count() == 1
@@ -753,7 +796,7 @@ class TestCreateObservationActivity:
             admission_budget_refreshed_at=timezone.now(),
             admission_budget_period_start=timezone.now() - dt.timedelta(days=400),
         )
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+        with unsynced_allowance(credit_limit=1_000_000):
             assert self._admit(scanner, "sess-rollover").was_created
 
     def test_failed_insert_refunds_its_cached_admission(self) -> None:
@@ -761,7 +804,7 @@ class TestCreateObservationActivity:
         # rolled-back insert would make a cap that fits one observation refuse the retry forever.
         credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner = _make_scanner(credit_limit=credits)
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+        with unsynced_allowance(credit_limit=1_000_000):
             with (
                 patch.object(ReplayObservation.objects, "create", side_effect=RuntimeError("insert failed")),
                 pytest.raises(RuntimeError),
@@ -974,7 +1017,7 @@ class TestCreateObservationActivity:
         # Free-only scanners race for the last free credits while billing still allows far more spend.
         org_limit = credits
         if free_only:
-            seed_scanner_spend(_make_scanner(team=scanner_a.team, name="spender"), FREE_TIER_MONTHLY_CREDITS - credits)
+            seed_scanner_spend(_make_scanner(team=scanner_a.team, name="spender"), TEST_FREE_CREDITS - credits)
             org_limit = 1_000_000
         barrier = threading.Barrier(2)
         created: dict[str, bool] = {}
@@ -990,7 +1033,7 @@ class TestCreateObservationActivity:
             finally:
                 connections.close_all()
 
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", org_limit):
+        with unsynced_allowance(credit_limit=org_limit):
             threads = [
                 threading.Thread(target=admit, args=(scanner_a, "org-race-a")),
                 threading.Thread(target=admit, args=(scanner_b, "org-race-b")),
@@ -1019,9 +1062,7 @@ class TestCreateObservationActivity:
             triggered_by_user_id=None,
             workflow_id="wf-retry",
         )
-        with patch(
-            "products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000 if scanner_capped else credits
-        ):
+        with unsynced_allowance(credit_limit=1_000_000 if scanner_capped else credits):
             first_attempt = create_observation_activity(inputs)
             assert first_attempt.was_created is True
             second_attempt = create_observation_activity(inputs)

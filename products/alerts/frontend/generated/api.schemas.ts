@@ -573,6 +573,13 @@ export interface EnsembleDetectorConfigApi {
     type: EnsembleDetectorConfigApiType
 }
 
+export type LLMDetectorModelApi = (typeof LLMDetectorModelApi)[keyof typeof LLMDetectorModelApi]
+
+export const LLMDetectorModelApi = {
+    ClaudeHaiku55: 'claude-haiku-5-5',
+    Gpt6Luna: 'gpt-6-luna',
+} as const
+
 export type LLMDetectorConfigApiType = (typeof LLMDetectorConfigApiType)[keyof typeof LLMDetectorConfigApiType]
 
 export const LLMDetectorConfigApiType = {
@@ -582,7 +589,33 @@ export const LLMDetectorConfigApiType = {
 export interface LLMDetectorConfigApi {
     /** What counts as unusual or interesting for this metric, in your own words. Optional. */
     instructions?: string | null
+    /** The model that judges each check: claude-haiku-5-5 or gpt-6-luna. Optional. When it is not set, the alert uses claude-haiku-5-5. */
+    model?: LLMDetectorModelApi | null
     type: LLMDetectorConfigApiType
+}
+
+export interface ForecastSideRuleApi {
+    /** The value is at least this far from the expected value, in the series' units */
+    min_absolute_change?: number | null
+    /** The value is at least this fraction away from the expected value. 1 = 100% */
+    min_relative_change?: number | null
+    /** The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05. */
+    quantile?: number | null
+}
+
+export type ForecastDetectorConfigApiType =
+    (typeof ForecastDetectorConfigApiType)[keyof typeof ForecastDetectorConfigApiType]
+
+export const ForecastDetectorConfigApiType = {
+    Forecast: 'forecast',
+} as const
+
+export interface ForecastDetectorConfigApi {
+    /** Rule for a value higher than expected. Omit to ignore that side. */
+    above?: ForecastSideRuleApi | null
+    /** Rule for a value lower than expected. Omit to ignore that side. */
+    below?: ForecastSideRuleApi | null
+    type: ForecastDetectorConfigApiType
 }
 
 /**
@@ -603,6 +636,7 @@ export type DetectorConfigApi =
     | OCSVMDetectorConfigApi
     | PCADetectorConfigApi
     | LLMDetectorConfigApi
+    | ForecastDetectorConfigApi
 
 /**
  * * `real_time` - real_time
@@ -865,6 +899,7 @@ export interface PatchedAlertApi {
  * * `webhook` - Webhook
  * * `teams` - Microsoft Teams
  * * `pagerduty` - PagerDuty
+ * * `incident_io` - incident.io
  * * `email` - Email
  * * `in_app` - In-app notification
  */
@@ -876,6 +911,7 @@ export const DestinationTypeEnumApi = {
     Webhook: 'webhook',
     Teams: 'teams',
     Pagerduty: 'pagerduty',
+    IncidentIo: 'incident_io',
     Email: 'email',
     InApp: 'in_app',
 } as const
@@ -921,6 +957,7 @@ export interface AlertDestinationListItemApi {
      * * `webhook` - Webhook
      * * `teams` - Microsoft Teams
      * * `pagerduty` - PagerDuty
+     * * `incident_io` - incident.io
      * * `email` - Email
      * * `in_app` - In-app notification */
     type: DestinationTypeEnumApi
@@ -981,6 +1018,19 @@ export interface AlertDestinationResponseApi {
     hog_function_ids: string[]
 }
 
+export interface AlertCustomizeDestinationApi {
+    /**
+     * The destination's `id` from the destinations list. Use it for a destination with no HogFunctions.
+     * @nullable
+     */
+    destination_id?: string | null
+    /**
+     * The destination's `hog_function_ids` from the destinations list, when it has HogFunctions.
+     * @maxItems 100
+     */
+    hog_function_ids?: string[]
+}
+
 export interface AlertDeleteDestinationApi {
     /**
      * HogFunction IDs of the destination, as returned when it was created.
@@ -1011,6 +1061,20 @@ export interface AlertCreatePagerDutyDestinationApi {
     pagerduty_region?: PagerDutyRegionEnumApi
 }
 
+export interface AlertResetDestinationApi {
+    /**
+     * Every HogFunction of the customized destination, from the destinations list.
+     * @minItems 1
+     * @maxItems 100
+     */
+    hog_function_ids: string[]
+}
+
+export interface AlertResetDestinationResponseApi {
+    /** The destination's new ID on the alerts platform, which now sends it. */
+    id: string
+}
+
 /**
  * * `discord` - discord
  * * `teams` - teams
@@ -1034,6 +1098,11 @@ export interface AlertCreateUrlDestinationApi {
     type: AlertCreateUrlDestinationTypeEnumApi
     /** The https URL to send to. Its path and query are a credential, so reads show only the host. */
     webhook_url: string
+}
+
+export interface AlertTransferOwnershipApi {
+    /** New owner's user UUID. Must be an active organization member. Defaults to yourself. */
+    user_uuid?: string
 }
 
 /**
@@ -1091,6 +1160,32 @@ export interface AlertSimulateApi {
 
 export type AlertSimulateResponseApiSubDetectorScoresItem = { [key: string]: unknown }
 
+/**
+ * * `above` - Above the forecast
+ * * `below` - Below the forecast
+ */
+export type ForecastSideEnumApi = (typeof ForecastSideEnumApi)[keyof typeof ForecastSideEnumApi]
+
+export const ForecastSideEnumApi = {
+    Above: 'above',
+    Below: 'below',
+} as const
+
+export interface ForecastSimulationApi {
+    /** Forecast quantile that `lower` holds, for example 0.05. */
+    lower_quantile: number
+    /** Forecast quantile that `upper` holds, for example 0.95. */
+    upper_quantile: number
+    /** Expected value (the 0.5 forecast quantile) for each point. Null for a point that was not scored: it has fewer than 30 points before it, or it is older than the points the preview scores. */
+    expected: (number | null)[]
+    /** Lower end of the forecast range for each point, at `lower_quantile`. Null for an unscored point. */
+    lower: (number | null)[]
+    /** Upper end of the forecast range for each point, at `upper_quantile`. Null for an unscored point. */
+    upper: (number | null)[]
+    /** Side of the forecast that fired for each point: 'above' or 'below'. Null when the point did not fire or was not scored. */
+    fired_side: (ForecastSideEnumApi | null)[]
+}
+
 export type BreakdownSimulationResultApiSubDetectorScoresItem = { [key: string]: unknown }
 
 export interface BreakdownSimulationResultApi {
@@ -1112,6 +1207,8 @@ export interface BreakdownSimulationResultApi {
     anomaly_count: number
     /** Per-sub-detector scores for ensemble detectors. */
     sub_detector_scores?: BreakdownSimulationResultApiSubDetectorScoresItem[]
+    /** Forecast detector only: the one-step forecast of each point, for drawing the expected range. */
+    forecast?: ForecastSimulationApi
 }
 
 export interface AlertSimulateResponseApi {
@@ -1127,7 +1224,7 @@ export interface AlertSimulateResponseApi {
     data: number[]
     /** Date labels for each point. */
     dates: string[]
-    /** Score for each point. Null can mean insufficient data or a valid unscored point. The AI detector has no score, so every point is null in an AI preview. */
+    /** Score for each point. Null can mean insufficient data or a valid unscored point. The AI and forecast detectors have no score, so every point is null in their previews. */
     scores: (number | null)[]
     /** Indices of points flagged as anomalies. */
     triggered_indices: number[]
@@ -1144,6 +1241,8 @@ export interface AlertSimulateResponseApi {
     anomaly_count: number
     /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
     sub_detector_scores?: AlertSimulateResponseApiSubDetectorScoresItem[]
+    /** Forecast detector only: the one-step forecast of each point, for drawing the expected range. */
+    forecast?: ForecastSimulationApi
     /** AI detector only: the model's reason for its verdict on the latest point. */
     rationale?: string
     /**

@@ -28,6 +28,7 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
+from products.experiments.backend.hogql_queries.metric_events_precompute import MetricEventsPrecompute
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 
 
@@ -139,6 +140,107 @@ class TestExperimentMeanMetricEventsPreaggregation(ExperimentQueryRunnerBaseTest
         assert (
             precomputed_result.variant_results[0].number_of_samples
             == direct_result.variant_results[0].number_of_samples
+        )
+
+    def test_cuped_mean_metric_reads_covariate_from_precomputed_metric_events(self):
+        feature_flag = self.create_feature_flag(key="mean-metric-events-cuped")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 10),
+            end_date=datetime(2024, 1, 20),
+        )
+        experiment.stats_config = {"method": "frequentist", "cuped": {"enabled": True, "lookback_days": 7}}
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount")
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # The purchase before the experiment start is the covariate. Only a build that also
+        # covers the lookback window can serve it from the precomputed table.
+        for variant in ("control", "test"):
+            for i in range(3):
+                distinct_id = f"{variant}_{i}"
+                _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=distinct_id,
+                    timestamp=datetime(2024, 1, 6, 12, 0, tzinfo=UTC),
+                    properties={"amount": 5 * (i + 1)},
+                )
+                self._create_exposure_event(
+                    distinct_id, feature_flag, variant, datetime(2024, 1, 11, 12, 0, tzinfo=UTC)
+                )
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=distinct_id,
+                    timestamp=datetime(2024, 1, 12, 12, 0, tzinfo=UTC),
+                    properties={"amount": 10 * (i + 1)},
+                )
+
+        self._disable_precomputation()
+        direct_result = cast(ExperimentQueryResponse, self._build_runner(experiment, metric).calculate())
+
+        self._enable_precomputation()
+        precomputed_runner = self._build_runner(experiment, metric)
+        precomputed_result = cast(ExperimentQueryResponse, precomputed_runner.calculate())
+        assert precomputed_runner._metric_events_precomputed is True
+        assert precomputed_runner.metric_events_path == "precomputed"
+
+        assert direct_result.baseline is not None and direct_result.variant_results is not None
+        assert precomputed_result.baseline is not None and precomputed_result.variant_results is not None
+        assert direct_result.baseline.covariate_sum == 5 + 10 + 15
+        for direct, precomputed in zip(
+            [direct_result.baseline, *direct_result.variant_results],
+            [precomputed_result.baseline, *precomputed_result.variant_results],
+        ):
+            assert precomputed.key == direct.key
+            assert precomputed.number_of_samples == direct.number_of_samples
+            assert precomputed.sum == direct.sum
+            assert precomputed.covariate_sum == direct.covariate_sum
+            assert precomputed.covariate_sum_squares == direct.covariate_sum_squares
+            assert precomputed.covariate_sum_product == direct.covariate_sum_product
+
+    @parameterized.expand([("flag_on", True, None), ("flag_off", False, "cuped")])
+    def test_cuped_metric_events_precompute_gate(self, _name, flag_enabled, skip_reason):
+        feature_flag = self.create_feature_flag(key="mean-metric-events-cuped-gate")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 10),
+        )
+        experiment.stats_config = {"method": "frequentist", "cuped": {"enabled": True}}
+        experiment.save()
+        runner = self._build_runner(experiment, ExperimentMeanMetric(source=EventsNode(event="purchase")))
+
+        with patch.object(MetricEventsPrecompute, "cuped_flag_enabled", return_value=flag_enabled):
+            assert runner._metric_events_ineligibility_reason() == skip_reason
+            assert runner._metric_events_precompute_applicable() is (skip_reason is None)
+
+    @patch("products.experiments.backend.hogql_queries.metric_events_precompute.ensure_precomputed")
+    def test_cuped_build_counts_lookback_in_calendar_days_of_project_timezone(self, mock_ensure_precomputed):
+        self.team.timezone = "America/New_York"
+        self.team.save()
+        feature_flag = self.create_feature_flag(key="mean-metric-events-cuped-dst")
+        # The experiment starts the day after the 2024 fall-back, so seven calendar days earlier in
+        # New York is 169 hours earlier in UTC. The write query subtracts calendar days too, and a
+        # build that started an hour later would never store the first hour the read asks for.
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 11, 4, 0, 30),
+            end_date=datetime(2024, 11, 20),
+        )
+        experiment.stats_config = {"method": "frequentist", "cuped": {"enabled": True, "lookback_days": 7}}
+        experiment.save()
+        metric = ExperimentMeanMetric(source=EventsNode(event="purchase"))
+
+        runner = self._build_runner(experiment, metric)
+        runner._ensure_metric_events_precomputed(runner._query_builder())
+
+        assert mock_ensure_precomputed.call_args.kwargs["time_range_start"] == datetime(
+            2024, 10, 27, 23, 30, tzinfo=UTC
         )
 
     @patch("products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute")

@@ -14,7 +14,7 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.models import User
 
-from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.skills.backend.api.metrics import skills_track_latency
 
 from ..marketplace.packaging import frontmatter_document, render_skill_md
 from ..models.skills import LLMSkill
@@ -65,7 +65,7 @@ class SkillVersionActionsMixin(SkillAccessMixin):
         responses={200: LLMSkillSerializer},
     )
     @action(methods=["GET"], detail=False, url_path=r"name/(?P<skill_name>[^/]+)")
-    @llma_track_latency("llma_skills_get_by_name")
+    @skills_track_latency("llma_skills_get_by_name")
     @monitor(feature=None, endpoint="llma_skills_get_by_name", method="GET")
     def get_by_name(self, request: Request, skill_name: str = "", **kwargs) -> Response:
         version_params = self._validated_query(LLMSkillBodyFetchQuerySerializer, request)
@@ -108,7 +108,7 @@ class SkillVersionActionsMixin(SkillAccessMixin):
 
     @extend_schema(request=LLMSkillPublishSerializer, responses={200: LLMSkillSerializer})
     @get_by_name.mapping.patch
-    @llma_track_latency("llma_skills_publish_by_name")
+    @skills_track_latency("llma_skills_publish_by_name")
     @monitor(feature=None, endpoint="llma_skills_publish_by_name", method="PATCH")
     def update_by_name(self, request: Request, skill_name: str = "", **kwargs) -> Response:
         guard_error = self._guard_write(request, skill_name)
@@ -249,7 +249,7 @@ class SkillVersionActionsMixin(SkillAccessMixin):
         url_path=r"resolve/name/(?P<skill_name>[^/]+)",
         required_scopes=["llm_skill:read"],
     )
-    @llma_track_latency("llma_skills_resolve_by_name")
+    @skills_track_latency("llma_skills_resolve_by_name")
     @monitor(feature=None, endpoint="llma_skills_resolve_by_name", method="GET")
     def resolve_by_name(self, request: Request, skill_name: str = "", **kwargs) -> Response:
         auth_error = self._ensure_web_authenticated(request)
@@ -298,7 +298,7 @@ class SkillVersionActionsMixin(SkillAccessMixin):
         url_path=r"name/(?P<skill_name>[^/]+)/skill-md",
         required_scopes=["llm_skill:read"],
     )
-    @llma_track_latency("llma_skills_skill_md")
+    @skills_track_latency("llma_skills_skill_md")
     @monitor(feature=None, endpoint="llma_skills_skill_md", method="GET")
     def skill_md(self, request: Request, skill_name: str = "", **kwargs) -> Response:
         """The rendered SKILL.md plus its frontmatter as JSON, for a host that serves the file.
@@ -334,7 +334,7 @@ class SkillVersionActionsMixin(SkillAccessMixin):
         url_path=r"name/(?P<skill_name>[^/]+)/manifest",
         required_scopes=["llm_skill:read"],
     )
-    @llma_track_latency("llma_skills_manifest")
+    @skills_track_latency("llma_skills_manifest")
     @monitor(feature=None, endpoint="llma_skills_manifest", method="GET")
     def manifest(self, request: Request, skill_name: str = "", **kwargs) -> Response:
         """Every file of one skill with the digest and size of the bytes the store serves for it.

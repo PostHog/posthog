@@ -1,7 +1,12 @@
 from dataclasses import dataclass, field
 from datetime import timedelta
 
-from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, incremental_field
+from products.warehouse_sources.sources.sdk import (
+    DependentEndpointConfig,
+    IncrementalField,
+    ResponseAction,
+    incremental_field,
+)
 
 YOCO_BASE_URL = "https://api.yoco.com"
 
@@ -29,6 +34,9 @@ ENDPOINT_SCOPES: dict[str, str] = {
     "locations": "business/locations:read",
     "staff": "business/staff:read",
     "card_machines": "business/devices:read",
+    "taxes": "business/catalogue:read",
+    "active_capital_advances": "business/capital_advances:read",
+    "active_capital_offers": "business/capital_offers:read",
 }
 
 
@@ -44,6 +52,9 @@ class YocoEndpointConfig:
     default_incremental_field: str | None = None
     partition_key: str | None = None
     page_size: int = DEFAULT_PAGE_SIZE
+    # The Capital endpoints return every active record in one response and take no cursor.
+    paginated: bool = True
+    response_actions: list[ResponseAction] = field(default_factory=list)
     fanout: DependentEndpointConfig | None = None
 
 
@@ -167,6 +178,31 @@ YOCO_ENDPOINTS: dict[str, YocoEndpointConfig] = {
         incremental_fields=_created_and_updated(),
         default_incremental_field="updated_at",
         partition_key="created_at",
+    ),
+    "taxes": YocoEndpointConfig(
+        name="taxes",
+        path="/v1/taxes/",
+        primary_key=["id"],
+        # The endpoint takes no date filters, so full refresh only.
+        partition_key="created_at",
+    ),
+    # The Capital endpoints list active records only, so each sync replaces the table with a
+    # snapshot: an advance that is repaid or an offer that expires drops out of it.
+    "active_capital_advances": YocoEndpointConfig(
+        name="active_capital_advances",
+        path="/v1/capital/active_advances",
+        primary_key=["id"],
+        partition_key="created_at",
+        paginated=False,
+        # Yoco documents a 404 here for a business that has no Capital advance to report.
+        response_actions=[{"status_code": 404, "action": "ignore"}],
+    ),
+    "active_capital_offers": YocoEndpointConfig(
+        name="active_capital_offers",
+        path="/v1/capital/active_offers",
+        primary_key=["id"],
+        partition_key="created_at",
+        paginated=False,
     ),
 }
 

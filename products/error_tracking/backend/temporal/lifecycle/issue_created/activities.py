@@ -27,7 +27,7 @@ from posthog.temporal.common.worker import DEFAULT_MAX_CONCURRENT_TASKS
 
 from products.error_tracking.backend.logic.severity_inference import (
     apply_inferred_severity,
-    build_severity_state,
+    build_exception_state,
     infer_severity,
     severity_inference_enabled,
 )
@@ -214,7 +214,7 @@ def _severity_state(inputs: IssueCreatedWorkflowInputs) -> str | SeverityInferen
     stacktrace = render_stacktrace(event_properties, SEVERITY_INFERENCE_MAX_TOKENS)
     if not stacktrace:
         return SeverityInferenceSkipReason.NO_EXCEPTION
-    return build_severity_state(stacktrace, event_properties)
+    return build_exception_state(stacktrace, event_properties)
 
 
 def _decision_error_skip_reason(inputs: IssueCreatedWorkflowInputs, error: Exception) -> SeverityInferenceSkipReason:

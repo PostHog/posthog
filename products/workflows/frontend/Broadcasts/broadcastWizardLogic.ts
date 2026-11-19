@@ -376,7 +376,7 @@ function changedElsewhere<T>(latest: HogFlowApi, base: HogFlowApi | null, read: 
     return !base || !objectsEqual(read(latest), read(base))
 }
 
-export type BroadcastSummaryTab = 'overview' | 'content' | 'runs'
+export type BroadcastSummaryTab = 'overview' | 'content' | 'runs' | 'history'
 
 /** About how long `remaining` emails take at `limit`. Empty when nothing is left or no limit applies. */
 export function remainingSendDuration(remaining: number | null, limit: HogFlowEmailSendingRateLimitApi | null): string {
@@ -2476,10 +2476,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     actions.saveBroadcastFinished(saved)
 
                     // A fresh audience preview mints the confirm token the batch dispatch expects.
-                    const blastRadius = await hogFlowsUserBlastRadiusCreate(
-                        projectId,
-                        audiencePreviewRequest(values.audienceProperties, values.channel, values.emailRateLimit)
-                    )
+                    const blastRadius = await hogFlowsUserBlastRadiusCreate(projectId, {
+                        ...audiencePreviewRequest(values.audienceProperties, values.channel, values.emailRateLimit),
+                        refresh: true,
+                    })
 
                     // The resolver silently caps the batch at this limit, so dispatching an audience over
                     // it would confirm N recipients and deliver to the first slice. Stop at the step that
@@ -2854,6 +2854,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
 
     afterMount(({ actions, props, values, cache }) => {
         if (props.id !== 'new') {
+            // A copied activity link only adds `?activity=`, and the summary tab isn't in the URL, so the
+            // entry it points at would sit on a hidden tab.
+            if (router.values.searchParams.activity) {
+                actions.setSummaryTab('history')
+            }
             actions.loadBroadcast()
             return
         }

@@ -7,11 +7,12 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import type { TileGroupDisplay } from '~/types'
 
 import { type DashboardSection, getTileGroupLabel } from '../../dashboardTileSections'
-import { DashboardTileGroupContextMenu } from './DashboardTileGroupContextMenu'
 import { DashboardTileGroupEmptyTab } from './DashboardTileGroupEmptyTab'
-import { DashboardTileGroupMenu } from './DashboardTileGroupMenu'
 import { type DashboardTileGroupMenuActions, hasTileGroupMenuActions } from './DashboardTileGroupMenuOverlay'
+import { DashboardTileGroupMoveButtons, type TileGroupMoveActions } from './DashboardTileGroupMoveButtons'
 import { DashboardTileGroupTitleInput } from './DashboardTileGroupTitleInput'
+import { QuillDashboardTileGroupContextMenu } from './QuillDashboardTileGroupContextMenu'
+import { QuillDashboardTileGroupMenu } from './QuillDashboardTileGroupMenu'
 import { TileGroupColorDot } from './TileGroupColorDot'
 
 interface DashboardTileGroupTabsProps {
@@ -21,6 +22,7 @@ interface DashboardTileGroupTabsProps {
     onRenameGroup?: (groupKey: string, title: string) => void
     renamingGroupKey?: string | null
     onRenamingGroupKeyChange?: (groupKey: string | null) => void
+    getMoveActions?: (groupKey: string) => TileGroupMoveActions | undefined
     onRemoveGroup?: (groupKey: string) => void
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyGroupToDashboard?: (groupKey: string, dashboardId: number, dashboardName: string) => void
@@ -39,6 +41,7 @@ export function DashboardTileGroupTabs({
     onRenameGroup,
     renamingGroupKey = null,
     onRenamingGroupKeyChange,
+    getMoveActions,
     onRemoveGroup,
     copyToDestinations,
     onCopyGroupToDashboard,
@@ -50,6 +53,8 @@ export function DashboardTileGroupTabs({
     children,
 }: DashboardTileGroupTabsProps): JSX.Element {
     const activeSection = sections.find((section) => section.key === activeSectionKey)
+    // Next to group tabs, "Overview" can repeat a group's own title, so the tab of tiles outside any group is "Other".
+    const ungroupedTabLabel = sections.some((section) => section.kind === 'group') ? 'Other' : 'Overview'
 
     const getMenuActions = (section: DashboardSection | undefined): DashboardTileGroupMenuActions => {
         if (section?.kind !== 'group') {
@@ -74,6 +79,7 @@ export function DashboardTileGroupTabs({
     }
 
     const activeMenuActions = getMenuActions(activeSection)
+    const activeMoveActions = activeSection?.kind === 'group' ? getMoveActions?.(activeSection.groupKey) : undefined
 
     return (
         <Tabs
@@ -81,7 +87,7 @@ export function DashboardTileGroupTabs({
             onValueChange={(value) => onSelect(String(value))}
             render={<section data-attr="dashboard-tile-group-tabs" />}
         >
-            <div className="flex items-center gap-1 border-b">
+            <div className="group/tile-group-tabs flex items-center gap-1 border-b">
                 <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
                     <TabsList variant="line">
                         {sections.map((section) =>
@@ -103,7 +109,7 @@ export function DashboardTileGroupTabs({
                             ) : (
                                 <TabsTrigger key={section.key} value={section.key} className="flex-none">
                                     {section.kind === 'group' ? (
-                                        <DashboardTileGroupContextMenu
+                                        <QuillDashboardTileGroupContextMenu
                                             className="flex items-center gap-2"
                                             onDoubleClick={
                                                 onRenameGroup && onRenamingGroupKeyChange
@@ -119,9 +125,9 @@ export function DashboardTileGroupTabs({
                                                     {getTileGroupLabel(section.group, section.tiles.length)}
                                                 </span>
                                             </Tooltip>
-                                        </DashboardTileGroupContextMenu>
+                                        </QuillDashboardTileGroupContextMenu>
                                     ) : (
-                                        'Overview'
+                                        ungroupedTabLabel
                                     )}
                                 </TabsTrigger>
                             )
@@ -139,9 +145,19 @@ export function DashboardTileGroupTabs({
                         </Button>
                     )}
                 </div>
-                {hasTileGroupMenuActions(activeMenuActions) && (
-                    <div className="ml-auto shrink-0">
-                        <DashboardTileGroupMenu {...activeMenuActions} />
+                {(activeMoveActions || hasTileGroupMenuActions(activeMenuActions)) && (
+                    <div className="ml-auto flex shrink-0 items-center gap-1">
+                        {activeMoveActions && activeSection?.kind === 'group' && (
+                            <DashboardTileGroupMoveButtons
+                                groupDisplay="tabs"
+                                moveActions={activeMoveActions}
+                                groupHasTiles={activeSection.tiles.length > 0}
+                                className="opacity-0 transition-opacity focus-within:opacity-100 group-hover/tile-group-tabs:opacity-100 motion-reduce:transition-none"
+                            />
+                        )}
+                        {hasTileGroupMenuActions(activeMenuActions) && (
+                            <QuillDashboardTileGroupMenu {...activeMenuActions} />
+                        )}
                     </div>
                 )}
             </div>

@@ -33,6 +33,12 @@ export interface AlertDestinationsApi {
     list: (projectId: string, alertId: string) => Promise<AlertDestinationEntry[]>
     create: (projectId: string, alertId: string, destination: PlatformAlertCreateDestinationApi) => Promise<unknown>
     remove: (projectId: string, alertId: string, destination: AlertDestinationEntry) => Promise<unknown>
+    /** Moves a stock destination onto HogFunctions whose message can be edited, and returns their ids. */
+    customize?: (projectId: string, alertId: string, destination: AlertDestinationEntry) => Promise<string[]>
+    /** Retires a customized destination's HogFunctions so it sends the standard message again. */
+    reset?: (projectId: string, alertId: string, destination: AlertDestinationEntry) => Promise<unknown>
+    /** Where a person edits the message of the HogFunctions `customize` returned. */
+    messageEditorUrl?: (alertId: string, hogFunctionIds: string[]) => string
 }
 
 export const PLATFORM_DESTINATIONS_API: AlertDestinationsApi = {

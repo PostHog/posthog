@@ -53,7 +53,6 @@ from products.replay_vision.backend.temporal.constants import (
     PRIMING_MAX_EXECUTION_SECONDS,
     PRIMING_SCAN_SESSIONS,
 )
-from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import (
     record_candidate_page_full,
     record_deep_candidates,
@@ -106,8 +105,8 @@ def _experiment_lifecycle_block(scanner: ReplayScanner) -> _LifecycleBlock | Non
     """
     if scanner.scanner_type != ScannerType.EXPERIMENT:
         return None
-    scope = scanner.experiment_scope()
-    experiment_id = (scope or {}).get("experiment_id")
+    experiment_scope = scanner.experiment_scope()
+    experiment_id = (experiment_scope or {}).get("experiment_id")
     if experiment_id is None:
         return None
     # Deferred: the experiments replay facade pulls in the recordings query modules, which circle
@@ -177,12 +176,6 @@ def _turn_off_unrunnable_scanner(scanner: ReplayScanner, reason: ScannerDisabled
     record_sweep_outcome(reason)
     activity.logger.info("replay_vision.sweep.disabled_unrunnable_scanner scanner_id=%s reason=%s", scanner.id, reason)
     return FindScannerCandidatesOutput(candidates=[], saturated=False)
-
-
-@activity.defn
-@track_activity()
-def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> FindScannerCandidatesOutput:
-    return find_scanner_candidates(inputs)
 
 
 def find_scanner_candidates(inputs: FindScannerCandidatesInputs) -> FindScannerCandidatesOutput:
@@ -275,7 +268,6 @@ def find_scanner_candidates(inputs: FindScannerCandidatesInputs) -> FindScannerC
         last_swept_at=scanner.last_swept_at,
         sampling_rate=scanner.sampling_rate,
         sampling_salt=str(scanner.id),
-        sampling_mode=scanner.sampling_mode,
         last_seen_session_id=scanner.last_seen_session_id or None,
         candidate_limit=limit,
         events_lookback=SWEEP_EVENTS_LOOKBACK,
@@ -412,8 +404,7 @@ _DEEP_SWEEP_MAX_EXCLUSIONS = 20_000
 def _priming_pass(scanner: ReplayScanner, query: RecordingsQuery, limit: int) -> list[CandidateSession]:
     """A few of the freshest already-settled recordings from before the fast walk's range.
 
-    Ignores the scanner's sampling rate (priming exists to produce examples now) but keeps its
-    sampling mode, so a surfacing-scored scanner still primes on the sessions it would surface.
+    Ignores the scanner's sampling rate, since priming exists to produce examples now.
     Never raises: priming is advisory and must not fail the tick that carries the real sweep.
     """
     window_start = timezone.now() - PRIMING_LOOKBACK
@@ -430,7 +421,6 @@ def _priming_pass(scanner: ReplayScanner, query: RecordingsQuery, limit: int) ->
             query_type="ReplayVisionPrimingCandidateQuery",
             sampling_rate=1.0,
             sampling_salt=str(scanner.id),
-            sampling_mode=scanner.sampling_mode,
             candidate_limit=limit,
             max_execution_time_seconds=PRIMING_MAX_EXECUTION_SECONDS,
             scanner_id=str(scanner.id),
@@ -533,7 +523,6 @@ def _deep_sweep(
         query_type=DEEP_SWEEP_CANDIDATE_QUERY_TYPE,
         sampling_rate=scanner.sampling_rate,
         sampling_salt=str(scanner.id),
-        sampling_mode=scanner.sampling_mode,
         exclude_session_ids=observed_session_ids,
         candidate_limit=limit,
         max_execution_time_seconds=budget,
