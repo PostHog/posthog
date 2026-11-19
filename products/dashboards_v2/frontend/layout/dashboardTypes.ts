@@ -10,18 +10,18 @@ export const GRID = {
 } as const
 
 /** Space between tiles, across and down. The names and sizes match the tile density of v1 dashboards. */
-export type TileSpacing = 'tight' | 'condensed' | 'standard'
+export type TileSpacing = 'tight' | 'compact' | 'standard'
 
-export const TILE_SPACING_GAP_PX: Record<TileSpacing, number> = { tight: 8, condensed: 12, standard: 16 }
+export const TILE_SPACING_GAP_PX: Record<TileSpacing, number> = { tight: 8, compact: 12, standard: 16 }
 
 export const TILE_SPACING_LABELS: Record<TileSpacing, string> = {
     tight: 'Tight',
-    condensed: 'Compact',
+    compact: 'Compact',
     standard: 'Standard',
 }
 
 export function gapPxOf(dashboard: Dashboard): number {
-    return TILE_SPACING_GAP_PX[dashboard.appearance?.tileSpacing ?? 'standard']
+    return TILE_SPACING_GAP_PX[dashboard.appearance?.tileSpacing ?? 'compact']
 }
 
 export function columnWidthPx(width: number, cols: number, gapPx: number): number {

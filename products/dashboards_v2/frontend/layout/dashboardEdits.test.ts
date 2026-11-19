@@ -147,10 +147,10 @@ describe('dashboardEdits', () => {
 
         expect(tight.appearance).toEqual({ tileSpacing: 'tight' })
         expect(gapPxOf(tight)).toBe(8)
-        expect(gapPxOf(board)).toBe(16)
+        expect(gapPxOf(board)).toBe(12)
     })
 
-    it('gives a tile with a header and footer one more row when tight spacing would clip it', () => {
+    it('shows a tile one row taller at tight spacing without saving the taller height', () => {
         const revenue: Tile = {
             id: 'revenue',
             place: { x: 0, y: 0, w: 6, h: 3 },
@@ -158,9 +158,9 @@ describe('dashboardEdits', () => {
         }
         const board = dashboard([revenue])
 
-        expect(allPlaces(board)).toEqual(['revenue@first: 0,0,6,3'])
-        expect(allPlaces(applyEdit(board, { edit: 'setAppearance', patch: { tileSpacing: 'tight' } }))).toEqual([
-            'revenue@first: 0,0,6,4',
-        ])
+        const tight = applyEdit(board, { edit: 'setAppearance', patch: { tileSpacing: 'tight' } })
+
+        expect(allPlaces(withFolds(tight, {}))).toEqual(['revenue@first: 0,0,6,4'])
+        expect(allPlaces(tight)).toEqual(['revenue@first: 0,0,6,3'])
     })
 })
