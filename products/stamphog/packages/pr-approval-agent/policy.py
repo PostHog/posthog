@@ -458,6 +458,37 @@ def _parse_deny(raw: Any, lockfile_names: Iterable[str]) -> dict[str, DenyCatego
     return deny
 
 
+def compile_deny_pattern(p: str, *, for_paths: bool) -> re.Pattern[str]:
+    r"""Compile a single deny pattern into a case-insensitive regex.
+
+    Patterns containing path separators (/) or starting with a dot are
+    treated as literal path fragments — no boundaries added.
+
+    For other patterns, boundary matching depends on context:
+    - Title matching uses \b (standard word boundaries — underscore is
+      a word char, which is correct for natural-language titles).
+    - Path matching uses a looser boundary that also breaks on _ and -,
+      since file paths use those as separators. This ensures "secret"
+      matches "secret_key_store.py" but not "nosecrets.py".
+    """
+    if "/" in p or p.startswith(r"\."):
+        return re.compile(rf"(?i){p}")
+    if for_paths:
+        # Break on non-alphanumeric (including _ and -) or string edges
+        return re.compile(rf"(?i)(?<![a-zA-Z0-9]){p}(?![a-zA-Z0-9])")
+    return re.compile(rf"(?i)\b{p}\b")
+
+
+def _self_governed(path: str, deny: Mapping[str, DenyCategory]) -> bool:
+    """True when a `stamphog_policy` path pattern denies every edit to `path`, the way the gate matches it.
+
+    `edit_paths` patterns do not count, because an edit that only adds lines passes them.
+    """
+    scopes = deny["stamphog_policy"].match
+    patterns = scopes.get("paths", ()) + scopes.get("any", ())
+    return any(compile_deny_pattern(pattern, for_paths=True).search(path.lower()) for pattern in patterns)
+
+
 def _parse_attestations(raw: Any, deny: Mapping[str, DenyCategory]) -> tuple[Attestation, ...]:
     _require(isinstance(raw, list), "attestations: must be a list")
     attestations: list[Attestation] = []
@@ -501,6 +532,12 @@ def _parse_attestations(raw: Any, deny: Mapping[str, DenyCategory]) -> tuple[Att
             _require(
                 isinstance(issuer, str) and is_issuer_path(issuer),
                 f"{context}.issuer: must be a plain .yml or .yaml path outside the engine directories",
+            )
+            # The manifest decides what a proof must pin, as a `publisher_files` list in the policy
+            # does, so an edit to it needs the same human review as an edit to the policy.
+            _require(
+                _self_governed(issuer, deny),
+                f"{context}.issuer: {issuer!r} must match a deny.stamphog_policy path pattern",
             )
         title = entry.get("title", "")
         if "title" in entry:

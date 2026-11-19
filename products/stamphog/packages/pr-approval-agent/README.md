@@ -406,6 +406,7 @@ An entry may also say what the publisher runs from, in one of two ways, never bo
 `issuer` names a manifest the publisher owns, such as `tools/change-prover/issuer.yml`, whose single `paths` key lists the default-branch paths it runs from.
 A path that ends in `/` is a directory, pinned by its git tree id, and any other path is a file, pinned by its blob id.
 The manifest must cover itself, hold at most 32 unique plain paths, and stay under 16 KiB. A missing or invalid manifest makes the entry lift nothing.
+The manifest path must match a `stamphog_policy` path pattern, or the policy fails to load, because the manifest decides what a proof pins.
 `publisher_files` lists those paths in the policy itself instead.
 The check embeds the files it vouches for in a `<!-- stamphog:v1 ... -->` marker in its summary.
 The engine lifts only the listed files that are in the diff and match the entry's paths, by exact path, and only for the entry's categories.
