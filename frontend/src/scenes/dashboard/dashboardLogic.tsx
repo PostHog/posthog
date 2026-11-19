@@ -295,11 +295,7 @@ const QUERY_SHARING_STREAM_WORKERS = 4
 const LAYOUT_UNDO_LIMIT = 20
 
 // Placements that show the dashboard's editing controls.
-const EDITABLE_PLACEMENTS = [
-    DashboardPlacement.Dashboard,
-    DashboardPlacement.ProjectHomepage,
-    DashboardPlacement.Builtin,
-]
+const EDITABLE_PLACEMENTS = [DashboardPlacement.Dashboard, DashboardPlacement.Builtin]
 
 /** `deferred` means a tab switch stopped the load, and the tile waits for its tab to open again. */
 type InsightTileRefreshOutcome = 'refreshed' | 'cached' | 'errored' | 'aborted' | 'deferred'
@@ -957,6 +953,7 @@ export interface dashboardLogicValues {
     insightTiles: DashboardTile[]
     isEditablePlacement: boolean
     isPinned: boolean
+    isPreview: boolean
     isRefreshing: (id: string) => boolean
     isRefreshingQueued: (id: string) => boolean
     isSavingTags: boolean
@@ -2063,6 +2060,7 @@ export interface dashboardLogicMeta {
         asDashboardTemplate: (dashboard: DashboardType | null) => DashboardTemplateEditorType | undefined
         placement: (arg: any) => DashboardPlacement
         readOnly: (arg: any) => boolean
+        isPreview: (placement: DashboardPlacement) => boolean
         isEditablePlacement: (placement: DashboardPlacement, readOnly: boolean) => boolean
         apiUrl: (
             id: number
@@ -4398,6 +4396,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (placement): DashboardPlacement => placement || DashboardPlacement.Dashboard,
         ],
         readOnly: [() => [(_, props) => props.readOnly], (readOnly: boolean | undefined): boolean => !!readOnly],
+        isPreview: [
+            (s) => [s.placement],
+            (placement: DashboardPlacement): boolean => placement === DashboardPlacement.ProjectHomepage,
+        ],
         isEditablePlacement: [
             (s) => [s.placement, s.readOnly],
             (placement: DashboardPlacement, readOnly: boolean): boolean =>
