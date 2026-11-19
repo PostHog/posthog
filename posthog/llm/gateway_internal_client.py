@@ -14,6 +14,10 @@ INTERNAL_ACTOR_HEADER = "X-Internal-Actor"
 # "billing". The acting human is audited in ActivityLog, not here.
 ADMIN_ACTOR = "posthog-admin"
 TASKS_COMPUTE_ACTOR = "tasks-compute"
+BILLING_ACTOR = "billing"
+# A bad body, or an Idempotency-Key the gateway holds with another amount. Every other
+# failure, including 401, 403, 404 and 429, can pass once the gateway or its config recovers.
+REJECTED_STATUS_CODES = frozenset({400, 409})
 
 
 class AIGatewayInternalError(Exception):
@@ -22,6 +26,14 @@ class AIGatewayInternalError(Exception):
 
 class AIGatewayNotConfigured(AIGatewayInternalError):
     """AI_GATEWAY_INTERNAL_URL / AI_GATEWAY_INTERNAL_TOKEN are not set."""
+
+
+class AIGatewayRequestRejected(AIGatewayInternalError):
+    """The gateway refused the request itself (400 or 409), so sending it again fails the same way."""
+
+    def __init__(self, message: str, status_code: int) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 @dataclasses.dataclass(frozen=True)
@@ -44,6 +56,15 @@ class Wallet:
     has_ledger: bool
     balance: str | None
     recent: list[LedgerEntry]
+
+
+@dataclasses.dataclass(frozen=True)
+class OrgLedgerResult:
+    org_id: str
+    entry_id: str
+    amount_usd: str
+    balance_usd: str
+    duplicate: bool
 
 
 @dataclasses.dataclass(frozen=True)
@@ -230,6 +251,86 @@ def get_usage_report_rows(params: dict[str, str]) -> list[dict[str, Any]]:
             raise AIGatewayInternalError("usage report returned a repeated cursor")
         seen.add(page.next_cursor)
         page_params = {**params, "order_by": "key", "cursor": page.next_cursor}
+
+
+def grant_org_credit(org_id: str, amount_usd: str, reason: str, idempotency_key: str) -> OrgLedgerResult:
+    """Add funding that billing collected to the organization's AI wallet, once per idempotency key."""
+    return _post_org_ledger_entry(f"/internal/accounts/{org_id}/credits", org_id, amount_usd, reason, idempotency_key)
+
+
+def reverse_org_credit(org_id: str, amount_usd: str, reason: str, idempotency_key: str) -> OrgLedgerResult:
+    """Take back funding that billing refunded or lost to a dispute, once per idempotency key."""
+    return _post_org_ledger_entry(
+        f"/internal/accounts/{org_id}/credits/reversal", org_id, amount_usd, reason, idempotency_key
+    )
+
+
+def report_reload_outcome(
+    org_id: str, idempotency_key: str, result: str, *, amount_usd: str | None = None, reason: str | None = None
+) -> None:
+    """Tell the gateway how billing answered one of its low-balance reload requests.
+
+    `idempotency_key` is the key the gateway sent on the reload route. `result` is `charged`, with the
+    amount, or `declined`, with the reason. The gateway closes its open reload request on this outcome.
+    """
+    url, token = _config()
+    body = {"idempotency_key": idempotency_key, "result": result}
+    if amount_usd is not None:
+        body["amount_usd"] = amount_usd
+    if reason is not None:
+        body["reason"] = reason
+    try:
+        response = httpx.post(
+            f"{url}/internal/accounts/{org_id}/reload-outcome",
+            headers=_auth_headers(token, {INTERNAL_ACTOR_HEADER: BILLING_ACTOR}),
+            json=body,
+            timeout=INTERNAL_API_TIMEOUT_SECONDS,
+            trust_env=False,
+        )
+    except httpx.HTTPError as exc:
+        raise AIGatewayInternalError(f"reload outcome request failed: {exc}") from exc
+
+    if response.status_code in REJECTED_STATUS_CODES:
+        raise AIGatewayRequestRejected(_error_detail(response), response.status_code)
+    if response.status_code >= 400:
+        raise AIGatewayInternalError(_error_detail(response))
+
+
+def _post_org_ledger_entry(
+    path: str, org_id: str, amount_usd: str, reason: str, idempotency_key: str
+) -> OrgLedgerResult:
+    url, token = _config()
+    try:
+        response = httpx.post(
+            f"{url}{path}",
+            headers=_auth_headers(
+                token, {IDEMPOTENCY_KEY_HEADER: idempotency_key, INTERNAL_ACTOR_HEADER: BILLING_ACTOR}
+            ),
+            json={"amount_usd": amount_usd, "reason": reason},
+            timeout=INTERNAL_API_TIMEOUT_SECONDS,
+            trust_env=False,
+        )
+    except httpx.HTTPError as exc:
+        raise AIGatewayInternalError(f"org ledger request failed: {exc}") from exc
+
+    if response.status_code in REJECTED_STATUS_CODES:
+        raise AIGatewayRequestRejected(_error_detail(response), response.status_code)
+    if response.status_code >= 400:
+        raise AIGatewayInternalError(_error_detail(response))
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise AIGatewayInternalError(f"org ledger response was not valid JSON: {exc}") from exc
+    if not data.get("entry_id") or data.get("balance_usd") is None:
+        raise AIGatewayInternalError("org ledger response missing required fields (entry_id/balance_usd)")
+    return OrgLedgerResult(
+        org_id=str(data.get("org_id", org_id)),
+        entry_id=data["entry_id"],
+        amount_usd=data.get("amount_usd", ""),
+        balance_usd=data["balance_usd"],
+        duplicate=bool(data.get("duplicate", False)),
+    )
 
 
 def _error_detail(response: httpx.Response) -> str:

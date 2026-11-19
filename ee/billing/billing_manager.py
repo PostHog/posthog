@@ -3,7 +3,9 @@ import json
 import math
 import time
 import hashlib
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from enum import Enum, StrEnum
 from http.cookiejar import DefaultCookiePolicy
 from typing import Any, Literal, Optional, cast
@@ -39,6 +41,7 @@ from posthog.models.team.event_retention import (
 )
 from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
+from posthog.storage.team_llm_gateway_org_cache import llm_gateway_org_values
 
 from ee.billing.access_token import mint_billing_access_token
 from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo, RatedUsageItem
@@ -124,6 +127,41 @@ def raise_if_billing_managed_by_partner(organization: Organization) -> None:
     partner = get_billing_lock_partner(organization)
     if partner is not None:
         raise BillingManagedByPartnerError(partner)
+
+
+# An unset AI credit setting has no key in the organization's usage.
+AI_CREDIT_SETTING_KEYS: tuple[Literal["ai_low_balance_threshold_usd"], ...] = ("ai_low_balance_threshold_usd",)
+
+
+# Present, and true, only while automatic reload is on.
+AI_AUTOMATIC_RELOAD_KEY: Literal["ai_automatic_reload_enabled"] = "ai_automatic_reload_enabled"
+
+
+def _ai_credit_setting(organization: Organization, data: Mapping[str, object], key: str) -> str | None:
+    """An AI credit setting from billing's status in USD, such as "250.00". A status without the key keeps
+    the known value, as for the other fields of a partial status."""
+    if key not in data:
+        return (organization.usage or {}).get(key)
+    value = data[key]
+    return None if value is None else f"{Decimal(str(value)):.2f}"
+
+
+def _ai_automatic_reload_enabled(organization: Organization, data: Mapping[str, object]) -> bool:
+    if AI_AUTOMATIC_RELOAD_KEY not in data:
+        return (organization.usage or {}).get(AI_AUTOMATIC_RELOAD_KEY) is True
+    return data[AI_AUTOMATIC_RELOAD_KEY] is True
+
+
+def _project_llm_gateway_org(organization: Organization) -> None:
+    """Best-effort because the billing GET reaches this: an enqueue failure must not fail the update."""
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return
+    try:
+        from posthog.tasks.team_llm_gateway_org import update_organization_llm_gateway_org_cache_task  # noqa: PLC0415
+
+        update_organization_llm_gateway_org_cache_task.delay(str(organization.id))
+    except Exception as e:
+        capture_exception(e)
 
 
 def _has_quota_limiting_markers(usage: dict | None) -> bool:
@@ -792,6 +830,7 @@ class BillingManager:
         org_modified = False
 
         data = billing_status["customer"]
+        llm_gateway_org_before = llm_gateway_org_values(organization)
 
         if data.get("customer_id") and organization.customer_id != data["customer_id"]:
             organization.customer_id = data["customer_id"]
@@ -835,6 +874,11 @@ class BillingManager:
                     data["billing_period"]["current_period_end"],
                 ],
             )
+            for setting_key in AI_CREDIT_SETTING_KEYS:
+                if (setting := _ai_credit_setting(organization, data, setting_key)) is not None:
+                    usage_info[setting_key] = setting
+            if _ai_automatic_reload_enabled(organization, data):
+                usage_info[AI_AUTOMATIC_RELOAD_KEY] = True
 
             had_quota_limiting_markers = _has_quota_limiting_markers(organization.usage)
             usage_changed = set_org_usage_summary(organization, new_usage=usage_info)
@@ -928,6 +972,9 @@ class BillingManager:
 
         if should_update_org_billing_quotas:
             update_org_billing_quotas(organization)
+
+        if llm_gateway_org_values(organization) != llm_gateway_org_before:
+            _project_llm_gateway_org(organization)
 
         return organization
 
@@ -1147,6 +1194,27 @@ class BillingManager:
 
         handle_billing_service_error(res, valid_codes=(200,))
 
+        return res.json()
+
+    def reload_ai_balance(
+        self, organization: Organization, *, idempotency_key: str, balance_usd: str
+    ) -> dict[str, Any]:
+        """Ask billing to reload the organization's AI balance, for the AI gateway's low-balance call.
+
+        Billing starts its reload and answers 202 `accepted` before it charges anything. It sends the
+        outcome later on its queue, and PostHog relays that to the gateway. Any other status raises
+        `BillingServiceResponseError`, whose status code tells a refusal (403) from a failure. The same
+        idempotency key starts nothing new.
+        """
+        headers = self.get_auth_headers(organization, service_action="ai_credit_reload")
+        headers["Idempotency-Key"] = idempotency_key
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/ai-credits/reload",
+            headers=headers,
+            json={"balance_usd": balance_usd},
+            timeout=10,
+        )
+        handle_billing_service_error(res, valid_codes=(202,))
         return res.json()
 
     def open_external_credit_pool(self, organization: Organization, *, grant_id: str, cents: int, day: str) -> None:
