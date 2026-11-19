@@ -1143,14 +1143,17 @@ class TestReserveUnits(BaseTest):
             with self.assertRaises(exceptions.Throttled):
                 self._reserve([throttle_class], 1)
 
-    def test_a_reservation_no_limit_can_hold_raises_and_charges_nothing(self):
+    def test_a_reservation_no_limit_can_hold_is_refused_without_a_retry_wait(self):
         with (
             patch.object(_PSAKThrottleForTest, "rate", "5/minute"),
             patch.object(_PSAKTeamThrottleForTest, "rate", "3/minute"),
         ):
-            with self.assertRaises(ValueError):
-                self._reserve([_PSAKThrottleForTest, _PSAKTeamThrottleForTest], 3)
+            with self.assertRaises(exceptions.Throttled) as refusal:
+                self._reserve([_PSAKThrottleForTest, _PSAKTeamThrottleForTest], 4)
+            response = exception_handler(refusal.exception, {"request": self._request()})
 
+            assert response is not None
+            self.assertNotIn("Retry-After", response.headers)
             self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, 6), [True] * 5 + [False])
 
     def test_a_refused_reservation_charges_none_of_the_throttles(self):
@@ -1294,10 +1297,8 @@ class TestReserveUnits(BaseTest):
         labels = {"team_id": str(self.team.pk), "scope": _PSAKThrottleForTest.scope, "path": route, "route": route}
         before = REGISTRY.get_sample_value("rate_limit_exceeded_total", labels) or 0
 
-        with patch.object(_PSAKThrottleForTest, "rate", "3/minute"):
-            self._singles_allowed(_PSAKThrottleForTest, 2)
-            with self.assertRaises(exceptions.Throttled):
-                self._reserve([_PSAKThrottleForTest], 2)
+        with patch.object(_PSAKThrottleForTest, "rate", "3/minute"), self.assertRaises(exceptions.Throttled):
+            self._reserve([_PSAKThrottleForTest], 4)
 
         self.assertEqual(REGISTRY.get_sample_value("rate_limit_exceeded_total", labels), before + 1)
 
@@ -1308,28 +1309,48 @@ class TestReserveUnits(BaseTest):
         ]
     )
     def test_an_over_budget_reservation_passes_when_the_settings_say_not_to_refuse(self, _name, setting, value):
-        with patch.object(_PSAKThrottleForTest, "rate", "3/minute"):
-            self._singles_allowed(_PSAKThrottleForTest, 2)
-            with override_instance_config(setting, str(self.team.pk) if value == "team" else value):
-                self._clear_policy_caches()
-                self._reserve([_PSAKThrottleForTest], 2)
-
+        with override_instance_config(setting, str(self.team.pk) if value == "team" else value):
             self._clear_policy_caches()
-            self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, 2), [True, False])
+            with patch.object(_PSAKThrottleForTest, "rate", "3/minute"):
+                self._reserve([_PSAKThrottleForTest], 4)
+
+        self._clear_policy_caches()
+        with patch.object(_PSAKThrottleForTest, "rate", "3/minute"):
+            self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, 4), [True, True, True, False])
 
     @parameterized.expand(
         [
-            ("read_fails_open_over_budget", "django.core.cache.cache.get", 2, [True, False]),
-            ("write_fails_without_refusing", "django.core.cache.cache.set", 0, [True, True, True, False]),
+            (
+                "read_fails_open_over_budget",
+                lambda: patch.object(_PSAKThrottleForTest, "cache", RedisCache("redis://127.0.0.1:1/0", {})),
+                2,
+                [True, False],
+            ),
+            (
+                "write_fails_without_refusing",
+                lambda: patch("django.core.cache.cache.set", side_effect=RedisError("down")),
+                0,
+                [True, True, True, False],
+            ),
         ]
     )
-    def test_a_reservation_passes_when_the_cache_fails(self, _name, cache_call, spent, singles_after):
+    def test_a_reservation_passes_when_the_cache_fails(self, _name, cache_failure, spent, singles_after):
         with patch.object(_PSAKThrottleForTest, "rate", "3/minute"):
             self._singles_allowed(_PSAKThrottleForTest, spent)
-            with patch(cache_call, side_effect=RedisError("down")):
+            with cache_failure():
                 self._reserve([_PSAKThrottleForTest], 2)
 
             self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, len(singles_after)), singles_after)
+
+    def test_a_primary_reading_throttle_passes_a_request_it_keys_to_nothing_without_an_error(self):
+        with (
+            patch.object(_PSAKThrottleForTest, "reads_history_from_primary", True),
+            patch.object(_PSAKThrottleForTest, "get_cache_key", return_value=None),
+            patch("posthog.rate_limit.capture_exception") as reported,
+        ):
+            self.assertTrue(_PSAKThrottleForTest().allow_request(self._request(), self.view))
+
+        reported.assert_not_called()
 
     @parameterized.expand([("single", 1), ("batch", 3)])
     def test_a_send_passes_when_the_primary_read_fails(self, _name, recipients):

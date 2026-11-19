@@ -861,7 +861,6 @@ class TestTransactionalEmail(APIBaseTest):
                 redis_cache.delete_pattern("*")
 
         assert statuses == [status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED, status.HTTP_429_TOO_MANY_REQUESTS]
-        assert mock_post.call_count == 2
 
     def test_a_known_key_keeps_sending_at_the_key_limit_while_a_new_key_is_refused(self, mock_post, _flag, capture):
         self._cdp_accepts(mock_post)

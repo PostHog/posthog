@@ -1,5 +1,6 @@
 import re
 import json
+import math
 import time
 import uuid
 import hashlib
@@ -237,6 +238,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             capture_exception(e)
 
     def _has_room_for_units(self, request: "Request", view: "APIView", units: int) -> bool:
+        self.key = None
         num_requests, duration = self.num_requests, self.duration
         if num_requests is None or duration is None:
             return True
@@ -264,7 +266,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         if expiries_needed <= 0:
             return 0.0
         if expiries_needed > len(self.history):
-            return float(duration)
+            return math.inf
         return self.history[-expiries_needed] + duration - self.now
 
     def _would_allow(self, request: "Request", view: "APIView") -> bool:
@@ -275,7 +277,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         if not self._has_room_for_units(request, view, self.DRF_UNITS_PER_REQUEST):
             return False
         self.units_to_charge = 0
-        return self.throttle_success()
+        return self.key is None or self.throttle_success()
 
     def _allow_request_internal(self, request, view, *, personal_api_key_only: bool) -> bool:
         if not is_rate_limit_enabled(round(time.time() / 60)):
@@ -706,12 +708,10 @@ def reserve_units(
 ) -> None:
     if units < 1:
         return
-    for throttle in throttles:
-        if throttle.num_requests is not None and units + throttle.DRF_UNITS_PER_REQUEST > throttle.num_requests:
-            raise ValueError(f"{units} units can never fit the {throttle.scope} limit of {throttle.num_requests}")
     admitted = [throttle.allow_units(request, view, units) for throttle in throttles]
     if not all(admitted):
-        raise exceptions.Throttled(wait=max(throttle.retry_wait for throttle in throttles))
+        wait = max(throttle.retry_wait for throttle in throttles)
+        raise exceptions.Throttled(wait=None if math.isinf(wait) else wait)
     for throttle in throttles:
         throttle.charge_units()
 
