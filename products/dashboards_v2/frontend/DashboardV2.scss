@@ -242,3 +242,9 @@
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
 }
+
+// A tile's title sits on its content without quill's divider, so a dashboard of small tiles reads as less boxed in.
+.DashboardV2__card > .quill-card__header {
+    padding-bottom: 0;
+    border-bottom: 0;
+}
