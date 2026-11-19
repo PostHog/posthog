@@ -1023,10 +1023,8 @@ function MarkdownNotebookEditor({
         }
     }, [isDebugLogging, logDebugEntry])
 
-    // Margin comment threads line up with the first line of their `<ref>` highlight rather than
-    // the top of the block, because several threads on one long paragraph would otherwise all
-    // start at the paragraph's first line and lose any visual link to the text they discuss. A
-    // thread without a rendered highlight (a block comment) lines up with its own row.
+    // Threads line up with their `<ref>` highlight rather than the block top, so several threads on
+    // one long paragraph do not all start at its first line. A block comment uses its own row.
     useLayoutEffect(() => {
         if (!hasDiscussionComments || !fitsCommentGutter) {
             return
@@ -4359,8 +4357,6 @@ function MarkdownNotebookEditor({
         return () => window.removeEventListener('scroll', clearLinkHint, { capture: true })
     }, [linkHintRect, clearLinkHint])
 
-    // Hovering a `<ref>` highlight marks the thread it anchors, so a reader can tell which card
-    // belongs to which passage when several threads stack in the margin.
     const linkDiscussionCommentToRef = (refId: string | null): void => {
         const commentNode = refId
             ? documentRef.current.nodes.find((node) => getDiscussionCommentRefId(node) === refId)

@@ -3,10 +3,7 @@ export interface GutterThread {
     height: number
 }
 
-/**
- * `threads` must be sorted by `anchorTop`. The active thread stays at its anchor and the threads
- * above it move up, but never above `minTop`, because a thread there cannot be scrolled to.
- */
+/** `threads` must be sorted by `anchorTop`. Nothing goes above `minTop`, where it could not be scrolled to. */
 export function stackGutterThreads(
     threads: GutterThread[],
     activeIndex: number,
