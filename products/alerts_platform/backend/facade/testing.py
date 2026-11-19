@@ -242,6 +242,16 @@ def set_snooze_until(configuration_id: UUID, snooze_until: datetime | None) -> N
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(snooze_until=snooze_until)
 
 
+def mute_group(configuration_id: UUID, *, team_id: int, grouping_key: str, until: datetime) -> None:
+    """Mute one group of a configuration on its own, leaving the configuration and its other groups unmuted."""
+    PlatformAlert.objects.update_or_create(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        grouping_key=grouping_key,
+        defaults={"snooze_until": until},
+    )
+
+
 def forget_source_row(configuration_id: UUID) -> None:
     """Turn a copy into an alert its source keeps no row for, as a native create leaves it. The caller
     holds the team scope."""
