@@ -30,12 +30,13 @@ SITE_PATH_PATTERN = re.compile(r"/(?![/\\])[^\s\\\x00-\x1f\x7f]*")
 INDEX_FILE_STEMS = frozenset({"index", "readme"})
 ROUTE_GROUP_SEGMENT_PATTERN = re.compile(r"^\(.*\)$")
 NAV_LINE_TOKEN_PATTERN = re.compile(
-    r"""\s*(?:(?P<punctuation>[\[\]{},])|["']?(?P<key>[A-Za-z_]\w*)["']?\s*:|'(?P<single>[^'\\]*)'|"(?P<double>[^"\\]*)"|(?P<scalar>true|false|-?\d+)(?![\w.]))"""
+    r"""\s*(?:(?P<punctuation>[\[\]{},])|(?P<key_quote>["']?)(?P<key>[A-Za-z_]\w*)(?P=key_quote)\s*:|'(?P<single>[^'\\]*)'|"(?P<double>[^"\\]*)"|(?P<scalar>true|false|-?\d+)(?![\w.]))"""
 )
+RULES_FILE_FLAG_SUFFIX = ": edits a rules file that agents follow"
 NAV_LINK_KEYS = frozenset({"url", "to", "href", "link"})
 NAV_VALUE_OPENERS = frozenset({"[", "{"})
 NAV_LINK_PAIR_PATTERN = re.compile(
-    rf"""(?<![\w$])["']?(?:{"|".join(map(re.escape, sorted(NAV_LINK_KEYS)))})["']?\s*:\s*(?:'(?P<single>[^'\\]*)'|"(?P<double>[^"\\]*)")"""
+    rf"""(?<![\w$])(?P<key_quote>["']?)(?:{"|".join(map(re.escape, sorted(NAV_LINK_KEYS)))})(?P=key_quote)\s*:\s*(?:'(?P<single>[^'\\]*)'|"(?P<double>[^"\\]*)")"""
 )
 HUNK_HEADER_PATTERN = re.compile(
     r"@@ -(?P<base_start>\d{1,9})(?:,(?P<base_length>\d{1,9}))? \+(?P<head_start>\d{1,9})(?:,(?P<head_length>\d{1,9}))? @@"
@@ -606,7 +607,7 @@ def companion_check(
         changed_file for changed_file in changed_files if not is_docs_path(changed_file["filename"], docs_folders)
     ]
     rules_flags = [
-        f"{changed_file['filename']}: edits a rules file that agents follow"
+        f"{changed_file['filename']}{RULES_FILE_FLAG_SUFFIX}"
         for changed_file in changed_files
         if is_rules_file(changed_file["filename"])
     ]
@@ -648,7 +649,7 @@ def companion_check(
         if file_flags is None:
             return companion_refused(filename)
         flags.extend(file_flags)
-    return CompanionCheck(refusal=None, flags=tuple(dict.fromkeys([*flags, *rules_flags])))
+    return CompanionCheck(refusal=None, flags=tuple(dict.fromkeys([*rules_flags, *flags])))
 
 
 def is_companion_edit_too_large(changed_file: dict, base_text: str | None, head_text: str | None) -> bool:

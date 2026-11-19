@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from urllib.parse import quote
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
 
 from .docs_pages import ancestor_directories
 from .writer_change import WriterChange
@@ -48,9 +48,13 @@ def docs_branch_head(github: GitHubIntegration, docs_repository: str) -> str | N
     repository = github._gh_graphql(
         DEFAULT_BRANCH_HEAD_QUERY, {"owner": owner, "name": name}, endpoint="/graphql:knowledgeWriterBaseHead"
     ).get("repository")
-    target = ((repository or {}).get("defaultBranchRef") or {}).get("target") or {}
+    if repository is None:
+        return None
+    target = (repository.get("defaultBranchRef") or {}).get("target") or {}
     oid = target.get("oid")
-    return oid if isinstance(oid, str) else None
+    if not isinstance(oid, str):
+        raise GitHubIntegrationError(f"knowledge writer could not read the default branch head of {docs_repository}")
+    return oid
 
 
 def base_tree(github: GitHubIntegration, docs_repository: str, base_sha: str, paths: frozenset[str]) -> BaseTree:

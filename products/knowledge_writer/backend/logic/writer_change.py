@@ -97,8 +97,8 @@ def format_failure(format_entry: object) -> str | None:
     if exit_code == 0:
         return None
     if exit_code is None:
-        return f"{command} (did not finish)"
-    return f"{command} (exited with {exit_code})"
+        return "did not finish"
+    return f"exited with {exit_code}"
 
 
 def is_patches_shape(patch_entries: object, written_entries: dict) -> TypeGuard[dict[str, str]]:

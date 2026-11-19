@@ -72,7 +72,9 @@ class FakePostHogGitHub:
         page_text_by_path: dict[str, str] | None = None,
         sheds_batch_reads: bool = False,
         merged_by: dict[str, str] | None = None,
+        author_association: str = "MEMBER",
     ) -> None:
+        self.author_association = author_association
         self.commit_sha = commit_sha
         self.merged_commit_sha = merged_commit_sha or commit_sha
         self.comparison_with_default_branch = comparison_with_default_branch
@@ -89,6 +91,8 @@ class FakePostHogGitHub:
         return {
             "number": 7,
             "title": "chore: drop legacy rollout",
+            "body": "Removes the legacy rollout path.",
+            "author_association": self.author_association,
             "html_url": "https://github.com/PostHog/posthog/pull/7",
             "merge_commit_sha": self.merged_commit_sha,
             "merged_at": "2026-10-27T00:00:00Z",
@@ -594,6 +598,27 @@ def test_only_a_diff_quote_names_a_changed_page(changed_page_quote: str, is_page
     report = check_merge(commit_sha, github, judge_recording(verdict, [], facts))
 
     assert (f"- {FLAGS_PAGES[0]} (update):" in report.evidence) == is_page_named_in_evidence
+
+
+@pytest.mark.parametrize("author_association, is_author_text_read", [("MEMBER", True), ("CONTRIBUTOR", False)])
+def test_only_a_trusted_author_title_and_description_reach_the_models(
+    author_association: str, is_author_text_read: bool
+) -> None:
+    commit_sha = "a" * 40
+    github = FakePostHogGitHub(commit_sha, author_association=author_association)
+    model_requests: list[dict] = []
+    verdict = JudgeVerdict(needs_docs=False, change_kind=None, page_urls=[], reason="internal only")
+
+    def parse(**request: object) -> object:
+        model_requests.append(request)
+        output = merge_facts() if request["output_format"] is MergeFacts else verdict
+        return SimpleNamespace(stop_reason="end_turn", parsed_output=output)
+
+    check_merge(commit_sha, github, judge_with_parse(parse))
+
+    sent_text = json.dumps([request["messages"] for request in model_requests], default=str)
+    assert ("chore: drop legacy rollout" in sent_text) == is_author_text_read
+    assert ("Removes the legacy rollout path." in sent_text) == is_author_text_read
 
 
 def test_malformed_judge_output_declines_instead_of_raising() -> None:

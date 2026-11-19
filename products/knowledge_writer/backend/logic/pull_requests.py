@@ -27,6 +27,7 @@ from ..feature_flags import open_pull_requests_flag_state
 from ..settings import WriterSettings, docs_source_for, writer_settings
 from .docs_pages import (
     DOCS_SOURCE_EXTENSIONS,
+    RULES_FILE_FLAG_SUFFIX,
     CompanionCheck,
     PatchMismatch,
     ancestor_directories,
@@ -137,6 +138,11 @@ def pull_request_body(request: DocsRequest, flags: DraftFlags) -> str:
     )
 
 
+def listed_companion_flags(companion_flags: tuple[str, ...]) -> tuple[str, ...]:
+    rules_flag_count = sum(flag.endswith(RULES_FILE_FLAG_SUFFIX) for flag in companion_flags)
+    return companion_flags[: max(MAX_LISTED_COMPANION_FLAGS, rules_flag_count)]
+
+
 def flag_sections(flags: DraftFlags) -> list[str]:
     if flags.is_ready_for_review:
         return []
@@ -155,7 +161,7 @@ def flag_sections(flags: DraftFlags) -> list[str]:
         sections.append("These existing pages changed but were not routed to this request:")
         sections.append("\n".join(f"- {page_path}" for page_path in flags.extra_pages))
     if flags.companion_flags:
-        listed_flags = tuple(listed_line(flag) for flag in flags.companion_flags[:MAX_LISTED_COMPANION_FLAGS])
+        listed_flags = tuple(listed_line(flag) for flag in listed_companion_flags(flags.companion_flags))
         unlisted_count = len(flags.companion_flags) - len(listed_flags)
         sections.append("Check these edits outside the docs pages:")
         sections.append(fenced_block(listed_flags))
@@ -163,10 +169,9 @@ def flag_sections(flags: DraftFlags) -> list[str]:
             sections.append(f"{unlisted_count} more edits outside the docs pages are not listed.")
     if flags.format_failure is not None:
         sections.append(
-            "The repository's format command failed in the writer's sandbox. "
-            "Run it on the changed files before you merge:"
+            f"The repository's format command {flags.format_failure} in the writer's sandbox. "
+            "Run it on the changed files before you merge."
         )
-        sections.append(fenced_block((listed_line(flags.format_failure),)))
     return sections
 
 
@@ -615,7 +620,7 @@ def capture_draft(
             if flags is not None
             else None,
             "grounding_ran": flags.grounding.ran if flags is not None else None,
-            "companion_flags": [listed_line(flag) for flag in flags.companion_flags[:MAX_LISTED_COMPANION_FLAGS]]
+            "companion_flags": [listed_line(flag) for flag in listed_companion_flags(flags.companion_flags)]
             if flags is not None
             else None,
             "format_failure": listed_line(flags.format_failure)

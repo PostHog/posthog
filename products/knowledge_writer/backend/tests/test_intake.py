@@ -192,7 +192,7 @@ NEW_PAGE_AND_UNRELATED_NAV_EDIT_FILES = {
 RULES_FILE_EDIT_FLAG = "AGENTS.md: edits a rules file that agents follow"
 ADDED_RULES_LINE = "Docs follow the style guide. Add each new page to the nav."
 FAILED_FORMAT = {"command": "pnpm format:docs", "exit_code": 2}
-FAILED_FORMAT_LINE = "pnpm format:docs (exited with 2)"
+FAILED_FORMAT_LINE = "format command exited with 2 in the writer's sandbox"
 UNRELATED_NAV_EDIT_FLAGS = [
     f"{NAV_PATH}: changes a link to /pricing, which is not a page this change adds or removes",
     f"{NAV_PATH}: changes a link to /plans, which is not a page this change adds or removes",
@@ -212,6 +212,7 @@ class DocsGitHub:
         base_modes: Mapping[str, int] | None = None,
         branch_tip: str | None = None,
         graphql_status_code: int = 200,
+        default_branch_head: str | None = BASE_SHA,
         graphql_text_limit: int | None = None,
         graphql_failing_paths: frozenset[str] = frozenset(),
         review_status_code: int = 201,
@@ -235,6 +236,7 @@ class DocsGitHub:
         self.base_modes = base_modes or {}
         self.branch_tip = branch_tip
         self.graphql_status_code = graphql_status_code
+        self.default_branch_head = default_branch_head
         self.graphql_text_limit = graphql_text_limit
         self.graphql_failing_paths = graphql_failing_paths
         self.review_status_code = review_status_code
@@ -313,7 +315,8 @@ class DocsGitHub:
             return MagicMock(status_code=self.graphql_status_code, text="unavailable")
         query, variables = body["query"], body["variables"]
         if "defaultBranchRef" in query:
-            return _replied({"data": {"repository": {"defaultBranchRef": {"target": {"oid": BASE_SHA}}}}})
+            head = {"target": {"oid": self.default_branch_head}} if self.default_branch_head else None
+            return _replied({"data": {"repository": {"defaultBranchRef": head}}})
         paths_by_name = {
             name: expression.split(":", 1)[1] for name, expression in variables.items() if name not in ("owner", "name")
         }
@@ -700,6 +703,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             f"{NEW_PAGE_NAV_LINE}\x0brequire('x')",
             "  { name: 'Retention presets', url: '/docs/session-replay/retention-presets' }\x0c['constructor'],",
             f"{NEW_PAGE_NAV_LINE}\n{'a/' * 9_000}",
+            f'{NEW_PAGE_NAV_LINE}\n  \'a": "\'; console.log(123456); //"',
         )
     ),
     *(
@@ -942,6 +946,7 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
         FAILED_FORMAT_LINE,
     )
     assert [flag for flag in flaggable if flag in body] == expected_body_flags
+    assert "pnpm format:docs" not in body
     stored = tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_STATE_KEY)
     assert isinstance(stored, dict)
     assert stored["number"] == OPENED_PULL_REQUEST_NUMBER
@@ -1226,11 +1231,9 @@ def test_a_failed_docs_base_read_raises_for_a_retry_and_a_missing_docs_integrati
         patch(START_WORKFLOW) as start_workflow,
         patch(CAPTURE_ALERT) as capture_alert,
     ):
-        with (
-            patch(GITHUB_REQUEST, side_effect=DocsGitHub(graphql_status_code=502)),
-            pytest.raises(intake.WriterLaunchDeferred),
-        ):
-            intake.submit(_verdict(), team_id=team.id)
+        for failing_github in (DocsGitHub(graphql_status_code=502), DocsGitHub(default_branch_head=None)):
+            with patch(GITHUB_REQUEST, side_effect=failing_github), pytest.raises(intake.WriterLaunchDeferred):
+                intake.submit(_verdict(), team_id=team.id)
         Integration.objects.filter(team=team, kind="github").delete()
         without_integration = intake.submit(_verdict(), team_id=team.id)
 
