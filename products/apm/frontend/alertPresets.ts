@@ -15,7 +15,8 @@ export function serviceAlertTarget(row: ServiceHealthApi): TracesAlertPresetTarg
 export function endpointAlertTarget(row: EndpointHealthApi): TracesAlertPresetTarget {
     return {
         serviceName: row.service_name,
-        operation: row.endpoint,
+        operation: row.span_name,
+        label: row.endpoint,
         requestCount: row.health.span_count,
         errorCount: row.health.error_count,
         p95Ms: row.health.p95_ms,

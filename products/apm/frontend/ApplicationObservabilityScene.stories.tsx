@@ -37,6 +37,9 @@ const ENDPOINTS: EndpointsHealthResponseApi = {
         {
             service_name: 'checkout-api',
             endpoint: 'POST /cart',
+            span_name: 'POST /cart',
+            route_attribute: null,
+            route: null,
             environment: 'production',
             status: 'serious',
             health: { request_rate: 6.2, error_rate: 0.08, p95_ms: 1020, span_count: 22320, error_count: 1786 },
@@ -44,6 +47,9 @@ const ENDPOINTS: EndpointsHealthResponseApi = {
         {
             service_name: 'payments',
             endpoint: 'POST /charge',
+            span_name: 'POST /charge',
+            route_attribute: null,
+            route: null,
             environment: 'production',
             status: 'good',
             health: { request_rate: 4.1, error_rate: 0.002, p95_ms: 210, span_count: 14760, error_count: 30 },

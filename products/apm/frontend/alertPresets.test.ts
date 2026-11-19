@@ -20,6 +20,9 @@ const SERVICE_ROW: ServiceHealthApi = {
 const ENDPOINT_ROW: EndpointHealthApi = {
     service_name: 'checkout-api',
     endpoint: 'POST /cart',
+    span_name: 'POST /cart',
+    route_attribute: null,
+    route: null,
     environment: 'production',
     status: 'warning',
     health,
@@ -44,10 +47,23 @@ describe('APM alert presets', () => {
             endpointFilter('POST /cart'),
             'checkout-api POST /cart: p95 latency',
         ],
+        // A bare-method span is labelled with its route, but the alert filters on the span's own name.
+        [
+            'route-labelled endpoint',
+            endpointAlertTarget({
+                ...ENDPOINT_ROW,
+                endpoint: 'GET /orders',
+                span_name: 'GET',
+                route_attribute: 'http.route',
+                route: '/orders',
+            }),
+            endpointFilter('GET'),
+            'checkout-api GET /orders: p95 latency',
+        ],
         // An empty span name is still one endpoint, not the whole service.
         [
             'endpoint with an empty name',
-            endpointAlertTarget({ ...ENDPOINT_ROW, endpoint: '' }),
+            endpointAlertTarget({ ...ENDPOINT_ROW, endpoint: '', span_name: '' }),
             endpointFilter(''),
             'checkout-api: p95 latency',
         ],

@@ -31,6 +31,8 @@ export interface TracesAlertPresetTarget {
     serviceName: string
     /** The span name to watch. Null watches every span of the service. */
     operation: string | null
+    /** What the name shows in place of the span name, when the row is labelled differently. */
+    label?: string
     requestCount: number
     errorCount: number
     p95Ms: number | null
@@ -99,7 +101,8 @@ export function presetDisabledReason(row: AggregatedSpanRow): string | undefined
 
 /** Shortens the scope part of a long name, so the name fits the API and keeps what it alerts on. */
 function presetName(target: TracesAlertPresetTarget, label: string): string {
-    const scope = target.operation ? `${target.serviceName} ${target.operation}` : target.serviceName
+    const shown = target.label ?? target.operation
+    const scope = shown ? `${target.serviceName} ${shown}` : target.serviceName
     const suffix = `: ${label}`
     const room = MAX_NAME_LENGTH - suffix.length
     if (scope.length <= room) {
