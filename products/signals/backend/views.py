@@ -6989,6 +6989,8 @@ def remove_suggested_reviewer(
             for entry in prior
             if not _reviewer_entry_names(entry, user_uuid=str(user.uuid), github_login=github_login)
         ]
+        if len(kept) == len(prior):
+            return False
         new_artefact = SignalReportArtefact.append_status(
             team_id=team.id,
             report_id=str(report_id),
@@ -6999,8 +7001,6 @@ def remove_suggested_reviewer(
             reviewer_edit=ReviewerEdit(action="remove"),
             reevaluate_autostart=False,
         )
-        if len(kept) == len(prior):
-            return False
         new_content = SuggestedReviewers.model_validate_json(new_artefact.content).model_dump(mode="json")
         default_owner_labels = _default_owner_labels(prior)
         removed_default_owner = any(entry.get("is_default_owner") for entry in prior if entry not in kept)

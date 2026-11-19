@@ -1925,10 +1925,7 @@ class SignalReportArtefact(UUIDModel):
                 unchanged = (
                     update.current is not None and cls._parse_as(update.current, SuggestedReviewers) == update.reviewers
                 )
-                if update.current is not None and (
-                    (reviewer_proposal is not None and reviewer_proposal.outcome == "lookup_failed")
-                    or (reviewer_edit is None and unchanged)
-                ):
+                if update.current is not None and reviewer_edit is None and unchanged:
                     implementation_authorization = ImplementationAuthorization.from_stored(
                         update.current.implementation_authorization
                     )
