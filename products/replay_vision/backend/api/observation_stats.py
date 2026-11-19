@@ -130,7 +130,7 @@ def _version_markers(queryset: QuerySet[ReplayObservation]) -> list[dict[str, An
     implying nothing changed."""
     rows = (
         queryset.annotate(snapshot_version=KeyTextTransform("scanner_version", "scanner_snapshot"))
-        .exclude(snapshot_version=None)
+        .exclude(snapshot_version__isnull=True)
         .annotate(
             day=TruncDate("created_at"),
             # The whole snapshot, not just scanner_config, so every version-tracked field can be diffed.
@@ -169,7 +169,6 @@ def _version_markers(queryset: QuerySet[ReplayObservation]) -> list[dict[str, An
                 "emits_signals": snapshot.get("emits_signals"),
                 "query": snapshot.get("query"),
                 "sampling_rate": snapshot.get("sampling_rate"),
-                "sampling_mode": snapshot.get("sampling_mode"),
                 "up": row["up"],
                 "down": row["down"],
                 "total": row["total"],

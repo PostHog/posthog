@@ -3,14 +3,16 @@ from dataclasses import replace
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 import requests
+import structlog
 import dns.resolver
 from parameterized import parameterized
 
 from posthog.api import proxy_record_diagnostics as diagnostics
 from posthog.models.proxy_record import is_reserved_proxy_domain, is_valid_proxy_domain
+from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL
 from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import PinnedUrlVerdict
 from posthog.temporal.proxy_service.cloudflare import (
@@ -66,7 +68,7 @@ def _caa_rdata(tag: bytes, issuer: str):
     return rd
 
 
-class TestCheckCname(TestCase):
+class TestCheckCname(SimpleTestCase):
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
     def test_pass_when_cname_matches(self, ResolverMock):
         cname = MagicMock()
@@ -101,7 +103,7 @@ class TestCheckCname(TestCase):
         self.assertIn("doesn't have a CNAME", result.detail)
 
 
-class TestCheckCloudflare(TestCase):
+class TestCheckCloudflare(SimpleTestCase):
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     def test_pass_when_ssl_active(self, get_mock):
         get_mock.return_value = _hostname_info(ssl_status=CustomHostnameSSLStatus.ACTIVE)
@@ -179,7 +181,7 @@ class TestCheckCloudflare(TestCase):
         self.assertIn("domain", props)
 
 
-class TestCheckCaa(TestCase):
+class TestCheckCaa(SimpleTestCase):
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
     def test_pass_when_no_caa_records(self, ResolverMock):
         ResolverMock.return_value.resolve.side_effect = dns.resolver.NoAnswer()
@@ -215,7 +217,7 @@ class TestCheckCaa(TestCase):
         self.assertIn("letsencrypt.org", result.detail)
 
 
-class TestCheckHttpChallenge(TestCase):
+class TestCheckHttpChallenge(SimpleTestCase):
     @patch("posthog.api.proxy_record_diagnostics.requests.get")
     def test_pass_when_body_matches(self, get_mock):
         get_mock.return_value = MagicMock(status_code=200, text="tok.body")
@@ -245,7 +247,7 @@ class TestCheckHttpChallenge(TestCase):
         self.assertIn("404", result.detail)
 
 
-class TestCheckLiveEvent(TestCase):
+class TestCheckLiveEvent(SimpleTestCase):
     @parameterized.expand(
         [
             ("ssl_error", requests.exceptions.SSLError("bad cert"), "failed", "tls"),
@@ -366,7 +368,7 @@ class TestCheckCertExpiry(TestCase):
         self.assertEqual(result.status, "warned")
 
 
-class TestIsValidProxyDomain(TestCase):
+class TestIsValidProxyDomain(SimpleTestCase):
     @parameterized.expand(
         [
             ("plain", "e.example.com"),
@@ -408,7 +410,7 @@ class TestIsValidProxyDomain(TestCase):
         self.assertFalse(is_valid_proxy_domain(domain))
 
 
-class TestIsReservedProxyDomain(TestCase):
+class TestIsReservedProxyDomain(SimpleTestCase):
     @parameterized.expand(
         [
             ("apex", "posthog.com"),
@@ -437,6 +439,66 @@ class TestIsReservedProxyDomain(TestCase):
         self.assertFalse(is_reserved_proxy_domain(domain))
 
 
+def _capture_response(status_code: int, body: object) -> MagicMock:
+    response = MagicMock(status_code=status_code)
+    if isinstance(body, Exception):
+        response.json.side_effect = body
+    else:
+        response.json.return_value = body
+    return response
+
+
+REACHED_CAPTURE = {"error": "missing_required_headers"}
+
+
+class TestCheckCaptureV1(SimpleTestCase):
+    @patch("posthog.api.proxy_record_diagnostics.pinned_request")
+    def test_passes_when_both_routes_reach_capture(self, post_mock):
+        post_mock.return_value = _capture_response(400, REACHED_CAPTURE)
+
+        result = diagnostics._check_capture_v1(_record())
+
+        self.assertEqual(result.status, "passed")
+        self.assertEqual(
+            {call.kwargs["headers"]["Authorization"] for call in post_mock.call_args_list}, {"Bearer phc_probe"}
+        )
+        self.assertEqual(
+            sorted(call.args[1] for call in post_mock.call_args_list),
+            ["https://e.example.com/i/v1/ai/events", "https://e.example.com/i/v1/analytics/events"],
+        )
+
+    @parameterized.expand(
+        [
+            ("blocked_in_front", _capture_response(403, ValueError("not json"))),
+            ("not_found", _capture_response(404, ValueError("not json"))),
+            ("other_error_code", _capture_response(401, {"error": "invalid_token"})),
+            ("deeply_nested_body", _capture_response(200, RecursionError("too deep"))),
+            ("authorization_dropped", _capture_response(401, {"error": "missing_authorization"})),
+            ("connection_error", requests.exceptions.ConnectionError("refused")),
+            ("ssrf_blocked", SSRFBlockedError("private")),
+        ]
+    )
+    @patch("posthog.api.proxy_record_diagnostics.pinned_request")
+    def test_warns_naming_the_route_that_misses_capture(self, _name, ai_outcome, post_mock):
+        def respond(_method, url, **_kwargs):
+            if url.endswith("/i/v1/ai/events"):
+                if isinstance(ai_outcome, Exception):
+                    raise ai_outcome
+                return ai_outcome
+            return _capture_response(400, REACHED_CAPTURE)
+
+        post_mock.side_effect = respond
+
+        result = diagnostics._check_capture_v1(_record())
+
+        self.assertEqual(result.status, "warned")
+        self.assertEqual(
+            result.detail,
+            "`e.example.com` doesn't forward `/i/v1/ai/events`, so AI events sent there by SDKs that use "
+            "capture v1 are lost. Contact support.",
+        )
+
+
 CF_TARGET = "abc.cf-prod-eu-proxy.europehog.com."
 LEGACY_TARGET = "abc.proxy-us.posthog.com."
 
@@ -450,11 +512,14 @@ class TestDiagnoseOrchestrator(TestCase):
     """
 
     @parameterized.expand([("cloudflare_path", CF_TARGET), ("legacy_path", LEGACY_TARGET)])
+    @patch("posthog.api.proxy_record_diagnostics._check_capture_v1")
     @patch("posthog.api.proxy_record_diagnostics._check_cert_expiry")
     @patch("posthog.api.proxy_record_diagnostics.pinned_request")
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
-    def test_live_pass_short_circuits_to_healthy(self, _name, target, ResolverMock, get_mock, post_mock, cert_mock):
+    def test_live_pass_short_circuits_to_healthy(
+        self, _name, target, ResolverMock, get_mock, post_mock, cert_mock, capture_v1_mock
+    ):
         # A working endpoint means the cert is live and deployed, so no provider API is
         # consulted — on either path. This is the regression that made a healthy legacy
         # proxy report as broken because its Cloudflare lookup came back empty.
@@ -465,12 +530,36 @@ class TestDiagnoseOrchestrator(TestCase):
         cert_mock.return_value = diagnostics.CheckResult(
             id="cert_expiry", name="Certificate expiry", status="passed", detail="ok"
         )
+        capture_v1_mock.return_value = diagnostics.CheckResult(
+            id="capture_v1", name="Capture v1 routes", status="passed", detail="ok"
+        )
 
         report = diagnostics.diagnose(_record(target=target))
 
         self.assertEqual(report.summary.status, "healthy")
-        self.assertEqual([c.id for c in report.checks], ["cname", "live_event", "cert_expiry"])
+        self.assertEqual([c.id for c in report.checks], ["cname", "live_event", "capture_v1", "cert_expiry"])
         get_mock.assert_not_called()
+
+    @patch("posthog.api.proxy_record_diagnostics._check_capture_v1")
+    @patch("posthog.api.proxy_record_diagnostics._check_cert_expiry")
+    @patch("posthog.api.proxy_record_diagnostics.pinned_request")
+    @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
+    def test_live_pass_with_capture_v1_missing_warns(self, ResolverMock, post_mock, cert_mock, capture_v1_mock):
+        cname = MagicMock()
+        cname.target.to_text.return_value = CF_TARGET
+        ResolverMock.return_value.resolve.return_value = [cname]
+        post_mock.return_value = MagicMock(status_code=200)
+        cert_mock.return_value = diagnostics.CheckResult(
+            id="cert_expiry", name="Certificate expiry", status="passed", detail="ok"
+        )
+        capture_v1_mock.return_value = diagnostics.CheckResult(
+            id="capture_v1", name="Capture v1 routes", status="warned", detail="missing"
+        )
+
+        report = diagnostics.diagnose(_record())
+
+        self.assertEqual(report.summary.status, "warn")
+        self.assertEqual(report.summary.primary_issue, "capture_v1")
 
     @patch("posthog.api.proxy_record_diagnostics.pinned_request")
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
@@ -620,8 +709,10 @@ class TestDiagnoseOrchestrator(TestCase):
         # fired at all rather than on how a half-configured mock happens to fail.
         post_mock.return_value = MagicMock(status_code=200)
 
+        log_context = dict(structlog.get_context(diagnostics.LOGGER.bind()))
         report = diagnostics.diagnose(_record(domain="169.254.169.254:80/pad.attacker.example", target=CF_TARGET))
 
+        self.assertEqual(dict(structlog.get_context(diagnostics.LOGGER.bind())), log_context)
         post_mock.assert_not_called()
         http_get_mock.assert_not_called()
         socket_mock.assert_not_called()
@@ -629,3 +720,18 @@ class TestDiagnoseOrchestrator(TestCase):
         ResolverMock.return_value.resolve.assert_not_called()
         self.assertEqual(report.summary.status, "fail")
         self.assertFalse(any(c.status == "passed" for c in report.checks))
+
+
+class TestOutOfBandDomainsAreNotDiagnosed(SimpleTestCase):
+    @parameterized.expand([("on_cloud", True), ("off_cloud", False)])
+    def test_a_listed_domain_is_refused_on_cloud_only(self, _name: str, cloud: bool) -> None:
+        with (
+            patch.object(diagnostics, "is_cloud", return_value=cloud),
+            patch.object(diagnostics, "_check_cname") as cname,
+            patch.object(diagnostics, "_check_live_event") as live_event,
+        ):
+            report = diagnostics.diagnose(_record(domain="abc.oast.live"))
+
+        self.assertEqual(cname.called, not cloud)
+        live_event.assert_not_called()
+        self.assertEqual([check.detail for check in report.checks] == [OOB_DOMAIN_REFUSAL], cloud)

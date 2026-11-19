@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { BrandMark } from 'lib/components/BrandMark/BrandMark'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
@@ -7,6 +8,8 @@ import { formatPercentage } from 'lib/utils/numbers'
 
 import { HogQLFilters, MCPModelBreakdownItem } from '~/queries/schema/schema-general'
 
+import { seriesLab } from '../aiLabs'
+import { labMark } from '../aiLabs'
 import { formatNumber } from './formatters'
 import { MODEL_PAGE_SIZE, modelBreakdownLogic } from './modelBreakdownLogic'
 
@@ -61,11 +64,17 @@ export function ModelBreakdownTable({
                         {
                             title: 'Model',
                             dataIndex: 'model',
-                            render: (_, row) => (
-                                <span className="break-all" translate="no">
-                                    {row.model}
-                                </span>
-                            ),
+                            render: (_, row) => {
+                                const lab = seriesLab(row.model)
+                                return (
+                                    <span className="flex items-center gap-1.5">
+                                        <BrandMark name={labMark(lab)} />
+                                        <span className="break-all" translate="no">
+                                            {row.model}
+                                        </span>
+                                    </span>
+                                )
+                            },
                         },
                         {
                             title: 'Calls',

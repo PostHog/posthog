@@ -2,6 +2,8 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import TestCase
 
+from django.test import SimpleTestCase
+
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
@@ -113,7 +115,7 @@ class TestLogQuerySettings(ClickhouseTestMixin, APIBaseTest):
             self._get_clickhouse_sql_for("SELECT * FROM events e JOIN logs l ON e.uuid = l.uuid LIMIT 10")
 
 
-class TestTooManyBytesError(ClickhouseTestMixin, APIBaseTest):
+class TestTooManyBytesError(ClickhouseTestMixin, SimpleTestCase):
     """Tests that TOO_MANY_BYTES error is exposed to users."""
 
     def test_wrap_clickhouse_query_error_returns_exposed_error_for_too_many_bytes(self):
@@ -168,16 +170,38 @@ class TestTooManyBytesError(ClickhouseTestMixin, APIBaseTest):
 
 class TestCorruptedParquetMetadataError(TestCase):
     """A Parquet file with oversized/corrupted thrift metadata surfaces as a raw STD_EXCEPTION
-    (code 1001). It must be translated into a friendly, exposed error instead of leaking the raw
+    (code 1001) from the Arrow reader, or as INCORRECT_DATA / CANNOT_EXTRACT_TABLE_STRUCTURE from the
+    ParquetV3 reader. It must be translated into a friendly, exposed error instead of leaking the raw
     ClickHouse message into the SQL editor."""
 
-    THRIFT_MESSAGE = (
-        "DB::Exception: parquet::ParquetException: Couldn't deserialize thrift: "
-        "TProtocolException: Exceeded size limit. Stack trace: ..."
+    @parameterized.expand(
+        [
+            (
+                "arrow_reader",
+                "DB::Exception: parquet::ParquetException: Couldn't deserialize thrift: "
+                "TProtocolException: Exceeded size limit. Stack trace: ...",
+                1001,
+            ),
+            (
+                "parquet_v3_reader_at_query_time",
+                "Code: 117. DB::Exception: Failed to parse Parquet Thrift metadata from 64 bytes: "
+                "TProtocolException: Invalid data: read stage: ColumnData: column: amount: "
+                "(in file/uri example-bucket/exports/orders.3.parquet): While executing "
+                "ParquetV3BlockInputFormat. (INCORRECT_DATA)",
+                117,
+            ),
+            (
+                "parquet_v3_reader_during_schema_inference",
+                "Code: 636. DB::Exception: The table structure cannot be extracted from a Parquet format file. "
+                "Error:\nCode: 117. DB::Exception: Failed to parse Parquet Thrift metadata from 40 bytes: "
+                "TProtocolException: Exceeded size limit. (INCORRECT_DATA).\nYou can specify the structure "
+                "manually: (in file/uri example-bucket/exports/orders.1.parquet). (CANNOT_EXTRACT_TABLE_STRUCTURE)",
+                636,
+            ),
+        ]
     )
-
-    def test_thrift_deserialization_error_is_exposed_and_friendly(self) -> None:
-        wrapped = wrap_clickhouse_query_error(ServerException(self.THRIFT_MESSAGE, code=1001))
+    def test_thrift_deserialization_error_is_exposed_and_friendly(self, _name: str, message: str, code: int) -> None:
+        wrapped = wrap_clickhouse_query_error(ServerException(message, code=code))
         assert isinstance(wrapped, CHQueryErrorCorruptedParquetMetadata)
         assert isinstance(wrapped, ExposedCHQueryError)
         message = str(wrapped)

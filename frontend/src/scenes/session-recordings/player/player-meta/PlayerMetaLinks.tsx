@@ -26,14 +26,17 @@ import {
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { PlayerMetaBreakpoints } from './PlayerMeta'
 
-export function PinToPlaylistButton(): JSX.Element {
+export function PinToPlaylistButton({
+    size = 'xsmall',
+    type,
+    labelled = false,
+}: Pick<LemonButtonProps, 'size' | 'type'> & { labelled?: boolean } = {}): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
 
     const tooltip = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
@@ -41,14 +44,17 @@ export function PinToPlaylistButton(): JSX.Element {
 
     return logicProps.setPinned && !logicProps.pinned ? (
         <LemonButton
-            size="xsmall"
+            size={size}
+            type={type}
             onClick={() => {
                 logicProps.setPinned?.(true)
             }}
             tooltip={tooltip}
-            data-attr={logicProps.pinned ? 'unpin-from-this-list' : 'pin-to-this-list'}
+            data-attr="pin-to-this-list"
             icon={<IconPlusSmall />}
-        />
+        >
+            {labelled ? description : null}
+        </LemonButton>
     ) : (
         <AccessControlAction
             resourceType={AccessControlResourceType.SessionRecording}
@@ -58,36 +64,12 @@ export function PinToPlaylistButton(): JSX.Element {
                 tooltip={tooltip}
                 setPinnedInCurrentPlaylist={logicProps.setPinned}
                 icon={logicProps.pinned ? <IconMinusSmall /> : <IconPlusSmall />}
-                size="xsmall"
+                size={size}
+                type={type}
             >
                 {description}
             </PlaylistPopoverButton>
         </AccessControlAction>
-    )
-}
-
-export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
-    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-
-    return (
-        <div className="flex">
-            {![SessionRecordingPlayerMode.Sharing].includes(mode) ? (
-                <>
-                    {sessionRecordingId && (
-                        <div className="flex items-center gap-0.5">
-                            <MenuActions size={size} />
-                        </div>
-                    )}
-
-                    <PlayerShareMenu />
-
-                    <InsertInNotebookPlaylistButton size={size} />
-
-                    <PinToPlaylistButton />
-                </>
-            ) : null}
-        </div>
     )
 }
 

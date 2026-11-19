@@ -65,15 +65,24 @@ class TestEmailTransport(SimpleTestCase):
             with pytest.raises(DeliveryError, match="not configured"):
                 EmailTransport().deliver(team_id=2, target=TARGET, message=alert_message())
 
-    def test_the_template_renders_the_headline_and_every_detail(self) -> None:
+    def test_the_template_renders_the_headline_details_context_and_links(self) -> None:
         html = render_to_string(
             f"email/{TEMPLATE_NAME}.html",
             {
                 "headline": "API errors is firing",
                 "details": [{"label": "Value", "value": "312"}, {"label": "Threshold", "value": "> 300"}],
+                "context": ["Insight: Signups"],
+                "links": [{"label": "View insight", "url": "https://app.example.com/insights/abc"}],
             },
         )
 
         assert "API errors is firing" in html
         assert "Value:</strong> 312" in html
         assert "Threshold:</strong> &gt; 300" in html
+        assert "Insight: Signups" in html
+        assert '<a href="https://app.example.com/insights/abc">View insight</a>' in html
+
+    def test_an_email_carries_the_message_context_and_links(self) -> None:
+        kwargs = self._deliver().call_args.kwargs
+
+        assert [link["label"] for link in kwargs["template_context"]["links"]] == ["View alert"]

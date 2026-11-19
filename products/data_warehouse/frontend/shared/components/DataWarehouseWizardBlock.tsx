@@ -1,18 +1,12 @@
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 
-import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type { ExternalDataSourceType } from '~/types'
 
 import { SourceIcon } from './SourceIcon'
 
 // Database sources the warehouse wizard can detect and connect from a codebase.
-const WIZARD_DETECTABLE_SOURCES: ExternalDataSourceTypeEnumApi[] = [
-    'Postgres',
-    'MySQL',
-    'Supabase',
-    'MongoDB',
-    'BigQuery',
-]
+const WIZARD_DETECTABLE_SOURCES: ExternalDataSourceType[] = ['Postgres', 'MySQL', 'Supabase', 'MongoDB', 'BigQuery']
 
 export function DataWarehouseWizardBlock(): JSX.Element {
     const { wizardCommand, isCloudOrDev } = useWizardCommand('warehouse')

@@ -1,4 +1,4 @@
-import { buildHogFunctionConfigDiff } from './hogFunctionConfigDiffUtils'
+import { buildHogFunctionConfigDiff, buildHogFunctionDraftDiff } from './hogFunctionConfigDiffUtils'
 
 describe('buildHogFunctionConfigDiff', () => {
     it('classifies each proposed field as added / removed / changed and drops unchanged ones', () => {
@@ -60,5 +60,57 @@ describe('buildHogFunctionConfigDiff', () => {
         expect(diffs[0].status).toBe('removed')
         expect(diffs[0].currentText).not.toContain('xoxb-mapping-secret')
         expect(diffs[0].currentText).toContain('[secret]')
+    })
+
+    it('compares a staged draft with the live config, ignoring compiled values and masked secrets', () => {
+        const inputsSchema = [
+            { key: 'url', type: 'string' },
+            { key: 'token', type: 'string', secret: true },
+        ]
+        const live = {
+            hog: 'return event',
+            inputs_schema: inputsSchema,
+            inputs: { url: { value: 'https://old', bytecode: ['_H', 1], order: 0 }, token: { secret: true } },
+            filters: { events: [{ id: '$pageview' }], bytecode: ['_H', 1, 32] },
+            mappings: null,
+            masking: null,
+        }
+        const draft = {
+            hog: 'return event',
+            inputs_schema: inputsSchema,
+            inputs: { url: { value: 'https://new', bytecode: ['_H', 2] }, token: { secret: true } },
+            filters: { events: [{ id: '$pageview' }], bytecode: ['_H', 1, 99], bytecode_error: null },
+            mappings: null,
+            masking: null,
+        }
+        const diffs = buildHogFunctionDraftDiff(live, draft)
+        expect(diffs.map((diff) => diff.field)).toEqual(['inputs'])
+        expect(diffs[0].currentText).toContain('https://old')
+        expect(diffs[0].proposedText).toContain('https://new')
+    })
+
+    it('shows a draft change that only touches input templating or a nested value key', () => {
+        const live = {
+            inputs: {
+                body: { value: '{event.event}', templating: 'hog' },
+                payload: { value: { value: 'a' } },
+            },
+        }
+        const draft = {
+            inputs: {
+                body: { value: '{event.event}', templating: 'liquid' },
+                payload: { value: { value: 'b' } },
+            },
+        }
+        const diffs = buildHogFunctionDraftDiff(live, draft)
+        expect(diffs.map((diff) => diff.field)).toEqual(['inputs'])
+        expect(diffs[0].proposedText).toContain('liquid')
+        expect(diffs[0].proposedText).toContain('"b"')
+    })
+
+    it('treats a missing input templating as hog, so a values-only agent edit adds no noise', () => {
+        const live = { inputs: { url: { value: 'https://x', templating: 'hog' } } }
+        const draft = { inputs: { url: { value: 'https://x' } } }
+        expect(buildHogFunctionDraftDiff(live, draft)).toEqual([])
     })
 })

@@ -5,8 +5,15 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.ownership.paths import PathOwnership
+
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, REVIEW_MODE_FLASH, REVIEW_MODE_FULL
+from products.review_hog.backend.reviewer.constants import (
+    CONTROL_ARM_SET,
+    DEFAULT_REVIEW_ARM,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_review_arm
 from products.review_hog.backend.reviewer.tools.github_meta import FetchedPR
@@ -91,12 +98,16 @@ class TestFetchDecidesTheTier(BaseTest):
 
     @parameterized.expand(
         [
-            ("flash", REVIEW_MODE_FLASH, [10], 1, True),
-            ("flash_two_parts", REVIEW_MODE_FLASH, [600, 600], 2, True),
-            ("full", REVIEW_MODE_FULL, [10], 0, False),
+            ("flash", REVIEW_MODE_FLASH, [10], True, 1, True, False),
+            ("flash_two_parts", REVIEW_MODE_FLASH, [600, 600], True, 2, True, False),
+            ("flash_separate_sessions", REVIEW_MODE_FLASH, [10], False, 1, False, True),
+            ("full", REVIEW_MODE_FULL, [10], True, 0, False, False),
         ]
     )
-    @patch(f"{_MODULE}.standard_coordinator_on", return_value=True)
+    @patch(f"{_MODULE}.single_agent_arm_set", return_value="trial")
+    @patch(f"{_MODULE}.delta_reviews_low_risk_follow_ups", return_value=True)
+    @patch(f"{_MODULE}.skips_zero_change_follow_ups", return_value=True)
+    @patch(f"{_MODULE}.standard_coordinator_on")
     @patch(f"{_MODULE}.flash_pipeline_kill_switch_on", return_value=False)
     @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
     @patch(f"{_MODULE}.PRFetcher")
@@ -105,17 +116,23 @@ class TestFetchDecidesTheTier(BaseTest):
         _name: str,
         review_mode: str,
         additions: list[int],
+        coordinator_flag_on: bool,
         expected_parts: int,
         expected_coordinator: bool,
+        separate_sessions: bool,
         mock_fetcher: MagicMock,
         _auth: MagicMock,
         _kill_switch: MagicMock,
-        _coordinator: MagicMock,
+        coordinator_flag: MagicMock,
+        _zero_change_flag: MagicMock,
+        _delta_flag: MagicMock,
+        _arm_set_flag: MagicMock,
     ) -> None:
         # The workflow fans the lens sessions out over this count, so a fetch that leaves it at the
         # default runs every Flash turn without its lenses and no error shows it. Only the
         # single-agent design fetches test and `.txt` files, so the design must be known first.
         # Its prompt reads a left-out diff against the merge base, so the snapshot must keep it.
+        coordinator_flag.return_value = coordinator_flag_on
         pr_files = [
             PRFile(filename=f"d{index}/a.py", status="modified", additions=count, deletions=0)
             for index, count in enumerate(additions)
@@ -138,13 +155,83 @@ class TestFetchDecidesTheTier(BaseTest):
 
         assert meta.lens_chunk_count == expected_parts
         assert meta.coordinator is expected_coordinator
+        # The delta review and the arm sets exist only for separate sessions, so other turns stay in control.
+        assert (meta.zero_change_skip, meta.delta_band) == (True, separate_sessions)
+        assert meta.arm_set == ("trial" if separate_sessions else CONTROL_ARM_SET)
         single_agent = review_mode == REVIEW_MODE_FLASH
         assert mock_fetcher.return_value.fetch_pr_data.call_args.kwargs == {
             "review_tests_and_text": single_agent,
-            "with_merge_base": single_agent,
+            "with_merge_base": True,
         }
         snapshot = load_pr_snapshot(team_id=self.team.id, report_id=meta.report_id, head_sha=meta.head_sha)
         assert snapshot is not None and snapshot.merge_base_sha == merge_base_sha
+
+    @parameterized.expand(
+        [
+            ("devex_owned_file_with_flag", "team-devex", True, False, "open", True, True),
+            ("flag_off_routes_a_control", "team-devex", False, False, "open", False, True),
+            ("file_of_another_team", "team-surveys", True, False, "open", False, False),
+            ("coordinated_turn", "team-devex", True, True, "open", False, False),
+            ("skipped_turn_on_a_closed_pr", "team-devex", True, False, "closed", False, False),
+            ("owners_yaml_that_does_not_parse", None, True, False, "open", False, False),
+        ]
+    )
+    @patch(f"{_MODULE}.resolve_path_owners")
+    @patch(f"{_MODULE}.devex_lens_on")
+    @patch(f"{_MODULE}.standard_coordinator_on")
+    @patch(f"{_MODULE}.flash_pipeline_kill_switch_on", return_value=False)
+    @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
+    @patch(f"{_MODULE}.PRFetcher")
+    def test_fetch_adds_the_devex_lens_only_to_a_routed_pr_on_separate_sessions(
+        self,
+        _name: str,
+        owner: str | None,
+        flag_on: bool,
+        coordinator_on: bool,
+        state: str,
+        expected: bool,
+        expected_routed: bool,
+        mock_fetcher: MagicMock,
+        _auth: MagicMock,
+        _kill_switch: MagicMock,
+        coordinator_flag: MagicMock,
+        devex_flag: MagicMock,
+        path_owners: MagicMock,
+    ) -> None:
+        # An ownership error must cost the turn only its optional lens session, and a flag-off turn must still
+        # record its route, or the trial has no matched control group.
+        devex_flag.return_value = flag_on
+        if owner is None:
+            path_owners.side_effect = ValueError("owners.yaml: unknown key")
+        else:
+            path_owners.return_value = PathOwnership(
+                team_by_path={"ci.yml": owner, "app.py": "team-surveys"}, registry={}, resolved=True
+            )
+        coordinator_flag.return_value = coordinator_on
+        mock_fetcher.return_value.fetch_pr_data.return_value = FetchedPR(
+            pr_metadata=_pr_metadata().model_copy(update={"state": state}),
+            pr_comments=[],
+            pr_files=[
+                PRFile(filename=name, status="modified", additions=5, deletions=0) for name in ("ci.yml", "app.py")
+            ],
+            diff="",
+        )
+        meta = _fetch_and_persist(
+            FetchPRDataInput(
+                team_id=self.team.id,
+                user_id=self.user.id,
+                repository="o/r",
+                owner="o",
+                repo="r",
+                pr_number=9,
+                review_mode=REVIEW_MODE_FLASH,
+                trigger_source="automatic",
+            )
+        )
+
+        assert (meta.devex_lens, meta.devex_lens_routed) == (expected, expected_routed)
+        snapshot = load_pr_snapshot(team_id=self.team.id, report_id=meta.report_id, head_sha=meta.head_sha)
+        assert snapshot is not None and snapshot.devex_lens_files == (["ci.yml"] if expected else [])
 
     @patch(f"{_MODULE}._installation_auth", return_value=("tok", "9876543"))
     @patch(f"{_MODULE}.PRFetcher")

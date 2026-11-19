@@ -1,5 +1,6 @@
 import type {
   AssistantMessage,
+  SystemMessage,
   ToolResultMessage,
   UserMessage,
 } from "@earendil-works/pi-ai";
@@ -44,6 +45,17 @@ describe("createPiMessageTranslator", () => {
         content: [{ type: "text", text: "hello there" }],
       },
     ]);
+  });
+
+  it("ignores system messages", () => {
+    const translator = createPiMessageTranslator();
+    const message: SystemMessage = {
+      role: "system",
+      content: "System instructions",
+      timestamp: 0,
+    };
+
+    expect(translator.translate(message)).toEqual([]);
   });
 
   it("translates user message content blocks into user message chunks", () => {

@@ -7,6 +7,7 @@ from typing import Any
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.fake_network import (
+    SCRIPTED_REQUEST_LIMIT,
     FakeNetwork,
     RecordedRequest,
     fake_environment,
@@ -135,5 +136,5 @@ def scripted_network(script: Script) -> Iterator[FakeNetwork]:
     For code a source runs outside an extraction, such as a credential probe or a webhook call. An
     extraction goes through `SourceDriver`, which also stands in for the pipeline.
     """
-    with fake_environment(ScriptedResponder(script)) as network:
+    with fake_environment(ScriptedResponder(script), SCRIPTED_REQUEST_LIMIT) as network:
         yield network

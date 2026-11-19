@@ -6,6 +6,8 @@ import {
     type BuilderQuery,
     CLAUSE_LABEL,
     type ConversionResult,
+    clauseAlias,
+    countRangeFunction,
     normalizeClause,
     normalizeLabelKey,
 } from './types'
@@ -93,6 +95,20 @@ function clauseToPromExpr(builderClause: BuilderClause, issues: string[]): Claus
                 ],
             }
             break
+        case 'count_rate':
+        case 'count_increase':
+            // A histogram's observation count is the `_count` series, as `_bucket` holds its buckets.
+            expr = {
+                type: 'aggregate',
+                op: 'sum',
+                expr: {
+                    type: 'call',
+                    func: countRangeFunction(clause) as string,
+                    args: [{ ...selector, name: `${clause.metricName}_count` }],
+                },
+                ...(grouping ? { grouping } : {}),
+            }
+            break
         default:
             if (!SIMPLE_AGGREGATIONS.has(clause.aggregation)) {
                 issues.push(`PromQL has no "${clause.aggregation}" aggregation; series ${clause.name} uses sum.`)
@@ -166,6 +182,39 @@ function substituteFormula(
     }
 }
 
+/**
+ * `histogram_quantiles("clause", 0.5, 0.9, buckets)` for series that are quantiles of the same buckets.
+ * Snuffle reads the buckets one time for this form; a union of `histogram_quantile` calls reads them
+ * once for each series, on a much slower path. The label holds the quantile, and the backend maps it
+ * back to the alias, so this form is only used when the aliases are the defaults a, b, c, ...
+ */
+function sharedHistogramQuantiles(clauses: BuilderClause[], exprs: Map<string, ClauseExpr>): PromExpr | null {
+    const quantiles: PromExpr[] = []
+    let buckets: PromExpr | null = null
+    for (const [index, clause] of clauses.entries()) {
+        const expr = exprs.get(clause.name)!.expr
+        if (clause.name !== clauseAlias(index) || expr.type !== 'call' || expr.func !== 'histogram_quantile') {
+            return null
+        }
+        const [quantile, clauseBuckets] = expr.args
+        if (quantile.type !== 'number' || quantiles.some((q) => q.type === 'number' && q.value === quantile.value)) {
+            return null
+        }
+        if (buckets && printPromQL(buckets) !== printPromQL(clauseBuckets)) {
+            return null
+        }
+        buckets = clauseBuckets
+        quantiles.push(quantile)
+    }
+    return (
+        buckets && {
+            type: 'call',
+            func: 'histogram_quantiles',
+            args: [{ type: 'string', value: CLAUSE_LABEL }, ...quantiles, buckets],
+        }
+    )
+}
+
 export function builderToPromql(query: BuilderQuery): ConversionResult<string> {
     const issues: string[] = []
     const clauses = query.clauses.filter((clause) => clause.metricName.trim())
@@ -200,6 +249,11 @@ export function builderToPromql(query: BuilderQuery): ConversionResult<string> {
 
     if (clauses.length === 1) {
         return { value: printPromQL(exprs.get(clauses[0].name)!.expr), issues }
+    }
+
+    const shared = sharedHistogramQuantiles(clauses, exprs)
+    if (shared) {
+        return { value: printPromQL(shared), issues }
     }
 
     // Several series without a formula: label each one with its alias, so the union keeps them apart.

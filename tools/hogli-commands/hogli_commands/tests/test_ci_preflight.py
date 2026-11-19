@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -9,11 +10,13 @@ from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 from hogli.cli import cli
 from hogli.manifest import REPO_ROOT
+from hogli_commands import ci_preflight
 from hogli_commands.change_detection import matches_globs
 from hogli_commands.ci_preflight import (
     DIFF_CHECKS,
     DiffCheck,
     _pnpm_workspace_root,
+    _run_diff_check,
     _run_workspace_scoped,
     _staleness_risks,
 )
@@ -25,7 +28,10 @@ runner = CliRunner()
 @pytest.fixture(autouse=True)
 def no_diff_reading_checks() -> Iterator[None]:
     # The real ones shell out to node and semgrep on any changed path.
-    with patch("hogli_commands.ci_preflight.DIFF_CHECKS", [chk for chk in DIFF_CHECKS if chk.run is None]):
+    with (
+        patch("hogli_commands.ci_preflight.DIFF_CHECKS", [chk for chk in DIFF_CHECKS if chk.run is None]),
+        patch("hogli_commands.ci_preflight.check_stack_depth", return_value=("skipped", "no local stack")),
+    ):
         yield
 
 
@@ -83,6 +89,18 @@ class TestKillSwitch:
 
 
 class TestStrictAndFixContracts:
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=[])
+    def test_explicit_preflight_blocks_an_oversized_stack_without_a_diff(
+        self, mock_changed: MagicMock, mock_fetch: MagicMock, mock_stale: MagicMock, mock_emit: MagicMock
+    ) -> None:
+        with patch("hogli_commands.ci_preflight.check_stack_depth", return_value=("fail", "6 open layers")):
+            result = runner.invoke(cli, ["ci:preflight", "--strict"])
+        assert result.exit_code == 1
+        assert "6 open layers" in result.output
+
     @patch("hogli_commands.ci_preflight._emit_telemetry")
     @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
     @patch("hogli_commands.ci_preflight._fetch_master")
@@ -165,7 +183,7 @@ class TestStrictAndFixContracts:
         result = runner.invoke(cli, ["ci:preflight", "--strict"])
 
         assert result.exit_code == 0
-        assert "uv run mypy --cache-fine-grained ." in result.output
+        assert "uv run mypy ." in result.output
         # Giving the check a `verify` would tax every push with a repo-wide mypy run.
         ran = [arg for call in mock_run.call_args_list for arg in call.args[0]]
         assert "mypy" not in ran
@@ -180,7 +198,7 @@ class TestProjectionsDriftCheck:
             "tools/hogli-commands/hogli_commands/projections.py",
             "frontend/src/taxonomy/core-filter-definitions-by-group.json",
             "products/tasks/backend/model_catalog.py",
-            "posthog/scopes.py",
+            "posthog/scopes/oauth.py",
             "services/mcp/src/lib/oauth-scopes.generated.ts",
         ],
     )
@@ -277,7 +295,7 @@ class TestStalenessRisks:
                 ["migrations added on both sides in posthog/migrations"],
             ),
             (["posthog/api/ours.py"], ["posthog/api/theirs.py"], [], ["master also changed build:openapi"]),
-            (["a.py"], [".github/workflows/ci-backend.yml"], [], ["CI workflows changed on master (1 file(s))"]),
+            (["a.py"], [".github/workflows/ci-python.yml"], [], ["CI workflows changed on master (1 file(s))"]),
         ],
     )
     def test_risk_derivation(
@@ -293,9 +311,17 @@ class TestStalenessRisks:
             assert fragment in risk
 
 
+@pytest.fixture
+def workspaces(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    for ws in ("", "products/desktop", "packages/agent", "tools/hedgebox-dummy"):
+        (tmp_path / ws).mkdir(parents=True, exist_ok=True)
+        (tmp_path / ws / "pnpm-workspace.yaml").touch()
+    monkeypatch.setattr(ci_preflight, "REPO_ROOT", tmp_path)
+
+
+@pytest.mark.usefixtures("workspaces")
 class TestWorkspaceScopedLockfile:
-    """The lockfile check must validate each pnpm workspace against its own lockfile.
-    These hit the real repo layout, like TestDetectTestType in test_test_runner.py."""
+    """The lockfile check must validate each pnpm workspace against its own lockfile."""
 
     @pytest.mark.parametrize(
         "file_path,expected_workspace",
@@ -342,9 +368,8 @@ class TestWorkspaceScopedLockfile:
 
         assert status == "pass"
         ran_dirs = [call.kwargs["cwd"] for call in mock_run.call_args_list]
-        from hogli.manifest import REPO_ROOT
-
-        assert ran_dirs == [REPO_ROOT if d == "." else REPO_ROOT / d for d in expected_dirs]
+        root = ci_preflight.REPO_ROOT
+        assert ran_dirs == [root if d == "." else root / d for d in expected_dirs]
 
     @patch("hogli_commands.ci_preflight._workspace_install_present", return_value=True)
     @patch("hogli_commands.ci_preflight.shutil.which", return_value="/usr/bin/pnpm")
@@ -372,7 +397,44 @@ class TestWorkspaceScopedLockfile:
         assert "products/desktop: needs node" in detail
 
 
-class TestShadowDriftCheck:
+class TestMigrationsCheck:
+    @patch("hogli_commands.ci_preflight.shutil.which", return_value="/usr/bin/hogli")
+    @patch("hogli_commands.ci_preflight._port_open", return_value=True)
+    @patch("hogli_commands.ci_preflight.subprocess.run")
+    def test_disabled_migration_checks_report_skipped_not_pass(
+        self, mock_run: MagicMock, mock_port: MagicMock, mock_which: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("POSTHOG_SKIP_MIGRATION_CHECKS", "1")
+        migrations = next(chk for chk in DIFF_CHECKS if chk.key == "migrations")
+        migrations.matched = ["posthog/migrations/0999_example.py"]
+
+        status, detail = _run_diff_check(migrations, do_fix=False, against=None, strict=True)
+
+        assert status == "skipped"
+        assert "POSTHOG_SKIP_MIGRATION_CHECKS" in detail
+
+    @patch("hogli_commands.ci_preflight.shutil.which", return_value="/usr/bin/hogli")
+    @patch("hogli_commands.ci_preflight._port_open", return_value=True)
+    @patch("hogli_commands.ci_preflight.subprocess.run")
+    def test_failure_detail_shows_the_closing_error_not_the_log_noise(
+        self, mock_run: MagicMock, mock_port: MagicMock, mock_which: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("POSTHOG_SKIP_MIGRATION_CHECKS", raising=False)
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stdout="DEBUG settings loaded\nDEBUG connecting\nDEBUG warning: cache cold\nDEBUG done\n",
+            stderr="The local database lacks these migrations: posthog.0999_example\n",
+        )
+        migrations = next(chk for chk in DIFF_CHECKS if chk.key == "migrations")
+        migrations.matched = ["posthog/migrations/0999_example.py"]
+
+        status, detail = _run_diff_check(migrations, do_fix=False, against=None, strict=True)
+
+        assert status == "fail"
+        assert "posthog.0999_example" in detail
+
+
+class TestDepotMirrorsCheck:
     @pytest.mark.parametrize(
         "changed,expected_exit,expected_fragment",
         [
@@ -403,4 +465,4 @@ class TestShadowDriftCheck:
         if expected_fragment:
             assert expected_fragment in result.output
         else:
-            assert "shadow-drift" not in result.output
+            assert "depot-mirrors" not in result.output

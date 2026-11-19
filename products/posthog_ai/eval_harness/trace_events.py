@@ -1,5 +1,4 @@
-"""Emit sandboxed eval trace events ($ai_generation, $ai_span, $ai_trace,
-$ai_evaluation) to a PostHog client.
+"""Emit sandboxed eval trace events ($ai_generation, $ai_span, $ai_trace) to PostHog.
 
 Consumes a ``ParsedLog`` produced by ``acp_log.parse_log`` plus scoring
 results from Braintrust. Owns the constants shared with scorer tracing
@@ -8,6 +7,7 @@ results from Braintrust. Owns the constants shared with scorer tracing
 
 from __future__ import annotations
 
+import json
 import uuid
 import logging
 from datetime import datetime
@@ -16,7 +16,7 @@ from typing import Any
 from posthoganalytics import Posthog
 
 from .acp_log import GenerationDescriptor, ParsedLog, SpanDescriptor
-from .engines.types import CaseResult
+from .log_parser import LogParser, ToolCall
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,8 @@ type RunMetadata = dict[str, str | int | bool | None]
 DISTINCT_ID = "llma_eval"
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
 DEFAULT_PROVIDER = "anthropic"
+_RUNTIME_PROVIDERS = {"codex": "openai"}
+TOOL_STATE_CHAR_LIMIT = 2_000
 
 
 def _parse_iso_timestamp(ts: str) -> datetime | None:
@@ -73,10 +75,19 @@ class TraceEventEmitter:
     def emit_parsed_events(self, parsed: ParsedLog) -> None:
         """Emit ``$ai_generation`` per model turn and ``$ai_span`` per log span."""
         error_spans = [s for s in parsed.spans if s.span_name == "error"]
-        model = parsed.model or DEFAULT_MODEL
+        agent_model = self._run_metadata.get("agent_model")
+        model = parsed.model or (agent_model if isinstance(agent_model, str) and agent_model else DEFAULT_MODEL)
 
+        # The spans read the same parsed calls as the tool chain, so the trace and the chain agree.
+        calls = {call.call_id: call for call in LogParser.from_parsed_log(parsed).get_tool_calls(include_skills=True)}
+        tool_spans = 0
         for gen in parsed.generations:
-            self._emit_generation(gen, error_spans, model)
+            generation_span_id = self._emit_generation(gen, error_spans, model)
+            for block in gen.output_content:
+                call = calls.get(str(block.get("id") or "")) if block.get("type") == "tool_use" else None
+                if call is not None:
+                    self._emit_tool_span(call, generation_span_id)
+                    tool_spans += 1
         for span in parsed.spans:
             self._emit_span(span)
 
@@ -84,25 +95,32 @@ class TraceEventEmitter:
         # after scoring completes, so it can include scores in the output.
 
         logger.info(
-            "Emitted child events for '%s' (trace=%s): %d generations, %d spans",
+            "Emitted child events for '%s' (trace=%s): %d generations, %d tool spans, %d spans",
             self._case_name,
             self._trace_id,
             len(parsed.generations),
+            tool_spans,
             len(parsed.spans),
         )
 
-    def _emit_generation(self, gen: GenerationDescriptor, error_spans: list[SpanDescriptor], model: str) -> None:
+    @property
+    def _provider(self) -> str:
+        runtime = self._run_metadata.get("agent_runtime")
+        return _RUNTIME_PROVIDERS.get(runtime, DEFAULT_PROVIDER) if isinstance(runtime, str) else DEFAULT_PROVIDER
+
+    def _emit_generation(self, gen: GenerationDescriptor, error_spans: list[SpanDescriptor], model: str) -> str:
         # Prefer the real "model call invoked" time; fall back to first-output time.
         gen_start = _parse_iso_timestamp(gen.start_ts) or _parse_iso_timestamp(gen.timestamp)
         gen_end = _parse_iso_timestamp(gen.end_ts) or _parse_iso_timestamp(gen.timestamp)
 
+        span_id = str(uuid.uuid4())
         properties: dict[str, Any] = {
             **self._eval_metadata,
             "$ai_trace_id": self._trace_id,
-            "$ai_span_id": str(uuid.uuid4()),
+            "$ai_span_id": span_id,
             "$ai_parent_id": self._trace_id,
             "$ai_model": model,
-            "$ai_provider": DEFAULT_PROVIDER,
+            "$ai_provider": self._provider,
             "$ai_input": gen.input_messages,
         }
         if gen.output_content:
@@ -130,6 +148,33 @@ class TraceEventEmitter:
             properties=properties,
             **capture_kwargs,
         )
+        return span_id
+
+    def _emit_tool_span(self, call: ToolCall, generation_span_id: str) -> None:
+        """One ``$ai_span`` per tool call, the shape production MCP analytics emits from ``trackToolSpan``."""
+        started = _parse_iso_timestamp(call.started_at)
+        ended = _parse_iso_timestamp(call.ended_at)
+        properties: dict[str, Any] = {
+            **self._eval_metadata,
+            "$ai_trace_id": self._trace_id,
+            "$ai_span_id": str(uuid.uuid4()),
+            "$ai_parent_id": generation_span_id,
+            "$ai_span_name": call.name,
+            "$ai_input_state": _truncate_span_state(json.dumps(call.input, default=str)),
+            # A call with no result never finished, which reads as a failure everywhere else in the harness.
+            "$ai_is_error": call.is_error,
+            "tool_raw_name": call.raw_name,
+            "tool_sequence": call.sequence,
+        }
+        if call.ended_at:
+            properties["$ai_output_state"] = _truncate_span_state(call.output)
+            if call.is_error:
+                properties["$ai_error"] = properties["$ai_output_state"]
+        if started and ended and ended >= started:
+            properties["$ai_latency"] = (ended - started).total_seconds()
+
+        capture_kwargs: dict[str, Any] = {"timestamp": started} if started else {}
+        self._client.capture(distinct_id=DISTINCT_ID, event="$ai_span", properties=properties, **capture_kwargs)
 
     @staticmethod
     def _apply_token_usage(properties: dict[str, Any], token_usage: dict[str, int]) -> None:
@@ -239,6 +284,10 @@ class TraceEventEmitter:
         )
 
 
+def _truncate_span_state(text: str) -> str:
+    return text if len(text) <= TOOL_STATE_CHAR_LIMIT else text[:TOOL_STATE_CHAR_LIMIT] + "…"
+
+
 def emit_trace_events(
     client: Posthog,
     trace_id: str,
@@ -287,78 +336,4 @@ def emit_trace_root(
         artifacts_summary=artifacts_summary,
         scores=scores,
         token_usage=token_usage,
-    )
-
-
-def emit_evaluation_events(
-    client: Posthog,
-    experiment_id: str,
-    experiment_name: str,
-    eval_results: list[CaseResult],
-    *,
-    namespace: str,
-    run_metadata: RunMetadata,
-    scorer_traces: dict[tuple[str, str], str] | None = None,
-) -> None:
-    """Emit ``$ai_evaluation`` events for each scorer result in each eval case.
-
-    ``scorer_traces`` maps ``(case_name, scorer_name)`` to the trace_id of
-    the scorer's LLM call. If available, ``$ai_trace_id`` on the event
-    points to the scorer trace (for inspecting the scorer's reasoning).
-    """
-    formatted_name = f"{namespace}/{experiment_name}"
-
-    for result in eval_results:
-        case_name = result.input.get("name", "unknown") if isinstance(result.input, dict) else "unknown"
-        metadata = result.metadata or {}
-        agent_trace_id = metadata.get("trace_id")
-        item_id = str(uuid.uuid4())
-
-        # $ai_output = last assistant message
-        last_message = ""
-        if isinstance(result.output, dict):
-            last_message = result.output.get("last_message", "")
-
-        for scorer_name, score_value in (result.scores or {}).items():
-            # Prefer scorer trace_id (links to scorer's LLM reasoning);
-            # fall back to agent trace_id
-            scorer_trace_id = scorer_traces.get((case_name, scorer_name)) if scorer_traces else None
-            trace_id = scorer_trace_id or agent_trace_id
-
-            properties: dict[str, Any] = {
-                **run_metadata,
-                "$ai_eval_source": namespace,
-                "$ai_evaluation_type": "offline",
-                "$ai_experiment_id": experiment_id,
-                "$ai_experiment_name": formatted_name,
-                "$ai_experiment_item_id": item_id,
-                "$ai_experiment_item_name": case_name,
-                "$ai_metric_name": scorer_name,
-                "$ai_metric_version": "1",
-                "$ai_result_type": "numeric",
-                "$ai_score_min": 0,
-                "$ai_score_max": 1,
-                "$ai_status": "ok" if score_value is not None else "error",
-            }
-            if score_value is not None:
-                properties["$ai_score"] = score_value
-            properties["$ai_trace_id"] = trace_id or str(uuid.uuid4())
-            if trace_id:
-                properties["$ai_target_id"] = trace_id
-                properties["$ai_target_type"] = "trace_id"
-            if isinstance(result.input, dict):
-                prompt = result.input.get("prompt", "")
-                if prompt:
-                    properties["$ai_input"] = prompt
-            if last_message:
-                properties["$ai_output"] = last_message
-            if result.expected is not None:
-                properties["$ai_expected"] = result.expected
-
-            client.capture(distinct_id=DISTINCT_ID, event="$ai_evaluation", properties=properties)
-
-    logger.info(
-        "Emitted evaluation events for experiment '%s' (%d results)",
-        experiment_name,
-        len(eval_results),
     )

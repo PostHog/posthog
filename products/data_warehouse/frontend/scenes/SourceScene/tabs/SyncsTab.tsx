@@ -6,17 +6,15 @@ import { LemonButton, LemonDivider, LemonTable, LemonTag, LemonTagType, Tooltip 
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjsUtcToTimezone } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
-import { teamLogic } from 'scenes/teamLogic'
-import { userLogic } from 'scenes/userLogic'
 
-import { ExternalDataJob, ExternalDataJobStatus, LogEntryLevel } from '~/types'
+import { ExternalDataJob, ExternalDataJobStatus } from '~/types'
 
+import { failedDestinationFor } from 'products/data_warehouse/frontend/shared/components/destinationFailure'
 import { JobDestinations } from 'products/data_warehouse/frontend/shared/components/JobDestinations'
+import { JobLogsViewer } from 'products/data_warehouse/frontend/shared/components/JobLogsViewer'
 import { destinationLookupLogic } from 'products/data_warehouse/frontend/shared/logics/destinationLookupLogic'
 
 import { sourceSettingsLogic } from './sourceSettingsLogic'
@@ -36,18 +34,13 @@ interface SyncsTabProps {
     lockedSchema?: string
 }
 
-const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
-
 export const SyncsTab = ({ id, lockedSchema }: SyncsTabProps): JSX.Element => {
     const logic = sourceSettingsLogic({ id, availableSources: {} })
-    const { timezone } = useValues(teamLogic)
-    const { user } = useValues(userLogic)
     const { source, jobs, jobsLoading, canLoadMoreJobs, selectedSchemas } = useValues(logic)
     const { loadJobs, loadMoreJobs, setSelectedSchemas } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { loadDestinations } = useActions(destinationLookupLogic)
     const { destinationsById, destinationsLoading } = useValues(destinationLookupLogic)
-    const showDebugLogs = user?.is_staff || user?.is_impersonated
     // Without the flag every run goes to the warehouse alone, so a column of identical logos
     // would be noise.
     const showDestinations = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]
@@ -196,6 +189,15 @@ export const SyncsTab = ({ id, lockedSchema }: SyncsTabProps): JSX.Element => {
                                           destinationIds={job.destination_ids ?? []}
                                           destinationsById={destinationsById}
                                           loading={destinationsLoading}
+                                          failedDestinationId={
+                                              job.status === ExternalDataJobStatus.Failed && job.latest_error
+                                                  ? failedDestinationFor(
+                                                        job.latest_error,
+                                                        job.destination_ids ?? [],
+                                                        destinationsById
+                                                    )?.id
+                                                  : undefined
+                                          }
                                       />
                                   ),
                               },
@@ -213,26 +215,12 @@ export const SyncsTab = ({ id, lockedSchema }: SyncsTabProps): JSX.Element => {
                         ? {
                               expandedRowRender: (job) => (
                                   <div className="p-4">
-                                      <LogsViewer
-                                          logicKey={`external_data_jobs:${job.id}`}
-                                          sourceType="external_data_jobs"
-                                          sourceId={job.schema.id}
-                                          groupByInstanceId={false}
-                                          hideDateFilter={true}
-                                          hideLevelsFilter={true}
-                                          hideInstanceIdColumn={true}
-                                          defaultFilters={{
-                                              instanceId: job.workflow_run_id,
-                                              dateFrom: dayjsUtcToTimezone(job.created_at, timezone).format(
-                                                  'YYYY-MM-DD HH:mm:ss'
-                                              ),
-                                              dateTo: job.finished_at
-                                                  ? dayjsUtcToTimezone(job.finished_at, timezone)
-                                                        .add(1, 'hour')
-                                                        .format('YYYY-MM-DD HH:mm:ss')
-                                                  : undefined,
-                                              levels: showDebugLogs ? ['DEBUG', ...LOG_LEVELS] : LOG_LEVELS,
-                                          }}
+                                      <JobLogsViewer
+                                          jobId={job.id}
+                                          schemaId={job.schema.id}
+                                          workflowRunId={job.workflow_run_id}
+                                          createdAt={job.created_at}
+                                          finishedAt={job.finished_at}
                                       />
                                   </div>
                               ),

@@ -1,5 +1,5 @@
+import { newScanner } from './newScanner'
 import { readScannerDraft, writeScannerDraft } from './scannerDraft'
-import { newScanner } from './scannerTemplates'
 
 const STORAGE_KEY = 'replay-vision.new-scanner-draft'
 
@@ -9,7 +9,7 @@ describe('scannerDraft', () => {
     })
 
     it('returns the timestamp it stored, so callers and storage agree', () => {
-        const savedAt = writeScannerDraft(1, newScanner(null))
+        const savedAt = writeScannerDraft(1, newScanner())
         expect(readScannerDraft(1)?.savedAt).toBe(savedAt)
     })
 
@@ -25,7 +25,7 @@ describe('scannerDraft', () => {
         ['rejects a different schema version', 1, (draft: any) => ({ ...draft, version: 999 }), false],
         ['rejects unparseable storage', 1, () => 'not json', false],
     ])('%s', (_label, readTeamId, tamper, expectRestored) => {
-        const scanner = { ...newScanner(null), name: 'Drafted scanner' }
+        const scanner = { ...newScanner(), name: 'Drafted scanner' }
         writeScannerDraft(1, scanner)
         const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
         const tampered = tamper(stored)
@@ -34,7 +34,7 @@ describe('scannerDraft', () => {
     })
 
     it('keeps the credit limit toggle on across the round trip while the amount is still empty', () => {
-        const scanner = { ...newScanner(null), credit_limit_enabled: true, credit_limit: null }
+        const scanner = { ...newScanner(), credit_limit_enabled: true, credit_limit: null }
         writeScannerDraft(1, scanner)
         const restored = readScannerDraft(1)?.scanner
         expect(restored?.credit_limit_enabled).toBe(true)
@@ -42,13 +42,13 @@ describe('scannerDraft', () => {
     })
 
     it('restores a concrete credit limit as-is', () => {
-        const scanner = { ...newScanner(null), credit_limit: 500 }
+        const scanner = { ...newScanner(), credit_limit: 500 }
         writeScannerDraft(1, scanner)
         expect(readScannerDraft(1)?.scanner.credit_limit).toBe(500)
     })
 
     it('still restores an old draft carrying the retired empty-but-enabled marker', () => {
-        writeScannerDraft(1, { ...newScanner(null), name: 'Old draft' })
+        writeScannerDraft(1, { ...newScanner(), name: 'Old draft' })
         const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
         localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...stored, creditLimitEmptyButEnabled: true }))
         expect(readScannerDraft(1)?.scanner.name).toBe('Old draft')

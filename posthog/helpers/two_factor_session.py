@@ -2,8 +2,7 @@ import re
 import time
 import datetime
 import unicodedata
-from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal, cast
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
@@ -17,11 +16,12 @@ from loginas.utils import is_impersonated_session
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.request import Request
 from two_factor.utils import default_device
 
-from posthog.cloud_utils import is_dev_mode
-from posthog.email import is_email_available, is_http_email_service_available
-from posthog.helpers.email_utils import ESPSuppressionReason, check_esp_suppression
+from posthog.cloud_utils import is_cloud, is_dev_mode
+from posthog.email import EmailRecipientUndeliverableError, is_email_available, is_http_email_service_available
+from posthog.models.organization import Organization
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.redis import get_client
@@ -54,7 +54,7 @@ mfa_logger = structlog.get_logger("posthog.auth.mfa")
 LOGIN_CODE_VERIFICATION_COUNTER = Counter(
     "login_code_verification_total",
     "Transitions in the code-based login-verification flow.",
-    labelnames=["result"],  # sent | resent | send_failed | success | invalid | locked_out
+    labelnames=["result"],  # sent | resent | send_failed | undeliverable | success | invalid | locked_out
 )
 
 
@@ -126,28 +126,54 @@ def is_two_factor_session_expired(request: HttpRequest) -> bool:
     return time.time() - session_created_at > settings.SESSION_COOKIE_AGE
 
 
-def enforce_two_factor(request, user):
+def enforce_two_factor(request, user, organization: Organization | None = None):
     """
     Enforce Two-Factor Authentication requirements for authenticated users in organizations that require it.
     Excludes paths that are whitelisted and domains that have SSO enforcement enabled.
+    `organization` defaults to the user's current organization.
     """
     if is_path_whitelisted(request.path):
         return
 
-    missing_step = missing_two_factor_step(request._request, user)
+    missing_step = missing_two_factor_step(request._request, user, organization)
     if missing_step == "setup":
         raise PermissionDenied(detail="2FA setup required", code="two_factor_setup_required")
     if missing_step == "verification":
         raise PermissionDenied(detail="2FA verification required", code="two_factor_verification_required")
 
 
-def missing_two_factor_step(request: HttpRequest, user: User) -> Literal["setup", "verification"] | None:
+def enforce_credential_two_factor(
+    request: Request, scoped_organization_ids: list[str] | None, scoped_team_ids: list[int] | None
+) -> None:
+    """Refuse a credential that reaches an organization whose 2FA policy this session hasn't met.
+
+    Session auth checks the current organization only, and the credential never meets a 2FA check
+    later. A credential with no scope reaches every organization of the user. Each non-empty scope
+    list limits the reach on its own, as in `get_organization_ids_in_key_scope`.
+    """
+    user = cast(User, request.user)
+    organizations = user.organizations.filter(enforce_2fa=True)
+    if scoped_team_ids:
+        organizations = organizations.filter(team__id__in=scoped_team_ids)
+    if scoped_organization_ids:
+        organizations = organizations.filter(id__in=scoped_organization_ids)
+    # The policy is the same for every organization that enforces 2FA, so one is enough.
+    organization = organizations.first()
+    if organization is not None:
+        enforce_two_factor(request, user, organization)
+
+
+def missing_two_factor_step(
+    request: HttpRequest, user: User, organization: Organization | None = None
+) -> Literal["setup", "verification"] | None:
+    """`organization` defaults to the user's current organization. Pass another one to check its policy,
+    such as the organization of a project the user grants access to."""
     # We currently don't enforce 2FA for any SSO-authenticated users, as we depend on the SSO provider to handle 2FA
     # TODO: This will soon be made configurable
     if is_sso_authentication_backend(request):
         return None
 
-    organization = getattr(user, "organization", None)
+    organization = organization or getattr(user, "organization", None)
     if not organization or not organization.enforce_2fa:
         return None
 
@@ -313,23 +339,18 @@ class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
 code_based_verification_token_generator = CodeBasedVerificationTokenGenerator()
 
 
-@dataclass
-class CodeBasedVerificationCheckResult:
-    should_send: bool
-    suppression_bypassed: bool = False
-    suppression_reason: Optional[str] = None
-    suppression_cached: bool = False
+NO_EMAIL_HTTP_SERVICE = "no_email_http_service"
 
 
 class CodeBasedVerifier:
-    def _capture_suppression_bypass_event(self, user: User, reason: str, cached: bool) -> None:
+    def _capture_no_http_service_bypass_event(self, user: User) -> None:
         try:
             posthoganalytics.capture(
                 distinct_id=str(user.distinct_id),
                 event="code_based_verification_bypassed_due_to_suppression",
                 properties={
-                    "reason": reason,
-                    "cached": cached,
+                    "reason": NO_EMAIL_HTTP_SERVICE,
+                    "cached": False,
                 },
             )
         except Exception as e:
@@ -339,57 +360,40 @@ class CodeBasedVerifier:
                 error=str(e),
             )
 
-    def should_send_code_based_verification(self, user: User) -> CodeBasedVerificationCheckResult:
+    def should_send_code_based_verification(self, user: User) -> bool:
         if is_dev_mode() and not settings.TEST:
-            return CodeBasedVerificationCheckResult(should_send=False)
+            return False
+
+        if is_cloud() and not is_http_email_service_available():
+            # Cloud always has the Workflows key and an https host, so this means a deployment lost its email config
+            # and every password login is skipping the emailed code. Cloud has no SMTP, so check before email availability.
+            capture_exception(Exception("Login code skipped: HTTP email is unavailable on a cloud deployment"))
 
         if not is_email_available(with_absolute_urls=True):
-            return CodeBasedVerificationCheckResult(should_send=False)
+            return False
 
         if not is_http_email_service_available():
             mfa_logger.info(
                 "Code-based verification bypassed - HTTP email service not configured",
                 user_id=user.pk,
             )
-            self._capture_suppression_bypass_event(user, ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE, False)
-            return CodeBasedVerificationCheckResult(
-                should_send=False,
-                suppression_bypassed=True,
-                suppression_reason=ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE,
-                suppression_cached=False,
-            )
+            self._capture_no_http_service_bypass_event(user)
+            return False
 
         # An exempting rule drops only the emailed code. TOTP and passkey 2FA are gated earlier in the login flow.
         if is_email_code_exempt(user.email):
             mfa_logger.info("Code-based verification bypassed via access rule", user_id=user.pk)
-            return CodeBasedVerificationCheckResult(should_send=False)
+            return False
 
-        suppression_result = check_esp_suppression(user.email)
-        if suppression_result.is_suppressed:
-            reason = suppression_result.reason or ""
-            from_cache = suppression_result.from_cache
-            mfa_logger.info(
-                "Code-based verification bypassed due to ESP suppression",
-                user_id=user.pk,
-                reason=reason,
-                cached=from_cache,
-            )
-            self._capture_suppression_bypass_event(user, reason, from_cache)
-            return CodeBasedVerificationCheckResult(
-                should_send=False,
-                suppression_bypassed=True,
-                suppression_reason=reason,
-                suppression_cached=from_cache,
-            )
-
-        return CodeBasedVerificationCheckResult(should_send=True)
+        return True
 
     def create_and_send_code_based_verification(
         self, request: HttpRequest, user: User, *, is_resend: bool = False
     ) -> bool:
+        """Raises EmailRecipientUndeliverableError when the address cannot receive the code."""
         from posthog.tasks import email
 
-        if not self.should_send_code_based_verification(user).should_send:
+        if not self.should_send_code_based_verification(user):
             return False
 
         try:
@@ -411,6 +415,10 @@ class CodeBasedVerifier:
                 user_last_login=str(user.last_login) if user.last_login else None,
             )
             return True
+        except EmailRecipientUndeliverableError:
+            LOGIN_CODE_VERIFICATION_COUNTER.labels(result="undeliverable").inc()
+            mfa_logger.info("Code-based verification email refused as undeliverable", user_id=user.pk)
+            raise
         except Exception as e:
             LOGIN_CODE_VERIFICATION_COUNTER.labels(result="send_failed").inc()
             mfa_logger.exception(

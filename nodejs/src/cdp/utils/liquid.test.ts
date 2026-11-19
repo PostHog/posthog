@@ -111,6 +111,48 @@ describe('LiquidRenderer', () => {
             const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
             expect(result).toMatch(/^\d{8}$/)
         })
+
+        it.each([
+            ['{{ 1234.5 | currency: "USD" }}', '$1,234.50'],
+            ['{{ "500" | currency }}', '$500.00'],
+            ['{{ -20 | currency: "USD" }}', '-$20.00'],
+            ['{{ 1234.5 | currency: "EUR" }}', '€1,234.50'],
+            ['{{ 1234.5 | currency: "en-GB" }}', '£1,234.50'],
+            ['{{ 1234.5 | currency: "en", "EUR" }}', '€1,234.50'],
+            ['{{ 1234.5 | currency: "de-DE" }}', '1.234,50 €'],
+            ['{{ 10 | currency: "zz-QQ" }}', '10'],
+            ['{{ 10 | currency: "qxy-QQ", "USD" }}', '10'],
+            ['{{ 10 | currency: "en-us" }}', '$10.00'],
+            ['{{ missing | default: "ERROR" | currency: "USD" }}', 'ERROR'],
+            ['{{ missing | currency: "USD" }}', ''],
+            ['{{ 10 | currency: "not-a-code" }}', '10'],
+        ])('formats %s with the currency filter', (template, expected) => {
+            expect(LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toBe(expected)
+        })
+    })
+
+    describe('unsubscribe_url tag', () => {
+        const url = 'https://example.com/preferences?token=abc&team=1'
+        const escapedUrl = 'https://example.com/preferences?token=abc&amp;team=1'
+
+        // Each tag row sits next to the variable row it has to match.
+        it.each([
+            ['<a href="{{ unsubscribe_url }}">x</a>', true, url, `<a href="${escapedUrl}">x</a>`],
+            ['<a href="{% unsubscribe_url %}">x</a>', true, url, `<a href="${escapedUrl}">x</a>`],
+            ['<a href=" {%- unsubscribe_url -%} ">x</a>', true, url, `<a href="${escapedUrl}">x</a>`],
+            ['Unsubscribe: {{ unsubscribe_url }}', false, url, `Unsubscribe: ${url}`],
+            ['Unsubscribe: {% unsubscribe_url %}', false, url, `Unsubscribe: ${url}`],
+            ['<a href="{{ unsubscribe_url }}">x</a>', true, undefined, '<a href="">x</a>'],
+            ['<a href="{% unsubscribe_url %}">x</a>', true, undefined, '<a href="">x</a>'],
+        ])('renders %s with escapeHtml %s', (template, escapeHtml, unsubscribe_url, expected) => {
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(
+                template,
+                { ...globals, unsubscribe_url },
+                undefined,
+                { escapeHtml }
+            )
+            expect(result).toBe(expected)
+        })
     })
 
     describe('HTML decoding', () => {
@@ -124,6 +166,15 @@ describe('LiquidRenderer', () => {
             const template = '{% if 1 &lt; 2 %}hello!{% endif %}'
             const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
             expect(result).toMatchInlineSnapshot(`"hello!"`)
+        })
+
+        it.each([
+            ['a link variable', '<a href="/?n={{%20person.name%20|%20url_encode%20}}">', '<a href="/?n=test_person">'],
+            ['a quoted string', '{{%20person.missing%20|%20default:%20&quot;a%20b&quot;%20}}', 'a%20b'],
+            ['a tag', '{%%20if%201%20&lt;%202%20%}yes{%%20endif%20%}', 'yes'],
+            ['a quoted string with an escaped quote', '{{%20&quot;a\\&quot;b%20c&quot;%20|%20size%20}}', '7'],
+        ])('reads spaces the email editor saved as %%20 in %s', (_, template, expected) => {
+            expect(LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toBe(expected)
         })
 
         it('preserves $ in template', () => {

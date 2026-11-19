@@ -13,13 +13,16 @@ from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import Team
+from posthog.models import OrganizationMembership, Team
+from posthog.models.scoping import team_scope
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import acreate_action
+from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts_platform.backend.facade import testing as alerts_platform_testing
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import acreate_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.api import record_insight_views
 from products.product_analytics.backend.facade.models import Insight
@@ -52,11 +55,11 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             ("insight", "test_insight_id", "/project/{team_id}/insights/test_insight_id"),
             ("dashboard", "test_dashboard_id", "/project/{team_id}/dashboard/test_dashboard_id"),
             ("experiment", "test_experiment_id", "/project/{team_id}/experiments/test_experiment_id"),
-            ("feature_flag", "test_flag_id", "/project/{team_id}/feature_flags/test_flag_id"),
+            ("feature_flag", "test_flag_id", "/project/{team_id}/feature-flags/test_flag_id"),
             ("action", "test_action_id", "/project/{team_id}/data-management/actions/test_action_id"),
             ("cohort", "test_cohort_id", "/project/{team_id}/cohorts/test_cohort_id"),
             ("survey", "test_survey_id", "/project/{team_id}/surveys/test_survey_id"),
-            ("error_tracking_issue", "test_issue_id", "/project/{team_id}/error_tracking/test_issue_id"),
+            ("error_tracking_issue", "test_issue_id", "/project/{team_id}/error-tracking/test_issue_id"),
             ("notebook", "test_notebook_id", "/project/{team_id}/notebooks/test_notebook_id"),
             ("alert_configuration", "test_alert_id", "/project/{team_id}/alerts?alert_id=test_alert_id"),
             ("account", "test_account_id", "/project/{team_id}/customer_analytics/accounts/test_account_id"),
@@ -235,11 +238,19 @@ class TestEntitySearchContext(NonAtomicBaseTest):
     async def test_experiment_filters_exclude_deleted(self):
         flag1 = await FeatureFlag.objects.acreate(team=self.team, key="flag1", created_by=self.user)
         flag2 = await FeatureFlag.objects.acreate(team=self.team, key="flag2", created_by=self.user)
-        await Experiment.objects.acreate(
-            team=self.team, name="active experiment", deleted=False, created_by=self.user, feature_flag=flag1
+        await acreate_experiment(
+            team_id=self.team.id,
+            name="active experiment",
+            deleted=False,
+            created_by_id=self.user.id,
+            feature_flag_id=flag1.id,
         )
-        await Experiment.objects.acreate(
-            team=self.team, name="deleted experiment", deleted=True, created_by=self.user, feature_flag=flag2
+        await acreate_experiment(
+            team_id=self.team.id,
+            name="deleted experiment",
+            deleted=True,
+            created_by_id=self.user.id,
+            feature_flag_id=flag2.id,
         )
 
         results, _ = await self.context.search_entities({"experiment"}, "experiment")
@@ -282,8 +293,8 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert "archived_flag" not in result_keys
 
     async def test_action_filters_exclude_deleted(self):
-        await Action.objects.acreate(team=self.team, name="active action", deleted=False, created_by=self.user)
-        await Action.objects.acreate(team=self.team, name="deleted action", deleted=True, created_by=self.user)
+        await acreate_action(team=self.team, name="active action", deleted=False, created_by=self.user)
+        await acreate_action(team=self.team, name="deleted action", deleted=True, created_by=self.user)
 
         results, _ = await self.context.search_entities({"action"}, "action")
 
@@ -325,7 +336,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             team=self.team, name="deleted insight", deleted=True, saved=True, created_by=self.user
         )
         await Dashboard.objects.acreate(team=self.team, name="deleted dashboard", deleted=True, created_by=self.user)
-        await Action.objects.acreate(team=self.team, name="deleted action", deleted=True, created_by=self.user)
+        await acreate_action(team=self.team, name="deleted action", deleted=True, created_by=self.user)
         await Cohort.objects.acreate(team=self.team, name="deleted cohort", deleted=True, created_by=self.user)
         await Survey.objects.acreate(
             team=self.team,
@@ -451,6 +462,66 @@ class TestEntitySearchContext(NonAtomicBaseTest):
 
         assert len(results) == SEARCH_LIMIT
         assert results[0]["type"] == "hog_flow"
+
+    async def test_search_entities_alerts_shows_platform_held_alerts_once_with_their_settings(self):
+        insight = await Insight.objects.acreate(team=self.team, name="Signups", saved=True)
+        own = await AlertConfiguration.objects.acreate(team=self.team, insight=insight, name="Latency row")
+        moved = await AlertConfiguration.objects.acreate(
+            team=self.team, insight=insight, name="Latency stale", owner="platform"
+        )
+        source = {"source_kind": "insight", "source_config": {"insight_id": insight.id}, "check_interval_minutes": 60}
+
+        def create_in_team(**fields):
+            with team_scope(self.team.pk):
+                return alerts_platform_testing.create_configuration(**fields)
+
+        create = sync_to_async(create_in_team)
+        await create(
+            team_id=self.team.pk, legacy_configuration_id=moved.id, name="Latency copy", owner="platform", **source
+        )
+        await create(
+            team_id=self.team.pk, legacy_configuration_id=own.id, name="Latency shadow", owner="source", **source
+        )
+        native = await create(team_id=self.team.pk, name="Latency native", owner="platform", **source)
+        denied = await Insight.objects.acreate(team=self.team, name="Denied", saved=True)
+        await AlertConfiguration.objects.acreate(team=self.team, insight=denied, name="Latency denied row")
+        await create(
+            team_id=self.team.pk,
+            name="Latency denied native",
+            owner="platform",
+            source_kind="insight",
+            source_config={"insight_id": denied.id},
+            check_interval_minutes=60,
+        )
+        await sync_to_async(self._deny_insight)(denied)
+        expected = {
+            (str(own.id), "Latency row"),
+            (str(moved.id), "Latency copy"),
+            (str(native.id), "Latency native"),
+        }
+
+        results, counts = await self.context.search_entities({"alert_configuration"}, "latency")
+        listed, total = await self.context.list_entities("alert_configuration")
+
+        assert {(r["result_id"], r["extra_fields"]["name"]) for r in results} == expected
+        assert counts["alert_configuration"] == 3
+        assert {(r["result_id"], r["extra_fields"]["name"]) for r in listed} == expected
+        assert total == 3
+
+    def _deny_insight(self, insight: Insight) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="insight",
+            resource_id=str(insight.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
 
     async def test_list_entities_account(self):
         account = await Account.objects.unscoped().acreate(team=self.team, name="Acme Corp", external_id="acme-1")

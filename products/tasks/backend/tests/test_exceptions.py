@@ -9,9 +9,12 @@ from temporalio.testing import ActivityEnvironment
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.tasks.backend.exceptions import (
+    CredentialUnavailableError,
+    GatewayTokenUnavailableError,
     SandboxControlPlaneUnavailableError,
     SandboxNotRunningError,
     SandboxRateLimitedError,
+    is_transient_failure_error_type,
 )
 
 
@@ -26,8 +29,16 @@ def test_temporal_failure_type_defaults_to_class_name():
     assert not error.non_retryable
 
 
-@pytest.mark.parametrize("error", [SandboxRateLimitedError("x", {}), SandboxControlPlaneUnavailableError("x", {})])
-def test_control_plane_errors_are_expected_activity_failures(error: Exception):
+@pytest.mark.parametrize(
+    "error",
+    [
+        SandboxRateLimitedError("x", {}),
+        SandboxControlPlaneUnavailableError("x", {}),
+        CredentialUnavailableError("x", {}),
+        GatewayTokenUnavailableError("x", {}),
+    ],
+)
+def test_expected_errors_are_not_reported_by_the_activity_interceptor(error: Exception) -> None:
     assert is_expected_activity_failure(error) is True
 
 
@@ -50,3 +61,19 @@ def test_rate_limit_backoff_follows_the_activity_attempt(attempt: int, expected_
     assert error.value.non_retryable is False
     assert error.value.next_retry_delay is not None
     assert timedelta(seconds=expected_floor) <= error.value.next_retry_delay <= timedelta(seconds=expected_ceiling)
+
+
+@pytest.mark.parametrize(
+    "error_type,expected",
+    [
+        ("RepositoryCloneError", True),
+        ("SandboxRateLimitedError", True),
+        ("start_to_close", True),
+        ("RepositoryAccessError", False),
+        ("CredentialUnavailableError", False),
+        ("unspecified", False),
+        (None, False),
+    ],
+)
+def test_transient_failure_error_types_cover_transient_subclasses_and_timeouts(error_type: str | None, expected: bool):
+    assert is_transient_failure_error_type(error_type) is expected

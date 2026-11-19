@@ -38,6 +38,7 @@ import {
 } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { resolveFilterTestAccounts } from 'scenes/experiments/exposureContract'
 import { HideViewedRecordingsOptions, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
 import {
@@ -1939,7 +1940,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                     duration: selectedWatchCard ? [] : DEFAULT_RECORDING_FILTERS.duration,
                     date_from: experiment.start_date ?? DEFAULT_RECORDING_FILTERS.date_from,
                     date_to: experiment.end_date ?? null,
-                    filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
+                    filter_test_accounts: resolveFilterTestAccounts(experiment.exposure_criteria),
                     // Resolved server-side from the experiment (same population the analysis
                     // counts), so it works even when exposure events are fired server-side.
                     // Deliberately not an event filter in `filter_group`. The in-session

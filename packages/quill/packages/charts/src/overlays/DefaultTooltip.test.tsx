@@ -1,8 +1,10 @@
-import { cleanup, fireEvent, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import type { TooltipContext } from '../core/types'
 import { createDefaultTooltipAccessor, makeOverlayContext, renderOverlayInChart } from '../testing'
 import { DefaultTooltip } from './DefaultTooltip'
+import { Tooltip } from './Tooltip'
+import { TooltipSurface } from './TooltipSurface'
 
 const SCALES = { x: () => 0, y: (v: number) => v, yTicks: () => [] }
 
@@ -47,6 +49,30 @@ describe('DefaultTooltip', () => {
     it('formats values with default (no formatter)', () => {
         renderTooltip({})
         screen.getByText((19402).toLocaleString())
+    })
+
+    it('excludes portalled tooltip values from autocapture', () => {
+        renderOverlayInChart(
+            <Tooltip
+                context={{
+                    dataIndex: 0,
+                    label: 'Example category',
+                    seriesData: SERIES_DATA,
+                    position: { x: 0, y: 0 },
+                    hoverPosition: null,
+                    canvasBounds: CANVAS_BOUNDS,
+                    isPinned: false,
+                }}
+                renderTooltip={() => <span>Example tooltip value</span>}
+            />,
+            makeOverlayContext(SCALES)
+        )
+        expect(screen.getByText('Example tooltip value').closest('.ph-no-capture')).not.toBeNull()
+    })
+
+    it('renders TooltipSurface outside a chart', () => {
+        render(<TooltipSurface>Outside a chart</TooltipSurface>)
+        screen.getByText('Outside a chart')
     })
 
     it('formats values with custom valueFormatter', () => {
@@ -254,6 +280,38 @@ describe('DefaultTooltip', () => {
             renderTooltip({}, withYPixel)
             // yPixel 50 sits visually higher on the canvas, so it leads despite being declared second.
             expect(createDefaultTooltipAccessor(document.body).rows()).toEqual(['High', 'Low'])
+        })
+
+        // Alpha (10) sits below Beta (25), as on a real chart, so value order and pixel order disagree.
+        it.each<[string, TooltipProps, Partial<TooltipContext>, string[]]>([
+            ['sortedByValue: true puts the highest value first', { sortedByValue: true }, {}, ['Beta', 'Alpha']],
+            ["sortedByValue: 'asc' puts the lowest value first", { sortedByValue: 'asc' }, {}, ['Alpha', 'Beta']],
+            [
+                "mode: 'single' lists only the row closest to the cursor",
+                { mode: 'single' },
+                { hoverPosition: { x: 0, y: 290 } },
+                ['Alpha'],
+            ],
+            [
+                "mode: 'single' lists the hovered stacked segment over the closest row",
+                { mode: 'single' },
+                { hoverPosition: { x: 0, y: 40 }, hoveredSeriesKey: 'a' },
+                ['Alpha'],
+            ],
+            ["mode: 'single' lists every row without a cursor", { mode: 'single' }, {}, ['Beta', 'Alpha']],
+            [
+                "mode: 'single' lists every row when pinned",
+                { mode: 'single' },
+                { hoverPosition: { x: 0, y: 290 }, isPinned: true },
+                ['Beta', 'Alpha'],
+            ],
+        ])('%s', (_, props, ctxOverrides, expectedRows) => {
+            const withYPixel: TooltipContext['seriesData'] = [
+                { ...TWO_SERIES[0], yPixel: 300 },
+                { ...TWO_SERIES[1], yPixel: 40 },
+            ]
+            renderTooltip(props, withYPixel, ctxOverrides)
+            expect(createDefaultTooltipAccessor(document.body).rows()).toEqual(expectedRows)
         })
 
         it('marks the row whose yPixel is closest to the cursor with data-closest', () => {

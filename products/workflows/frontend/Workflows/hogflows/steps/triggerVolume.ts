@@ -1,7 +1,7 @@
 import { matchingFiltersToPropertyGroup } from 'scenes/hog-functions/filters/matchingFilters'
 
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { EventsNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType } from '~/types'
 
 import { HogFlowAction } from '../types'
@@ -25,6 +25,10 @@ export const DEFAULT_AI_TASKS_PER_WORKFLOW_PER_DAY = 100
 
 const AI_TASK_TEMPLATE_ID = 'template-posthog-create-task'
 const SCOUT_TEMPLATE_ID = 'template-posthog-run-scout'
+const VISION_SCAN_TEMPLATE_ID = 'template-posthog-replay-vision'
+
+/** The default daily scan limit per workflow; a project can change it in its workflows settings. */
+export const DEFAULT_VISION_SCANS_PER_WORKFLOW_PER_DAY = 100
 
 function countStepsOfTemplate(workflow: { actions?: HogFlowAction[] } | null | undefined, templateId: string): number {
     return (workflow?.actions ?? []).filter(
@@ -51,6 +55,15 @@ export function countAiTaskSteps(workflow?: { actions?: HogFlowAction[] } | null
  */
 export function countScoutSteps(workflow?: { actions?: HogFlowAction[] } | null): number {
     return countStepsOfTemplate(workflow, SCOUT_TEMPLATE_ID)
+}
+
+/**
+ * Steps of this workflow that scan a session with Replay Vision.
+ *
+ * Counted apart from AI tasks: each scan spends Replay Vision credits under its own daily scan limit.
+ */
+export function countVisionScanSteps(workflow?: { actions?: HogFlowAction[] } | null): number {
+    return countStepsOfTemplate(workflow, VISION_SCAN_TEMPLATE_ID)
 }
 
 /**

@@ -10,7 +10,6 @@ databricks/databricks.py::_connect_with_transient_retry
 decagon/decagon.py::RequestThrottle.wait
 dixa/dixa.py::_iter_export_windows
 fullstory/fullstory.py::_wait_for_export
-github/github.py::_pace_before_request
 gladly/gladly.py::_report_rows
 google_ads/google_ads.py::_backoff_sleep
 google_analytics/google_analytics.py::_backoff_sleep

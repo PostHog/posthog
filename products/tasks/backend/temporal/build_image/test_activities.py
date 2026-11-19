@@ -1,10 +1,12 @@
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
 from products.tasks.backend.temporal.build_image.activities import (
+    SCAN_JUDGE_AI_PRODUCT,
     SCAN_JUDGE_MODEL,
-    SCAN_JUDGE_PRODUCT,
     _judge_spec_safety,
     _parse_scan_verdict,
 )
@@ -25,9 +27,10 @@ class TestParseScanVerdict:
         assert verdict.findings == []
 
 
-@patch("posthog.llm.gateway_client.get_llm_client")
-def test_security_scan_uses_glm_json_output(mock_get_llm_client: MagicMock) -> None:
-    response = mock_get_llm_client.return_value.chat.completions.create.return_value
+@override_settings(AI_GATEWAY_API_KEY="phs_worker_key")
+@patch("posthog.llm.gateway_client.build_ai_gateway_openai_client")
+def test_security_scan_uses_glm_json_output(mock_build_client: MagicMock) -> None:
+    response = mock_build_client.return_value.chat.completions.create.return_value
     response.choices = [MagicMock()]
     response.choices[
         0
@@ -37,7 +40,12 @@ def test_security_scan_uses_glm_json_output(mock_get_llm_client: MagicMock) -> N
 
     assert result.passed is True
     assert result.findings == [{"severity": "low", "detail": "Pinned development tool"}]
-    mock_get_llm_client.assert_called_once_with(product=SCAN_JUDGE_PRODUCT, team_id=42, api_key=None)
-    request = mock_get_llm_client.return_value.chat.completions.create.call_args.kwargs
-    assert request["model"] == SCAN_JUDGE_MODEL
+    mock_build_client.assert_called_once_with(
+        api_key="phs_worker_key",
+        ai_product=SCAN_JUDGE_AI_PRODUCT,
+        properties={"team_id": "42"},
+        distinct_id="team-42",
+    )
+    request = mock_build_client.return_value.chat.completions.create.call_args.kwargs
+    assert request["model"] == SCAN_JUDGE_MODEL == "zai-org/glm-5.2"
     assert request["response_format"] == {"type": "json_object"}

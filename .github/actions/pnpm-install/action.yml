@@ -34,6 +34,13 @@ inputs:
             the shared per-repo GITHUB_TOKEN core bucket.
         required: false
         default: ${{ github.token }}
+    cache:
+        description: |
+            'false' installs from a cold store: no pnpm store, lockfile verdict or Node tool cache
+            is restored. Any job on master can write those caches, and pnpm checks store files only
+            against index files that travel in the same entry, so a release build turns them off.
+        required: false
+        default: 'true'
 
 runs:
     using: composite
@@ -43,6 +50,7 @@ runs:
           with:
               node-version-file: ${{ inputs.node-version-file }}
               token: ${{ inputs.token }}
+              cache: ${{ inputs.cache }}
 
         - name: Get pnpm store path
           id: pnpm-store
@@ -50,11 +58,29 @@ runs:
           run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
         - name: Restore pnpm store
+          if: inputs.cache == 'true'
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ steps.pnpm-store.outputs.path }}
               key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
               restore-keys: pnpm-${{ runner.os }}-
+
+        # pnpm 11 checks the lockfile against the supply-chain policies in pnpm-workspace.yaml
+        # on every install, and the check fetches registry metadata even when the store is warm.
+        # pnpm records a passed check in lockfile-verified.jsonl, keyed by lockfile path, content
+        # and policy, and skips the check when the record matches. pnpm-store-cache.yml writes
+        # this file on master. No restore-keys: a record for another lockfile cannot match.
+        - name: Get pnpm cache path
+          id: pnpm-cache
+          shell: bash
+          run: echo "path=$(pnpm cache path --silent)" >> "$GITHUB_OUTPUT"
+
+        - name: Restore pnpm lockfile verdict
+          if: inputs.cache == 'true'
+          uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
+              key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
 
         - name: Install dependencies
           shell: bash
@@ -62,10 +88,6 @@ runs:
           # Pass the command through env and eval it rather than interpolating
           # ${{ }} straight into run: — that trips semgrep's run-shell-injection
           # rule. eval keeps shell parsing so quoted --filter globs survive.
-          # pnpm reads npm_config_* — keep cache-miss fetches resilient to blips.
           env:
               INSTALL_COMMAND: ${{ inputs.install-command }}
-              npm_config_fetch_retries: 3
-              npm_config_fetch_retry_mintimeout: 10000
-              npm_config_fetch_retry_maxtimeout: 60000
           run: eval "$INSTALL_COMMAND"

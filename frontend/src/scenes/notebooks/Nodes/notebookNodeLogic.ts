@@ -20,7 +20,7 @@ import { LemonMenuItems } from '@posthog/lemon-ui'
 import type { NotebookComponentToolbarTitleStatus } from 'lib/components/MarkdownNotebook/componentToolbarExtras'
 import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
 
-import { isHogQLQuery, isNodeWithSource } from '~/queries/utils'
+import { isHogQLQuery, isNodeWithSource } from '~/queries/schema/node-guards'
 
 import type { CommentType } from '../../../types'
 import {

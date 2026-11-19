@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import timedelta
 from enum import Enum
 
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -23,7 +24,11 @@ from posthog.models import Team
 
 from products.signals.backend.daily_limit import daily_report_limit_gate
 from products.signals.backend.models import SignalScoutRun
-from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
+from products.signals.backend.quota import (
+    capture_signal_report_quota_paused,
+    self_driving_limit_name,
+    self_driving_quota_gate,
+)
 from products.signals.backend.scout_harness.limits import (
     STALE_RUN_CUTOFF_S,
     TRIGGERED_BY_WORKFLOW,
@@ -123,8 +128,8 @@ def check_spend_gates(team: Team, *, capture_analytics: bool = True) -> ScoutRun
             kind=ScoutRunRejectionKind.THROTTLED,
             reason="quota_limited",
             detail=(
-                "Self-driving is paused because this project reached its pull request limit. "
-                "Raise the limit or wait for usage to reset."
+                f"New scout runs are paused because this project reached its self-driving {self_driving_limit_name(team)}. "
+                "Work already underway will finish. Raise the limit in Settings > Billing or wait for usage to reset."
             ),
         )
     if daily_report_limit_gate(team).limited:
@@ -134,6 +139,25 @@ def check_spend_gates(team: Team, *, capture_analytics: bool = True) -> ScoutRun
             detail="This project reached its daily report limit. Try again tomorrow.",
         )
     return None
+
+
+def lane_has_live_run(lane_runs: QuerySet[SignalScoutRun]) -> bool:
+    """Return whether one of `lane_runs` has a QUEUED or IN_PROGRESS TaskRun newer than `STALE_RUN_CUTOFF_S`.
+
+    The read has two steps on purpose. As one join, the planner can start from `posthog_task_run`
+    and read many task runs of other products to find the few that belong to this lane. The first
+    step reads only the lane's runs inside the cutoff from `signal_scout_run_recent_idx`. The
+    second step joins those few runs to their TaskRuns by primary key.
+    """
+    live_cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
+    recent_run_ids = list(lane_runs.filter(created_at__gte=live_cutoff).values_list("id", flat=True))
+    if not recent_run_ids:
+        return False
+    return lane_runs.filter(
+        id__in=recent_run_ids,
+        task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
+        task_run__created_at__gte=live_cutoff,
+    ).exists()
 
 
 def check_run_in_flight(team_id: int, skill_name: str) -> ScoutRunRejection | None:
@@ -148,22 +172,10 @@ def check_run_in_flight(team_id: int, skill_name: str) -> ScoutRunRejection | No
     `_self_heal_stale_runs` reap can clear it, wedging the lane until a scheduled tick happens to
     reap it — which never comes for a disabled scout, whose only run path is a trigger.
     """
-    live_cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
-    in_flight = (
-        SignalScoutRun.objects.for_team(team_id)
-        .filter(
-            skill_name=skill_name,
-            # Floors the range scan on signal_scout_run_recent_idx (team, skill_name, -created_at)
-            # instead of the scout's whole unpruned history. Same result set as the task_run floor
-            # below, since the scout row is written only after its TaskRun exists.
-            created_at__gte=live_cutoff,
-            task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
-            task_run__created_at__gte=live_cutoff,
-        )
-        .exclude(metadata__has_key="scout_trial")
-        .exists()
+    lane_runs = (
+        SignalScoutRun.objects.for_team(team_id).filter(skill_name=skill_name).exclude(metadata__has_key="scout_trial")
     )
-    if not in_flight:
+    if not lane_has_live_run(lane_runs):
         return None
     return ScoutRunRejection(
         kind=ScoutRunRejectionKind.CONFLICT,

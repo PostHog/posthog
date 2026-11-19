@@ -1,6 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { useState } from 'react'
 
+import { mswDecorator } from '~/mocks/browser'
 import { CyclotronJobInputType } from '~/types'
 
 import { CustomerTaskWorkflowReferenceInput } from './CustomerTaskWorkflowReferenceInput'
@@ -8,17 +9,17 @@ import { CustomerTaskWorkflowReferenceInput } from './CustomerTaskWorkflowRefere
 const meta: Meta<typeof CustomerTaskWorkflowReferenceInput> = {
     title: 'Products/Workflows/Steps/Customer task reference input',
     component: CustomerTaskWorkflowReferenceInput,
-    parameters: {
-        mockDate: '2026-01-01',
-        msw: {
-            mocks: {
-                get: {
-                    '/api/projects/:project_id/accounts/': {
-                        results: [{ id: '11111111-1111-4111-8111-111111111111', name: 'Example account' }],
-                    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:project_id/accounts/': {
+                    results: [{ id: '11111111-1111-4111-8111-111111111111', name: 'Example account' }],
                 },
             },
-        },
+        }),
+    ],
+    parameters: {
+        mockDate: '2026-01-01',
         // Wait for the editor itself: `.monaco-editor` also matches Monaco's shared overflow root on
         // <body>, which exists before any editor mounts.
         testOptions: {

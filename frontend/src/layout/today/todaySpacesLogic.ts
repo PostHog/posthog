@@ -6,7 +6,6 @@ import posthog from 'posthog-js'
 
 import { toast } from '@posthog/quill'
 
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { writeToClipboard } from 'lib/utils/writeToClipboard'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -30,6 +29,7 @@ import {
     TaskActivityReadMarkerApi,
     TaskListItemApi,
     TasksListExcludeOriginProduct,
+    TasksListParams,
 } from 'products/tasks/frontend/generated/api.schemas'
 import { pullRequestStates, sessionIdsWithPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
 
@@ -53,7 +53,9 @@ import {
 } from './todayRecentOrder'
 import {
     TodayWorkItem,
+    appendRecentTasks,
     buildRecentItems,
+    refreshRecentTasks,
     sessionItem,
     sessionReadRequest,
     setActivityUnread,
@@ -63,6 +65,7 @@ import {
 const PINNED_SESSION_LIMIT = 20
 const RECENT_SESSION_LIMIT = 30
 const RECENT_ITEM_LIMIT = 30
+const TASKS_PAGE_LIMIT = 100
 // One page of the requester's newest activity. Unread state older than this does not show on the rail.
 const UNREAD_ACTIVITY_LIMIT = 200
 // The sidebar and a space scene both refresh on mount, so collapse their requests into one.
@@ -72,15 +75,23 @@ const UNREAD_ACTIVITY_DEBOUNCE_MS = 100
 const RECENT_REFRESH_INTERVAL_MS = 60_000
 const RECENT_REFRESH_COOLDOWN_MS = 15_000
 
+function recentTasksParams(userId: number): TasksListParams {
+    return {
+        created_by: userId,
+        // Scout runs execute as their author and would fill the capped list.
+        exclude_origin_product: TasksListExcludeOriginProduct.SignalsScout,
+        ordering: '-last_activity_at',
+        basic: true,
+    }
+}
+
+function pageOffsets(total: number, pageSize: number): number[] {
+    return Array.from({ length: Math.ceil(total / pageSize) }, (_, index) => index * pageSize)
+}
+
 export type TodayWorkSectionId = 'pinned' | 'recent'
 
 export type TodayTouchMenu = 'session' | 'space' | 'bulk' | 'filter' | 'chat'
-
-/** The space a path is in, like PostHog Desktop's scoped space. `/spaces/new` is in no space. */
-export function spaceIdForPath(pathname: string): string | null {
-    const match = removeProjectIdIfPresent(pathname).match(/^\/spaces\/([^/]+)/)
-    return match && match[1] !== 'new' ? match[1] : null
-}
 
 export function recentRefreshIsDue(loadedAt: number | undefined, now: number = Date.now()): boolean {
     return loadedAt === undefined || now - loadedAt >= RECENT_REFRESH_COOLDOWN_MS
@@ -119,7 +130,6 @@ export interface todaySpacesLogicValues {
     user: UserType | null // userLogic
     allRecentItems: TodayWorkItem[]
     collapsedSections: TodayWorkSectionId[]
-    lastSpaceId: string | null
     pendingSpaceIds: string[]
     phoneSection: TodayWorkSectionId
     pinnedItems: TodayWorkItem[]
@@ -131,11 +141,14 @@ export interface todaySpacesLogicValues {
     recentGrouping: TodayRecentGrouping
     recentGroups: TodayRecentSection[]
     recentItems: TodayWorkItem[]
+    recentLoadMoreFailed: boolean
     recentLoading: boolean
+    recentLoadingMore: boolean
     recentQuery: string
     recentSort: TodayRecentSort
     recentSourceOptions: string[]
     recentTasks: TaskListItemApi[]
+    recentTasksHasMore: boolean
     recentTasksLoading: boolean
     recentTasksUnavailable: boolean
     sectionHeights: Partial<Record<TodayWorkSectionId, number>>
@@ -182,6 +195,21 @@ export interface todaySpacesLogicActions {
     }
     copySpaceLink: (spaceId: string) => {
         spaceId: string
+    }
+    loadMoreRecentTasks: (_: void) => void
+    loadMoreRecentTasksFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMoreRecentTasksSuccess: (
+        recentTasks: TaskListItemApi[],
+        payload?: void
+    ) => {
+        recentTasks: TaskListItemApi[]
+        payload?: void
     }
     loadPinnedTasks: () => any
     loadPinnedTasksFailure: (
@@ -281,11 +309,11 @@ export interface todaySpacesLogicActions {
     setRecentSort: (sort: TodayRecentSort) => {
         sort: TodayRecentSort
     }
+    setRecentTasksHasMore: (hasMore: boolean) => {
+        hasMore: boolean
+    }
     setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => {
         heights: Partial<Record<TodayWorkSectionId, number>>
-    }
-    spaceVisited: (spaceId: string) => {
-        spaceId: string
     }
     starFailed: (spaceId: string) => {
         spaceId: string
@@ -313,7 +341,8 @@ export interface todaySpacesLogicMeta {
         allRecentItems: (
             recentTasks: TaskListItemApi[],
             conversationHistory: ConversationDetail[],
-            pinnedTasks: TaskListItemApi[]
+            pinnedTasks: TaskListItemApi[],
+            recentTasksHasMore: boolean
         ) => TodayWorkItem[]
         recentFilters: (storedRecentFilters: Partial<TodayRecentFilters>) => TodayRecentFilters
         recentSourceOptions: (allRecentItems: TodayWorkItem[], recentFilters: TodayRecentFilters) => string[]
@@ -366,7 +395,6 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         touchMenuOpened: (menu: TodayTouchMenu) => ({ menu }),
         setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => ({ heights }),
         resetSectionPair: (upper: TodayWorkSectionId, lower: TodayWorkSectionId) => ({ upper, lower }),
-        spaceVisited: (spaceId: string) => ({ spaceId }),
         setRecentQuery: (query: string) => ({ query }),
         setRecentFilters: (filters: TodayRecentFilters) => ({ filters }),
         clearRecentFilters: true,
@@ -380,8 +408,9 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         markSessionReadFailed: (activityIds: string[]) => ({ activityIds }),
         loadPullRequestStates: (sessionIds: string[]) => ({ sessionIds }),
         setPullRequestStates: (states: Record<string, PrStateEnumApi>) => ({ states }),
+        setRecentTasksHasMore: (hasMore: boolean) => ({ hasMore }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         spaces: [
             [] as ChannelDTOApi[],
             {
@@ -391,7 +420,7 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                     }
                     const response = await taskChannelsList(String(values.currentTeamId))
                     // Without `limit` the endpoint answers with a bare array rather than a page.
-                    return Array.isArray(response) ? (response as ChannelDTOApi[]) : response.results
+                    return Array.isArray(response) ? response : response.results
                 },
             },
         ],
@@ -418,17 +447,49 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                     if (!values.currentTeamId || !values.user) {
                         return []
                     }
-                    const response = await tasksList(String(values.currentTeamId), {
-                        created_by: values.user.id,
-                        // Scout runs execute as their author and would fill the capped list.
-                        exclude_origin_product: TasksListExcludeOriginProduct.SignalsScout,
-                        ordering: '-last_activity_at',
-                        basic: true,
-                        limit: RECENT_SESSION_LIMIT,
-                    })
+                    const teamId = String(values.currentTeamId)
+                    const params = recentTasksParams(values.user.id)
+                    const requested = Math.max(RECENT_SESSION_LIMIT, values.recentTasks.length)
+                    const responses = await Promise.all(
+                        pageOffsets(requested, TASKS_PAGE_LIMIT).map((offset) =>
+                            tasksList(teamId, {
+                                ...params,
+                                limit: Math.min(TASKS_PAGE_LIMIT, requested - offset),
+                                offset,
+                            })
+                        )
+                    )
                     // A slower earlier reply must not overwrite what a newer refresh already returned.
                     breakpoint()
-                    return response.results
+                    const fetched = appendRecentTasks(
+                        [],
+                        responses.flatMap((response) => response.results)
+                    )
+                    const fetchedHasMore = !!responses[responses.length - 1].next
+                    const refreshed = refreshRecentTasks(
+                        fetched,
+                        fetchedHasMore,
+                        values.recentTasks,
+                        values.recentTasksHasMore,
+                        requested
+                    )
+                    actions.setRecentTasksHasMore(refreshed.hasMore)
+                    return refreshed.tasks
+                },
+                loadMoreRecentTasks: async (_: void, breakpoint) => {
+                    if (!values.currentTeamId || !values.user || !values.recentTasksHasMore) {
+                        return values.recentTasks
+                    }
+                    const response = await tasksList(String(values.currentTeamId), {
+                        ...recentTasksParams(values.user.id),
+                        limit: RECENT_SESSION_LIMIT,
+                        offset: values.recentTasks.length,
+                    })
+                    breakpoint()
+                    actions.setRecentTasksHasMore(!!response.next)
+                    actions.loadPullRequestStates(sessionIdsWithPullRequests(response.results))
+                    posthog.capture('today recent more loaded', { offset: values.recentTasks.length })
+                    return appendRecentTasks(values.recentTasks, response.results)
                 },
             },
         ],
@@ -477,8 +538,6 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 },
             },
         ],
-        // A generic New session files here, like PostHog Desktop's scoped space. A stale id falls back to personal.
-        lastSpaceId: [null as string | null, { persist: true }, { spaceVisited: (_, { spaceId }) => spaceId }],
         recentQuery: ['', { setRecentQuery: (_, { query }) => query, clearRecentSearchAndFilters: () => '' }],
         storedRecentFilters: [
             DEFAULT_RECENT_FILTERS as Partial<TodayRecentFilters>,
@@ -511,6 +570,23 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         ],
         spacesUnavailable: [false, { loadSpaces: () => false, loadSpacesFailure: () => true }],
         recentTasksUnavailable: [false, { loadRecentTasks: () => false, loadRecentTasksFailure: () => true }],
+        recentTasksHasMore: [true, { setRecentTasksHasMore: (_, { hasMore }) => hasMore }],
+        recentLoadingMore: [
+            false,
+            {
+                loadMoreRecentTasks: () => true,
+                loadMoreRecentTasksSuccess: () => false,
+                loadMoreRecentTasksFailure: () => false,
+            },
+        ],
+        recentLoadMoreFailed: [
+            false,
+            {
+                loadMoreRecentTasks: () => false,
+                loadRecentTasksSuccess: () => false,
+                loadMoreRecentTasksFailure: () => true,
+            },
+        ],
         taskActivity: {
             markSessionRead: (state, { activityIds }) => setActivityUnread(state, activityIds, false),
             markSessionReadFailed: (state, { activityIds }) => setActivityUnread(state, activityIds, true),
@@ -524,17 +600,18 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 pinnedTasks.filter((task) => !task.archived).map(sessionItem),
         ],
         allRecentItems: [
-            (s) => [s.recentTasks, s.conversationHistory, s.pinnedTasks],
+            (s) => [s.recentTasks, s.conversationHistory, s.pinnedTasks, s.recentTasksHasMore],
             (
                 recentTasks: TaskListItemApi[],
                 conversationHistory: ConversationDetail[],
-                pinnedTasks: TaskListItemApi[]
+                pinnedTasks: TaskListItemApi[],
+                recentTasksHasMore: boolean
             ): TodayWorkItem[] =>
                 buildRecentItems(
                     recentTasks,
                     conversationHistory,
                     pinnedTasks.map((task) => task.id),
-                    RECENT_ITEM_LIMIT
+                    recentTasksHasMore ? Math.max(RECENT_ITEM_LIMIT, recentTasks.length) : Infinity
                 ),
         ],
         recentFilters: [
@@ -620,13 +697,7 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             }
         }
         return {
-            locationChanged: ({ pathname }) => {
-                const spaceId = spaceIdForPath(pathname)
-                if (spaceId) {
-                    actions.spaceVisited(spaceId)
-                }
-                markOpenSessionRead()
-            },
+            locationChanged: markOpenSessionRead,
             loadTaskActivitySuccess: markOpenSessionRead,
             loadRecentTasks: () => {
                 cache.recentTasksLoadedAt = Date.now()
@@ -659,8 +730,17 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 return
             }
             try {
-                const response = await tasksSummariesCreate(String(values.currentTeamId), { ids: sessionIds })
-                actions.setPullRequestStates(pullRequestStates(response.results))
+                const teamId = String(values.currentTeamId)
+                const responses = await Promise.all(
+                    pageOffsets(sessionIds.length, TASKS_PAGE_LIMIT).map((offset) =>
+                        tasksSummariesCreate(
+                            teamId,
+                            { ids: sessionIds.slice(offset, offset + TASKS_PAGE_LIMIT) },
+                            { limit: TASKS_PAGE_LIMIT }
+                        )
+                    )
+                )
+                actions.setPullRequestStates(pullRequestStates(responses.flatMap((response) => response.results)))
             } catch {
                 // A failed lookup only leaves the chips neutral, so it stays quiet.
             }
@@ -683,11 +763,7 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             }
         },
     })),
-    afterMount(({ actions, cache }) => {
-        const spaceId = spaceIdForPath(router.values.location.pathname)
-        if (spaceId) {
-            actions.spaceVisited(spaceId)
-        }
+    afterMount(({ actions, values, cache }) => {
         actions.loadSpaces()
         actions.loadPinnedTasks()
         // A disposable rather than a plain afterMount load, so setup runs again on each return to the tab.
@@ -695,7 +771,11 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             if (recentRefreshIsDue(cache.recentTasksLoadedAt)) {
                 actions.loadRecentTasks()
             }
-            const pollTimer = window.setInterval(() => actions.loadRecentTasks(), RECENT_REFRESH_INTERVAL_MS)
+            const pollTimer = window.setInterval(() => {
+                if (!values.recentTasksLoading) {
+                    actions.loadRecentTasks()
+                }
+            }, RECENT_REFRESH_INTERVAL_MS)
             return () => clearInterval(pollTimer)
         }, 'recentTasksPoll')
     }),

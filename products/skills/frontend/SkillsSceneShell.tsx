@@ -17,9 +17,8 @@ export const COMMUNITY_SKILLS_TAB_KEY = 'community'
 export const COMMUNITY_SKILLS_TAB_DESCRIPTION = 'Discover and install agent skills shared by the PostHog community.'
 
 /**
- * Shared shell for every Skills tab. It renders one tab bar — the default "Skills" tab, the
- * category tabs (Scouts, Code review), then "Community" — so the category tabs and Community sit
- * in the same row instead of stacking two bars.
+ * Shared shell for every Skills tab. It renders uncategorized, product-specific, and community
+ * skills in one row instead of stacking two tab bars.
  *
  * Community is a separate scene (at /skills/community), so each scene renders this with only its own
  * tab's content; the other tabs navigate via their `link` and are never mounted here. That keeps the
@@ -45,14 +44,18 @@ export function SkillsSceneShell({
     const communityEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]
 
     const tabs: LemonTab<string>[] = [
-        { key: DEFAULT_SKILLS_TAB_KEY, label: 'Skills', link: skillTabUrl(DEFAULT_SKILLS_TAB_KEY) },
+        {
+            key: DEFAULT_SKILLS_TAB_KEY,
+            label: 'Skills',
+            link: skillTabUrl(DEFAULT_SKILLS_TAB_KEY),
+        },
         ...visibleCategoryTabs(categoryCounts, activeTabKey).map((tab) => ({
             key: tab.key,
             label: tab.label,
             link: skillTabUrl(tab.key),
         })),
         ...(communityEnabled || activeTabKey === COMMUNITY_SKILLS_TAB_KEY
-            ? [{ key: COMMUNITY_SKILLS_TAB_KEY, label: 'Community', link: urls.communitySkills() }]
+            ? [{ key: COMMUNITY_SKILLS_TAB_KEY, label: 'Community skills', link: urls.communitySkills() }]
             : []),
     ]
 

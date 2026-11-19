@@ -5,12 +5,13 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { BillingProvider, BillingType } from '~/types'
 
-import { billingLogic } from './billingLogic'
 import { StripePortalButton } from './StripePortalButton'
 
 const EXTERNAL_INVOICES_URL = 'https://vercel.com/example-team/~/integrations/posthog/icfg_example/invoices'

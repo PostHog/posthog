@@ -18,6 +18,8 @@ pub enum Pipeline {
     SessionRecordings,
     Ai,
     ErrorTracking,
+    Heatmaps,
+    ClientWarnings,
 }
 
 impl Pipeline {
@@ -27,6 +29,8 @@ impl Pipeline {
             Self::SessionRecordings => "session_recordings",
             Self::Ai => "ai",
             Self::ErrorTracking => "errortracking",
+            Self::Heatmaps => "heatmaps",
+            Self::ClientWarnings => "clientwarnings",
         }
     }
 
@@ -36,6 +40,8 @@ impl Pipeline {
             "session_recordings" => Some(Self::SessionRecordings),
             "ai" => Some(Self::Ai),
             "errortracking" => Some(Self::ErrorTracking),
+            "heatmaps" => Some(Self::Heatmaps),
+            "clientwarnings" => Some(Self::ClientWarnings),
             _ => None,
         }
     }
@@ -44,10 +50,10 @@ impl Pipeline {
 impl Pipeline {
     /// Pipelines a given capture deployment produces events to. The events
     /// deployment writes to `analytics` (normal events), `errortracking`
-    /// (`$exception` events split off in `process_single_event`), and `ai`
-    /// (`$ai_` names), so its restriction service must serve restrictions for
-    /// all three pipelines. `Import` is an events deployment restricted to
-    /// backfills, so it serves the same three.
+    /// (`$exception`), `ai` (`$ai_` names), `heatmaps` (`$$heatmap`) and
+    /// `clientwarnings` (`$$client_ingestion_warning`), so its restriction
+    /// service must serve all five. `Import` is an events deployment
+    /// restricted to backfills, so it serves the same five.
     ///
     /// `Ai` serves only `ai`. That deployment registers no analytics route,
     /// and `process_events` rejects a batch carrying anything off the AI lane,
@@ -57,9 +63,13 @@ impl Pipeline {
     /// `RestrictionSet` — silently unrestricted.
     pub fn for_capture_mode(mode: CaptureMode) -> Vec<Pipeline> {
         match mode {
-            CaptureMode::Events | CaptureMode::Import => {
-                vec![Self::Analytics, Self::ErrorTracking, Self::Ai]
-            }
+            CaptureMode::Events | CaptureMode::Import => vec![
+                Self::Analytics,
+                Self::ErrorTracking,
+                Self::Ai,
+                Self::Heatmaps,
+                Self::ClientWarnings,
+            ],
             CaptureMode::Recordings => vec![Self::SessionRecordings],
             // capture-ai registers only the AI routes, and both pipelines
             // refuse an event off the AI lane before restrictions are applied,
@@ -383,6 +393,11 @@ mod tests {
             Pipeline::parse("errortracking"),
             Some(Pipeline::ErrorTracking)
         );
+        assert_eq!(Pipeline::parse("heatmaps"), Some(Pipeline::Heatmaps));
+        assert_eq!(
+            Pipeline::parse("clientwarnings"),
+            Some(Pipeline::ClientWarnings)
+        );
         assert_eq!(Pipeline::parse("unknown"), None);
     }
 
@@ -393,6 +408,8 @@ mod tests {
             Pipeline::SessionRecordings,
             Pipeline::Ai,
             Pipeline::ErrorTracking,
+            Pipeline::Heatmaps,
+            Pipeline::ClientWarnings,
         ] {
             assert_eq!(Pipeline::parse(pipeline.as_str()), Some(pipeline));
         }
@@ -402,7 +419,13 @@ mod tests {
     fn test_pipeline_for_capture_mode() {
         assert_eq!(
             Pipeline::for_capture_mode(CaptureMode::Events),
-            vec![Pipeline::Analytics, Pipeline::ErrorTracking, Pipeline::Ai]
+            vec![
+                Pipeline::Analytics,
+                Pipeline::ErrorTracking,
+                Pipeline::Ai,
+                Pipeline::Heatmaps,
+                Pipeline::ClientWarnings,
+            ]
         );
         // Import is an events deployment restricted to backfills, so it must
         // serve the identical pipeline set -- a backfill can carry $exception

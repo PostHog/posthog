@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, cast
 
-from django.db.models import Case, Count, IntegerField, Sum, Value, When
+from django.db.models import Count, IntegerField, Sum
 from django.db.models.functions import Coalesce
 
 import structlog
@@ -91,11 +91,6 @@ AVG_OUTPUT_TOKENS_PER_OBSERVATION = 200
 # (rasterizing, video cache storage, retries) plus margin.
 TARGET_MARGIN = 3.75
 
-# Mirrors the free plan's `free_allocation` in the billing service (billing/constants/plans/replay_vision).
-# Billing bakes it into the synced credit limit (the $ limit converts to credits on top of the free tier),
-# so this constant is display-only: it lets the UI report billed dollars as credits beyond the free tier.
-FREE_TIER_MONTHLY_CREDITS = 2500
-
 
 def suggested_observation_credits(info: GeminiModelPricing, margin: float = TARGET_MARGIN) -> int:
     """Suggested credits per observation for a model, derived from its token prices and a target margin."""
@@ -132,18 +127,6 @@ def observation_credits_for_model(model: str) -> int:
         logger.warning("replay_vision.unknown_model_credits", model=model, fallback=_FALLBACK_CREDITS)
         return _FALLBACK_CREDITS
     return credits
-
-
-def observation_credits_case() -> Case:
-    """SQL mirror of `observation_credits_for_model`, for pricing observations inside a query."""
-    return Case(
-        *(
-            When(scanner_snapshot__model=model, then=Value(credits))
-            for model, credits in OBSERVATION_CREDITS_BY_MODEL.items()
-        ),
-        default=Value(_FALLBACK_CREDITS),
-        output_field=IntegerField(),
-    )
 
 
 def get_replay_vision_credits_by_team(begin: datetime, end: datetime) -> list[tuple[int, int]]:

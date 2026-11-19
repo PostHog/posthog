@@ -1,5 +1,9 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionToolContext,
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createWebAccessExtension } from "./extension";
 import {
   createWebSearchTool,
   formatSearchResult,
@@ -83,12 +87,12 @@ describe("formatSearchResult", () => {
   });
 });
 
-function fakeCtx(apiKey: string | undefined): ExtensionContext {
+function fakeCtx(apiKey: string | undefined): ExtensionToolContext {
   return {
     modelRegistry: {
       getApiKeyForProvider: vi.fn().mockResolvedValue(apiKey),
     },
-  } as unknown as ExtensionContext;
+  } as unknown as ExtensionToolContext;
 }
 
 describe("createWebSearchTool", () => {
@@ -134,7 +138,14 @@ describe("createWebSearchTool", () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const tool = createWebSearchTool({ region: "us", apiKey: "pha_test" });
+    const tool = createWebSearchTool({
+      region: "us",
+      apiKey: "pha_test",
+      headers: {
+        "X-PostHog-Task-Run-Id": "run-1",
+        Authorization: "Bearer not-the-key",
+      },
+    });
     const result = await tool.execute(
       "call-1",
       { query: "what happened today" },
@@ -147,7 +158,10 @@ describe("createWebSearchTool", () => {
       "https://gateway.us.posthog.com/posthog_code/v1/responses",
       expect.objectContaining({
         method: "POST",
-        headers: expect.objectContaining({ Authorization: "Bearer pha_test" }),
+        headers: expect.objectContaining({
+          Authorization: "Bearer pha_test",
+          "X-PostHog-Task-Run-Id": "run-1",
+        }),
       }),
     );
     expect(result.content[0]).toMatchObject({
@@ -156,6 +170,35 @@ describe("createWebSearchTool", () => {
     });
     expect(result.details).toMatchObject({
       citations: [{ type: "url_citation", url: "https://a.com", title: "A" }],
+    });
+  });
+
+  it("sends the extension's attribution headers from the registered tool", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ output: [] }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const registerTool = vi.fn();
+
+    createWebAccessExtension({
+      region: "us",
+      apiKey: "pha_test",
+      headers: { "X-PostHog-Task-Run-Id": "run-1" },
+    })({ registerTool } as unknown as ExtensionAPI);
+    const tool = registerTool.mock.calls
+      .map(([registered]) => registered)
+      .find((registered) => registered.name === "web_search");
+    await tool.execute(
+      "call-1",
+      { query: "x" },
+      undefined,
+      undefined,
+      fakeCtx(undefined),
+    );
+
+    expect(fetchMock.mock.calls[0][1].headers).toMatchObject({
+      "X-PostHog-Task-Run-Id": "run-1",
     });
   });
 

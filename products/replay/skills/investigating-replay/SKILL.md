@@ -183,18 +183,15 @@ a scanner can only observe a given session once.
    `title`, `summary`, `intent`, `outcome`, `friction_points` and `keywords`. If you
    find one, you are done — no new scan needed.
 
-2. **Generate one** with an inline scan. Pass this exact config: inline scans are
-   keyed by a fingerprint of the whole config, so the config below reuses the same
-   scanner row the player's Summarize button uses on its built-in prompt, while a
-   different prompt or `length` mints a separate scanner and a separate summary.
+2. **Generate one** with an inline scan of the built-in summary. It runs the same scan as
+   the player's Summarize button, so a summary either of you started is shared, while a
+   prompt of your own mints a separate scanner and a separate summary.
 
    ```json
    posthog:vision-scanners-inline-scan
    {
      "session_ids": ["<session_id>"],
-     "scanner_type": "summarizer",
-     "prompt": "Summarize what the user did in this session: which pages they visited, what they tried to accomplish, and any notable moments like errors, confusion, or successful completions. Be concrete and don't speculate.",
-     "scanner_config": { "length": "medium" }
+     "built_in": "summarize_recording"
    }
    ```
 
@@ -253,4 +250,6 @@ leaves a scheduled sweep behind that the inline scan does not.
 - **`finding-sessions-to-watch`** — choose which sessions are worth investigating in the first place
 - **`finding-replay-for-issue`** — start from an error tracking issue and find its linked recordings
 - **`diagnosing-missing-recordings`** — when a recording that should exist doesn't
+- **`diagnosing-replay-rendering`** — the recording plays back wrong (black or blank screens, missing styles, canvas, iframes)
+- **`diagnosing-replay-capture-gaps`** — parts of the session are missing from the recording
 - **`creating-replay-vision-scanners`** — automate this kind of watching as a scheduled scanner

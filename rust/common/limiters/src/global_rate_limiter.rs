@@ -49,6 +49,8 @@ const GLOBAL_RATE_LIMITER_EVICTION_COUNTER: &str = "global_rate_limiter_eviction
 const GLOBAL_RATE_LIMITER_SYNC_DEFERRED_GAUGE: &str = "global_rate_limiter_sync_deferred_size";
 /// (key, epoch) write entries still batched after a tick took its bounded slice.
 const GLOBAL_RATE_LIMITER_WRITE_DEFERRED_GAUGE: &str = "global_rate_limiter_write_deferred_size";
+/// Updates waiting in the channel when a tick starts.
+const GLOBAL_RATE_LIMITER_CHANNEL_DEPTH_GAUGE: &str = "global_rate_limiter_update_channel_depth";
 /// Syncs not queued because the key's level is below `min_sync_floor`.
 const GLOBAL_RATE_LIMITER_SYNC_SKIPPED_COUNTER: &str = "global_rate_limiter_sync_skipped_total";
 /// Redis commands issued per tick, after chunking.
@@ -70,6 +72,8 @@ const CUSTOM_THRESHOLDS_LAST_REFRESH_GAUGE: &str =
 /// distribution moves slowly and prod metrics dedup to 60s, so a periodic scan
 /// keeps these gauges fresh enough without scanning the cache every tick.
 const TIER_SCAN_INTERVAL_TICKS: u64 = 30;
+/// Batch receives so Tokio's 128-receive poll budget cannot throttle the drain on a starved pod.
+const UPDATE_DRAIN_BATCH: usize = 256;
 /// Tier label order, indexed by `PressureTier::index()`.
 const TIER_LABELS: [&str; 4] = ["idle", "low", "normal", "hot"];
 
@@ -905,7 +909,7 @@ impl GlobalRateLimiterImpl {
             timestamp,
         };
 
-        if let Some(Err(e)) = self.update_tx.as_ref().map(|tx| tx.try_send(update)) {
+        if let Some(Err(_)) = self.update_tx.as_ref().map(|tx| tx.try_send(update)) {
             metrics::counter!(
                 GLOBAL_RATE_LIMITER_ERROR_COUNTER,
                 "scope" => self.scope,
@@ -914,11 +918,6 @@ impl GlobalRateLimiterImpl {
                 "cause" => "channel_full",
             )
             .increment(1);
-            error!(
-                key = key,
-                error = %e,
-                "Failed to queue rate limit update, channel may be full"
-            );
         }
     }
 
@@ -1017,35 +1016,38 @@ impl GlobalRateLimiterImpl {
             // Pre-aggregate writes by (key, epoch)
             let mut write_batch: HashMap<(String, i64), u64> = HashMap::new();
             let mut tick_n: u64 = 0;
+            let mut update_buf: Vec<UpdateRequest> = Vec::with_capacity(UPDATE_DRAIN_BATCH);
 
             loop {
                 tokio::select! {
-                    result = update_rx.recv() => {
-                        match result {
-                            Some(req) => {
-                                let epoch = epoch_from_timestamp(req.timestamp, config.window_interval);
-                                Self::absorb_update(
-                                    &mut write_batch,
-                                    req.key,
-                                    epoch,
-                                    req.count,
-                                    config.max_write_batch_entries,
-                                    scope,
-                                );
+                    drained = update_rx.recv_many(&mut update_buf, UPDATE_DRAIN_BATCH) => {
+                        if drained == 0 {
+                            // Channel closed: run one last bounded tick and exit
+                            if !write_batch.is_empty() {
+                                Self::tick(
+                                    &config, &redis_instances, &cache,
+                                    &pending_sync, &mut write_batch, &read_health, scope, tick_n,
+                                ).await;
                             }
-                            None => {
-                                // Channel closed: run one last bounded tick and exit
-                                if !write_batch.is_empty() {
-                                    Self::tick(
-                                        &config, &redis_instances, &cache,
-                                        &pending_sync, &mut write_batch, &read_health, scope, tick_n,
-                                    ).await;
-                                }
-                                break;
-                            }
+                            break;
                         }
+                        Self::absorb_requests(&config, &mut write_batch, &mut update_buf, scope);
                     }
                     _ = tick.tick() => {
+                        // Drain the queue first, or back-to-back overrun ticks can starve the channel.
+                        let mut queued = update_rx.len();
+                        metrics::gauge!(GLOBAL_RATE_LIMITER_CHANNEL_DEPTH_GAUGE, "scope" => scope)
+                            .set(queued as f64);
+                        while queued > 0 {
+                            let taken = update_rx
+                                .recv_many(&mut update_buf, UPDATE_DRAIN_BATCH.min(queued))
+                                .await;
+                            if taken == 0 {
+                                break;
+                            }
+                            queued -= taken;
+                            Self::absorb_requests(&config, &mut write_batch, &mut update_buf, scope);
+                        }
                         tick_n = tick_n.wrapping_add(1);
                         Self::tick(
                             &config, &redis_instances, &cache,
@@ -1055,6 +1057,25 @@ impl GlobalRateLimiterImpl {
                 }
             }
         });
+    }
+
+    fn absorb_requests(
+        config: &GlobalRateLimiterConfig,
+        write_batch: &mut HashMap<(String, i64), u64>,
+        update_buf: &mut Vec<UpdateRequest>,
+        scope: &'static str,
+    ) {
+        for req in update_buf.drain(..) {
+            let epoch = epoch_from_timestamp(req.timestamp, config.window_interval);
+            Self::absorb_update(
+                write_batch,
+                req.key,
+                epoch,
+                req.count,
+                config.max_write_batch_entries,
+                scope,
+            );
+        }
     }
 
     /// Merge one update into the deferred write batch, enforcing the entry cap.
@@ -1818,10 +1839,10 @@ mod tests {
 
     #[test]
     fn test_epoch_expire_at_spread_survives_sharding() {
-        // `select_redis_client` shards on `DefaultHasher` of the same key. If
-        // the expiry offset used that hash too, a shard count sharing a factor
-        // with the window would leave each shard only a fraction of the
-        // offsets, and the expiry burst would come back per shard.
+        // `select_redis_client` shards on a hash of the same key. If the expiry
+        // offset used that hash too, a shard count sharing a factor with the
+        // window would leave each shard only a fraction of the offsets, and the
+        // expiry burst would come back per shard.
         let window = Duration::from_secs(120);
         let ttl = Duration::from_secs(240);
         for shards in [2usize, 3, 4, 8] {
@@ -1829,9 +1850,7 @@ mod tests {
                 std::collections::HashMap::new();
             for i in 0..4000 {
                 let key = format!("key{i}");
-                let mut h = DefaultHasher::new();
-                key.hash(&mut h);
-                let shard = (h.finish() as usize) % shards;
+                let shard = instance_index(&key, shards);
                 per_shard
                     .entry(shard)
                     .or_default()
@@ -2756,6 +2775,74 @@ mod tests {
 
     fn limited(result: EvalResult) -> bool {
         matches!(result, EvalResult::Limited(_))
+    }
+
+    fn written_total(mock: &MockRedisClient) -> u64 {
+        mock.get_calls()
+            .iter()
+            .filter(|c| c.op == "batch_incr_by_expire_at")
+            .flat_map(|c| c.key.split(','))
+            .filter_map(|item| {
+                item.split_once('=')?
+                    .1
+                    .split('@')
+                    .next()?
+                    .parse::<u64>()
+                    .ok()
+            })
+            .sum()
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_ticks_longer_than_the_interval_do_not_starve_the_channel() {
+        let mock = Arc::new(
+            MockRedisClient::new().batch_incr_by_expire_at_block(Duration::from_millis(50)),
+        );
+        let config = GlobalRateLimiterConfig {
+            channel_capacity: 2_000,
+            tick_interval: Duration::from_millis(10),
+            global_write_timeout: Duration::from_secs(1),
+            ..config_with_floor(0)
+        };
+        let limiter = GlobalRateLimiterImpl::new(config, vec![mock.clone()]).unwrap();
+
+        // Writes outlast the tick interval, so every tick overruns.
+        for round in 0..60 {
+            for i in 0..200 {
+                limiter.check_limit(&format!("r{round}k{i}"), 1, None).await;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        wait_until!(
+            "ticks that overran their interval starved the channel and lost updates",
+            written_total(&mock) == 12_000
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_burst_larger_than_one_poll_budget_is_not_dropped() {
+        let mock = Arc::new(MockRedisClient::new());
+        let config = GlobalRateLimiterConfig {
+            channel_capacity: 400,
+            tick_interval: Duration::from_millis(10),
+            ..config_with_floor(0)
+        };
+        let limiter = GlobalRateLimiterImpl::new(config, vec![mock.clone()]).unwrap();
+
+        for i in 0..400 {
+            limiter.check_limit(&format!("first{i}"), 1, None).await;
+        }
+        // One poll of the background task; a single `recv` would take only 128 updates.
+        tokio::task::yield_now().await;
+        for i in 0..300 {
+            limiter.check_limit(&format!("second{i}"), 1, None).await;
+        }
+
+        wait_until!(
+            "a burst larger than one poll overflowed the channel and lost updates",
+            written_total(&mock) == 700
+        );
     }
 
     fn failing_reads() -> Arc<dyn Client + Send + Sync> {

@@ -1,5 +1,6 @@
 from products.error_tracking.backend.presentation.views.alerts import ErrorTrackingAlertViewSet
 from products.error_tracking.backend.presentation.views.assignment_rules import ErrorTrackingAssignmentRuleViewSet
+from products.error_tracking.backend.presentation.views.built_in_filters import ErrorTrackingBuiltInFilterViewSet
 from products.error_tracking.backend.presentation.views.bypass_rules import ErrorTrackingBypassRuleViewSet
 from products.error_tracking.backend.presentation.views.external_references import ErrorTrackingExternalReferenceViewSet
 from products.error_tracking.backend.presentation.views.fingerprints import ErrorTrackingFingerprintViewSet
@@ -7,6 +8,7 @@ from products.error_tracking.backend.presentation.views.git_provider_file_link_r
     GitProviderFileLinksViewSet,
 )
 from products.error_tracking.backend.presentation.views.grouping_rules import ErrorTrackingGroupingRuleViewSet
+from products.error_tracking.backend.presentation.views.issue_tag_rules import ErrorTrackingIssueTagRuleViewSet
 from products.error_tracking.backend.presentation.views.issues import ErrorTrackingIssueViewSet
 from products.error_tracking.backend.presentation.views.query import ErrorTrackingQueryViewSet
 from products.error_tracking.backend.presentation.views.recommendations import ErrorTrackingRecommendationViewSet
@@ -24,6 +26,7 @@ from products.error_tracking.backend.presentation.views.symbol_sets import Error
 __all__ = [
     "ErrorTrackingAlertViewSet",
     "ErrorTrackingExternalReferenceViewSet",
+    "ErrorTrackingIssueTagRuleViewSet",
     "ErrorTrackingIssueViewSet",
     "ErrorTrackingQueryViewSet",
     "ErrorTrackingRecommendationViewSet",
@@ -39,5 +42,6 @@ __all__ = [
     "ErrorTrackingSuppressionRuleViewSet",
     "ErrorTrackingAssignmentRuleViewSet",
     "ErrorTrackingBypassRuleViewSet",
+    "ErrorTrackingBuiltInFilterViewSet",
     "GitProviderFileLinksViewSet",
 ]

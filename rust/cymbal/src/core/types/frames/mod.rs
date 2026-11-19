@@ -124,6 +124,13 @@ impl RawFrame {
         self.raw_id(team_id, debug_images).to_full(index as i32)
     }
 
+    pub fn can_never_resolve(&self) -> bool {
+        match self {
+            RawFrame::Hermes(frame) => frame.can_never_resolve(),
+            _ => false,
+        }
+    }
+
     pub fn is_suspicious(&self) -> bool {
         match self {
             RawFrame::JavaScriptWeb(frame) => frame.is_suspicious(),

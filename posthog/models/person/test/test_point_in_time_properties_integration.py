@@ -12,7 +12,12 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 
 from django.test import override_settings
 
+from posthog.constants import AvailableFeature
 from posthog.models.person.point_in_time_properties import DEFAULT_PROPERTY_ROW_LIMIT, build_person_properties_at_time
+
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
@@ -49,6 +54,42 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
         )
 
         self.assertEqual(properties, {"name": "Final", "email": "user@example.com"})
+
+    def test_restricted_person_property_is_masked_for_user(self):
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        ssn = PropertyDefinition.objects.create(
+            team=self.team, name="ssn", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=ssn, access_level=PropertyAccessLevel.NONE.value
+        )
+
+        distinct_id = "user-clickhouse-restricted"
+        upper_bound = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id=distinct_id,
+            properties={"$set": {"email": "user@example.com", "ssn": "123-45-6789"}},
+            timestamp=upper_bound - timedelta(hours=2),
+        )
+        _create_event(
+            event="$set_once",
+            team=self.team,
+            distinct_id=distinct_id,
+            properties={"$set_once": {"ssn": "999-99-9999", "plan": "free"}},
+            timestamp=upper_bound - timedelta(hours=1),
+        )
+        flush_persons_and_events()
+
+        properties = build_person_properties_at_time(
+            self.team, upper_bound, [distinct_id], include_set_once=True, user=self.user
+        )
+
+        self.assertEqual(properties, {"email": "user@example.com", "plan": "free"})
 
     def test_set_once_first_write_wins(self):
         distinct_id = "user-clickhouse-set-once"

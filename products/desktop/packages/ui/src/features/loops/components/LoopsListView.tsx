@@ -1,9 +1,8 @@
 import { ChatCircleDotsIcon } from "@phosphor-icons/react";
-import type { LoopSchemas } from "@posthog/api-client/loops";
 import { Text } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
-import { useLoopsHogFlowsEnabled } from "@posthog/ui/features/feature-flags/useLoopsHogFlowsEnabled";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { Button } from "@posthog/ui/primitives/Button";
@@ -12,7 +11,7 @@ import { navigateToTaskDetail } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { useEffect, useRef, useState } from "react";
 import { useLoopBuilderSessions } from "../hooks/useLoopBuilderSessions";
-import { useLoopLimitReason, useLoopLimits, useLoops } from "../hooks/useLoops";
+import { useLoops } from "../hooks/useLoops";
 import {
   type LoopBuilderSession,
   useLoopBuilderSessionStore,
@@ -32,9 +31,6 @@ const EMPTY_SPACES: LoopSpace[] = [];
 
 export function LoopsListView() {
   const { data: loops, isLoading, isError, error } = useLoops();
-  const limits = useLoopLimits();
-  const limitReason = useLoopLimitReason();
-  const workflowBacked = useLoopsHogFlowsEnabled();
 
   useSetHeaderContent(null);
 
@@ -58,12 +54,8 @@ export function LoopsListView() {
     hasTrackedListViewedRef.current = true;
     track(ANALYTICS_EVENTS.LOOP_LIST_VIEWED, {
       loop_count: counts.total,
-      personal_loop_count: counts.personal,
-      team_loop_count: counts.team,
       global_loop_count: counts.global,
       space_count: counts.spaces,
-      is_at_limit: limits?.atLimit ?? false,
-      loop_limit: limits?.max,
       builder_session_count: builderSessions.length,
     });
   }, [
@@ -71,11 +63,8 @@ export function LoopsListView() {
     isError,
     builderSessionsSettled,
     counts.total,
-    counts.personal,
-    counts.team,
     counts.global,
     counts.spaces,
-    limits,
     builderSessions.length,
   ]);
 
@@ -85,8 +74,6 @@ export function LoopsListView() {
       spaces={spaces}
       isLoading={isLoading}
       error={isError ? error : null}
-      limitReason={limitReason}
-      showVisibilityFilter={!workflowBacked}
       builderSessions={builderSessions}
       onStartBlank={() => startNewLoop()}
       onStartFromTemplate={(template) => startNewLoop({ template })}
@@ -103,8 +90,6 @@ interface LoopsListViewPresentationProps {
   spaces?: LoopSpace[];
   isLoading?: boolean;
   error?: unknown;
-  limitReason?: string | null;
-  showVisibilityFilter?: boolean;
   builderSessions?: LoopBuilderSession[];
   onStartBlank: () => void;
   onStartFromTemplate: (template: LoopTemplate) => void;
@@ -117,8 +102,6 @@ export function LoopsListViewPresentation({
   spaces = EMPTY_SPACES,
   isLoading = false,
   error = null,
-  limitReason = null,
-  showVisibilityFilter = true,
   builderSessions = [],
   onStartBlank,
   onStartFromTemplate,
@@ -127,13 +110,7 @@ export function LoopsListViewPresentation({
 }: LoopsListViewPresentationProps) {
   return (
     <LoopsPageLayout
-      actions={
-        <NewLoopButton
-          label="New global loop"
-          limitReason={limitReason}
-          onClick={onStartBlank}
-        />
-      }
+      actions={<NewLoopButton label="New global loop" onClick={onStartBlank} />}
       footer={
         <>
           {builderSessions.map((session) => (
@@ -144,10 +121,7 @@ export function LoopsListViewPresentation({
               onStopped={onBuilderSessionStopped}
             />
           ))}
-          <LoopBuilderComposer
-            placeholder="What do you want automated across the whole project?"
-            disabledReason={limitReason}
-          />
+          <LoopBuilderComposer placeholder="What do you want automated across the whole project?" />
         </>
       }
     >
@@ -158,7 +132,6 @@ export function LoopsListViewPresentation({
         error={error}
         showScope
         showSpace
-        showVisibility={showVisibilityFilter}
         emptyState={<LoopsEmptyState />}
       />
 

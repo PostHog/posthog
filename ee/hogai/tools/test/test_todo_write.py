@@ -1,11 +1,11 @@
 from typing import Any
 
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from ee.hogai.tools.todo_write import TodoItem, TodoWriteTool
 
 
-class TestTodoWriteTool(BaseTest):
+class TestTodoWriteTool(SimpleTestCase):
     def test_format_todo_list_empty_list(self):
         """Test formatting an empty todo list from list"""
         result = TodoWriteTool.format_todo_list([])

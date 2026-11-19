@@ -24,7 +24,9 @@ import {
 } from '~/types'
 
 import { type NewSurvey } from '../constants'
+import { type HostedSurveyPageKind } from './hostedSurveyPageKind'
 import { InlineEditable } from './InlineEditable'
+import { IntroCanvas } from './IntroCanvas'
 
 // Per-scale lists mirroring posthog-js emojiScaleLists; scale 2 (thumbs) renders icons instead.
 const RATING_EMOJI_PREVIEW: Record<number, string[]> = {
@@ -145,8 +147,11 @@ function buildCanvasStyles(appearance: SurveyAppearance, progress: number): Canv
     }
 }
 
-function getProgress(survey: Survey | NewSurvey, pageIndex: number): number {
-    if (pageIndex >= survey.questions.length) {
+function getProgress(survey: Survey | NewSurvey, pageIndex: number, pageKind: HostedSurveyPageKind): number {
+    if (pageKind === 'intro') {
+        return 0
+    }
+    if (pageKind === 'confirmation') {
         return 100
     }
     if (survey.questions.length === 0) {
@@ -158,8 +163,7 @@ function getProgress(survey: Survey | NewSurvey, pageIndex: number): number {
 interface HostedSurveyCanvasProps {
     survey: Survey | NewSurvey
     activePageIndex: number
-    /** True when active page is the confirmation/thank-you screen. */
-    isConfirmation: boolean
+    pageKind: HostedSurveyPageKind
     /** Mobile vs desktop frame for visual context. */
     viewport: 'desktop' | 'mobile'
 }
@@ -167,11 +171,11 @@ interface HostedSurveyCanvasProps {
 export function HostedSurveyCanvas({
     survey,
     activePageIndex,
-    isConfirmation,
+    pageKind,
     viewport,
 }: HostedSurveyCanvasProps): JSX.Element {
     const appearance = buildCanvasAppearance(survey)
-    const progress = getProgress(survey, activePageIndex)
+    const progress = getProgress(survey, activePageIndex, pageKind)
     const styles = buildCanvasStyles(appearance, progress)
     const activeQuestion = survey.questions[activePageIndex] as SurveyQuestion | undefined
     const frameClassName =
@@ -197,7 +201,9 @@ export function HostedSurveyCanvas({
                 </div>
                 <div className="survey-stage">
                     <div className="posthog-survey-container">
-                        {isConfirmation ? (
+                        {pageKind === 'intro' ? (
+                            <IntroCanvas survey={survey} />
+                        ) : pageKind === 'confirmation' ? (
                             <ConfirmationCanvas survey={survey} />
                         ) : activeQuestion ? (
                             <QuestionCanvas question={activeQuestion} index={activePageIndex} />
@@ -649,11 +655,12 @@ function RatingCanvas({
 }
 
 function ConfirmationCanvas({ survey }: { survey: Survey | NewSurvey }): JSX.Element {
+    const { survey: baseSurvey } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
     const appearance = survey.appearance ?? {}
 
     const updateAppearance = (patch: Partial<NonNullable<(Survey | NewSurvey)['appearance']>>): void => {
-        setSurveyValue('appearance', { ...survey.appearance, ...patch })
+        setSurveyValue('appearance', { ...baseSurvey.appearance, ...patch })
     }
 
     return (

@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 from django import forms
 from django.contrib import admin
@@ -65,7 +65,7 @@ class _DataQualityAdmin(admin.ModelAdmin):
         return queryset.order_by(*ordering) if ordering else queryset
 
     def formfield_for_foreignkey(
-        self, db_field: models.ForeignKey, request: HttpRequest, **kwargs: object
+        self, db_field: models.ForeignKey, request: HttpRequest, **kwargs: Any
     ) -> forms.ModelChoiceField | None:
         manager = db_field.remote_field.model._default_manager
         if not isinstance(manager, TeamScopedManager):

@@ -52,7 +52,6 @@ import { useCurrentUser } from "../../auth/useCurrentUser";
 import { useAutoresearchDraftStore } from "../../autoresearch/autoresearchDraftStore";
 import { SpaceSelect } from "../../canvas/components/SpaceSelect";
 import { useTaskChannels } from "../../canvas/hooks/useTaskChannels";
-import { useBluebirdFlag } from "../../feature-flags/useBluebirdFlag";
 import { useFolders } from "../../folders/useFolders";
 import { useCloudPrUrl } from "../../git-interaction/useCloudPrUrl";
 import { useDraftStore } from "../../message-editor/draftStore";
@@ -180,17 +179,10 @@ function EmptyCell({
   const layout = useCommandCenterStore((s) => s.layout);
   const cells = useCommandCenterStore((s) => s.cells);
   const brainrotMode = useSettingsStore((s) => s.brainrotMode);
-  const spacesEnabled = useBluebirdFlag();
-  const { channels, personalChannel } = useTaskChannels({
-    enabled: spacesEnabled,
-  });
+  const { channels, personalChannel } = useTaskChannels();
   const [pickedSpaceId, setPickedSpaceId] = useState<string | null>(null);
-  // A task created without a space lands in #me, so the chip starts there. The
-  // flag gates the chip here rather than through the query, whose cache another
-  // surface may have already filled.
-  const spaceId = spacesEnabled
-    ? (pickedSpaceId ?? personalChannel?.id ?? null)
-    : null;
+  // A task created without a space lands in #me, so the chip starts there.
+  const spaceId = pickedSpaceId ?? personalChannel?.id ?? null;
   const space = channels.find((c) => c.id === spaceId);
   const authIdentity = useAuthStateValue(getAuthIdentity);
   const client = useOptionalAuthenticatedClient();

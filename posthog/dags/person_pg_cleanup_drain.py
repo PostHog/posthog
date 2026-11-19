@@ -118,8 +118,9 @@ FATAL_RPC_CODES = frozenset(
         grpc.StatusCode.UNAUTHENTICATED,
     }
 )
-# Codes a request that outran the router's deadline comes back with: the router answers
-# UNAVAILABLE once its own retries of the backend call time out.
+# Codes a request that outran a deadline comes back with. The router answers UNAVAILABLE once its
+# own retries of the backend call time out. Personhog answers DEADLINE_EXCEEDED when a Postgres
+# statement or lock timeout cancels the delete.
 SLOW_RPC_CODES = frozenset({grpc.StatusCode.DEADLINE_EXCEEDED, grpc.StatusCode.UNAVAILABLE})
 
 _T = TypeVar("_T")

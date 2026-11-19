@@ -1,4 +1,4 @@
-import { LOOPS_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import { LOOPS_FLAG } from "@posthog/shared";
 import {
   ANALYTICS_EVENTS,
   type SidebarNavItem,
@@ -70,11 +70,6 @@ export function SidebarNavSection({
   // Loops stays behind the loops flag. Also gates the per-channel Loops tab
   // (see ChannelTabs).
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
-  // Channels stay behind project-bluebird, including channel-only nav items.
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
   const mentionsEnabled = useActivityFilterStore(
     (state) => state.mentionsEnabled,
   );
@@ -142,7 +137,7 @@ export function SidebarNavSection({
     inbox: true,
     "command-center": true,
     contexts: contextEnabled,
-    activity: bluebirdEnabled,
+    activity: true,
     configure: true,
     loops: loopsEnabled,
   };

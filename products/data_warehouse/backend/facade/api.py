@@ -29,7 +29,6 @@ _LAZY = {
     "ensure_cdc_slot_cleanup_schedule": "logic.data_load.service",
     "external_data_workflow_exists": "logic.data_load.service",
     "is_any_external_data_schema_paused": "logic.data_load.service",
-    "is_cdc_enabled_for_team": "logic.data_load.service",
     "cdc_extraction_schedule_exists": "logic.data_load.service",
     "cdc_min_interval": "logic.data_load.service",
     "is_cdc_extraction_schedule_paused": "logic.data_load.service",
@@ -47,9 +46,6 @@ _LAZY = {
     "unpause_external_data_schedule": "logic.data_load.service",
     "create_warehouse_templates_for_source": "logic.data_load.source_templates",
     "update_external_job_status": "logic.external_data_source.jobs",
-    "SyncAlertEvent": "logic.external_data_source.alerts",
-    "SyncAlertKind": "logic.external_data_source.alerts",
-    "emit_sync_alert": "logic.external_data_source.alerts",
     "create_and_register_webhook": "logic.external_data_source.webhooks",
     "delete_webhook_and_hog_function": "logic.external_data_source.webhooks",
     "get_or_create_webhook_hog_function": "logic.external_data_source.webhooks",
@@ -65,6 +61,7 @@ _LAZY = {
     "reproject_direct_mysql_table": "mysql_helpers",
     "get_postgres_source_location": "postgres_helpers",
     "reconcile_postgres_schemas": "postgres_helpers",
+    "reconcile_managed_trino_schemas": "trino_helpers",
     "reproject_direct_postgres_table": "postgres_helpers",
     "reconcile_snowflake_schemas": "snowflake_helpers",
     "reproject_direct_snowflake_table": "snowflake_helpers",
@@ -101,6 +98,7 @@ _LAZY = {
     "get_s3_client": "s3",
     "get_size_of_folder": "s3",
     "delta_proxy_storage_options": "s3_proxy",
+    "boto_proxy_config_kwargs": "s3_proxy",
 }
 
 __all__ = sorted(_LAZY)

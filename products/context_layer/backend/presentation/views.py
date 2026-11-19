@@ -15,7 +15,7 @@ from posthog.models.user import User
 from posthog.oauth_provenance import INTERNAL_RUN_SCOPE, get_oauth_access_token
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.redis import get_client
-from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, LOOP_CONTEXT_INTERNAL_SCOPE
+from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE
 
 from products.context_layer.backend.facade import api as facade
 from products.context_layer.backend.presentation.serializers import (
@@ -42,11 +42,9 @@ from products.tasks.backend.facade import api as tasks_facade
 RUN_COMMITS_PER_DAY_CAP = 20
 
 
-def _context_actor_type(request: Request) -> Literal["user_or_api", "task_agent", "loop_agent"]:
+def _context_actor_type(request: Request) -> Literal["user_or_api", "task_agent"]:
     access_token = get_oauth_access_token(request)
     token_scopes = set((getattr(access_token, "scope", "") or "").split())
-    if LOOP_CONTEXT_INTERNAL_SCOPE in token_scopes:
-        return "loop_agent"
     if INTERNAL_RUN_SCOPE in token_scopes:
         return "task_agent"
     return "user_or_api"
@@ -185,29 +183,21 @@ def _assert_run_write_in_scope(organization_id, team_id, request: Request, path:
     """
     access_token = get_oauth_access_token(request)
     token_scopes = set((getattr(access_token, "scope", "") or "").split())
-    is_loop_run = LOOP_CONTEXT_INTERNAL_SCOPE in token_scopes
-    is_ordinary_run = INTERNAL_RUN_SCOPE in token_scopes
-    if not is_loop_run and not is_ordinary_run:
+    if INTERNAL_RUN_SCOPE not in token_scopes:
         return
 
     denied = PermissionDenied(
-        "This loop can update only its configured channel's context page."
-        if is_loop_run
-        else "This task can update only its own channel's context page. "
+        "This task can update only its own channel's context page. "
         "Use task-context-wiki-page-propose for shared content, then ask the user to review it in Context > Suggested edits."
     )
     sandbox_task_id = getattr(access_token, "sandbox_task_id", None)
     if sandbox_task_id is None or team_id is None or not facade.is_run_content_path(path):
         raise denied
 
-    configured_channel_id = (
-        tasks_facade.loop_context_channel_id_for_task(sandbox_task_id)
-        if is_loop_run
-        else tasks_facade.task_channel_id(sandbox_task_id, team_id)
-    )
-    if configured_channel_id is None:
+    channel_id = tasks_facade.task_channel_id(sandbox_task_id, team_id)
+    if channel_id is None:
         raise denied
-    configured_channel_id = str(configured_channel_id)
+    configured_channel_id = str(channel_id)
 
     # Both sides resolve inside this organization's own wiki index, so a run
     # cannot reach another organization's pages even by naming its channel.
@@ -238,7 +228,7 @@ def _assert_run_may_create_channel_page(
     instructions forever. Everything is pinned: the channel must have no page,
     the path must be exactly the one resolution proposed, nothing may already
     exist there, and the content's frontmatter must claim the configured
-    channel — so the loop cannot plant a page that resolution would hand to a
+    channel — so the run cannot plant a page that resolution would hand to a
     different channel.
     """
     if facade.resolve_channel_page(organization_id, channel_id) is not None:
@@ -316,8 +306,7 @@ def _write_page(organization_id, request: Request, *, team_id=None) -> Response:
 def _assert_run_commit_cap(request: Request) -> None:
     """Cap how many landings (bundles or page writes) one sandbox run gets per day.
 
-    Loops have their own daily fire caps, but an ordinary task run landing
-    wiki changes has nothing but the writer lock pacing it. Keyed on the run
+    A task run landing wiki changes has nothing but the writer lock pacing it. Keyed on the run
     provenance the token carries; human and PAT callers have none and stay
     uncapped.
     """
@@ -336,10 +325,6 @@ def _assert_run_commit_cap(request: Request) -> None:
 def _land_commits(organization_id, request: Request) -> Response:  # noqa: ANN001
     access_token = get_oauth_access_token(request)
     token_scopes = set((getattr(access_token, "scope", "") or "").split())
-    if LOOP_CONTEXT_INTERNAL_SCOPE in token_scopes:
-        # Bundles bypass the page binding _assert_loop_write_in_scope enforces,
-        # so a loop run must land its edits through the page endpoint instead.
-        raise PermissionDenied("This loop can update only its context page, not land commit bundles.")
     is_task_run = INTERNAL_RUN_SCOPE in token_scopes
     maintenance_run = None
     if is_task_run:
@@ -486,7 +471,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: ContextLayerStatusSerializer,
             400: LintErrorSerializer,
             403: OpenApiResponse(
-                description="The wiki is unavailable, or a loop run targeted a page outside its own context."
+                description="The wiki is unavailable, or a run targeted a page outside its own context."
             ),
             409: HeadConflictSerializer,
         },
@@ -514,7 +499,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         user_id = cast(int, user.id)
         token = get_oauth_access_token(request)
         scopes = set((getattr(token, "scope", "") or "").split())
-        if INTERNAL_RUN_SCOPE in scopes or LOOP_CONTEXT_INTERNAL_SCOPE in scopes:
+        if INTERNAL_RUN_SCOPE in scopes:
             raise PermissionDenied(
                 "A task cannot approve a wiki edit. Review and apply it from Context > Suggested edits."
             )
@@ -620,8 +605,8 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     read_actions = ["page", "channel_page"]
     write_actions = ["update_page", "commits", "propose_page"]
 
-    # Each task scope must come with server-minted run provenance. Page actions
-    # accept ordinary and loop runs; the write path binds each to its own target.
+    # Each task scope must come with server-minted run provenance. The write path
+    # binds each run to its own channel.
     _RUN_TASK_SCOPES = {
         "commits": "task:write",
         "page": "task:read",
@@ -646,8 +631,6 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if task_scope is not None:
             access_token = get_oauth_access_token(request)
             token_scopes = set((getattr(access_token, "scope", "") or "").split())
-            if self.action != "commits" and LOOP_CONTEXT_INTERNAL_SCOPE in token_scopes:
-                return [task_scope, LOOP_CONTEXT_INTERNAL_SCOPE]
             if INTERNAL_RUN_SCOPE in token_scopes:
                 required = [task_scope, INTERNAL_RUN_SCOPE]
                 if self.action in self.write_actions:
@@ -678,7 +661,7 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["GET"], detail=False, url_path=r"channel-pages/(?P<channel_id>[^/.]+)")
     def channel_page(self, request: Request, channel_id: str, **kwargs) -> Response:
-        # Unlike the organization route, a miss proposes a create path: a loop
+        # Unlike the organization route, a miss proposes a create path: a run
         # maintaining a post-enablement channel needs somewhere to publish.
         return _read_channel_page(self.organization.id, channel_id, propose_on_miss=True)
 
@@ -708,7 +691,6 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = getattr(token, "sandbox_task_id", None)
         if (
             INTERNAL_RUN_SCOPE not in scopes
-            or LOOP_CONTEXT_INTERNAL_SCOPE in scopes
             or task_id is None
             or tasks_facade.task_channel_id(task_id, self.team_id) is None
         ):

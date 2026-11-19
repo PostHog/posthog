@@ -6,10 +6,11 @@ import { captureLegendMenuAction } from 'lib/components/ChartLegendSeriesMenu/ca
 import { ChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/ChartLegendSeriesMenu'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel, getTrendResultCustomizationKey } from 'scenes/insights/utils'
+import { getResultSeries } from 'scenes/insights/utils/resultSeries'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -42,6 +43,8 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
         areAllSeriesVisible,
         legendSeriesIsolationMenuEligible,
         getIsOnlyVisibleSeriesInLegend,
+        querySource,
+        actionNames,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden, toggleOtherSeriesHidden, toggleAllResultsHidden } = useActions(
         trendsDataLogic(insightProps)
@@ -49,8 +52,8 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
 
     let highlighted = false
     if (highlightedSeries) {
-        const currentKey = getTrendResultCustomizationKey(resultCustomizationBy, item)
-        const highlightedKey = getTrendResultCustomizationKey(resultCustomizationBy, highlightedSeries)
+        const currentKey = getTrendResultCustomizationKey(resultCustomizationBy, item, querySource)
+        const highlightedKey = getTrendResultCustomizationKey(resultCustomizationBy, highlightedSeries, querySource)
         highlighted = currentKey === highlightedKey
     }
     const highlightStyle: Record<string, any> = highlighted
@@ -98,7 +101,7 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
                         <InsightLabel
                             key={item.id}
                             seriesColor={mainColor}
-                            action={item.action}
+                            series={getResultSeries(querySource, item, actionNames)}
                             fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                             hasMultipleSeries={!isSingleSeriesDefinition}
                             breakdownValue={formattedBreakdownValue}

@@ -8,16 +8,23 @@ endpoint, presenting it as `client_secret`. The claims are fixed by Apple: `iss`
 
 import time
 
-from django.conf import settings
-
 import jwt
+
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_many_or_settings
+
+from .common import OauthClientCredentials
 
 APPLE_OAUTH_AUDIENCE = "https://appleid.apple.com"
 
 # Apple accepts a client secret of up to 180 days. A short life is enough here because one is
-# signed per token request, and it keeps a leaked assertion near-worthless. It must outlive the
-# OauthConfig cache (5 minutes), which hands the same signed value to every caller in that window.
+# signed per token request, and it keeps a leaked assertion near-worthless.
 CLIENT_SECRET_TTL_SECONDS = 30 * 60
+
+SERVICE_PROVIDER_CLIENT_ID_KEY = "APPLE_ADS_APP_CLIENT_ID"
+SERVICE_PROVIDER_TEAM_ID_KEY = "APPLE_ADS_APP_TEAM_ID"
+SERVICE_PROVIDER_KEY_ID_KEY = "APPLE_ADS_APP_KEY_ID"
+SERVICE_PROVIDER_PRIVATE_KEY_KEY = "APPLE_ADS_APP_PRIVATE_KEY"
 
 
 class AppleAdsOauthNotConfigured(Exception):
@@ -52,21 +59,27 @@ def build_client_secret(
     )
 
 
-def service_provider_client_secret() -> str:
-    """Sign a client secret for PostHog's own Apple Ads service provider registration."""
-    if not all(
-        (
-            settings.APPLE_ADS_APP_CLIENT_ID,
-            settings.APPLE_ADS_APP_TEAM_ID,
-            settings.APPLE_ADS_APP_KEY_ID,
-            settings.APPLE_ADS_APP_PRIVATE_KEY,
-        )
-    ):
+def service_provider_client_credentials() -> OauthClientCredentials:
+    """The client id and a freshly signed client secret for PostHog's own service provider registration."""
+    values = get_many_or_settings(
+        [
+            SERVICE_PROVIDER_CLIENT_ID_KEY,
+            SERVICE_PROVIDER_TEAM_ID_KEY,
+            SERVICE_PROVIDER_KEY_ID_KEY,
+            SERVICE_PROVIDER_PRIVATE_KEY_KEY,
+        ],
+        CredentialsCaller.INTEGRATIONS,
+    )
+    if not all(values.values()):
         raise AppleAdsOauthNotConfigured("Apple Ads service provider app not configured")
 
-    return build_client_secret(
-        client_id=settings.APPLE_ADS_APP_CLIENT_ID,
-        team_id=settings.APPLE_ADS_APP_TEAM_ID,
-        key_id=settings.APPLE_ADS_APP_KEY_ID,
-        private_key=settings.APPLE_ADS_APP_PRIVATE_KEY,
+    client_id = values[SERVICE_PROVIDER_CLIENT_ID_KEY]
+    return OauthClientCredentials(
+        client_id=client_id,
+        client_secret=build_client_secret(
+            client_id=client_id,
+            team_id=values[SERVICE_PROVIDER_TEAM_ID_KEY],
+            key_id=values[SERVICE_PROVIDER_KEY_ID_KEY],
+            private_key=values[SERVICE_PROVIDER_PRIVATE_KEY_KEY],
+        ),
     )

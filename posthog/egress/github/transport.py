@@ -139,7 +139,7 @@ def github_request(
     source: str,
     headers: dict[str, str] | None = None,
     installation_id: str | None = None,
-    priority: Priority = Priority.CRITICAL,
+    priority: Priority,
     endpoint: str | None = None,
     timeout: float | tuple[float, float] | None = None,
     session: requests.Session | None = None,

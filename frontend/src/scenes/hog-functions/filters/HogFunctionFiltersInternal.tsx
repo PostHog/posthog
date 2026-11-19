@@ -16,6 +16,7 @@ import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfi
 import {
     type FilterOption,
     getProductEventFilterOptions,
+    getProductEventPropertyTaxonomicOptions,
     getProductEventPropertyValues,
 } from './productEventFilterOptions'
 
@@ -40,12 +41,10 @@ const setSimpleFilterValue = (
         ],
     }
     // Preserve properties bound by Logs alerting (alert_id) and batch export alerts
-    // (batch_export_id), and data warehouse alerts (source_id) — the trigger event id changes between the context's events, but the
+    // (batch_export_id) — the trigger event id changes between the context's events, but the
     // binding to the parent resource must survive.
     if (
-        (contextId === 'logs-alerting' ||
-            contextId === 'batch-export-alerts' ||
-            contextId === 'data-warehouse-alerts') &&
+        (contextId === 'logs-alerting' || contextId === 'batch-export-alerts') &&
         previous?.properties &&
         previous.properties.length > 0
     ) {
@@ -66,6 +65,8 @@ export function HogFunctionFiltersInternal(): JSX.Element {
         [contextId]
     )
 
+    const taxonomicOptions = useMemo(() => getProductEventPropertyTaxonomicOptions(contextId), [contextId])
+
     const taxonomicGroupTypes = useMemo(() => {
         if (contextId === 'error-tracking') {
             return [
@@ -81,8 +82,10 @@ export function HogFunctionFiltersInternal(): JSX.Element {
             return [TaxonomicFilterGroupType.EventProperties]
         } else if (contextId === 'health-alerts') {
             return [TaxonomicFilterGroupType.EventProperties]
-        } else if (contextId === 'batch-export-alerts' || contextId === 'data-warehouse-alerts') {
+        } else if (contextId === 'batch-export-alerts') {
             return [TaxonomicFilterGroupType.EventProperties]
+        } else if (contextId === 'signals-reports') {
+            return [TaxonomicFilterGroupType.InternalEventProperties]
         }
         return []
     }, [contextId])
@@ -115,6 +118,7 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                                 buttonSize="small"
                                 disablePopover
                                 staticValueOptions={staticValueOptions}
+                                taxonomicFilterOptionsFromProp={taxonomicOptions}
                             />
                         ) : null}
                     </>

@@ -5,6 +5,8 @@ import { IconTrash } from '@posthog/icons'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
+import { fn } from 'storybook/test'
+
 import { IconLink } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { More } from '../LemonButton/More'
@@ -18,6 +20,7 @@ const meta: Meta<LemonTableProps<any>> = {
     title: 'Lemon UI/Lemon Table',
     component: LemonTable as any,
     tags: ['autodocs'],
+    args: { onRow: fn(() => ({})) },
 }
 export default meta
 

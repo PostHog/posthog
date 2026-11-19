@@ -69,6 +69,7 @@ class SyncFrequencyBoundSerializer(serializers.Serializer):
 
 class SyncFrequencyBlockedBy(models.TextChoices):
     SOURCE = "source", "source"
+    PLAN = "plan", "plan"
     CONSUMER = "consumer", "consumer"
 
 
@@ -79,13 +80,24 @@ class SyncFrequencyOptionSerializer(serializers.Serializer):
         choices=SyncFrequencyBlockedBy.choices,
         allow_null=True,
         help_text="Which side withholds this cadence: 'source' when no upstream source syncs that "
-        "often, 'consumer' when a downstream view or endpoint refreshes more often than this. "
-        "Null when the cadence is allowed.",
+        "often, 'plan' when the organization's plan does not allow refreshing that often, 'consumer' "
+        "when a downstream view or endpoint refreshes more often than this. Null when the cadence is allowed.",
     )
     blocker = SyncFrequencyBlockerSerializer(
         allow_null=True,
-        help_text="The source or consumer named in `blocked_by`. Null when allowed, and also when the "
-        "blocker sits outside the caller's access grants, where `blocked_by` still gives the direction.",
+        help_text="The source or consumer named in `blocked_by`. Null when allowed, when `blocked_by` is "
+        "'plan', and also when the blocker sits outside the caller's access grants, where `blocked_by` "
+        "still gives the direction.",
+    )
+    speeds_up = SyncFrequencyBlockerSerializer(
+        many=True,
+        help_text="Upstream materialized views that would refresh more often than they do now if this "
+        "cadence were chosen, because a view cannot be fresher than its inputs. Only views the "
+        "caller may read are listed. Empty when the cadence is blocked.",
+    )
+    speeds_up_withheld = serializers.BooleanField(
+        help_text="True when at least one view this cadence speeds up sits outside the caller's access "
+        "grants, so `speeds_up` is incomplete."
     )
 
 
@@ -110,6 +122,11 @@ class SyncFrequencyBoundsSerializer(serializers.Serializer):
         help_text="The fastest bound: no cadence finer than this is allowed, because the source named "
         "here does not sync more often. Null when no source withholds a cadence.",
     )
+    plan_floor = SyncFrequencyBoundSerializer(
+        allow_null=True,
+        help_text="The fastest cadence the organization's plan allows: no cadence finer than this can be "
+        "saved. `blocker` is always null. Null when the plan withholds no cadence.",
+    )
     ceiling = SyncFrequencyBoundSerializer(
         allow_null=True,
         help_text="The slowest bound: no cadence coarser than this is allowed, because the consumer "
@@ -130,7 +147,8 @@ class SyncFrequencyBoundsSerializer(serializers.Serializer):
 SYNC_FREQUENCY_BOUNDS_HELP_TEXT = (
     "Which cadences this view can actually be set to, and what withholds the rest. Computed from the "
     "view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences "
-    "set a ceiling. Read-only, and present on retrieve, create and update responses only."
+    "set a ceiling, and the organization's plan can set a floor too. Read-only, and present on "
+    "retrieve, create and update responses only."
 )
 
 
@@ -140,6 +158,7 @@ def _unbounded_frequency_payload(mode: str) -> dict[str, Any]:
         "frequency_mode": mode,
         "options": [],
         "floor": None,
+        "plan_floor": None,
         "ceiling": None,
         "best_effort_sources": [],
         "best_effort_sources_withheld": False,
@@ -148,7 +167,7 @@ def _unbounded_frequency_payload(mode: str) -> dict[str, Any]:
 
 def _blocker_node_ids(resolved: Any) -> set[str]:
     """Every node the bounds would name, across the two bounds, the options and the best-effort list."""
-    node_ids: set[str] = set(resolved.best_effort_source_ids)
+    node_ids: set[str] = set(resolved.best_effort_source_ids).union(*resolved.speeds_up.values())
     for bound in (resolved.bounds.floor, resolved.bounds.ceiling):
         if bound is not None and bound.blocker is not None:
             node_ids.add(bound.blocker)
@@ -170,8 +189,6 @@ def visible_blocker_names(
         return {}
 
     visible: dict[str, str] = {}
-    # Lists, not single ids: one saved query or table can hold a node in several DAGs, and a grant
-    # covers the resource, so every node of it becomes visible together.
     node_ids_by_saved_query: dict[str, list[str]] = {}
     node_ids_by_table: dict[str, list[str]] = {}
     for node_id in node_ids:
@@ -228,19 +245,31 @@ def _frequency_bounds_payload(resolved: Any, visible_names: dict[str, str]) -> d
             return None
         return {"label": humanize_cadence(value.value), "blocker": blocker(value.blocker)}
 
+    def sped_up(option: Any) -> list[str]:
+        if not option.allowed:
+            return []
+        return sorted(resolved.speeds_up.get(option.value, ()))
+
     best_effort = sorted(resolved.best_effort_source_ids)
-    return {
-        "frequency_mode": "tiered",
-        "options": [
+    plan_floor = resolved.bounds.plan_floor
+    options = []
+    for option in resolved.bounds.options:
+        sped_up_ids = sped_up(option)
+        options.append(
             {
                 "cadence": sync_frequency_interval_to_sync_frequency(option.value),
                 "allowed": option.allowed,
                 "blocked_by": option.blocked_by,
                 "blocker": blocker(option.blocker),
+                "speeds_up": [blocker(node_id) for node_id in sped_up_ids if node_id in visible_names],
+                "speeds_up_withheld": any(node_id not in visible_names for node_id in sped_up_ids),
             }
-            for option in resolved.bounds.options
-        ],
+        )
+    return {
+        "frequency_mode": "tiered",
+        "options": options,
         "floor": bound(resolved.bounds.floor),
+        "plan_floor": {"label": humanize_cadence(plan_floor), "blocker": None} if plan_floor is not None else None,
         "ceiling": bound(resolved.bounds.ceiling),
         "best_effort_sources": [blocker(node_id) for node_id in best_effort if node_id in visible_names],
         "best_effort_sources_withheld": any(node_id not in visible_names for node_id in best_effort),
@@ -248,26 +277,18 @@ def _frequency_bounds_payload(resolved: Any, visible_names: dict[str, str]) -> d
 
 
 def resolve_sync_frequency(root: serializers.BaseSerializer, view: DataWarehouseSavedQuery) -> str | None:
-    """Cadence string for a view, preferring its DAG node's declared freshness target.
-
-    On tiered v2 teams the node target is the only store of cadence — reconcile deliberately NULLs
-    `sync_frequency_interval` so a stale v1 schedule can't be revived from it — so reading the
-    column alone reports "never" for every scheduled view. The column still covers v1 and
-    single-schedule v2 teams, which have no node target.
-    """
+    """Cadence string for a view, read from its DAG node's declared freshness target."""
     state = rendered_node_states.rendered_node_states(root, view).get(str(view.pk))
-    if state is not None and state.declared_target is not None:
-        return sync_frequency_interval_to_sync_frequency(state.declared_target)
-    return sync_frequency_interval_to_sync_frequency(view.sync_frequency_interval)
+    return sync_frequency_interval_to_sync_frequency(state.declared_target if state is not None else None)
 
 
 class SyncFrequencyField(serializers.ChoiceField):
     """Writable sync-cadence field for saved queries.
 
-    Reads resolve the cadence via `resolve_sync_frequency` (node target first, then the model's
-    `sync_frequency_interval`); writes are validated against the choices and consumed by the
-    serializer's `create()` and `update()`. Declaring it as a real (non read-only) field is what lets the
-    cadence flow into the generated PATCH body and MCP tool schema.
+    Reads resolve the cadence from the node target via `resolve_sync_frequency`; writes are
+    validated against the choices and consumed by the serializer's `create()` and `update()`.
+    Declaring it as a real (non read-only) field is what lets the cadence flow into the
+    generated PATCH body and MCP tool schema.
     """
 
     def __init__(self, **kwargs: Any) -> None:

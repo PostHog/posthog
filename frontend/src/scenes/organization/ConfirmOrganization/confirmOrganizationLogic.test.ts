@@ -19,22 +19,28 @@ describe('confirmOrganizationLogic', () => {
     })
 
     describe('query params', () => {
-        it('prefills the form from the URL', async () => {
-            router.actions.push('/organization/confirm-creation', {
-                email: 'spike@spike.com',
-                first_name: 'Spike',
-                organization_name: 'Spikes Inc',
-            })
+        it.each([
+            ['Spike', 'Spikes Inc'],
+            ['3130', '2600'],
+        ])('prefills the form from the URL with the name %p', async (firstName, organizationName) => {
+            // A raw URL, not a params object: kea-router passes object values through untouched, so
+            // only a real query string parses a name of only digits into a number, which used to crash
+            router.actions.push(
+                `/organization/confirm-creation?email=spike@spike.com&first_name=${encodeURIComponent(firstName)}&organization_name=${encodeURIComponent(organizationName)}`
+            )
 
             await expectLogic(logic)
                 .toDispatchActions(['setEmail', 'setConfirmOrganizationValues'])
                 .toMatchValues({
                     confirmOrganization: expect.objectContaining({
-                        first_name: 'Spike',
-                        organization_name: 'Spikes Inc',
+                        first_name: firstName,
+                        organization_name: organizationName,
                     }),
                     email: 'spike@spike.com',
                 })
+
+            expect(logic.values.confirmOrganizationValidationErrors.first_name).toBeUndefined()
+            expect(logic.values.confirmOrganizationValidationErrors.organization_name).toBeUndefined()
         })
 
         it('keeps user input when a later location change re-fires the handler', async () => {

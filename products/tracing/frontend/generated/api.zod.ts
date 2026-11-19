@@ -174,6 +174,8 @@ export const tracingSpansAggregateCreateBodyQueryOneLimitMax = 5000
 export const tracingSpansAggregateCreateBodyQueryOneOffsetMin = 0
 
 export const tracingSpansAggregateCreateBodyQueryOneIncludeImpactDefault = false
+export const tracingSpansAggregateCreateBodyQueryOneGroupByEndpointDefault = false
+export const tracingSpansAggregateCreateBodyQueryOneIncludeHealthDefault = false
 
 export const TracingSpansAggregateCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -282,6 +284,18 @@ export const TracingSpansAggregateCreateBody = /* @__PURE__ */ zod.object({
                 .default(tracingSpansAggregateCreateBodyQueryOneIncludeImpactDefault)
                 .describe(
                     'Also return the sessions and people behind each operation. Off by default because it reads the span and resource attribute maps, which the rest of the aggregation never touches.'
+                ),
+            groupByEndpoint: zod
+                .boolean()
+                .default(tracingSpansAggregateCreateBodyQueryOneGroupByEndpointDefault)
+                .describe(
+                    'Group HTTP server spans by `METHOD route` (from `http.route`) in place of the span name, so raw paths like `\/users\/1` and `\/users\/2` fold into one row. Spans without a route keep their span name. Spans that are not HTTP server spans are left out.'
+                ),
+            includeHealth: zod
+                .boolean()
+                .default(tracingSpansAggregateCreateBodyQueryOneIncludeHealthDefault)
+                .describe(
+                    'Also return `health_status` and `health_reason` per row, comparing each row with the same row in the comparison window, or in the previous period when `compareFilter` is off. Uses the same statuses and thresholds as the service health check. Costs a second window query.'
                 ),
         })
         .describe('The span aggregation query to execute.'),
@@ -921,6 +935,7 @@ export const tracingSpansQueryCreateBodyQueryOneOffsetMin = 0
 export const tracingSpansQueryCreateBodyQueryOneRootSpansDefault = true
 export const tracingSpansQueryCreateBodyQueryOneFlatSpansDefault = false
 export const tracingSpansQueryCreateBodyQueryOneExcludeAttributesDefault = false
+export const tracingSpansQueryCreateBodyQueryOneIncludeEventsDefault = false
 
 export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -1041,8 +1056,85 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.'
                 ),
+            includeEvents: zod
+                .boolean()
+                .default(tracingSpansQueryCreateBodyQueryOneIncludeEventsDefault)
+                .describe(
+                    "Include each span's OpenTelemetry events, such as recorded exceptions. The events are large, so keep `limit` small. Ignored when `excludeAttributes` is true. Defaults to false."
+                ),
         })
         .describe('The tracing spans query to execute.'),
+})
+
+export const tracingSpansServiceHealthCreateBodyQueryOneCompareDefault = `previous_period`
+export const tracingSpansServiceHealthCreateBodyQueryOneServiceNamesMax = 100
+
+export const tracingSpansServiceHealthCreateBodyQueryOneSpanScopeDefault = `entry`
+export const tracingSpansServiceHealthCreateBodyQueryOneOrderByDefault = `status`
+export const tracingSpansServiceHealthCreateBodyQueryOneLimitDefault = 25
+export const tracingSpansServiceHealthCreateBodyQueryOneLimitMax = 200
+
+export const TracingSpansServiceHealthCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            dateRange: zod
+                .object({
+                    date_from: zod.string().nullish().describe('Relative (-30m, -6h, -7d) or ISO 8601.'),
+                    date_to: zod.string().nullish().describe('Same format. Omit or null for \"now\".'),
+                })
+                .optional()
+                .describe('The window to score. Defaults to the last hour.'),
+            compare: zod
+                .enum(['none', 'previous_period', 'previous_day', 'previous_week'])
+                .describe(
+                    '\* `none` - None\n\* `previous_period` - Previous Period\n\* `previous_day` - Previous Day\n\* `previous_week` - Previous Week'
+                )
+                .default(tracingSpansServiceHealthCreateBodyQueryOneCompareDefault)
+                .describe(
+                    'The baseline. previous_period (default) is the same length just before the window. previous_day and previous_week shift the window back 1 or 7 days. none skips it. baselineDateRange overrides it.\n\n\* `none` - None\n\* `previous_period` - Previous Period\n\* `previous_day` - Previous Day\n\* `previous_week` - Previous Week'
+                ),
+            environment: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Only this environment, matched without case on deployment.environment.name, then deployment.environment, then env.'
+                ),
+            serviceNames: zod
+                .array(zod.string())
+                .max(tracingSpansServiceHealthCreateBodyQueryOneServiceNamesMax)
+                .optional()
+                .describe('Only these services.'),
+            spanScope: zod
+                .enum(['entry', 'all'])
+                .describe('\* `entry` - Entry\n\* `all` - All')
+                .default(tracingSpansServiceHealthCreateBodyQueryOneSpanScopeDefault)
+                .describe(
+                    'entry (default) counts root, server and consumer spans, one per request. all counts every span.\n\n\* `entry` - Entry\n\* `all` - All'
+                ),
+            orderBy: zod
+                .enum(['status', 'error_rate', 'p95', 'throughput', 'error_count'])
+                .describe(
+                    '\* `status` - Status\n\* `error_rate` - Error Rate\n\* `p95` - P95\n\* `throughput` - Throughput\n\* `error_count` - Error Count'
+                )
+                .default(tracingSpansServiceHealthCreateBodyQueryOneOrderByDefault)
+                .describe(
+                    'status (default) puts silent, regressed and degraded first. The others sort high to low.\n\n\* `status` - Status\n\* `error_rate` - Error Rate\n\* `p95` - P95\n\* `throughput` - Throughput\n\* `error_count` - Error Count'
+                ),
+            limit: zod
+                .number()
+                .min(1)
+                .max(tracingSpansServiceHealthCreateBodyQueryOneLimitMax)
+                .default(tracingSpansServiceHealthCreateBodyQueryOneLimitDefault)
+                .describe('Max service rows, 1-200.'),
+        })
+        .describe('The service health query. Every field is optional.'),
+    baselineDateRange: zod
+        .object({
+            date_from: zod.string().nullish().describe('Relative (-30m, -6h, -7d) or ISO 8601.'),
+            date_to: zod.string().nullish().describe('Same format. Omit or null for \"now\".'),
+        })
+        .optional()
+        .describe('An explicit baseline window. Overrides query.compare.'),
 })
 
 export const tracingSpansSparklineCreateBodyQueryOneFilterGroupDefault = []
@@ -1181,6 +1273,10 @@ export const TracingSpansSymbolStatsCreateBody = /* @__PURE__ */ zod.object({
 export const tracingSpansTraceCreateBodyExcludeAttributesDefault = false
 export const tracingSpansTraceCreateBodyOffsetMin = 0
 
+export const tracingSpansTraceCreateBodySummaryDefault = false
+export const tracingSpansTraceCreateBodySummaryLimitDefault = 10
+export const tracingSpansTraceCreateBodySummaryLimitMax = 50
+
 export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
     dateRange: zod
         .object({
@@ -1201,7 +1297,7 @@ export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(tracingSpansTraceCreateBodyExcludeAttributesDefault)
         .describe(
-            'Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.'
+            'Omit the per-span attributes, resource attributes and events from results to keep payloads compact. Defaults to false.'
         ),
     offset: zod
         .number()
@@ -1210,6 +1306,18 @@ export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0."
         ),
+    summary: zod
+        .boolean()
+        .default(tracingSpansTraceCreateBodySummaryDefault)
+        .describe(
+            'Return a compact digest of the trace in `summary` instead of every span (`results` comes back empty): duration, root span, span\/service\/error counts, the top spans by self time, the critical path from the root, span names that repeat (N+1 queries), and error spans with their message. Covers the first 2000 spans; `summary.truncated` is true when the trace has more. Ignores `offset` and `excludeAttributes`.'
+        ),
+    summaryLimit: zod
+        .number()
+        .min(1)
+        .max(tracingSpansTraceCreateBodySummaryLimitMax)
+        .default(tracingSpansTraceCreateBodySummaryLimitDefault)
+        .describe('With `summary`, how many entries each summary list keeps (1-50). Defaults to 10.'),
 })
 
 export const tracingSpansTreeCreateBodyQueryOneCompareFilterOneCompareDefault = false

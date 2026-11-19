@@ -8,6 +8,7 @@ use crate::{
     metric_consts::{
         BYTE_HISTOGRAM_BUCKETS, ISSUE_CREATED_EVENT_PROPERTIES_BYTES, S3_FETCHED_BYTES,
         S3_PUT_BYTES, SOURCEMAP_EXTERNAL_BYTES, SYMBOL_SET_DECOMPRESSED_BYTES,
+        SYMBOL_SET_PARSE_INPUT_BYTES,
     },
     modes::processing::config::ProcessingConfig,
     router::get_router,
@@ -31,6 +32,10 @@ pub async fn start_server(config: ProcessingConfig, context: Arc<AppContext>) ->
         ),
         (
             Matcher::Full(SYMBOL_SET_DECOMPRESSED_BYTES.into()),
+            BYTE_HISTOGRAM_BUCKETS,
+        ),
+        (
+            Matcher::Full(SYMBOL_SET_PARSE_INPUT_BYTES.into()),
             BYTE_HISTOGRAM_BUCKETS,
         ),
     ];

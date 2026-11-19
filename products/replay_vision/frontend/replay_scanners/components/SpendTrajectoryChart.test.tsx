@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 
-import { type HogChart, ensureJsdom, getHogChart } from '@posthog/quill-charts/testing'
+import { type ChartAccessor, ensureJsdom, getChart } from '@posthog/quill-charts/testing'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -19,7 +19,7 @@ function series(total: number, days: number, periodStart: string): SpendSeries {
     }))
 }
 
-function renderChart(overrides: Partial<Props> = {}): HogChart {
+function renderChart(overrides: Partial<Props> = {}): ChartAccessor {
     const quota = makeQuota({ credit_limit: 10_000, credits_used: 4_000, free_monthly_credits: 2_500 })
     const { container } = render(
         <SpendTrajectoryChart
@@ -31,7 +31,7 @@ function renderChart(overrides: Partial<Props> = {}): HogChart {
             {...overrides}
         />
     )
-    return getHogChart(container)
+    return getChart(container)
 }
 
 describe('SpendTrajectoryChart', () => {

@@ -18,7 +18,7 @@ import json
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any
 
 import temporalio
 from temporalio.common import RetryPolicy
@@ -34,7 +34,11 @@ from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
 from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime
-from posthog.temporal.ai_observability.evaluation_llm_judge import LLM_JUDGE_RETRY_POLICY
+from posthog.temporal.ai_observability.evaluation_llm_judge import (
+    LLM_JUDGE_RETRY_POLICY,
+    backfill_retry_policy,
+    backfill_timeout,
+)
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitInternalTelemetryInputs,
     RunEvaluationInputs,
@@ -44,6 +48,7 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
 from posthog.temporal.ai_observability.metrics import increment_errors, increment_settle_poll
 from posthog.temporal.ai_observability.run_evaluation import (
     WorkflowResult,
+    compact_backfill_result,
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
 )
@@ -61,33 +66,19 @@ from posthog.temporal.ai_observability.run_trace_evaluation import (
     execute_trace_hog_eval_activity,
     execute_trace_llm_judge_activity,
 )
+from posthog.temporal.ai_observability.team_capture import (
+    EMIT_EVENT_RETRY_POLICY,
+    EMIT_EVENT_SCHEDULE_TO_CLOSE_TIMEOUT,
+    EMIT_EVENT_START_TO_CLOSE_TIMEOUT,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
-from products.ai_observability.backend.models.evaluation_configs import (
-    DEFAULT_SETTLE_STRATEGY_BY_TARGET,
-    MAX_SESSION_EVAL_EVENTS,
-    SESSION_EVAL_DEFAULT_MAX_AGE_SECONDS,
-    SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
-    SESSION_EVAL_DEFAULT_WINDOW_SECONDS,
-    SESSION_EVAL_MAX_MAX_AGE_SECONDS,
-    SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
-    SESSION_EVAL_MAX_WINDOW_SECONDS,
-    SESSION_EVAL_MIN_MAX_AGE_SECONDS,
-    SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
-    SESSION_EVAL_MIN_WINDOW_SECONDS,
-    TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS,
-    TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
-    TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
-    TRACE_EVAL_MAX_MAX_AGE_SECONDS,
-    TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS,
-    TRACE_EVAL_MAX_WINDOW_SECONDS,
-    TRACE_EVAL_MIN_MAX_AGE_SECONDS,
-    TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS,
-    TRACE_EVAL_MIN_WINDOW_SECONDS,
+from products.ai_observability.backend.facade.evaluation_runtime import (
+    INGESTION_LAG_MARGIN_SECONDS,
+    resolve_settle_plan,
 )
-
-INGESTION_LAG_MARGIN_SECONDS = 15
+from products.ai_observability.backend.models.evaluation_configs import MAX_SESSION_EVAL_EVENTS
 
 # Structural trace activity only: $ai_evaluation / $ai_feedback / $ai_metric are post-hoc
 # annotations — another eval's verdict or late user feedback must not defer settling.
@@ -138,6 +129,7 @@ def check_trace_settled_activity(inputs: CheckTraceSettledInputs) -> str:
         },
         team=team,
         query_type="TraceSettlePoll",
+        posthog_tables_only=True,
         fall_back_to_events=False,
         workload=Workload.OFFLINE,
     )
@@ -218,6 +210,7 @@ def check_session_settled_activity(inputs: CheckSessionSettledInputs) -> str:
             },
             team=team,
             query_type="SessionSettlePoll",
+            posthog_tables_only=True,
             fall_back_to_events=False,
             workload=Workload.OFFLINE,
         )
@@ -321,6 +314,7 @@ def find_evaluation_quiet_point_activity(inputs: FindQuietPointInputs) -> str:
             },
             team=team,
             query_type="EvaluationBackfillQuietPoint",
+            posthog_tables_only=True,
             fall_back_to_events=False,
             workload=Workload.OFFLINE,
         )
@@ -332,44 +326,6 @@ def find_evaluation_quiet_point_activity(inputs: FindQuietPointInputs) -> str:
         quiet,
         cap,
     ).isoformat()
-
-
-def _clamp(value: Any, floor: int, ceiling: int, default: int) -> int:
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
-        return default
-    return int(min(max(value, floor), ceiling))
-
-
-# (floor, ceiling, default) per field, per target. The workflow re-clamps what the serializer
-# already validated, so a payload written before a bound moved can never wedge the settle phase.
-_SETTLE_BOUNDS: dict[str, dict[str, tuple[int, int, int]]] = {
-    "trace": {
-        "window": (TRACE_EVAL_MIN_WINDOW_SECONDS, TRACE_EVAL_MAX_WINDOW_SECONDS, TRACE_EVAL_DEFAULT_WINDOW_SECONDS),
-        "quiet": (
-            TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS,
-            TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS,
-            TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
-        ),
-        "max_age": (TRACE_EVAL_MIN_MAX_AGE_SECONDS, TRACE_EVAL_MAX_MAX_AGE_SECONDS, TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS),
-    },
-    "session": {
-        "window": (
-            SESSION_EVAL_MIN_WINDOW_SECONDS,
-            SESSION_EVAL_MAX_WINDOW_SECONDS,
-            SESSION_EVAL_DEFAULT_WINDOW_SECONDS,
-        ),
-        "quiet": (
-            SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
-            SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
-            SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
-        ),
-        "max_age": (
-            SESSION_EVAL_MIN_MAX_AGE_SECONDS,
-            SESSION_EVAL_MAX_MAX_AGE_SECONDS,
-            SESSION_EVAL_DEFAULT_MAX_AGE_SECONDS,
-        ),
-    },
-}
 
 
 # Ceiling on poll activities per settling run. Sessions accept quiet=10s alongside max_age=7d, and
@@ -387,32 +343,6 @@ def resolve_poll_interval(primary_seconds: int, poll_budget_seconds: int) -> int
     """
     budget_floor = -(-poll_budget_seconds // MAX_SETTLE_POLLS_PER_RUN)
     return max(primary_seconds // 4, budget_floor, 10)
-
-
-@frozen
-class SettlePlan:
-    strategy: Literal["inactivity", "fixed_window"]
-    # The quiet period under inactivity, the window under fixed_window.
-    primary_seconds: int
-    max_age_seconds: int
-
-
-def resolve_settle_plan(settle: dict[str, Any] | None, target: str = "trace") -> SettlePlan:
-    """Resolve the settle config into a SettlePlan.
-
-    Deterministic and exception-free on purpose: the serializer already validated the stored
-    config, so anything malformed here is a payload bug — falling back to defaults keeps a bad
-    payload from wedging the workflow. max_age is coerced to cover at least one quiet period.
-    """
-    bounds = _SETTLE_BOUNDS.get(target, _SETTLE_BOUNDS["trace"])
-    config = settle or {}
-    strategy = config.get("strategy") or DEFAULT_SETTLE_STRATEGY_BY_TARGET.get(target, "fixed_window")
-    if strategy == "inactivity":
-        quiet = _clamp(config.get("quiet_period_seconds"), *bounds["quiet"])
-        max_age = _clamp(config.get("max_age_seconds"), *bounds["max_age"])
-        return SettlePlan(strategy="inactivity", primary_seconds=quiet, max_age_seconds=max(max_age, quiet))
-    window = _clamp(config.get("window_seconds"), *bounds["window"])
-    return SettlePlan(strategy="fixed_window", primary_seconds=window, max_age_seconds=window)
 
 
 @frozen
@@ -475,10 +405,16 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunAggregateEvaluationInputs) -> WorkflowResult:
+        return compact_backfill_result(await self._run(inputs), inputs.backfill_id)
+
+    async def _run(self, inputs: RunAggregateEvaluationInputs) -> WorkflowResult:
         # A historical unit is settled by definition, so a backfill skips the settle wait and
         # aggregates from the anchor, its first matching generation. Live starts carry no anchor,
         # so old histories never take this branch and it needs no patch marker.
         is_backfill = inputs.anchor_timestamp is not None
+        recover_backfill = inputs.backfill_id is not None and temporalio.workflow.patched(
+            "evaluation-backfill-extended-retries"
+        )
         window_start = (
             as_utc_datetime(inputs.anchor_timestamp)
             if inputs.anchor_timestamp is not None
@@ -523,7 +459,8 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                         max_age_seconds=plan.max_age_seconds,
                     ),
                     start_to_close_timeout=timedelta(seconds=60),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
+                    schedule_to_close_timeout=backfill_timeout(recover_backfill, None),
+                    retry_policy=backfill_retry_policy(recover_backfill, RetryPolicy(maximum_attempts=3)),
                 )
                 window_end = quiet_point
 
@@ -588,8 +525,8 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
         evaluation = await temporalio.workflow.execute_activity(
             fetch_evaluation_activity,
             RunEvaluationInputs(evaluation_id=inputs.evaluation_id, event_data={"team_id": inputs.team_id}),
-            schedule_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            schedule_to_close_timeout=backfill_timeout(recover_backfill, timedelta(seconds=30)),
+            retry_policy=backfill_retry_policy(recover_backfill, RetryPolicy(maximum_attempts=3)),
         )
         evaluation_type = evaluation.get("evaluation_type", "llm_judge")
 
@@ -613,22 +550,23 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                 session_id=inputs.ai_session_id,
                 window_start=window_start.isoformat(),
                 window_end=window_end,
+                backfill_id=inputs.backfill_id if recover_backfill else None,
             )
             if evaluation_type == "hog":
                 result = await temporalio.workflow.execute_activity(
                     execute_session_hog_eval_activity,
                     session_inputs,
                     # Longer than the trace equivalent: the fetch spans every trace of the session.
-                    schedule_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=2),
+                    schedule_to_close_timeout=backfill_timeout(recover_backfill, timedelta(minutes=5)),
+                    retry_policy=backfill_retry_policy(recover_backfill, RetryPolicy(maximum_attempts=2)),
                 )
             else:
                 try:
                     result = await temporalio.workflow.execute_activity(
                         execute_session_llm_judge_activity,
                         session_inputs,
-                        schedule_to_close_timeout=timedelta(minutes=15),
-                        retry_policy=LLM_JUDGE_RETRY_POLICY,
+                        schedule_to_close_timeout=backfill_timeout(recover_backfill, timedelta(minutes=15)),
+                        retry_policy=backfill_retry_policy(recover_backfill, LLM_JUDGE_RETRY_POLICY),
                     )
                 except temporalio.exceptions.ActivityError as e:
                     handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)
@@ -642,6 +580,7 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                 trace_id=inputs.trace_id,
                 window_start=window_start.isoformat(),
                 window_end=window_end,
+                backfill_id=inputs.backfill_id if recover_backfill else None,
             )
 
             if evaluation_type == "hog":
@@ -650,8 +589,8 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                 result = await temporalio.workflow.execute_activity(
                     execute_trace_hog_eval_activity,
                     execute_inputs,
-                    schedule_to_close_timeout=timedelta(minutes=2),
-                    retry_policy=RetryPolicy(maximum_attempts=2),
+                    schedule_to_close_timeout=backfill_timeout(recover_backfill, timedelta(minutes=2)),
+                    retry_policy=backfill_retry_policy(recover_backfill, RetryPolicy(maximum_attempts=2)),
                 )
             else:
                 try:
@@ -659,8 +598,8 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                         execute_trace_llm_judge_activity,
                         execute_inputs,
                         # > single-event judge timeout: the activity also fetches the trace from ClickHouse
-                        schedule_to_close_timeout=timedelta(minutes=8),
-                        retry_policy=LLM_JUDGE_RETRY_POLICY,
+                        schedule_to_close_timeout=backfill_timeout(recover_backfill, timedelta(minutes=8)),
+                        retry_policy=backfill_retry_policy(recover_backfill, LLM_JUDGE_RETRY_POLICY),
                     )
                 except temporalio.exceptions.ActivityError as e:
                     handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)
@@ -691,8 +630,9 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                     backfill_id=inputs.backfill_id,
                     event_timestamp=inputs.anchor_timestamp,
                 ),
-                schedule_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=EMIT_EVENT_START_TO_CLOSE_TIMEOUT,
+                schedule_to_close_timeout=EMIT_EVENT_SCHEDULE_TO_CLOSE_TIMEOUT,
+                retry_policy=EMIT_EVENT_RETRY_POLICY,
             )
         except Exception:
             increment_errors("emit_evaluation_event_failed", provider=result.get("provider"))

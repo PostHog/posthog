@@ -1,6 +1,17 @@
 """DRF serializers for security."""
 
+from django.db import models
+
 from rest_framework import serializers
+
+
+class CountableTargetType(models.TextChoices):
+    """The target types the hub can count accounts for. Keep in step with `CountableType`."""
+
+    EMAIL = "email"
+    EMAIL_ROOT = "email_root"
+    EMAIL_DOMAIN = "email_domain"
+    EMAIL_PATTERN = "email_pattern"
 
 
 class ResolveRequestSerializer(serializers.Serializer):
@@ -14,7 +25,7 @@ class ResolveRequestSerializer(serializers.Serializer):
 
 class CountAccountsRequestSerializer(serializers.Serializer):
     target_type = serializers.ChoiceField(
-        choices=["email", "email_root", "email_domain"], help_text="How target_value matches accounts."
+        choices=CountableTargetType.choices, help_text="How target_value matches accounts."
     )
     target_value = serializers.CharField(max_length=320, help_text="The value the hub normalized for this target type.")
 

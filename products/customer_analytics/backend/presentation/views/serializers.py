@@ -1271,6 +1271,11 @@ class AccountNotebookSerializer(DataclassSerializer):
     )
     created_at = serializers.DateTimeField(read_only=True)
     last_modified_at = serializers.DateTimeField(read_only=True)
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        help_text="Tag names on the notebook. On update this replaces the existing set; omit to leave tags untouched.",
+    )
 
     class Meta:
         dataclass = AccountNotebookView
@@ -1285,7 +1290,19 @@ class AccountNotebookSerializer(DataclassSerializer):
             "created_by",
             "last_modified_at",
             "last_modified_by",
+            "tags",
         ]
+
+
+class AccountNotebookUpdateSerializer(serializers.Serializer):
+    """Partial update of an account notebook: tags only. The title and content are edited in the notebook itself,
+    since a note's title comes from its first line."""
+
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        help_text="Replaces the notebook's tags. Omit to leave them untouched.",
+    )
 
 
 class AccountNoteSerializer(DataclassSerializer):
@@ -1298,11 +1315,21 @@ class AccountNoteSerializer(DataclassSerializer):
     account_id = serializers.UUIDField(read_only=True, help_text="UUID of the account this note is linked to.")
     account_name = serializers.CharField(read_only=True, help_text="Name of the account this note is linked to.")
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the note, if known.")
+    tags = serializers.ListField(child=serializers.CharField(), read_only=True, help_text="Tag names on the note.")
 
     class Meta:
         dataclass = AccountNoteView
         ref_name = "AccountNote"
-        fields = ["short_id", "title", "created_at", "last_modified_at", "account_id", "account_name", "created_by"]
+        fields = [
+            "short_id",
+            "title",
+            "created_at",
+            "last_modified_at",
+            "account_id",
+            "account_name",
+            "created_by",
+            "tags",
+        ]
 
 
 class ChannelSummaryMessageSerializer(serializers.Serializer):
@@ -1778,12 +1805,15 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
     workflow_id = serializers.CharField(
         read_only=True,
         allow_null=True,
-        help_text="Temporal workflow identifier associated with the current account sync phase.",
+        help_text="Staff-only Temporal workflow identifier of the run. Null for non-staff users.",
     )
     workflow_run_id = serializers.UUIDField(
         read_only=True,
         allow_null=True,
-        help_text="Temporal run identifier associated with the current account sync phase.",
+        help_text=(
+            "Identifier of the worker job that executed the run. Person and group runs use it to find "
+            "the run's progress log lines. Null for runs recorded before it was stored."
+        ),
     )
     temporal_url = serializers.URLField(
         read_only=True,
@@ -2221,6 +2251,36 @@ class CustomPropertyValueSerializer(serializers.Serializer):
     )
 
 
+class CustomPropertyValueHistoryQuerySerializer(serializers.Serializer):
+    definition = serializers.UUIDField(help_text="ID of the custom property definition to read the history of.")
+    since = serializers.DateField(
+        required=False,
+        help_text="Only return values held on or after this date (YYYY-MM-DD, UTC). The first entry is the value "
+        "in place on that date. Omit for the full history.",
+    )
+
+
+class CustomPropertyValueHistoryEntrySerializer(serializers.Serializer):
+    """One value an account held for a custom property (read shape)."""
+
+    value = CustomPropertyValueField(read_only=True, help_text="The value, typed per the property's data type.")
+    set_at = serializers.DateTimeField(read_only=True, help_text="When the account got this value.")
+    set_by_id = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the user who set this value. Null when a sync or the system set it.",
+    )
+    replaced_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "When the next value replaced this one. Null for the current value, and for a value that was "
+            "cleared with no value after it."
+        ),
+    )
+    is_current = serializers.BooleanField(read_only=True, help_text="Whether this is the account's value now.")
+
+
 class CustomPropertyValueSuggestionSerializer(serializers.Serializer):
     """One suggested filter value for a custom property."""
 
@@ -2245,10 +2305,14 @@ class CustomPropertyValueSuggestionsResponseSerializer(serializers.Serializer):
 class PinnedAccountPropertySerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=AccountPropertyPinKind.choices,
-        help_text="Definition type for this pinned account property.",
+        help_text="Type of this pinned account property: a custom property, a relationship, or a built-in account field.",
     )
-    id = serializers.UUIDField(
-        help_text="Team-scoped custom property or relationship definition UUID.",
+    id = serializers.CharField(
+        max_length=64,
+        help_text=(
+            "Team-scoped custom property or relationship definition UUID. "
+            "For an account_field pin, the account field name, such as stripe_customer_id."
+        ),
     )
 
 

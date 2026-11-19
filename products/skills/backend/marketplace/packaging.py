@@ -140,6 +140,13 @@ def utf8_digest(content: str) -> tuple[str, int]:
     return hashlib.sha256(encoded).hexdigest(), len(encoded)
 
 
+# The MCP Skills extension says a server SHOULD NOT serve a skill with more files than this (SKILL.md
+# included) or more bytes than this (the sum of every resource size). The store allows more, so a
+# manifest reports such a skill as unservable rather than the store rejecting it on write.
+MCP_MAX_SKILL_FILES = 512
+MCP_MAX_SKILL_BYTES = 16 * 1024 * 1024
+
+
 @dataclass(frozen=True)
 class SkillStub:
     """The discovery half of a skill: enough for a harness to list and invoke it by name."""
@@ -276,6 +283,8 @@ def parse_skill_md(content: str) -> dict:
         frontmatter = yaml.safe_load(match.group(1))
     except yaml.YAMLError as err:
         raise SkillImportError(f"SKILL.md frontmatter is not valid YAML: {err}")
+    except RecursionError:
+        raise SkillImportError("SKILL.md frontmatter is nested too deeply. Flatten the YAML and try again.")
     if not isinstance(frontmatter, dict):
         raise SkillImportError("SKILL.md frontmatter must be a key/value mapping.")
 

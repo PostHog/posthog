@@ -1,15 +1,27 @@
 """Who a delivery sends to.
 
-Destinations are HogFunction rows, and `products.alerts` owns them. The platform imports no other
+`products.alerts` owns every destination: the HogFunction rows a person configured, and the
+subscriber email and in-app groups it adds for an insight alert. The platform imports no other
 product, so that product registers its lookup here when Django starts, and delivery asks this
-module rather than the owner. This module goes away when destinations move into the platform.
+module rather than the owner. One lookup answers for every source. A source decides which groups
+it can reach through the event ids it maps each kind onto, because the lookup answers per event
+id. This module goes away when destinations move into the platform.
 """
 
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
+from typing import TypeVar
+from uuid import UUID
 
-from products.alerts_platform.backend.facade.contracts import AlertDestinationGroup, DestinationResolver
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationGroup,
+    DestinationResolver,
+    LiveHogFunctionLookup,
+)
+
+_Row = TypeVar("_Row")
 
 _resolver: DestinationResolver | None = None
+_live_lookup: LiveHogFunctionLookup | None = None
 
 
 def register(resolver: DestinationResolver) -> None:
@@ -28,3 +40,29 @@ def list_alert_destination_groups(
     if _resolver is None:
         raise RuntimeError("No destination resolver is registered. products.alerts registers one in its ready().")
     return _resolver(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids)
+
+
+def register_live_hog_function_lookup(lookup: LiveHogFunctionLookup) -> None:
+    global _live_lookup
+    if _live_lookup is not None and _live_lookup is not lookup:
+        raise RuntimeError("A different HogFunction lookup is already registered.")
+    _live_lookup = lookup
+
+
+def live_hog_function_ids(*, team_id: int, hog_function_ids: Collection[UUID]) -> frozenset[UUID]:
+    """The named HogFunctions that still exist. Without a registered lookup every one counts as
+    existing, so a row that copies one is skipped rather than sent twice."""
+    if not hog_function_ids:
+        return frozenset()
+    if _live_lookup is None:
+        return frozenset(hog_function_ids)
+    return _live_lookup(team_id=team_id, hog_function_ids=hog_function_ids)
+
+
+def copies_of_live_hog_functions(*, team_id: int, copied_by_row: Mapping[_Row, Collection[UUID]]) -> frozenset[_Row]:
+    """The rows that copy a HogFunction that still exists, disabled ones included. Delivery skips these
+    rows, so the HogFunction alone sends, and every reader of who holds an alert's firing uses this rule."""
+    live = live_hog_function_ids(
+        team_id=team_id, hog_function_ids={copied for ids in copied_by_row.values() for copied in ids}
+    )
+    return frozenset(row for row, ids in copied_by_row.items() if not live.isdisjoint(ids))

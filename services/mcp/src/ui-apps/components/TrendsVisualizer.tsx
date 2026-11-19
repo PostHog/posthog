@@ -12,6 +12,7 @@ import {
     SlopeChart,
     TimeSeriesBarChart,
     TimeSeriesLineChart,
+    type TimeInterval,
     type TooltipContext,
 } from '@posthog/quill-charts'
 
@@ -29,7 +30,7 @@ import {
 import { captureInsightDisplayChanged } from '../analytics/posthog'
 import { ChartHeader } from './ChartHeader'
 import { BigNumber, Select } from './charts'
-import { colorAt, useMcpChartTheme } from './charts/theme'
+import { colorAt, fadedColorAt, useMcpChartTheme } from './charts/theme'
 import { ChartSettings } from './ChartSettings'
 import {
     type ChartType,
@@ -57,10 +58,12 @@ const SLOPE_TYPE_OPTION = { value: 'slope' as const, label: 'Slope' }
 
 const TOOLTIP_CONFIG = { pinnable: true, placement: 'cursor' as const }
 
+const LEGEND_CONFIG = { show: true, position: 'bottom' } as const
+
 // DefaultTooltip shows the raw x label; format it like the axis.
-const renderDateTooltip = (ctx: TooltipContext): ReactElement => (
-    <DefaultTooltip {...ctx} label={formatTooltipDate(ctx.label)} />
-)
+const dateTooltip =
+    (interval: string | undefined) =>
+    (ctx: TooltipContext): ReactElement => <DefaultTooltip {...ctx} label={formatTooltipDate(ctx.label, interval)} />
 
 function calculateTotal(results: TrendsResultItem[]): number {
     return results.reduce((sum, item) => {
@@ -77,7 +80,17 @@ function calculateTotal(results: TrendsResultItem[]): number {
     }, 0)
 }
 
-export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): ReactElement {
+export function TrendsVisualizer({
+    query,
+    results,
+    title = TITLE,
+    overlay,
+    showControls = true,
+    chartClassName = 'h-[400px]',
+    showTitle = true,
+    showLegend = false,
+    highlightedSeries,
+}: TrendsVisualizerProps): ReactElement {
     const displayType = getDisplayType(query)
     const [chartType, setChartType] = useState<ChartType>(defaultChartType(displayType))
     const [chartConfig, setChartConfig] = useState(() => chartConfigFromTrendsFilter(query?.trendsFilter))
@@ -86,7 +99,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     if (!results || results.length === 0) {
         return (
             <div>
-                <ChartHeader title={TITLE} />
+                {showTitle && <ChartHeader title={title} />}
                 <Empty>
                     <EmptyHeader>
                         <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
@@ -102,7 +115,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         const label = results[0] ? getSeriesLabel(results[0], 0) : 'Total'
         return (
             <div>
-                <ChartHeader title={TITLE} />
+                {showTitle && <ChartHeader title={title} />}
                 <BigNumber value={total} label={label} />
             </div>
         )
@@ -111,7 +124,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     if (displayType === 'ActionsProportionBar') {
         return (
             <div>
-                <ChartHeader title={TITLE} />
+                {showTitle && <ChartHeader title={title} />}
                 <div className="flex flex-col w-full justify-center p-4">
                     <ProportionBar
                         series={buildProportionBarSeries(results, colorAt)}
@@ -133,8 +146,8 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         const barConfig = buildTrendsBarValueConfig()
         return (
             <div>
-                <ChartHeader title={TITLE} />
-                <div className="flex flex-col w-full h-[400px]">
+                {showTitle && <ChartHeader title={title} />}
+                <div className={`flex flex-col w-full ${chartClassName}`}>
                     <BarValueChart
                         series={barSeries}
                         labels={items.map((item) => item.label)}
@@ -156,8 +169,8 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         const pieView = pieViewFromTrendsFilter(query?.trendsFilter, displayType === 'ActionsDonut')
         return (
             <div>
-                <ChartHeader title={TITLE} />
-                <div className="flex flex-col w-full h-[400px]">
+                {showTitle && <ChartHeader title={title} />}
+                <div className={`flex flex-col w-full ${chartClassName}`}>
                     <PieChart
                         series={slices}
                         theme={theme}
@@ -170,6 +183,12 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     }
 
     const labels = results[0]?.days ?? results[0]?.labels ?? []
+    // Trends returns each day as wall-clock time with no offset, so reading it as UTC keeps it as written.
+    const xAxisDates = {
+        interval: (query?.interval ?? 'day') as TimeInterval,
+        timezone: 'UTC',
+        allDays: labels.map(String),
+    }
     const trendResults = results.map((item, i) => ({
         id: i,
         label: getSeriesLabel(item, i),
@@ -185,6 +204,8 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     }
     const chartTypeOptions = slopeAvailable ? [...CHART_TYPE_OPTIONS, SLOPE_TYPE_OPTION] : CHART_TYPE_OPTIONS
 
+    const seriesColor = (index: number): string =>
+        highlightedSeries?.length && !highlightedSeries.includes(index) ? fadedColorAt(index) : colorAt(index)
     // Area auto-stacks, so derived overlays would draw against the stacked totals — disable them.
     const derivedSeriesDisabled = effectiveType === 'area'
     const isPercentStackView = chartConfig.percentStack && supportsPercentStack(effectiveType)
@@ -214,13 +235,13 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         }
         if (isBarFamily(effectiveType)) {
             const { series, config } = buildTrendsBarChartModel(trendResults, {
-                getColor: (_, index) => colorAt(index),
+                getColor: (_, index) => seriesColor(index),
                 labels,
                 trendsFilter: effectiveTrendsFilter,
                 isPercentStackView,
                 isGrouped: effectiveType === 'bar',
                 valueLabels,
-                xAxisTickFormatter: (value) => formatDate(value),
+                ...xAxisDates,
                 tooltip: TOOLTIP_CONFIG,
             })
             return (
@@ -228,14 +249,16 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                     series={series}
                     labels={labels}
                     theme={theme}
-                    config={config}
-                    tooltip={renderDateTooltip}
-                />
+                    config={showLegend ? { ...config, legend: LEGEND_CONFIG } : config}
+                    tooltip={dateTooltip(xAxisDates.interval)}
+                >
+                    {overlay}
+                </TimeSeriesBarChart>
             )
         }
         const series = buildTrendsSeries(trendResults, {
             isArea: effectiveType === 'area',
-            getColor: (_, index) => colorAt(index),
+            getColor: (_, index) => seriesColor(index),
         })
         const config = buildTrendsLineTimeSeriesConfig({
             results: trendResults,
@@ -247,7 +270,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
             ciRanges,
             valueLabels,
             showCrosshair: true,
-            xAxisTickFormatter: (value) => formatDate(value),
+            ...xAxisDates,
             tooltip: TOOLTIP_CONFIG,
         })
         return (
@@ -255,28 +278,36 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                 series={series}
                 labels={labels}
                 theme={theme}
-                config={config}
-                tooltip={renderDateTooltip}
-            />
+                config={showLegend ? { ...config, legend: LEGEND_CONFIG } : config}
+                tooltip={dateTooltip(xAxisDates.interval)}
+            >
+                {overlay}
+            </TimeSeriesLineChart>
         )
     }
 
     return (
         <div>
-            <ChartHeader title={TITLE}>
-                {/* eslint-disable-next-line react/forbid-elements */}
-                <Select value={effectiveType} onChange={handleChartTypeChange} options={chartTypeOptions} />
-                {effectiveType !== 'slope' && (
-                    <ChartSettings
-                        family={isBarFamily(effectiveType) ? 'bar' : 'line'}
-                        config={chartConfig}
-                        onChange={setChartConfig}
-                        derivedSeriesDisabled={derivedSeriesDisabled}
-                        percentStackDisabled={!supportsPercentStack(effectiveType)}
-                    />
-                )}
-            </ChartHeader>
-            <div className="flex flex-col w-full h-[400px]">{renderChart()}</div>
+            {(showTitle || showControls) && (
+                <ChartHeader title={showTitle ? title : ''}>
+                    {showControls && (
+                        <>
+                            {/* eslint-disable-next-line react/forbid-elements */}
+                            <Select value={effectiveType} onChange={handleChartTypeChange} options={chartTypeOptions} />
+                            {effectiveType !== 'slope' && (
+                                <ChartSettings
+                                    family={isBarFamily(effectiveType) ? 'bar' : 'line'}
+                                    config={chartConfig}
+                                    onChange={setChartConfig}
+                                    derivedSeriesDisabled={derivedSeriesDisabled}
+                                    percentStackDisabled={!supportsPercentStack(effectiveType)}
+                                />
+                            )}
+                        </>
+                    )}
+                </ChartHeader>
+            )}
+            <div className={`flex flex-col w-full ${chartClassName}`}>{renderChart()}</div>
         </div>
     )
 }

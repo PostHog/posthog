@@ -12,13 +12,24 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
+import jwt
 import requests
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
+from posthog.credentials_service.test.test_settings_fallback import (
+    FLAG,
+    POST,
+    SERVICE_SETTINGS,
+    _FakeResponse,
+    _keys_asked_for,
+    _steady,
+)
 from posthog.egress.github.transport import (
     GitHubEgressBudgetExhausted,
     GitHubRateLimitError,
@@ -26,12 +37,15 @@ from posthog.egress.github.transport import (
 )
 from posthog.egress.limiter.policies import Priority
 from posthog.github.merge_queue import MergeQueueState
+from posthog.integrations import AuthAccessor
 from posthog.models.github_integration_base import (
     GITHUB_BRANCH_CACHE_TTL_SECONDS,
     GITHUB_BRANCH_REFRESH_LOCK_SECONDS,
     GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
     GitHubIntegrationBase,
+    PullRequestCiStatus,
     PullRequestRef,
+    github_app_jwt_credentials,
 )
 from posthog.models.integration import (
     GitHubInstallationAccessFetchError,
@@ -41,7 +55,12 @@ from posthog.models.integration import (
     invalidate_github_repository_caches_for_installation,
 )
 from posthog.models.integration.github import _MAX_FILE_CONTENTS_BYTES
-from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+from posthog.models.user_integration import (
+    USER_SCOPED_REPOSITORY_CACHE_AT_CONFIG_KEY,
+    ReauthorizationRequired,
+    UserGitHubIntegration,
+    UserIntegration,
+)
 from posthog.redis import get_client as get_redis_client
 
 
@@ -82,7 +101,7 @@ class TestExtractFailingChecks(SimpleTestCase):
 class TestGitHubPullRequestChecks(SimpleTestCase):
     def test_reports_missing_checks_permission(self):
         integration = MagicMock(kind="github", config={"permissions": {"contents": "read"}})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
 
         with patch.object(github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f"}):
             result = github.get_pull_request_checks("example/legacy", 7)
@@ -119,7 +138,9 @@ class TestCollaboratorPermission(SimpleTestCase):
         ]
     )
     def test_permission_counts_only_for_the_expected_account(self, _name, body, expected) -> None:
-        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        github = GitHubIntegration(
+            Integration(kind="github", config={}, sensitive_config={}), source="test", priority=Priority.CRITICAL
+        )
         response = MagicMock(status_code=200)
         response.json.return_value = body
         with patch.object(github, "api_request", return_value=response):
@@ -137,7 +158,9 @@ class TestPullRequestCommentMarker(SimpleTestCase):
         ]
     )
     def test_marker_absence_requires_a_complete_read(self, name, body, complete, expected) -> None:
-        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        github = GitHubIntegration(
+            Integration(kind="github", config={}, sensitive_config={}), source="test", priority=Priority.CRITICAL
+        )
         response = MagicMock(status_code=200)
         response.json.return_value = body
         with patch.object(github, "_installation_authenticated_get_pages", return_value=([response], complete)):
@@ -151,7 +174,9 @@ class TestPullRequestCommentMarker(SimpleTestCase):
         ]
     )
     def test_merge_queue_state_refuses_a_partial_read(self, _name, status_code, body, complete) -> None:
-        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        github = GitHubIntegration(
+            Integration(kind="github", config={}, sensitive_config={}), source="test", priority=Priority.CRITICAL
+        )
         response = MagicMock(status_code=status_code)
         response.json.return_value = body
         with patch.object(github, "_installation_authenticated_get_pages", return_value=([response], complete)):
@@ -168,7 +193,9 @@ class TestPullRequestCommentMarker(SimpleTestCase):
         ]
     )
     def test_stacked_pull_request_read_never_guesses(self, _name, status_code, body, expected) -> None:
-        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        github = GitHubIntegration(
+            Integration(kind="github", config={}, sensitive_config={}), source="test", priority=Priority.CRITICAL
+        )
         response = MagicMock(status_code=status_code)
         response.json.return_value = body
         complete = expected != "partial"
@@ -186,7 +213,9 @@ class TestPullRequestCommentMarker(SimpleTestCase):
         ]
     )
     def test_unsafe_repository_never_reaches_github(self, _name, read) -> None:
-        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        github = GitHubIntegration(
+            Integration(kind="github", config={}, sensitive_config={}), source="test", priority=Priority.CRITICAL
+        )
         with (
             patch.object(github, "_installation_authenticated_get") as single,
             patch.object(github, "_installation_authenticated_get_pages") as pages,
@@ -197,7 +226,9 @@ class TestPullRequestCommentMarker(SimpleTestCase):
         pages.assert_not_called()
 
     def test_merge_queue_state_reads_the_trunk_comment(self) -> None:
-        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        github = GitHubIntegration(
+            Integration(kind="github", config={}, sensitive_config={}), source="test", priority=Priority.CRITICAL
+        )
         response = MagicMock(status_code=200)
         response.json.return_value = [
             {"user": {"login": "someone"}, "body": "LGTM"},
@@ -208,6 +239,43 @@ class TestPullRequestCommentMarker(SimpleTestCase):
         ]
         with patch.object(github, "_installation_authenticated_get_pages", return_value=([response], True)):
             assert github.get_pull_request_merge_queue_state("example/repo", 1) == MergeQueueState.TESTING
+
+
+@override_settings(**SERVICE_SETTINGS)
+class TestGitHubAppJwtCredentials(SimpleTestCase):
+    def setUp(self) -> None:
+        for patcher in (patch(FLAG, return_value=True), patch("posthog.cache_utils.TEST", False)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        github_app_jwt_credentials.clear_cache()
+        self.addCleanup(github_app_jwt_credentials.clear_cache)
+
+    def test_app_requests_sign_with_one_cached_service_read(self) -> None:
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        pem = private_key.private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+        ).decode()
+        response = _FakeResponse(
+            {
+                "secrets": {"GITHUB_APP_CLIENT_ID": _steady("Iv-from-service"), "GITHUB_APP_PRIVATE_KEY": _steady(pem)},
+                "missing": [],
+            }
+        )
+
+        with (
+            patch(POST, return_value=response) as post,
+            patch("posthog.models.github_integration_base.github_request") as github_request,
+        ):
+            for _ in range(3):
+                GitHubIntegrationBase.app_request("app")
+
+        assert post.call_count == 1
+        assert _keys_asked_for(post.call_args.kwargs["headers"]["Authorization"]) == [
+            "GITHUB_APP_CLIENT_ID",
+            "GITHUB_APP_PRIVATE_KEY",
+        ]
+        app_jwt = github_request.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
+        assert jwt.decode(app_jwt, private_key.public_key(), algorithms=["RS256"])["iss"] == "Iv-from-service"
 
 
 class TestGitHubIntegrationModel(BaseTest):
@@ -277,39 +345,60 @@ class TestGitHubIntegrationModel(BaseTest):
 
         return _client_request
 
+    @parameterized.expand(
+        [
+            ("uninstalled", 404, {}, GitHubIntegrationError, True),
+            ("rate_limited", 429, {"retry-after": "30"}, GitHubRateLimitError, False),
+        ]
+    )
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
-    def test_mint_scoped_installation_token_marks_uninstalled_installation(self, mock_client_request):
+    def test_mint_scoped_installation_token_failure(
+        self, _name, status_code, headers, expected_error, marked_unavailable, mock_client_request
+    ):
         integration = self.create_integration(
             {"installation_id": "INSTALL", "expires_in": 3600, "refreshed_at": 1704110400},
             {"access_token": "FULL_TOKEN"},
         )
-        mock_response = MagicMock(status_code=404, text="Not Found")
+        mock_response = MagicMock(status_code=status_code, headers=headers, text="Not Found")
         mock_response.json.return_value = {"message": "Not Found"}
         mock_client_request.return_value = mock_response
 
-        github = GitHubIntegration(integration)
-        with pytest.raises(GitHubIntegrationError):
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+        with pytest.raises(expected_error):
             github.mint_scoped_installation_token({"contents": "read"})
 
         # Without the permanently-gone marker, every scheduled run re-mints a dead installation
         # forever — the marker is what lets callers skip it until the customer reconnects.
         integration.refresh_from_db()
-        assert GitHubIntegration(integration).installation_unavailable() is True
-        assert "expires_in" not in integration.config
+        assert (
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).installation_unavailable()
+            is marked_unavailable
+        )
+        assert ("expires_in" not in integration.config) is marked_unavailable
 
+    @parameterized.expand(
+        [
+            ("permissions", {"contents": "read"}, None, {"permissions": {"contents": "read"}}),
+            ("repositories", None, ["api"], {"repositories": ["api"]}),
+        ]
+    )
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
-    def test_mint_scoped_installation_token_downscopes_without_persisting(self, mock_client_request):
+    def test_mint_scoped_installation_token_downscopes_without_persisting(
+        self, _name, permissions, repositories, expected_body, mock_client_request
+    ):
         integration = self.create_integration({"installation_id": "INSTALL"}, {"access_token": "FULL_TOKEN"})
         mock_response = MagicMock(status_code=201)
         mock_response.json.return_value = {"token": "SCOPED_TOKEN", "expires_at": "2024-01-01T13:00:00Z"}
         mock_client_request.return_value = mock_response
 
-        token = GitHubIntegration(integration).mint_scoped_installation_token({"contents": "read"})
+        token = GitHubIntegration(
+            integration, source="test", priority=Priority.CRITICAL
+        ).mint_scoped_installation_token(permissions, repositories=repositories)
 
         assert token == "SCOPED_TOKEN"
         # Without the permissions body the mint returns a FULL-permission token — a silent
         # privilege escalation for every read-only sandbox.
-        assert mock_client_request.call_args.kwargs["json_body"] == {"permissions": {"contents": "read"}}
+        assert mock_client_request.call_args.kwargs["json_body"] == expected_body
         # The scoped token must never clobber the shared full-permission credential other flows read.
         integration.refresh_from_db()
         assert integration.sensitive_config == {"token": "REFRESH", "access_token": "FULL_TOKEN"}
@@ -329,7 +418,7 @@ class TestGitHubIntegrationModel(BaseTest):
     )
     def test_author_last_commit_reports_what_github_answered(self, _name, status_code, body, expected):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=status_code)
         mock_response.json.return_value = body
 
@@ -351,7 +440,7 @@ class TestGitHubIntegrationModel(BaseTest):
         # A caller drops a reviewer on a dated answer, so a failed lookup must not read as
         # "this account never committed".
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=status_code)
         mock_response.json.return_value = body
 
@@ -360,7 +449,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_get_diff_compares_branch_tips(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=200, text="diff --git a b")
         with patch.object(github, "api_request", return_value=mock_response) as mock_get:
             result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
@@ -374,7 +463,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_get_diff_pins_to_shas_when_given(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=200, text="diff --git a b")
         with patch.object(github, "api_request", return_value=mock_response) as mock_get:
             result = github.get_diff(
@@ -389,7 +478,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_get_diff_maps_upstream_error(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=404, text="Not Found")
         with patch.object(github, "api_request", return_value=mock_response):
             result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
@@ -397,7 +486,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_get_diff_handles_request_exception(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         with patch.object(github, "api_request", side_effect=GitHubIntegrationError("network error")):
             result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
         assert result["success"] is False
@@ -405,7 +494,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_get_pull_request_diff_uses_the_durable_pr_endpoint(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=200, text="diff --git a b")
         with patch.object(github, "api_request", return_value=mock_response) as mock_get:
             result = github.get_pull_request_diff("PostHog/posthog", 42)
@@ -422,7 +511,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration = self.create_integration(
             config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
         )
-        return GitHubIntegration(integration)
+        return GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
 
     @staticmethod
     def _git_data_api_request(*, ref_status: int = 201):
@@ -546,7 +635,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_get_open_pull_request_for_head_returns_number_and_url(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=200)
         mock_response.json.return_value = [
             {
@@ -564,7 +653,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_get_open_pr_base_for_head_returns_base_ref_of_open_pr(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=200)
         mock_response.json.return_value = [
             {
@@ -586,7 +675,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_get_open_pr_base_for_head_returns_none_when_no_open_pr(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=200)
         mock_response.json.return_value = []
         with patch.object(github, "_installation_authenticated_get", return_value=mock_response):
@@ -594,13 +683,13 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_get_open_pr_base_for_head_returns_none_on_error(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         with patch.object(github, "_installation_authenticated_get", return_value=None):
             assert github.get_open_pr_base_for_head("PostHog/posthog", "posthog-code/fix") is None
 
     def test_get_pull_request_comments_merges_conversation_and_review_sorted(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
 
         def fake_get(url, **kwargs):
             response = MagicMock(status_code=200)
@@ -640,7 +729,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_get_pull_request_comments_best_effort_when_one_source_fails(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
 
         def fake_get(url, **kwargs):
             if "/issues/" in url:
@@ -671,7 +760,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_get_pull_request_checks_merges_check_runs_and_statuses(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
 
         def fake_get(url, **kwargs):
             response = MagicMock(status_code=200)
@@ -693,7 +782,9 @@ class TestGitHubIntegrationModel(BaseTest):
             return response
 
         with (
-            patch.object(github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f"}),
+            patch.object(
+                github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f", "mergeable": False}
+            ),
             patch.object(github, "_installation_authenticated_get", side_effect=fake_get),
         ):
             result = github.get_pull_request_checks("PostHog/posthog", 1)
@@ -703,10 +794,11 @@ class TestGitHubIntegrationModel(BaseTest):
             {"name": "unit", "status": "completed", "conclusion": "failure", "url": "https://github.com/checks/1"},
             {"name": "buildkite", "status": "completed", "conclusion": "success", "url": "https://bk/1"},
         ]
+        assert result["has_conflict"] is True
 
     def test_get_pull_request_checks_follows_pagination(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
 
         def fake_get(url, **kwargs):
             response = MagicMock(status_code=200)
@@ -749,7 +841,7 @@ class TestGitHubIntegrationModel(BaseTest):
     @parameterized.expand([("check_runs",), ("statuses",)])
     def test_get_pull_request_checks_fails_when_later_page_is_unavailable(self, failing_source):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
 
         def fake_get(url, **kwargs):
             source = "check_runs" if "/check-runs" in url else "statuses"
@@ -777,7 +869,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_get_pull_request_checks_fails_when_pr_unavailable(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         with patch.object(github, "get_pull_request", return_value={"success": False, "error": "nope"}):
             result = github.get_pull_request_checks("PostHog/posthog", 1)
         assert result["success"] is False
@@ -786,7 +878,7 @@ class TestGitHubIntegrationModel(BaseTest):
         from posthog.models.integration.github import _MAX_DIFF_CHARS
 
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         oversized = "x" * (_MAX_DIFF_CHARS + 100)
         mock_response = MagicMock(status_code=200, text=oversized)
         with patch.object(github, "api_request", return_value=mock_response):
@@ -799,7 +891,11 @@ class TestGitHubIntegrationModel(BaseTest):
 
     @parameterized.expand([("inline", False), ("over_contents_api_limit", True)])
     def test_get_file_contents_returns_whole_file(self, _name: str, over_contents_api_limit: bool) -> None:
-        github = GitHubIntegration(self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"}))
+        github = GitHubIntegration(
+            self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"}),
+            source="test",
+            priority=Priority.CRITICAL,
+        )
         text = b"version: 1\nsnapshots: {}\n"
         contents = {
             "sha": "abc123",
@@ -832,7 +928,11 @@ class TestGitHubIntegrationModel(BaseTest):
         ]
     )
     def test_get_file_contents_rejects_file_it_cannot_return_whole(self, _name: str, contents: dict[str, Any]) -> None:
-        github = GitHubIntegration(self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"}))
+        github = GitHubIntegration(
+            self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"}),
+            source="test",
+            priority=Priority.CRITICAL,
+        )
 
         def blob_chunks(chunk_size: int) -> Iterator[bytes]:
             yield b"version: 1\n"
@@ -861,7 +961,7 @@ class TestGitHubIntegrationModel(BaseTest):
     )
     def test_get_diff_rejects_unsafe_values(self, _name, overrides):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         kwargs: dict = {"repository": "PostHog/posthog", "target_branch": "feature/foo", "base_branch": "master"}
         kwargs.update(overrides)
         with patch.object(github, "api_request") as mock_get:
@@ -872,7 +972,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_get_diff_allows_nested_branch_names(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=200, text="diff --git a b")
         with patch.object(github, "api_request", return_value=mock_response) as mock_get:
             result = github.get_diff(
@@ -895,21 +995,32 @@ class TestGitHubIntegrationModel(BaseTest):
         # an unsafe path must be rejected before any request fires, so it can't probe other endpoints.
         self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         with patch.object(GitHubIntegration, "installation_can_access_repository") as mock_access:
-            result = GitHubIntegration.first_for_team_repository(self.team.id, repository)
+            result = GitHubIntegration.first_for_team_repository(
+                self.team.id, repository, source="test", priority=Priority.CRITICAL
+            )
         assert result is None
         mock_access.assert_not_called()
 
     def test_first_for_team_repository_allows_owner_repo(self):
         self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         with patch.object(GitHubIntegration, "installation_can_access_repository", return_value=True) as mock_access:
-            result = GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog")
+            result = GitHubIntegration.first_for_team_repository(
+                self.team.id, "PostHog/posthog", source="test", priority=Priority.CRITICAL
+            )
         assert result is not None
-        mock_access.assert_called_once_with("PostHog/posthog")
+        mock_access.assert_called_once_with("PostHog/posthog", raise_on_transient=True)
+
+    def test_repository_access_probe_raises_after_transient_retries_are_exhausted(self):
+        github = GitHubIntegration(MagicMock(kind="github"), source="test", priority=Priority.CRITICAL)
+        with patch.object(github, "api_request", return_value=MagicMock(status_code=503)):
+            with pytest.raises(GitHubIntegrationError, match="failed transiently"):
+                github.installation_can_access_repository("PostHog/posthog", raise_on_transient=True)
 
     @parameterized.expand(
         [
             ("our_budget", GitHubEgressBudgetExhausted("shed")),
             ("githubs_limit", GitHubRateLimitError("429")),
+            ("transient_failure", GitHubIntegrationError("unavailable", status_code=503)),
         ]
     )
     def test_first_for_team_repository_looks_past_an_exhausted_installation(self, _name, error):
@@ -918,7 +1029,9 @@ class TestGitHubIntegrationModel(BaseTest):
         self.create_integration(sensitive_config={"access_token": "FIRST"})
         covering = self.create_integration(sensitive_config={"access_token": "SECOND"})
         with patch.object(GitHubIntegration, "installation_can_access_repository", side_effect=[error, True]):
-            result = GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog")
+            result = GitHubIntegration.first_for_team_repository(
+                self.team.id, "PostHog/posthog", source="test", priority=Priority.CRITICAL
+            )
         assert result is not None
         assert result.integration.id == covering.id
 
@@ -926,6 +1039,7 @@ class TestGitHubIntegrationModel(BaseTest):
         [
             ("our_budget", GitHubEgressBudgetExhausted("shed")),
             ("githubs_limit", GitHubRateLimitError("429")),
+            ("transient_failure", GitHubIntegrationError("unavailable", status_code=503)),
         ]
     )
     def test_first_for_team_repository_raises_when_only_an_exhausted_installation_could_have_covered(
@@ -937,7 +1051,9 @@ class TestGitHubIntegrationModel(BaseTest):
         self.create_integration(sensitive_config={"access_token": "SECOND"})
         with patch.object(GitHubIntegration, "installation_can_access_repository", side_effect=[error, False]):
             with pytest.raises(type(error)):
-                GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog")
+                GitHubIntegration.first_for_team_repository(
+                    self.team.id, "PostHog/posthog", source="test", priority=Priority.CRITICAL
+                )
 
     @parameterized.expand(
         [
@@ -950,7 +1066,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration = self.create_integration(
             config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
         )
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=200)
         mock_response.json.return_value = {"number": 123, "state": "closed"}
         with patch.object(github, "_installation_authenticated_patch", return_value=mock_response) as mock_patch:
@@ -961,7 +1077,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_close_pull_request_maps_upstream_error(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=404, text="Not Found")
         with patch.object(github, "_installation_authenticated_patch", return_value=mock_response):
             result = github.close_pull_request("PostHog/posthog", 123)
@@ -969,7 +1085,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_close_pull_request_from_url_parses_and_closes(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=200)
         mock_response.json.return_value = {"number": 42, "state": "closed"}
         with patch.object(github, "_installation_authenticated_patch", return_value=mock_response) as mock_patch:
@@ -979,7 +1095,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_close_pull_request_from_url_rejects_non_pr_url(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         with patch.object(github, "_installation_authenticated_patch") as mock_patch:
             result = github.close_pull_request_from_url("https://github.com/PostHog/posthog/issues/42")
         assert result["success"] is False
@@ -991,7 +1107,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration = self.create_integration(
             config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
         )
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=200)
         mock_response.json.return_value = {
             "items": [
@@ -1029,7 +1145,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration = self.create_integration(
             config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
         )
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=200)
         mock_response.json.return_value = {
             "number": 42,
@@ -1054,7 +1170,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration = self.create_integration(
             config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
         )
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         not_found_response = MagicMock(status_code=404)
         search_response = MagicMock(status_code=200)
         search_response.json.return_value = {
@@ -1078,7 +1194,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_comment_on_pull_request_posts_to_issues_endpoint(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=201)
         with patch.object(github, "_installation_authenticated_post", return_value=mock_response) as mock_post:
             result = github.comment_on_pull_request("PostHog/posthog", 123, "hello")
@@ -1087,9 +1203,92 @@ class TestGitHubIntegrationModel(BaseTest):
         assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/comments"
         assert mock_post.call_args.kwargs["json_body"] == {"body": "hello"}
 
+    def test_get_pull_request_includes_requested_reviewers_and_teams(self):
+        integration = self.create_integration(
+            config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
+        )
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+        mock_response = MagicMock(status_code=200)
+        mock_response.json.return_value = {
+            "number": 123,
+            "assignees": [{"login": "alice"}],
+            "requested_reviewers": [{"login": "bob"}],
+            "requested_teams": [{"slug": "team-signals"}],
+        }
+
+        with patch.object(github, "_installation_authenticated_get", return_value=mock_response):
+            result = github.get_pull_request("PostHog/posthog", 123)
+
+        assert result["assignees"] == ["alice"]
+        assert result["requested_reviewers"] == ["bob"]
+        assert result["requested_teams"] == ["team-signals"]
+
+    @parameterized.expand(
+        [
+            (
+                "removed_on_later_page",
+                True,
+                [{"event": "review_request_removed", "requested_reviewer": {"login": "Alice"}}],
+                {"alice"},
+            ),
+            ("team_removal", True, [{"event": "review_request_removed", "requested_team": {"slug": "owners"}}], set()),
+            ("incomplete_history", False, [], None),
+            ("invalid_history", True, {"message": "Moved"}, None),
+        ]
+    )
+    def test_removed_reviewers_require_complete_history(
+        self, _name: str, complete: bool, last_page: object, expected: set[str] | None
+    ) -> None:
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+        first = MagicMock(status_code=200)
+        first.links = {"next": {"url": "https://api.github.com/repos/PostHog/posthog/issues/123/timeline?page=2"}}
+        first.json.return_value = [{"event": "review_requested", "requested_reviewer": {"login": "bob"}}]
+        second = MagicMock(status_code=200) if complete else None
+        if second is not None:
+            second.links = {}
+            second.json.return_value = last_page
+        with patch.object(github, "_installation_authenticated_get", side_effect=[first, second]) as mock_get:
+            assert github.get_removed_pull_request_reviewers("PostHog/posthog", 123) == expected
+        assert mock_get.call_args_list[0].args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/timeline"
+
+    def test_list_submitted_pull_request_reviewers_reads_every_page(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+        first_page = MagicMock(status_code=200)
+        first_page.links = {
+            "next": {"url": "https://api.github.com/repos/PostHog/posthog/pulls/123/reviews?page=2&per_page=100"}
+        }
+        first_page.json.return_value = [
+            {"state": "PENDING", "user": {"login": "pending"}},
+            {"state": "APPROVED", "user": {"login": "approved"}},
+        ]
+        second_page = MagicMock(status_code=200)
+        second_page.links = {}
+        second_page.json.return_value = [{"state": "COMMENTED", "user": {"login": "commented"}}]
+
+        with patch.object(github, "_installation_authenticated_get", side_effect=[first_page, second_page]) as mock_get:
+            result = github.list_submitted_pull_request_reviewers("PostHog/posthog", 123)
+
+        assert result == {"success": True, "reviewed_by": ["approved", "commented"]}
+        assert mock_get.call_count == 2
+        assert mock_get.call_args_list[0].kwargs["params"] == {"per_page": 100}
+
+    def test_list_submitted_pull_request_reviewers_requires_every_page(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+        first_page = MagicMock(status_code=200)
+        first_page.links = {"next": {"url": "https://api.github.com/repos/PostHog/posthog/pulls/123/reviews?page=2"}}
+        first_page.json.return_value = [{"state": "APPROVED", "user": {"login": "approved"}}]
+
+        with patch.object(github, "_installation_authenticated_get", side_effect=[first_page, None]):
+            result = github.list_submitted_pull_request_reviewers("PostHog/posthog", 123)
+
+        assert result["success"] is False
+
     def test_comment_on_pull_request_from_url_parses_and_posts(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=201)
         with patch.object(github, "_installation_authenticated_post", return_value=mock_response) as mock_post:
             result = github.comment_on_pull_request_from_url("https://github.com/PostHog/posthog/pull/42", "note")
@@ -1098,7 +1297,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_add_pull_request_assignees_posts_to_issues_endpoint(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=201)
         # GitHub returns the issue, and drops any login without push access without failing.
         mock_response.json.return_value = {"assignees": [{"login": "alice"}]}
@@ -1109,6 +1308,19 @@ class TestGitHubIntegrationModel(BaseTest):
         assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/assignees"
         assert mock_post.call_args.kwargs["json_body"] == {"assignees": ["alice", "outsider"]}
 
+    def test_remove_pull_request_assignees_deletes_from_issues_endpoint(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+        response = MagicMock(status_code=200)
+        response.json.return_value = {"assignees": [{"login": "bob"}]}
+
+        with patch.object(github, "_installation_authenticated_delete", return_value=response) as mock_delete:
+            result = github.remove_pull_request_assignees("PostHog/posthog", 123, ["alice"])
+
+        assert result == {"success": True, "assignees": ["bob"]}
+        assert mock_delete.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/assignees"
+        assert mock_delete.call_args.kwargs["json_body"] == {"assignees": ["alice"]}
+
     @parameterized.expand(
         [
             ("empty", []),
@@ -1117,7 +1329,7 @@ class TestGitHubIntegrationModel(BaseTest):
     )
     def test_add_pull_request_assignees_skips_github_when_nothing_to_assign(self, _name: str, assignees: list):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         with patch.object(github, "_installation_authenticated_post") as mock_post:
             result = github.add_pull_request_assignees("PostHog/posthog", 123, assignees)
         assert result == {"success": True, "assignees": []}
@@ -1125,7 +1337,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_add_pull_request_assignees_dedupes_and_caps_at_ten(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=201)
         mock_response.json.return_value = {"assignees": []}
         requested = ["alice", "alice", *[f"user{i}" for i in range(12)]]
@@ -1134,9 +1346,71 @@ class TestGitHubIntegrationModel(BaseTest):
         sent = mock_post.call_args.kwargs["json_body"]["assignees"]
         assert sent == ["alice", *[f"user{i}" for i in range(9)]]
 
+    def test_request_pull_request_reviews_posts_deduplicated_bounded_batches(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+        mock_response = MagicMock(status_code=201)
+        mock_response.json.return_value = {"requested_reviewers": [{"login": "alice"}]}
+        requested = ["alice", "alice", *[f"user{i}" for i in range(20)]]
+
+        with patch.object(github, "_installation_authenticated_post", return_value=mock_response) as mock_post:
+            result = github.request_pull_request_reviews("PostHog/posthog", 123, requested)
+
+        assert result == {"success": True, "requested_reviewers": ["alice"]}
+        url = "https://api.github.com/repos/PostHog/posthog/pulls/123/requested_reviewers"
+        assert mock_post.call_args_list == [
+            call(
+                url,
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+                json_body={"reviewers": ["alice", *[f"user{i}" for i in range(14)]]},
+            ),
+            call(
+                url,
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+                json_body={"reviewers": [f"user{i}" for i in range(14, 20)]},
+            ),
+        ]
+
+    @parameterized.expand([("first_batch", 3), ("later_batch", 18)])
+    def test_request_pull_request_reviews_continues_after_rejected_reviewer(self, _name: str, invalid_index: int):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+        requested = [f"user{i}" for i in range(31)]
+        rejected = requested[invalid_index]
+
+        def post_review_request(_url: str, *, endpoint: str, json_body: dict) -> MagicMock:
+            reviewers = json_body["reviewers"]
+            response = MagicMock(status_code=422 if rejected in reviewers else 201)
+            response.json.return_value = (
+                {"errors": [{"field": "reviewers", "code": "invalid"}]}
+                if rejected in reviewers
+                else {"requested_reviewers": [{"login": login} for login in reviewers]}
+            )
+            return response
+
+        with patch.object(github, "_installation_authenticated_post", side_effect=post_review_request) as mock_post:
+            result = github.request_pull_request_reviews("PostHog/posthog", 123, requested)
+
+        assert result == {"success": True, "requested_reviewers": [login for login in requested if login != rejected]}
+        assert all(len(request.kwargs["json_body"]["reviewers"]) <= 15 for request in mock_post.call_args_list)
+
+    @parameterized.expand([("forbidden", 403), ("unrelated_validation", 422)])
+    def test_request_pull_request_reviews_stops_on_non_reviewer_error(self, _name: str, status_code: int):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+        response = MagicMock(status_code=status_code, text="Request failed")
+        response.json.return_value = {"errors": [{"field": "pull_request", "code": "invalid"}]}
+
+        with patch.object(github, "_installation_authenticated_post", return_value=response) as mock_post:
+            result = github.request_pull_request_reviews("PostHog/posthog", 123, ["alice", "bob"])
+
+        assert result["success"] is False
+        assert result["status_code"] == status_code
+        mock_post.assert_called_once()
+
     def test_add_pull_request_assignees_reports_a_github_error(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=422, text="Validation Failed")
         with patch.object(github, "_installation_authenticated_post", return_value=mock_response):
             result = github.add_pull_request_assignees("PostHog/posthog", 123, ["alice"])
@@ -1145,7 +1419,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_add_pull_request_labels_posts_to_issues_endpoint(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=200)
         mock_response.json.return_value = [{"name": "self-driving"}]
         with patch.object(github, "_installation_authenticated_post", return_value=mock_response) as mock_post:
@@ -1157,7 +1431,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_add_pull_request_labels_creates_a_label_the_repository_lacks(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         refused = MagicMock(status_code=422, text="Validation Failed")
         created = MagicMock(status_code=201)
         applied = MagicMock(status_code=200)
@@ -1180,7 +1454,7 @@ class TestGitHubIntegrationModel(BaseTest):
     )
     def test_add_pull_request_labels_skips_github_when_there_is_nothing_to_apply(self, _name: str, labels: list):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         with patch.object(github, "_installation_authenticated_post") as mock_post:
             result = github.add_pull_request_labels("PostHog/posthog", 123, labels)
         assert result == {"success": True, "labels": []}
@@ -1188,7 +1462,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_add_pull_request_labels_reports_a_github_error(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=403, text="Forbidden")
         with patch.object(github, "_installation_authenticated_post", return_value=mock_response):
             result = github.add_pull_request_labels("PostHog/posthog", 123, ["self-driving"])
@@ -1203,7 +1477,7 @@ class TestGitHubIntegrationModel(BaseTest):
     )
     def test_is_assignable_reads_the_assignees_endpoint(self, _name: str, status_code: int, expected: dict):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         with patch.object(
             github, "_installation_authenticated_get", return_value=MagicMock(status_code=status_code)
         ) as mock_get:
@@ -1213,7 +1487,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_is_assignable_reports_a_github_error(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=403, text="Resource not accessible by integration")
         with patch.object(github, "_installation_authenticated_get", return_value=mock_response):
             result = github.is_assignable("PostHog/posthog", "alice")
@@ -1228,7 +1502,7 @@ class TestGitHubIntegrationModel(BaseTest):
     )
     def test_is_assignable_refuses_unsafe_paths_without_calling_github(self, _name: str, repository: str, login: str):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         with patch.object(github, "_installation_authenticated_get") as mock_get:
             result = github.is_assignable(repository, login)
         assert result["success"] is False
@@ -1236,7 +1510,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_list_assignees_searches_every_page_and_caches_the_list(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         first = MagicMock(status_code=200)
         first.json.return_value = [{"login": "alice"}, {"login": "bob"}]
         second = MagicMock(status_code=200)
@@ -1260,7 +1534,7 @@ class TestGitHubIntegrationModel(BaseTest):
     )
     def test_list_team_members_needs_every_page(self, _name: str, complete: bool, expected: dict):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         first = MagicMock(status_code=200)
         first.json.return_value = [{"login": "alice"}]
         second = MagicMock(status_code=200 if complete else 403, text="Resource not accessible by integration")
@@ -1284,7 +1558,7 @@ class TestGitHubIntegrationModel(BaseTest):
         self, _name: str, complete: bool, last_event: str | None, expected: dict
     ):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         first = MagicMock(status_code=200)
         first.json.return_value = [{"event": "assigned"}]
         second = MagicMock(status_code=200 if complete else 502, text="Bad gateway")
@@ -1298,7 +1572,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_add_pull_request_assignees_from_url_parses_and_posts(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=201)
         mock_response.json.return_value = {"assignees": [{"login": "alice"}]}
         with patch.object(github, "_installation_authenticated_post", return_value=mock_response) as mock_post:
@@ -1369,7 +1643,7 @@ class TestGitHubIntegrationModel(BaseTest):
         previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
 
         with patch.object(GitHubIntegration, "access_token_expired", return_value=False):
-            GitHubIntegration(integration).api_request(
+            GitHubIntegration(integration, source="integration", priority=Priority.CRITICAL).api_request(
                 "GET",
                 "/repos/PostHog/posthog",
                 endpoint="/repos/{owner}/{repo}",
@@ -1419,7 +1693,7 @@ class TestGitHubIntegrationModel(BaseTest):
             patch.object(GitHubIntegration, "access_token_expired", return_value=False),
             pytest.raises(GitHubIntegrationError),
         ):
-            GitHubIntegration(integration).api_request(
+            GitHubIntegration(integration, source="integration", priority=Priority.CRITICAL).api_request(
                 "GET",
                 "/repos/PostHog/posthog",
                 endpoint="/repos/{owner}/{repo}",
@@ -1439,13 +1713,21 @@ class TestGitHubIntegrationModel(BaseTest):
                 self.user,
             )
 
-            assert GitHubIntegration(integration).access_token_expired() is False
+            assert (
+                GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).access_token_expired()
+                is False
+            )
 
         with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
-            assert GitHubIntegration(integration).access_token_expired() is True
+            assert (
+                GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).access_token_expired() is True
+            )
 
-            GitHubIntegration(integration).refresh_access_token()
-            assert GitHubIntegration(integration).access_token_expired() is False
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).refresh_access_token()
+            assert (
+                GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).access_token_expired()
+                is False
+            )
 
         assert integration.config == {
             "installation_id": "INSTALLATION_ID",
@@ -1478,7 +1760,7 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_client_request.side_effect = self.mock_github_client_request(
             permissions={"contents": "read", "metadata": "read", "deployments": "read"}
         )
-        GitHubIntegration(integration).refresh_access_token()
+        GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).refresh_access_token()
         assert integration.config["permissions"] == {"contents": "read", "metadata": "read", "deployments": "read"}
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
@@ -1488,7 +1770,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert integration.config["repository_selection"] == "all"
 
         mock_client_request.side_effect = self.mock_github_client_request(repository_selection="selected")
-        GitHubIntegration(integration).refresh_access_token()
+        GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).refresh_access_token()
         assert integration.config["repository_selection"] == "selected"
 
     @parameterized.expand(
@@ -1543,7 +1825,7 @@ class TestGitHubIntegrationModel(BaseTest):
             config["account"] = account
         integration = self.create_integration(config, {"access_token": "ACCESS_TOKEN"})
 
-        healed = GitHubIntegration(integration).ensure_account_name()
+        healed = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).ensure_account_name()
 
         integration.refresh_from_db()
         assert healed is expects_fetch
@@ -1559,12 +1841,16 @@ class TestGitHubIntegrationModel(BaseTest):
         )
 
         with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
-            assert GitHubIntegration(integration).ensure_account_name() is False
-            assert GitHubIntegration(integration).ensure_account_name() is False
+            assert (
+                GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).ensure_account_name() is False
+            )
+            assert (
+                GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).ensure_account_name() is False
+            )
         assert mock_client_request.call_count == 1
 
         with time_machine.travel("2024-01-01T12:06:00Z", tick=False):
-            GitHubIntegration(integration).ensure_account_name()
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).ensure_account_name()
         assert mock_client_request.call_count == 2
         integration.refresh_from_db()
         assert integration.config["account"]["name"] == "INSTALL"
@@ -1576,7 +1862,7 @@ class TestGitHubIntegrationModel(BaseTest):
             {"access_token": "ACCESS_TOKEN"},
         )
 
-        assert GitHubIntegration(integration).ensure_account_name() is False
+        assert GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).ensure_account_name() is False
         mock_client_request.assert_not_called()
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
@@ -1596,7 +1882,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
         mock_client_request.side_effect = _client_request
 
-        assert GitHubIntegration(integration).ensure_account_name() is True
+        assert GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).ensure_account_name() is True
 
         integration.refresh_from_db()
         assert integration.config["account"]["name"] == "PostHog"
@@ -1613,12 +1899,14 @@ class TestGitHubIntegrationModel(BaseTest):
         def _client_request(*_args, **_kwargs):
             # Stands in for a second list request arriving before the first heal has recorded its attempt.
             reread = Integration.objects.get(id=integration.id)
-            landed_mid_call.append(GitHubIntegration(reread).ensure_account_name())
+            landed_mid_call.append(
+                GitHubIntegration(reread, source="test", priority=Priority.CRITICAL).ensure_account_name()
+            )
             return MagicMock(status_code=200, json=lambda: {"account": {"login": "PostHog", "type": "Organization"}})
 
         mock_client_request.side_effect = _client_request
 
-        assert GitHubIntegration(integration).ensure_account_name() is True
+        assert GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).ensure_account_name() is True
 
         assert landed_mid_call == [False]
         assert mock_client_request.call_count == 1
@@ -1635,7 +1923,7 @@ class TestGitHubIntegrationModel(BaseTest):
             integration.save()
 
             with pytest.raises(Exception):
-                GitHubIntegration(integration).refresh_access_token()
+                GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).refresh_access_token()
 
         integration.refresh_from_db()
         assert integration.errors == "TOKEN_REFRESH_FAILED"
@@ -1648,18 +1936,37 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
 
         with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
-            integration = GitHubIntegration.integration_from_installation_id(
+            record = GitHubIntegration.integration_from_installation_id(
                 "INSTALLATION_ID",
                 self.team.id,
                 self.user,
             )
+            integration = Integration.objects.get(pk=record.id)
             integration.errors = "TOKEN_REFRESH_FAILED"
             integration.save()
 
-            GitHubIntegration(integration).refresh_access_token()
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).refresh_access_token()
 
         integration.refresh_from_db()
         assert integration.errors == ""
+
+    @patch("posthog.models.integration.github.reload_integrations_on_workers")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_github_refresh_keeps_config_that_another_writer_stored_meanwhile(self, mock_client_request, mock_reload):
+        mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
+        integration = self.create_integration({"installation_id": "INSTALLATION_ID"})
+        github = GitHubIntegration(
+            Integration.objects.get(id=integration.id), source="test", priority=Priority.CRITICAL
+        )
+        integration.config = {**integration.config, "written_meanwhile": True}
+        integration.save()
+
+        github.refresh_access_token()
+
+        stored = Integration.objects.get(id=integration.id)
+        assert stored.config["written_meanwhile"] is True
+        assert stored.sensitive_config["access_token"] == "ACCESS_TOKEN"
+        assert github.integration.config["written_meanwhile"] is True
 
     @parameterized.expand(
         [
@@ -1687,20 +1994,29 @@ class TestGitHubIntegrationModel(BaseTest):
         )
 
         with pytest.raises(GitHubIntegrationError):
-            GitHubIntegration(integration).refresh_access_token()
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).refresh_access_token()
 
         integration.refresh_from_db()
         if expected_disarmed:
             assert "expires_in" not in integration.config
             assert "refreshed_at" not in integration.config
-            assert GitHubIntegration(integration).access_token_expired() is False
+            assert (
+                GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).access_token_expired()
+                is False
+            )
             assert integration.config["installation_unavailable_since"]
-            assert GitHubIntegration(integration).installation_unavailable() is True
+            assert (
+                GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).installation_unavailable()
+                is True
+            )
         else:
             assert integration.config["expires_in"] == 3600
             assert "refreshed_at" in integration.config
             assert "installation_unavailable_since" not in integration.config
-            assert GitHubIntegration(integration).installation_unavailable() is False
+            assert (
+                GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).installation_unavailable()
+                is False
+            )
 
     @patch("posthog.models.integration.github.reload_integrations_on_workers")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
@@ -1711,11 +2027,14 @@ class TestGitHubIntegrationModel(BaseTest):
             sensitive_config={"access_token": "STALE_TOKEN"},
         )
 
-        GitHubIntegration(integration).refresh_access_token()
+        GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).refresh_access_token()
 
         integration.refresh_from_db()
         assert "installation_unavailable_since" not in integration.config
-        assert GitHubIntegration(integration).installation_unavailable() is False
+        assert (
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).installation_unavailable()
+            is False
+        )
         assert integration.sensitive_config["access_token"] == "ACCESS_TOKEN"
         assert "expires_in" in integration.config
 
@@ -1742,7 +2061,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
         mock_get.side_effect = [transient, success]
 
-        repos, has_more = GitHubIntegration(integration).list_repositories()
+        repos, has_more = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_repositories()
 
         assert repos == [
             {"id": 1, "name": "posthog", "full_name": "PostHog/posthog"},
@@ -1769,9 +2088,10 @@ class TestGitHubIntegrationModel(BaseTest):
 
         mock_get.side_effect = [transient_1, transient_2]
 
-        with pytest.raises(GitHubIntegrationError, match="list_repositories non-JSON response"):
-            GitHubIntegration(integration).list_repositories()
+        with pytest.raises(GitHubIntegrationError, match="list_repositories non-JSON response") as raised:
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_repositories()
 
+        assert raised.value.status_code == 502
         assert mock_get.call_count == 2
 
     @patch("posthog.egress.transport.transport.requests.request")
@@ -1795,9 +2115,10 @@ class TestGitHubIntegrationModel(BaseTest):
         # Page-1 succeeds. Page-2 fetch is retried once after transient 502.
         mock_get.side_effect = [first_page, second_page, second_page]
 
-        with pytest.raises(GitHubIntegrationError, match="failed to list repositories"):
-            GitHubIntegration(integration).list_all_repositories()
+        with pytest.raises(GitHubIntegrationError, match="failed to list repositories") as raised:
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_all_repositories()
 
+        assert raised.value.status_code == 502
         assert mock_get.call_count == 3
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_repositories")
@@ -1814,7 +2135,7 @@ class TestGitHubIntegrationModel(BaseTest):
             (second_page, False),
         ]
 
-        repos = GitHubIntegration(integration).list_all_repositories()
+        repos = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_all_repositories()
 
         assert len(repos) == 130
         assert repos == first_page + second_page
@@ -1845,7 +2166,9 @@ class TestGitHubIntegrationModel(BaseTest):
         }
         previous_count = REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) or 0
 
-        repos, has_more = GitHubIntegration(integration).list_cached_repositories(limit=1, offset=1)
+        repos, has_more = GitHubIntegration(
+            integration, source="test", priority=Priority.CRITICAL
+        ).list_cached_repositories(limit=1, offset=1)
 
         assert repos == [{"id": 2, "name": "posthog-js", "full_name": "PostHog/posthog-js"}]
         assert has_more is False
@@ -1876,7 +2199,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.repository_cache_updated_at = timezone.now()
         integration.save(update_fields=["repository_cache", "repository_cache_updated_at"])
 
-        repos, _ = GitHubIntegration(integration).list_cached_repositories()
+        repos, _ = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_cached_repositories()
 
         assert repos[0] == {
             "id": 1,
@@ -1907,7 +2230,9 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.repository_cache_updated_at = timezone.now()
         integration.save(update_fields=["repository_cache", "repository_cache_updated_at"])
 
-        repos = GitHubIntegration(integration).sync_repository_cache(min_refresh_interval_seconds=60)
+        repos = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).sync_repository_cache(
+            min_refresh_interval_seconds=60
+        )
 
         assert repos == cached_repositories
         mock_list_all.assert_not_called()
@@ -1928,11 +2253,13 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.save(update_fields=["repository_cache", "repository_cache_updated_at"])
         mock_list_all.return_value = cached_repositories
 
-        with patch.object(integration, "save", wraps=integration.save) as mock_save:
-            repos = GitHubIntegration(integration).sync_repository_cache()
+        store = AuthAccessor.set_repository_cache
+        with patch.object(AuthAccessor, "set_repository_cache", autospec=True, side_effect=store) as mock_store:
+            repos = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).sync_repository_cache()
 
         assert repos == cached_repositories
-        mock_save.assert_called_once_with(update_fields=["repository_cache_updated_at"])
+        mock_store.assert_called_once()
+        assert mock_store.call_args.kwargs["repositories"] is None
         integration.refresh_from_db()
         assert integration.repository_cache == cached_repositories
         assert integration.repository_cache_updated_at is not None
@@ -1958,7 +2285,9 @@ class TestGitHubIntegrationModel(BaseTest):
         }
         previous_count = REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) or 0
 
-        repos, has_more = GitHubIntegration(integration).list_cached_repositories(limit=1, offset=0)
+        repos, has_more = GitHubIntegration(
+            integration, source="test", priority=Priority.CRITICAL
+        ).list_cached_repositories(limit=1, offset=0)
 
         integration.refresh_from_db()
         assert repos == [{"id": 1, "name": "posthog", "full_name": "PostHog/posthog"}]
@@ -1985,7 +2314,9 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.save(update_fields=["repository_cache", "repository_cache_updated_at"])
         mock_list_all.side_effect = Exception("GitHub is slow")
 
-        repos, has_more = GitHubIntegration(integration).list_cached_repositories(limit=10, offset=0)
+        repos, has_more = GitHubIntegration(
+            integration, source="test", priority=Priority.CRITICAL
+        ).list_cached_repositories(limit=10, offset=0)
 
         integration.refresh_from_db()
         assert repos == stale_repositories
@@ -2002,7 +2333,9 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_list_all.side_effect = Exception("GitHub is slow")
 
         with pytest.raises(Exception, match="GitHub is slow"):
-            GitHubIntegration(integration).list_cached_repositories(limit=10, offset=0)
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_cached_repositories(
+                limit=10, offset=0
+            )
 
         integration.refresh_from_db()
         assert integration.repository_cache == []
@@ -2042,7 +2375,9 @@ class TestGitHubIntegrationModel(BaseTest):
         )
         mock_list_all.return_value = fetched_repositories
 
-        repos, has_more = GitHubIntegration(integration).list_cached_repositories(limit=25, offset=600)
+        repos, has_more = GitHubIntegration(
+            integration, source="test", priority=Priority.CRITICAL
+        ).list_cached_repositories(limit=25, offset=600)
 
         assert repos == fetched_repositories[600:625]
         assert has_more is True
@@ -2079,9 +2414,9 @@ class TestGitHubIntegrationModel(BaseTest):
         )
         mock_list_all.return_value = fetched_repositories
 
-        repos, has_more = GitHubIntegration(integration).list_cached_repositories(
-            search=search, limit=limit, offset=offset
-        )
+        repos, has_more = GitHubIntegration(
+            integration, source="test", priority=Priority.CRITICAL
+        ).list_cached_repositories(search=search, limit=limit, offset=offset)
 
         assert [repo["id"] for repo in repos] == expected_ids
         assert has_more is expected_has_more
@@ -2098,7 +2433,7 @@ class TestGitHubIntegrationModel(BaseTest):
             {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
             {"access_token": "ACCESS_TOKEN"},
         )
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
 
         repos, has_more = github.list_cached_repositories(search="posthog", limit=1, offset=0)
 
@@ -2117,7 +2452,7 @@ class TestGitHubIntegrationModel(BaseTest):
         )
         repo = "posthog/posthog"
         cache.set(
-            GitHubIntegration(integration)._get_branch_cache_key(repo),
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)._get_branch_cache_key(repo),
             {
                 "branches": ["main", "develop", "feature/test"],
                 "default_branch": "main",
@@ -2133,9 +2468,9 @@ class TestGitHubIntegrationModel(BaseTest):
         }
         previous_count = REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) or 0
 
-        branches, default_branch, has_more = GitHubIntegration(integration).list_cached_branches(
-            repo, limit=2, offset=1
-        )
+        branches, default_branch, has_more = GitHubIntegration(
+            integration, source="test", priority=Priority.CRITICAL
+        ).list_cached_branches(repo, limit=2, offset=1)
 
         assert branches == ["develop", "feature/test"]
         assert default_branch == "main"
@@ -2158,8 +2493,10 @@ class TestGitHubIntegrationModel(BaseTest):
         )
         user_integration = self.create_user_integration("INSTALL")
 
-        GitHubIntegration(integration).list_cached_branches(repo)
-        branches, default_branch, _ = UserGitHubIntegration(user_integration).list_cached_branches(repo)
+        GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_cached_branches(repo)
+        branches, default_branch, _ = UserGitHubIntegration(
+            user_integration, source="test", priority=Priority.CRITICAL
+        ).list_cached_branches(repo)
 
         assert branches == ["main", "develop"]
         assert default_branch == "main"
@@ -2174,7 +2511,7 @@ class TestGitHubIntegrationModel(BaseTest):
         )
         repo = "posthog/posthog"
         cache.set(
-            GitHubIntegration(integration)._get_branch_cache_key(repo),
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)._get_branch_cache_key(repo),
             {
                 "branches": [
                     "main",
@@ -2187,9 +2524,9 @@ class TestGitHubIntegrationModel(BaseTest):
             },
         )
 
-        branches, default_branch, has_more = GitHubIntegration(integration).list_cached_branches(
-            repo, search="feature/agent", limit=1, offset=1
-        )
+        branches, default_branch, has_more = GitHubIntegration(
+            integration, source="test", priority=Priority.CRITICAL
+        ).list_cached_branches(repo, search="feature/agent", limit=1, offset=1)
 
         assert branches == ["feature/agent-branch-search"]
         assert default_branch == "main"
@@ -2216,11 +2553,13 @@ class TestGitHubIntegrationModel(BaseTest):
         }
         previous_count = REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) or 0
 
-        branches, default_branch, has_more = GitHubIntegration(integration).list_cached_branches(
-            repo, limit=2, offset=0
-        )
+        branches, default_branch, has_more = GitHubIntegration(
+            integration, source="test", priority=Priority.CRITICAL
+        ).list_cached_branches(repo, limit=2, offset=0)
 
-        cached = cache.get(GitHubIntegration(integration)._get_branch_cache_key(repo))
+        cached = cache.get(
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)._get_branch_cache_key(repo)
+        )
         assert branches == ["develop", "feature/test"]
         assert default_branch == "main"
         assert has_more is False
@@ -2240,11 +2579,13 @@ class TestGitHubIntegrationModel(BaseTest):
             {"access_token": "ACCESS_TOKEN"},
         )
         repo = "posthog/posthog"
-        lock_key = GitHubIntegration(integration)._branch_refresh_lock_key(repo)
+        lock_key = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)._branch_refresh_lock_key(
+            repo
+        )
         get_redis_client().delete(lock_key)
         self.addCleanup(get_redis_client().delete, lock_key)
         cache.set(
-            GitHubIntegration(integration)._get_branch_cache_key(repo),
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)._get_branch_cache_key(repo),
             {
                 "branches": ["main", "develop"],
                 "default_branch": "main",
@@ -2253,9 +2594,9 @@ class TestGitHubIntegrationModel(BaseTest):
         )
 
         for _ in range(2):
-            branches, default_branch, has_more = GitHubIntegration(integration).list_cached_branches(
-                repo, limit=10, offset=0
-            )
+            branches, default_branch, has_more = GitHubIntegration(
+                integration, source="test", priority=Priority.CRITICAL
+            ).list_cached_branches(repo, limit=10, offset=0)
 
         assert branches == ["main", "develop"]
         assert default_branch == "main"
@@ -2263,6 +2604,7 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_list_branches.assert_not_called()
         mock_refresh_delay.assert_called_once()
         assert mock_refresh_delay.call_args.args[:3] == (str(integration.id), repo, False)
+        assert mock_refresh_delay.call_args.args[4] == integration.team_id
 
     @patch("posthog.models.github_integration_base.get_redis_client", side_effect=ConnectionError("redis down"))
     def test_list_cached_branches_serves_stale_cache_when_the_refresh_lock_is_unavailable(
@@ -2274,7 +2616,7 @@ class TestGitHubIntegrationModel(BaseTest):
         )
         repo = "posthog/posthog"
         cache.set(
-            GitHubIntegration(integration)._get_branch_cache_key(repo),
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)._get_branch_cache_key(repo),
             {
                 "branches": ["main", "develop"],
                 "default_branch": "main",
@@ -2282,7 +2624,9 @@ class TestGitHubIntegrationModel(BaseTest):
             },
         )
 
-        branches, _, _ = GitHubIntegration(integration).list_cached_branches(repo)
+        branches, _, _ = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_cached_branches(
+            repo
+        )
 
         assert branches == ["main", "develop"]
 
@@ -2296,7 +2640,7 @@ class TestGitHubIntegrationModel(BaseTest):
             {"access_token": "ACCESS_TOKEN"},
         )
         repo = "posthog/posthog"
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         lock_key = github._branch_refresh_lock_key(repo)
         self.addCleanup(get_redis_client().delete, lock_key)
         get_redis_client().set(lock_key, "token", ex=5)
@@ -2317,7 +2661,7 @@ class TestGitHubIntegrationModel(BaseTest):
         )
         repo = "posthog/posthog"
         cache.set(
-            GitHubIntegration(integration)._get_branch_cache_key(repo),
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)._get_branch_cache_key(repo),
             {
                 "branches": ["main", "develop"],
                 "default_branch": "main",
@@ -2327,10 +2671,10 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_list_branches.return_value = (["main", "develop", "feature/test"], False)
         mock_default_branch.side_effect = Exception("GitHub is slow")
 
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         github.refresh_branch_cache(repo, "token")
 
-        cached = cache.get(GitHubIntegration(integration)._get_branch_cache_key(repo))
+        cached = cache.get(github._get_branch_cache_key(repo))
         assert cached["branches"] == ["main", "develop", "feature/test"]
         assert cached["default_branch"] == "main"
         mock_list_branches.assert_called_once_with(repo, limit=100, offset=0)
@@ -2346,7 +2690,9 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_list_branches.side_effect = Exception("GitHub is slow")
 
         with pytest.raises(Exception, match="GitHub is slow"):
-            GitHubIntegration(integration).list_cached_branches(repo, limit=10, offset=0)
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_cached_branches(
+                repo, limit=10, offset=0
+            )
 
         mock_list_branches.assert_called_once_with(repo, limit=100, offset=0)
 
@@ -2364,7 +2710,7 @@ class TestGitHubIntegrationModel(BaseTest):
             (second_page, False),
         ]
 
-        branches = GitHubIntegration(integration).list_all_branches(repo)
+        branches = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_all_branches(repo)
 
         assert branches == first_page + second_page
         assert mock_list_branches.call_args_list == [
@@ -2390,9 +2736,9 @@ class TestGitHubIntegrationModel(BaseTest):
         ]
         mock_default_branch.return_value = "branch-1200"
 
-        branches, default_branch, has_more = GitHubIntegration(integration).list_cached_branches(
-            repo, limit=25, offset=1200
-        )
+        branches, default_branch, has_more = GitHubIntegration(
+            integration, source="test", priority=Priority.CRITICAL
+        ).list_cached_branches(repo, limit=25, offset=1200)
 
         expected_branches = ["branch-1199"] + [f"branch-{i}" for i in range(1201, 1225)]
         assert branches == expected_branches
@@ -2473,7 +2819,7 @@ class TestGitHubIntegrationModel(BaseTest):
             config={"expires_in": 3600, "refreshed_at": int(time.time())},
             sensitive_config={"access_token": "valid-token"},
         )
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         assert github.get_access_token() == "valid-token"
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
@@ -2492,7 +2838,7 @@ class TestGitHubIntegrationModel(BaseTest):
         }
         mock_client_request.return_value = mock_response
 
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         token = github.get_access_token()
 
         assert token == "new-token"
@@ -2503,7 +2849,7 @@ class TestGitHubIntegrationModel(BaseTest):
             config={"expires_in": 3600, "refreshed_at": int(time.time())},
             sensitive_config={},  # no access_token key
         )
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
 
         with pytest.raises(GitHubIntegrationError, match="Access token unavailable"):
             github.get_access_token()
@@ -2534,7 +2880,9 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         mock_get.return_value = ok
 
         integration = self._create_integration()
-        body = GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
+        body = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)._gh_api_get(
+            "/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}"
+        )
         assert body == {"default_branch": "main"}
 
     @patch("posthog.egress.transport.transport.requests.request")
@@ -2544,7 +2892,7 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         # Guards the lane plumbing: if the instance priority stops reaching the transport, BATCH
         # callers silently ride the never-shed CRITICAL lane again and denials stop deferring work.
         integration = self._create_integration()
-        github = GitHubIntegration(integration, priority=Priority.BATCH)
+        github = GitHubIntegration(integration, priority=Priority.BATCH, source="test")
         with pytest.raises(GitHubEgressBudgetExhausted):
             github.api_request("GET", "/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
         mock_request.assert_not_called()
@@ -2558,7 +2906,7 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         mock_request.return_value = ok
 
         integration = self._create_integration()
-        response = GitHubIntegration(integration).api_request(
+        response = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).api_request(
             "GET", "/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}"
         )
         assert response.status_code == 200
@@ -2576,7 +2924,9 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         mock_get.side_effect = [transient, ok]
 
         integration = self._create_integration()
-        body = GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
+        body = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)._gh_api_get(
+            "/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}"
+        )
         assert body == {"ok": True}
         assert mock_get.call_count == 2
 
@@ -2591,7 +2941,9 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
 
         integration = self._create_integration()
         with pytest.raises(GitHubRateLimitError) as excinfo:
-            GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)._gh_api_get(
+                "/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}"
+            )
         assert excinfo.value.retry_after == 5
 
     @patch("posthog.egress.transport.transport.requests.request")
@@ -2606,7 +2958,9 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
 
         integration = self._create_integration()
         with pytest.raises(GitHubRateLimitError) as excinfo:
-            GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)._gh_api_get(
+                "/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}"
+            )
         assert excinfo.value.retry_after == 60
 
     @patch("posthog.egress.transport.transport.requests.request")
@@ -2622,14 +2976,18 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         mock_get.side_effect = [unauth, ok]
 
         integration = self._create_integration()
-        body = GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
+        body = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)._gh_api_get(
+            "/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}"
+        )
         assert body == {"after_refresh": True}
         assert mock_refresh.called
 
     def test_rejects_path_without_leading_slash(self):
         integration = self._create_integration()
         with pytest.raises(ValueError, match="must start with"):
-            GitHubIntegration(integration)._gh_api_get("repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)._gh_api_get(
+                "repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}"
+            )
 
 
 class TestGitHubIntegrationGraphQL(BaseTest):
@@ -2656,7 +3014,7 @@ class TestGitHubIntegrationGraphQL(BaseTest):
         ok = self._graphql_response({"data": {"repository": {"name": "posthog"}}})
         mock_request.side_effect = [transient, ok]
 
-        github = GitHubIntegration(self._create_integration())
+        github = GitHubIntegration(self._create_integration(), source="test", priority=Priority.CRITICAL)
         data = github._gh_graphql("query {}", {}, endpoint="/graphql:test")
         assert data == {"repository": {"name": "posthog"}}
         assert mock_request.call_count == 2
@@ -2670,7 +3028,7 @@ class TestGitHubIntegrationGraphQL(BaseTest):
         )
         mock_request.return_value = transient
 
-        github = GitHubIntegration(self._create_integration())
+        github = GitHubIntegration(self._create_integration(), source="test", priority=Priority.CRITICAL)
         with pytest.raises(GitHubIntegrationError):
             github._gh_graphql("query {}", {}, endpoint="/graphql:test")
         assert mock_request.call_count == GitHubIntegration._GRAPHQL_TRANSIENT_ATTEMPTS
@@ -2684,7 +3042,7 @@ class TestGitHubIntegrationGraphQL(BaseTest):
             {"data": None, "errors": [{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}]}
         )
 
-        github = GitHubIntegration(self._create_integration())
+        github = GitHubIntegration(self._create_integration(), source="test", priority=Priority.CRITICAL)
         with pytest.raises(GitHubIntegrationError):
             github._gh_graphql("query {}", {}, endpoint="/graphql:test")
         assert mock_request.call_count == 1
@@ -2698,7 +3056,7 @@ class TestGitHubIntegrationGraphQL(BaseTest):
             {"data": {"repository": {"name": "posthog"}}, "errors": [{"message": "field-level error"}]}
         )
 
-        github = GitHubIntegration(self._create_integration())
+        github = GitHubIntegration(self._create_integration(), source="test", priority=Priority.CRITICAL)
         data = github._gh_graphql("query {}", {}, endpoint="/graphql:test")
         assert data == {"repository": {"name": "posthog"}}
         assert mock_request.call_count == 1
@@ -2745,7 +3103,7 @@ def _babysit_feedback(node_id: str, *, author: str = "reviewer", body: str = "pl
 
 class TestGitHubIntegrationPullRequestBabysitSnapshot(BaseTest):
     def _github(self) -> GitHubIntegration:
-        return GitHubIntegration(_create_github_integration(self.team))
+        return GitHubIntegration(_create_github_integration(self.team), source="test", priority=Priority.CRITICAL)
 
     @staticmethod
     def _payload(**overrides) -> dict:
@@ -2915,7 +3273,7 @@ class TestGitHubIntegrationPullRequestBabysitSnapshot(BaseTest):
 
 class TestGitHubIntegrationMarkPullRequestReadyForReview(BaseTest):
     def _github(self) -> GitHubIntegration:
-        return GitHubIntegration(_create_github_integration(self.team))
+        return GitHubIntegration(_create_github_integration(self.team), source="test", priority=Priority.CRITICAL)
 
     @staticmethod
     def _state(
@@ -2977,27 +3335,41 @@ class TestGitHubIntegrationMarkPullRequestReadyForReview(BaseTest):
 
 class TestGitHubIntegrationPullRequestCiStatuses(BaseTest):
     def _github(self) -> GitHubIntegration:
-        return GitHubIntegration(_create_github_integration(self.team))
+        return GitHubIntegration(_create_github_integration(self.team), source="test", priority=Priority.CRITICAL)
 
     @staticmethod
-    def _rollup(state: str | None) -> dict:
-        return {"pullRequest": {"commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": state}}}]}}}
+    def _rollup(state: str | None, mergeable: str = "MERGEABLE") -> dict:
+        return {
+            "pullRequest": {
+                "mergeable": mergeable,
+                "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": state}}}]},
+            }
+        }
 
     def test_one_call_resolves_every_pull_request_against_its_own_reference(self):
         # The whole point of the batch: a list of PRs costs one GraphQL call, and each rollup lands on
         # the reference it was asked about. A mismatch here paints CI onto the wrong report.
+        # Only CONFLICTING is a conflict. UNKNOWN means GitHub has not computed it yet.
         references = [
             PullRequestRef(owner="acme", repo="widgets", number=7),
             PullRequestRef(owner="acme", repo="widgets", number=8),
             PullRequestRef(owner="other", repo="thing", number=3),
         ]
-        payload = {"pr0": self._rollup("SUCCESS"), "pr1": self._rollup("FAILURE"), "pr2": self._rollup(None)}
+        payload = {
+            "pr0": self._rollup("SUCCESS", mergeable="CONFLICTING"),
+            "pr1": self._rollup("FAILURE"),
+            "pr2": self._rollup(None, mergeable="UNKNOWN"),
+        }
 
         with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload) as mock_graphql:
             statuses = self._github().get_pull_request_ci_statuses(references)
 
         mock_graphql.assert_called_once()
-        assert statuses == {references[0]: "passing", references[1]: "failing", references[2]: "none"}
+        assert statuses == {
+            references[0]: PullRequestCiStatus(ci_status="passing", has_conflict=True),
+            references[1]: PullRequestCiStatus(ci_status="failing", has_conflict=False),
+            references[2]: PullRequestCiStatus(ci_status="none", has_conflict=False),
+        }
         variables = mock_graphql.call_args.args[1]
         assert variables["owner2"] == "other" and variables["repo2"] == "thing" and variables["number2"] == 3
 
@@ -3010,7 +3382,7 @@ class TestGitHubIntegrationPullRequestCiStatuses(BaseTest):
         with patch.object(GitHubIntegration, "_gh_graphql", return_value={"pr0": self._rollup("PENDING"), "pr1": None}):
             statuses = self._github().get_pull_request_ci_statuses([readable, unreadable])
 
-        assert statuses == {readable: "pending"}
+        assert statuses == {readable: PullRequestCiStatus(ci_status="pending", has_conflict=False)}
 
     def test_more_pull_requests_than_one_batch_holds_are_split_across_calls(self):
         # Without chunking a big inbox would build one query past GitHub's node limit and get nothing.
@@ -3022,3 +3394,309 @@ class TestGitHubIntegrationPullRequestCiStatuses(BaseTest):
 
         assert mock_graphql.call_count == 2
         assert len(mock_graphql.call_args_list[1].args[1]) == 3  # owner/repo/number of the one leftover
+
+
+class TestUserGitHubIntegrationScopedAccessToken(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+        self.integration = UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="INSTALL",
+            config={"installation_id": "INSTALL", "credential_version": "v1"},
+            sensitive_config={"access_token": "FULL_TOKEN", "user_access_token": "USER_TOKEN"},
+        )
+
+    def _github(self) -> UserGitHubIntegration:
+        return UserGitHubIntegration(self.integration, source="test", priority=Priority.CRITICAL)
+
+    @staticmethod
+    def _response(status_code: int, body: dict[str, Any]) -> MagicMock:
+        response = MagicMock(status_code=status_code, headers={})
+        response.json.return_value = body
+        return response
+
+    def _store_user_scoped_snapshot(
+        self, repositories: list[dict[str, Any]], *, days_old: int, marked: bool = True
+    ) -> None:
+        cached_at = timezone.now() - timedelta(days=days_old)
+        self.integration.repository_cache = repositories
+        self.integration.repository_cache_updated_at = cached_at
+        if marked:
+            self.integration.config = {
+                **self.integration.config,
+                USER_SCOPED_REPOSITORY_CACHE_AT_CONFIG_KEY: cached_at.isoformat(),
+            }
+        self.integration.save()
+
+    @parameterized.expand(
+        [("saved_by_the_scoped_sync", True, ["web-app", "secret"]), ("saved_before_the_fix", False, ["web-app"])]
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_all_repositories")
+    def test_only_repository_lists_saved_with_the_user_scope_are_served(
+        self, _name: str, marked: bool, expected: list[str], mock_list_all_repositories: MagicMock
+    ) -> None:
+        mock_list_all_repositories.return_value = [{"id": 1, "name": "web-app", "full_name": "acme/web-app"}]
+        self._store_user_scoped_snapshot(
+            [
+                {"id": 1, "name": "web-app", "full_name": "acme/web-app"},
+                {"id": 2, "name": "secret", "full_name": "acme/secret"},
+            ],
+            days_old=0,
+            marked=marked,
+        )
+
+        repositories, _ = self._github().list_cached_repositories()
+
+        assert [repo["name"] for repo in repositories] == expected
+        assert self._github().count_cached_repositories() == len(expected)
+        assert mock_list_all_repositories.called is not marked
+
+    def _user_repositories(self, names: list[str], total_count: int | None = None) -> MagicMock:
+        return self._response(
+            200,
+            {
+                "total_count": len(names) if total_count is None else total_count,
+                "repositories": [{"name": name} for name in names],
+            },
+        )
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_reads_use_a_token_limited_to_the_users_repositories(
+        self, mock_github_request: MagicMock, mock_client_request: MagicMock
+    ) -> None:
+        mock_github_request.return_value = self._user_repositories(["visible-a", "visible-b"])
+        mock_client_request.return_value = self._response(201, {"token": "SCOPED_TOKEN"})
+
+        assert self._github().get_access_token() == "SCOPED_TOKEN"
+        assert self._github().get_access_token() == "SCOPED_TOKEN"
+
+        assert mock_github_request.call_args.kwargs["headers"] == {"Authorization": "Bearer USER_TOKEN"}
+        mock_client_request.assert_called_once_with(
+            "installations/INSTALL/access_tokens",
+            method="POST",
+            json_body={"repositories": ["visible-a", "visible-b"]},
+        )
+
+    @parameterized.expand(
+        [
+            ("access_added", ["visible-a", "visible-b", "visible-c"], None),
+            ("access_removed", ["visible-a"], None),
+            ("all_access_removed", [], None),
+            ("refresh_cooldown", ["visible-a", "visible-b", "visible-c"], 60),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.github_request")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_repository_refresh_uses_the_current_user_scope(
+        self,
+        _name: str,
+        current_names: list[str],
+        min_refresh_interval_seconds: int | None,
+        mock_user_request: MagicMock,
+        mock_client_request: MagicMock,
+        mock_installation_request: MagicMock,
+    ) -> None:
+        initial_names = ["visible-a", "visible-b"]
+        repositories = {
+            name: {"id": index, "name": name, "full_name": f"example/{name}"}
+            for index, name in enumerate(["visible-a", "visible-b", "visible-c"], start=1)
+        }
+        self._store_user_scoped_snapshot([repositories[name] for name in initial_names], days_old=0)
+        mock_user_request.side_effect = [
+            self._user_repositories(initial_names),
+            self._user_repositories(current_names),
+        ]
+        mock_client_request.side_effect = [
+            self._response(201, {"token": "INITIAL_TOKEN"}),
+            self._response(201, {"token": "REFRESHED_TOKEN"}),
+        ]
+        mock_installation_request.side_effect = lambda method, url, **kwargs: self._response(
+            200,
+            {
+                "repositories": [
+                    repositories[name]
+                    for name in (
+                        initial_names if kwargs["headers"]["Authorization"] == "Bearer INITIAL_TOKEN" else current_names
+                    )
+                ]
+            },
+        )
+        github = self._github()
+        assert github.get_access_token() == "INITIAL_TOKEN"
+
+        refreshed = github.sync_repository_cache(min_refresh_interval_seconds=min_refresh_interval_seconds)
+
+        expected_names = initial_names if min_refresh_interval_seconds is not None else current_names
+        assert [repo["name"] for repo in refreshed] == expected_names
+        self.integration.refresh_from_db()
+        assert self.integration.repository_cache == [repositories[name] for name in expected_names]
+        if min_refresh_interval_seconds is not None:
+            assert github.get_access_token() == "INITIAL_TOKEN"
+        elif current_names:
+            assert github.get_access_token() == "REFRESHED_TOKEN"
+
+    @parameterized.expand(
+        [
+            ("network_error", requests.ConnectionError("reset")),
+            ("bad_gateway", "502"),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_a_transient_listing_failure_is_retried_once(
+        self, _name: str, first_failure: Any, mock_github_request: MagicMock, mock_client_request: MagicMock
+    ) -> None:
+        failure = self._response(502, {}) if first_failure == "502" else first_failure
+        mock_github_request.side_effect = [failure, self._user_repositories(["visible-a"])]
+        mock_client_request.return_value = self._response(201, {"token": "SCOPED_TOKEN"})
+
+        assert self._github().get_access_token() == "SCOPED_TOKEN"
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_repeated_network_errors_surface_as_an_integration_error(
+        self, mock_github_request: MagicMock, mock_client_request: MagicMock
+    ) -> None:
+        mock_github_request.side_effect = requests.ConnectionError("reset")
+
+        with pytest.raises(GitHubIntegrationError):
+            self._github().get_access_token()
+
+        mock_client_request.assert_not_called()
+
+    @patch("posthog.models.user_integration.requests.post")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_a_user_token_past_its_half_life_is_used_without_rotating_it(
+        self, mock_github_request: MagicMock, mock_client_request: MagicMock, mock_oauth_post: MagicMock
+    ) -> None:
+        now = int(time.time())
+        self.integration.config = {
+            **self.integration.config,
+            "user_token_refreshed_at": now - 7 * 3600,
+            "user_access_token_expires_at": now + 3600,
+        }
+        self.integration.save()
+        mock_github_request.return_value = self._user_repositories(["visible-a"])
+        mock_client_request.return_value = self._response(201, {"token": "SCOPED_TOKEN"})
+
+        assert self._github().get_access_token() == "SCOPED_TOKEN"
+
+        assert mock_github_request.call_args.kwargs["headers"] == {"Authorization": "Bearer USER_TOKEN"}
+        mock_oauth_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("zero_total", 200, {"total_count": 0, "repositories": []}),
+            ("total_without_names", 200, {"total_count": 3, "repositories": []}),
+            ("installation_access_denied", 404, {"message": "Not Found"}),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_a_user_without_repositories_gets_no_token(
+        self,
+        _name: str,
+        status_code: int,
+        body: dict[str, Any],
+        mock_github_request: MagicMock,
+        mock_client_request: MagicMock,
+    ) -> None:
+        mock_github_request.return_value = self._response(status_code, body)
+        self._store_user_scoped_snapshot([{"id": 1, "name": "old-repo", "full_name": "acme/old-repo"}], days_old=1)
+
+        with pytest.raises(GitHubIntegrationError):
+            self._github().get_access_token()
+        repositories, _ = self._github().list_cached_repositories()
+
+        assert repositories == []
+        assert self._github().installation_can_access_repository("acme/old-repo", raise_on_transient=True) is False
+        mock_client_request.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("user_can_open_it", "acme/visible-a", 200, {"full_name": "acme/visible-a"}, 200, True),
+            ("dots_inside_a_name", "acme/release..archive", 200, {"full_name": "acme/release..archive"}, 200, True),
+            ("traversal_segment", "acme/..", 200, {"full_name": "acme/visible-a"}, 200, False),
+            ("user_cannot_open_it", "acme/visible-a", 404, {"message": "Not Found"}, 200, False),
+            ("user_must_reconnect", "acme/visible-a", 401, {"message": "Bad credentials"}, 200, False),
+            ("token_needs_reconnection", "acme/visible-a", 200, {"full_name": "acme/visible-a"}, 401, False),
+            ("token_has_no_repositories", "acme/visible-a", 200, {"full_name": "acme/visible-a"}, 404, False),
+        ]
+    )
+    @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
+    @patch("posthog.models.user_integration.requests.post")
+    @patch("posthog.models.github_integration_base.github_request")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_repository_probe_reports_only_repositories_the_user_can_open(
+        self,
+        _name: str,
+        repository: str,
+        repository_status: int,
+        repository_body: dict[str, Any],
+        listing_status: int,
+        expected: bool,
+        mock_user_request: MagicMock,
+        mock_client_request: MagicMock,
+        mock_installation_request: MagicMock,
+        mock_oauth_post: MagicMock,
+    ) -> None:
+        mock_user_request.side_effect = lambda method, url, **kwargs: (
+            self._response(listing_status, {"total_count": 1, "repositories": [{"name": "visible-a"}]})
+            if "/user/installations/" in url
+            else self._response(repository_status, repository_body)
+        )
+        mock_client_request.return_value = self._response(201, {"token": "SCOPED_TOKEN"})
+        mock_installation_request.return_value = self._response(200, {"full_name": "acme/visible-a"})
+        mock_oauth_post.return_value = self._response(200, {"error": "bad_refresh_token"})
+
+        assert self._github().installation_can_access_repository(repository, raise_on_transient=True) is expected
+
+    @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_a_rejected_user_token_asks_for_reconnection_instead_of_using_the_installation_token(
+        self, mock_github_request: MagicMock, mock_client_request: MagicMock
+    ) -> None:
+        mock_github_request.return_value = self._response(401, {"message": "Bad credentials"})
+
+        with pytest.raises(ReauthorizationRequired):
+            self._github().get_access_token()
+
+        mock_client_request.assert_not_called()
+        self.integration.refresh_from_db()
+        assert self._github().needs_reauthorization
+        assert "user_access_token" not in self.integration.sensitive_config
+
+    @parameterized.expand(
+        [
+            ("user_sees_every_repository", 600, "FULL_TOKEN"),
+            ("user_sees_a_subset", 700, None),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_more_repositories_than_one_scoped_token_holds(
+        self,
+        _name: str,
+        installation_total: int,
+        expected_token: str | None,
+        mock_github_request: MagicMock,
+        mock_client_request: MagicMock,
+    ) -> None:
+        mock_github_request.side_effect = [
+            self._user_repositories(["repo"], total_count=600),
+            self._response(200, {"total_count": installation_total, "repositories": []}),
+        ]
+
+        if expected_token is None:
+            with pytest.raises(GitHubIntegrationError):
+                self._github().get_access_token()
+        else:
+            assert self._github().get_access_token() == expected_token
+        mock_client_request.assert_not_called()

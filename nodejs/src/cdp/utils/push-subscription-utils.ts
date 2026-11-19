@@ -1,6 +1,10 @@
 import { createHash } from 'crypto'
 
+import { template as nativePushTemplate } from '../templates/_destinations/push/push.template'
+import type { HogFunctionInvocationGlobals } from '../types'
 import { EncryptedFields } from './encryption-utils'
+
+export const NATIVE_PUSH_TEMPLATE_ID = nativePushTemplate.id
 
 export const DEVICE_SUBSCRIPTION_PREFIX = '$device_push_subscription_'
 
@@ -15,8 +19,33 @@ export interface DeviceSubscription {
     token: string
 }
 
-/** Person property key holding one device's push token. Mirrors `device_subscription_key` in
- * `push_subscriptions.py`; the two must agree or a registration lands on a key sends never read. */
+// Shared by delivery, the opt-out check and the frequency cap, so all three act on the same person.
+export function pushRecipientOtherThanRunPerson(
+    distinctIdInput: unknown,
+    globals: Pick<HogFunctionInvocationGlobals, 'event' | 'person'>
+): string | null {
+    const input = typeof distinctIdInput === 'string' ? distinctIdInput : ''
+    // Capture keeps surrounding whitespace in a distinct id, so the run's own id must match exactly first.
+    const runDistinctId = runDistinctIdMatching(input, globals)
+    if (runDistinctId !== undefined) {
+        return null
+    }
+    const distinctId = input.trim()
+    // An empty input (a batch run's event has no distinct_id) keeps the run's person.
+    return distinctId || null
+}
+
+export function runDistinctIdMatching(
+    input: string,
+    globals: Pick<HogFunctionInvocationGlobals, 'event' | 'person'>
+): string | undefined {
+    const runDistinctIds = [globals.event?.distinct_id, globals.person?.distinct_id].filter(
+        (id): id is string => typeof id === 'string' && id !== ''
+    )
+    return runDistinctIds.find((id) => id === input) ?? runDistinctIds.find((id) => id === input.trim())
+}
+
+/** Person property key holding one device's push token. */
 export function deviceSubscriptionKey(appIdentifier: string, token: string): string {
     return `${DEVICE_SUBSCRIPTION_PREFIX}${appIdentifier}:${createHash('sha256')
         .update(token)

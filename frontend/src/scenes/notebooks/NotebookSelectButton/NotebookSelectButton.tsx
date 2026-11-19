@@ -7,6 +7,7 @@ import { LemonDivider, LemonDropdown, LemonTag, ProfilePicture } from '@posthog/
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -19,12 +20,13 @@ import {
     notebookSelectButtonLogic,
 } from 'scenes/notebooks/NotebookSelectButton/notebookSelectButtonLogic'
 
-import { notebooksModel, openNotebook } from '~/models/notebooksModel'
+import { notebooksModel } from '~/models/notebooksModel'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
 import type { notebookLogicType } from '../Notebook/notebookLogic'
-import { NotebookListItemType, NotebookTarget } from '../types'
+import { NotebookListItemType } from '../types'
+import { createNotebookForResource, openNotebookForResource } from './notebookSelectActions'
 import { NOTEBOOK_DROPDOWN_LIMIT } from './notebookSelectButtonLogic'
 
 export type NotebookSelectProps = NotebookSelectButtonLogicProps & {
@@ -137,35 +139,30 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
     const logic = notebookSelectButtonLogic({ ...props })
 
     const { resource, newNotebookTitle } = props
-    const notebookResource = resource && typeof resource !== 'boolean' ? resource : null
     const { notebooksLoading, notebooksContainingResource, notebooksNotContainingResource, searchQuery, createdBy } =
         useValues(logic as any)
     const { setShowPopover, setSearchQuery, setCreatedBy, loadNotebooksContainingResource, loadAllNotebooks } =
         useActions(logic as any)
     const { createNotebook } = useActions(notebooksModel)
 
-    const openAndAddToNotebook = (notebookShortId: string, exists: boolean): void => {
-        void openNotebook(notebookShortId, NotebookTarget.Popover, (theNotebookLogic) => {
-            if (!exists && props.resource) {
-                theNotebookLogic.actions.insertAfterLastNode([props.resource])
-            }
-            props.onNotebookOpened?.(theNotebookLogic)
+    const openAndAddToNotebook = (notebookShortId: string, exists: boolean): void =>
+        openNotebookForResource({
+            notebookShortId,
+            alreadyContainsResource: exists,
+            resource,
+            onNotebookOpened: props.onNotebookOpened,
         })
-    }
 
     const openNewNotebook = (): void => {
-        const title = newNotebookTitle ?? `Notes ${dayjs().format('DD/MM')}`
-
-        createNotebook(
-            NotebookTarget.Popover,
-            title,
-            notebookResource ? [notebookResource] : undefined,
-            (theNotebookLogic) => {
+        createNotebookForResource({
+            resource,
+            newNotebookTitle,
+            createNotebook,
+            onNotebookOpened: (theNotebookLogic) => {
                 props.onNotebookOpened?.(theNotebookLogic)
                 loadNotebooksContainingResource()
-            }
-        )
-
+            },
+        })
         setShowPopover(false)
     }
 
@@ -303,19 +300,30 @@ export function NotebookSelectPopover({
     )
 }
 
-export function NotebookSelectButton({ children, onNotebookOpened, ...props }: NotebookSelectButtonProps): JSX.Element {
+export function NotebookSelectButton({
+    children,
+    onNotebookOpened,
+    ...props
+}: NotebookSelectButtonProps): JSX.Element | null {
     // if nodeLogic is available then the button is on a resource that _is already and currently in a notebook_
     const nodeLogic = useNotebookNode()
     const logic = notebookSelectButtonLogic({ ...props, onNotebookOpened })
     const { showPopover, notebooksContainingResource } = useValues(logic)
     const { loadNotebooksContainingResource } = useActions(logic)
+    // The rail redesign (`today-rail-nav`) deprecates adding to notebooks from outside a notebook. See QuillNotebookSelectButton to bring it back.
+    // Inside a notebook the button stays, because it hands the resource to the notebook already open.
+    const hidden = useFeatureFlag('TODAY_RAIL_NAV') && !nodeLogic
 
     useEffect(() => {
-        if (!nodeLogic) {
+        if (!nodeLogic && !hidden) {
             loadNotebooksContainingResource()
         }
         // oxlint-disable-next-line exhaustive-deps
-    }, [nodeLogic])
+    }, [nodeLogic, hidden])
+
+    if (hidden) {
+        return null
+    }
 
     const button = (
         <LemonButton

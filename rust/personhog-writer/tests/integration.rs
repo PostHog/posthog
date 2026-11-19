@@ -4,15 +4,17 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use common::{
     cleanup_team, create_local_kafka_producer, create_mock_kafka, create_test_pool, make_person,
     unique_team_id, KAFKA_BOOTSTRAP, TARGET_TABLE, TOPIC,
 };
+use personhog_coordination::follow::Follower;
+use personhog_coordination::types::{ChangelogConfig, Generation};
 use personhog_proto::personhog::types::v1::Person;
 use personhog_writer::buffer::BufferedPerson;
 use personhog_writer::consumer::{ConsumerTask, FlushBatch};
-use personhog_writer::kafka::PersonConsumer;
+use personhog_writer::kafka::{PersonConsumer, Source};
 use personhog_writer::pg::PgStore;
 use personhog_writer::store::{
     BatchOutcome, PersonDb, PersonWriteStore, WriteError, WriteErrorKind,
@@ -24,11 +26,22 @@ use rdkafka::producer::FutureRecord;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
 use tokio::sync::mpsc;
 
+fn source_on(topic: &str, partition: i32) -> Source {
+    Source {
+        topic: Arc::from(topic),
+        partition,
+    }
+}
+
+fn source(partition: i32) -> Source {
+    source_on(TOPIC, partition)
+}
+
 fn rows(persons: Vec<Person>) -> Vec<BufferedPerson> {
     persons
         .into_iter()
         .map(|person| BufferedPerson {
-            partition: 0,
+            source: source(0),
             person,
         })
         .collect()
@@ -67,6 +80,70 @@ async fn writer_upserts_person_to_pg() {
     assert_eq!(row.0, 1); // id
     assert_eq!(row.1, 1); // version
     assert!(!row.2); // is_identified
+
+    cleanup_team(&pool, team_id).await;
+}
+
+/// Persons created before personhog from a client's zero `DateTime` carry
+/// year 1 as `created_at`; the leader admits what this upsert binds, so
+/// the bind has to hold at the far end of the range.
+#[tokio::test]
+async fn writer_upserts_a_year_one_created_at() {
+    const YEAR_ONE_MS: i64 = -62_135_596_800_000;
+    let pool = create_test_pool().await;
+    let team_id: i32 = unique_team_id();
+
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+        common::test_permits(),
+    );
+    let person = Person {
+        created_at: YEAR_ONE_MS,
+        last_seen_at: Some(YEAR_ONE_MS),
+        ..make_person(team_id as i64, 1, 1)
+    };
+
+    assert!(matches!(
+        writer.upsert_batch(vec![person]).await,
+        BatchOutcome::Success
+    ));
+
+    let row: (DateTime<Utc>, Option<DateTime<Utc>>) = sqlx::query_as(
+        "SELECT created_at, last_seen_at FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
+    )
+    .bind(team_id)
+    .bind(1_i64)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let year_one = Utc.timestamp_millis_opt(YEAR_ONE_MS).unwrap();
+    assert_eq!(row.0, year_one);
+    assert_eq!(row.1, Some(year_one));
+
+    // The leader admits down to Postgres's own floor, Julian day 0, so
+    // that exact instant has to bind as well.
+    const PG_TIMESTAMPTZ_MIN_MS: i64 = -210_866_803_200_000;
+    let floor_person = Person {
+        created_at: PG_TIMESTAMPTZ_MIN_MS,
+        ..make_person(team_id as i64, 2, 1)
+    };
+    assert!(matches!(
+        writer.upsert_batch(vec![floor_person]).await,
+        BatchOutcome::Success
+    ));
+    let floor: (DateTime<Utc>,) = sqlx::query_as(
+        "SELECT created_at FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
+    )
+    .bind(team_id)
+    .bind(2_i64)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        floor.0,
+        Utc.timestamp_millis_opt(PG_TIMESTAMPTZ_MIN_MS).unwrap()
+    );
 
     cleanup_team(&pool, team_id).await;
 }
@@ -174,7 +251,69 @@ async fn writer_version_guard_skips_stale_updates() {
 }
 
 #[tokio::test]
-async fn writer_merges_meta_and_last_seen_instead_of_assigning() {
+async fn writer_upsert_does_not_wait_on_a_person_foreign_key_check() {
+    let pool = create_test_pool().await;
+    let team_id: i32 = unique_team_id();
+
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+        common::test_permits(),
+    );
+    assert!(matches!(
+        writer
+            .upsert_batch(vec![make_person(team_id as i64, 1, 1)])
+            .await,
+        BatchOutcome::Success
+    ));
+
+    let mut attach = pool.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO personhog_persondistinctid_tmp (distinct_id, person_id, team_id, version)
+         VALUES ('fk-check', $1, $2, 1)",
+    )
+    .bind(1_i64)
+    .bind(team_id)
+    .execute(&mut *attach)
+    .await
+    .unwrap();
+    let probe = sqlx::query(
+        "SELECT 1 FROM personhog_person_tmp WHERE team_id = $1 AND id = $2 FOR UPDATE NOWAIT",
+    )
+    .bind(team_id)
+    .bind(1_i64)
+    .execute(&pool)
+    .await;
+    assert!(
+        matches!(&probe, Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("55P03")),
+        "the distinct id insert must hold a foreign-key lock on its person: {probe:?}"
+    );
+
+    let upsert = tokio::time::timeout(
+        Duration::from_secs(5),
+        writer.upsert_batch(vec![make_person(team_id as i64, 1, 2)]),
+    )
+    .await;
+    attach.rollback().await.unwrap();
+
+    assert!(
+        matches!(&upsert, Ok(BatchOutcome::Success)),
+        "the upsert must not wait on the open distinct id insert for its person: {upsert:?}"
+    );
+    let row: (i64,) =
+        sqlx::query_as("SELECT version FROM personhog_person_tmp WHERE team_id = $1 AND id = $2")
+            .bind(team_id)
+            .bind(1_i64)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(row.0, 2);
+
+    cleanup_team(&pool, team_id).await;
+}
+
+#[tokio::test]
+async fn writer_merges_last_seen_instead_of_assigning() {
     let pool = create_test_pool().await;
     let team_id: i32 = 99_006;
     cleanup_team(&pool, team_id).await;
@@ -186,8 +325,8 @@ async fn writer_merges_meta_and_last_seen_instead_of_assigning() {
     );
 
     let fetch = |pool: sqlx::PgPool| async move {
-        let row: (i64, Option<String>, Option<DateTime<Utc>>) = sqlx::query_as(
-            "SELECT version, properties_last_updated_at::text, last_seen_at
+        let row: (i64, Option<DateTime<Utc>>) = sqlx::query_as(
+            "SELECT version, last_seen_at
              FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
         )
         .bind(team_id)
@@ -195,42 +334,28 @@ async fn writer_merges_meta_and_last_seen_instead_of_assigning() {
         .fetch_one(&pool)
         .await
         .unwrap();
-        (row.0, row.1, row.2.map(|t| t.timestamp_millis()))
+        (row.0, row.1.map(|t| t.timestamp_millis()))
     };
 
-    // Seed a row carrying meta and a last-seen value, as ingestion's direct
-    // writer produces today.
     let mut person = make_person(team_id as i64, 1, 1);
-    person.properties_last_updated_at =
-        serde_json::to_vec(&serde_json::json!({"email": "2026-01-01T00:00:00Z"})).unwrap();
     person.last_seen_at = Some(5000);
     assert!(matches!(
         writer.upsert_batch(vec![person]).await,
         BatchOutcome::Success
     ));
-    let (version, meta, last_seen) = fetch(pool.clone()).await;
-    assert_eq!((version, last_seen), (1, Some(5000)));
-    let seeded_meta = meta.expect("insert must land the seeded meta");
+    assert_eq!(fetch(pool.clone()).await, (1, Some(5000)));
 
-    // A leader-shaped record: newer version, no meta, older last-seen. The
-    // version guard admits it, but it must not erase the meta or lower the
-    // last-seen value.
-    let mut leader_record = make_person(team_id as i64, 1, 2);
-    leader_record.last_seen_at = Some(3000);
+    // A newer record with an older last-seen. The version guard admits it,
+    // but it must not lower the last-seen value.
+    let mut older_last_seen = make_person(team_id as i64, 1, 2);
+    older_last_seen.last_seen_at = Some(3000);
     assert!(matches!(
-        writer.upsert_batch(vec![leader_record]).await,
+        writer.upsert_batch(vec![older_last_seen]).await,
         BatchOutcome::Success
     ));
-    let (version, meta, last_seen) = fetch(pool.clone()).await;
-    assert_eq!(version, 2, "the version guard must admit the newer record");
     assert_eq!(
-        meta.as_deref(),
-        Some(seeded_meta.as_str()),
-        "a record without meta must leave the stored meta in place"
-    );
-    assert_eq!(
-        last_seen,
-        Some(5000),
+        fetch(pool.clone()).await,
+        (2, Some(5000)),
         "a record with an older last-seen must not lower the stored value"
     );
 
@@ -241,26 +366,17 @@ async fn writer_merges_meta_and_last_seen_instead_of_assigning() {
         writer.upsert_batch(vec![no_last_seen]).await,
         BatchOutcome::Success
     ));
-    let (version, _, last_seen) = fetch(pool.clone()).await;
-    assert_eq!((version, last_seen), (3, Some(5000)));
+    assert_eq!(fetch(pool.clone()).await, (3, Some(5000)));
 
-    // A record that does carry meta and a newer last-seen replaces both —
-    // merging must not freeze the columns at their first values.
+    // A newer last-seen replaces the stored value, so merging must not
+    // freeze the column at its first value.
     let mut advancing = make_person(team_id as i64, 1, 4);
-    advancing.properties_last_updated_at =
-        serde_json::to_vec(&serde_json::json!({"email": "2026-02-01T00:00:00Z"})).unwrap();
     advancing.last_seen_at = Some(6000);
     assert!(matches!(
         writer.upsert_batch(vec![advancing]).await,
         BatchOutcome::Success
     ));
-    let (version, meta, last_seen) = fetch(pool.clone()).await;
-    assert_eq!((version, last_seen), (4, Some(6000)));
-    assert_ne!(
-        meta.as_deref(),
-        Some(seeded_meta.as_str()),
-        "a record carrying meta must replace the stored meta"
-    );
+    assert_eq!(fetch(pool.clone()).await, (4, Some(6000)));
 
     cleanup_team(&pool, team_id).await;
 }
@@ -723,8 +839,11 @@ async fn multi_lane_consumer_routes_partitions_and_flushes_independently() {
         .await
         .expect("lane 0 should flush on size")
         .expect("lane 0 channel should be open");
-    assert_eq!(batch0.offsets.keys().copied().collect::<Vec<_>>(), vec![0]);
-    assert_eq!(batch0.offsets[&0], 3); // four messages, offsets 0..=3
+    assert_eq!(
+        batch0.offsets.keys().cloned().collect::<Vec<_>>(),
+        vec![source(0)]
+    );
+    assert_eq!(batch0.offsets[&source(0)], 3); // four messages, offsets 0..=3
     let mut persons0 = batch0.persons;
     persons0.sort_by_key(|p| p.person.id);
     assert_eq!(
@@ -767,8 +886,11 @@ async fn multi_lane_consumer_routes_partitions_and_flushes_independently() {
         .await
         .expect("lane 1 should flush on size")
         .expect("lane 1 channel should be open");
-    assert_eq!(batch1.offsets.keys().copied().collect::<Vec<_>>(), vec![1]);
-    assert_eq!(batch1.offsets[&1], 2); // three messages, offsets 0..=2
+    assert_eq!(
+        batch1.offsets.keys().cloned().collect::<Vec<_>>(),
+        vec![source(1)]
+    );
+    assert_eq!(batch1.offsets[&source(1)], 2); // three messages, offsets 0..=2
     let mut ids1: Vec<i64> = batch1.persons.iter().map(|p| p.person.id).collect();
     ids1.sort_unstable();
     assert_eq!(ids1, vec![4, 5, 6]);
@@ -848,14 +970,15 @@ async fn capped_drains_commit_only_the_partitions_they_carry() {
             .iter()
             .map(|p| if p.person.id <= 3 { 0 } else { 1 })
             .collect();
-        let committed: std::collections::HashSet<i32> = batch.offsets.keys().copied().collect();
+        let committed: std::collections::HashSet<i32> =
+            batch.offsets.keys().map(|s| s.partition).collect();
         assert_eq!(
             committed, partitions_in_batch,
             "a batch's offsets must cover exactly the partitions it drained"
         );
 
-        for (partition, offset) in &batch.offsets {
-            let entry = max_offset_seen.entry(*partition).or_insert(-1);
+        for (source, offset) in &batch.offsets {
+            let entry = max_offset_seen.entry(source.partition).or_insert(-1);
             *entry = (*entry).max(*offset);
         }
         seen_persons += batch.persons.len();
@@ -955,7 +1078,7 @@ async fn revoked_partitions_are_dropped_and_their_offsets_stay_uncommitted() {
     wait_until(Duration::from_secs(20), || {
         first
             .positions()
-            .map(|p| p.get(&0) == Some(&2) && p.get(&1) == Some(&2))
+            .map(|p| p.get(&source(0)) == Some(&2) && p.get(&source(1)) == Some(&2))
             .unwrap_or(false)
     })
     .await
@@ -981,7 +1104,7 @@ async fn revoked_partitions_are_dropped_and_their_offsets_stay_uncommitted() {
     let mut flushed_partitions = HashSet::new();
     while let Ok(Some(batch)) = tokio::time::timeout(Duration::from_secs(10), rx.recv()).await {
         flushed_ids.extend(batch.persons.iter().map(|p| p.person.id));
-        flushed_partitions.extend(batch.offsets.keys().copied());
+        flushed_partitions.extend(batch.offsets.keys().map(|s| s.partition));
     }
     flushed_ids.sort_unstable();
     let kept_ids = if kept == 0 { vec![1, 2] } else { vec![3, 4] };
@@ -992,7 +1115,7 @@ async fn revoked_partitions_are_dropped_and_their_offsets_stay_uncommitted() {
     assert_eq!(flushed_partitions, HashSet::from([kept]));
 
     first
-        .commit_offsets(&HashMap::from([(kept, 1), (revoked, 1)]))
+        .commit_offsets(&HashMap::from([(source(kept), 1), (source(revoked), 1)]))
         .unwrap();
     let mut probe = TopicPartitionList::new();
     probe.add_partition(TOPIC, kept);
@@ -1013,6 +1136,168 @@ async fn revoked_partitions_are_dropped_and_their_offsets_stay_uncommitted() {
         None,
         "the revoked partition must stay uncommitted"
     );
+}
+
+const NEXT_TOPIC: &str = "personhog_updates_g2";
+
+fn plain_member_config(bootstrap: &str, group: &str) -> ClientConfig {
+    ClientConfig::new()
+        .set("bootstrap.servers", bootstrap)
+        .set("group.id", group)
+        .set("auto.offset.reset", "earliest")
+        .set("enable.auto.commit", "false")
+        .set("enable.auto.offset.store", "false")
+        .set("session.timeout.ms", "6000")
+        .set("heartbeat.interval.ms", "1000")
+        .clone()
+}
+
+/// After a resubscribe the assignment reuses the partition numbers, so an
+/// old-topic batch still in flight must never commit onto the next topic.
+#[tokio::test]
+async fn a_late_batch_never_commits_its_offsets_onto_the_next_topic() {
+    let (mock_cluster, _producer) = common::create_mock_kafka_with_partitions(2).await;
+    mock_cluster
+        .create_topic(NEXT_TOPIC, 2, 1)
+        .expect("create the next generation");
+    let bootstrap = mock_cluster.bootstrap_servers();
+    let member = plain_member_config(&bootstrap, "test-late-batch");
+
+    let consumer = Arc::new(PersonConsumer::new(&member, TOPIC.to_string()).unwrap());
+    // Keeps the client polled, so rebalances land.
+    {
+        let consumer = Arc::clone(&consumer);
+        tokio::spawn(async move {
+            loop {
+                drop(consumer.recv().await);
+            }
+        });
+    }
+    let assigned_to = |consumer: &PersonConsumer, topic: &str| {
+        consumer
+            .assigned_partitions()
+            .ok()
+            .flatten()
+            .is_some_and(|a| a == HashSet::from([source_on(topic, 0), source_on(topic, 1)]))
+    };
+    wait_until(Duration::from_secs(20), || assigned_to(&consumer, TOPIC))
+        .await
+        .expect("the member owns the first topic");
+
+    let probe: StreamConsumer = plain_member_config(&bootstrap, "test-late-batch")
+        .create()
+        .unwrap();
+    let mut both = TopicPartitionList::new();
+    for topic in [TOPIC, NEXT_TOPIC] {
+        both.add_partition(topic, 0);
+        both.add_partition(topic, 1);
+    }
+    let committed_on = |topic: &str, partition: i32| {
+        probe
+            .committed_offsets(both.clone(), Duration::from_secs(2))
+            .ok()
+            .and_then(|c| {
+                c.elements()
+                    .iter()
+                    .find(|e| e.topic() == topic && e.partition() == partition)
+                    .and_then(|e| match e.offset() {
+                        Offset::Offset(offset) => Some(offset),
+                        _ => None,
+                    })
+            })
+    };
+
+    consumer
+        .commit_offsets(&HashMap::from([(source(0), 1)]))
+        .unwrap();
+    wait_until(Duration::from_secs(10), || {
+        committed_on(TOPIC, 0) == Some(2)
+    })
+    .await
+    .expect("the first topic's commit lands");
+
+    consumer.resubscribe(NEXT_TOPIC.to_string()).unwrap();
+    wait_until(Duration::from_secs(20), || {
+        assigned_to(&consumer, NEXT_TOPIC)
+    })
+    .await
+    .expect("the member moves to the next topic");
+
+    // Commits are sequenced on the client: the live one landing proves the late one was handled.
+    consumer
+        .commit_offsets(&HashMap::from([(source(1), 5)]))
+        .unwrap();
+    consumer
+        .commit_offsets(&HashMap::from([(source_on(NEXT_TOPIC, 0), 0)]))
+        .unwrap();
+    wait_until(Duration::from_secs(10), || {
+        committed_on(NEXT_TOPIC, 0) == Some(1)
+    })
+    .await
+    .expect("the next topic's commit lands");
+
+    assert_eq!(
+        committed_on(NEXT_TOPIC, 1),
+        None,
+        "an old-topic batch must not commit onto the next topic"
+    );
+    assert_eq!(
+        committed_on(TOPIC, 1),
+        None,
+        "a batch for a partition no longer assigned is not committed"
+    );
+    assert_eq!(committed_on(TOPIC, 0), Some(2));
+}
+
+/// The draining flag follows the subscribed topic, not the move: a writer
+/// already on the topic when it was sealed raises it too.
+#[tokio::test]
+async fn the_draining_flag_follows_the_subscribed_topic_not_the_move() {
+    let (mock_cluster, _producer) = common::create_mock_kafka_with_partitions(1).await;
+    mock_cluster
+        .create_topic(NEXT_TOPIC, 1, 1)
+        .expect("create the next generation");
+    let member = plain_member_config(&mock_cluster.bootstrap_servers(), "test-follow");
+    let consumer = PersonConsumer::new(&member, TOPIC.to_string()).unwrap();
+    let flipped = ChangelogConfig {
+        cluster: None,
+        topic: NEXT_TOPIC.to_string(),
+        partitions: 1,
+        epoch: 2,
+        writer_group: "test-follow".to_string(),
+        retire_groups: vec![],
+        draining: vec![Generation {
+            cluster: None,
+            topic: TOPIC.to_string(),
+            partitions: 1,
+            epoch: 1,
+        }],
+    };
+
+    let mut follower = Follower::default();
+    follower
+        .follow_once(&consumer, &flipped, |_| async { Ok(false) })
+        .await
+        .unwrap();
+    assert_eq!(consumer.topic(), TOPIC);
+    assert!(
+        consumer.is_draining(),
+        "the subscribed topic is a sealed generation"
+    );
+
+    follower
+        .follow_once(&consumer, &flipped, |_| async { Ok(true) })
+        .await
+        .unwrap();
+    assert_eq!(consumer.topic(), NEXT_TOPIC);
+    assert!(!consumer.is_draining());
+
+    // A later probe that cannot vouch for the old generation never sends it back.
+    follower
+        .follow_once(&consumer, &flipped, |_| async { Ok(false) })
+        .await
+        .unwrap();
+    assert_eq!(consumer.topic(), NEXT_TOPIC);
 }
 
 // ============================================================

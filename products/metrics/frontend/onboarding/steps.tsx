@@ -1,10 +1,18 @@
-import { MetricsSDKInstructions } from 'scenes/onboarding/legacy/sdks/metrics/MetricsSDKInstructions'
-import { OnboardingInstallStep } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep'
-import { type ProductOnboardingProvider } from 'scenes/onboarding/legacy/types'
-import { urls } from 'scenes/urls'
+import { Suspense } from 'react'
+
+import { lazyWithRetry } from 'lib/utils/retryImport'
+import { MetricsSDKInstructions } from 'scenes/onboarding/sdks/metrics/MetricsSDKInstructions'
+import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
+import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
+
+// Lazy so the metrics detection logic and the scene logic it reaches stay out of the onboarding
+// chunk that every product's flow loads.
+const MetricsOnboardingListeningIndicator = lazyWithRetry(() =>
+    import('./MetricsOnboardingListeningIndicator').then((m) => ({ default: m.MetricsOnboardingListeningIndicator }))
+)
 
 export const metricsOnboarding: ProductOnboardingProvider = {
     steps: (ctx) => [
@@ -18,8 +26,17 @@ export const metricsOnboarding: ProductOnboardingProvider = {
             // SDK-specific flows (Node.js, Python, Go, Java, mobile) plus its own OTel
             // config. Sharing a key would collapse the two and drop the loser's
             // instruction map depending on which product is primary.
-            render: () => <OnboardingInstallStep sdkInstructionMap={MetricsSDKInstructions} hideInstallationCheck />,
+            render: () => (
+                <OnboardingInstallStep
+                    sdkInstructionMap={MetricsSDKInstructions}
+                    hideInstallationCheck
+                    header={
+                        <Suspense fallback={null}>
+                            <MetricsOnboardingListeningIndicator />
+                        </Suspense>
+                    }
+                />
+            ),
         },
     ],
-    completeRedirectUrl: () => urls.metrics(),
 }

@@ -1,8 +1,10 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconSend } from '@posthog/icons'
 import { LemonButton, LemonSearchableSelect, Spinner } from '@posthog/lemon-ui'
 
+import { createDisabledReason } from './broadcastLifecycle'
 import { broadcastPreviewLogic } from './broadcastPreviewLogic'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
@@ -24,10 +26,14 @@ function PreviewRow({ label, children }: { label: string; children: React.ReactN
  */
 export function BroadcastEmailPreview({
     intro = 'Preview and test before this reaches the audience.',
+    showTestButton = true,
+    onModifyContent,
 }: {
     intro?: string
+    showTestButton?: boolean
+    onModifyContent?: () => void
 }): JSX.Element {
-    const { email } = useValues(broadcastWizardLogic)
+    const { email, savingForEmailEditor } = useValues(broadcastWizardLogic)
     const {
         persons,
         personsLoading,
@@ -47,15 +53,18 @@ export function BroadcastEmailPreview({
         <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-muted text-xs">{intro}</span>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconSend />}
-                    onClick={() => setModalOpen(true)}
-                    data-attr="broadcast-open-test-email"
-                >
-                    Send test email
-                </LemonButton>
+                {showTestButton ? (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconSend />}
+                        onClick={() => setModalOpen(true)}
+                        disabledReason={createDisabledReason()}
+                        data-attr="broadcast-open-test-email"
+                    >
+                        Send test email
+                    </LemonButton>
+                ) : null}
             </div>
             <SendTestBroadcastModal />
 
@@ -97,16 +106,40 @@ export function BroadcastEmailPreview({
             </div>
 
             {hasContent ? (
-                email.html ? (
-                    <iframe
-                        srcDoc={previewHtml}
-                        sandbox=""
-                        title="Email preview"
-                        className="h-96 w-full rounded border border-border bg-white"
-                    />
-                ) : (
-                    <div className="text-muted max-h-96 overflow-y-auto whitespace-pre-wrap text-sm">{previewText}</div>
-                )
+                <div className="group/email-preview relative">
+                    {email.html ? (
+                        <iframe
+                            srcDoc={previewHtml}
+                            sandbox=""
+                            title="Email preview"
+                            className="block h-96 w-full rounded border border-border bg-white"
+                        />
+                    ) : (
+                        <div className="text-muted max-h-96 overflow-y-auto whitespace-pre-wrap text-sm">
+                            {previewText}
+                        </div>
+                    )}
+                    {onModifyContent ? (
+                        <div
+                            className={clsx(
+                                'pointer-events-none absolute inset-0 flex items-center justify-center p-2 transition-opacity focus-within:opacity-100 group-hover/email-preview:opacity-100',
+                                savingForEmailEditor ? 'opacity-100' : 'opacity-0'
+                            )}
+                        >
+                            <div className="absolute inset-0 rounded bg-surface-primary opacity-50" />
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                className="pointer-events-auto"
+                                onClick={onModifyContent}
+                                loading={savingForEmailEditor}
+                                data-attr="broadcast-review-modify-content"
+                            >
+                                Click to modify content
+                            </LemonButton>
+                        </div>
+                    ) : null}
+                </div>
             ) : (
                 <span className="text-muted">No content yet</span>
             )}

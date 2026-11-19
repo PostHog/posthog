@@ -3,9 +3,11 @@ import { IconBook } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { DATA_CATALOG_DOCS_URL } from '../common'
 import { DataCatalogPreview } from './DataCatalogPreview'
 import { DataCatalogPrimaryAction } from './DataCatalogPrimaryAction'
 import { dataCatalogSetupLogic } from './dataCatalogSetupLogic'
@@ -14,6 +16,8 @@ const HedgehogStampApproved = pngHoggie(stampApprovedPng)
 
 export const dataCatalogEmptyState: SceneProductEmptyState = {
     statusLogic: dataCatalogSetupLogic,
+    scenes: [{ scene: 'DataCatalog', tabs: [undefined, 'metrics'], tabSource: 'search' }],
+    bypassFeatureFlag: FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
     config: {
         productKey: ProductKey.DATA_CATALOG,
         productName: 'Data catalog',
@@ -28,7 +32,7 @@ export const dataCatalogEmptyState: SceneProductEmptyState = {
             },
         },
         PrimaryAction: DataCatalogPrimaryAction,
-        docsUrl: 'https://posthog.com/docs/semantic-layer',
+        docsUrl: DATA_CATALOG_DOCS_URL,
         previewLabel: 'Your catalog, once defined',
         Preview: DataCatalogPreview,
     },

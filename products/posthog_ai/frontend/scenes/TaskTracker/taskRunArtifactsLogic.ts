@@ -27,6 +27,7 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import {
     getTasksRunsArtifactsDownloadCreateUrl,
     getTasksRunsArtifactsDownloadRetrieveUrl,
+    tasksRunsArtifactsPreviewRetrieve,
     tasksRunsArtifactsDismissCreate,
     getTasksRunsLivingArtifactsVersionContentUrl,
     tasksRunsLivingArtifactsList,
@@ -72,6 +73,16 @@ export interface ArtifactText {
     artifactId: string
     text: string | null
     error: string | null
+}
+
+export interface ArtifactHtmlPreview {
+    artifactId: string
+    url: string | null
+    error: string | null
+    expiresAt: number
+    scriptsEnabled: boolean
+    scriptsAvailable: boolean
+    scriptsError: string | null
 }
 
 /** The file version an edit started from, and the text it had then. */
@@ -122,6 +133,8 @@ export interface taskRunArtifactsLogicValues {
     editSaving: boolean
     editSession: ArtifactEditSession | null
     files: ArtifactFile[]
+    htmlPreview: ArtifactHtmlPreview | null
+    htmlPreviewLoading: boolean
     isEditing: boolean
     livingArtifacts: TaskRunLivingArtifactResponseApi[]
     livingArtifactsLoading: boolean
@@ -171,8 +184,23 @@ export interface taskRunArtifactsLogicActions {
     editSaved: (artifactId: string) => {
         artifactId: string
     }
-    ensureSelectedText: () => {
-        value: true
+    ensureSelectedText: (source?: boolean) => {
+        source: boolean
+    }
+    fetchHtmlPreview: ({ artifact, scripts }: HtmlPreviewRequest) => HtmlPreviewRequest
+    fetchHtmlPreviewFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    fetchHtmlPreviewSuccess: (
+        htmlPreview: ArtifactHtmlPreview,
+        payload?: HtmlPreviewRequest
+    ) => {
+        htmlPreview: ArtifactHtmlPreview
+        payload?: HtmlPreviewRequest
     }
     loadArtifactMedia: (artifact: RunArtifact) => RunArtifact
     loadArtifactMediaFailure: (
@@ -219,6 +247,7 @@ export interface taskRunArtifactsLogicActions {
         chainRuns: TaskRunDetailDTOApi[]
         payload?: string[]
     }
+    loadHtmlPreview: (artifact: RunArtifact) => RunArtifact
     loadLivingArtifacts: (runId: string) => string
     loadLivingArtifactsFailure: (
         error: string,
@@ -256,6 +285,7 @@ export interface taskRunArtifactsLogicActions {
     restoreFile: (file: ArtifactFile) => {
         file: ArtifactFile
     }
+    runHtmlPreviewScripts: (artifact: RunArtifact) => RunArtifact
     saveEdit: () => {
         value: true
     }
@@ -343,7 +373,8 @@ export interface taskRunArtifactsLogicMeta {
         editDisabledReason: (
             selectedEditableKind: EditableArtifactKind | null,
             selectedVersionIndex: number,
-            selectedText: ArtifactText | null
+            selectedText: ArtifactText | null,
+            artifactTextLoading: boolean
         ) => string | null
         selectedText: (
             selectedArtifact: RunArtifact | null,
@@ -358,6 +389,52 @@ export type taskRunArtifactsLogicType = MakeLogicType<
     TaskRunArtifactsLogicProps,
     taskRunArtifactsLogicMeta
 >
+
+function emptyHtmlPreview(artifactId: string): ArtifactHtmlPreview {
+    return {
+        artifactId,
+        url: null,
+        error: null,
+        expiresAt: 0,
+        scriptsEnabled: false,
+        scriptsAvailable: false,
+        scriptsError: null,
+    }
+}
+
+interface HtmlPreviewRequest {
+    artifact: RunArtifact
+    scripts: boolean
+}
+
+async function requestHtmlPreview(
+    projectId: number | null,
+    taskId: string,
+    artifact: RunArtifact,
+    scripts: boolean
+): Promise<ArtifactHtmlPreview> {
+    if (projectId === null || !artifact.id) {
+        return { ...emptyHtmlPreview(artifact.id ?? ''), error: 'Preview is unavailable.' }
+    }
+    try {
+        const result = await tasksRunsArtifactsPreviewRetrieve(
+            String(projectId),
+            taskId,
+            artifact.runId,
+            encodeURIComponent(artifact.living?.artifactId ?? artifact.id),
+            { ...(artifact.living ? { version: artifact.living.version } : {}), ...(scripts ? { scripts } : {}) }
+        )
+        return {
+            ...emptyHtmlPreview(artifact.id),
+            url: result.url,
+            expiresAt: Date.now() + 4 * 60 * 1000,
+            scriptsEnabled: scripts,
+            scriptsAvailable: result.scripts_available,
+        }
+    } catch {
+        return { ...emptyHtmlPreview(artifact.id), error: 'This HTML preview did not load. Try again.' }
+    }
+}
 
 // A long-lived task can have many runs. Older runs past this cap keep their files out of the list.
 const MAX_CHAIN_RUNS = 20
@@ -439,7 +516,9 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         selectVersion: (artifactId: string | null) => ({ artifactId }),
         stepArtifact: (delta: number) => ({ delta }),
         downloadArtifact: (artifact: RunArtifact) => ({ artifact }),
-        ensureSelectedText: true,
+        ensureSelectedText: (source: boolean = false) => ({ source }),
+        loadHtmlPreview: (artifact: RunArtifact) => artifact,
+        runHtmlPreviewScripts: (artifact: RunArtifact) => artifact,
         openFromUrl: (fileKey: string, versionId: string | null) => ({ fileKey, versionId }),
         reportLinkCopied: true,
         reportObjectOpened: (objectKind: string) => ({ objectKind }),
@@ -538,6 +617,22 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             null as ArtifactText | null,
             {
                 loadArtifactText: async (artifact: RunArtifact): Promise<ArtifactText | null> => {
+                    const livingUrl = artifact.living?.stored
+                        ? artifactDownloadUrl(values.currentProjectId, props.taskId, artifact)
+                        : null
+                    if (livingUrl && artifact.id) {
+                        try {
+                            // nosemgrep: prefer-codegen-api -- A file download: the generated function parses the body as JSON.
+                            const response = await api.getResponse(livingUrl)
+                            return { artifactId: artifact.id, text: await response.text(), error: null }
+                        } catch {
+                            return {
+                                artifactId: artifact.id,
+                                text: null,
+                                error: 'This file did not load. Try again later.',
+                            }
+                        }
+                    }
                     if (values.currentProjectId === null || !artifact.id || !artifact.storage_path) {
                         return null
                     }
@@ -564,8 +659,41 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 },
             },
         ],
+        htmlPreview: [
+            null as ArtifactHtmlPreview | null,
+            {
+                fetchHtmlPreview: async (
+                    { artifact, scripts }: HtmlPreviewRequest,
+                    breakpoint
+                ): Promise<ArtifactHtmlPreview> => {
+                    const previous = values.htmlPreview
+                    const preview = await requestHtmlPreview(values.currentProjectId, props.taskId, artifact, scripts)
+                    breakpoint()
+                    if (
+                        scripts &&
+                        preview.url === null &&
+                        previous !== null &&
+                        previous.artifactId === artifact.id &&
+                        previous.url
+                    ) {
+                        return {
+                            ...previous,
+                            scriptsError: "Scripts didn't start. Try again, or keep using the page with scripts off.",
+                        }
+                    }
+                    return preview
+                },
+            },
+        ],
     })),
     reducers({
+        htmlPreview: {
+            loadHtmlPreview: (_, artifact: RunArtifact): ArtifactHtmlPreview => emptyHtmlPreview(artifact.id ?? ''),
+            runHtmlPreviewScripts: (state, artifact: RunArtifact): ArtifactHtmlPreview =>
+                state !== null && state.artifactId === artifact.id && state.url
+                    ? { ...state, scriptsError: null }
+                    : emptyHtmlPreview(artifact.id ?? ''),
+        },
         activeTab: [
             'conversation' as TaskRunTab,
             { setActiveTab: (_, { tab }) => tab, openFromUrl: () => 'artifacts' },
@@ -776,11 +904,12 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         ],
         /** Why the open file can't be edited now, or null when it can. */
         editDisabledReason: [
-            (s) => [s.selectedEditableKind, s.selectedVersionIndex, s.selectedText],
+            (s) => [s.selectedEditableKind, s.selectedVersionIndex, s.selectedText, s.artifactTextLoading],
             (
                 selectedEditableKind: EditableArtifactKind | null,
                 selectedVersionIndex: number,
-                selectedText: ArtifactText | null
+                selectedText: ArtifactText | null,
+                artifactTextLoading: boolean
             ): string | null => {
                 if (!selectedEditableKind) {
                     return "This file type can't be edited here"
@@ -789,8 +918,11 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 if (selectedVersionIndex !== 0) {
                     return 'Only the latest version can be edited'
                 }
-                if (!selectedText || selectedText.text === null) {
+                if ((!selectedText || selectedText.text === null) && selectedEditableKind !== 'html') {
                     return 'The file has not loaded yet'
+                }
+                if (selectedEditableKind === 'html' && artifactTextLoading) {
+                    return 'The file is loading'
                 }
                 return null
             },
@@ -806,7 +938,7 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => {
+    listeners(({ actions, values, props, cache }) => {
         const editProperties = (session: ArtifactEditSession): Record<string, unknown> => ({
             kind: session.kind,
             content_type: session.contentType,
@@ -826,6 +958,7 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                     name: session.name,
                     content,
                     contentType: session.contentType,
+                    baseArtifactId: session.baseArtifactId,
                 })
                 // Read the manifests before the edit ends, so the new version is in the list when the preview opens.
                 actions.loadChainRunsSuccess(
@@ -845,13 +978,22 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 actions.setEditSaving(false)
             }
         }
-        const loadSelectedText = (): void => {
+        const loadSelectedText = ({ source }: { source: boolean }): void => {
             const artifact = values.selectedArtifact
             const kind = values.selectedKind
             if (values.activeTab !== 'artifacts' || !artifact || !kind) {
                 return
             }
-            if (isTextPreview(kind) && !values.selectedText) {
+            if (
+                kind === 'html' &&
+                (values.htmlPreview?.artifactId !== artifact.id ||
+                    (!values.htmlPreviewLoading &&
+                        !values.htmlPreview?.error &&
+                        (values.htmlPreview?.expiresAt ?? 0) < Date.now()))
+            ) {
+                actions.loadHtmlPreview(artifact)
+            }
+            if (isTextPreview(kind) && !values.selectedText && (kind !== 'html' || source)) {
                 actions.loadArtifactText(artifact)
             } else if (kind === 'video' && !artifact.living && !values.selectedMedia) {
                 // A living version plays from its same-origin URL, so only an uploaded video loads into a blob.
@@ -915,6 +1057,27 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 })
             },
             ensureSelectedText: loadSelectedText,
+            loadArtifactTextSuccess: ({ artifactText }) => {
+                if (!artifactText || cache.editAfterTextLoads !== artifactText.artifactId) {
+                    return
+                }
+                cache.editAfterTextLoads = null
+                if (values.selectedArtifact?.id !== artifactText.artifactId) {
+                    return
+                }
+                if (artifactText.text === null) {
+                    toast.error({ title: "Couldn't load this file for editing. Try again." })
+                    return
+                }
+                actions.startEditing()
+            },
+            loadHtmlPreview: (artifact) => {
+                actions.fetchHtmlPreview({ artifact, scripts: false })
+            },
+            runHtmlPreviewScripts: (artifact) => {
+                posthog.capture('task artifact scripts run', { living: !!values.selectedArtifact?.living })
+                actions.fetchHtmlPreview({ artifact, scripts: true })
+            },
             loadChainRuns: (runIds) => {
                 if (runIds[0]) {
                     actions.loadLivingArtifacts(runIds[0])
@@ -1006,7 +1169,14 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 const artifact = values.selectedArtifact
                 const kind = values.selectedEditableKind
                 const text = values.selectedText?.text
-                if (values.editDisabledReason || !file || !artifact?.id || !kind || typeof text !== 'string') {
+                if (values.editDisabledReason || !file || !artifact?.id || !kind) {
+                    return
+                }
+                if (typeof text !== 'string') {
+                    if (kind === 'html') {
+                        cache.editAfterTextLoads = artifact.id
+                        actions.loadArtifactText(artifact)
+                    }
                     return
                 }
                 const session: ArtifactEditSession = {

@@ -417,17 +417,18 @@ const SkillToolRenderer = memo(function SkillToolRenderer(props: ToolRendererPro
 })
 
 /**
- * ToolSearch — Claude's deferred-tool search, rendered like PostHog's MCP tool search: a "Search tools"
- * header with the query on the second line and the matched tool schemas in the body. Falls back to the
- * generic card when the input isn't the expected `{ query, max_results }` shape.
+ * ToolSearch — a deferred-tool search (Claude's built-in, or a Pi MCP proxy search resolved onto this key),
+ * rendered like PostHog's MCP tool search: a "Search tools" header with the query on the second line and
+ * the matched tool schemas in the body. Falls back to the generic card when no query is present.
  */
 const ToolSearchRenderer = memo(function ToolSearchRenderer(props: ToolRendererProps): JSX.Element {
     const { message, icon, turnComplete, turnCancelled } = props
-    const query = asString(message.rawInput.query)
-    if (!query || typeof message.rawInput.max_results !== 'number') {
+    const input = message.innerInput ?? message.rawInput
+    const query = asString(input.query)
+    if (!query) {
         return <GenericMcpToolRenderer {...props} />
     }
-    const formattedInput = formatInput(message.rawInput)
+    const formattedInput = formatInput(input)
     const output = stripCodeFences(getContentText(message.content))
     const body =
         formattedInput || output ? (

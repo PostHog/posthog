@@ -4,6 +4,7 @@ import { WebStatsBreakdown } from '~/queries/schema/schema-general'
 
 import {
     captureMarketingCrossSellClick,
+    captureMarketingCrossSellShown,
     captureMarketingCrossSellSourceCreated,
     getMarketingCrossSellAttribution,
 } from './marketingCrossSell'
@@ -46,6 +47,62 @@ describe('Marketing cross-sell attribution', () => {
             ],
         ])
         expect(getMarketingCrossSellAttribution(42)).toBeNull()
+    })
+
+    it('reports which surface converted, including clicks stored before surfaces were recorded', () => {
+        captureMarketingCrossSellClick(42, null, null, { variant: 'filter_hint', platform: 'MetaAds' })
+        captureMarketingCrossSellSourceCreated(getMarketingCrossSellAttribution(42)!, 'source-1', 'MetaAds')
+        sessionStorage.setItem(
+            'web-analytics-marketing-cross-sell',
+            JSON.stringify({
+                cross_sell_id: 'legacy',
+                cross_sell_clicked_at: 100000000,
+                breakdown: WebStatsBreakdown.InitialChannelType,
+                has_connected_sources: false,
+                team_id: 42,
+                distinct_id: 'test-user',
+            })
+        )
+        captureMarketingCrossSellSourceCreated(getMarketingCrossSellAttribution(42)!, 'source-2', 'GoogleAds')
+        const conversions = jest
+            .mocked(posthog.capture)
+            .mock.calls.filter(([name]) => name === 'web analytics marketing cross sell source created')
+            .map(([, properties]) => properties)
+        expect(conversions).toEqual([
+            expect.objectContaining({
+                cross_sell_placement: 'filter_hint',
+                platform: 'MetaAds',
+                breakdown: null,
+                source_id: 'source-1',
+            }),
+            expect.objectContaining({
+                cross_sell_id: 'legacy',
+                cross_sell_placement: 'sources_table',
+                cross_sell_variant: 'contextual_card',
+                source_id: 'source-2',
+            }),
+        ])
+    })
+
+    it('reports each surface as shown once per session', () => {
+        const card = { variant: 'quantified_card' } as const
+        captureMarketingCrossSellShown({ teamId: 42, surface: card, hasConnectedSources: false })
+        captureMarketingCrossSellShown({ teamId: 42, surface: card, hasConnectedSources: false })
+        captureMarketingCrossSellShown({
+            teamId: 42,
+            surface: { variant: 'filter_hint' },
+            hasConnectedSources: false,
+        })
+        captureMarketingCrossSellShown({ teamId: 43, surface: card, hasConnectedSources: false })
+        const shown = jest
+            .mocked(posthog.capture)
+            .mock.calls.filter(([name]) => name === 'web analytics marketing cross sell shown')
+            .map(([, properties]) => [properties?.team_id, properties?.cross_sell_placement])
+        expect(shown).toEqual([
+            [42, 'sources_table'],
+            [42, 'filter_hint'],
+            [43, 'sources_table'],
+        ])
     })
 
     it.each(['another project', 'another user', 'expired', 'future'])('rejects %s attribution', (reason) => {

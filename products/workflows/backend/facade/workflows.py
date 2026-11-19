@@ -2,12 +2,21 @@
 each with its secret inputs masked."""
 
 from products.workflows.backend.models.hog_flow.hog_flow import (
+    ADD_TO_STATIC_COHORT_TEMPLATE_ID,
+    ALL_MARKETING_CATEGORY_ID,
     BILLABLE_ACTION_TYPES,
+    COHORT_TRIGGER_TRANSITIONS,
+    OPT_OUT_OF_MESSAGES_TEMPLATE_ID,
     PERSON_DEPENDENT_ACTION_TYPES,
     ROW_SCOPED_TRIGGER_TYPES,
     SUPPORTED_ACTION_TYPES,
     TRIGGER_TYPES,
     WORKFLOW_SAFE_INTERNAL_EVENTS,
+    exit_condition_that_runs,
+    literal_opt_out_category_id,
+    literal_static_cohort_id,
+    opt_out_category_ids,
+    static_cohort_ids,
 )
 from products.workflows.backend.services.hog_flow_reads import (
     BROADCAST_STATUSES,
@@ -17,18 +26,27 @@ from products.workflows.backend.services.hog_flow_reads import (
     get_workflow,
     get_workflow_edit_state,
     get_workflow_ref,
+    get_workflow_replay_targets,
     list_workflows,
     workflow_from_fields,
     workflow_publish_impact,
 )
 
 __all__ = [
+    "ADD_TO_STATIC_COHORT_TEMPLATE_ID",
+    "ALL_MARKETING_CATEGORY_ID",
+    "OPT_OUT_OF_MESSAGES_TEMPLATE_ID",
     "BILLABLE_ACTION_TYPES",
+    "COHORT_TRIGGER_TRANSITIONS",
     "PERSON_DEPENDENT_ACTION_TYPES",
     "ROW_SCOPED_TRIGGER_TYPES",
     "SUPPORTED_ACTION_TYPES",
     "TRIGGER_TYPES",
     "WORKFLOW_SAFE_INTERNAL_EVENTS",
+    "literal_opt_out_category_id",
+    "literal_static_cohort_id",
+    "opt_out_category_ids",
+    "static_cohort_ids",
     "BROADCAST_STATUSES",
     "WORKFLOW_FIELD_FILTER_PARAMS",
     "WORKFLOW_TYPES",
@@ -36,7 +54,9 @@ __all__ = [
     "get_workflow",
     "get_workflow_edit_state",
     "get_workflow_ref",
+    "get_workflow_replay_targets",
     "list_workflows",
     "workflow_from_fields",
     "workflow_publish_impact",
+    "exit_condition_that_runs",
 ]

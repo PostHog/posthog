@@ -2,8 +2,10 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { useApmMobileLayout } from 'lib/hooks/useApmMobileLayout'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
@@ -13,6 +15,7 @@ import { Settings } from 'scenes/settings/Settings'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
@@ -38,15 +41,18 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
+    const mobileLayout = useApmMobileLayout()
     return (
-        <SceneContent className="h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
+        <SceneContent
+            className={mobileLayout ? 'min-h-full' : 'h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]'}
+        >
             <LogsSceneTabbedContent />
         </SceneContent>
     )
 }
 
 const LogsSceneTabbedContent = (): JSX.Element => {
-    const { activeTab } = useValues(logsSceneLogic)
+    const { activeTab, openSavedView } = useValues(logsSceneLogic)
     const { setActiveTab } = useActions(logsSceneLogic)
     const { status: logsSetupStatus } = useValues(productSetupStatusLogic({ productKey: ProductKey.LOGS }))
     const showServicesView = useFeatureFlag('LOGS_SERVICES_VIEW')
@@ -69,7 +75,8 @@ const LogsSceneTabbedContent = (): JSX.Element => {
         <>
             <LogsAgentIntegration activeTabIsViewer={activeTab === 'viewer'} />
             <SceneTitleSection
-                name={sceneConfigurations[Scene.Logs].name}
+                name={openSavedView?.name ?? sceneConfigurations[Scene.Logs].name}
+                nameAction={<TodayScenePinButton />}
                 resourceType={{
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}
@@ -91,7 +98,11 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 should not replay the initial loading animation. */}
             <div className={cn('flex flex-col flex-1 min-h-0', activeTab !== 'viewer' && 'hidden')}>
                 <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                    <LogsViewer id={LOGS_SCENE_VIEWER_ID} showSavedViewsButton />
+                    <LogsViewer
+                        id={LOGS_SCENE_VIEWER_ID}
+                        showSavedViewsButton
+                        keyboardShortcutsEnabled={activeTab === 'viewer'}
+                    />
                 </div>
             </div>
             {showServices && showServicesV2 && <LogsServicesV2 />}
@@ -113,6 +124,15 @@ const LogsSceneTabbedContent = (): JSX.Element => {
 }
 
 const LogsSceneFeedbackButton = (): JSX.Element => {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav) {
+        return (
+            <Button variant="outline" onClick={() => posthog.displaySurvey('019a7d95-3810-0000-34dc-404a58075f17')}>
+                <IconFeedback />
+                Feedback
+            </Button>
+        )
+    }
     return (
         <LemonButton
             size="small"

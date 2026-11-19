@@ -6,6 +6,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     ExperimentMeanMetric,
     ExperimentMetric,
+    ExperimentWarehouseNativeMathType,
     MathType,
     isExperimentMeanMetric,
 } from '~/queries/schema/schema-general'
@@ -15,12 +16,12 @@ import { ExperimentMetricMathType } from '~/types'
  * Threshold turns a per-user accumulated value into a binary outcome ("did this user reach N"),
  * so it only makes sense for math types that sum/count per user.
  */
-const THRESHOLD_ENABLED_MATH_TYPES = new Set<MathType>([
+const THRESHOLD_ENABLED_MATH_TYPES = new Set<MathType | ExperimentWarehouseNativeMathType>([
     ExperimentMetricMathType.Sum,
     ExperimentMetricMathType.TotalCount,
 ])
 
-export function isThresholdAvailableForMath(math: MathType | undefined): boolean {
+export function isThresholdAvailableForMath(math: MathType | ExperimentWarehouseNativeMathType | undefined): boolean {
     return math !== undefined && THRESHOLD_ENABLED_MATH_TYPES.has(math)
 }
 
@@ -33,7 +34,7 @@ export const isMetricThresholdCueVisible = (metric: ExperimentMetric): metric is
     isExperimentMeanMetric(metric) && !!metric.threshold && isThresholdAvailableForMath(metric.source.math)
 
 export interface ExperimentMetricThresholdProps {
-    math: MathType | undefined
+    math: MathType | ExperimentWarehouseNativeMathType | undefined
     value: number | undefined
     onChange: (value: number | undefined) => void
 }

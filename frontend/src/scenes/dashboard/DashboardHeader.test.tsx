@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
+import { expectLogic } from 'kea-test-utils'
 
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
@@ -9,11 +10,11 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardMode, DashboardPlacement, DashboardType, InsightModel } from '~/types'
 
+import { DashboardEmbeddedShareButton } from 'products/dashboards/frontend/DashboardHeaderActions'
 import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 import type { ToolStreamEvent } from 'products/posthog_ai/frontend/types/streamTypes'
 
 import { DashboardHeader, insightIsAddedToDashboard } from './DashboardHeader'
-import { DashboardEmbeddedShareButton } from './DashboardHeaderActions'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
 jest.mock('lib/components/FullScreen', () => ({
@@ -82,7 +83,7 @@ describe('DashboardHeader', () => {
     function renderHeader(opts: {
         dashboard?: DashboardType | null
         dashboardMode?: DashboardMode | null
-        dashboardEditing?: { filters: boolean; layout: boolean } | null
+        dashboardEditing?: boolean
         dashboardModeSource?: DashboardEventSource
         loading?: boolean
         spyOnLoadDashboard?: boolean
@@ -90,7 +91,7 @@ describe('DashboardHeader', () => {
         const {
             dashboard = MOCK_DASHBOARD,
             dashboardMode = null,
-            dashboardEditing = null,
+            dashboardEditing = false,
             dashboardModeSource = DashboardEventSource.Browser,
             loading = false,
         } = opts
@@ -127,37 +128,28 @@ describe('DashboardHeader', () => {
         logic.unmount()
     })
 
-    test.each([
-        { mode: 'view', dashboardEditing: null, access: AccessControlLevel.Editor, canEdit: true },
-        {
-            mode: 'filter edit',
-            dashboardEditing: { filters: true, layout: false },
-            access: AccessControlLevel.Editor,
-            canEdit: true,
-        },
-        { mode: 'view', dashboardEditing: null, access: AccessControlLevel.Viewer, canEdit: false },
-    ])(
-        'pressing E in $mode mode with $access access enters layout editing=$canEdit',
-        ({ dashboardEditing, access, canEdit }) => {
-            const dashboard = makeDashboard({
-                user_access_level: access,
-                tiles: [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
-            })
-            const { logic } = renderHeader({ dashboard, dashboardEditing })
-            act(() => logic.actions.updateContainerWidth(1200, 12))
+    it('offers Undo once a layout change has saved', async () => {
+        const dashboard = makeDashboard({
+            user_access_level: AccessControlLevel.Editor,
+            tiles: [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
+        })
+        const { logic } = renderHeader({ dashboard })
+        // Undo shows only where the layout can change, which jsdom's default window is too narrow for.
+        act(() => logic.actions.updateContainerWidth(1200, 12))
+        expect(document.querySelector('[data-attr="dashboard-layout-undo"]')).not.toBeInTheDocument()
 
-            fireEvent.keyDown(document.body, { key: 'e', code: 'KeyE' })
+        act(() => logic.actions.layoutChangeSaved({ 1: { layouts: {}, group_key: null } }))
+        const undoButton = document.querySelector('[data-attr="dashboard-layout-undo"]') as HTMLElement
+        expect(undoButton).toBeInTheDocument()
+        await expectLogic(logic, () => {
+            fireEvent.click(undoButton)
+        }).toDispatchActions(['undoLayoutChange'])
+        expect(logic.values.canUndoLayoutChange).toBe(false)
 
-            expect(logic.values.layoutEditMode).toBe(canEdit)
-            if (canEdit) {
-                expect(document.querySelector('[data-attr="dashboard-edit-mode-save"]')).toBeInTheDocument()
-            }
+        logic.unmount()
+    })
 
-            logic.unmount()
-        }
-    )
-
-    it.each([600, 768])('shows customization without layout editing at %ipx', async (width) => {
+    it.each([600, 768])('shows customization at %ipx', async (width) => {
         const originalWidth = window.innerWidth
         Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
         window.dispatchEvent(new Event('resize'))
@@ -168,14 +160,12 @@ describe('DashboardHeader', () => {
             })
             const { logic } = renderHeader({ dashboard })
 
-            expect(document.querySelector('[data-attr="dashboard-edit-mode-button"]')).not.toBeInTheDocument()
             expect(document.querySelector('[data-attr="dashboard-edit-layout-customize-dropdown"]')).toBeInTheDocument()
             fireEvent.click(
                 document.querySelector('[data-attr="dashboard-edit-layout-customize-dropdown"]') as HTMLElement
             )
             expect(await screen.findByText('Tile density')).toBeInTheDocument()
             expect(screen.queryByText('When you move a tile')).not.toBeInTheDocument()
-            expect(logic.values.layoutEditMode).toBe(false)
 
             logic.unmount()
         } finally {
@@ -245,7 +235,7 @@ describe('DashboardHeader', () => {
 
     it.each([
         { placement: DashboardPlacement.Builtin, isShared: true, visible: true },
-        { placement: DashboardPlacement.ProjectHomepage, isShared: true, visible: true },
+        { placement: DashboardPlacement.ProjectHomepage, isShared: true, visible: false },
         { placement: DashboardPlacement.Builtin, isShared: false, visible: false },
         { placement: DashboardPlacement.Public, isShared: true, visible: false },
         { placement: DashboardPlacement.Export, isShared: true, visible: false },
@@ -273,13 +263,7 @@ describe('DashboardHeader', () => {
             canEdit: true,
             hasTiles: false,
             visible: [],
-            notVisible: [
-                'dashboard-add-tile',
-                'dashboard-share-button',
-                'dashboard-edit-mode-button',
-                'dashboard-edit-mode-discard',
-                'dashboard-edit-mode-save',
-            ],
+            notVisible: ['dashboard-add-tile', 'dashboard-share-button'],
         },
         {
             scenario: 'View mode, cannot edit',
@@ -287,25 +271,17 @@ describe('DashboardHeader', () => {
             canEdit: false,
             hasTiles: false,
             visible: [],
-            notVisible: [
-                'dashboard-add-tile',
-                'dashboard-share-button',
-                'dashboard-edit-mode-discard',
-                'dashboard-edit-mode-save',
-                'dashboard-edit-mode-button',
-            ],
+            notVisible: ['dashboard-add-tile', 'dashboard-share-button'],
         },
         {
             scenario: 'Filter edit mode',
-            dashboardEditing: { filters: true, layout: false },
+            dashboardEditing: true,
             dashboardModeSource: DashboardEventSource.DashboardFilters,
             canEdit: true,
             hasTiles: false,
             visible: [],
             notVisible: [
                 'dashboard-add-tile',
-                'dashboard-edit-mode-discard',
-                'dashboard-edit-mode-save',
                 'dashboard-share-button',
                 'dashboard-edit-layout-customize-dropdown',
                 'add-text-tile-to-dashboard',
@@ -314,32 +290,12 @@ describe('DashboardHeader', () => {
         },
         {
             scenario: 'Filter edit mode, cannot edit',
-            dashboardEditing: { filters: true, layout: false },
+            dashboardEditing: true,
             dashboardModeSource: DashboardEventSource.DashboardFilters,
             canEdit: false,
             hasTiles: true,
             visible: [],
-            notVisible: [
-                'dashboard-edit-mode-button',
-                'dashboard-edit-mode-discard',
-                'dashboard-edit-mode-save',
-                'dashboard-share-button',
-            ],
-        },
-        {
-            scenario: 'Layout edit mode',
-            dashboardEditing: { filters: true, layout: true },
-            dashboardModeSource: DashboardEventSource.SceneCommonButtons,
-            canEdit: true,
-            hasTiles: false,
-            visible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save'],
-            notVisible: [
-                'dashboard-add-tile',
-                'dashboard-share-button',
-                'dashboard-edit-layout-customize-dropdown',
-                'add-text-tile-to-dashboard',
-                'dashboard-add-graph-header',
-            ],
+            notVisible: ['dashboard-share-button'],
         },
         {
             scenario: 'Fullscreen mode',
@@ -347,7 +303,7 @@ describe('DashboardHeader', () => {
             canEdit: true,
             hasTiles: false,
             visible: ['dashboard-exit-presentation-mode'],
-            notVisible: ['dashboard-share-button', 'dashboard-edit-mode-save'],
+            notVisible: ['dashboard-share-button'],
         },
     ])(
         '$scenario shows correct action buttons',

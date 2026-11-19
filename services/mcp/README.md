@@ -222,6 +222,7 @@ Available features:
 | `batch_exports`          | Data pipelines                                                                                  |
 | `business_knowledge`     | Business knowledge                                                                              |
 | `canvas`                 | Canvas                                                                                          |
+| `code_review`            | PostHog Review                                                                                  |
 | `cohorts`                | [Cohorts](https://posthog.com/docs/data/cohorts)                                                |
 | `conversations`          | Conversations                                                                                   |
 | `core`                   | Core utilities (project switching, docs search)                                                 |
@@ -244,7 +245,7 @@ Available features:
 | `health_issues`          | Health                                                                                          |
 | `hog_function_templates` | CDP function template browsing                                                                  |
 | `hog_functions`          | [Functions](https://posthog.com/docs/cdp)                                                       |
-| `insights`               | [Insights & analytics](https://posthog.com/docs/product-analytics/insights)                     |
+| `insights`               | [Run insight queries](https://posthog.com/docs/product-analytics/insights)                      |
 | `integrations`           | Integrations                                                                                    |
 | `links`                  | PostHog app URL generation                                                                      |
 | `llm_analytics`          | [AI observability](https://posthog.com/docs/ai-observability)                                   |
@@ -258,16 +259,14 @@ Available features:
 | `notebooks`              | [Notebooks](https://posthog.com/docs/notebooks)                                                 |
 | `persons`                | [Persons](https://posthog.com/docs/data/persons)                                                |
 | `platform_features`      | Platform Features                                                                               |
-| `product_analytics`      | Product analytics                                                                               |
+| `product_analytics`      | Saved insights and other product analytics tools                                                |
 | `reminders`              | Reminders                                                                                       |
 | `replay`                 | [Session replays](https://posthog.com/docs/session-replay)                                      |
 | `replay_vision`          | Replay vision                                                                                   |
 | `reverse_proxy`          | Reverse proxy record management                                                                 |
-| `review_hog`             | ReviewHog                                                                                       |
 | `signals`                | [Signals](https://posthog.com/docs/self-driving)                                                |
 | `skills`                 | Skills                                                                                          |
 | `sql`                    | SQL query execution                                                                             |
-| `stamphog`               | Stamphog                                                                                        |
 | `streamlit_apps`         | Streamlit apps                                                                                  |
 | `subscriptions`          | Subscriptions                                                                                   |
 | `surveys`                | [Surveys](https://posthog.com/docs/surveys)                                                     |
@@ -281,7 +280,7 @@ Available features:
 
 > **Note:** Hyphens and underscores are treated as equivalent in feature names (e.g., `error-tracking` and `error_tracking` both work).
 
-To view which tools are available per feature, see our [documentation](https://posthog.com/docs/model-context-protocol) or check `schema/tool-definitions-all.json`.
+To view which tools are available per feature, see our [documentation](https://posthog.com/docs/model-context-protocol) or check `schema/tool-definitions.json` (hand-written tools) and `schema/generated-tool-definitions.json` (tools generated from YAML).
 
 ### Learning and skills in cli mode
 
@@ -314,6 +313,8 @@ The cached bytes are kept for thirty days and re-extended on every refresh, so a
 No `learn`, `initialize`, or `discover` request reads the archive from Redis.
 By default it is loaded from `https://github.com/PostHog/posthog/releases/download/agent-skills-latest/skills.zip`.
 Set `POSTHOG_MCP_SKILLS_URL` to use another archive during local development.
+The context-mill omnibus skills are overlaid on that bundle from the shared copy the resource refresh publishes; set `POSTHOG_MCP_OMNIBUS_SKILLS=off` to serve the bundle alone.
+A pinned bundle (`POSTHOG_MCP_SKILLS_SHA256`) serves no overlay, and a product skill keeps its name when an overlay skill collides with it.
 Custom archive URLs use separate Redis cache namespaces so a local bundle cannot read or overwrite the published bundle's cache entry.
 Project skills are read directly from the request-authenticated project and are not cached by the MCP server.
 Only latest, active, uncategorized skills are exposed through `learn`; category-specific skills such as scouts stay on their own surfaces.
@@ -322,9 +323,20 @@ Individual `learn` responses stay below 44,000 characters; large references retu
 The fixed command syntax stays in the tool schema, while skill names and bodies are loaded only when requested.
 `consumer=plugin` and `consumer=posthog-code` omit `learn` because both surfaces already supply their own bundled skill context, regardless of the feature flag.
 
+### Skills in tools mode
+
+Tools mode lists a `learn` tool when skill discovery is enabled for the connection.
+The rules match cli mode: the `mcp-exec-skills` flag is on and the consumer is not `plugin` or `posthog-code`.
+Connections through the MCP store do not get the tool.
+The `features` and `tools` filters do not hide it, as with the tools marked `always_available`.
+Its `command` takes the skill commands above, with or without the leading `learn`, and serves them from the same catalog.
+The tools-mode `instructions` then tell the agent to search with `learn` before non-trivial PostHog work.
+
 Other clients keep the full inline command reference.
 
 ### Tool filtering
+
+In CLI mode, `tools` and `exclude_tools` also apply to namespaced connected tools. A `features` filter excludes connected tools unless `tools` explicitly names them. Exclusions take precedence over explicit selections.
 
 For finer-grained control you can allowlist specific tools by name using the `tools` query parameter. Only the exact tool names listed will be exposed, regardless of their feature category.
 
@@ -345,6 +357,7 @@ The example above exposes all flag tools plus `dashboard-get`.
 The MCP server can register either every PostHog tool individually (**tools** mode) or wrap them all behind a single `exec` CLI-like tool (**cli** mode).
 **cli is the default for all clients.**
 When the caller does not pin a mode, the server only auto-selects tools mode for a short allow-list of clients that are better served by the full per-tool roster — currently Cursor (matched by its self-reported client name or its `Cursor/…` User-Agent).
+Cursor is moving to cli mode behind the `mcp-cursor-exec-mode` feature flag: a Cursor connection with the flag on gets the cli default, and one with the flag off keeps tools mode.
 Every OpenAI surface (ChatGPT, Codex, Agent Builder, Responses API) gets the cli default. OpenAI's `openai-mcp` client caches the roster it captures for a published plugin and serves that snapshot to every user of the plugin, so the mode a plugin listing should run in is pinned on the URL submitted to OpenAI rather than inferred from a User-Agent label.
 
 You can pin the choice yourself with either a query parameter or a header. Only `tools` and `cli` are accepted:
@@ -369,6 +382,28 @@ An explicit value always wins over the client auto-detection; any other value is
 
 The cli-mode command surface is documented publicly on [posthog.com/docs/model-context-protocol/tools](https://posthog.com/docs/model-context-protocol/tools), which embeds `schema/exec-command-reference.md` at build time.
 That fragment is generated from the templates in `src/templates/sections/` by `scripts/generate-exec-docs.ts` (part of `hogli build:openapi`); edit the templates, not the fragment.
+
+### Business knowledge for your own agent
+
+Your own agent, with no PostHog user behind it, can search a project's business knowledge.
+Connect to `/mcp/business-knowledge` with a project secret API key (`phs_...`) that has the `business_knowledge:read` scope:
+
+```json
+{
+  "mcpServers": {
+    "business-knowledge": {
+      "url": "https://mcp.posthog.com/mcp/business-knowledge",
+      "headers": { "Authorization": "Bearer <your project secret API key>" }
+    }
+  }
+}
+```
+
+- The key decides the project and the region, so the URL takes no project ID. A `project_id` or `organization_id` sent with the request is ignored.
+- `/mcp/business-knowledge` accepts only project secret API keys, and every other `/mcp` path refuses them.
+- The connection lists six read-only tools: document search, document window, library list, library get, repository search, and repository file read. It reaches no other tool, whatever `features` or `tools` say.
+- These connections default to tools mode. Send `mode=cli` for the single `exec` tool.
+- Keep the key on your server. Anyone who has it can read all the business knowledge in the project, or one library when the key is limited to a library.
 
 ### Consumer attribution
 
@@ -406,7 +441,21 @@ Then replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in t
 
 The server defaults to port **8787**, reads config from `.env` (see `.env.example`), and expects a local Redis on port `6379` for session state; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint.
 
+Startup waits up to 45 seconds for Redis to become ready, including connection retries. If Redis stops reconnecting or the deadline expires, the process exits without starting the HTTP server.
+
 ### Session cache
+
+Each MCP transport session keeps its own active organization and project, including connections without a `project_id` or `organization_id` pin. An unpinned session starts from the user's active organization and project, within the credential's allowed scope. Later website changes and switches in other MCP sessions do not change that selection. `switch-project` and `switch-organization` update only the calling session; switching to another organization clears the previous project.
+
+`switch-project` requires a positive integer `projectId`. It also accepts `project_id` and `new_project_id` as aliases. If several are supplied, `projectId` takes precedence, followed by `project_id`.
+
+Clients without an MCP session ID use the SDK's `conversation_id` instead. Echo the handle returned by the first tool call on subsequent calls. A switch without a carried session or conversation handle returns an error and a new handle; retry with that handle to apply the switch. Conversation state is bound to the credential and stored separately from transport sessions. Calls without either identity start from the connection's pin or default selection. If your client cannot retain conversation handles, pin the project or organization in the connection URL.
+
+Legacy JSON-RPC batches restore each call's conversation handle independently. The wrapper's `sessionId` query parameter is an analytics hint and does not replace a conversation handle; wrapper-only calls still receive a new handle from the SDK.
+
+Session defaults are stored once, separately from explicit selections. A delayed lookup can resolve context for its own request without overwriting a completed switch.
+
+If default project discovery fails, later requests retry within the session's original organization. The first successful project discovery wins, and explicit switches still take precedence. An organization switch retains a selected project when the destination's team list confirms that it belongs there, even if the credential cannot read project metadata.
 
 A session's client context lives in one `mcp:s:<id>:c` key with a 24-hour idle expiry, refreshed on every request in the session.
 Concurrent requests merge their fields through a Lua compare-and-merge, so a field first seen mid-session is never lost to an overlapping write.
@@ -438,7 +487,7 @@ Changes in the examples repo will be reflected on the next request.
 
 - `src/` - The MCP server: Hono app (`src/hono/`), tool handlers (`src/tools/`), prompt templates (`src/templates/`)
 - `definitions/` - Hand-authored YAML tool definitions (per-product YAML lives at `products/<product>/mcp/` in the monorepo)
-- `schema/` - Generated schema files, including `tool-definitions-all.json` (the full tool catalog)
+- `schema/` - Tool definitions: hand-written `tool-definitions.json`, plus generated files such as `generated-tool-definitions.json`
 
 ### Development Commands
 
@@ -448,6 +497,7 @@ Changes in the examples repo will be reflected on the next request.
 - `pnpm run lint:fix` - Apply safe lint fixes without suggestion fixes
 - `pnpm run format` - Format code with Oxfmt only
 - `pnpm run fix` - Apply safe lint fixes, always format code, and report failures from either tool
+- `pnpm run build:cli:catalog` - Write the API tool catalog that the PostHog app serves to hog at `/api/cli/catalog.json`. The image build runs it, and so does `bin/start-backend` in the background, so local dev serves the catalog of your checkout
 
 ### Adding New Tools
 

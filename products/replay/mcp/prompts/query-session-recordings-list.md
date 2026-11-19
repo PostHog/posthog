@@ -61,6 +61,8 @@ Do not use property filters for time-based filtering. Use the `date_from`/`date_
 
 Use `limit` to control page size and `after` (from the previous response's `next_cursor`) for cursor-based pagination.
 
+Each response has `has_next` and `next_cursor`. To get the next page, send the same query again with `after` set to `next_cursor`. When `has_next` is `false`, the response is the last page and `next_cursor` is `null`.
+
 # Response shape
 
 Each recording in results contains:
@@ -138,11 +140,14 @@ Do not use `/replay/home?sessionRecordingId={id}` — that path takes the user t
 
 ## Fetch specific recordings by session ID
 
-When you have known `$session_id` values (e.g., from `$exception` events or other event data), use the `session_ids` parameter to fetch those recordings directly:
+When you have known `$session_id` values (e.g., from `$exception` events or other event data), use the `session_ids` parameter to fetch those recordings directly.
+
+The date range also applies to a lookup by session ID, and `date_from` defaults to `-3d`. Set `date_from` to cover the time of the sessions, or a recording that is older than 3 days is not found:
 
 ```json
 {
-  "session_ids": ["session-id-1", "session-id-2", "session-id-3"]
+  "session_ids": ["session-id-1", "session-id-2", "session-id-3"],
+  "date_from": "-30d"
 }
 ```
 

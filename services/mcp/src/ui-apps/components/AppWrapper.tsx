@@ -53,7 +53,7 @@ function ExpandButton({
 
     return (
         <Button
-            variant="ghost"
+            variant="default"
             size="icon-xs"
             onClick={handleToggle}
             title={isFullscreen ? 'Exit fullscreen' : 'Expand'}

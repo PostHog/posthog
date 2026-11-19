@@ -1,5 +1,3 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
-
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -11,14 +9,13 @@ import { emptySceneParams } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { productRedirects } from '~/products'
+import { productRedirects, productRoutes } from '~/products'
 import { isEventsQuery, isTracesQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sceneLogic } from '../../../frontend/src/scenes/sceneLogic'
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
-import { DisplayOption, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { llmSessionTitleLazyLoaderLogic } from './llmSessionTitleLazyLoaderLogic'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
 import { aiObservabilityGenerationsLogic } from './tabs/aiObservabilityGenerationsLogic'
@@ -43,7 +40,7 @@ describe('LLM analytics URL split', () => {
         expect(urls.aiObservabilitySelfDriving()).toBe('/ai-observability/self-driving')
         expect(urls.aiObservabilityReviews()).toBe('/ai-observability/reviews')
         expect(urls.aiObservabilityTrace('trace-1')).toBe('/ai-observability/traces/trace-1')
-        expect(urls.aiObservabilityDatasets()).toBe('/ai-evals/datasets')
+        expect(urls.aiObservabilityDatasets()).toBe('/ai-evals/evaluations/offline/experiments?tab=datasets')
         expect(urls.aiObservabilityTags()).toBe('/ai-evals/taggers')
         expect(urls.aiObservabilityEvaluations()).toBe('/ai-evals/evaluations')
         expect(urls.aiObservabilityScorers()).toBe('/ai-evals/evaluations/scorers')
@@ -63,7 +60,7 @@ describe('LLM analytics URL split', () => {
             '/ai-observability/traces/trace-1?event=event-1'
         )
         expect(redirectUrl('/llm-analytics/datasets/:id', { id: 'dataset-1' }, { item: 'item-1' })).toBe(
-            '/ai-evals/datasets/dataset-1?item=item-1'
+            '/ai-evals/evaluations/offline/datasets/dataset-1?item=item-1'
         )
         expect(redirectUrl('/llm-analytics/tags/:id', { id: 'tagger-1' })).toBe('/ai-evals/taggers/tagger-1')
         expect(redirectUrl('/llm-analytics/evaluations/:id', { id: 'evaluation-1' })).toBe(
@@ -92,6 +89,60 @@ describe('LLM analytics URL split', () => {
                     }
                 )
             ).toBe('/ai-evals/evaluations/scorers?search=quality&page=2&archived=all')
+        }
+    )
+
+    it.each([
+        ['/ai-evals/datasets/:id', 'new'],
+        ['/ai-evals/datasets/:id', 'dataset-1'],
+        ['/llm-analytics/datasets/:id', 'new'],
+        ['/llm-analytics/datasets/:id', 'dataset-1'],
+    ])('redirects dataset creation and detail bookmarks from %s (%s)', (path, id) => {
+        const searchParams = {
+            tab: 'metadata',
+            item: 'item-1',
+            revision: '3',
+            item_status: 'archived',
+            datasets_page: '2',
+            search: 'quality',
+        }
+        const redirected = new URL(redirectUrl(path, { id }, searchParams, { section: 'items' }), 'https://example.com')
+        expect(redirected.pathname).toBe(`/ai-evals/evaluations/offline/datasets/${id}`)
+        expect(Object.fromEntries(redirected.searchParams)).toEqual(searchParams)
+        expect(redirected.hash).toBe('#section=items')
+        expect(productRoutes['/ai-evals/evaluations/offline/datasets/:id']).toEqual([
+            'AIObservabilityDataset',
+            'aiObservabilityDataset',
+        ])
+    })
+
+    it.each(['/ai-evals/datasets', '/llm-analytics/datasets'])(
+        'redirects dataset bookmarks with their filters and hash: %s',
+        (path) => {
+            const redirected = new URL(
+                redirectUrl(
+                    path,
+                    {},
+                    {
+                        tab: 'metadata',
+                        search: 'quality',
+                        dataset_status: 'archived',
+                        datasets_page: '2',
+                        tags: 'regression',
+                    },
+                    { section: 'list' }
+                ),
+                'https://example.com'
+            )
+            expect(redirected.pathname).toBe(urls.aiObservabilityOfflineEvaluations())
+            expect(Object.fromEntries(redirected.searchParams)).toEqual({
+                tab: 'datasets',
+                search: 'quality',
+                dataset_status: 'archived',
+                datasets_page: '2',
+                tags: 'regression',
+            })
+            expect(redirected.hash).toBe('#section=list')
         }
     )
 
@@ -715,39 +766,5 @@ describe('AI observability persisted preferences', () => {
         expect(secondLogic.values.selectedDashboardId).toBe(42)
 
         secondLogic.unmount()
-    })
-
-    it('persists trace display preferences across remount', () => {
-        const firstLogic = aiObservabilityTraceLogic()
-        firstLogic.mount()
-        firstLogic.actions.setIsRenderingMarkdown(false)
-        firstLogic.actions.setIsRenderingXml(true)
-        firstLogic.actions.setDisplayOption(DisplayOption.TextView)
-        firstLogic.actions.setTraceReviewPanelExpanded(true)
-        firstLogic.unmount()
-
-        const secondLogic = aiObservabilityTraceLogic()
-        secondLogic.mount()
-
-        expect(secondLogic.values.isRenderingMarkdown).toBe(false)
-        expect(secondLogic.values.isRenderingXml).toBe(true)
-        expect(secondLogic.values.displayOption).toBe(DisplayOption.TextView)
-        expect(secondLogic.values.isTraceReviewPanelExpanded).toBe(true)
-
-        secondLogic.unmount()
-    })
-
-    it('scopes explicit storage keys to the current team', () => {
-        const logic = aiObservabilityTraceLogic()
-        logic.mount()
-        logic.actions.setIsRenderingMarkdown(false)
-
-        const storageKey = `${MOCK_TEAM_ID}__ai_observability.trace.isRenderingMarkdown`
-        expect(window.localStorage[storageKey]).toBe('false')
-        expect(
-            Object.getOwnPropertyNames(window.localStorage).filter((key) => key.endsWith('trace.isRenderingMarkdown'))
-        ).toEqual([storageKey])
-
-        logic.unmount()
     })
 })

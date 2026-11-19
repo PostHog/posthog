@@ -42133,6 +42133,20 @@ function wrappy (fn, cb) {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ChangeStatus = void 0;
+exports.filesFromApiRow = filesFromApiRow;
+function filesFromApiRow(row) {
+    var _a, _b;
+    if (row.status === ChangeStatus.Renamed) {
+        return [
+            { filename: row.filename, status: ChangeStatus.Added, sha: (_a = row.sha) !== null && _a !== void 0 ? _a : undefined },
+            { filename: row.previous_filename, status: ChangeStatus.Deleted }
+        ];
+    }
+    if (row.status === 'removed') {
+        return [{ filename: row.filename, status: ChangeStatus.Deleted }];
+    }
+    return [{ filename: row.filename, status: row.status, sha: (_b = row.sha) !== null && _b !== void 0 ? _b : undefined }];
+}
 var ChangeStatus;
 (function (ChangeStatus) {
     ChangeStatus["Added"] = "added";
@@ -42291,6 +42305,37 @@ exports.Filter = Filter;
 
 /***/ }),
 
+/***/ 1467:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.parseGitDiffOutput = parseGitDiffOutput;
+const file_1 = __nccwpck_require__(3765);
+const statusMap = {
+    A: file_1.ChangeStatus.Added,
+    C: file_1.ChangeStatus.Copied,
+    D: file_1.ChangeStatus.Deleted,
+    M: file_1.ChangeStatus.Modified,
+    R: file_1.ChangeStatus.Renamed,
+    U: file_1.ChangeStatus.Unmerged
+};
+function parseGitDiffOutput(output) {
+    const tokens = output.split('\u0000').filter(s => s.length > 0);
+    const files = [];
+    for (let i = 0; i + 1 < tokens.length; i += 2) {
+        files.push({
+            status: statusMap[tokens[i]],
+            filename: tokens[i + 1]
+        });
+    }
+    return files;
+}
+
+
+/***/ }),
+
 /***/ 1243:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -42330,12 +42375,11 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.HEAD = exports.NULL_SHA = void 0;
+exports.HEAD = exports.NULL_SHA = exports.parseGitDiffOutput = void 0;
 exports.getChangesInLastCommit = getChangesInLastCommit;
 exports.getChanges = getChanges;
 exports.getChangesOnHead = getChangesOnHead;
 exports.getChangesSinceMergeBase = getChangesSinceMergeBase;
-exports.parseGitDiffOutput = parseGitDiffOutput;
 exports.listAllFilesAsAdded = listAllFilesAsAdded;
 exports.getCurrentRef = getCurrentRef;
 exports.getShortName = getShortName;
@@ -42343,19 +42387,22 @@ exports.isGitSha = isGitSha;
 const exec_1 = __nccwpck_require__(5236);
 const core = __importStar(__nccwpck_require__(7484));
 const file_1 = __nccwpck_require__(3765);
+const git_diff_1 = __nccwpck_require__(1467);
+var git_diff_2 = __nccwpck_require__(1467);
+Object.defineProperty(exports, "parseGitDiffOutput", ({ enumerable: true, get: function () { return git_diff_2.parseGitDiffOutput; } }));
 exports.NULL_SHA = '0000000000000000000000000000000000000000';
 exports.HEAD = 'HEAD';
 async function getChangesInLastCommit() {
     core.startGroup(`Change detection in last commit`);
     let output = '';
     try {
-        output = (await (0, exec_1.getExecOutput)('git', ['log', '--format=', '--no-renames', '--name-status', '-z', '-n', '1'])).stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['log', '--format=', '--no-renames', '--name-status', '-z', '-n', '1'], { silent: true })).stdout;
     }
     finally {
         fixStdOutNullTermination();
         core.endGroup();
     }
-    return parseGitDiffOutput(output);
+    return (0, git_diff_1.parseGitDiffOutput)(output);
 }
 async function getChanges(base, head) {
     const baseRef = await ensureRefAvailable(base);
@@ -42365,27 +42412,29 @@ async function getChanges(base, head) {
     let output = '';
     try {
         // Two dots '..' change detection - directly compares two versions
-        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', `${baseRef}..${headRef}`]))
-            .stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', `${baseRef}..${headRef}`], {
+            silent: true
+        })).stdout;
     }
     finally {
         fixStdOutNullTermination();
         core.endGroup();
     }
-    return parseGitDiffOutput(output);
+    return (0, git_diff_1.parseGitDiffOutput)(output);
 }
 async function getChangesOnHead() {
     // Get current changes - both staged and unstaged
     core.startGroup(`Change detection on HEAD`);
     let output = '';
     try {
-        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', 'HEAD'])).stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', 'HEAD'], { silent: true }))
+            .stdout;
     }
     finally {
         fixStdOutNullTermination();
         core.endGroup();
     }
-    return parseGitDiffOutput(output);
+    return (0, git_diff_1.parseGitDiffOutput)(output);
 }
 async function getChangesSinceMergeBase(base, head, initialFetchDepth) {
     let baseRef;
@@ -42452,30 +42501,20 @@ async function getChangesSinceMergeBase(base, head, initialFetchDepth) {
     core.startGroup(`Change detection ${diffArg}`);
     let output = '';
     try {
-        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', diffArg])).stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', diffArg], { silent: true }))
+            .stdout;
     }
     finally {
         fixStdOutNullTermination();
         core.endGroup();
     }
-    return parseGitDiffOutput(output);
-}
-function parseGitDiffOutput(output) {
-    const tokens = output.split('\u0000').filter(s => s.length > 0);
-    const files = [];
-    for (let i = 0; i + 1 < tokens.length; i += 2) {
-        files.push({
-            status: statusMap[tokens[i]],
-            filename: tokens[i + 1]
-        });
-    }
-    return files;
+    return (0, git_diff_1.parseGitDiffOutput)(output);
 }
 async function listAllFilesAsAdded() {
     core.startGroup('Listing all files tracked by git');
     let output = '';
     try {
-        output = (await (0, exec_1.getExecOutput)('git', ['ls-files', '-z'])).stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['ls-files', '-z'], { silent: true })).stdout;
     }
     finally {
         fixStdOutNullTermination();
@@ -42574,14 +42613,6 @@ function fixStdOutNullTermination() {
     // Otherwise things like ::set-output wouldn't work.
     core.info('');
 }
-const statusMap = {
-    A: file_1.ChangeStatus.Added,
-    C: file_1.ChangeStatus.Copied,
-    D: file_1.ChangeStatus.Deleted,
-    M: file_1.ChangeStatus.Modified,
-    R: file_1.ChangeStatus.Renamed,
-    U: file_1.ChangeStatus.Unmerged
-};
 
 
 /***/ }),
@@ -42691,12 +42722,15 @@ const fs = __importStar(__nccwpck_require__(9896));
 const core = __importStar(__nccwpck_require__(7484));
 const github = __importStar(__nccwpck_require__(3228));
 const filter_1 = __nccwpck_require__(9037);
+const shared_image_policy_1 = __nccwpck_require__(9229);
 const file_1 = __nccwpck_require__(3765);
 const git = __importStar(__nccwpck_require__(1243));
+const reuse = __importStar(__nccwpck_require__(2671));
 const shadow = __importStar(__nccwpck_require__(5763));
 const shell_escape_1 = __nccwpck_require__(6880);
 const csv_escape_1 = __nccwpck_require__(6146);
 async function run() {
+    var _a;
     try {
         const workingDirectory = core.getInput('working-directory', { required: false });
         if (workingDirectory) {
@@ -42706,7 +42740,12 @@ async function run() {
         const ref = core.getInput('ref', { required: false });
         const base = core.getInput('base', { required: false });
         const filtersInput = core.getInput('filters', { required: true });
-        const filtersYaml = isPathInput(filtersInput) ? getConfigFileContent(filtersInput) : filtersInput;
+        let filtersYaml = isPathInput(filtersInput) ? getConfigFileContent(filtersInput) : filtersInput;
+        const policyPath = core.getInput('shared-image-policy', { required: false });
+        if (policyPath) {
+            const policy = (0, shared_image_policy_1.loadPolicy)(getConfigFileContent(policyPath));
+            filtersYaml = (0, shared_image_policy_1.projectLegacyFilters)(policy, filtersYaml);
+        }
         const listFiles = core.getInput('list-files', { required: false }).toLowerCase() || 'none';
         const initialFetchDepth = parseInt(core.getInput('initial-fetch-depth', { required: false })) || 10;
         if (!isExportFormat(listFiles)) {
@@ -42714,10 +42753,27 @@ async function run() {
             return;
         }
         const filter = new filter_1.Filter(filtersYaml);
+        const reuseConfig = reuse.loadConfig(filter, isPathInput(filtersInput) ? filtersInput : null);
         const { files, api } = await getChangedFiles(token, base, ref, initialFetchDepth);
         core.info(`Detected ${files.length} changed files`);
         const results = filter.match(files);
-        exportResults(results, listFiles);
+        const decision = reuseConfig && api
+            ? await reuse.evaluate({
+                config: reuseConfig,
+                filter,
+                files,
+                truncated: api.apiTruncated,
+                action: github.context.payload.action,
+                before: github.context.payload.before,
+                runAttempt: parseInt((_a = process.env.GITHUB_RUN_ATTEMPT) !== null && _a !== void 0 ? _a : '1') || 1,
+                now: Date.now(),
+                pr: api.pr
+            }, signal => reuse.githubApi(token, signal))
+            : null;
+        exportResults((decision === null || decision === void 0 ? void 0 : decision.reuse) ? reuse.withoutReusedKeys(results, decision.keys) : results, listFiles);
+        if (decision) {
+            await reuse.publish(decision);
+        }
         if (api) {
             await shadow.report({ filter, apiFiles: files, apiResults: results, ...api });
         }
@@ -42852,29 +42908,8 @@ async function getChangedFilesFromApi(token, pullRequest) {
             core.info(`Received ${response.data.length} items`);
             for (const row of response.data) {
                 apiRows++;
-                core.info(`[${row.status}] ${row.filename}`);
-                // There's no obvious use-case for detection of renames
-                // Therefore we treat it as if rename detection in git diff was turned off.
-                // Rename is replaced by delete of original filename and add of new filename
-                if (row.status === file_1.ChangeStatus.Renamed) {
-                    files.push({
-                        filename: row.filename,
-                        status: file_1.ChangeStatus.Added
-                    });
-                    files.push({
-                        // 'previous_filename' for some unknown reason isn't in the type definition or documentation
-                        filename: row.previous_filename,
-                        status: file_1.ChangeStatus.Deleted
-                    });
-                }
-                else {
-                    // Github status and git status variants are same except for deleted files
-                    const status = row.status === 'removed' ? file_1.ChangeStatus.Deleted : row.status;
-                    files.push({
-                        filename: row.filename,
-                        status
-                    });
-                }
+                core.info(`[${row.status}] ${JSON.stringify(row.filename)}`);
+                files.push(...(0, file_1.filesFromApiRow)(row));
             }
         }
         return { files, apiRows, apiTruncated: apiRows >= API_FILE_CAP };
@@ -42892,7 +42927,7 @@ function exportResults(results, format) {
         if (value) {
             core.info('Matching files:');
             for (const file of files) {
-                core.info(`${file.filename} [${file.status}]`);
+                core.info(`${JSON.stringify(file.filename)} [${file.status}]`);
             }
         }
         else {
@@ -42939,6 +42974,528 @@ function getErrorMessage(error) {
     return String(error);
 }
 run();
+
+
+/***/ }),
+
+/***/ 2671:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.loadConfig = loadConfig;
+exports.evaluate = evaluate;
+exports.withoutReusedKeys = withoutReusedKeys;
+exports.githubApi = githubApi;
+exports.publish = publish;
+const core = __importStar(__nccwpck_require__(7484));
+const github = __importStar(__nccwpck_require__(3228));
+const file_1 = __nccwpck_require__(3765);
+const BUDGET_MS = 20000;
+const CAPTURE_TIMEOUT_MS = 2000;
+const COMPARE_FILE_CAP = 300;
+const MAX_HEADS_WALKED = 20;
+const MAX_SOURCE_AGE_MS = 24 * 60 * 60 * 1000;
+const DETAIL_SAMPLE = 5;
+const NULL_SHA = '0000000000000000000000000000000000000000';
+const POSTHOG_HOST = 'https://us.i.posthog.com';
+const EVENT_NAME = 'posthog-ci-reuse-decision';
+const MERGE_QUEUE_BRANCH_PREFIX = 'trunk-merge/';
+const PASSING_CONCLUSIONS = ['success', 'skipped'];
+const DEFAULT_CHECK_APPS = ['github-actions'];
+const TREES_PER_QUERY = 100;
+class BudgetExceeded extends Error {
+}
+function listInput(name) {
+    return core
+        .getInput(name, { required: false })
+        .split('\n')
+        .map(item => item.trim())
+        .filter(item => item.length > 0);
+}
+function workflowPath() {
+    const workflowRef = process.env.GITHUB_WORKFLOW_REF;
+    const repository = process.env.GITHUB_REPOSITORY;
+    if (!workflowRef || !repository || !workflowRef.startsWith(`${repository}/`)) {
+        return null;
+    }
+    return workflowRef.slice(repository.length + 1).split('@')[0] || null;
+}
+function loadConfig(filter, filtersPath) {
+    const checks = listInput('reuse-checks');
+    if (checks.length === 0) {
+        return null;
+    }
+    const proofChecks = listInput('reuse-proof-checks');
+    if (proofChecks.length === 0) {
+        throw new Error(`Input 'reuse-proof-checks' is required when 'reuse-checks' is set`);
+    }
+    const known = Object.keys(filter.rules);
+    const requested = listInput('reuse-filters');
+    const unknown = requested.filter(key => !known.includes(key));
+    if (unknown.length > 0) {
+        throw new Error(`Input 'reuse-filters' names filters that do not exist: ${unknown.join(', ')}`);
+    }
+    return {
+        checks,
+        proofChecks,
+        checkApps: listInput('reuse-check-apps').length > 0 ? listInput('reuse-check-apps') : DEFAULT_CHECK_APPS,
+        filterSource: core.getInput('reuse-filter-source', { required: false }) || filtersPath || workflowPath(),
+        keys: requested.length > 0 ? requested : known,
+        blockingLabels: listInput('reuse-blocking-labels'),
+        disabled: core.getInput('reuse-disabled', { required: false }).toLowerCase() === 'true'
+    };
+}
+function inputsOf(filter, config, files) {
+    const matched = filter.match(files);
+    const inputs = new Map();
+    const scoped = config.keys.flatMap(key => matched[key]);
+    const filterSource = files.filter(file => file.filename === config.filterSource);
+    for (const file of [...scoped, ...filterSource]) {
+        if (file.status === file_1.ChangeStatus.Deleted) {
+            inputs.set(file.filename, file.status);
+        }
+        else if (file.sha) {
+            inputs.set(file.filename, `${file.status}:${file.sha}`);
+        }
+        else {
+            return null;
+        }
+    }
+    return inputs;
+}
+function differingFiles(current, previous) {
+    const names = new Set([...current.keys(), ...previous.keys()]);
+    return [...names].filter(name => current.get(name) !== previous.get(name)).sort();
+}
+function isSha(value) {
+    return value !== undefined && /^[0-9a-f]{40}$/.test(value) && value !== NULL_SHA;
+}
+function miss(reason, detail = null) {
+    return { reuse: false, reason, detail, previousSha: null };
+}
+async function compareInputs(input, api, current, sha) {
+    const previousFiles = await api.filesAt(input.pr.base.sha, sha);
+    if (previousFiles === null) {
+        return miss('file-list-truncated', sha);
+    }
+    const previous = inputsOf(input.filter, input.config, previousFiles);
+    if (previous === null) {
+        return miss('error', `a file at ${sha} has no blob sha`);
+    }
+    const differing = differingFiles(current, previous);
+    if (differing.length > 0) {
+        return miss('inputs-changed', differing.slice(0, DETAIL_SAMPLE).join(', '));
+    }
+    return null;
+}
+async function headsToWalk(input, api) {
+    const commits = await api.pullCommits(input.pr.number);
+    const index = commits.lastIndexOf(input.before);
+    if (index < 0) {
+        return [input.before];
+    }
+    return commits.slice(Math.max(0, index - MAX_HEADS_WALKED + 1), index + 1).reverse();
+}
+async function checkRunsFrom(input, api, sha, names) {
+    const lists = await Promise.all(names.map(async (name) => api.checkRuns(sha, name)));
+    return lists.map(runs => runs.filter(run => run.app !== null && input.config.checkApps.includes(run.app)));
+}
+function earliestSuite(runs) {
+    const created = runs.flatMap(run => (run.suiteCreatedAt ? [run.suiteCreatedAt] : [])).sort();
+    return created.length === runs.length ? created[0] : null;
+}
+async function proveRun(input, api) {
+    var _a;
+    const { config } = input;
+    for (const sha of await headsToWalk(input, api)) {
+        const [gates, proofs] = await Promise.all([
+            checkRunsFrom(input, api, sha, config.checks),
+            checkRunsFrom(input, api, sha, config.proofChecks)
+        ]);
+        const missing = gates.filter(runs => runs.length === 0).length;
+        for (const [index, runs] of gates.entries()) {
+            const notGreen = runs.find(run => { var _a; return !PASSING_CONCLUSIONS.includes((_a = run.conclusion) !== null && _a !== void 0 ? _a : ''); });
+            if (notGreen) {
+                return miss('previous-not-green', `${sha} ${config.checks[index]}: ${(_a = notGreen.conclusion) !== null && _a !== void 0 ? _a : notGreen.status}`);
+            }
+        }
+        if (missing === config.checks.length && sha !== input.before) {
+            continue;
+        }
+        if (missing > 0) {
+            return miss('previous-not-green', `${sha}: no check run for ${missing} of ${config.checks.length} checks`);
+        }
+        const proof = proofs.flat().find(run => run.conclusion === 'success');
+        if (proof) {
+            const startedAt = earliestSuite([...gates.flat(), proof]);
+            return startedAt ? { sha, startedAt } : miss('error', `${sha}: a check run has no check suite time`);
+        }
+    }
+    return miss('no-proven-run');
+}
+async function changedModes(input, api, current, sha) {
+    const paths = [...current].filter(([, identity]) => identity !== file_1.ChangeStatus.Deleted).map(([path]) => path);
+    if (paths.length === 0) {
+        return [];
+    }
+    const [now, then] = await Promise.all([api.modes(input.pr.head.sha, paths), api.modes(sha, paths)]);
+    return paths.filter(path => { var _a, _b; return ((_a = now.get(path)) !== null && _a !== void 0 ? _a : null) !== ((_b = then.get(path)) !== null && _b !== void 0 ? _b : null); });
+}
+async function decide(input, api) {
+    var _a, _b;
+    const { config, filter, pr } = input;
+    if (config.disabled) {
+        return miss('disabled');
+    }
+    if (input.runAttempt > 1) {
+        return miss('re-run', String(input.runAttempt));
+    }
+    if (input.action !== 'synchronize') {
+        return miss('not-a-push', (_a = input.action) !== null && _a !== void 0 ? _a : null);
+    }
+    if (((_b = pr.head.repo) === null || _b === void 0 ? void 0 : _b.full_name) !== pr.base.repo.full_name) {
+        return miss('fork');
+    }
+    if (pr.head.ref.startsWith(MERGE_QUEUE_BRANCH_PREFIX)) {
+        return miss('merge-queue');
+    }
+    const blockingLabel = pr.labels.find(label => config.blockingLabels.includes(label.name));
+    if (blockingLabel) {
+        return miss('blocking-label', blockingLabel.name);
+    }
+    if (!config.filterSource) {
+        return miss('error', 'the file that defines the filters is unknown');
+    }
+    const before = input.before;
+    if (!isSha(before)) {
+        return miss('no-previous-head');
+    }
+    if (input.truncated) {
+        return miss('file-list-truncated', 'current head');
+    }
+    const current = inputsOf(filter, config, input.files);
+    if (current === null) {
+        return miss('error', 'a current file has no blob sha');
+    }
+    if (current.size === 0) {
+        return miss('no-inputs');
+    }
+    const againstPrevious = await compareInputs(input, api, current, before);
+    if (againstPrevious) {
+        return againstPrevious;
+    }
+    const proven = await proveRun({ ...input, before }, api);
+    if ('reason' in proven) {
+        return proven;
+    }
+    if (proven.sha !== before) {
+        const againstProven = await compareInputs(input, api, current, proven.sha);
+        if (againstProven) {
+            return againstProven;
+        }
+    }
+    const otherPulls = (await api.pullsWithCommit(proven.sha)).filter(number => number !== pr.number);
+    if (otherPulls.length > 0) {
+        return miss('shared-head', `${proven.sha} is also in ${otherPulls.map(number => `#${number}`).join(', ')}`);
+    }
+    const modeChanges = await changedModes(input, api, current, proven.sha);
+    if (modeChanges.length > 0) {
+        return miss('inputs-changed', `mode of ${modeChanges.slice(0, DETAIL_SAMPLE).join(', ')}`);
+    }
+    if (Date.parse(proven.startedAt) > input.now) {
+        return miss('error', `${proven.sha} started in the future, at ${proven.startedAt}`);
+    }
+    if (input.now - Date.parse(proven.startedAt) > MAX_SOURCE_AGE_MS) {
+        return miss('previous-too-old', `${proven.sha} started ${proven.startedAt}`);
+    }
+    const timeline = await api.timeline(pr.number);
+    if (!pr.draft && timeline.readyForReviewAt !== null && proven.startedAt < timeline.readyForReviewAt) {
+        return miss('previous-ran-as-draft', proven.sha);
+    }
+    if (timeline.baseChangedAt !== null && timeline.baseChangedAt > proven.startedAt) {
+        return miss('base-changed', timeline.baseChangedAt);
+    }
+    if (await api.changedOnBranchSince(pr.base.ref, config.filterSource, proven.startedAt)) {
+        return miss('filter-changed', config.filterSource);
+    }
+    return { reuse: true, reason: 'reused', detail: null, previousSha: proven.sha };
+}
+async function evaluate(input, apiFor) {
+    const startedAt = Date.now();
+    const controller = new AbortController();
+    let timer;
+    const expiry = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+            controller.abort();
+            reject(new BudgetExceeded());
+        }, BUDGET_MS);
+    });
+    let verdict;
+    try {
+        verdict = await Promise.race([decide(input, apiFor(controller.signal)), expiry]);
+    }
+    catch (error) {
+        verdict =
+            error instanceof BudgetExceeded
+                ? miss('budget-exceeded', `${BUDGET_MS}ms`)
+                : miss('error', error instanceof Error ? error.message : String(error));
+    }
+    finally {
+        clearTimeout(timer);
+        controller.abort();
+    }
+    return { ...verdict, keys: input.config.keys, durationMs: Date.now() - startedAt, pr: input.pr };
+}
+function withoutReusedKeys(results, keys) {
+    return Object.fromEntries(Object.entries(results).map(([key, files]) => [key, keys.includes(key) ? [] : files]));
+}
+const TIMELINE_QUERY = `
+  query ($owner: String!, $name: String!, $number: Int!) {
+    repository(owner: $owner, name: $name) {
+      pullRequest(number: $number) {
+        timelineItems(last: 100, itemTypes: [READY_FOR_REVIEW_EVENT, BASE_REF_CHANGED_EVENT, BASE_REF_FORCE_PUSHED_EVENT]) {
+          nodes {
+            __typename
+            ... on ReadyForReviewEvent {
+              createdAt
+            }
+            ... on BaseRefChangedEvent {
+              createdAt
+            }
+            ... on BaseRefForcePushedEvent {
+              createdAt
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+function newest(nodes, types) {
+    var _a;
+    return ((_a = nodes
+        .filter(node => types.includes(node.__typename))
+        .map(node => node.createdAt)
+        .sort()
+        .pop()) !== null && _a !== void 0 ? _a : null);
+}
+function directoryOf(path) {
+    const slash = path.lastIndexOf('/');
+    return slash < 0 ? '' : path.slice(0, slash);
+}
+function baseNameOf(path) {
+    return path.slice(path.lastIndexOf('/') + 1);
+}
+function githubApi(token, signal) {
+    const client = github.getOctokit(token);
+    const { owner, repo } = github.context.repo;
+    const request = { signal };
+    const suites = new Map();
+    async function suiteCreatedAt(sha) {
+        let created = suites.get(sha);
+        if (!created) {
+            created = client
+                .paginate(client.rest.checks.listSuitesForRef, { owner, repo, ref: sha, per_page: 100, request })
+                .then(rows => new Map(rows.map(suite => { var _a; return [suite.id, (_a = suite.created_at) !== null && _a !== void 0 ? _a : '']; })));
+            suites.set(sha, created);
+        }
+        return created;
+    }
+    async function trees(sha, directories) {
+        const variables = { owner, name: repo, request };
+        const fields = directories.map((directory, index) => {
+            variables[`e${index}`] = `${sha}:${directory}`;
+            return `t${index}: object(expression: $e${index}) { ... on Tree { entries { name mode } } }`;
+        });
+        const declarations = directories.map((_, index) => `$e${index}: String!`).join(', ');
+        const response = await client.graphql(`query ($owner: String!, $name: String!, ${declarations}) { repository(owner: $owner, name: $name) { ${fields.join(' ')} } }`, variables);
+        return new Map(directories.map((directory, index) => { var _a, _b; return [directory, (_b = (_a = response.repository[`t${index}`]) === null || _a === void 0 ? void 0 : _a.entries) !== null && _b !== void 0 ? _b : []]; }));
+    }
+    return {
+        async filesAt(baseSha, headSha) {
+            var _a;
+            const response = await client.rest.repos.compareCommitsWithBasehead({
+                owner,
+                repo,
+                basehead: `${baseSha}...${headSha}`,
+                per_page: 1,
+                request
+            });
+            const rows = (_a = response.data.files) !== null && _a !== void 0 ? _a : [];
+            return rows.length >= COMPARE_FILE_CAP ? null : rows.flatMap(file_1.filesFromApiRow);
+        },
+        async checkRuns(sha, name) {
+            const response = await client.rest.checks.listForRef({
+                owner,
+                repo,
+                ref: sha,
+                check_name: name,
+                filter: 'latest',
+                per_page: 100,
+                request
+            });
+            const created = await suiteCreatedAt(sha);
+            return response.data.check_runs.map(run => {
+                var _a, _b;
+                return ({
+                    status: run.status,
+                    conclusion: run.conclusion,
+                    app: (_b = (_a = run.app) === null || _a === void 0 ? void 0 : _a.slug) !== null && _b !== void 0 ? _b : null,
+                    suiteCreatedAt: (run.check_suite && created.get(run.check_suite.id)) || null
+                });
+            });
+        },
+        async modes(sha, paths) {
+            const directories = [...new Set(paths.map(directoryOf))];
+            const chunks = Array.from({ length: Math.ceil(directories.length / TREES_PER_QUERY) }, (_, index) => directories.slice(index * TREES_PER_QUERY, (index + 1) * TREES_PER_QUERY));
+            const listings = new Map((await Promise.all(chunks.map(async (chunk) => trees(sha, chunk)))).flatMap(listing => [...listing]));
+            return new Map(paths.map(path => {
+                var _a, _b, _c;
+                return [
+                    path,
+                    (_c = (_b = (_a = listings.get(directoryOf(path))) === null || _a === void 0 ? void 0 : _a.find(entry => entry.name === baseNameOf(path))) === null || _b === void 0 ? void 0 : _b.mode) !== null && _c !== void 0 ? _c : null
+                ];
+            }));
+        },
+        async pullCommits(pullNumber) {
+            const commits = await client.paginate(client.rest.pulls.listCommits, {
+                owner,
+                repo,
+                pull_number: pullNumber,
+                per_page: 100,
+                request
+            });
+            return commits.map(commit => commit.sha);
+        },
+        async pullsWithCommit(sha) {
+            const response = await client.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner,
+                repo,
+                commit_sha: sha,
+                per_page: 100,
+                request
+            });
+            return response.data.map(pull => pull.number);
+        },
+        async timeline(pullNumber) {
+            const response = await client.graphql(TIMELINE_QUERY, {
+                owner,
+                name: repo,
+                number: pullNumber,
+                request
+            });
+            const nodes = response.repository.pullRequest.timelineItems.nodes;
+            return {
+                readyForReviewAt: newest(nodes, ['ReadyForReviewEvent']),
+                baseChangedAt: newest(nodes, ['BaseRefChangedEvent', 'BaseRefForcePushedEvent'])
+            };
+        },
+        async changedOnBranchSince(branch, path, since) {
+            const response = await client.rest.repos.listCommits({
+                owner,
+                repo,
+                sha: branch,
+                path,
+                since,
+                per_page: 1,
+                request
+            });
+            return response.data.length > 0;
+        }
+    };
+}
+async function capture(apiKey, decision) {
+    const repo = process.env.GITHUB_REPOSITORY || null;
+    const pr = decision.pr;
+    const response = await fetch(`${POSTHOG_HOST}/capture/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            api_key: apiKey,
+            event: EVENT_NAME,
+            distinct_id: repo || 'paths-filter-reuse',
+            properties: {
+                repo,
+                reused: decision.reuse,
+                reason: decision.reason,
+                detail: decision.detail,
+                filters: decision.keys,
+                previous_sha: decision.previousSha,
+                pr_number: pr.number,
+                head_sha: pr.head.sha,
+                head_ref: pr.head.ref,
+                draft: pr.draft,
+                duration_ms: decision.durationMs,
+                workflow: process.env.GITHUB_WORKFLOW || null,
+                job: process.env.GITHUB_JOB || null,
+                run_id: process.env.GITHUB_RUN_ID || null,
+                run_attempt: process.env.GITHUB_RUN_ATTEMPT || null
+            }
+        }),
+        signal: AbortSignal.timeout(CAPTURE_TIMEOUT_MS)
+    });
+    if (!response.ok) {
+        throw new Error(`capture ${response.status}`);
+    }
+}
+async function publish(decision) {
+    var _a;
+    core.setOutput('reused', decision.reuse);
+    core.setOutput('reused_from', (_a = decision.previousSha) !== null && _a !== void 0 ? _a : '');
+    const filters = decision.keys.join(', ');
+    if (decision.reuse) {
+        const message = `No file that the ${filters} filters match changed since ${decision.previousSha}, where this workflow passed. Those filters report no changes, so the jobs they gate are skipped and the earlier result stands.`;
+        core.notice(message, { title: 'Earlier CI result reused' });
+        await core.summary
+            .addRaw(`**Earlier CI result reused.** ${message}`, true)
+            .write()
+            .catch(() => undefined);
+    }
+    else {
+        core.info(`reuse: not reused (${decision.reason}${decision.detail ? `: ${decision.detail}` : ''})`);
+    }
+    const apiKey = process.env.PATHS_FILTER_REUSE_POSTHOG_TOKEN;
+    if (apiKey) {
+        await capture(apiKey, decision).catch(error => {
+            core.info(`reuse: capture skipped (${error instanceof Error ? error.message : String(error)})`);
+        });
+    }
+}
 
 
 /***/ }),
@@ -43242,6 +43799,172 @@ async function report(input) {
     finally {
         core.endGroup();
     }
+}
+
+
+/***/ }),
+
+/***/ 9229:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.loadPolicy = loadPolicy;
+exports.projectLegacyFilters = projectLegacyFilters;
+const yaml = __importStar(__nccwpck_require__(4281));
+const filter_1 = __nccwpck_require__(9037);
+const file_1 = __nccwpck_require__(3765);
+function object(value, location) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`${location}: expected a mapping`);
+    }
+    return value;
+}
+function shape(value, required, optional, location) {
+    const missing = required.find(key => !Object.prototype.hasOwnProperty.call(value, key));
+    if (missing !== undefined) {
+        throw new Error(`${location}: missing required field '${missing}'`);
+    }
+    const unknown = Object.keys(value).find(key => !required.includes(key) && !optional.includes(key));
+    if (unknown !== undefined) {
+        throw new Error(`${location}: unknown field '${unknown}'`);
+    }
+}
+function paths(value, location) {
+    if (!Array.isArray(value) || value.length === 0) {
+        throw new Error(`${location}: expected a nonempty path list`);
+    }
+    const resolved = value.flat(Infinity);
+    for (const entry of resolved) {
+        if (typeof entry === 'string')
+            continue;
+        const statuses = object(entry, location);
+        for (const pattern of Object.values(statuses)) {
+            if (typeof pattern !== 'string' && !(Array.isArray(pattern) && pattern.every(p => typeof p === 'string'))) {
+                throw new Error(`${location}: expected string or string array`);
+            }
+        }
+    }
+    return resolved;
+}
+function validateChannelPaths(entries, location) {
+    const statuses = new Set([file_1.ChangeStatus.Added, file_1.ChangeStatus.Modified, file_1.ChangeStatus.Deleted]);
+    for (const entry of entries) {
+        if (typeof entry === 'string') {
+            if (!entry.trim())
+                throw new Error(`${location}: empty pattern`);
+            continue;
+        }
+        if (!Object.keys(entry).length)
+            throw new Error(`${location}: empty status mapping`);
+        for (const [qualifier, value] of Object.entries(entry)) {
+            if (qualifier.split('|').some(status => !statuses.has(status.trim().toLowerCase()))) {
+                throw new Error(`${location}: unsupported or empty status qualifier '${qualifier}'`);
+            }
+            const patterns = typeof value === 'string' ? [value] : value;
+            if (!patterns.length || patterns.some(pattern => !pattern.trim())) {
+                throw new Error(`${location}: empty status patterns`);
+            }
+        }
+    }
+    const matcher = new filter_1.Filter(yaml.dump({ channel: entries }));
+    if (!matcher.rules.channel.some(rule => !rule.negated)) {
+        throw new Error(`${location}: channel requires a positive pattern`);
+    }
+}
+function validatedMatcherYaml(filters) {
+    const serialized = yaml.dump(filters);
+    const authored = Object.keys(filters);
+    const represented = Object.keys(new filter_1.Filter(serialized).rules);
+    const missing = authored.find(name => !represented.includes(name));
+    if (missing !== undefined || represented.length !== authored.length) {
+        const name = missing !== null && missing !== void 0 ? missing : represented.find(name => !authored.includes(name));
+        throw new Error(`filters.${name}: not representable by the matcher`);
+    }
+    return serialized;
+}
+function loadPolicy(text) {
+    const root = object(yaml.load(text), 'policy');
+    shape(root, ['version', 'filters', 'images'], [], 'policy');
+    if (root.version !== 1)
+        throw new Error('policy.version: expected 1');
+    const filters = Object.fromEntries(Object.entries(object(root.filters, 'filters')).map(([name, value]) => [name, paths(value, `filters.${name}`)]));
+    validatedMatcherYaml(filters);
+    const images = Object.create(null);
+    for (const [image, value] of Object.entries(object(root.images, 'images'))) {
+        const definition = object(value, `images.${image}`);
+        shape(definition, ['channels'], [], `images.${image}`);
+        const channels = Object.create(null);
+        for (const [name, channelValue] of Object.entries(object(definition.channels, `images.${image}.channels`))) {
+            const location = `images.${image}.channels.${name}`;
+            if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(name))
+                throw new Error(`${location}: invalid channel key`);
+            const channel = object(channelValue, location);
+            shape(channel, ['repository', 'filter'], ['bootstrapPolicyDigest'], location);
+            if (typeof channel.repository !== 'string' ||
+                channel.repository.length < 2 || channel.repository.length > 256 ||
+                !/^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*\/)*[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(channel.repository))
+                throw new Error(`${location}.repository: invalid ECR repository path`);
+            if (typeof channel.filter !== 'string' || !Object.prototype.hasOwnProperty.call(filters, channel.filter)) {
+                throw new Error(`${location}.filter: unknown filter`);
+            }
+            if (channel.bootstrapPolicyDigest !== undefined &&
+                (typeof channel.bootstrapPolicyDigest !== 'string' || !/^[0-9a-f]{64}$/.test(channel.bootstrapPolicyDigest))) {
+                throw new Error(`${location}.bootstrapPolicyDigest: expected lowercase SHA-256`);
+            }
+            validateChannelPaths(filters[channel.filter], `filters.${channel.filter}`);
+            channels[name] = channel;
+        }
+        images[image] = { channels };
+    }
+    return { version: 1, filters, images };
+}
+function projectLegacyFilters(policy, inlineYaml) {
+    const inline = object(yaml.load(inlineYaml), 'legacy filters');
+    const merged = Object.assign(Object.create(null), inline);
+    for (const name of Object.keys(policy.filters)) {
+        if (Object.prototype.hasOwnProperty.call(inline, name) && inline[name] !== null) {
+            throw new Error(`legacy filters.${name}: duplicate policy`);
+        }
+        merged[name] = policy.filters[name];
+    }
+    if (Object.values(merged).some(value => value === null))
+        throw new Error('legacy filters: unresolved policy reference');
+    return validatedMatcherYaml(merged);
 }
 
 

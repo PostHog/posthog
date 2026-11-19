@@ -1,16 +1,18 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
+import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
+
 import { makeSpan } from './__mocks__/span'
+import { traceViewLogic } from './components/TraceView/traceViewLogic'
 import { PREFETCH_SPANS, tracingDataLogic } from './tracingDataLogic'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
-import { tracingViewerLogic } from './tracingViewerLogic'
+import { traceViewId, tracingViewerLogic } from './tracingViewerLogic'
 
 describe('tracingViewerLogic', () => {
     let logic: ReturnType<typeof tracingViewerLogic.build>
@@ -58,35 +60,58 @@ describe('tracingViewerLogic', () => {
         expect(getTraceSpy.mock.calls.length > 0).toBe(shouldFetch)
     })
 
+    it("does not carry a previous trace's load failure into a trace opened from a complete prefetch", () => {
+        logic.actions.openTrace('trace-a', { ts: '2024-01-01T00:00:00Z' })
+        tracingDataLogic().actions.loadTraceSpansFailure('boom')
+        expect(logic.values.traceSpansLoadFailed).toBe(true)
+
+        const spans = [makeSpan({ uuid: 'span-0', span_id: 'span-0', trace_id: 'trace-b', is_root_span: true })]
+        tracingDataLogic().actions.fetchSpansSuccess(spans)
+        logic.actions.openTrace('trace-b', { ts: '2024-01-01T00:00:00Z' })
+
+        expect(logic.values.selectedTraceId).toBe('trace-b')
+        expect(logic.values.traceSpansLoadFailed).toBe(true)
+        expect(logic.values.selectedTraceLoadFailed).toBe(false)
+    })
+
+    // A full fetch can fail, then a later list refresh prefetch the same trace complete (root span,
+    // under the cap). Reopening it skips the fetch and must not read the earlier attempt's failure.
+    it("does not carry a trace's own previous load failure into its reopen from a complete prefetch", () => {
+        logic.actions.openTrace('trace-a', { ts: '2024-01-01T00:00:00Z' })
+        tracingDataLogic().actions.loadTraceSpansFailure('boom')
+        expect(logic.values.selectedTraceLoadFailed).toBe(true)
+        logic.actions.closeTrace()
+
+        const spans = [makeSpan({ uuid: 'span-0', span_id: 'span-0', trace_id: 'trace-a', is_root_span: true })]
+        tracingDataLogic().actions.fetchSpansSuccess(spans)
+        logic.actions.openTrace('trace-a', { ts: '2024-01-01T00:00:00Z' })
+
+        expect(logic.values.selectedTraceId).toBe('trace-a')
+        expect(getTraceSpy).toHaveBeenCalledTimes(1)
+        expect(logic.values.selectedTraceLoadFailed).toBe(false)
+    })
+
     // Without a ts hint the lookup must not fall back to a date window, or a trace older than that
-    // window never loads. With a hint, the lookup stays bounded to the hint's narrow window.
+    // window never loads. With a hint, the lookup stays bounded to the hint's narrow window, and
+    // retries by id alone when the hint sits too far from the spans to find any.
+    const hintWindow = { date_from: '2023-12-31T23:00:00.000Z', date_to: '2024-01-01T01:00:00.000Z' }
     it.each([
-        [
-            'a ts hint',
-            '2024-01-01T00:00:00Z',
-            { date_from: '2023-12-31T23:00:00.000Z', date_to: '2024-01-01T01:00:00.000Z' },
-        ],
-        ['no ts hint', undefined, undefined],
-    ])('openTrace with %s sends the matching date range', async (_name, ts, dateRange) => {
+        ['a ts hint that finds spans', '2024-01-01T00:00:00Z', true, [hintWindow], 1],
+        ['a ts hint that finds no spans', '2024-01-01T00:00:00Z', false, [hintWindow, undefined], 1],
+        ['no ts hint', undefined, false, [undefined], 0],
+    ])('openTrace with %s sends the matching date ranges', async (_name, ts, firstFindsSpans, dateRanges, loaded) => {
+        const span = makeSpan({ uuid: 'span-0', span_id: 'span-0', trace_id: 'trace-x', is_root_span: true })
+        getTraceSpy
+            .mockResolvedValueOnce({ results: firstFindsSpans ? [span] : [], hasMore: false, nextOffset: null })
+            .mockResolvedValueOnce({ results: [span], hasMore: false, nextOffset: null })
+
         await expectLogic(logic, () => logic.actions.openTrace('trace-x', { ts })).toFinishAllListeners()
 
-        expect(getTraceSpy.mock.calls[0][1].dateRange).toEqual(dateRange)
+        expect(getTraceSpy.mock.calls.map(([, params]) => params.dateRange)).toEqual(dateRanges)
+        expect(tracingDataLogic().values.traceSpans).toHaveLength(loaded)
     })
 
     describe('identity resolution', () => {
-        // The featureFlags reducer persists, so it survives initKeaTests. Each test sets the flag
-        // it wants, otherwise a flag one test enables leaks into the next.
-        beforeEach(() => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], {})
-        })
-
-        function enableCorrelationLinks(): void {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS], {
-                [FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS]: true,
-            })
-        }
-
         // A partial prefetch batch is the trace's complete span set, so no fetch runs and the
         // identity resolves from it.
         function openCompleteTrace(attributes: Record<string, string>): void {
@@ -98,23 +123,14 @@ describe('tracingViewerLogic', () => {
         }
 
         it('resolves the person and session the open trace belongs to', () => {
-            enableCorrelationLinks()
-
             openCompleteTrace({ posthogDistinctId: 'user-1', sessionId: 'session-1' })
 
             expect(logic.values.traceIdentity).toEqual({ distinctId: 'user-1', sessionId: 'session-1' })
         })
 
-        it('resolves nothing while the flag is off', () => {
-            openCompleteTrace({ posthogDistinctId: 'user-1', sessionId: 'session-1' })
-
-            expect(logic.values.traceIdentity).toEqual({ distinctId: null, sessionId: null })
-        })
-
         // "The spans disagree, so promote neither" can only be decided over the whole trace, so a
         // known-partial span set must resolve nothing rather than trust the page it has.
         it('resolves nothing while more spans can still load', async () => {
-            enableCorrelationLinks()
             getTraceSpy.mockResolvedValue({
                 results: [
                     makeSpan({
@@ -135,17 +151,11 @@ describe('tracingViewerLogic', () => {
             expect(logic.values.traceIdentity).toEqual({ distinctId: null, sessionId: null })
         })
 
-        // The Errors tab needs the session without the person, so it follows the error badge flag.
-        // Reading the person flag instead would leave the tab empty on a team that has only badges.
-        it.each([
-            ['the error badge flag', FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES, 'session-1'],
-            ['the person and replay flag', FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS, null],
-        ])('resolves traceSessionId under %s', (_name, flag, expected) => {
-            featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
-
+        // The Errors tab needs the session without the person.
+        it('resolves traceSessionId for the open trace', () => {
             openCompleteTrace({ posthogDistinctId: 'user-1', sessionId: 'session-1' })
 
-            expect(logic.values.traceSessionId).toBe(expected)
+            expect(logic.values.traceSessionId).toBe('session-1')
         })
 
         // A badge sits on one row and resolves that row's session. A trace touching two sessions
@@ -157,9 +167,6 @@ describe('tracingViewerLogic', () => {
             ['the prefetched list', false],
             ['the list when the fetched trace page omits it', true],
         ])('resolves traceSessionId from the anchored span in %s', (_name, tracePageOmitsAnchor) => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES], {
-                [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true,
-            })
             const spanA = makeSpan({
                 uuid: 'span-0',
                 span_id: 'span-0',
@@ -186,17 +193,121 @@ describe('tracingViewerLogic', () => {
     // The drawer stays mounted from one row to the next, so a person reading the Logs tab row by
     // row must not be bounced back to Attributes on every click.
     it('keeps the inspector tab across traces while the drawer is open, and resets it on close', () => {
+        const view = traceViewLogic({ id: traceViewId('default') })
         logic.actions.openTrace('trace-x')
-        logic.actions.selectInspectorTab('logs')
+        expect(view.values.activeInspectorTab).toBe('attributes')
+        view.actions.setInspectorTab('logs')
 
         logic.actions.openTrace('trace-y')
-        expect(logic.values.inspectorTab).toBe('logs')
+        expect(view.values.activeInspectorTab).toBe('logs')
 
         logic.actions.openTrace('trace-z', { tab: 'errors' })
-        expect(logic.values.inspectorTab).toBe('errors')
+        expect(view.values.activeInspectorTab).toBe('errors')
 
         logic.actions.closeTrace()
-        expect(logic.values.inspectorTab).toBe('attributes')
+        logic.actions.openTrace('trace-x')
+        expect(view.values.activeInspectorTab).toBe('attributes')
+    })
+
+    // The URL carries the selected span, so a click in the tree and a span from the URL must each reach the other.
+    it('keeps the selected span in step between the URL and the span tree', () => {
+        const view = traceViewLogic({ id: traceViewId('default') })
+        logic.actions.openTrace('trace-x', { spanId: 'aa01' })
+        expect(view.values.selectedSpanId).toBe('AA01')
+
+        view.actions.selectSpan('BB02')
+        expect(logic.values.selectedSpanId).toBe('BB02')
+
+        logic.actions.selectSpan('cc03')
+        expect(view.values.selectedSpanId).toBe('CC03')
+
+        logic.actions.selectSpan(null)
+        expect(view.values.selectedSpanId).toBeNull()
+    })
+
+    it('steps through spans with J only while the drawer is open', () => {
+        const view = traceViewLogic({ id: traceViewId('default') })
+        const press = (): void => {
+            document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true }))
+        }
+        logic.actions.openTrace('trace-x', { spanId: 'aa01' })
+        view.actions.setSpans([
+            makeSpan({ uuid: 'AA01', span_id: 'AA01', trace_id: 'trace-x' }),
+            makeSpan({ uuid: 'BB02', span_id: 'BB02', trace_id: 'trace-x' }),
+        ])
+
+        press()
+        expect(logic.values.selectedSpanId).toBe('BB02')
+
+        logic.actions.closeTrace()
+        view.actions.selectSpan('AA01')
+        press()
+        expect(view.values.selectedSpanId).toBe('AA01')
+    })
+
+    it('leaves J to the full-screen logs viewer while it is open over the drawer', () => {
+        const view = traceViewLogic({ id: traceViewId('default') })
+        const press = (): void => {
+            document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true }))
+        }
+        logic.actions.openTrace('trace-x', { spanId: 'aa01' })
+        view.actions.setSpans([
+            makeSpan({ uuid: 'AA01', span_id: 'AA01', trace_id: 'trace-x' }),
+            makeSpan({ uuid: 'BB02', span_id: 'BB02', trace_id: 'trace-x' }),
+        ])
+
+        logsViewerModalLogic.actions.openLogsViewerModal()
+        press()
+        expect(view.values.selectedSpanId).toBe('AA01')
+
+        logsViewerModalLogic.actions.closeLogsViewerModal()
+        press()
+        expect(view.values.selectedSpanId).toBe('BB02')
+    })
+
+    it('steps only the most recently opened view when two have span keys', () => {
+        const view = traceViewLogic({ id: traceViewId('default') })
+        const overlay = traceViewLogic({ id: 'overlay' })
+        overlay.mount()
+        const press = (): void => {
+            document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true }))
+        }
+        logic.actions.openTrace('trace-x', { spanId: 'aa01' })
+        view.actions.setSpans([
+            makeSpan({ uuid: 'AA01', span_id: 'AA01', trace_id: 'trace-x' }),
+            makeSpan({ uuid: 'BB02', span_id: 'BB02', trace_id: 'trace-x' }),
+        ])
+        overlay.actions.showTrace('CC01', null)
+        overlay.actions.setSpans([
+            makeSpan({ uuid: 'CC01', span_id: 'CC01', trace_id: 'trace-y' }),
+            makeSpan({ uuid: 'DD02', span_id: 'DD02', trace_id: 'trace-y' }),
+        ])
+        overlay.actions.enableSpanKeys('[data-attr="overlay"]', 'drawer')
+
+        press()
+        expect(overlay.values.selectedSpanId).toBe('DD02')
+        expect(view.values.selectedSpanId).toBe('AA01')
+
+        overlay.actions.disableSpanKeys()
+        press()
+        expect(view.values.selectedSpanId).toBe('BB02')
+        overlay.unmount()
+    })
+
+    // The open is the entry of the compare modal's funnel, so each open sends exactly one event.
+    it('sends one compare flame event per open', () => {
+        const treeSpy = jest.spyOn(api.tracing, 'tree').mockResolvedValue({ results: [], compare: null })
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        try {
+            logic.actions.openCompareFlame('SELECT orders', 'postgres')
+
+            expect(captureSpy.mock.calls.filter(([event]) => event === 'tracing compare flame opened')).toEqual([
+                ['tracing compare flame opened'],
+            ])
+        } finally {
+            captureSpy.mockRestore()
+            treeSpy.mockRestore()
+        }
     })
 
     describe('closeTrace', () => {

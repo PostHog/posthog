@@ -22,6 +22,15 @@ from products.tasks.backend.logic.services.agent_command import (
 
 
 class TestValidateSandboxUrl:
+    @pytest.mark.parametrize("cloud", [True, False])
+    @patch("products.tasks.backend.logic.services.agent_command.socket.getaddrinfo")
+    def test_a_listed_out_of_band_host_is_refused_on_cloud_only(self, mock_getaddrinfo, cloud):
+        with patch("products.tasks.backend.logic.services.agent_command.is_cloud", return_value=cloud):
+            error = validate_sandbox_url("https://abc.oast.live")
+
+        assert mock_getaddrinfo.called is not cloud
+        assert (error == "Host is not allowed") is cloud
+
     @pytest.mark.parametrize(
         "url,expected_error",
         [

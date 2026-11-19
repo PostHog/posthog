@@ -1,15 +1,22 @@
 import { useActions, useValues } from 'kea'
 import useResizeObserver from 'use-resize-observer'
 
-import { IconCheckCircle, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonLabel, Spinner } from '@posthog/lemon-ui'
+import { IconBrowser, IconCheckCircle, IconImage, IconWarning } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonCollapse,
+    LemonLabel,
+    LemonSegmentedButton,
+    Spinner,
+} from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { hasWildcard } from 'lib/components/heatmaps/heatmapUrlMatch'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -21,6 +28,7 @@ import { AccessControlLevel, AccessControlResourceType, HeatmapType } from '~/ty
 
 import { HeatmapAdvancedSettings } from '../../components/HeatmapAdvancedSettings'
 import { heatmapCaptureSettingsLogic, isUrlCoveredByAllowlist } from '../../components/heatmapCaptureSettingsLogic'
+import { HeatmapPageFields } from '../../components/HeatmapPageFields'
 import { HeatmapRecording } from '../../components/HeatmapRecording'
 import { HeatmapRecordingFallback } from '../../components/HeatmapRecordingFallback'
 import { heatmapsBrowserLogic } from '../../components/heatmapsBrowserLogic'
@@ -33,9 +41,9 @@ import { heatmapLogic } from './heatmapLogic'
 import { HeatmapNewSceneLegacy } from './HeatmapNewSceneLegacy'
 
 const CREATION_STEPS: { key: HeatmapCreationStep; label: string }[] = [
-    { key: 'page', label: 'Choose page' },
-    { key: 'background', label: 'Choose background' },
-    { key: 'review', label: 'Review and create' },
+    { key: 'page', label: 'Page' },
+    { key: 'background', label: 'Background' },
+    { key: 'review', label: 'Review' },
 ]
 
 function HeatmapCreationStepper(): JSX.Element {
@@ -45,60 +53,32 @@ function HeatmapCreationStepper(): JSX.Element {
     const furthestIndex = CREATION_STEPS.findIndex(({ key }) => key === furthestStep)
 
     return (
-        <nav className="flex items-center justify-center mb-6" aria-label="Heatmap creation progress">
+        <nav
+            className="flex flex-wrap items-center gap-2 border-b pb-4 max-w-3xl"
+            aria-label="Heatmap creation progress"
+        >
             {CREATION_STEPS.map((step, index) => {
-                const isCompleted = index < currentIndex
                 const isCurrent = step.key === currentStep
-                const isAvailable = index <= furthestIndex
                 const label =
                     step.key === 'review' && recordingHeatmapOpen
-                        ? 'Explore heatmap'
+                        ? 'Explore'
                         : step.key === 'review' && pageAccess === 'login'
                           ? 'Review background'
                           : step.label
 
                 return (
-                    <div key={step.key} className="flex items-center">
-                        {index > 0 ? (
-                            <div
-                                className={cn(
-                                    'w-6 h-px transition-colors',
-                                    index <= currentIndex ? 'bg-success' : 'bg-border-primary'
-                                )}
-                            />
-                        ) : null}
-                        <button
-                            type="button"
-                            onClick={() => navigateToStep(step.key)}
-                            disabled={!isAvailable}
-                            className={cn(
-                                'flex items-center gap-1.5 px-2 py-1 rounded transition-colors',
-                                isAvailable && 'hover:bg-fill-button-tertiary-hover cursor-pointer',
-                                !isAvailable && 'cursor-not-allowed opacity-60'
-                            )}
-                            aria-current={isCurrent ? 'step' : undefined}
-                        >
-                            {isCompleted ? (
-                                <IconCheckCircle className="size-5 text-success" />
-                            ) : (
-                                <span
-                                    className={cn(
-                                        'flex items-center justify-center size-5 rounded-full text-xs font-semibold',
-                                        isCurrent
-                                            ? 'bg-accent text-primary-inverse ring-2 ring-accent/25'
-                                            : 'bg-surface-secondary text-secondary border border-primary'
-                                    )}
-                                >
-                                    {index + 1}
-                                </span>
-                            )}
-                            <span
-                                className={cn('text-sm', isCurrent ? 'font-semibold text-primary' : 'text-secondary')}
-                            >
-                                {label}
-                            </span>
-                        </button>
-                    </div>
+                    <LemonButton
+                        key={step.key}
+                        type={isCurrent ? 'primary' : 'tertiary'}
+                        size="small"
+                        onClick={() => navigateToStep(step.key)}
+                        disabled={index > furthestIndex}
+                        aria-current={isCurrent ? 'step' : undefined}
+                        data-attr={`heatmap-creation-step-${step.key}`}
+                        icon={index < currentIndex ? <IconCheckCircle /> : <span>{index + 1}</span>}
+                    >
+                        {label}
+                    </LemonButton>
                 )
             })}
         </nav>
@@ -109,17 +89,14 @@ function CaptureReadiness(): JSX.Element {
     const { captureEnabled } = useValues(heatmapCreationLogic)
 
     return captureEnabled ? (
-        <div className="flex items-center gap-2 text-success">
+        <div className="flex items-center gap-2 text-secondary text-sm">
             <IconCheckCircle className="size-5 shrink-0" />
-            <span>Heatmap capture is enabled for this project.</span>
+            <span>Capture enabled</span>
         </div>
     ) : (
         <LemonBanner type="warning">
             <div className="flex flex-col gap-3">
-                <div>
-                    Heatmap capture is off for this project. You can still create this heatmap, but it will remain empty
-                    until capture is enabled.
-                </div>
+                <div>Capture is off. Enable it to start collecting interactions.</div>
                 <HeatmapsEnableCapture />
             </div>
         </LemonBanner>
@@ -140,9 +117,9 @@ function CaptureUrlReadiness(): JSX.Element | null {
 
     if (covered) {
         return (
-            <div className="flex items-center gap-2 text-success">
+            <div className="flex items-center gap-2 text-secondary text-sm">
                 <IconCheckCircle className="size-5 shrink-0" />
-                <span>This page is covered by your heatmap capture URLs.</span>
+                <span>Page included in capture URLs</span>
             </div>
         )
     }
@@ -167,7 +144,7 @@ function MatchingDataReadiness(): JSX.Element {
     if (pageDataCheckLoading) {
         return (
             <div className="flex items-center gap-2 text-muted">
-                <Spinner /> Checking for matching heatmap data from the last 30 days
+                <Spinner /> Checking for interactions…
             </div>
         )
     }
@@ -176,18 +153,18 @@ function MatchingDataReadiness(): JSX.Element {
         return (
             <div className="flex items-center gap-2 text-muted">
                 <IconWarning className="size-5 shrink-0" />
-                Enter a valid page and heatmap data URL to check for matching data.
+                Choose a page to check for interactions.
             </div>
         )
     }
 
     if (currentPageDataCheck.outcome === 'detected') {
         return (
-            <div className="flex items-center gap-2 text-success">
+            <div className="flex items-center gap-2 text-secondary text-sm">
                 <IconCheckCircle className="size-5 shrink-0" />
                 <span>
-                    Found {currentPageDataCheck.count?.toLocaleString()} matching interaction
-                    {currentPageDataCheck.count === 1 ? '' : 's'} from the last 30 days.
+                    {currentPageDataCheck.count?.toLocaleString()} interaction
+                    {currentPageDataCheck.count === 1 ? '' : 's'} in the last 30 days
                 </span>
             </div>
         )
@@ -201,8 +178,8 @@ function MatchingDataReadiness(): JSX.Element {
     return (
         <LemonBanner type="warning" action={checkAgain}>
             {currentPageDataCheck.outcome === 'none'
-                ? 'No matching heatmap data was found in the last 30 days. You can create the heatmap now and collect data later.'
-                : "We couldn't check for matching data. You can try again or continue creating the heatmap."}
+                ? 'No interactions in the last 30 days. You can create this heatmap and collect data later.'
+                : "Couldn't check for interactions. Try again or continue creating your heatmap."}
         </LemonBanner>
     )
 }
@@ -216,14 +193,11 @@ function ChoosePageStep(): JSX.Element {
     const { continueFromPage } = useActions(heatmapCreationLogic)
 
     return (
-        <LemonCard hoverEffect={false} className="max-w-3xl mx-auto">
+        <LemonCard hoverEffect={false} className="max-w-3xl w-full">
             <div className="flex flex-col gap-6">
                 <div>
                     <h2 className="mb-1">Choose a page</h2>
-                    <p className="text-muted mb-0">
-                        Pick the page to display behind the heatmap. We'll also check whether it is ready to collect and
-                        show interaction data.
-                    </p>
+                    <p className="text-muted mb-0">See where visitors click, move, and scroll on your website.</p>
                 </div>
                 <div>
                     <LemonLabel>Page URL</LemonLabel>
@@ -265,25 +239,23 @@ function ChoosePageStep(): JSX.Element {
                     ) : null}
                 </div>
 
-                <div className="flex flex-col gap-3">
-                    <h3 className="mb-0">Readiness</h3>
-                    <CaptureReadiness />
-                    <CaptureUrlReadiness />
-                    <MatchingDataReadiness />
-                </div>
-
                 <HeatmapAdvancedSettings
                     dataUrlPlaceholderFallback="https://www.example.com/*"
                     dataUrlHelp="Defaults to the page URL. Add * to combine data from multiple pages, for example https://www.example.com/users/*."
                     consentHelp={null}
                     showDataUrl
                     showConsent={false}
-                    header="Heatmap data URL"
+                    header="Combine data from multiple pages"
                 />
                 {dataUrl && pageStepBlockReason?.includes('heatmap data URL') ? (
                     <LemonBanner type="error">Enter a complete URL including http:// or https://.</LemonBanner>
                 ) : null}
 
+                <div className="flex flex-col gap-3 border-t pt-4" aria-live="polite">
+                    <CaptureReadiness />
+                    <CaptureUrlReadiness />
+                    <MatchingDataReadiness />
+                </div>
                 <div className="flex justify-end">
                     <LemonButton
                         type="primary"
@@ -309,24 +281,33 @@ function PublicBackgroundChoice(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <LemonRadio
-                options={[
-                    {
-                        label: 'Screenshot',
-                        value: 'screenshot',
-                        description:
-                            'A headless browser captures the public page. Pages that require login may show the login screen.',
-                    },
-                    {
-                        label: 'Iframe',
-                        value: 'iframe',
-                        description:
-                            'Loads the page live. It must allow embedding and cannot use your signed-in browser session.',
-                    },
-                ]}
-                value={type}
-                onChange={(value: HeatmapType) => setType(value)}
-            />
+            <div>
+                <LemonLabel>Display page as</LemonLabel>
+                <LemonSegmentedButton
+                    options={[
+                        {
+                            label: 'Screenshot',
+                            value: 'screenshot',
+                            icon: <IconImage />,
+                            'data-attr': 'heatmap-background-screenshot',
+                        },
+                        {
+                            label: 'Live page',
+                            value: 'iframe',
+                            icon: <IconBrowser />,
+                            'data-attr': 'heatmap-background-iframe',
+                        },
+                    ]}
+                    value={type}
+                    onChange={(value: HeatmapType) => setType(value)}
+                    size="small"
+                />
+                <p className="text-muted text-sm mt-2 mb-0">
+                    {type === 'screenshot'
+                        ? 'Capture the full page as a static background.'
+                        : 'Load your website directly. The page must allow embedding.'}
+                </p>
+            </div>
 
             {type === 'iframe' && !isDisplayUrlAuthorized ? (
                 <LemonBanner type="warning">
@@ -365,17 +346,26 @@ function PublicBackgroundChoice(): JSX.Element {
             ) : null}
 
             {type === 'screenshot' ? (
-                <>
-                    <HeatmapScreenshotAccessNotice url={displayUrl} />
-                    <HeatmapAdvancedSettings
-                        dataUrlPlaceholderFallback=""
-                        dataUrlHelp={null}
-                        consentHelp="Ask the browser to close cookie or consent popups before capturing the screenshot. This can slow down or fail the render on some sites, so it is off by default."
-                        showDataUrl={false}
-                        showConsent
-                        header="Screenshot options"
-                    />
-                </>
+                <LemonCollapse
+                    panels={[
+                        {
+                            key: 'screenshot-options',
+                            header: 'Screenshot options',
+                            content: (
+                                <div className="flex flex-col gap-4">
+                                    <HeatmapPageFields
+                                        dataUrlPlaceholderFallback=""
+                                        dataUrlHelp={null}
+                                        consentHelp="Close cookie and consent banners before capturing. This may take longer."
+                                        showDataUrl={false}
+                                        showConsent
+                                    />
+                                    <HeatmapScreenshotAccessNotice url={displayUrl} />
+                                </div>
+                            ),
+                        },
+                    ]}
+                />
             ) : null}
         </div>
     )
@@ -389,54 +379,52 @@ function ChooseBackgroundStep(): JSX.Element {
         useActions(heatmapCreationLogic)
 
     return (
-        <LemonCard hoverEffect={false} className="max-w-3xl mx-auto">
+        <LemonCard hoverEffect={false} className="max-w-3xl w-full">
             <div className="flex flex-col gap-6">
                 <div>
                     <h2 className="mb-1">Choose a background</h2>
-                    <p className="text-muted mb-0">
-                        Tell us whether visitors need to sign in before they can see this page.
-                    </p>
+                    <p className="text-muted mb-0">Choose how to display the page beneath your heatmap.</p>
                 </div>
 
-                <LemonRadio
-                    options={[
-                        {
-                            label: 'No, this page is public',
-                            value: 'public',
-                            description: 'Create a saved heatmap using a screenshot or live iframe.',
-                        },
-                        {
-                            label: 'Yes, this page requires login',
-                            value: 'login',
-                            description: 'Use a session recording so the signed-in page state is available.',
-                        },
-                    ]}
-                    value={pageAccess ?? undefined}
-                    onChange={setPageAccess}
-                />
+                <div>
+                    <LemonLabel>Page access</LemonLabel>
+                    <LemonSegmentedButton
+                        options={[
+                            { label: 'Public page', value: 'public', 'data-attr': 'heatmap-page-access-public' },
+                            { label: 'Requires login', value: 'login', 'data-attr': 'heatmap-page-access-login' },
+                        ]}
+                        value={pageAccess ?? undefined}
+                        onChange={setPageAccess}
+                        size="small"
+                    />
+                </div>
 
                 {pageAccess === 'public' ? <PublicBackgroundChoice /> : null}
                 {pageAccess === 'login' && displayUrl ? (
                     <div className="flex flex-col gap-4">
-                        <LemonBanner
-                            type="info"
-                            action={{
-                                children: 'Open in toolbar',
-                                to: appEditorUrl(displayUrl, { userIntent: 'heatmaps' }),
-                                targetBlank: true,
-                                type: 'primary',
-                                'data-attr': 'heatmap-creation-toolbar-capture',
-                            }}
-                        >
-                            Open your site with the toolbar, turn on Heatmaps, then choose "Save to PostHog". It
-                            captures the signed-in page from your browser and saves the heatmap here, with no session
-                            recording needed.
-                        </LemonBanner>
-                        <LemonBanner type="info">
-                            Session recordings preserve the signed-in page state. Choose a recording and we will guide
-                            you through selecting the exact moment to use as the background. We will bring that state
-                            back here for review before opening the heatmap. Recording backgrounds are not saved.
-                        </LemonBanner>
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
+                            <div className="flex-1 min-w-48">
+                                <h3 className="mb-1">Capture from your browser</h3>
+                                <p className="text-muted text-sm mb-0">
+                                    Save the signed-in page using the toolbar's “Save to PostHog” action.
+                                </p>
+                            </div>
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconBrowser />}
+                                to={appEditorUrl(displayUrl, { userIntent: 'heatmaps' })}
+                                targetBlank
+                                data-attr="heatmap-creation-toolbar-capture"
+                            >
+                                Open in toolbar
+                            </LemonButton>
+                        </div>
+                        <div>
+                            <h3 className="mb-1">Use a session recording</h3>
+                            <p className="text-muted text-sm mb-0">
+                                Choose a recorded moment for a temporary heatmap. Recording backgrounds aren't saved.
+                            </p>
+                        </div>
                         <HeatmapRecordingFallback
                             url={displayUrl}
                             showEmptyState
@@ -446,7 +434,7 @@ function ChooseBackgroundStep(): JSX.Element {
                     </div>
                 ) : null}
 
-                <div className="flex justify-between">
+                <div className="flex flex-wrap justify-between gap-2 border-t pt-4">
                     <LemonButton type="secondary" onClick={goBack}>
                         Back
                     </LemonButton>
@@ -472,7 +460,7 @@ function ChooseBackgroundStep(): JSX.Element {
 
 function ReviewStatus({ warning, children }: { warning?: boolean; children: React.ReactNode }): JSX.Element {
     return (
-        <div className={cn('flex items-center gap-2', warning ? 'text-warning' : 'text-success')}>
+        <div className={cn('flex items-center gap-2 text-sm', warning ? 'text-warning' : 'text-secondary')}>
             {warning ? <IconWarning className="size-5 shrink-0" /> : <IconCheckCircle className="size-5 shrink-0" />}
             <span>{children}</span>
         </div>
@@ -547,34 +535,34 @@ function ReviewStep(): JSX.Element {
     const usesRecordingBackground = pageAccess === 'login' && !!recordingBackgroundData
 
     return (
-        <LemonCard hoverEffect={false} className={cn('mx-auto', usesRecordingBackground ? 'max-w-5xl' : 'max-w-3xl')}>
+        <LemonCard hoverEffect={false} className={cn('w-full', usesRecordingBackground ? 'max-w-5xl' : 'max-w-3xl')}>
             <div className="flex flex-col gap-6">
                 <div>
                     <h2 className="mb-1">{usesRecordingBackground ? 'Review background' : 'Review and create'}</h2>
                     <p className="text-muted mb-0">
                         {usesRecordingBackground
                             ? 'Confirm the page state you selected before opening the heatmap.'
-                            : 'Readiness warnings will not stop creation. The heatmap will start showing interactions as data arrives.'}
+                            : 'Your heatmap will show interactions as data arrives.'}
                     </p>
                 </div>
 
-                <dl className="grid grid-cols-[minmax(8rem,auto)_1fr] gap-x-4 gap-y-3">
-                    <dt className="font-semibold">Page</dt>
+                <dl className="grid grid-cols-1 @min-[32rem]/main-content:grid-cols-[8rem_minmax(0,1fr)] gap-x-4 gap-y-2 mb-0">
+                    <dt className="text-muted">Page</dt>
                     <dd className="ph-no-capture break-all">{displayUrl}</dd>
-                    <dt className="font-semibold">Matching rule</dt>
+                    <dt className="text-muted">Heatmap data</dt>
                     <dd>
                         <span className="font-medium">
                             {hasWildcard(effectiveDataUrl ?? '') ? 'Pattern' : 'Exact URL'}:
                         </span>{' '}
                         <span className="ph-no-capture break-all">{effectiveDataUrl}</span>
                     </dd>
-                    <dt className="font-semibold">Background</dt>
+                    <dt className="text-muted">Background</dt>
                     <dd>
                         {usesRecordingBackground
                             ? 'Session recording'
                             : type === 'screenshot'
                               ? 'Screenshot'
-                              : 'Iframe'}
+                              : 'Live page'}
                     </dd>
                 </dl>
 
@@ -586,7 +574,7 @@ function ReviewStep(): JSX.Element {
                     />
                 ) : null}
 
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-2 border-t pt-4">
                     <ReviewStatus warning={!captureEnabled}>
                         {captureEnabled ? 'Heatmap capture is enabled.' : 'Heatmap capture is disabled.'}
                     </ReviewStatus>
@@ -599,7 +587,7 @@ function ReviewStep(): JSX.Element {
                     </ReviewStatus>
                 </div>
 
-                <div className="flex justify-between">
+                <div className="flex flex-wrap justify-between gap-2 border-t pt-4">
                     <LemonButton type="secondary" onClick={goBack} disabled={!usesRecordingBackground && loading}>
                         Back
                     </LemonButton>
@@ -644,11 +632,10 @@ function RecordingHeatmapStep(): JSX.Element {
                     <div>
                         <h2 className="mb-1">Explore your heatmap</h2>
                         <p className="text-muted mb-0">
-                            This temporary heatmap uses the session recording moment you selected. It won't be added to
-                            your saved heatmaps.
+                            This heatmap uses your selected recording moment and isn't saved.
                         </p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                         <LemonButton type="secondary" onClick={closeRecordingHeatmap}>
                             Back to review
                         </LemonButton>

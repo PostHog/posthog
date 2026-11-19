@@ -12,4 +12,4 @@ The MCP server exposes atomic create and partial-update tools for billing alert 
 
 Billing alerts evaluate one UTC billing date every 24 hours. Alert configuration and destination changes are committed atomically through the generated billing API, while the shared alerting backend owns destination persistence and delivery.
 
-The Billing tab uses the shared alert editor, destination editor, advanced options, next-evaluation status, and evaluation-history chart from `products/alerts`. Billing supplies its own form, threshold labels, value formatting, API calls, and notification destination payloads.
+The Billing tab uses the shared alert editor, destination editor, next-evaluation status, and evaluation-history chart from `products/alerts`. Billing supplies its own form, threshold labels, value formatting, API calls, and notification destination payloads.

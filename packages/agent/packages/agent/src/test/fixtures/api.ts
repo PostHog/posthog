@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { vi } from "vitest";
 import type { PostHogAPIClient } from "../../posthog-api";
-import type { TaskRun } from "../../types";
+import type { Task, TaskRun } from "../../types";
 
 const execFileAsync = promisify(execFile);
 
@@ -76,6 +76,20 @@ export function createMockApiClient(
     fetchTaskRunLogs: vi.fn(),
     ...overrides,
   } as unknown as PostHogAPIClient;
+}
+
+export function createTask(overrides: Partial<Task> = {}): Task {
+  return {
+    id: "task-1",
+    task_number: null,
+    slug: "task-1",
+    title: "Task title",
+    description: "Task description",
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+    origin_product: "user_created",
+    ...overrides,
+  };
 }
 
 export function createTaskRun(overrides: Partial<TaskRun> = {}): TaskRun {

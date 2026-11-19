@@ -13,6 +13,8 @@ import {
 import { LemonButton } from '@posthog/lemon-ui'
 
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
+import { usableId } from 'lib/components/ViewTraceButton/usableId'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -30,7 +32,7 @@ import { useCellScrollControls } from 'products/logs/frontend/components/Virtual
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 import { getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
-import { traceUrl } from 'products/tracing/frontend/traceLinks'
+import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 
 import { FABGroup } from './FABGroup'
 
@@ -63,6 +65,8 @@ export function LogRowFAB({
         AccessControlResourceType.Metrics,
         AccessControlLevel.Editor
     )
+    const traceId = usableId(log.trace_id)
+    const openTraceDialog = useOpenTraceDialog()
     const tracingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Tracing,
         AccessControlLevel.Viewer
@@ -132,12 +136,22 @@ export function LogRowFAB({
                     data-attr="logs-viewer-copy-link"
                 />
                 <LogContextSelector log={log} noPadding />
-                {log.trace_id && !tracingDisabledReason && (
+                {traceId && !tracingDisabledReason && (
                     <LemonButton
                         size="xsmall"
                         noPadding
                         icon={<IconListTree />}
-                        to={traceUrl({ traceId: log.trace_id, spanId: log.span_id || null, ts: log.timestamp })}
+                        to={traceUrl({ traceId, spanId: usableId(log.span_id), ts: log.timestamp })}
+                        onClick={(event) =>
+                            openTraceDialog(
+                                event,
+                                { traceId, spanId: usableId(log.span_id), ts: log.timestamp },
+                                {
+                                    entryPoint: 'log_row_action',
+                                    openedFrom: { body: log.cleanBody, severity: log.severity_text },
+                                }
+                            )
+                        }
                         tooltip="View trace"
                         aria-label="View trace"
                         className="text-muted"

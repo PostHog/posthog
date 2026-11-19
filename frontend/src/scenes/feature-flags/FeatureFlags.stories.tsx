@@ -1,12 +1,18 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
+
+import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
 
 import featureFlags from './__mocks__/feature_flags.json'
 import { featureFlagLogic } from './featureFlagLogic'
@@ -14,6 +20,103 @@ import { featureFlagLogic } from './featureFlagLogic'
 const STALE_FLAG_ID = 1498
 const RULES_V2_FLAG_ID = 1802
 const DELETED_FLAG_ID = 1526
+const DELETED_COHORT_FLAG_ID = 1803
+
+const EXPERIMENT_RULE_FIELDS = {
+    rule_type: 'experiment',
+    targeting: { properties: [] },
+    assignment_algorithm: 'sha1_60_v1',
+    assign_by: 'person',
+}
+
+// Served on its own route only, so the list stories keep their rows.
+const RULES_V2_EXPERIMENT_FLAG = {
+    ...featureFlags.results.find((flag) => flag.id === RULES_V2_FLAG_ID),
+    id: 1804,
+    key: 'checkout-layout-rules-v2',
+    name: 'Checkout layout, split across three variants',
+    filters: {
+        version: 2,
+        return_type: 'string',
+        default_value: 'standard',
+        rules: [
+            {
+                id: '2b7e9c41-5d3a-4f8e-b6a1-9c0d2e3f4a5b',
+                rule_type: 'targeted_release',
+                description: 'Internal testers',
+                targeting: {
+                    properties: [{ key: 'email', type: 'person', value: '@hedgehog.example', operator: 'icontains' }],
+                },
+                value: 'compact',
+            },
+            {
+                ...EXPERIMENT_RULE_FIELDS,
+                id: '7c1f2e3d-4b5a-4c6d-8e9f-0a1b2c3d4e5f',
+                description: 'Layout test',
+                paused: false,
+                rollout_percentage: 50,
+                on_rollout_miss: 'continue',
+                seed: '3e8f1a2b-9c4d-4e5f-a6b7-c8d9e0f1a2b3',
+                variants: [
+                    { key: 'control', weight: 33.34, value: 'standard' },
+                    { key: 'compact', weight: 33.33, value: 'compact' },
+                    { key: 'spacious', weight: 33.33, value: 'spacious' },
+                ],
+                holdout: { seed: '5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d', exclusion_percentage: 5 },
+            },
+            {
+                ...EXPERIMENT_RULE_FIELDS,
+                id: '9d8c7b6a-5f4e-4d3c-9b2a-1f0e9d8c7b6a',
+                description: 'Mobile layout test, paused',
+                paused: true,
+                rollout_percentage: 100,
+                on_rollout_miss: 'return_default',
+                seed: '0f1e2d3c-4b5a-4968-8776-655443322110',
+                variants: [
+                    { key: 'control', weight: 50, value: 'standard' },
+                    { key: 'stacked', weight: 50, value: 'stacked' },
+                ],
+            },
+        ],
+    },
+}
+
+// Flag 1779's first condition set targets this cohort.
+const pricingCohort = (realtime: CohortRealtimeReadinessApi): Record<string, unknown> => ({
+    id: 1,
+    name: 'Viewed pricing this week',
+    count: 4321,
+    is_static: false,
+    filters: { properties: { type: 'AND', values: [] } },
+    realtime_enabled: realtime.state !== 'off',
+    realtime,
+})
+
+const NOT_READY = { ready_at: null, build: null, reason: null, history_limit_days: null }
+
+const expandAllConditions = async (canvasElement: HTMLElement): Promise<void> => {
+    // Condition sets start collapsed, and the realtime tag sits on the expanded cohort row.
+    const expandAll = await waitFor(
+        () => {
+            const button = canvasElement.querySelector<HTMLButtonElement>('[data-attr="expand-all-conditions"]')
+            if (!button) {
+                throw new Error('release conditions for flag 1779 not yet rendered')
+            }
+            return button
+        },
+        // The flag scene is a lazy chunk, so give a cold bundle time to arrive.
+        { timeout: 30000 }
+    )
+    expandAll.click()
+    await waitFor(
+        () => {
+            if (!canvasElement.querySelector('[data-attr="collapse-all-conditions"]')) {
+                throw new Error('condition sets not expanded yet')
+            }
+        },
+        { timeout: 5000 }
+    )
+}
 
 const meta: Meta = {
     component: App,
@@ -25,21 +128,21 @@ const meta: Meta = {
         mockDate: '2023-01-28', // To stabilize relative dates
         pageUrl: urls.featureFlags(),
         testOptions: { viewport: { width: 1300, height: 2000 } },
-        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING],
     },
     decorators: [
+        (Story) => {
+            teamLogic.mount()
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                realtime_cohorts: { access: 'serving', cohorts_used: 3, max_cohorts: null },
+            })
+            return <Story />
+        },
         mswDecorator({
             get: {
                 '/api/projects/:team_id/integrations': {},
                 '/api/projects/:team_id/cohorts/': toPaginatedResponse([
-                    {
-                        id: 1,
-                        name: 'Viewed pricing this week',
-                        count: 4321,
-                        is_static: false,
-                        filters: { properties: { type: 'AND', values: [] } },
-                        realtime: { state: 'ready', ready_at: '2023-01-27T09:40:00Z', build: null },
-                    },
+                    pricingCohort({ ...NOT_READY, state: 'ready', ready_at: '2023-01-27T09:40:00Z' }),
                 ]),
 
                 '/api/projects/:team_id/feature_flags': featureFlags,
@@ -60,6 +163,9 @@ const meta: Meta = {
                     },
                 ],
                 '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => {
+                    if (Number(params['flagId']) === RULES_V2_EXPERIMENT_FLAG.id) {
+                        return [200, RULES_V2_EXPERIMENT_FLAG]
+                    }
                     const flag = featureFlags.results.find((r) => r.id === Number(params['flagId']))
                     if (flag?.id === DELETED_FLAG_ID) {
                         return [200, { ...flag, deleted: true, can_edit: true }]
@@ -144,30 +250,46 @@ export const EditFeatureFlagConditionsWithRealtimeCohort: Story = {
         pageUrl: `${urls.featureFlag(1779)}?edit=true`,
         testOptions: { waitForLoadersToDisappear: false },
     },
-    play: async ({ canvasElement }) => {
-        // Condition sets start collapsed, and the realtime tag sits on the expanded cohort row.
-        const expandAll = await waitFor(
-            () => {
-                const button = canvasElement.querySelector<HTMLButtonElement>('[data-attr="expand-all-conditions"]')
-                if (!button) {
-                    throw new Error('release conditions for flag 1779 not yet rendered')
-                }
-                return button
+    play: async ({ canvasElement }) => expandAllConditions(canvasElement),
+}
+
+const storyWithCohortFlagsCantTargetYet = (realtime: CohortRealtimeReadinessApi): Story => ({
+    parameters: {
+        pageUrl: `${urls.featureFlag(1779)}?edit=true`,
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/cohorts/': toPaginatedResponse([pricingCohort(realtime)]),
+                // The notice reads the cohort again when it appears.
+                '/api/projects/:team_id/cohorts/:id/': pricingCohort(realtime),
             },
-            // The flag scene is a lazy chunk, so give a cold bundle time to arrive.
-            { timeout: 30000 }
-        )
-        expandAll.click()
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await expandAllConditions(canvasElement)
         await waitFor(
             () => {
-                if (!canvasElement.querySelector('[data-attr="collapse-all-conditions"]')) {
-                    throw new Error('condition sets not expanded yet')
+                if (!canvasElement.querySelector('[data-attr="cohort-flag-targeting-notice"]')) {
+                    throw new Error('cohort notice not rendered yet')
                 }
             },
             { timeout: 5000 }
         )
     },
-}
+})
+
+export const EditFeatureFlagConditionsWithRealtimeOffCohort: Story = storyWithCohortFlagsCantTargetYet({
+    ...NOT_READY,
+    state: 'off',
+})
+
+export const EditFeatureFlagConditionsWithPreparingCohort: Story = storyWithCohortFlagsCantTargetYet({
+    ...NOT_READY,
+    state: 'building',
+    build: { phase: 'scanning', percent_complete: 40, updated_at: '2023-01-28T09:00:00Z' },
+})
 
 export const EditMultiVariateFeatureFlag: Story = {
     parameters: {
@@ -222,25 +344,34 @@ export const RulesV2FeatureFlagEditDeepLink: Story = {
 export const NewRulesV2FeatureFlag: Story = {
     parameters: {
         pageUrl: urls.featureFlagNew({ format: 'rules_v2' }),
-        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING, FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR],
+        featureFlags: [FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR],
     },
 }
 
 export const EditRulesV2FeatureFlag: Story = {
     parameters: {
         pageUrl: `${urls.featureFlag(RULES_V2_FLAG_ID)}?edit=true`,
-        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING, FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR],
+        featureFlags: [FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR],
+    },
+}
+
+export const RulesV2FeatureFlagWithExperimentRules: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(RULES_V2_EXPERIMENT_FLAG.id),
+    },
+}
+
+export const EditRulesV2FeatureFlagWithExperimentRules: Story = {
+    parameters: {
+        pageUrl: `${urls.featureFlag(RULES_V2_EXPERIMENT_FLAG.id)}?edit=true`,
+        featureFlags: [FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR],
     },
 }
 
 export const StaleFeatureFlagWithAiAssessment: Story = {
     parameters: {
         pageUrl: urls.featureFlag(STALE_FLAG_ID),
-        featureFlags: [
-            FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING,
-            FEATURE_FLAGS.PHAI_SANDBOX_MODE,
-            FEATURE_FLAGS.FEATURE_FLAG_CLEANUP_ASSESSMENT,
-        ],
+        featureFlags: [FEATURE_FLAGS.PHAI_SANDBOX_MODE, FEATURE_FLAGS.FEATURE_FLAG_CLEANUP_ASSESSMENT],
     },
     play: async ({ canvasElement }) => {
         await waitFor(
@@ -258,6 +389,34 @@ export const DeletedFeatureFlag: Story = {
     parameters: {
         pageUrl: urls.featureFlag(DELETED_FLAG_ID),
     },
+}
+
+export const FeatureFlagTargetingDeletedCohort: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(DELETED_COHORT_FLAG_ID),
+    },
+}
+
+// The banner has no Restore button, because the server refuses to restore a flag in another config version.
+export const DeletedRulesV2FeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(RULES_V2_FLAG_ID),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/feature_flags/${RULES_V2_FLAG_ID}/`]: () => [
+                    200,
+                    {
+                        ...featureFlags.results.find((r) => r.id === RULES_V2_FLAG_ID),
+                        deleted: true,
+                        active: false,
+                        can_edit: true,
+                    },
+                ],
+            },
+        }),
+    ],
 }
 
 export const FeatureFlagNotFound: Story = {
@@ -291,18 +450,17 @@ const waitForMountedFeatureFlagLogic = async (): Promise<ReturnType<typeof featu
     )
 }
 
+const assertErrorTextVisible = (canvasElement: HTMLElement, expectedText: string): void => {
+    const errors = Array.from(canvasElement.querySelectorAll('.Field--error'))
+    const match = errors.some((el) => el.textContent?.includes(expectedText))
+    if (!match) {
+        const seen = errors.map((el) => el.textContent?.trim()).join(' | ') || '(no .Field--error elements)'
+        throw new Error(`Expected error "${expectedText}" not visible. Found: ${seen}`)
+    }
+}
+
 const waitForErrorText = async (canvasElement: HTMLElement, expectedText: string): Promise<void> => {
-    await waitFor(
-        () => {
-            const errors = Array.from(canvasElement.querySelectorAll('.Field--error'))
-            const match = errors.some((el) => el.textContent?.includes(expectedText))
-            if (!match) {
-                const seen = errors.map((el) => el.textContent?.trim()).join(' | ') || '(no .Field--error elements)'
-                throw new Error(`Expected error "${expectedText}" not visible. Found: ${seen}`)
-            }
-        },
-        { timeout: 5000 }
-    )
+    await waitFor(() => assertErrorTextVisible(canvasElement, expectedText), { timeout: 5000 })
 }
 
 // These stories drive the form into a known validation-failure state via the logic so visual
@@ -339,6 +497,35 @@ export const NewMultivariateFlagVariantKeyError: Story = {
     },
 }
 
+export const NewFeatureFlagKeyTaken: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag('new'),
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    play: async ({ canvasElement }) => {
+        await waitForMountedFeatureFlagLogic()
+        const keyInput = await waitFor(
+            () => {
+                const input = canvasElement.querySelector<HTMLInputElement>('input[data-attr="feature-flag-key"]')
+                if (!input) {
+                    throw new Error('flag key input not yet rendered')
+                }
+                return input
+            },
+            { timeout: 5000 }
+        )
+        await userEvent.type(keyInput, 'session-recording-console')
+        await waitFor(
+            () => {
+                if (!canvasElement.querySelector('[data-attr="feature-flag-key-conflict-link"]')) {
+                    throw new Error('key conflict message not yet visible')
+                }
+            },
+            { timeout: 5000 }
+        )
+    },
+}
+
 export const NewRemoteConfigFlagPayloadError: Story = {
     parameters: {
         pageUrl: urls.featureFlag('new'),
@@ -347,12 +534,27 @@ export const NewRemoteConfigFlagPayloadError: Story = {
     play: async ({ canvasElement }) => {
         const logic = await waitForMountedFeatureFlagLogic()
 
-        logic.actions.setFeatureFlagValue('key', 'demo-remote-config-flag')
-        logic.actions.setFeatureFlagValue('is_remote_configuration', true)
         // Submit with empty payload: validatePayloadRequired fails, submitFeatureFlagFailure fires,
         // the listener expands the payload section, and the inline error is rendered.
-        logic.actions.submitFeatureFlag()
+        const submitRemoteConfigFlagWithoutPayload = (): void => {
+            logic.actions.setFeatureFlagValue('key', 'demo-remote-config-flag')
+            logic.actions.setFeatureFlagValue('is_remote_configuration', true)
+            logic.actions.submitFeatureFlag()
+        }
+        submitRemoteConfigFlagWithoutPayload()
 
-        await waitForErrorText(canvasElement, 'Payload is required')
+        // A late second new-flag load replaces the form with NEW_FLAG and turns remote config off.
+        // Resubmit a bounded number of times, so a product bug that keeps resetting the form still fails.
+        let resubmitsLeft = 2
+        await waitFor(
+            () => {
+                if (!logic.values.featureFlag.is_remote_configuration && resubmitsLeft > 0) {
+                    resubmitsLeft--
+                    submitRemoteConfigFlagWithoutPayload()
+                }
+                assertErrorTextVisible(canvasElement, 'Payload is required')
+            },
+            { timeout: 10000 }
+        )
     },
 }

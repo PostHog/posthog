@@ -8,6 +8,7 @@ import {
     IconClock,
     IconDay,
     IconDecisionTree,
+    IconEye,
     IconFilter,
     IconHourglass,
     IconLeave,
@@ -27,6 +28,8 @@ import { HogFunctionTemplateType } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
+import { sandboxRecipient } from './email/emailStepVariants'
+import { StepEmailSandboxConfiguration } from './email/StepEmailSandboxConfiguration'
 import { StepConditionalBranchConfiguration } from './StepConditionalBranch'
 import { StepDelayConfiguration } from './StepDelay'
 import { getDelayDescription } from './stepDelayLogic'
@@ -203,6 +206,17 @@ const HogFlowStepConfigs: Partial<{
         ],
         renderConfiguration: (node) => <StepFunctionConfiguration key={node.id} node={node} />,
     },
+    email_sandbox: {
+        type: 'email_sandbox',
+        icon: () => <IconLetter />,
+        color: () => '#2F80FA',
+        getPreviews: (action) => [
+            {
+                label: sandboxRecipient(action) ? `To ${sandboxRecipient(action)}` : 'Email',
+            },
+        ],
+        renderConfiguration: (node) => <StepEmailSandboxConfiguration key={node.id} node={node} />,
+    },
     function_sms: {
         type: 'function_sms',
         icon: () => <IconTwilio />,
@@ -242,6 +256,10 @@ const HogFlowStepConfigs: Partial<{
 
             if (action.config.template_id === 'template-native-push') {
                 return <IconNotification />
+            }
+
+            if (action.config.template_id === 'template-posthog-replay-vision') {
+                return <IconEye />
             }
 
             const template = hogFunctionTemplatesById[action.config.template_id]

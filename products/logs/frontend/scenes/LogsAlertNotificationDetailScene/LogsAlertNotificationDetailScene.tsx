@@ -2,9 +2,12 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconExternal, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSkeleton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSkeleton, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { Badge, Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -13,6 +16,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { HogFunctionType } from '~/types'
 
 import {
+    CUSTOM_MESSAGE_TAG,
     getHogFunctionEventKind,
     LOGS_ALERT_EVENT_KIND_META,
     logsAlertEventKindsFor,
@@ -20,6 +24,7 @@ import {
     resolveGroupLabel,
 } from 'products/logs/frontend/components/LogsAlerting/logsAlertUtils'
 
+import { DestinationRecentSends } from './DestinationRecentSends'
 import {
     LogsAlertNotificationDetailSceneLogicProps,
     logsAlertNotificationDetailSceneLogic,
@@ -44,14 +49,21 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
         alertId,
         hogFunctionId,
         firstSlackIntegration,
+        messageCustomized,
+        recentSends,
+        recentSendsLoading,
+        recentSendsError,
+        eventLabelByHogFunctionId,
     } = useValues(logsAlertNotificationDetailSceneLogic)
-    const { deleteDestination, loadHogFunctions, setHogFunctionEnabled } = useActions(
+    const customizationEnabled = useFeatureFlag('ALERTS_DESTINATION_CUSTOMIZATION')
+    const { deleteDestination, loadHogFunctions, loadRecentSends, setHogFunctionEnabled } = useActions(
         logsAlertNotificationDetailSceneLogic
     )
 
     const slackLogic = slackIntegrationLogic({ id: firstSlackIntegration?.id ?? 0 })
     const { slackChannels } = useValues(slackLogic)
     const { loadAllSlackChannels } = useActions(slackLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useEffect(() => {
         if (firstSlackIntegration) {
@@ -62,6 +74,21 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
     const loading = alertLoading || hogFunctionsLoading
     const displayLabel = destinationGroup ? resolveGroupLabel(destinationGroup, slackChannels) : 'Destination'
     const editorReturnTo = encodeURIComponent(urls.logsAlertNotificationDetail(alertId, hogFunctionId))
+    const confirmRemoveDestination = (): void => {
+        LemonDialog.open({
+            title: `Remove ${displayLabel}?`,
+            description:
+                'This will delete all notification functions for this destination. The underlying hog functions will be soft-deleted.',
+            primaryButton: {
+                children: 'Remove',
+                type: 'primary',
+                status: 'danger',
+                onClick: () => deleteDestination(displayLabel),
+                'data-attr': 'logs-alert-destination-delete-confirm',
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
 
     if (hogFunctionsError) {
         return (
@@ -70,14 +97,28 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
                     name="Couldn't load destination"
                     resourceType={{ type: 'logs' }}
                     actions={
-                        <div className="flex items-center gap-2">
-                            <LemonButton type="secondary" to={urls.logsAlertDetail(alertId, 'notifications')}>
-                                Back to alert
-                            </LemonButton>
-                            <LemonButton type="primary" onClick={() => loadHogFunctions()}>
-                                Retry
-                            </LemonButton>
-                        </div>
+                        todayRailNav ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    render={<LinkPrimitive to={urls.logsAlertDetail(alertId, 'notifications')} />}
+                                >
+                                    Back to alert
+                                </Button>
+                                <Button variant="primary" onClick={() => loadHogFunctions()}>
+                                    Retry
+                                </Button>
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-2">
+                                <LemonButton type="secondary" to={urls.logsAlertDetail(alertId, 'notifications')}>
+                                    Back to alert
+                                </LemonButton>
+                                <LemonButton type="primary" onClick={() => loadHogFunctions()}>
+                                    Retry
+                                </LemonButton>
+                            </div>
+                        )
                     }
                 />
                 <div className="p-8 text-muted text-center">
@@ -94,9 +135,18 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
                     name="Destination not found"
                     resourceType={{ type: 'logs' }}
                     actions={
-                        <LemonButton type="secondary" to={urls.logsAlertDetail(alertId, 'notifications')}>
-                            Back to alert
-                        </LemonButton>
+                        todayRailNav ? (
+                            <Button
+                                variant="outline"
+                                render={<LinkPrimitive to={urls.logsAlertDetail(alertId, 'notifications')} />}
+                            >
+                                Back to alert
+                            </Button>
+                        ) : (
+                            <LemonButton type="secondary" to={urls.logsAlertDetail(alertId, 'notifications')}>
+                                Back to alert
+                            </LemonButton>
+                        )
                     }
                 />
                 <div className="p-8 text-muted text-center">
@@ -122,32 +172,38 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
                 resourceType={{ type: 'logs' }}
                 isLoading={loading && !destinationGroup}
                 actions={
-                    destinationGroup ? (
+                    destinationGroup && todayRailNav ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant={destinationGroup.enabled ? 'success' : 'default'}>
+                                {destinationGroup.enabled ? 'Active' : 'Paused'}
+                            </Badge>
+                            <Button
+                                variant="destructive-outline"
+                                disabledReason={isDeleting ? 'Removing…' : undefined}
+                                onClick={confirmRemoveDestination}
+                                data-attr="logs-alert-destination-delete"
+                            >
+                                <IconTrash />
+                                Remove destination
+                            </Button>
+                        </div>
+                    ) : destinationGroup ? (
                         <div className="flex items-center gap-2">
                             <LemonTag type={destinationGroup.enabled ? 'success' : 'default'}>
                                 {destinationGroup.enabled ? 'Active' : 'Paused'}
                             </LemonTag>
+                            {customizationEnabled && messageCustomized ? (
+                                <Tooltip title={CUSTOM_MESSAGE_TAG.tooltip}>
+                                    <LemonTag>{CUSTOM_MESSAGE_TAG.label}</LemonTag>
+                                </Tooltip>
+                            ) : null}
                             <LemonButton
                                 size="small"
                                 type="secondary"
                                 status="danger"
                                 icon={<IconTrash />}
                                 disabledReason={isDeleting ? 'Removing…' : undefined}
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: `Remove ${displayLabel}?`,
-                                        description:
-                                            'This will delete all notification functions for this destination. The underlying hog functions will be soft-deleted.',
-                                        primaryButton: {
-                                            children: 'Remove',
-                                            type: 'primary',
-                                            status: 'danger',
-                                            onClick: () => deleteDestination(displayLabel),
-                                            'data-attr': 'logs-alert-destination-delete-confirm',
-                                        },
-                                        secondaryButton: { children: 'Cancel' },
-                                    })
-                                }}
+                                onClick={confirmRemoveDestination}
                                 data-attr="logs-alert-destination-delete"
                             >
                                 Remove destination
@@ -160,6 +216,9 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
                 <p className="text-sm text-muted m-0">
                     These hog functions only run for this alert. Open one to edit the message body, headers, filters, or
                     destination details for the matching lifecycle event.
+                    {customizationEnabled
+                        ? ' Changes apply to notifications sent after you save. If the alert is firing now, its resolve message may still use the earlier version.'
+                        : null}
                 </p>
 
                 {loading ? (
@@ -213,6 +272,16 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
                         })}
                     </div>
                 )}
+
+                {customizationEnabled && destinationGroup ? (
+                    <DestinationRecentSends
+                        sends={recentSends}
+                        loading={recentSendsLoading}
+                        error={recentSendsError}
+                        onRetry={loadRecentSends}
+                        eventLabels={eventLabelByHogFunctionId}
+                    />
+                ) : null}
             </div>
         </SceneContent>
     )

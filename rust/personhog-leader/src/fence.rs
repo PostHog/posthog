@@ -53,6 +53,7 @@ use tonic::Status;
 use uuid::Uuid;
 
 use personhog_common::partitioning::partition_for_person;
+use personhog_common::query_tag;
 use personhog_proto::personhog::types::v1::LifecycleOpType;
 
 use crate::cache::PersonCacheKey;
@@ -141,16 +142,19 @@ pub async fn rebuild_partition_fences(
 ) -> Result<usize, sqlx::Error> {
     let start = std::time::Instant::now();
     let tables = &fallback.lifecycle;
-    let sql = format!(
-        r#"
-        SELECT lop.team_id, lop.person_id, lop.op_id, o.op_type
-        FROM {op_person} lop
-        JOIN {op} o ON o.op_id = lop.op_id
-        WHERE lop.mark_active
-          AND lop.role <> 'target'
-        "#,
-        op_person = tables.op_person,
-        op = tables.op,
+    let sql = query_tag!(
+        "rebuild_partition_fences",
+        format!(
+            r#"
+            SELECT lop.team_id, lop.person_id, lop.op_id, o.op_type
+            FROM {op_person} lop
+            JOIN {op} o ON o.op_id = lop.op_id
+            WHERE lop.mark_active
+              AND lop.role <> 'target'
+            "#,
+            op_person = tables.op_person,
+            op = tables.op,
+        )
     );
     let query = sqlx::query(&sql).fetch_all(&fallback.pool);
 
@@ -172,7 +176,7 @@ pub async fn rebuild_partition_fences(
     // Converge rather than accumulate: this partition's fences are
     // exactly what the marks say, not that plus whatever a previous warm
     // left behind.
-    drop_partition_fences(fences, partition, num_partitions);
+    drop_partition_fences(fences, partition, num_partitions, |_| false);
 
     let mut installed = 0usize;
     for row in rows {
@@ -200,15 +204,17 @@ pub async fn rebuild_partition_fences(
     Ok(installed)
 }
 
-/// Drop every fence belonging to `partition` — the counterpart of
-/// [`rebuild_partition_fences`] for partition release. The new owner
-/// rebuilds its own; stale entries here would only pin memory for persons
-/// this pod no longer serves (misrouted requests are already rejected by
-/// partition validation).
-pub fn drop_partition_fences(fences: &FenceMap, partition: u32, num_partitions: u32) -> usize {
+/// Drop the fences homed on `partition`, except keys `keep` claims for another
+/// partition this pod serves. The new owner rebuilds its own.
+pub fn drop_partition_fences(
+    fences: &FenceMap,
+    partition: u32,
+    num_partitions: u32,
+    keep: impl Fn(&PersonCacheKey) -> bool,
+) -> usize {
     let before = fences.len();
     fences.retain(|key, _| {
-        partition_for_person(key.team_id, key.person_id, num_partitions) != partition
+        partition_for_person(key.team_id, key.person_id, num_partitions) != partition || keep(key)
     });
     gauge!("personhog_leader_fences_active").set(fences.len() as f64);
     before - fences.len()
@@ -335,10 +341,13 @@ pub async fn mark_status(
     person_id: i64,
 ) -> Result<Option<String>, sqlx::Error> {
     let mut conn = crate::pg::acquire_timed(&fallback.pool, "mark_status").await?;
-    let sql = format!(
-        "SELECT status FROM {} \
-         WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role <> 'target'",
-        fallback.lifecycle.op_person
+    let sql = query_tag!(
+        "mark_status",
+        format!(
+            "SELECT status FROM {} \
+             WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role <> 'target'",
+            fallback.lifecycle.op_person
+        )
     );
     sqlx::query_scalar(&sql)
         .bind(op_id)
@@ -364,10 +373,13 @@ pub async fn target_mark_status(
     person_id: i64,
 ) -> Result<Option<String>, sqlx::Error> {
     let mut conn = crate::pg::acquire_timed(&fallback.pool, "target_mark_status").await?;
-    let sql = format!(
-        "SELECT status FROM {} \
-         WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role = 'target'",
-        fallback.lifecycle.op_person
+    let sql = query_tag!(
+        "target_mark_status",
+        format!(
+            "SELECT status FROM {} \
+             WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role = 'target'",
+            fallback.lifecycle.op_person
+        )
     );
     sqlx::query_scalar(&sql)
         .bind(op_id)
@@ -410,10 +422,13 @@ pub struct PgMarkSource {
 impl MarkSource for PgMarkSource {
     async fn load_op(&self, op_id: Uuid) -> Result<Vec<MarkRow>, sqlx::Error> {
         let mut conn = crate::pg::acquire_timed(&self.pool, "mark_snapshot").await?;
-        let sql = format!(
-            "SELECT team_id, person_id, status FROM {} \
-             WHERE op_id = $1 AND role <> 'target'",
-            self.op_person_table
+        let sql = query_tag!(
+            "mark_snapshot",
+            format!(
+                "SELECT team_id, person_id, status FROM {} \
+                 WHERE op_id = $1 AND role <> 'target'",
+                self.op_person_table
+            )
         );
         let rows = sqlx::query(&sql).bind(op_id).fetch_all(&mut *conn).await?;
         Ok(rows
@@ -709,5 +724,48 @@ mod mark_verifier_tests {
             1,
             "expired snapshots and the cell that never loaded go; the new op's stays"
         );
+    }
+}
+
+#[cfg(test)]
+mod partition_fence_tests {
+    use super::*;
+
+    #[test]
+    fn a_drop_spares_the_keys_another_home_still_claims() {
+        let fences: FenceMap = Arc::new(DashMap::new());
+        let homed_on = |partition: u32| {
+            (1..)
+                .map(|person_id| PersonCacheKey {
+                    team_id: 1,
+                    person_id,
+                })
+                .filter(move |k| partition_for_person(k.team_id, k.person_id, 8) == partition)
+        };
+        let [kept, dropped, elsewhere] = {
+            let mut on_five = homed_on(5);
+            [
+                on_five.next().unwrap(),
+                on_five.next().unwrap(),
+                homed_on(6).next().unwrap(),
+            ]
+        };
+        for key in [&kept, &dropped, &elsewhere] {
+            fences.insert(
+                key.clone(),
+                FenceState {
+                    op_id: Uuid::now_v7(),
+                    op_type: LifecycleOpType::Delete,
+                    sealed_at: None,
+                },
+            );
+        }
+
+        let removed = drop_partition_fences(&fences, 5, 8, |key| *key == kept);
+
+        assert_eq!(removed, 1);
+        assert!(fences.contains_key(&kept));
+        assert!(!fences.contains_key(&dropped));
+        assert!(fences.contains_key(&elsewhere));
     }
 }

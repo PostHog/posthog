@@ -798,6 +798,7 @@ fn fold_tiles(
         records,
         leaves,
         recompose,
+        composed_row_candidates: BTreeMap::new(),
         schedules,
         re_keys: ReKeys::Tiles(re_keys),
         tally,
@@ -820,8 +821,8 @@ mod tests {
     use tempfile::TempDir;
 
     use cohort_core::seed::{
-        BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileScope, ReconcileTile, SChunkMs,
-        SeedTile,
+        BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileScope, ReconcileTile,
+        RunBoundaryMs, SChunkMs, SeedTile,
     };
 
     use crate::consumers::seeds::{SeedSkipReason, SeedWork};
@@ -837,7 +838,8 @@ mod tests {
     use crate::stage1::state::AppliedOffsets;
     use crate::stage2::state::Stage2State;
     use crate::store::{
-        CohortStore, OffloadConfig, OffloadMode, Stage2Key, StoreConfig, StoreHandle, TombstoneKey,
+        CohortStore, OffloadConfig, OffloadMode, SliceCoverage, Stage2Key, StoreConfig,
+        StoreHandle, TombstoneKey,
     };
     use crate::sweep::EvictionQueue;
     use crate::workers::event_path::{process_event_gated, EventNameGating};
@@ -1462,6 +1464,32 @@ mod tests {
                 prop_assert!(!replay_merged, "replay merged again");
             }
         }
+
+        /// The seeder sends a single leaf's tile only for each person's newest day
+        /// (`cohort-seeder/src/domain/newest_day.rs`). That is sound only while the newest tile
+        /// alone reaches the state of every tile in any order. If this fails, change that rule too.
+        #[test]
+        fn single_state_is_the_newest_tiles_alone(
+            tiles in prop::collection::vec((0i32..=12, 1u32..=5), 1..10),
+            window in prop_oneof![
+                (1u32..=14).prop_map(|days| EvictionWindow::RelativeDays { days }),
+                (1i64..=172_800).prop_map(|seconds| EvictionWindow::RelativeSeconds { seconds }),
+                prop::option::of(0i32..=12).prop_map(|back| EvictionWindow::Explicit {
+                    from_day: back.map(|back| now_day() - back),
+                    to_day: None,
+                }),
+            ],
+        ) {
+            let meta = single_meta(window);
+            let newest = *tiles
+                .iter()
+                .min_by_key(|(offset, _)| *offset)
+                .expect("the strategy draws at least one tile");
+            prop_assert_eq!(
+                apply_all(&meta, &tiles, now_day(), NOW_MS),
+                apply_all(&meta, &[newest], now_day(), NOW_MS),
+            );
+        }
     }
 
     // ---- live-equivalence: tile (d, N) on empty ≡ N same-day live events ----
@@ -1747,6 +1775,7 @@ mod tests {
             CohortId(cohort_id),
             ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::from_u128(run_id)),
+            RunBoundaryMs(0),
         )
     }
 
@@ -1777,11 +1806,11 @@ mod tests {
 
         /// The same cohort shape under two teams, so a run can span them.
         fn with_two_teams(cohorts: Vec<(i32, Value)>) -> Self {
-            let mut shell = Self::new(cohorts.clone());
-            shell.catalog = Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([
+            let shell = Self::new(cohorts.clone());
+            shell.catalog.publish(FilterCatalog::from_teams([
                 (TEAM, build_filters_for(TEAM, cohorts.clone(), UTC)),
                 (OTHER_TEAM, build_filters_for(OTHER_TEAM, cohorts, New_York)),
-            ])));
+            ]));
             shell
         }
 
@@ -1853,8 +1882,13 @@ mod tests {
                 person_seed: crate::workers::PersonSeedDeps::default(),
                 seed_budget: crate::workers::seed_run::RunBudget::default(),
             };
-            let reconcile_queue =
-                ReconcileQueue::new(0, deps.reconcile.backlog.clone(), handle.clone());
+            let reconcile_queue = ReconcileQueue::new(
+                0,
+                deps.reconcile.backlog.clone(),
+                handle.clone(),
+                catalog.clone(),
+                SliceCoverage::Complete,
+            );
             Self {
                 _dir,
                 store,
@@ -1924,8 +1958,13 @@ mod tests {
             self.deps.transfer_tracker = Arc::new(OffsetTracker::new());
             self.deps.cascade_tracker = Arc::new(OffsetTracker::new());
             self.queue = EvictionQueue::new();
-            self.reconcile_queue =
-                ReconcileQueue::new(0, self.deps.reconcile.backlog.clone(), self.handle.clone());
+            self.reconcile_queue = ReconcileQueue::new(
+                0,
+                self.deps.reconcile.backlog.clone(),
+                self.handle.clone(),
+                self.catalog.clone(),
+                SliceCoverage::Complete,
+            );
         }
 
         /// Drain the queued reconcile to completion, one page per tick, the way the worker does.
@@ -1939,7 +1978,6 @@ mod tests {
                 crate::workers::reconcile::handle_reconcile_drain(
                     partition_id,
                     &self.handle,
-                    &self.catalog,
                     &sink,
                     &self.deps,
                     &mut self.reconcile_queue,
@@ -3242,10 +3280,9 @@ mod tests {
             CohortId(1),
             BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
         );
-        shell.catalog = Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([(
-            TEAM,
-            builder.freeze(UTC),
-        )])));
+        shell
+            .catalog
+            .publish(FilterCatalog::from_teams([(TEAM, builder.freeze(UTC))]));
         let tile = tile_for(person, today(), 1);
 
         shell

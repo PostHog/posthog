@@ -1,0 +1,117 @@
+/* Source for the staff console stylesheet. Rebuild with `pnpm --filter=@posthog/frontend build:admin-console`
+ * after editing a console template. Quill does not promise its class names across minor versions, so
+ * posthog/admin/test_admin_console.py fails when a template class is missing from the build. */
+
+/* `source(none)` stops Tailwind from scanning frontend/src, which would add every utility the app
+ * uses. Only the console templates decide what ships. */
+@import 'tailwindcss' source(none);
+@import '@posthog/quill/tokens.css';
+@import '@posthog/quill/base.css';
+@import '@posthog/quill/primitives.css';
+@import '@posthog/quill/tailwind.css';
+@source '../../../posthog/templates/admin_console';
+
+@font-face {
+    font-family: RoundHog;
+    font-weight: 400;
+    src: url('fonts/RoundHog-latin.woff2') format('woff2');
+    font-display: swap;
+}
+
+@font-face {
+    font-family: RoundHog;
+    font-weight: 500;
+    src: url('fonts/RoundHog-Medium-latin.woff2') format('woff2');
+    font-display: swap;
+}
+
+@font-face {
+    font-family: RoundHog;
+    font-weight: 700;
+    src: url('fonts/RoundHog-SemiBold-latin.woff2') format('woff2');
+    font-display: swap;
+}
+
+@font-face {
+    font-family: RoundHog;
+    font-weight: 800;
+    src: url('fonts/RoundHog-Bold-latin.woff2') format('woff2');
+    font-display: swap;
+}
+
+/* Each deployment gets its own tint, so a staff member with several regions open can tell the tabs
+ * apart. `--theme-hue` and `--theme-tint` are quill's documented theme knobs; they shift every
+ * surface, not only the stripe. */
+[data-env='dev'] {
+    --console-env: #a0ca21;
+    --console-env-ink: #4a5e0f;
+    --theme-hue: 125;
+    --theme-dark-hue: 125;
+    --theme-tint: 0.012;
+}
+
+[data-env='eu'] {
+    --console-env: #1490e8;
+    --console-env-ink: #0b4f80;
+    --theme-hue: 240;
+    --theme-dark-hue: 240;
+    --theme-tint: 0.012;
+}
+
+[data-env='us'] {
+    --console-env: #ff5c1c;
+    --console-env-ink: #a12d00;
+    --theme-hue: 40;
+    --theme-dark-hue: 40;
+    --theme-tint: 0.014;
+}
+
+[data-env='dev'][theme='dark'] {
+    --console-env-ink: #c8e86a;
+}
+
+[data-env='eu'][theme='dark'] {
+    --console-env-ink: #7cc4f5;
+}
+
+[data-env='us'][theme='dark'] {
+    --console-env-ink: #ff9a70;
+}
+
+@layer components {
+    .console-body {
+        font-family: RoundHog, var(--font-sans);
+    }
+
+    .console-env-stripe {
+        background: var(--console-env);
+    }
+
+    .console-env-pill {
+        color: var(--console-env-ink);
+        background: color-mix(in oklab, var(--console-env) 22%, var(--card));
+        border: 1px solid var(--console-env);
+    }
+
+    .console-env-dot {
+        background: var(--console-env);
+    }
+
+    /* A destructive ring instead of a tinted fill, so the env tint (warm in US) cannot wash it out. */
+
+    /* quill's focus ring is a faint shadow. Staff who work from the keyboard need a solid one. */
+    :where(a, button, input, select, textarea, summary):focus-visible {
+        outline: 2px solid var(--primary-dark);
+        outline-offset: 2px;
+    }
+
+    /* quill draws a card's border as a 1px box-shadow ring. */
+    .console-danger {
+        box-shadow: 0 0 0 1px var(--destructive-foreground);
+    }
+
+    .console-attention {
+        background: color-mix(in oklab, var(--warning) 45%, var(--card));
+        box-shadow: 0 0 0 1px var(--warning-foreground);
+    }
+}

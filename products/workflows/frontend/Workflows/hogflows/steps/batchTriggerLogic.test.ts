@@ -1,10 +1,15 @@
+import { act, cleanup, render } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+import { createElement } from 'react'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { HogFlowAction } from '../types'
 import { batchTriggerLogic, getAudienceDedupeKey } from './batchTriggerLogic'
+
+const { ToastContainer, toast } = jest.requireActual('react-toastify')
 
 const emailAction = (toEmail: string | null): HogFlowAction =>
     ({
@@ -73,6 +78,57 @@ describe('batchTriggerLogic', () => {
         })
     })
 
+    describe('realtime cohort status', () => {
+        it('refreshes until the cohort is ready, past a failed check', async () => {
+            const states = ['needs_attention', 'error', 'ready']
+            let calls = 0
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/hog_flows/user_blast_radius/': async ({ request }) => {
+                        // The recipient email check posts here too, with an extra condition.
+                        const { filters } = (await request.json()) as { filters: { properties: unknown[] } }
+                        if (filters.properties.length > 1) {
+                            return [200, { affected: 0, total: 0 }]
+                        }
+                        const state = states[Math.min(calls++, states.length - 1)]
+                        if (state === 'error') {
+                            return [500, { detail: 'Simulated outage' }]
+                        }
+                        return [
+                            200,
+                            {
+                                affected: 0,
+                                total: 0,
+                                realtime_cohort: { id: 42, name: 'Upgraded', state, percent_complete: null },
+                            },
+                        ]
+                    },
+                },
+            })
+            initKeaTests()
+            const logic = batchTriggerLogic({
+                id: 'realtime-status',
+                filters: { properties: [{ key: 'id', type: 'cohort', value: 42, operator: 'in' }] as any },
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadBlastRadiusSuccess'])
+            expect(logic.values.blastRadius?.realtime_cohort?.state).toEqual('needs_attention')
+
+            jest.useFakeTimers()
+            try {
+                await jest.advanceTimersByTimeAsync(20000)
+                await expectLogic(logic).toDispatchActions(['loadBlastRadiusSuccess'])
+                expect(logic.values.blastRadius?.realtime_cohort?.state).toEqual('ready')
+
+                await jest.advanceTimersByTimeAsync(30000)
+                expect(calls).toEqual(3)
+            } finally {
+                jest.useRealTimers()
+                logic.unmount()
+            }
+        })
+    })
+
     describe('recipientsWithoutEmail', () => {
         const audience = { properties: [{ key: 'plan', value: 'pro', operator: 'exact', type: 'person' }] }
 
@@ -116,6 +172,134 @@ describe('batchTriggerLogic', () => {
                 .toDispatchActions(['loadRecipientsWithoutEmailSuccess'])
                 .toMatchValues({ recipientsWithoutEmail: expected })
             logic.unmount()
+        })
+    })
+
+    describe('blastRadius', () => {
+        it('drops a realtime cohort result when the next size check fails', async () => {
+            let fail = false
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/hog_flows/user_blast_radius/': () =>
+                        fail
+                            ? [500, { detail: 'boom' }]
+                            : [
+                                  200,
+                                  {
+                                      affected: 3,
+                                      total: 5,
+                                      limit: 1000,
+                                      dedupe_key: null,
+                                      confirm_token: 'token',
+                                      realtime_cohort: { id: 2, name: 'c', state: 'ready', percent_complete: null },
+                                  },
+                              ],
+                },
+            })
+            initKeaTests()
+            const logic = batchTriggerLogic({
+                id: 'test-stale',
+                filters: { properties: [{ key: 'id', type: 'cohort', value: 2, operator: 'in' }] as any },
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadBlastRadiusSuccess'])
+            expect(logic.values.blastRadius?.realtime_cohort?.id).toBe(2)
+
+            fail = true
+            logic.actions.loadBlastRadius()
+            await expectLogic(logic).toDispatchActions(['loadBlastRadiusFailure']).toFinishAllListeners()
+            await expectLogic(logic).toMatchValues({
+                blastRadius: null,
+                blastRadiusError: 'boom',
+                blastRadiusRejection: null,
+            })
+            logic.unmount()
+        })
+
+        it('shows the rejection of an unfinished audience filter inline, without failing the size check', async () => {
+            const rejection = 'An audience filter is incomplete. Finish it or remove it.'
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [
+                        400,
+                        { type: 'validation_error', code: 'invalid_input', detail: rejection, attr: null },
+                    ],
+                },
+            })
+            const reportedExceptions: unknown[] = []
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation((error) => {
+                reportedExceptions.push(error)
+                return undefined as any
+            })
+            toast.dismiss()
+            render(createElement(ToastContainer))
+            initKeaTests()
+            const logic = batchTriggerLogic({
+                id: 'test-unfinished-filter',
+                filters: { properties: [{ key: 'plan', type: 'person', operator: 'exact' }] as any },
+            })
+            try {
+                logic.mount()
+                await expectLogic(logic)
+                    .toDispatchActions(['loadBlastRadiusSuccess'])
+                    .toMatchValues({ blastRadius: null, blastRadiusError: rejection, blastRadiusRejection: rejection })
+                await act(async () => {})
+                expect({
+                    toasts: Array.from(document.querySelectorAll('.Toastify__toast'), (t) => t.textContent),
+                    reportedExceptions,
+                }).toEqual({ toasts: [], reportedExceptions: [] })
+            } finally {
+                logic.unmount()
+                cleanup()
+                toast.dismiss()
+                captureException.mockRestore()
+            }
+        })
+
+        it('keeps the newer failure when an older check is rejected after it', async () => {
+            let respond: () => Promise<[number, Record<string, unknown>]> = async () => [200, { affected: 1, total: 2 }]
+            useMocks({ post: { '/api/projects/:team_id/hog_flows/user_blast_radius/': () => respond() } })
+            initKeaTests()
+            const logic = batchTriggerLogic({
+                id: 'test-overlapping-checks',
+                filters: { properties: [{ key: 'plan', type: 'person', operator: 'exact', value: ['pro'] }] as any },
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadBlastRadiusSuccess']).toFinishAllListeners()
+
+            let releaseFirst = (): void => {}
+            const firstHeld = new Promise<void>((resolve) => {
+                releaseFirst = resolve
+            })
+            let calls = 0
+            respond = async () => {
+                if (calls++ === 0) {
+                    await firstHeld
+                    return [
+                        400,
+                        {
+                            type: 'validation_error',
+                            code: 'invalid_input',
+                            detail: 'An audience filter is incomplete.',
+                        },
+                    ]
+                }
+                return [500, { detail: 'Simulated outage' }]
+            }
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.loadBlastRadius()
+                    logic.actions.loadBlastRadius()
+                }).toDispatchActions(['loadBlastRadiusFailure'])
+                releaseFirst()
+
+                await expectLogic(logic)
+                    .toFinishAllListeners()
+                    .toMatchValues({ blastRadius: null, blastRadiusError: 'Simulated outage' })
+            } finally {
+                logic.unmount()
+                toast.dismiss()
+            }
         })
     })
 })

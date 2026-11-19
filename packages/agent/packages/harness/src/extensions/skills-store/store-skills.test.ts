@@ -17,6 +17,7 @@ import {
   installStoreSkillStubs,
   listStoreSkillStubs,
   removeStoreSkillStubs,
+  renderStoreBridgeSkill,
   renderStoreSkillStub,
   syncStoreSkills,
 } from "./store-skills";
@@ -126,6 +127,7 @@ describe("store skills", () => {
 
     expect(result).toEqual({
       installed: ["tam-quota-forecast", "release-notes"],
+      bridge: false,
       collisions: [],
       removed: [],
       rejected: 0,
@@ -214,6 +216,7 @@ describe("store skills", () => {
         "half-written",
         "store-guide",
       ],
+      bridge: false,
       collisions: [
         "querying-posthog-data",
         "release-notes",
@@ -463,23 +466,99 @@ describe("store skills", () => {
 
     await expect(
       syncStoreSkills(
-        { store_skills: [stub("one"), stub("two")] },
+        { store_skills: [stub("one"), stub("two")], store_skills_bridge: true },
         context,
         logger,
         roots,
       ),
-    ).resolves.toBe(2);
-    await expect(syncStoreSkills(null, context, logger, roots)).resolves.toBe(
-      2,
-    );
-    await expect(syncStoreSkills({}, context, logger, roots)).resolves.toBe(0);
+    ).resolves.toEqual({ installedCount: 2, bridge: true });
+    await expect(
+      syncStoreSkills(null, context, logger, roots),
+    ).resolves.toEqual({ installedCount: 2, bridge: true });
+    // A user who owns no skills still gets the bridge, and it survives the pruning of their old stubs.
+    await expect(
+      syncStoreSkills(
+        { store_skills: [], store_skills_bridge: true },
+        context,
+        logger,
+        roots,
+      ),
+    ).resolves.toEqual({ installedCount: 0, bridge: true });
     await expect(exists(join(roots[0], "one", "SKILL.md"))).resolves.toBe(
+      false,
+    );
+    await expect(exists(join(roots[0], "phs", "SKILL.md"))).resolves.toBe(true);
+    await expect(syncStoreSkills({}, context, logger, roots)).resolves.toEqual({
+      installedCount: 0,
+      bridge: false,
+    });
+    await expect(exists(join(roots[0], "phs", "SKILL.md"))).resolves.toBe(
       false,
     );
   });
 
-  it("adds a prompt section only when a stub was installed", () => {
-    expect(buildStoreSkillsInstructions(0)).toBe("");
-    expect(buildStoreSkillsInstructions(3)).toContain("skill-get");
+  it.each([
+    [
+      "a team skill of that name, over an earlier bridge",
+      renderStoreBridgeSkill(),
+      [stub("phs")],
+      "metadata:\n  version: '3'",
+      { installed: ["phs"], bridge: false },
+    ],
+    [
+      "a local skill of that name",
+      "---\nname: phs\n---\nThe user's own bridge.",
+      [],
+      "The user's own bridge.",
+      { installed: [], bridge: false },
+    ],
+    [
+      "nothing, so a team stub from an earlier session",
+      renderStoreSkillStub(stub("phs")),
+      [],
+      "role: bridge",
+      { installed: [], bridge: true },
+    ],
+  ])(
+    "gives the phs directory to %s",
+    async (_label, onDisk, stubs, expectedText, expected) => {
+      const home = await temporaryHome();
+      const [claudeRoot] = rootsFor(home);
+      await writeSkill(claudeRoot, "phs", onDisk);
+
+      const result = await installStoreSkillStubs(stubs, [claudeRoot], {
+        bridge: true,
+      });
+
+      expect(result).toMatchObject({ ...expected, errors: [] });
+      await expect(
+        readFile(join(claudeRoot, "phs", "SKILL.md"), "utf-8"),
+      ).resolves.toContain(expectedText);
+    },
+  );
+
+  it.each([
+    [{ installedCount: 0, bridge: false }, [], ["skill-get", "/phs"]],
+    [
+      { installedCount: 3, bridge: false },
+      ["3 of the user's", "skill-get"],
+      ["/phs"],
+    ],
+    [
+      { installedCount: 0, bridge: true },
+      ["/phs <skill-name>"],
+      ["of the user's"],
+    ],
+    [{ installedCount: 3, bridge: true }, ["3 of the user's", "/phs list"], []],
+  ])("builds the prompt section for %o", (listing, present, absent) => {
+    const instructions = buildStoreSkillsInstructions(listing);
+
+    expect(instructions === "").toBe(present.length === 0);
+    for (const text of present) {
+      expect(instructions).toContain(text);
+    }
+    for (const text of absent) {
+      expect(instructions).not.toContain(text);
+    }
   });
 });

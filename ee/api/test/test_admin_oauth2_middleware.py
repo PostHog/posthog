@@ -17,10 +17,9 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
+from posthog.admin.oauth2 import AdminOAuth2Middleware, _get_email_from_id_token, admin_oauth2_callback
 from posthog.models import User
 from posthog.session.backend import SessionStore
-
-from ee.middleware import AdminOAuth2Middleware, _get_email_from_id_token, admin_oauth2_callback
 
 # Any path under the prefix exercises the middleware branch; no route has to exist.
 ADMIN_API_PATH = "/admin/api/example/"
@@ -192,10 +191,10 @@ class TestNonceValidation(BaseTest):
         return request
 
     def _mock_token_exchange(self, id_token: str):
-        return patch("ee.middleware._exchange_code_for_token", return_value={"id_token": id_token})
+        return patch("posthog.admin.oauth2._exchange_code_for_token", return_value={"id_token": id_token})
 
     def _mock_get_email(self, email: str, payload: dict):
-        return patch("ee.middleware._get_email_from_id_token", return_value=(email, payload))
+        return patch("posthog.admin.oauth2._get_email_from_id_token", return_value=(email, payload))
 
     @staticmethod
     def _assert_redirects_to_admin(response: HttpResponse) -> HttpResponseRedirect:

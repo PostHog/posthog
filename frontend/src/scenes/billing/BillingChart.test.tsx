@@ -1,11 +1,6 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 
-import {
-    createDefaultTooltipAccessor,
-    ensureJsdom,
-    getHogChart,
-    hoverUntilTooltip,
-} from '@posthog/quill-charts/testing'
+import { createDefaultTooltipAccessor, ensureJsdom, getChart, hoverUntilTooltip } from '@posthog/quill-charts/testing'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -44,13 +39,13 @@ describe('BillingChart', () => {
     it('renders only the series that are not hidden', async () => {
         render(<BillingChart series={SERIES} dates={DATES} hiddenSeries={[1]} />)
 
-        await waitFor(() => expect(getHogChart().seriesCount).toBe(1))
+        await waitFor(() => expect(getChart().seriesCount).toBe(1))
     })
 
     it('colors the surviving series by its id, not its position after filtering', async () => {
         render(<BillingChart series={SERIES} dates={DATES} hiddenSeries={[0]} />)
 
-        const chart = getHogChart()
+        const chart = getChart()
         await waitFor(() => expect(chart.seriesCount).toBe(1))
 
         const tooltip = createDefaultTooltipAccessor(await hoverUntilTooltip(chart.element, 0, DATES.length))
@@ -70,7 +65,22 @@ describe('BillingChart', () => {
             />
         )
 
-        expect(await screen.findByText('New billing period')).toBeTruthy()
+        expect(await screen.findByText('Billing period starts')).toBeTruthy()
+    })
+
+    it('labels spend markers as pricing resets', async () => {
+        render(
+            <BillingChart
+                series={SERIES}
+                dates={DATES}
+                hiddenSeries={[]}
+                billingPeriodMarkers={[{ date: dayjs.utc('2026-01-02') }]}
+                periodMarkerKind="pricing_reset"
+            />
+        )
+
+        expect(await screen.findByText('Pricing tiers reset')).toBeTruthy()
+        expect(screen.queryByText('Billing period starts')).toBeNull()
     })
 
     it('draws a dashed line per in-range marker but labels only the most recent one', async () => {
@@ -87,7 +97,7 @@ describe('BillingChart', () => {
             />
         )
 
-        await screen.findByText('New billing period')
+        await screen.findByText('Billing period starts')
 
         const lines = container.querySelectorAll('[data-attr="billing-period-marker-line"]')
         expect(lines).toHaveLength(2)
@@ -106,7 +116,7 @@ describe('BillingChart', () => {
             const { container, unmount } = render(
                 <BillingChart series={SERIES} dates={DATES} hiddenSeries={[]} billingPeriodMarkers={[{ date }]} />
             )
-            await screen.findByText('New billing period')
+            await screen.findByText('Billing period starts')
             const line = container.querySelector<HTMLElement>('[data-attr="billing-period-marker-line"]')
             const left = line!.style.left
             unmount()
@@ -130,7 +140,7 @@ describe('BillingChart', () => {
             />
         )
 
-        const chart = getHogChart()
+        const chart = getChart()
         await waitFor(() => expect(chart.yTicks().length).toBeGreaterThan(0))
         expect(chart.yTicks().every((tick) => tick.startsWith('$'))).toBe(true)
 
@@ -148,8 +158,8 @@ describe('BillingChart', () => {
             />
         )
 
-        await waitFor(() => expect(getHogChart().seriesCount).toBe(2))
-        expect(screen.queryByText('New billing period')).toBeNull()
+        await waitFor(() => expect(getChart().seriesCount).toBe(2))
+        expect(screen.queryByText('Billing period starts')).toBeNull()
     })
 
     describe('the series cap', () => {
@@ -180,14 +190,14 @@ describe('BillingChart', () => {
         it('draws no more than the cap and says how many it left out', async () => {
             render(<BillingChart series={MANY} dates={DATES} hiddenSeries={[]} maxSeries={2} />)
 
-            await waitFor(() => expect(getHogChart().seriesCount).toBe(2))
+            await waitFor(() => expect(getChart().seriesCount).toBe(2))
             expect(await screen.findByText(/2 more are in the table below/)).toBeTruthy()
         })
 
         it('keeps the largest series when it caps', async () => {
             render(<BillingChart series={MANY} dates={DATES} hiddenSeries={[]} maxSeries={2} />)
 
-            const chart = getHogChart()
+            const chart = getChart()
             await waitFor(() => expect(chart.seriesCount).toBe(2))
 
             const tooltip = createDefaultTooltipAccessor(await hoverUntilTooltip(chart.element, 0, DATES.length))
@@ -197,7 +207,7 @@ describe('BillingChart', () => {
         it('says nothing when every series fits', async () => {
             render(<BillingChart series={MANY} dates={DATES} hiddenSeries={[]} maxSeries={10} />)
 
-            await waitFor(() => expect(getHogChart().seriesCount).toBe(4))
+            await waitFor(() => expect(getChart().seriesCount).toBe(4))
             expect(screen.queryByText(/more are in the table below/)).toBeNull()
         })
 
@@ -205,7 +215,7 @@ describe('BillingChart', () => {
             // Two of four are hidden, so the two that remain fit and nothing is left out.
             render(<BillingChart series={MANY} dates={DATES} hiddenSeries={[2, 3]} maxSeries={2} />)
 
-            await waitFor(() => expect(getHogChart().seriesCount).toBe(2))
+            await waitFor(() => expect(getChart().seriesCount).toBe(2))
             expect(screen.queryByText(/more are in the table below/)).toBeNull()
         })
     })
@@ -221,7 +231,7 @@ describe('BillingChart', () => {
         it('draws lines by default', async () => {
             const { container } = render(<BillingChart series={SERIES} dates={DATES} hiddenSeries={[]} />)
 
-            await waitFor(() => expect(getHogChart().seriesCount).toBe(2))
+            await waitFor(() => expect(getChart().seriesCount).toBe(2))
             expect(drawn(container)).toBe('line')
         })
 
@@ -230,7 +240,7 @@ describe('BillingChart', () => {
                 <BillingChart series={SERIES} dates={DATES} hiddenSeries={[]} chartType="bar" />
             )
 
-            await waitFor(() => expect(getHogChart().seriesCount).toBe(2))
+            await waitFor(() => expect(getChart().seriesCount).toBe(2))
             expect(drawn(container)).toBe('bar')
         })
 
@@ -246,7 +256,7 @@ describe('BillingChart', () => {
 
             render(<BillingChart series={many} dates={DATES} hiddenSeries={[0]} maxSeries={2} chartType="bar" />)
 
-            await waitFor(() => expect(getHogChart().seriesCount).toBe(2))
+            await waitFor(() => expect(getChart().seriesCount).toBe(2))
             expect(await screen.findByText(/1 more are in the table below/)).toBeTruthy()
         })
     })
@@ -262,7 +272,7 @@ describe('BillingChart', () => {
                 <BillingChart series={SERIES} dates={DATES} hiddenSeries={[]} chartType="bar" cumulativeLabel={LABEL} />
             )
 
-            const chart = getHogChart()
+            const chart = getChart()
             await waitFor(() => expect(chart.seriesCount).toBe(3))
             expect(chart.hasRightAxis).toBe(true)
 
@@ -285,7 +295,7 @@ describe('BillingChart', () => {
                 />
             )
 
-            const chart = getHogChart()
+            const chart = getChart()
             await waitFor(() => expect(chart.seriesCount).toBe(2))
 
             // 10 + 20, with Recordings hidden.
@@ -312,7 +322,7 @@ describe('BillingChart', () => {
                 />
             )
 
-            const chart = getHogChart()
+            const chart = getChart()
             // The two largest plus the line. The two the cap dropped are not drawn, but they are
             // still spend, so they still count.
             await waitFor(() => expect(chart.seriesCount).toBe(3))
@@ -326,13 +336,13 @@ describe('BillingChart', () => {
         it('is drawn over lines too', async () => {
             render(<BillingChart series={SERIES} dates={DATES} hiddenSeries={[]} cumulativeLabel={LABEL} />)
 
-            await waitFor(() => expect(getHogChart().seriesCount).toBe(3))
+            await waitFor(() => expect(getChart().seriesCount).toBe(3))
         })
 
         it('is not drawn unless asked for', async () => {
             render(<BillingChart series={SERIES} dates={DATES} hiddenSeries={[]} chartType="bar" />)
 
-            const chart = getHogChart()
+            const chart = getChart()
             await waitFor(() => expect(chart.seriesCount).toBe(2))
             expect(chart.hasRightAxis).toBe(false)
         })

@@ -6,7 +6,10 @@ from unittest import mock
 
 from requests import PreparedRequest, Request, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import paginators
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    paginators,
+    rest_api_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     HeaderLinkPaginator,
     JSONLinkPaginator,
@@ -17,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
     single_entity_path,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 
 
 def _make_response(json_body: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> Response:
@@ -360,6 +364,77 @@ class TestJsonBodyPagination:
         req = Request(method="POST", url="https://api.example.com/browse", json={"hitsPerPage": 1000})
         p.update_request(req)
         assert req.json == {"hitsPerPage": 1000, "cursor": "abc"}
+
+    def test_dotted_name_writes_into_nested_json_objects(self) -> None:
+        p = OffsetPaginator(
+            limit=2,
+            offset_param="variables.offset",
+            limit_param="variables.limit",
+            total_path=None,
+            param_location="json",
+        )
+        req = Request(method="POST", url="https://api.example.com/graphql", json={"query": "q", "variables": {"a": 1}})
+        p.init_request(req)
+        assert req.json == {"query": "q", "variables": {"a": 1, "offset": 0, "limit": 2}}
+
+        p.update_state(_make_response(), data=[{}, {}])
+        p.update_request(req)
+        assert req.json["variables"]["offset"] == 2
+
+    def test_dotted_name_through_a_non_object_raises(self) -> None:
+        p = PageNumberPaginator(base_page=1, page_param="variables.page", param_location="json")
+        req = Request(method="POST", url="https://api.example.com/graphql", json={"variables": "x"})
+        with pytest.raises(ValueError, match="not an object"):
+            p.init_request(req)
+
+    def test_graphql_resource_sends_page_and_incremental_cursor_in_variables(self) -> None:
+        config: Any = {
+            "client": {"base_url": "https://api.example.com"},
+            "resources": [
+                {
+                    "name": "items",
+                    "endpoint": {
+                        "path": "/graphql",
+                        "method": "POST",
+                        "json": {"query": "query($offset: Int, $since: String) { items }"},
+                        "data_selector": "data.items",
+                        "paginator": {
+                            "type": "offset",
+                            "limit": 1,
+                            "offset_param": "variables.offset",
+                            "limit_param": "variables.limit",
+                            "total_path": None,
+                            "param_location": "json",
+                        },
+                        "incremental": {
+                            "cursor_path": "updated_at",
+                            "start_param": "variables.since",
+                            "param_location": "json",
+                        },
+                    },
+                }
+            ],
+        }
+        pages: list[dict[str, Any]] = [
+            {"data": {"items": [{"id": 1, "updated_at": "2024-02-01"}]}},
+            {"data": {"items": []}},
+        ]
+        sent: list[tuple[str, Any]] = []
+
+        def fake_send(_client: RESTClient, prepared: PreparedRequest) -> Response:
+            sent.append((prepared.url or "", json.loads(prepared.body or b"{}")))
+            return _make_response(pages[len(sent) - 1])
+
+        with mock.patch.object(RESTClient, "_send", autospec=True, side_effect=fake_send):
+            resource = rest_api_resource(config, team_id=1, job_id="j", db_incremental_field_last_value="2024-01-01")
+            rows = [row for page in resource for row in page]
+
+        assert rows == [{"id": 1, "updated_at": "2024-02-01"}]
+        assert [url for url, _ in sent] == ["https://api.example.com/graphql"] * 2
+        assert [body["variables"] for _, body in sent] == [
+            {"since": "2024-01-01", "offset": 0, "limit": 1},
+            {"since": "2024-01-01", "offset": 1, "limit": 1},
+        ]
 
 
 class TestPageNumberTotalPages:

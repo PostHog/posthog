@@ -4,6 +4,7 @@ import asyncio
 import datetime
 import tempfile
 import contextlib
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -283,6 +284,106 @@ class TestRepartitionDetection:
         assert schema.repartition_pending["partition_mode"] is None
         assert schema.repartition_pending["partition_keys"] == ["id"]
 
+    @pytest.mark.parametrize("trigger", ["over_budget", "oom_history"])
+    def test_an_append_table_is_never_split(self, team, trigger):
+        schema = _make_schema(
+            team,
+            {
+                "partitioning_enabled": True,
+                "partition_mode": "datetime",
+                "partition_format": "day",
+                "partitioning_keys": ["ts"],
+            },
+        )
+        schema.sync_type = ExternalDataSchema.SyncType.APPEND
+        schema.save()
+        if trigger == "oom_history":
+            for _ in range(3):
+                ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).create(
+                    team_id=schema.team_id, schema=schema
+                )
+
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", ["2026-10-01", "2026-10-01", "2026-10-02"])
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=1 if trigger == "over_budget" else 10**12),
+                patch.object(ctrl, "repartition_oom_threshold", return_value=3),
+                patch.object(ctrl, "min_splittable_partition_bytes", return_value=1),
+                patch.object(ctrl, "capture_repartition_event") as capture,
+            ):
+                self._detect(team, schema, delta)
+
+        schema.refresh_from_db()
+        assert schema.repartition_pending is None
+        assert schema.last_repartition_at is None
+        assert capture.call_count == 0
+
+    @pytest.mark.parametrize(
+        "sync_type, base_budget, merge_budget, recent_ooms, expected_trigger",
+        [
+            (ExternalDataSchema.SyncType.INCREMENTAL, 1, 10**12, 0, None),
+            (ExternalDataSchema.SyncType.WEBHOOK, 1, 10**12, 0, None),
+            (ExternalDataSchema.SyncType.XMIN, 1, 10**12, 0, None),
+            (ExternalDataSchema.SyncType.INCREMENTAL, 1, 2, 0, "proactive_threshold"),
+            (ExternalDataSchema.SyncType.INCREMENTAL, 1, 0, 0, "proactive_threshold"),
+            (ExternalDataSchema.SyncType.INCREMENTAL, 1, 10**12, 3, "oom_history"),
+            (ExternalDataSchema.SyncType.FULL_REFRESH, 1, 10**12, 0, "proactive_threshold"),
+            (None, 1, 10**12, 0, "proactive_threshold"),
+        ],
+        ids=[
+            "incremental_over_base_budget_is_not_split",
+            "webhook_over_base_budget_is_not_split",
+            "xmin_over_base_budget_is_not_split",
+            "merge_table_over_its_fallback_cap_still_splits",
+            "merge_cap_below_base_budget_falls_back_to_base",
+            "merge_table_with_repeated_ooms_still_splits",
+            "full_refresh_keeps_the_base_budget",
+            "unknown_sync_type_keeps_the_base_budget",
+        ],
+    )
+    def test_keyed_merge_tables_split_on_size_only_past_the_merge_budget(
+        self,
+        team,
+        sync_type: str | None,
+        base_budget: int,
+        merge_budget: int,
+        recent_ooms: int,
+        expected_trigger: str | None,
+    ):
+        schema = _make_schema(
+            team,
+            {"partitioning_enabled": True, "partition_mode": "md5", "partition_count": 2, "partitioning_keys": ["id"]},
+        )
+        schema.sync_type = sync_type
+        schema.save()
+        for _ in range(recent_ooms):
+            ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).create(team_id=schema.team_id, schema=schema)
+
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", ["0", "0", "1", "1"])
+            with (
+                override_settings(
+                    DATA_WAREHOUSE_TARGET_PARTITION_BYTES=base_budget,
+                    DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES=merge_budget,
+                ),
+                patch.object(ctrl, "repartition_oom_threshold", return_value=3),
+                patch.object(ctrl, "min_splittable_partition_bytes", return_value=1),
+                patch.object(ctrl, "capture_repartition_event"),
+            ):
+                self._detect(team, schema, delta)
+
+        schema.refresh_from_db()
+        pending = schema.repartition_pending
+        if expected_trigger is None:
+            assert pending is None
+            assert schema.partition_measurement is not None
+            assert schema.partition_measurement["healthy"] is True
+        else:
+            assert pending is not None
+            assert pending["trigger_reason"] == expected_trigger
+            assert pending["partition_mode"] == "md5"
+            assert pending["partition_count"] > 2
+
 
 class TestPartitionMeasurementRecord:
     @pytest.mark.parametrize(
@@ -311,6 +412,8 @@ class TestPartitionMeasurementRecord:
             "job_id": str(job.id),
             "phase": phase,
             "budget": budget,
+            "split_budget": budget,
+            "coarsen_budget": budget,
             "healthy": healthy,
         }
 
@@ -349,13 +452,59 @@ class TestPartitionMeasurementRecord:
         assert measurement is not None and measurement["healthy"] is False
 
     @pytest.mark.parametrize(
-        "previous_status, nominated, measured_budget, recent_ooms, redundant",
+        "previous_status, nominated, sync_type, measured_budget, measured_split_budget, recent_ooms, auto_coarsen, "
+        "measured_coarsen_budget, redundant",
         [
-            (ExternalDataJob.Status.COMPLETED, False, 500, 0, True),
-            (ExternalDataJob.Status.FAILED, False, 500, 0, False),
-            (ExternalDataJob.Status.COMPLETED, True, 500, 0, False),
-            (ExternalDataJob.Status.COMPLETED, False, 400, 0, False),
-            (ExternalDataJob.Status.COMPLETED, False, 500, 3, False),
+            (ExternalDataJob.Status.COMPLETED, False, None, 500, 500, 0, False, None, True),
+            (ExternalDataJob.Status.FAILED, False, None, 500, 500, 0, False, None, False),
+            (ExternalDataJob.Status.COMPLETED, True, None, 500, 500, 0, False, None, False),
+            (ExternalDataJob.Status.COMPLETED, False, None, 400, 500, 0, False, None, False),
+            (ExternalDataJob.Status.COMPLETED, False, None, 500, 500, 3, False, None, False),
+            (
+                ExternalDataJob.Status.COMPLETED,
+                False,
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                500,
+                2000,
+                0,
+                False,
+                None,
+                True,
+            ),
+            (
+                ExternalDataJob.Status.COMPLETED,
+                False,
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                500,
+                3000,
+                0,
+                False,
+                None,
+                False,
+            ),
+            (ExternalDataJob.Status.COMPLETED, False, None, 500, None, 0, False, None, False),
+            (
+                ExternalDataJob.Status.COMPLETED,
+                False,
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                500,
+                2000,
+                0,
+                True,
+                None,
+                False,
+            ),
+            (
+                ExternalDataJob.Status.COMPLETED,
+                False,
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                500,
+                2000,
+                0,
+                True,
+                2000,
+                True,
+            ),
         ],
         ids=[
             "previous_run_completed",
@@ -363,12 +512,28 @@ class TestPartitionMeasurementRecord:
             "operator_nomination_waits",
             "budget_changed_since_the_measurement",
             "repeated_oom_kills_since_the_measurement",
+            "merge_table_measured_against_its_split_budget",
+            "split_budget_changed_since_the_measurement",
+            "measurement_without_a_split_budget",
+            "auto_coarsen_flag_turned_on_since_the_measurement",
+            "merge_table_measured_against_its_coarsen_budget",
         ],
     )
     def test_gate_reads_what_can_change_without_a_write(
-        self, team, previous_status: str, nominated: bool, measured_budget: int, recent_ooms: int, redundant: bool
+        self,
+        team,
+        previous_status: str,
+        nominated: bool,
+        sync_type: str | None,
+        measured_budget: int,
+        measured_split_budget: int | None,
+        recent_ooms: int,
+        auto_coarsen: bool,
+        measured_coarsen_budget: int | None,
+        redundant: bool,
     ):
         schema = _make_schema(team, {})
+        schema.sync_type = sync_type
         other_schema = ExternalDataSchema.objects.create(
             name="other", team=team, source=schema.source, sync_type_config={}
         )
@@ -389,13 +554,21 @@ class TestPartitionMeasurementRecord:
                 "job_id": str(previous.id),
                 "phase": "post_load",
                 "budget": measured_budget,
+                "split_budget": measured_split_budget,
+                **({"coarsen_budget": measured_coarsen_budget} if measured_coarsen_budget else {}),
                 "healthy": True,
             },
+            "partition_mode": "md5",
+            "partition_count": ctrl.COARSEN_MIN_PARTITIONS,
             **({"coarsen_requested": _NOMINATION} if nominated else {}),
         }
 
         with (
-            patch.object(ctrl, "target_partition_bytes", return_value=500),
+            override_settings(
+                DATA_WAREHOUSE_TARGET_PARTITION_BYTES=500,
+                DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES=2000,
+            ),
+            patch.object(ctrl, "is_schema_flag_enabled", return_value=auto_coarsen),
             patch.object(ctrl.ExternalDataSchemaOOMEvent, "recent_count", return_value=recent_ooms),
         ):
             assert ctrl.pre_extraction_measurement_is_redundant(schema, current) is redundant
@@ -733,11 +906,256 @@ class TestCoarsenTrigger:
         assert schema.coarsen_requested is None
 
 
+_KEYED = ExternalDataSchema.SyncType.INCREMENTAL
+_FULL_REFRESH = ExternalDataSchema.SyncType.FULL_REFRESH
+
+
+class TestMergeCoarsenPolicy:
+    # Budgets in bytes, small enough to state partition sizes directly: the merge policy caps a coarse
+    # partition at 1500 (0.75 of the merge budget), and its automatic trigger fires at 250 or less.
+    _BUDGETS = {"DATA_WAREHOUSE_TARGET_PARTITION_BYTES": 500, "DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES": 2000}
+
+    def _schema(
+        self, team, sync_type: str, *, partition_count: int, nominated: bool, **overrides
+    ) -> ExternalDataSchema:
+        schema = _make_schema(
+            team,
+            {
+                "partitioning_enabled": True,
+                "partition_mode": "md5",
+                "partition_count": partition_count,
+                "partitioning_keys": ["id"],
+                "last_repartition_at": _days_ago_iso(30),
+                **({"coarsen_requested": _NOMINATION} if nominated else {}),
+                **overrides,
+            },
+        )
+        schema.sync_type = sync_type
+        schema.save()
+        return schema
+
+    def _detect(
+        self,
+        team,
+        schema: ExternalDataSchema,
+        partition_bytes: dict[str | None, int],
+        *,
+        flag_enabled: bool = False,
+        **settings,
+    ) -> MagicMock:
+        with (
+            override_settings(**{**self._BUDGETS, **settings}),
+            patch.object(ctrl, "is_schema_flag_enabled", return_value=flag_enabled) as flag_check,
+            patch.object(ctrl, "measure_partition_bytes", return_value=partition_bytes),
+            patch.object(ctrl, "capture_repartition_event"),
+        ):
+            async_to_sync(ctrl.maybe_flag_for_repartition)(
+                schema, schema.source, _make_job(team, schema), MagicMock(), logger
+            )
+        schema.refresh_from_db()
+        return flag_check
+
+    @staticmethod
+    def _md5_layout(count: int, each: int) -> dict[str | None, int]:
+        return {str(bucket): each for bucket in range(count)}
+
+    @pytest.mark.parametrize(
+        "sync_type, count, each, settings, expected_count, expected_reason",
+        [
+            (_KEYED, 85, 60, {}, 5, None),
+            (ExternalDataSchema.SyncType.WEBHOOK, 85, 60, {}, 5, None),
+            (ExternalDataSchema.SyncType.XMIN, 85, 60, {}, 5, None),
+            (_KEYED, 64, 20, {}, 8, None),
+            (_KEYED, 85, 100, {}, 17, None),
+            (_KEYED, 85, 480, {}, None, "no_coarser_layout_fits"),
+            (_KEYED, 16, 10, {}, 4, None),
+            (_KEYED, 6, 10, {}, None, "md5_at_partition_floor"),
+            (_KEYED, 64, 20, {"DATA_WAREHOUSE_MERGE_MD5_PARTITION_MIN": 16}, 16, None),
+            (_FULL_REFRESH, 85, 60, {}, None, "no_coarser_layout_fits"),
+            (_FULL_REFRESH, 16, 10, {}, 1, None),
+        ],
+        ids=[
+            "incremental_picks_the_divisor_nearest_the_target",
+            "webhook_uses_the_merge_policy",
+            "xmin_uses_the_merge_policy",
+            "an_exact_divisor_hits_the_target",
+            "a_divisor_over_the_headroom_is_skipped_for_a_finer_one",
+            "refuses_when_no_divisor_fits_under_the_merge_budget",
+            "stops_at_the_floor_where_the_base_policy_goes_to_one",
+            "a_table_at_the_floor_has_no_coarser_layout",
+            "the_floor_setting_wins_over_the_target",
+            "full_refresh_keeps_the_base_budget",
+            "full_refresh_still_goes_to_the_coarsest_fit",
+        ],
+    )
+    def test_a_nomination_sizes_keyed_md5_tables_by_merge_parallelism(
+        self,
+        team,
+        sync_type: str,
+        count: int,
+        each: int,
+        settings: dict[str, Any],
+        expected_count: int | None,
+        expected_reason: str | None,
+    ):
+        schema = self._schema(
+            team, sync_type, partition_count=count, nominated=True, last_repartition_at=_days_ago_iso(0)
+        )
+
+        with patch.object(ctrl, "DELTA_COARSEN_DECLINE_TOTAL") as decline_metric:
+            self._detect(team, schema, self._md5_layout(count, each), **settings)
+
+        assert schema.coarsen_requested is None
+        pending = schema.repartition_pending
+        if expected_count is None:
+            assert pending is None
+            assert decline_metric.labels.call_args.kwargs == {"reason": expected_reason}
+        else:
+            assert pending is not None
+            assert pending["trigger_reason"] == "coarsening_requested"
+            assert pending["partition_mode"] == "md5"
+            assert pending["partition_count"] == expected_count
+
+    @pytest.mark.parametrize(
+        "sync_type, flag_state, each, expected_count",
+        [
+            (_KEYED, "off", 100, None),
+            (_KEYED, "on", 100, 17),
+            (_KEYED, "errors", 100, None),
+            (_KEYED, "off", 20, 17),
+            (_KEYED, "errors", 20, 17),
+            (_KEYED, "on", 20, 5),
+            (_FULL_REFRESH, "on", 100, None),
+        ],
+        ids=[
+            "off_leaves_a_table_only_the_merge_budget_can_coarsen",
+            "on_coarsens_against_the_merge_budget",
+            "an_erroring_flag_counts_as_off",
+            "off_keeps_the_base_policy",
+            "an_erroring_flag_keeps_the_base_policy",
+            "on_stops_near_the_target",
+            "on_does_not_reach_full_refresh_tables",
+        ],
+    )
+    def test_automatic_merge_coarsening_is_behind_a_flag(
+        self, team, sync_type: str, flag_state: str, each: int, expected_count: int | None
+    ):
+        schema = self._schema(team, sync_type, partition_count=85, nominated=False)
+        layout = self._md5_layout(85, each)
+
+        if flag_state == "errors":
+            with (
+                patch.object(schema_flags.posthoganalytics, "feature_enabled", side_effect=RuntimeError("flags down")),
+                patch.object(schema_flags, "capture_exception"),
+                override_settings(**self._BUDGETS),
+                patch.object(ctrl, "measure_partition_bytes", return_value=layout),
+                patch.object(ctrl, "capture_repartition_event"),
+            ):
+                async_to_sync(ctrl.maybe_flag_for_repartition)(
+                    schema, schema.source, _make_job(team, schema), MagicMock(), logger
+                )
+            schema.refresh_from_db()
+        else:
+            self._detect(team, schema, layout, flag_enabled=flag_state == "on")
+
+        pending = schema.repartition_pending
+        if expected_count is None:
+            assert pending is None
+        else:
+            assert pending is not None
+            assert pending["trigger_reason"] == "coarsening"
+            assert pending["partition_count"] == expected_count
+
+    @pytest.mark.parametrize(
+        "sync_type, nominated, count, expected_calls",
+        [
+            (_KEYED, False, 85, 1),
+            (_KEYED, True, 85, 0),
+            (_FULL_REFRESH, False, 85, 0),
+            (_KEYED, False, 8, 0),
+        ],
+        ids=[
+            "a_keyed_md5_table_evaluates_the_flag_once",
+            "a_nomination_skips_the_flag",
+            "a_table_the_policy_cannot_reach_skips_the_flag",
+            "a_table_too_fine_to_coarsen_skips_the_flag",
+        ],
+    )
+    def test_the_flag_is_evaluated_only_when_it_can_change_the_policy(
+        self, team, sync_type: str, nominated: bool, count: int, expected_calls: int
+    ):
+        schema = self._schema(team, sync_type, partition_count=count, nominated=nominated)
+
+        flag_check = self._detect(team, schema, self._md5_layout(count, 20))
+
+        assert flag_check.call_count == expected_calls
+        if expected_calls:
+            assert flag_check.call_args.args == (schema, ctrl.WAREHOUSE_MERGE_AUTO_COARSEN_FLAG)
+
+    @pytest.mark.parametrize("flag_enabled", [False, True], ids=["flag_off", "flag_on"])
+    @pytest.mark.parametrize("layout_age_days", [0, 2], ids=["just_rewritten", "past_the_cooldown"])
+    def test_a_coarsened_table_is_not_split_or_coarsened_again(self, team, flag_enabled: bool, layout_age_days: int):
+        schema = self._schema(team, _KEYED, partition_count=64, nominated=True)
+        self._detect(team, schema, self._md5_layout(64, 187))
+        pending = schema.repartition_pending
+        assert pending is not None
+        coarse_count = pending["partition_count"]
+        assert coarse_count == 8
+
+        # The state a finished swap leaves behind.
+        schema.sync_type_config = {
+            **schema.sync_type_config,
+            "partition_count": coarse_count,
+            "last_repartition_at": _days_ago_iso(layout_age_days),
+        }
+        schema.sync_type_config.pop("repartition_pending")
+        schema.save()
+
+        self._detect(
+            team,
+            schema,
+            self._md5_layout(coarse_count, 64 * 187 // coarse_count),
+            flag_enabled=flag_enabled,
+        )
+
+        assert schema.repartition_pending is None
+        measurement = schema.partition_measurement
+        assert measurement is not None and measurement["healthy"] is True
+
+
 # An Exception-derived cancellation, named exactly `CancelledError`: models how `async_to_sync` can
 # surface a worker-shutdown cancel so it slips past a plain BaseException catch. `_is_cancellation`
 # keys on the type name, so this must be named `CancelledError`.
 class CancelledError(Exception):
     pass
+
+
+class TestIsStaleSizeSplit:
+    @pytest.mark.parametrize(
+        "sync_type,trigger_reason,max_bytes_offset,expected",
+        [
+            pytest.param("incremental", "proactive_threshold", -1, True, id="under_budget"),
+            pytest.param("incremental", "proactive_threshold", 0, True, id="at_budget"),
+            pytest.param("incremental", "proactive_threshold", 1, False, id="over_budget"),
+            pytest.param("incremental", "proactive_threshold", None, False, id="unmeasured"),
+            pytest.param("webhook", "proactive_threshold", -1, True, id="webhook"),
+            pytest.param("xmin", "proactive_threshold", -1, True, id="xmin"),
+            pytest.param("incremental", "oom_history", -1, False, id="oom_history"),
+            pytest.param("incremental", "admin", -1, False, id="admin"),
+            pytest.param("incremental", "coarsening", -1, False, id="coarsening"),
+            pytest.param("incremental", "resume", -1, False, id="resume"),
+            pytest.param("full_refresh", "proactive_threshold", -1, False, id="full_refresh"),
+            pytest.param("append", "proactive_threshold", -1, False, id="append"),
+        ],
+    )
+    def test_only_a_proactive_split_of_a_keyed_table_under_budget_is_stale(
+        self, sync_type, trigger_reason, max_bytes_offset, expected
+    ):
+        schema = ExternalDataSchema(sync_type=sync_type, sync_type_config={})
+        if max_bytes_offset is not None:
+            schema.sync_type_config = {"max_partition_bytes": ctrl.split_budget_bytes(schema) + max_bytes_offset}
+
+        assert ctrl.is_stale_size_split(schema, trigger_reason) is expected
 
 
 class TestRepartitionActivity:
@@ -1293,6 +1711,172 @@ class TestRepartitionActivity:
         # Clearing pending alone re-arms the loop — detection re-flags the unchanged table next sync.
         # The cooldown stamp is what actually stops the flag → start → skip churn every 5 minutes.
         assert schema.last_repartition_at is not None
+
+    @pytest.mark.parametrize(
+        "trigger_reason,dropped",
+        [("proactive_threshold", True), ("oom_history", True), ("admin", False), ("coarsening", False)],
+    )
+    def test_an_automatic_split_queued_on_an_append_table_is_dropped(self, team, trigger_reason, dropped):
+        schema = _make_schema(team, {})
+        schema.sync_type = ExternalDataSchema.SyncType.APPEND
+        schema.save()
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": trigger_reason,
+                "attempts": 0,
+            }
+        )
+        schema.set_repartition_rewrite({"temp_uri": "s3://bucket/t__repartitioned_x", "rows_written": 10})
+        mocked = AsyncMock(return_value={"outcome": "completed", "row_count": 6, "partition_mode_after": "md5"})
+        purge = AsyncMock(return_value=True)
+        with patch.object(repartition_table, "purge_abandoned_rewrite_temp", new=purge):
+            capture = self._run(self._inputs(team, schema), mocked)
+
+        schema.refresh_from_db()
+        if dropped:
+            mocked.assert_not_called()
+            assert purge.await_args is not None
+            assert purge.await_args.args[2] == "s3://bucket/t__repartitioned_x"
+            assert schema.repartition_pending is None
+            assert schema.repartition_rewrite is None
+            skipped = [c.args[1] for c in capture.call_args_list if c.args[0] == "warehouse_repartition_skipped"]
+            assert [props["reason"] for props in skipped] == ["append_never_merges"]
+        else:
+            mocked.assert_awaited_once()
+            purge.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "sync_type,trigger_reason,max_bytes_offset,swap,dropped",
+        [
+            pytest.param("incremental", "proactive_threshold", -1, False, True, id="incremental_under_budget"),
+            pytest.param("webhook", "proactive_threshold", 0, False, True, id="webhook_at_budget"),
+            pytest.param("xmin", "proactive_threshold", -1, False, True, id="xmin_under_budget"),
+            pytest.param("incremental", "proactive_threshold", 1, False, False, id="over_budget_still_runs"),
+            pytest.param("incremental", "proactive_threshold", None, False, False, id="unmeasured_still_runs"),
+            pytest.param("incremental", "oom_history", -1, False, False, id="oom_history_still_runs"),
+            pytest.param("incremental", "admin", -1, False, False, id="admin_still_runs"),
+            pytest.param("incremental", "coarsening", -1, False, False, id="coarsening_still_runs"),
+            pytest.param("incremental", "proactive_threshold", -1, True, False, id="staged_swap_is_kept"),
+        ],
+    )
+    def test_a_queued_size_split_under_the_merge_budget_is_dropped(
+        self, team, sync_type, trigger_reason, max_bytes_offset, swap, dropped
+    ):
+        schema = _make_schema(team, {})
+        schema.sync_type = sync_type
+        schema.save()
+        if max_bytes_offset is not None:
+            schema.record_partition_measurement(ctrl.split_budget_bytes(schema) + max_bytes_offset)
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": trigger_reason,
+                "attempts": 0,
+            }
+        )
+        schema.set_repartition_rewrite({"temp_uri": "s3://bucket/t__repartitioned_x", "rows_written": 10})
+        if swap:
+            schema.set_repartition_swap(
+                {"state": "ready", "temp_uri": "s3://bucket/t__repartitioned_x", "live_uri": "s3://bucket/t"}
+            )
+        mocked = AsyncMock(return_value={"outcome": "completed", "row_count": 6, "partition_mode_after": "md5"})
+        purge = AsyncMock(return_value=True)
+        with patch.object(repartition_table, "purge_abandoned_rewrite_temp", new=purge):
+            capture = self._run(self._inputs(team, schema), mocked)
+
+        schema.refresh_from_db()
+        skipped = [c.args[1] for c in capture.call_args_list if c.args[0] == "warehouse_repartition_skipped"]
+        if dropped:
+            mocked.assert_not_called()
+            assert purge.await_args is not None
+            assert purge.await_args.args[2] == "s3://bucket/t__repartitioned_x"
+            assert schema.repartition_pending is None
+            assert schema.repartition_rewrite is None
+            assert [props["reason"] for props in skipped] == ["under_merge_split_budget"]
+            assert schema.last_repartition_at is None
+        else:
+            assert "under_merge_split_budget" not in [props["reason"] for props in skipped]
+            purge.assert_not_called()
+            if swap:
+                assert schema.repartition_swap is not None
+            else:
+                mocked.assert_awaited_once()
+
+    @pytest.mark.parametrize("prior_attempts, gives_up", [(0, False), (MAX_REPARTITION_ATTEMPTS - 1, True)])
+    def test_an_append_split_whose_temp_cannot_be_deleted_is_retried_a_bounded_number_of_times(
+        self, team, prior_attempts, gives_up
+    ):
+        schema = _make_schema(team, {})
+        schema.sync_type = ExternalDataSchema.SyncType.APPEND
+        schema.save()
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "proactive_threshold",
+                "drop_attempts": prior_attempts,
+            }
+        )
+        schema.set_repartition_rewrite(
+            {"temp_uri": "s3://bucket/t__repartitioned_x", "rows_written": 10, "held_at": "2026-01-01T00:00:00+00:00"}
+        )
+        mocked = AsyncMock()
+        with (
+            patch.object(repartition_table, "purge_abandoned_rewrite_temp", new=AsyncMock(side_effect=OSError("s3"))),
+            patch.object(repartition_table, "capture_exception") as captured,
+        ):
+            self._run(self._inputs(team, schema), mocked)
+
+        schema.refresh_from_db()
+        mocked.assert_not_called()
+        if gives_up:
+            assert schema.repartition_pending is None
+            assert schema.repartition_rewrite is None
+            assert any("dropped queued split" in str(c.args[0]) for c in captured.call_args_list)
+        else:
+            assert schema.repartition_pending is not None
+            assert schema.repartition_pending["dropping"] is True
+            assert schema.repartition_pending["drop_attempts"] == 1
+            # The checkpoint stays as the record of the temp table, and no longer holds the import.
+            assert schema.repartition_rewrite == {"temp_uri": "s3://bucket/t__repartitioned_x", "rows_written": 10}
+        # A dropped split changes no layout, so it must not start the cooldown or age the layout.
+        assert schema.last_repartition_at is None
+
+    def test_a_failed_append_split_drop_never_overwrites_a_newer_claim(self, team):
+        schema = _make_schema(team, {})
+        schema.sync_type = ExternalDataSchema.SyncType.APPEND
+        schema.save()
+        schema.set_repartition_pending(
+            {"partition_mode": "md5", "partition_keys": ["id"], "trigger_reason": "proactive_threshold"}
+        )
+        schema.set_repartition_rewrite({"temp_uri": "s3://bucket/t__repartitioned_x", "rows_written": 10})
+        newer_claim = {"token": "newer", "job_id": "other", "claimed_at": "2999-01-01T00:00:00+00:00"}
+
+        async def newer_attempt_claims_then_delete_fails(*_args, **_kwargs):
+            await asyncio.to_thread(
+                external_data_schema.update_sync_type_config_keys,
+                schema_id=schema.id,
+                team_id=schema.team_id,
+                updates={"repartition_claim": newer_claim},
+            )
+            raise OSError("s3")
+
+        with patch.object(
+            repartition_table,
+            "purge_abandoned_rewrite_temp",
+            new=AsyncMock(side_effect=newer_attempt_claims_then_delete_fails),
+        ):
+            self._run(self._inputs(team, schema), AsyncMock())
+
+        schema.refresh_from_db()
+        assert schema.repartition_claim == newer_claim
+        assert "dropping" not in (schema.repartition_pending or {})
 
     def test_failure_increments_attempts_without_clearing(self, team):
         schema = _make_schema(team, {})

@@ -53,10 +53,42 @@ export function hasCreditLimit(quota: VisionQuotaApi | null): quota is VisionQuo
  * so those surfaces speak in credits only. Unknown quota keeps the dollars rather than flickering them away.
  */
 export function hasBillableSpend(quota: VisionQuotaApi | null): boolean {
+    if (quota?.free_monthly_credits === null) {
+        return false
+    }
     if (!hasCreditLimit(quota)) {
         return true
     }
-    return billableCredits(quota.credit_limit, quota.free_monthly_credits) > 0
+    return billableCredits(quota.credit_limit, freeCredits(quota)) > 0
+}
+
+/** The free credits, where a free tier with no upper bound covers every credit. */
+function freeCredits(quota: VisionQuotaApi): number {
+    return quota.free_monthly_credits ?? Infinity
+}
+
+/** What a free-only scanner can spend in a period. An org limit below the free credits lowers it, as on the server. */
+export function freeCreditsAllowance(quota: VisionQuotaApi | null): number | null {
+    if (!quota) {
+        return null
+    }
+    const allowance = Math.min(freeCredits(quota), quota.credit_limit ?? Infinity)
+    return Number.isFinite(allowance) ? allowance : null
+}
+
+/** What a free-only scanner can still spend this period. */
+export function freeCreditsLeft(quota: VisionQuotaApi | null): number | null {
+    const allowance = freeCreditsAllowance(quota)
+    return quota && allowance !== null ? Math.max(0, allowance - quota.credits_used) : null
+}
+
+/** How much of a month a monthly allowance covers at a monthly rate, for example "the first 3 weeks". */
+export function freeCreditsCoverage(allowance: number, monthlyCredits: number): string {
+    const days = Math.max(1, Math.floor((allowance / monthlyCredits) * ESTIMATE_MONTH_DAYS))
+    if (days >= 14) {
+        return `the first ${Math.floor(days / 7)} weeks`
+    }
+    return days === 1 ? 'the first day' : `the first ${days} days`
 }
 
 /**
@@ -68,21 +100,38 @@ export function isFreeAllocationOnly(quota: VisionQuotaApi | null): boolean {
     if (!hasCreditLimit(quota) || quota.credit_limit <= 0) {
         return false
     }
-    return billableCredits(quota.credit_limit, quota.free_monthly_credits) === 0
+    return billableCredits(quota.credit_limit, freeCredits(quota)) === 0
 }
 
 export interface ProjectionInputs {
     /** Fleet rate in credits per 30 days; defaults to the quota's stored `scanners_monthly_credits`. */
     monthlyRateCredits?: number
+    /** `monthlyRateCredits` already pro-rated to the period end by the backend, which then wins. */
+    ratePeriodCredits?: number
     /** Charged once (backfills), so they count toward the cap-reach date but not the rate. */
     oneOffCredits?: number
 }
 
-/** Credits the period ends on: spend so far, the rate pro-rated over the days left, and the one-offs. Unclamped. */
+/** Credits the period ends on: spend so far, the scanners' rest-of-period credits, and the one-offs. Unclamped. */
 export function projectDemandCredits(quota: VisionQuotaApi, inputs: ProjectionInputs = {}): number {
+    return quota.credits_used + scannerPeriodCredits(quota, inputs) + Math.max(inputs.oneOffCredits ?? 0, 0)
+}
+
+/** The backend's rest-of-period figure, which billing also forecasts from; a what-if rate pro-rates locally. */
+function scannerPeriodCredits(quota: VisionQuotaApi, inputs: ProjectionInputs): number {
+    if (inputs.ratePeriodCredits !== undefined) {
+        return Math.max(inputs.ratePeriodCredits, 0)
+    }
+    if (inputs.monthlyRateCredits === undefined) {
+        return quota.scanners_period_credits
+    }
+    return periodShareOfMonthlyRate(quota, Math.max(inputs.monthlyRateCredits, 0))
+}
+
+/** The part of a 30-day rate that lands before the period ends, for rates the backend has not seen yet. */
+export function periodShareOfMonthlyRate(quota: VisionQuotaApi, monthlyCredits: number): number {
     const daysRemaining = Math.max(dayjs.utc(quota.period_end).diff(dayjs(), 'day', true), 0)
-    const rate = Math.max(inputs.monthlyRateCredits ?? quota.scanners_monthly_credits, 0) / ESTIMATE_MONTH_DAYS
-    return quota.credits_used + rate * daysRemaining + Math.max(inputs.oneOffCredits ?? 0, 0)
+    return (monthlyCredits / ESTIMATE_MONTH_DAYS) * daysRemaining
 }
 
 /** Project credit spend to period end from a fleet rate and the one-offs already committed. */
@@ -130,7 +179,7 @@ export function projectQuota(quota: VisionQuotaApi | null, inputs: ProjectionInp
         capReachDate,
         resetsOn,
         usedPct: (used / cap) * 100,
-        usedFreePct: (Math.min(used, quota.free_monthly_credits) / cap) * 100,
+        usedFreePct: (Math.min(used, freeCredits(quota)) / cap) * 100,
         projectedPct: (projectedAdditional / cap) * 100,
     }
 }
@@ -148,14 +197,17 @@ export function daysUntilCapReached(projection: QuotaProjection): number | null 
  * Disabled-reason / tooltip for scan triggers based on the monthly credit limit.
  * Assumes block-only overage policy; revisit when `usage_based` lands so we don't disable on metered orgs.
  */
-export function quotaUx(quota: VisionQuotaApi | null): { disabledReason?: string; tooltip?: string } {
+export function quotaUx(
+    quota: VisionQuotaApi | null,
+    onFreePlan: boolean
+): { disabledReason?: string; tooltip?: string } {
     const state = quotaBannerState(quota)
     if (!state.kind) {
         return {}
     }
     if (state.kind === 'exhausted') {
         return {
-            disabledReason: isFreeAllocationOnly(quota)
+            disabledReason: onFreePlan
                 ? `You've used all your free Replay vision credits. Resets ${state.resetsOn}.`
                 : `Replay vision spend limit reached. Resets ${state.resetsOn}.`,
         }

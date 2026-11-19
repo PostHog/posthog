@@ -1,4 +1,4 @@
-// Mirror of `posthog/cdp/internal_events.py`. The managed-alert event boundary and the legacy
+// Mirror of `products/cdp/backend/internal_events.py`. The managed-alert event boundary and the legacy
 // insight-alert exemption must match the Python side exactly, so keep the two in sync.
 export const MANAGED_ALERT_EVENT_PATTERN =
     /^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled|match|incident_opened|incident_closed)$/

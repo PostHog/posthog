@@ -116,6 +116,7 @@ describe('HeatmapsPipeline', () => {
 
         mockEventFilterManager = {
             getFilter: jest.fn().mockReturnValue(undefined),
+            dropsAllEvents: jest.fn().mockReturnValue(false),
         } as unknown as jest.Mocked<EventFilterManager>
 
         // Passthrough by default: events round-trip unchanged. The apply step reads `.value.event`

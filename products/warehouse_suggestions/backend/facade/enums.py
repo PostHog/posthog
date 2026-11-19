@@ -7,6 +7,7 @@ class WarehouseSuggestionKind(LabeledStrEnum):
     CERTIFY = "certify"
     DEPRECATE = "deprecate"
     MATERIALIZE = "materialize"
+    UNMATERIALIZE = "unmaterialize"
 
 
 class WarehouseSuggestionStatus(LabeledStrEnum):
@@ -25,6 +26,9 @@ class WarehouseSuggestionSubjectKind(LabeledStrEnum):
 class WarehouseSuggestionDismissalReason(LabeledStrEnum):
     NOT_USEFUL = ("not_useful", "Not useful")
     NOT_NOW = ("not_now", "Not now")
+    WRONG_ESTIMATE = ("wrong_estimate", "Wrong estimate")
+    ALREADY_HANDLED = ("already_handled", "Already handled")
+    NOT_OWNER = ("not_owner", "Someone else decides")
     OTHER = "other"
 
 
@@ -32,3 +36,27 @@ class WarehouseSuggestionAssetOutcome(LabeledStrEnum):
     LIVE = "live"
     DELETED = "deleted"
     UNUSED = "unused"
+
+
+class WarehouseSuggestionSurface(LabeledStrEnum):
+    MODELS = "models"
+    CATALOG = ("catalog", "Data catalog")
+
+
+class WarehouseSuggestionRefreshMode(LabeledStrEnum):
+    FULL = "full"
+    INCREMENTAL = "incremental"
+
+
+class WarehouseSuggestionMainSaving(LabeledStrEnum):
+    WAITING = "waiting"
+    BACKGROUND = "background"
+    SCANNED = "scanned"
+
+
+class WarehouseSuggestionRefreshIntervalBasis(LabeledStrEnum):
+    SOURCE_SYNC = ("source_sync", "Source sync")
+    FASTEST_SCHEDULE = ("fastest_schedule", "Fastest schedule")
+    READ_RATE = ("read_rate", "Read rate")
+    CONSUMER_REFRESH = ("consumer_refresh", "Consumer refresh")
+    SAVINGS = "savings"

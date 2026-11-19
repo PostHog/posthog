@@ -43,10 +43,9 @@ import {
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { cohortFilterName, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconArrowDown, IconArrowUp, IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
@@ -69,13 +68,19 @@ import {
     PropertyFilterType,
 } from '~/types'
 
+import { CohortFlagTargetingNotice } from 'products/cohorts/frontend/realtime/CohortFlagTargetingNotice'
+import { useRealtimeCohortsServing } from 'products/cohorts/frontend/realtime/useRealtimeCohortsServing'
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 import { FractionalRolloutWarning } from 'products/feature_flags/frontend/FractionalRolloutWarning'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
 import { BlastRadiusErrorMessage } from './BlastRadiusErrorMessage'
 import { BlastRadiusSkeleton } from './BlastRadiusSkeleton'
-import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON, MATCHING_ESTIMATE_TOOLTIP } from './constants'
+import {
+    CONDITION_SET_LOGICAL_OPERATOR_TOOLTIP,
+    EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON,
+    MATCHING_ESTIMATE_TOOLTIP,
+} from './constants'
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
@@ -165,7 +170,7 @@ function summarizeProperties(
 
         let value: string | number
         if (property.type === PropertyFilterType.Cohort) {
-            value = property.cohort_name || `ID ${property.value}`
+            value = cohortFilterName(property)
         } else if (Array.isArray(property.value)) {
             const displayValues = property.value.map(resolveValue)
             value = displayValues.slice(0, 2).join(', ') + (displayValues.length > 2 ? '...' : '')
@@ -468,7 +473,7 @@ const ConditionContent = ({
     isDragDropEnabled: boolean
 }): JSX.Element => {
     const [originalWidth, setOriginalWidth] = useState<number | undefined>(undefined)
-    const realtimeCohortFlagTargeting = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
+    const realtimeCohortFlagTargeting = useRealtimeCohortsServing()
     const { aggregationLabel } = useValues(groupsModel)
 
     // Combined ref callback
@@ -641,6 +646,7 @@ const ConditionContent = ({
                                             pageKey={`feature-flag-workflow-${id}-${group.sort_key!}`}
                                             propertyFilters={withResolvedFlagLabels(group?.properties, getFlagKey)}
                                             logicalRowDivider
+                                            logicalRowDividerTooltip={CONDITION_SET_LOGICAL_OPERATOR_TOOLTIP}
                                             addText="Add filter"
                                             onChange={(properties) => {
                                                 updateConditionSet(index, undefined, properties)
@@ -654,6 +660,10 @@ const ConditionContent = ({
                                             errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                             showCohortFlagTargeting
+                                        />
+                                        <CohortFlagTargetingNotice
+                                            properties={group.properties ?? []}
+                                            className="mt-2"
                                         />
                                     </div>
 
@@ -1101,7 +1111,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 within the rollout percentage.
             </p>
 
-            {!!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_EARLY_EXIT] && !hideEarlyExit && (
+            {!hideEarlyExit && (
                 <div className="flex flex-col gap-2 mb-2">
                     <div className="flex items-center gap-2">
                         <LemonCheckbox
@@ -1114,9 +1124,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
                     </div>
                     {releaseFilters.early_exit && (
                         <LemonBanner type="warning" className="mt-1">
-                            Early exit is not applied when a server-side SDK evaluates this flag with local evaluation —
-                            those SDKs evaluate all condition sets. It takes effect when the flag is evaluated through
-                            the <code>/flags</code> endpoint.
+                            The JVM server SDK and older versions of other server SDKs don't apply early exit when they
+                            evaluate this flag with local evaluation. Those SDKs evaluate all condition sets. Early exit
+                            always applies when the flag is evaluated through the <code>/flags</code> endpoint.
                         </LemonBanner>
                     )}
                 </div>

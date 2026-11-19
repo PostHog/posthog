@@ -11,6 +11,7 @@ use std::sync::{
 use std::time::Duration;
 
 use axum::{http::StatusCode, routing::get, Router};
+use common_metrics::Matcher;
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolutionServer;
 use cymbal_proto::CYMBAL_RESOLUTION_MAX_MESSAGE_SIZE_BYTES;
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
@@ -21,6 +22,9 @@ use tonic::transport::Server;
 use tracing::{info, warn};
 
 use crate::core::{config::ResolverConfig, shutdown::wait_for_shutdown};
+use crate::metric_consts::{
+    BYTE_HISTOGRAM_BUCKETS, SYMBOL_SET_DECOMPRESSED_BYTES, SYMBOL_SET_PARSE_INPUT_BYTES,
+};
 
 pub mod app_context;
 pub mod auth;
@@ -125,7 +129,20 @@ fn spawn_metrics_server(
                 "/_readiness",
                 get(move || readiness(readiness_draining.clone())),
             );
-        let router = common_metrics::setup_metrics_routes_for_product(router, "cymbal-resolution");
+        let router = common_metrics::setup_metrics_routes_for_product_with_overrides(
+            router,
+            "cymbal-resolution",
+            &[
+                (
+                    Matcher::Full(SYMBOL_SET_DECOMPRESSED_BYTES.into()),
+                    BYTE_HISTOGRAM_BUCKETS,
+                ),
+                (
+                    Matcher::Full(SYMBOL_SET_PARSE_INPUT_BYTES.into()),
+                    BYTE_HISTOGRAM_BUCKETS,
+                ),
+            ],
+        );
 
         let bind = format!("0.0.0.0:{port}");
         info!("Metrics server listening on {}", bind);

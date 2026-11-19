@@ -36,6 +36,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "CreateGroup",
     "DeleteCohortMember",
     "DeleteCohortMembersBulk",
+    "DeleteCohortMembersByPersonIds",
     "DeleteGroupTypeMapping",
     "DeleteGroupTypeMappingsBatchForTeam",
     "DeleteGroupsBatchForTeam",
@@ -47,6 +48,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "FencePerson",
     "FencePersons",
     "FoldPersonDocument",
+    "GetDistinctIdRows",
     "GetDistinctIdsForPerson",
     "GetDistinctIdsForPersons",
     "GetGroup",
@@ -70,8 +72,12 @@ pub const KNOWN_METHODS: &[&str] = &[
     "ListCohortMemberIds",
     "ListGroups",
     "ListPersonTombstoneQueue",
+    "ListPersonsForTeam",
+    "RaisePersonVersion",
+    "RaisePersonVersionFloors",
     "ReleaseFence",
     "ReleaseFences",
+    "RestorePersons",
     "SetPersonDistinctIdVersionFloor",
     "SetPersonVersionFloor",
     "SplitPerson",
@@ -79,6 +85,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "UpdateGroupTypeMapping",
     "UpdatePersonProperties",
     "UpsertHashKeyOverrides",
+    "WriteDistinctIds",
 ];
 
 /// Identity-server RPCs, forwarded verbatim; sorted for binary search.
@@ -283,6 +290,10 @@ impl RawProxyInner {
             // person write.
             (Target::Service, "FoldPersonDocument") => {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "FoldPersonDocument").await;
+                (resp, "leader", call_ms)
+            }
+            (Target::Service, "RaisePersonVersion") => {
+                let (resp, call_ms) = self.raw_proxy_to_leader(req, "RaisePersonVersion").await;
                 (resp, "leader", call_ms)
             }
             (Target::Service, "GetPerson") => {
@@ -618,17 +629,9 @@ impl RawProxyInner {
             Err(resp) => return (resp, None),
         };
 
-        let partition = leader.partition_for_person(team_id, person_id);
-
         let _in_flight = ClientInFlightGuard::new("leader");
         leader
-            .forward_or_stash(
-                method,
-                partition,
-                (team_id, person_id),
-                parts.headers,
-                body_bytes,
-            )
+            .forward_or_stash(method, (team_id, person_id), parts.headers, body_bytes)
             .await
     }
 }
@@ -813,6 +816,18 @@ impl http_body::Body for ByteCountedBody {
             }
         }
         result
+    }
+
+    /// hyper sets END_STREAM on the response HEADERS frame only when this
+    /// returns true. A trailers-only gRPC error needs that flag. Without it,
+    /// grpcio reads the status headers as initial metadata and reports
+    /// UNKNOWN.
+    fn is_end_stream(&self) -> bool {
+        self.inner.is_end_stream()
+    }
+
+    fn size_hint(&self) -> http_body::SizeHint {
+        self.inner.size_hint()
     }
 }
 
@@ -1000,6 +1015,20 @@ mod tests {
                 "wrong status for: {why}"
             );
         }
+    }
+
+    #[test]
+    fn byte_counted_body_reports_the_end_of_a_trailers_only_error() {
+        let inner = grpc_error_response(Code::Unavailable, "Server at capacity").into_body();
+        let body = ByteCountedBody::new(
+            inner,
+            Arc::from("GetPerson"),
+            "replica",
+            Arc::from("test"),
+            Arc::from(""),
+            0,
+        );
+        assert!(http_body::Body::is_end_stream(&body));
     }
 
     #[tokio::test]

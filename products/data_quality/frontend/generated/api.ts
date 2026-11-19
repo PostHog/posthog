@@ -19,6 +19,8 @@ import type {
     DataQualityChecksListParams,
     DataQualityChecksOutputSchemaRetrieveParams,
     DataQualityChecksScheduleRetrieveParams,
+    DataQualityChecksSubjectsListParams,
+    DataQualityFailingCheckCountApi,
     DataQualityMetricSubjectApi,
     DataQualityOutputSchemaApi,
     DataQualityRunRequestApi,
@@ -179,7 +181,7 @@ export const getDataQualityChecksRunCreateUrl = (projectId: string, id: string) 
 }
 
 /**
- * Run this check now. Returns the suite run to poll for the report.
+ * Run this check now. Returns the suite run to poll for the report. Each caller can send 20 run requests a minute and 60 an hour, and each project 180 an hour, counted across this endpoint and POST data_quality_runs, whatever the response. To run every check on a subject, call POST data_quality_runs with subject_type and subject_uuid. That counts as one request.
  */
 export const dataQualityChecksRunCreate = async (
     projectId: string,
@@ -238,6 +240,23 @@ export const dataQualityChecksCheckTypesList = async (
     options?: RequestInit
 ): Promise<DataQualityCheckTypeApi[]> => {
     return apiMutator<DataQualityCheckTypeApi[]>(getDataQualityChecksCheckTypesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataQualityChecksFailingCountRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_quality_checks/failing_count/`
+}
+
+/**
+ * How many enabled checks you can see last reported a failure, across the project.
+ */
+export const dataQualityChecksFailingCountRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DataQualityFailingCheckCountApi> => {
+    return apiMutator<DataQualityFailingCheckCountApi>(getDataQualityChecksFailingCountRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -393,18 +412,34 @@ export const dataQualityChecksSchedulesList = async (
     })
 }
 
-export const getDataQualityChecksSubjectsListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_quality_checks/subjects/`
+export const getDataQualityChecksSubjectsListUrl = (
+    projectId: string,
+    params?: DataQualityChecksSubjectsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_quality_checks/subjects/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_quality_checks/subjects/`
 }
 
 /**
- * Everything in this project you can author a check on, with each subject's columns.
+ * Everything in this project you can author a check on, with each subject's columns. Filter by subject_type or search, and page with limit and offset.
  */
 export const dataQualityChecksSubjectsList = async (
     projectId: string,
+    params?: DataQualityChecksSubjectsListParams,
     options?: RequestInit
 ): Promise<DataQualitySubjectApi[]> => {
-    return apiMutator<DataQualitySubjectApi[]>(getDataQualityChecksSubjectsListUrl(projectId), {
+    return apiMutator<DataQualitySubjectApi[]>(getDataQualityChecksSubjectsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -445,7 +480,7 @@ export const getDataQualityRunsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Run checks now: the ones named by check_ids, every enabled check on the subject named by subject_type and subject_uuid, or every enabled check in the project when neither is given. Returns the suite run to poll for the report.
+ * Run checks now: the ones named by check_ids, every enabled check on the subject named by subject_type and subject_uuid, or every enabled check in the project when neither is given. Returns the suite run to poll for the report. Each call counts as one run request, however many checks it runs and whatever the response. Each caller can send 20 run requests a minute and 60 an hour, and each project 180 an hour.
  */
 export const dataQualityRunsCreate = async (
     projectId: string,

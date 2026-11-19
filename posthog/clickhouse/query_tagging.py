@@ -28,6 +28,7 @@ class AccessMethod(StrEnum):
     OAUTH = "oauth"
     SHARING_TOKEN = "sharing_token"
     ID_JAG = "id_jag"
+    OIDC_WORKLOAD = "oidc_workload"
     PROJECT_SECRET_API_KEY = "project_secret_api_key"
     TEAM_SECRET_TOKEN = "team_secret_token"
 
@@ -50,6 +51,7 @@ class Product(StrEnum):
     API = "api"
     AUTORESEARCH = "autoresearch"
     BATCH_EXPORT = "batch_export"
+    CANVAS = "canvas"
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
@@ -87,6 +89,7 @@ class Product(StrEnum):
     SIGNALS = "signals"
     SQL_EDITOR = "sql_editor"
     SURVEYS = "surveys"
+    TODAY = "today"
     TRACING = "tracing"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"
@@ -110,12 +113,14 @@ class Feature(StrEnum):
     CACHE_WARMUP = "cache_warmup"
     DATA_MODELING = "data_modeling"
     WAREHOUSE_SUGGESTIONS = "warehouse_suggestions"
+    EVAL_SUGGESTIONS = "eval_suggestions"
     HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
     INGESTION_WARNINGS = "ingestion_warnings"
     PREAGGREGATION = "preaggregation"
     DATA_DELETION = "data_deletion"
     DATA_QUALITY_CHECK = "data_quality_check"  # one data quality check assertion against its subject
+    BATCH_RUN_OUTCOME = "batch_run_outcome"  # a workflow batch run checks whether its sends errored
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
     EVENT_FILTERS = "event_filters"
     SCHEMA_INTROSPECTION = "schema_introspection"
@@ -148,6 +153,7 @@ class Feature(StrEnum):
     # A 30 day aggregate that runs on every AI observability dashboard mount and trace view, so its
     # load is worth attributing separately from the tab queries it sits alongside.
     INSTRUMENTATION_CHECKLIST = "instrumentation_checklist"
+    AI_GATEWAY_DEV_USAGE = "ai_gateway_dev_usage"
 
 
 class FallbackTags(TypedDict):
@@ -216,6 +222,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.WEB_EXTERNAL_CLICKS_TABLE_QUERY
             | NodeKind.WEB_BOTS_TABLE_QUERY
             | NodeKind.WEB_AGENT_ANALYTICS_QUERY
+            | NodeKind.WEB_PAGE_DIRECTORY_QUERY
             | NodeKind.WEB_PAGE_URL_SEARCH_QUERY
             | NodeKind.WEB_VITALS_QUERY
             | NodeKind.WEB_VITALS_PATH_BREAKDOWN_QUERY
@@ -231,13 +238,23 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.ERROR_TRACKING_FINGERPRINT_PROJECTION_QUERY
             | NodeKind.ERROR_TRACKING_BREAKDOWNS_QUERY
             | NodeKind.ERROR_TRACKING_RELEASES_QUERY
+            | NodeKind.ERROR_TRACKING_ISSUE_EVENTS_QUERY
         ):
             return {"product": Product.ERROR_TRACKING}
+        case NodeKind.INBOX_USAGE_QUERY:
+            return {"product": Product.SIGNALS}
         case NodeKind.LOGS_QUERY | NodeKind.LOG_ATTRIBUTES_QUERY | NodeKind.LOG_VALUES_QUERY:
             return {"product": Product.LOGS}
         case NodeKind.METRICS_QUERY | NodeKind.METRICS_HISTOGRAM_QUERY:
             return {"product": Product.METRICS}
-        case NodeKind.ACCOUNTS_TABLE_QUERY:
+        case (
+            NodeKind.ACCOUNTS_TABLE_QUERY
+            | NodeKind.ACCOUNT_USERS_QUERY
+            | NodeKind.ACCOUNT_ACTIVITY_MATRIX_QUERY
+            | NodeKind.BOOK_ACTIVITY_MATRIX_QUERY
+            | NodeKind.BOOK_ACTIVITY_PEOPLE_QUERY
+            | NodeKind.BOOK_ACTIVITY_FIRSTS_QUERY
+        ):
             return {"product": Product.CUSTOMER_ANALYTICS}
         case NodeKind.RECORDINGS_QUERY | NodeKind.SESSION_BATCH_EVENTS_QUERY:
             return {"product": Product.REPLAY}
@@ -263,7 +280,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             NodeKind.TRACE_QUERY
             | NodeKind.TRACES_QUERY
             | NodeKind.SESSION_QUERY
-            | NodeKind.TRACE_NEIGHBORS_QUERY
             | NodeKind.TRACE_SPANS_QUERY
             | NodeKind.TRACE_SPANS_AGGREGATION_QUERY
             | NodeKind.TRACE_SPANS_TREE_QUERY
@@ -287,10 +303,12 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY
             | NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY
             | NodeKind.MARKETING_ANALYTICS_SEARCH_QUERY
+            | NodeKind.MARKETING_ANALYTICS_RECOMMENDATIONS_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
         case (
-            NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
+            NodeKind.MCP_DASHBOARD_QUERY
+            | NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
             | NodeKind.MCP_MODEL_BREAKDOWN_QUERY
             | NodeKind.MCP_PROTOCOL_VERSION_BREAKDOWN_QUERY
             | NodeKind.MCP_TOOL_CALL_BREAKDOWN_QUERY
@@ -327,8 +345,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.INSIGHT_ACTORS_QUERY
             | NodeKind.INSIGHT_ACTORS_QUERY_OPTIONS
             | NodeKind.FUNNELS_ACTORS_QUERY
-            | NodeKind.FUNNEL_CORRELATION_QUERY
-            | NodeKind.FUNNEL_CORRELATION_ACTORS_QUERY
             | NodeKind.PATHS_V2_ACTORS_QUERY
             # data-source nodes, not full queries
             | NodeKind.EVENTS_NODE
@@ -336,6 +352,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.ACTIONS_NODE
             | NodeKind.PERSONS_NODE
             | NodeKind.DATA_WAREHOUSE_NODE
+            | NodeKind.EXPERIMENT_WAREHOUSE_NATIVE_NODE
+            | NodeKind.EXPERIMENT_WAREHOUSE_NATIVE_EXPOSURE_CONFIG
             | NodeKind.FUNNELS_DATA_WAREHOUSE_NODE
             | NodeKind.LIFECYCLE_DATA_WAREHOUSE_NODE
             | NodeKind.DATA_TABLE_NODE
@@ -393,6 +411,17 @@ class DagsterTags(BaseModel):
     asset_key: Optional[str] = None
 
 
+_PRODUCT_TAG_VALUES = frozenset(member.value for member in Product) | frozenset(member.value for member in ProductKey)
+
+
+def is_known_product_tag(value: str) -> bool:
+    return value in _PRODUCT_TAG_VALUES
+
+
+# Where a HogQL rewrite moved a scan's flag calls: to `posthog.flag_evaluations`, or to a UNION ALL of it and `events`.
+FlagCallsRead = Literal["flag_evaluations", "union"]
+
+
 class QueryTags(BaseModel):
     team_id: Optional[int] = None
     user_id: Optional[int] = None
@@ -419,6 +448,7 @@ class QueryTags(BaseModel):
 
     rate_limit_bypass: Optional[int] = None
     rate_limit_wait_ms: Optional[int] = None
+    queue_wait_ms: Optional[int] = None
     kill_switch: Optional[str] = None
 
     route_id: Optional[str] = None
@@ -435,6 +465,7 @@ class QueryTags(BaseModel):
     export_format: Optional[str] = None
     chargeable: Optional[int] = None
     api_queries_budgeted: Optional[bool] = None  # server-set only; request tags cannot reach it
+    warehouse_suggestion_access: Optional[str] = None
     request_name: Optional[str] = None
     name: Optional[str] = None
     endpoint_version: Optional[int] = None  # Endpoints, the product
@@ -516,8 +547,8 @@ class QueryTags(BaseModel):
     experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
     # Why the metric-events side is not precomputable (set on the metric read when metric_events_path is
     # "not_applicable"): "breakdown", "cuped", "data_warehouse", "funnel_order_type", "non_event_source",
-    # "session_property_math", "group_math", "unsupported_math", "retention_window", or "metric_type"
-    # (ratio). None/absent when the metric-events side is precomputable.
+    # "session_property_math", "group_math", "unsupported_math", "retention_window", or "ratio_flag_off".
+    # None/absent when the metric-events side is precomputable.
     experiment_metric_events_skip_reason: Optional[str] = None
     experiment_query_surface: Optional[str] = None  # "metric", "exposures_timeseries", "actors", "precompute_build"
     experiment_precompute_table: Optional[str] = None  # on precompute_build rows: "exposures" or "metric_events"
@@ -557,6 +588,8 @@ class QueryTags(BaseModel):
     warehouse_table_ids: Optional[list[str]] = None
     directly_read_ids: Optional[list[str]] = None
     materialized_saved_query_id: Optional[str] = None
+
+    flag_calls_read: Optional[list[FlagCallsRead]] = None
 
     trend_volume_type: Optional[str] = None
 
@@ -676,6 +709,11 @@ def get_query_tag_value(key: str) -> Optional[Any]:
         return getattr(get_query_tags(), key)
     except (AttributeError, KeyError):
         return None
+
+
+def get_http_request_id() -> str | None:
+    http_request_id = get_query_tag_value("http_request_id")
+    return str(http_request_id) if isinstance(http_request_id, uuid.UUID) else None
 
 
 # Tag snapshots are isolated copy-on-write: every mutation goes through a top-level attribute
@@ -888,6 +926,13 @@ class QueryCounter:
     def max_query_time_ms(self):
         return self.max_query_time * 1000
 
+    def record_query_time(self, elapsed: float) -> None:
+        self.total_query_time += elapsed
+        self.count += 1
+        self.max_query_time = max(self.max_query_time, elapsed)
+        if elapsed > self.SLOW_QUERY_THRESHOLD_S:
+            self.slow_count += 1
+
     def __call__(self, execute, *args, **kwargs):
         import time
 
@@ -896,13 +941,7 @@ class QueryCounter:
         try:
             return execute(*args, **kwargs)
         finally:
-            elapsed = time.perf_counter() - start_time
-            self.total_query_time += elapsed
-            self.count += 1
-            if elapsed > self.max_query_time:
-                self.max_query_time = elapsed
-            if elapsed > self.SLOW_QUERY_THRESHOLD_S:
-                self.slow_count += 1
+            self.record_query_time(time.perf_counter() - start_time)
 
 
 @contextmanager

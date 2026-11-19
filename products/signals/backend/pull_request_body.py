@@ -11,6 +11,7 @@ from enum import StrEnum
 
 import structlog
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 
@@ -49,7 +50,9 @@ def edit_pull_request_body(
     parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
     if parsed is None:
         return BodyEditOutcome.SKIPPED
-    github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
+    github = GitHubIntegration.first_for_team_repository(
+        team_id, parsed.repository, source="signals_implementation_pr", priority=Priority.BATCH
+    )
     if github is None:
         # The lookup also returns None when the access check hits a transient GitHub error.
         logger.info(f"{log_event}_no_integration", report_id=report_id, pr_url=pr_url)

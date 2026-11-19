@@ -38,6 +38,7 @@ const repo: RepoApi = {
     baseline_file_paths: {},
     enable_pr_comments: true,
     debt_digest_enabled: false,
+    auto_quarantine_mode: 'off',
     created_at: '2026-06-10T00:00:00Z',
 }
 
@@ -173,7 +174,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-10',
-        pageUrl: `/visual_review/runs/${RUN_ID}`,
+        pageUrl: `/visual-review/repos/PostHog/posthog/runs/${RUN_ID}`,
         testOptions: { waitForSelector: '[data-attr="visual-review-add-images-to-comment"]' },
     },
     decorators: [
@@ -185,6 +186,7 @@ const meta: Meta = {
                 [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/`]: repo,
                 [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/quarantine/`]: emptyList,
                 [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/quarantine_lifts/`]: [],
+                '/api/projects/:team_id/visual_review/repos/': { ...emptyList, count: 1, results: [repo] },
             },
         }),
     ],
@@ -279,6 +281,7 @@ const buttonQuarantine: QuarantinedIdentifierEntryApi = {
     expires_at: '2026-07-01T00:00:00Z',
     created_at: '2026-06-01T00:00:00Z',
     updated_at: '2026-06-01T00:00:00Z',
+    lift_reason: '',
 }
 
 const pendingLift: QuarantineLiftEntryApi = {
@@ -325,7 +328,7 @@ const cleanQuarantinedTooltip = snapshot({
 // A pull request that fixes a quarantined story asks for the quarantine to lift once it merges.
 export const QuarantinedSnapshotLiftsOnMerge: StoryObj = {
     parameters: {
-        pageUrl: `/visual_review/runs/${RUN_ID}#snapshot=snapshot-changed`,
+        pageUrl: `/visual-review/repos/PostHog/posthog/runs/${RUN_ID}#snapshot=snapshot-changed`,
         testOptions: { waitForSelector: '[data-attr="visual-review-lift-on-merge-pending"]' },
     },
     decorators: [

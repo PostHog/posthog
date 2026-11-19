@@ -1,6 +1,6 @@
 import sharp, { type FormatEnum, type Sharp } from 'sharp'
 
-import { UndecodableImageError, blurOnly } from './blur.ts'
+import { BLANK_PNG, UndecodableImageError, blurOnly } from './blur.ts'
 
 describe('blur', () => {
     const swatch = (): Sharp => sharp({ create: { width: 8, height: 8, channels: 3, background: '#0af' } })
@@ -27,6 +27,11 @@ describe('blur', () => {
     // primary image. libvips gives such a file to its UltraHDR loader when that loader is available,
     // and the allowlist blocks that loader, so this case proves that the file still decodes through
     // the plain JPEG loader, which ignores the gain map.
+    it('stores a blank that decodes to one transparent pixel', async () => {
+        const { data, info } = await sharp(BLANK_PNG).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+        expect([info.width, info.height, data[3]]).toEqual([1, 1, 0])
+    })
+
     it('decodes a JPEG that carries a gain map', async () => {
         // sharp 0.35.3 implements withGainMap(), but its type declarations do not include it.
         const gainMapped = swatch() as Sharp & { withGainMap: () => Sharp }

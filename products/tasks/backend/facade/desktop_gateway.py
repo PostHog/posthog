@@ -8,11 +8,11 @@ from products.tasks.backend.logic.services.desktop_gateway_token import (
     desktop_gateway_base_url,
     desktop_gateway_configured,
     desktop_limit_tier,
-    desktop_rollout_enabled,
     desktop_token_ttl_seconds,
     mint_desktop_gateway_token,
     plan_allowed_models,
     posthog_code_plan,
+    record_gateway_token_refusal,
 )
 
 __all__ = [
@@ -24,10 +24,10 @@ __all__ = [
     "desktop_gateway_base_url",
     "desktop_gateway_configured",
     "desktop_limit_tier",
-    "desktop_rollout_enabled",
     "desktop_token_ttl_seconds",
     "mint_desktop_gateway_token",
     "plan_allowed_models",
     "posthog_code_plan",
+    "record_gateway_token_refusal",
     "team_credit_refusal",
 ]

@@ -18,10 +18,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot, NoToolCall
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS, SchemaDiscoveryOrder
 
 
@@ -82,8 +83,12 @@ async def eval_schema_discovery(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-schema-discovery-cli",
+        offline_suite=offline_suite(
+            "product_analytics/eval_schema_discovery::eval_schema_discovery",
+            metrics=["no_persistent_insight_save", "answer_tool_not_execute_sql", "schema_discovery_order"],
+        ),
         cases=cases,
         scorers=[
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),

@@ -33,6 +33,19 @@ describe('turnTrailers', () => {
         })
     })
 
+    it('numbers turns after the user turns a partial history leaves out', () => {
+        const trailers = computeTurnTrailers(
+            [
+                item('human_message', 'h0', 'q'),
+                item('assistant_message', 'a0', 'answer'),
+                item('turn_separator', 'turn-0'),
+            ],
+            7
+        )
+
+        expect(trailers.get('turn-0')?.turnIndex).toEqual(7)
+    })
+
     it("does not leak a crashed turn's text into the next completed turn", () => {
         // A crashed turn never emits its separator; the next human message starts a fresh turn.
         const trailers = computeTurnTrailers([

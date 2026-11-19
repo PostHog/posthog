@@ -24,12 +24,11 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { objectsEqual } from 'lib/utils/objects'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -37,8 +36,9 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SIDE_PANEL_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { openNotebook } from '~/models/notebooksModel'
 import {
     AgentMode,
     ApprovalDecisionStatus,
@@ -69,7 +69,6 @@ import {
 } from '~/types'
 
 import {
-    attachedContextLogic,
     getRandomThinkingMessage,
     getWebSearchResultsByToolUseId,
     isTerminalRunStatus,
@@ -77,18 +76,16 @@ import {
     runStreamLogic,
     WebSearchResultsByToolUseId,
 } from 'products/posthog_ai/frontend/api/logics'
+import type { ReplySuggestions } from 'products/posthog_ai/frontend/api/types'
 import { LogEntry, parseLogEvent } from 'products/posthog_ai/frontend/lib/parse-logs'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import type { PermissionRequestRecord } from '../../../../products/posthog_ai/frontend/types/streamTypes'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { BillingType } from '../../types'
-import { handsFreeLogic } from './handsFreeLogic'
-import { summariseAssistantThread } from './handsFreeUtils'
 import {
     EnhancedToolCall,
     MESSAGE_TOO_LONG,
-    MODE_DEFINITIONS,
     TOOL_DEFINITIONS,
     ToolRegistration,
     getToolDefinition,
@@ -98,8 +95,9 @@ import {
 import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { MaxBillingContext, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { SCENE_PANEL_ID, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
-import { AttachedContext, MaxUIContext } from './maxTypes'
+import { SCENE_PANEL_ID, maxLogic } from './maxLogic'
+import { AttachedContext, MaxContextItem, MaxUIContext } from './maxTypes'
+import { agentModeFromParam } from './modeChoices'
 import { posthogAiContextLogic } from './posthogAiContextLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand, SlashCommandName } from './slash-commands'
 import { canCreateSupportTicket, isTicketCommand } from './ticketUtils'
@@ -108,6 +106,7 @@ import {
     activeSceneLogicHasMaxContext,
     findPendingClientToolCall,
     getAgentModeForScene,
+    getContextSourceProperties,
     isAssistantMessage,
     isAssistantToolCallMessage,
     isHumanMessage,
@@ -170,6 +169,7 @@ export interface maxThreadLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     billingContext: MaxBillingContext | null // maxBillingContextLogic
     compiledContext: MaxUIContext | null // maxContextLogic
+    sceneContext: MaxContextItem[] // maxContextLogic
     availableStaticTools: ToolRegistration[] // maxGlobalLogic
     dataProcessingAccepted: boolean // maxGlobalLogic
     toolMap: {
@@ -186,6 +186,7 @@ export interface maxThreadLogicValues {
     sandboxAttachments: AttachedContext[] // posthogAiContextLogic
     pendingSandboxPermissionRequest: PermissionRequestRecord | null // runStreamLogic
     sandboxCurrentMode: string | null // runStreamLogic
+    sandboxReplySuggestions: ReplySuggestions | null // runStreamLogic
     sceneId: string | null // sceneLogic
     activeDangerousOperationApproval: {
         payload: Record<string, any>
@@ -265,9 +266,11 @@ export interface maxThreadLogicActions {
     askMax: (
         prompt: string | null,
         addToThread?: boolean | undefined,
-        uiContext?: Partial<MaxUIContext> | undefined
+        uiContext?: Partial<MaxUIContext> | undefined,
+        agentMode?: AgentMode | null | undefined
     ) => {
         addToThread: boolean
+        agentMode: AgentMode | null | undefined
         prompt: string | null
         uiContext: Partial<MaxUIContext> | undefined
     } // maxLogic
@@ -319,15 +322,19 @@ export interface maxThreadLogicActions {
     } // posthogAiContextLogic
     bootstrapSandboxRun: (payload: {
         justCreatedRun?: boolean
+        pagedHistory?: boolean
         retainedMessage?: string
         runId: string
         taskId: string
+        taskRuntime?: string | null
         traceId?: string
     }) => {
         justCreatedRun?: boolean | undefined
+        pagedHistory?: boolean | undefined
         retainedMessage?: string | undefined
         runId: string
         taskId: string
+        taskRuntime?: string | null | undefined
         traceId?: string | undefined
     } // runStreamLogic
     cancelSandboxRun: (
@@ -389,6 +396,9 @@ export interface maxThreadLogicActions {
     }
     appendSandboxEntry: (entry: LogEntry) => {
         entry: LogEntry
+    }
+    autoRejectPendingApprovals: () => {
+        value: true
     }
     clearPendingApproval: () => {
         value: true
@@ -779,7 +789,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'pendingBindTaskId',
             ],
             maxContextLogic,
-            ['compiledContext'],
+            ['compiledContext', 'sceneContext'],
             maxBillingContextLogic,
             ['billingContext'],
             billingLogic,
@@ -799,7 +809,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // BindLogic subtree (the input area renders for LangGraph conversations too, so they
             // can't bind the keyed stream logic themselves).
             runStreamLogic({ streamKey: conversationId, conversationId }),
-            ['pendingPermissionRequest as pendingSandboxPermissionRequest', 'currentMode as sandboxCurrentMode'],
+            [
+                'pendingPermissionRequest as pendingSandboxPermissionRequest',
+                'currentMode as sandboxCurrentMode',
+                'replySuggestions as sandboxReplySuggestions',
+            ],
         ],
         actions: [
             maxLogic({ panelId }),
@@ -912,6 +926,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setCancelLoading: (cancelLoading: boolean) => ({ cancelLoading }),
         setPendingApproval: (proposalId: string) => ({ proposalId }),
         clearPendingApproval: true,
+        autoRejectPendingApprovals: true,
         appendSandboxEntry: (entry: LogEntry) => ({ entry }),
         prewarmSandbox: true,
         releaseSandboxPrewarm: true,
@@ -1201,17 +1216,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         (conversation?.pending_approvals ?? []).map((a) => [a.proposal_id, a])
                     ) as Record<string, PendingApproval>
 
-                    // Merge: existing data takes precedence (streaming approvals are more up-to-date)
-                    // This prevents losing approval cards when setConversation is called during askMax
-                    const hasExistingData = Object.keys(state).length > 0
-                    if (hasExistingData) {
-                        return {
-                            ...incomingApprovals,
-                            ...state,
-                        }
-                    }
-
-                    return incomingApprovals
+                    return { ...state, ...incomingApprovals }
                 },
             },
         ],
@@ -1292,6 +1297,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // otherwise invisible outside session recordings, because no send event records a length.
             // Null content means resume/continue rather than a new message.
             const promptLength = typeof streamData.content === 'string' ? messageLength(streamData.content) : undefined
+            // Snapshot on the user's send only. A retry may run after the user navigated away, and a
+            // reconnect or resume sends no `ui_context`, yet both continue the same turn.
+            if (generationAttempt === 0 && streamData.content !== null) {
+                cache.turnContextSourceProperties = getContextSourceProperties(
+                    streamData.ui_context,
+                    values.sceneContext
+                )
+            }
+            const contextSourceProperties: ReturnType<typeof getContextSourceProperties> =
+                cache.turnContextSourceProperties ?? getContextSourceProperties(undefined, [])
 
             // Sandbox runtime: route the message to a non-streaming products/tasks Run, then hand the
             // SSE connection off to runStreamLogic. The LangGraph EventSource loop below is never
@@ -1533,6 +1548,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         agent_mode: agentMode,
                         generation_attempt: generationAttempt,
                         prompt_length: promptLength,
+                        ...contextSourceProperties,
                     })
                 }
 
@@ -1552,7 +1568,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     //   Safari:      "Load failed"
                     //   handleFetch: ApiError with status === undefined (fetch itself threw)
                     const isNetworkError =
-                        (e instanceof Error && /failed to fetch|network\s*error|load failed/i.test(e.message)) ||
+                        (e instanceof Error &&
+                            /failed to fetch|network\s*error|load failed|error in input stream/i.test(e.message)) ||
                         (e instanceof ApiError && !e.status)
 
                     if (isNetworkError) {
@@ -1648,6 +1665,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                   ? 'api_error'
                                   : 'unknown_error',
                             prompt_length: promptLength,
+                            ...contextSourceProperties,
                         })
                         // Remove streaming messages and reload from server (source of truth)
                         actions.finalizeStreamingMessages()
@@ -1673,6 +1691,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         agent_mode: agentMode,
                         generation_attempt: generationAttempt,
                         prompt_length: promptLength,
+                        ...contextSourceProperties,
                     })
                 }
                 actions.completeThreadGeneration()
@@ -1735,15 +1754,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
             // Sync agentMode from conversation only if user hasn't manually selected a mode after submission
             if (!values.agentModeLockedByUser && conversation?.agent_mode) {
-                const conversationAgentMode = conversation.agent_mode as AgentMode
-                // Older conversations can store the retired user interview mode, which has no selector
-                // option. Use the default mode, as ee/hogai/chat_agent/mode_manager.py does. Match the
-                // retired mode exactly, because live modes such as Research also have no MODE_DEFINITIONS entry.
-                actions.syncAgentModeFromConversation(
-                    conversationAgentMode === AgentMode.UserInterview
-                        ? AgentMode.ProductAnalytics
-                        : conversationAgentMode
-                )
+                actions.syncAgentModeFromConversation(conversation.agent_mode as AgentMode)
             }
             if (conversation?.is_sandbox) {
                 actions.setIsSandboxMode(true)
@@ -1984,10 +1995,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.clearQueuedMessages()
             }
         },
-        askMax: async ({ prompt, addToThread = true, uiContext }, breakpoint) => {
+        askMax: async ({ prompt, addToThread = true, uiContext, agentMode: requestedAgentMode }, breakpoint) => {
             // Only process if this thread is the currently active one
             if (values.conversationId !== values.activeThreadKey) {
                 return
+            }
+            if (requestedAgentMode !== undefined) {
+                actions.setAgentMode(requestedAgentMode)
             }
             // Enforced here (not just hidden from the autocomplete) so typing /ticket by hand
             // can't create a ticket the support panel would refuse.
@@ -2066,16 +2080,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 })
             }
             const contextualTools = Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context]))
-            // Always send voice_mode as an explicit boolean when handsFreeLogic is mounted,
-            // not just when active. Otherwise a typed turn following a spoken one inherits
-            // the earlier <voice_mode> system instruction from conversation history and
-            // keeps formatting for speech (no markdown, spelled-out numbers).
-            const handsFree = handsFreeLogic.findMounted({ panelId: props.panelId })
-            const voiceMode = handsFree ? { voice_mode: handsFree.values.isActive } : undefined
-            const mergedUiContext =
-                uiContext || voiceMode
-                    ? { ...values.compiledContext, ...uiContext, ...voiceMode }
-                    : values.compiledContext || undefined
+            const mergedUiContext = uiContext
+                ? { ...values.compiledContext, ...uiContext }
+                : values.compiledContext || undefined
             const billingContext =
                 values.billingContext && values.featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]
                     ? values.billingContext
@@ -2260,11 +2267,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         completeThreadGeneration: () => {
             actions.executePendingClientToolCall()
 
-            const handsFree = handsFreeLogic.findMounted({ panelId: props.panelId })
-            if (handsFree?.values.isActive) {
-                handsFree.actions.speakAssistantResponse(summariseAssistantThread(values.threadRaw))
-            }
-
             // Update the conversation history to include the new conversation
             actions.loadConversationHistory({ doNotUpdateCurrentThread: true })
 
@@ -2274,6 +2276,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
             const newConversation = {
                 ...values.conversation,
+                pending_approvals: Object.values(values.pendingApprovalsData)
+                    .filter((approval) => approval.proposal_id === values.pendingApprovalProposalId)
+                    .map((approval) => {
+                        const resolved = values.resolvedApprovalStatuses[approval.proposal_id]
+                        return resolved ? { ...approval, decision_status: resolved.status } : approval
+                    }),
                 status: ConversationStatus.Idle,
             }
 
@@ -2346,6 +2354,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
         processNotebookUpdate: async ({ notebookId, notebookContent }) => {
             try {
+                const [{ notebookLogic }, { openNotebook }] = await Promise.all([
+                    import('scenes/notebooks/Notebook/notebookLogic'),
+                    import('~/models/notebooksModel'),
+                ])
                 const currentPath = router.values.location.pathname
                 const notebookPath = urls.notebook(notebookId)
 
@@ -2474,6 +2486,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 false // Don't add to thread - no human message to show
             )
         },
+        autoRejectPendingApprovals: () => {
+            // The backend rejects the whole batch on feedback, so every card still pending is rejected too.
+            for (const approval of Object.values(values.pendingApprovalsData)) {
+                if (approval.decision_status === 'pending' && !values.resolvedApprovalStatuses[approval.proposal_id]) {
+                    actions.setResolvedApprovalStatus(approval.proposal_id, 'auto_rejected')
+                }
+            }
+        },
         continueAfterApproval: ({ proposalId }) => {
             actions.clearQueuedMessages()
             // Persist the approved status so the card can display it
@@ -2502,6 +2522,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // mounted to show the resolved state with feedback. The alreadyResolved check
             // in askMax prevents auto-rejection for resolved approvals.
             actions.setResolvedApprovalStatus(proposalId, 'rejected', feedback)
+            if (feedback) {
+                actions.autoRejectPendingApprovals()
+            }
             // Resume the conversation with the rejection payload
             actions.streamConversation(
                 {
@@ -3007,29 +3030,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (typeof options === 'string' && options.startsWith('mode=')) {
                 const colonIndex = options.indexOf(':', 5)
                 const modeValue = colonIndex === -1 ? options.slice(5) : options.slice(5, colonIndex)
-                // Parse the mode value (gated modes fall back to null if their feature flags are off)
-                let parsedMode: AgentMode | null = null
-                if (modeValue === 'auto') {
-                    parsedMode = null
-                } else if (modeValue === 'research') {
-                    parsedMode = values.featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH] ? AgentMode.Research : null
-                } else if (modeValue === 'plan') {
-                    parsedMode = values.featureFlags[FEATURE_FLAGS.PHAI_PLAN_MODE] ? AgentMode.Plan : null
-                } else if (modeValue === 'sandbox') {
+                if (modeValue === 'sandbox') {
                     if (values.featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE]) {
                         actions.setIsSandboxMode(true)
                     }
-                    parsedMode = null
-                } else if ((Object.values(AgentMode) as string[]).includes(modeValue)) {
-                    const modeDef = MODE_DEFINITIONS[modeValue as keyof typeof MODE_DEFINITIONS]
-                    if (modeDef?.flag && !values.featureFlags[FEATURE_FLAGS[modeDef.flag]]) {
-                        parsedMode = null
-                    } else {
-                        parsedMode = modeValue as AgentMode
-                    }
-                }
-                if (parsedMode !== undefined) {
-                    actions.setAgentMode(parsedMode)
+                    actions.setAgentMode(null)
+                } else {
+                    actions.setAgentMode(agentModeFromParam(modeValue, values.featureFlags))
                 }
             }
         }
@@ -3075,10 +3082,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         // runStreamLogic, which replays logs/ then opens SSE if non-terminal. The LangGraph
         // reconnect path below is never entered for sandbox runtimes (coexistence).
         if (conversation.agent_runtime === 'sandbox') {
-            if (isPiTaskRuntime(conversation.task?.runtime)) {
-                return
-            }
-
             // runStreamLogic and posthogAiContextLogic are connected (so already mounted) for this
             // conversation. Reset their per-conversation state before replaying this run's history.
             actions.resetSandboxStream()
@@ -3089,6 +3092,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     actions.bootstrapSandboxRun({
                         taskId: conversation.task.id,
                         runId,
+                        taskRuntime: conversation.task.runtime,
                     })
                 }
             }

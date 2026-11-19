@@ -101,6 +101,75 @@ describe('dataWarehouseViewsLogic', () => {
         expect(listCalls).toBe(1)
     })
 
+    it.each([
+        {
+            name: 'reloads the catalog when another tab added a view',
+            listAfterFocus: ['view-1', 'view-2'],
+            refreshes: true,
+        },
+        { name: 'leaves the catalog alone when no view changed', listAfterFocus: ['view-1'], refreshes: false },
+    ])('on window focus, $name', async ({ listAfterFocus, refreshes }) => {
+        await expectLogic(logic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+        useMocks({
+            get: {
+                '/api/projects/:team_id/warehouse_saved_queries/': () => [
+                    200,
+                    { results: [{ id: 'view-1', name: 'view_1', columns: [] }] },
+                ],
+            },
+        })
+        logic.actions.loadDataWarehouseSavedQueries()
+        await expectLogic(logic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess']).toFinishAllListeners()
+
+        useMocks({
+            get: {
+                '/api/projects/:team_id/warehouse_saved_queries/': () => [
+                    200,
+                    { results: listAfterFocus.map((id) => ({ id, name: id.replace('-', '_'), columns: [] })) },
+                ],
+            },
+        })
+        await expectLogic(logic, () => {
+            window.dispatchEvent(new Event('focus'))
+        })
+            .toDispatchActions(['refreshAfterWindowFocus', 'loadDataWarehouseSavedQueriesSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.dataWarehouseSavedQueries.map((view) => view.id)).toEqual(listAfterFocus)
+        if (refreshes) {
+            await expectLogic(logic).toDispatchActions(['refreshDatabaseSchema'])
+        } else {
+            await expectLogic(logic).toNotHaveDispatchedActions(['refreshDatabaseSchema'])
+        }
+    })
+
+    it('keeps refreshing on window focus after a failed focus refresh', async () => {
+        await expectLogic(logic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+
+        useMocks({ get: { '/api/projects/:team_id/warehouse_saved_queries/': [500, {}] } })
+        await expectLogic(logic, () => {
+            window.dispatchEvent(new Event('focus'))
+        })
+            .toDispatchActions(['refreshAfterWindowFocus', 'loadDataWarehouseSavedQueriesFailure'])
+            .toFinishAllListeners()
+
+        useMocks({
+            get: {
+                '/api/projects/:team_id/warehouse_saved_queries/': () => [
+                    200,
+                    { results: [{ id: 'view-1', name: 'view_1', columns: [] }] },
+                ],
+            },
+        })
+        await expectLogic(logic, () => {
+            window.dispatchEvent(new Event('focus'))
+        })
+            .toDispatchActions(['refreshAfterWindowFocus', 'loadDataWarehouseSavedQueriesSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.dataWarehouseSavedQueries.map((view) => view.id)).toEqual(['view-1'])
+    })
+
     // Regression: deleting a view that's already gone (double DELETE, stale list, double-click) is
     // the outcome the user asked for, so a 404 must resolve as success — not throw an error toast.
     it('treats a 404 on delete as success', async () => {
@@ -128,6 +197,26 @@ describe('dataWarehouseViewsLogic', () => {
         expect(logic.values.dataWarehouseSavedQueries).toEqual([])
     })
 
+    it('treats a missing lineage node as no downstream references', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/data_modeling_nodes/lineage/': [404, { detail: 'Node not found.' }],
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadDataWarehouseSavedQueryDownstreamReferences('view-404')
+        })
+            .toDispatchActions(['loadDataWarehouseSavedQueryDownstreamReferencesSuccess'])
+            .toNotHaveDispatchedActions(['loadDataWarehouseSavedQueryDownstreamReferencesFailure'])
+
+        expect(logic.values.dataWarehouseSavedQueryDownstreamReferences['view-404']).toEqual({
+            error: false,
+            loading: false,
+            references: [],
+        })
+    })
+
     // Regression: the blocked node's id arrives on the response body's `extra`, which the error
     // object keeps on `data`. Read off the error's root it was always undefined, so a refused
     // delete offered no way to see what reads the view.
@@ -149,6 +238,53 @@ describe('dataWarehouseViewsLogic', () => {
         refusalToast?.button?.action()
         expect(router.values.location.pathname).toContain(urls.nodeDetail('node-7', 'lineage'))
         toastErrorSpy.mockRestore()
+    })
+
+    // Regression: the view page is keyed by the node id, so a link built from the view id opens a
+    // missing model. A view with no node must still open somewhere. The toast can outlive the logic
+    // when the person leaves the editor, so the button must work with the logic unmounted.
+    it.each([
+        [
+            'its page',
+            [
+                200,
+                {
+                    nodes: [
+                        { id: 'node-upstream', saved_query_id: 'view-upstream' },
+                        { id: 'node-9', saved_query_id: 'view-9' },
+                    ],
+                    edges: [],
+                },
+            ],
+            urls.nodeDetail('node-9'),
+        ],
+        [
+            'the SQL editor when it has no node',
+            [404, { error: 'Node not found' }],
+            urls.sqlEditor({ view_id: 'view-9' }),
+        ],
+    ])('links a created view to %s', async (_name, lineageResponse, expectedUrl) => {
+        const toastSuccessSpy = jest.spyOn(lemonToast, 'success').mockImplementation(() => 'x')
+        useMocks({
+            get: { '/api/projects/:team_id/data_modeling_nodes/lineage/': lineageResponse },
+            post: { '/api/environments/:team_id/warehouse_saved_queries/': [201, { id: 'view-9', name: 'orders' }] },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.createDataWarehouseSavedQuery({ name: 'orders', types: [] })
+        }).toDispatchActions(['createDataWarehouseSavedQuerySuccess'])
+
+        const createdToast = toastSuccessSpy.mock.calls.find(([message]) => message === 'orders successfully created')
+        const button = (createdToast?.[1] as { button?: { label: string; action: () => Promise<void> } } | undefined)
+            ?.button
+        expect(button?.label).toBe('Go to view')
+
+        logic.unmount()
+        await button?.action()
+        const { pathname, search } = router.values.location
+        expect(`${pathname}${search}`).toContain(expectedUrl)
+        toastSuccessSpy.mockRestore()
+        logic.mount()
     })
 
     // Regression: a freshly materialized view showed as a plain view in the sidebar until a manual

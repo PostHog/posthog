@@ -8,14 +8,15 @@ use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use personhog_common::grpc::{current_client_name, current_method_name};
+use personhog_common::query_tag;
 
 use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
 use crate::storage::types::{
-    DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, PersonVersionFloorResult, SplitResult,
-    TombstoneTarget, TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
-    VersionFloorOutcome,
+    DeletePersonsOutcome, Person, PersonListEntry, PersonTombstoneQueueEntry,
+    PersonVersionFloorResult, SplitResult, TombstoneTarget, TombstonedDeleteOutcome,
+    TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
 };
 
 /// Version offset for split person/PDI rows — mirrors the Django convention.
@@ -45,10 +46,8 @@ impl PersonLookup for PostgresStorage {
 
         let row = sqlx::query_as!(
             Person,
-            r#"
+            r#"/* service='personhog-replica', operation='get_person_by_id' */
             SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties?",
-                   properties_last_updated_at::text as "properties_last_updated_at?",
-                   properties_last_operation::text as "properties_last_operation?",
                    created_at, version, is_identified,
                    CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                    last_seen_at
@@ -79,10 +78,8 @@ impl PersonLookup for PostgresStorage {
 
         let row = sqlx::query_as!(
             Person,
-            r#"
+            r#"/* service='personhog-replica', operation='get_person_by_uuid' */
             SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties?",
-                   properties_last_updated_at::text as "properties_last_updated_at?",
-                   properties_last_operation::text as "properties_last_operation?",
                    created_at, version, is_identified,
                    CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                    last_seen_at
@@ -135,11 +132,9 @@ impl PersonLookup for PostgresStorage {
                     PostgresStorage::acquire_timed(&pool, BULK_POOL_LABEL).await?;
                 let rows = sqlx::query_as!(
                     Person,
-                    r#"
+                    r#"/* service='personhog-replica', operation='get_persons_by_ids' */
                     SELECT id, uuid, team_id::bigint as "team_id!",
                            CASE WHEN $3::boolean THEN properties::text ELSE NULL END as "properties?",
-                           CASE WHEN $3::boolean THEN properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
-                           CASE WHEN $3::boolean THEN properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                            created_at, version, is_identified,
                            CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                            last_seen_at
@@ -210,11 +205,9 @@ impl PersonLookup for PostgresStorage {
                     PostgresStorage::acquire_timed(&pool, BULK_POOL_LABEL).await?;
                 let rows = sqlx::query_as!(
                     Person,
-                    r#"
+                    r#"/* service='personhog-replica', operation='get_persons_by_uuids' */
                     SELECT id, uuid, team_id::bigint as "team_id!",
                            CASE WHEN $3::boolean THEN properties::text ELSE NULL END as "properties?",
-                           CASE WHEN $3::boolean THEN properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
-                           CASE WHEN $3::boolean THEN properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                            created_at, version, is_identified,
                            CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                            last_seen_at
@@ -270,10 +263,8 @@ impl PersonLookup for PostgresStorage {
 
         let row = sqlx::query_as!(
             Person,
-            r#"
+            r#"/* service='personhog-replica', operation='get_person_by_distinct_id' */
             SELECT p.id, p.uuid, p.team_id::bigint as "team_id!", p.properties::text as "properties?",
-                   p.properties_last_updated_at::text as "properties_last_updated_at?",
-                   p.properties_last_operation::text as "properties_last_operation?",
                    p.created_at, p.version, p.is_identified,
                    CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                    p.last_seen_at
@@ -348,11 +339,9 @@ impl PersonLookup for PostgresStorage {
                     let mut conn =
                         PostgresStorage::acquire_timed(&pool, BULK_POOL_LABEL).await?;
                     let rows = sqlx::query!(
-                        r#"
+                        r#"/* service='personhog-replica', operation='get_persons_by_distinct_ids_in_team' */
                         SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
                                CASE WHEN $3::boolean THEN p.properties::text ELSE NULL END as "properties?",
-                               CASE WHEN $3::boolean THEN p.properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
-                               CASE WHEN $3::boolean THEN p.properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                                p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
                                CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                                p.last_seen_at,
@@ -379,8 +368,6 @@ impl PersonLookup for PostgresStorage {
                                     uuid: row.uuid,
                                     team_id: row.team_id,
                                     properties: row.properties,
-                                    properties_last_updated_at: row.properties_last_updated_at,
-                                    properties_last_operation: row.properties_last_operation,
                                     created_at: row.created_at,
                                     version: row.version,
                                     is_identified: row.is_identified,
@@ -463,7 +450,7 @@ impl PersonLookup for PostgresStorage {
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         sqlx::query!(
-            "DELETE FROM person_tombstone_publish_queue WHERE team_id = $1",
+            "/* service='personhog-replica', operation='delete_persons_batch_for_team_clear_tombstone_queue' */ DELETE FROM person_tombstone_publish_queue WHERE team_id = $1",
             team_id as i32
         )
         .execute(&self.bulk_primary_pool)
@@ -472,7 +459,7 @@ impl PersonLookup for PostgresStorage {
         // Team teardown always removes the rows, tombstoned ones included: nothing
         // sweeps a deleted team's tombstones into the cleanup queue.
         let mut person_ids: Vec<i64> = sqlx::query_scalar!(
-            r#"
+            r#"/* service='personhog-replica', operation='delete_persons_batch_for_team_read_ids' */
             SELECT id::bigint as "id!" FROM posthog_person
             WHERE team_id = $1
             LIMIT $2
@@ -530,19 +517,23 @@ impl PersonLookup for PostgresStorage {
         }
         let labels = [
             ("operation".to_string(), "get_person_tombstones".to_string()),
-            ("pool".to_string(), "primary".to_string()),
+            ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), current_client_name().to_string()),
             ("method".to_string(), current_method_name().to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.bulk_primary_pool, "bulk_primary").await?;
         let mut tx = sqlx::Connection::begin(&mut *conn).await?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(&query_tag!(
+            "transaction_isolation",
+            "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
+        ))
+        .execute(&mut *tx)
+        .await?;
         let rows = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='get_person_tombstones' */
             SELECT id::bigint as "id!", uuid as "uuid!",
                    COALESCE(version, 0)::bigint as "version!"
             FROM posthog_person
@@ -584,7 +575,7 @@ impl PersonLookup for PostgresStorage {
         let versions: Vec<i64> = acked.iter().map(|(_, version)| *version).collect();
         let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
         let result = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='ack_person_tombstones' */
             DELETE FROM person_tombstone_publish_queue q
             USING UNNEST($2::uuid[], $3::bigint[]) AS a(person_uuid, person_version)
             WHERE q.team_id = $1
@@ -619,7 +610,7 @@ impl PersonLookup for PostgresStorage {
 
         let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
         let rows = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='list_person_tombstone_queue' */
             SELECT team_id::bigint as "team_id!", person_uuid as "person_uuid!",
                    person_version as "person_version!",
                    (EXTRACT(EPOCH FROM tombstoned_at) * 1000)::bigint as "tombstoned_at_ms!"
@@ -688,14 +679,14 @@ impl PersonLookup for PostgresStorage {
         let mut tx = self.bulk_primary_pool.begin().await?;
         // A held row means a revival or merge in flight: fail fast and let the caller retry. Kept
         // under the router's 5 s backend deadline so the caller sees an error, not a timeout.
-        sqlx::query("SET LOCAL lock_timeout = '2s'")
+        sqlx::query(&query_tag!("lock_timeout", "SET LOCAL lock_timeout = '2s'"))
             .execute(&mut *tx)
             .await?;
 
         // This read takes no lock. The delete re-checks the tombstone and the bound under its row
         // lock, so a person revived or tombstoned again after this read lands in no outcome bucket.
         let persons = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='delete_tombstoned_persons_read_persons' */
             SELECT id::bigint AS "id!", uuid AS "uuid!", is_deleted AS "is_deleted!",
                    COALESCE(version, 0)::bigint AS "version!"
             FROM posthog_person
@@ -764,7 +755,7 @@ impl PersonLookup for PostgresStorage {
             .map(|(id, uuid)| (*id, bounds[uuid]))
             .unzip();
         let locked: HashSet<i64> = sqlx::query_scalar!(
-            r#"
+            r#"/* service='personhog-replica', operation='delete_tombstoned_persons_lock_persons' */
             SELECT p.id::bigint AS "id!"
             FROM posthog_person p
             JOIN UNNEST($2::bigint[], $3::bigint[]) AS bound(id, max_version) ON bound.id = p.id
@@ -793,7 +784,7 @@ impl PersonLookup for PostgresStorage {
         let mut live_owners: HashSet<i64> = HashSet::new();
         if !admitted_ids.is_empty() {
             live_owners = sqlx::query!(
-                r#"
+                r#"/* service='personhog-replica', operation='delete_tombstoned_persons_lock_distinct_ids' */
                 SELECT person_id AS "person_id!", is_deleted AS "is_deleted!"
                 FROM posthog_persondistinctid
                 WHERE team_id = $1 AND person_id = ANY($2)
@@ -821,7 +812,7 @@ impl PersonLookup for PostgresStorage {
         // from the sqlx migrations, so remove the overrides here instead of relying on the cascade.
         if !victim_ids.is_empty() {
             let overrides = sqlx::query!(
-                "DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = ANY($2)",
+                "/* service='personhog-replica', operation='delete_tombstoned_persons_delete_overrides' */ DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = ANY($2)",
                 team_id as i32,
                 victim_ids.as_slice()
             )
@@ -893,11 +884,9 @@ impl PersonLookup for PostgresStorage {
         let distinct_ids: Vec<String> = team_distinct_ids.iter().map(|(_, d)| d.clone()).collect();
 
         let rows = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='get_persons_by_distinct_ids_cross_team' */
             SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
                    CASE WHEN $3::boolean THEN p.properties::text ELSE NULL END as "properties?",
-                   CASE WHEN $3::boolean THEN p.properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
-                   CASE WHEN $3::boolean THEN p.properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                    p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
                    CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                    p.last_seen_at,
@@ -937,8 +926,6 @@ impl PersonLookup for PostgresStorage {
                     uuid: row.uuid,
                     team_id: row.team_id,
                     properties: row.properties,
-                    properties_last_updated_at: row.properties_last_updated_at,
-                    properties_last_operation: row.properties_last_operation,
                     created_at: row.created_at,
                     version: row.version,
                     is_identified: row.is_identified,
@@ -983,11 +970,11 @@ impl PersonLookup for PostgresStorage {
         // service-layer cap bounds the number of rows locked.
         let mut tx = self.bulk_primary_pool.begin().await?;
 
-        // No FOR UPDATE on the source person: deletes lock PDI rows before person
-        // rows, so locking the person first here would invert that order and risk
+        // No FOR UPDATE on the source person: deletes lock the person before its
+        // PDIs, so locking it after the PDIs here would invert that order and risk
         // deadlock. The PDI locks below are what guard the reassignment.
         let person_version: i64 = sqlx::query_scalar!(
-            r#"
+            r#"/* service='personhog-replica', operation='split_person_read_version' */
             SELECT COALESCE(version, 0)::bigint as "version!"
             FROM posthog_person
             WHERE team_id = $1 AND id = $2
@@ -1005,7 +992,7 @@ impl PersonLookup for PostgresStorage {
         // distinct_id that didn't lock either doesn't exist or belongs to another
         // person, and the whole request is rejected.
         let locked_pdis = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='split_person_lock_distinct_ids' */
             SELECT distinct_id as "distinct_id!", COALESCE(version, 0)::bigint as "version!"
             FROM posthog_persondistinctid
             WHERE team_id = $1 AND person_id = $2 AND distinct_id = ANY($3) AND is_deleted = false
@@ -1041,7 +1028,7 @@ impl PersonLookup for PostgresStorage {
             .map(|pdi| (pdi.distinct_id.as_str(), pdi.version))
             .collect();
         let dids: Vec<String> = distinct_ids_to_split.to_vec();
-        let new_uuids: Vec<Uuid> = dids
+        let derived_uuids: Vec<Uuid> = dids
             .iter()
             .map(|did| personhog_common::persons::person_uuid(team_id, did))
             .collect();
@@ -1050,16 +1037,41 @@ impl PersonLookup for PostgresStorage {
             .map(|did| pdi_version_by_did[did.as_str()] + SPLIT_VERSION_OFFSET)
             .collect();
 
-        // Find persons that already exist for these UUIDs: an idempotent
-        // re-split, or a tombstone left by a merge or delete of the person
-        // that once owned the distinct id. No ON CONFLICT — the partitioned
-        // table has a unique index, not a unique constraint, so ON CONFLICT
-        // inference doesn't work.
-        let existing_persons = sqlx::query!(
-            r#"
+        // A live person here (the source itself, for the distinct id that created it) would absorb
+        // the distinct id and get its ClickHouse row blanked by the split's empty-person publish.
+        // It is never written, so it is not locked: deletes lock the person before its PDIs.
+        let live_uuids: HashSet<Uuid> = sqlx::query_scalar!(
+            r#"/* service='personhog-replica', operation='split_person_read_live_uuids' */
+            SELECT uuid as "uuid!"
+            FROM posthog_person
+            WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = false
+            "#,
+            team_id as i32,
+            &derived_uuids
+        )
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .collect();
+        let new_uuids: Vec<Uuid> = derived_uuids
+            .into_iter()
+            .map(|u| {
+                if live_uuids.contains(&u) {
+                    Uuid::new_v4()
+                } else {
+                    u
+                }
+            })
+            .collect();
+
+        // No ON CONFLICT — the partitioned table has a unique index, not a
+        // unique constraint, so ON CONFLICT inference doesn't work.
+        let tombstones = sqlx::query!(
+            r#"/* service='personhog-replica', operation='split_person_lock_tombstones' */
             SELECT id::bigint as "id!", uuid as "uuid!", created_at as "created_at!"
             FROM posthog_person
-            WHERE team_id = $1 AND uuid = ANY($2)
+            WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = true
+            ORDER BY id
             FOR UPDATE
             "#,
             team_id as i32,
@@ -1068,7 +1080,7 @@ impl PersonLookup for PostgresStorage {
         .fetch_all(&mut *tx)
         .await?;
 
-        let mut person_by_uuid: HashMap<Uuid, (i64, DateTime<Utc>)> = existing_persons
+        let mut person_by_uuid: HashMap<Uuid, (i64, DateTime<Utc>)> = tombstones
             .into_iter()
             .map(|r| (r.uuid, (r.id, r.created_at)))
             .collect();
@@ -1084,7 +1096,7 @@ impl PersonLookup for PostgresStorage {
 
         if !uuids_to_insert.is_empty() {
             let inserted = sqlx::query!(
-                r#"
+                r#"/* service='personhog-replica', operation='split_person_insert_persons' */
                 INSERT INTO posthog_person (uuid, team_id, properties, created_at, version, is_identified)
                 SELECT u.uuid, $2, '{}'::jsonb, NOW(), $3, false
                 FROM unnest($1::uuid[]) AS u(uuid)
@@ -1107,17 +1119,13 @@ impl PersonLookup for PostgresStorage {
         if !uuids_to_update.is_empty() {
             // A tombstoned row comes back to life here, one above its own
             // version so it outranks its ClickHouse tombstone; the split
-            // offset applies when that is higher. A live row never moves
-            // down, or ClickHouse would ignore the next update from ingestion.
+            // offset applies when that is higher.
             let updated = sqlx::query!(
-                r#"
+                r#"/* service='personhog-replica', operation='split_person_revive_persons' */
                 UPDATE posthog_person
                 SET is_deleted = false,
-                    version = GREATEST(
-                        COALESCE(version, 0) + CASE WHEN is_deleted THEN 1 ELSE 0 END,
-                        $3
-                    )
-                WHERE team_id = $1 AND uuid = ANY($2)
+                    version = GREATEST(COALESCE(version, 0) + 1, $3)
+                WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = true
                 RETURNING uuid as "uuid!", version as "version!"
                 "#,
                 team_id as i32,
@@ -1143,7 +1151,7 @@ impl PersonLookup for PostgresStorage {
 
         // Reassign all PDIs to their new persons in one statement.
         let update_result = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='split_person_reassign_distinct_ids' */
             UPDATE posthog_persondistinctid AS pdi
             SET person_id = m.new_person_id, version = m.new_version
             FROM unnest($2::text[], $3::bigint[], $4::bigint[]) AS m(distinct_id, new_person_id, new_version)
@@ -1231,7 +1239,7 @@ impl PersonLookup for PostgresStorage {
         // at or above min_version. A NULL version counts as 0, as in every other personhog write.
         let row = sqlx::query_as!(
             Person,
-            r#"
+            r#"/* service='personhog-replica', operation='set_person_distinct_id_version_floor' */
             WITH target AS (
                 SELECT person_id FROM posthog_persondistinctid
                 WHERE team_id = $1 AND distinct_id = $2
@@ -1243,8 +1251,6 @@ impl PersonLookup for PostgresStorage {
                 RETURNING person_id
             )
             SELECT p.id, p.uuid, p.team_id::bigint as "team_id!", p.properties::text as "properties?",
-                   p.properties_last_updated_at::text as "properties_last_updated_at?",
-                   p.properties_last_operation::text as "properties_last_operation?",
                    p.created_at, p.version, p.is_identified,
                    CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                    p.last_seen_at
@@ -1284,7 +1290,7 @@ impl PersonLookup for PostgresStorage {
 
         // Never lowers a version. A NULL version counts as 0, as in every other personhog write.
         let result = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='set_person_version_floor' */
             UPDATE posthog_person
             SET version = $3
             WHERE team_id = $1 AND id = $2 AND COALESCE(version, 0) < $3
@@ -1313,7 +1319,7 @@ impl PersonLookup for PostgresStorage {
         let mut tx = self.bulk_primary_pool.begin().await?;
         // A held row means a merge, revival or delete in flight: fail fast and let
         // the caller retry instead of queueing behind it.
-        sqlx::query("SET LOCAL lock_timeout = '2s'")
+        sqlx::query(&query_tag!("lock_timeout", "SET LOCAL lock_timeout = '2s'"))
             .execute(&mut *tx)
             .await?;
 
@@ -1360,7 +1366,7 @@ impl PersonLookup for PostgresStorage {
             .unzip();
         if !raise_ids.is_empty() {
             sqlx::query!(
-                r#"
+                r#"/* service='personhog-replica', operation='ensure_person_version_floors' */
                 UPDATE posthog_person p
                 SET version = f.min_version
                 FROM UNNEST($2::bigint[], $3::bigint[]) AS f(id, min_version)
@@ -1409,9 +1415,61 @@ impl PersonLookup for PostgresStorage {
         );
         Ok(results)
     }
+    async fn list_persons_for_team(
+        &self,
+        team_id: i64,
+        after_person_id: i64,
+        before_person_id: Option<i64>,
+        limit: i64,
+    ) -> StorageResult<Vec<PersonListEntry>> {
+        let labels = [
+            ("operation".to_string(), "list_persons_for_team".to_string()),
+            ("pool".to_string(), "bulk_replica".to_string()),
+            ("client".to_string(), current_client_name().to_string()),
+            ("method".to_string(), current_method_name().to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.bulk_replica_pool, "bulk_replica").await?;
+        let rows = sqlx::query!(
+            r#"/* service='personhog-replica', operation='list_persons_for_team' */
+            SELECT p.id::bigint as "id!", p.uuid as "uuid!",
+                   COALESCE(p.version, 0)::bigint as "version!", p.is_deleted as "is_deleted!",
+                   p.created_at as "created_at!",
+                   EXISTS (
+                       SELECT 1 FROM posthog_persondistinctid d
+                       WHERE d.team_id = p.team_id AND d.person_id = p.id AND d.is_deleted = false
+                   ) as "has_live_distinct_ids!"
+            FROM posthog_person p
+            WHERE p.team_id = $1 AND p.id > $2 AND ($4::bigint IS NULL OR p.id < $4)
+            ORDER BY p.id
+            LIMIT $3
+            "#,
+            team_id as i32,
+            after_person_id,
+            limit,
+            before_person_id
+        )
+        .fetch_all(&mut *conn)
+        .await?
+        .into_iter()
+        .map(|r| PersonListEntry {
+            id: r.id,
+            uuid: r.uuid,
+            version: r.version,
+            is_deleted: r.is_deleted,
+            has_live_distinct_ids: r.has_live_distinct_ids,
+            created_at: r.created_at,
+        })
+        .collect::<Vec<_>>();
+
+        common_metrics::histogram(DB_ROWS_RETURNED, &labels, rows.len() as f64);
+        Ok(rows)
+    }
 }
 
-fn bulk_primary_labels(operation: &str) -> [(String, String); 4] {
+pub(super) fn bulk_primary_labels(operation: &str) -> [(String, String); 4] {
     [
         ("operation".to_string(), operation.to_string()),
         ("pool".to_string(), "bulk_primary".to_string()),
@@ -1459,21 +1517,21 @@ fn record_outcomes(
     }
 }
 
-struct LockedPerson {
-    id: i64,
-    version: i64,
-    is_deleted: bool,
+pub(super) struct LockedPerson {
+    pub(super) id: i64,
+    pub(super) version: i64,
+    pub(super) is_deleted: bool,
 }
 
 /// Lock the existing persons among `uuids` in id order, the order the ingestion
 /// writer and the tombstone paths take person locks in.
-async fn lock_persons_by_uuids(
+pub(super) async fn lock_persons_by_uuids(
     tx: &mut Transaction<'_, Postgres>,
     team_id: i64,
     uuids: &[Uuid],
 ) -> StorageResult<HashMap<Uuid, LockedPerson>> {
     let rows = sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='lock_persons_by_uuids' */
         SELECT id::bigint as "id!", uuid as "uuid!",
                COALESCE(version, 0)::bigint as "version!", is_deleted as "is_deleted!"
         FROM posthog_person
@@ -1512,11 +1570,10 @@ async fn insert_person_tombstones(
         return Ok(HashMap::new());
     }
     let rows = sqlx::query!(
-        r#"
-        INSERT INTO posthog_person (uuid, team_id, properties, properties_last_updated_at,
-                                    properties_last_operation, created_at, version,
+        r#"/* service='personhog-replica', operation='insert_person_tombstones' */
+        INSERT INTO posthog_person (uuid, team_id, properties, created_at, version,
                                     is_identified, is_deleted)
-        SELECT f.uuid, $1, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, NOW(), f.version, false, true
+        SELECT f.uuid, $1, '{}'::jsonb, NOW(), f.version, false, true
         FROM UNNEST($2::uuid[], $3::bigint[]) AS f(uuid, version)
         ON CONFLICT (team_id, uuid) DO NOTHING
         RETURNING id::bigint as "id!", uuid as "uuid!"
@@ -1542,16 +1599,17 @@ async fn tombstone_persons_by_uuids(
     let mut tx = storage.bulk_primary_pool.begin().await?;
     // A held row means a merge or revival in flight: fail fast and let the
     // caller retry, as the tombstone drain does, instead of queueing behind it.
-    sqlx::query("SET LOCAL lock_timeout = '2s'")
+    sqlx::query(&query_tag!("lock_timeout", "SET LOCAL lock_timeout = '2s'"))
         .execute(&mut *tx)
         .await?;
 
-    let (mark_op_id, claimed_ids) = claim_delete_marks(&mut tx, team_id, uuids).await?;
+    let (mark_op_id, claimed_ids) =
+        claim_lifecycle_marks(&mut tx, team_id, uuids, MarkKind::Delete).await?;
 
     // Lock the claimed persons up front in id order, as the ingestion writer and the tombstone cleanup drain do.
     // Lock by id, not uuid: a person re-created under a requested uuid after the claim holds no mark.
     let rows = sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='tombstone_persons_by_uuids_lock_persons' */
         SELECT id::bigint as "id!", uuid as "uuid!",
                COALESCE(version, 0)::bigint as "version!", is_deleted as "is_deleted!"
         FROM posthog_person
@@ -1594,7 +1652,7 @@ async fn tombstone_persons_by_uuids(
         let queued_uuids: Vec<Uuid> = tombstones.iter().map(|t| t.uuid).collect();
         let queued_versions: Vec<i64> = tombstones.iter().map(|t| t.version).collect();
         sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='tombstone_persons_by_uuids_enqueue_tombstones' */
             INSERT INTO person_tombstone_publish_queue (team_id, person_uuid, person_version)
             SELECT $1, t.person_uuid, t.person_version
             FROM UNNEST($2::uuid[], $3::bigint[]) AS t(person_uuid, person_version)
@@ -1618,7 +1676,7 @@ async fn tombstone_persons_by_uuids(
     tombstones.extend(with_tombstoned_distinct_ids(&mut tx, team_id, already).await?);
 
     if let Some(op_id) = mark_op_id {
-        release_delete_marks(&mut tx, team_id, op_id).await?;
+        release_lifecycle_marks(&mut tx, team_id, op_id, MarkKind::Delete).await?;
     }
     tx.commit().await?;
     tombstones.sort_by(|a, b| a.uuid.cmp(&b.uuid));
@@ -1628,16 +1686,47 @@ async fn tombstone_persons_by_uuids(
     })
 }
 
+/// Which lifecycle operation a mark records. Every kind conflicts with every other on the same person.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum MarkKind {
+    Delete,
+    Restore,
+}
+
+impl MarkKind {
+    fn op_type(self) -> &'static str {
+        match self {
+            MarkKind::Delete => "delete",
+            MarkKind::Restore => "restore",
+        }
+    }
+
+    fn role(self) -> &'static str {
+        match self {
+            MarkKind::Delete => "victim",
+            MarkKind::Restore => "target",
+        }
+    }
+
+    fn source(self) -> &'static str {
+        match self {
+            MarkKind::Delete => "personhog-replica-tombstone",
+            MarkKind::Restore => "personhog-replica-restore",
+        }
+    }
+}
+
 /// The person row lock cannot stop an ingestion attach, whose FK check passes on a tombstone, so the
 /// attach re-checks liveness under this mark; claims go in id order, as ingestion's do, to avoid deadlock.
 /// A mark held elsewhere fails the whole call, because the caller reads a missing person as already gone.
-async fn claim_delete_marks(
+pub(super) async fn claim_lifecycle_marks(
     tx: &mut Transaction<'_, Postgres>,
     team_id: i64,
     uuids: &[Uuid],
+    kind: MarkKind,
 ) -> StorageResult<(Option<Uuid>, Vec<i64>)> {
     let persons = sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='claim_lifecycle_marks_read_persons' */
         SELECT id::bigint as "id!", uuid as "uuid!"
         FROM posthog_person
         WHERE team_id = $1 AND uuid = ANY($2)
@@ -1654,12 +1743,14 @@ async fn claim_delete_marks(
 
     let op_id = Uuid::new_v4();
     sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='claim_lifecycle_marks_insert_op' */
         INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, completed_at)
-        VALUES ($1, 'delete', $2, 'completed', '{"source": "personhog-replica-tombstone"}'::jsonb, now())
+        VALUES ($1, $3, $2, 'completed', jsonb_build_object('source', $4::text), now())
         "#,
         op_id,
-        team_id as i32
+        team_id as i32,
+        kind.op_type(),
+        kind.source()
     )
     .execute(&mut **tx)
     .await?;
@@ -1667,9 +1758,9 @@ async fn claim_delete_marks(
     let person_ids: Vec<i64> = persons.iter().map(|p| p.id).collect();
     let person_uuids: Vec<Uuid> = persons.iter().map(|p| p.uuid).collect();
     let claimed = sqlx::query_scalar!(
-        r#"
+        r#"/* service='personhog-replica', operation='claim_lifecycle_marks_insert_marks' */
         INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active)
-        SELECT $1, $2, u.person_id, u.person_uuid, 'victim', 'marked', true
+        SELECT $1, $2, u.person_id, u.person_uuid, $5, 'marked', true
         FROM unnest($3::bigint[], $4::uuid[]) AS u(person_id, person_uuid)
         ON CONFLICT (team_id, person_id) WHERE mark_active DO NOTHING
         RETURNING person_id
@@ -1677,7 +1768,8 @@ async fn claim_delete_marks(
         op_id,
         team_id as i32,
         &person_ids,
-        &person_uuids
+        &person_uuids,
+        kind.role()
     )
     .fetch_all(&mut **tx)
     .await?;
@@ -1692,18 +1784,20 @@ async fn claim_delete_marks(
     Ok((Some(op_id), person_ids))
 }
 
-async fn release_delete_marks(
+pub(super) async fn release_lifecycle_marks(
     tx: &mut Transaction<'_, Postgres>,
     team_id: i64,
     op_id: Uuid,
+    kind: MarkKind,
 ) -> StorageResult<()> {
     sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='release_lifecycle_marks' */
         DELETE FROM lifecycle_op
-        WHERE op_id = $1 AND team_id = $2 AND op_type = 'delete'
+        WHERE op_id = $1 AND team_id = $2 AND op_type = $3
         "#,
         op_id,
-        team_id as i32
+        team_id as i32,
+        kind.op_type()
     )
     .execute(&mut **tx)
     .await?;
@@ -1739,7 +1833,7 @@ async fn tombstone_persons_by_ids_in_tx(
     // ingestion writer updates overlapping rows in sorted batches; sorted
     // acquisition on both sides rules out a deadlock cycle.
     sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='tombstone_persons_by_ids_lock_distinct_ids' */
         SELECT id FROM posthog_persondistinctid
         WHERE team_id = $1 AND person_id = ANY($2)
         ORDER BY id FOR UPDATE
@@ -1751,7 +1845,7 @@ async fn tombstone_persons_by_ids_in_tx(
     .await?;
 
     let tombstoned_dids = sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='tombstone_persons_by_ids_tombstone_distinct_ids' */
         UPDATE posthog_persondistinctid
         SET is_deleted = true, version = COALESCE(version, 0) + 1
         WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = false
@@ -1779,7 +1873,7 @@ async fn tombstone_persons_by_ids_in_tx(
 
     if delete_cohortpeople {
         sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='tombstone_persons_by_ids_delete_cohort_membership' */
             DELETE FROM posthog_cohortpeople
             WHERE person_id = ANY($1)
             "#,
@@ -1791,7 +1885,7 @@ async fn tombstone_persons_by_ids_in_tx(
 
     // The person row stays, so the FK cascade never fires; remove the overrides here.
     sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='tombstone_persons_by_ids_delete_overrides' */
         DELETE FROM posthog_featureflaghashkeyoverride
         WHERE team_id = $1 AND person_id = ANY($2)
         "#,
@@ -1802,13 +1896,13 @@ async fn tombstone_persons_by_ids_in_tx(
     .await?;
 
     let tombstoned_persons = sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='tombstone_persons_by_ids_tombstone_persons' */
         UPDATE posthog_person
         SET is_deleted = true,
             version = COALESCE(version, 0) + 1,
             properties = '{}'::jsonb,
-            properties_last_updated_at = '{}'::jsonb,
-            properties_last_operation = '{}'::jsonb
+            properties_last_updated_at = NULL,
+            properties_last_operation = NULL
         WHERE team_id = $1 AND id = ANY($2) AND is_deleted = false
         RETURNING id as "id!", uuid as "uuid!", version as "version!"
         "#,
@@ -1851,7 +1945,7 @@ async fn with_tombstoned_distinct_ids(
     }
     let person_ids: Vec<i64> = persons.iter().map(|(id, _, _)| *id).collect();
     let dids = sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='with_tombstoned_distinct_ids' */
         SELECT person_id as "person_id!", distinct_id as "distinct_id!",
                COALESCE(version, 0)::bigint as "version!"
         FROM posthog_persondistinctid
@@ -1961,7 +2055,7 @@ async fn delete_persons_by_ids_in_tx(
     // Lock persons before their distinct ids, the order ingestion and the
     // tombstone paths take, so a concurrent tombstone cannot deadlock with us.
     sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='delete_persons_by_ids_lock_persons' */
         SELECT id FROM posthog_person
         WHERE team_id = $1 AND id = ANY($2)
         ORDER BY id FOR UPDATE
@@ -1974,7 +2068,7 @@ async fn delete_persons_by_ids_in_tx(
 
     // Delete distinct_id rows first — FK is NO ACTION.
     let did_result = sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='delete_persons_by_ids_delete_distinct_ids' */
         DELETE FROM posthog_persondistinctid
         WHERE team_id = $1 AND person_id = ANY($2)
         "#,
@@ -2006,7 +2100,7 @@ async fn delete_persons_by_ids_in_tx(
     // need this here.
     if delete_cohortpeople {
         let cohort_result = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='delete_persons_by_ids_delete_cohort_membership' */
             DELETE FROM posthog_cohortpeople
             WHERE person_id = ANY($1)
             "#,
@@ -2033,7 +2127,7 @@ async fn delete_persons_by_ids_in_tx(
 
     // Delete person rows (hash key overrides cascade at DB level).
     let result = sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='delete_persons_by_ids_delete_persons' */
         DELETE FROM posthog_person
         WHERE team_id = $1 AND id = ANY($2)
         "#,
@@ -2128,7 +2222,7 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let rows = sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='probe_dependent_rows' */
         SELECT p.id AS "id!",
             (SELECT count(*) FROM (SELECT 1 FROM posthog_persondistinctid
                 WHERE team_id = $1 AND person_id = p.id LIMIT $3) t) AS "distinct_ids!",
@@ -2221,7 +2315,7 @@ async fn trim_locked_person(
     // No is_deleted filter: the scan then visits at most `budget` index entries, and a live
     // mapping among them means ingestion can still reach the person.
     let mappings = sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='trim_locked_person_lock_distinct_ids' */
         SELECT id::bigint AS "id!", is_deleted AS "is_deleted!"
         FROM posthog_persondistinctid
         WHERE team_id = $1 AND person_id = $2
@@ -2243,7 +2337,7 @@ async fn trim_locked_person(
     if !mappings.is_empty() {
         let ids: Vec<i64> = mappings.iter().map(|row| row.id).collect();
         let n = sqlx::query!(
-            "DELETE FROM posthog_persondistinctid WHERE team_id = $1 AND id = ANY($2)",
+            "/* service='personhog-replica', operation='trim_locked_person_delete_distinct_ids' */ DELETE FROM posthog_persondistinctid WHERE team_id = $1 AND id = ANY($2)",
             team_id as i32,
             ids.as_slice()
         )
@@ -2256,7 +2350,7 @@ async fn trim_locked_person(
 
     if remaining > 0 {
         let ids: Vec<i64> = sqlx::query_scalar!(
-            r#"
+            r#"/* service='personhog-replica', operation='trim_locked_person_read_overrides' */
             SELECT id::bigint AS "id!"
             FROM posthog_featureflaghashkeyoverride
             WHERE team_id = $1 AND person_id = $2
@@ -2270,7 +2364,7 @@ async fn trim_locked_person(
         .await?;
         if !ids.is_empty() {
             let n = sqlx::query!(
-                "DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND id = ANY($2::bigint[])",
+                "/* service='personhog-replica', operation='trim_locked_person_delete_overrides' */ DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND id = ANY($2::bigint[])",
                 team_id as i32,
                 ids.as_slice()
             )
@@ -2284,7 +2378,7 @@ async fn trim_locked_person(
 
     if remaining > 0 {
         let ids: Vec<i64> = sqlx::query_scalar!(
-            r#"
+            r#"/* service='personhog-replica', operation='trim_locked_person_read_cohort_membership' */
             SELECT id::bigint AS "id!"
             FROM posthog_cohortpeople
             WHERE person_id = $1
@@ -2297,7 +2391,7 @@ async fn trim_locked_person(
         .await?;
         if !ids.is_empty() {
             deleted += sqlx::query!(
-                "DELETE FROM posthog_cohortpeople WHERE id = ANY($1)",
+                "/* service='personhog-replica', operation='trim_locked_person_delete_cohort_membership' */ DELETE FROM posthog_cohortpeople WHERE id = ANY($1)",
                 ids.as_slice()
             )
             .execute(&mut **tx)

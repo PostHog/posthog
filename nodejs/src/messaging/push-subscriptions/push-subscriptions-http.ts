@@ -156,7 +156,7 @@ export function createPushSubscriptionsHandler(
             res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' }).end(REGION_BLOCKED_MESSAGE)
             return
         }
-        res.writeHead(result.status, { 'Content-Type': 'application/json' })
+        res.writeHead(result.status, { ...result.headers, 'Content-Type': 'application/json' })
         res.end(JSON.stringify(result.body))
     }
 }

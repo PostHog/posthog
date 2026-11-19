@@ -35,6 +35,8 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'task_repository',
         'task_mcp_installations',
         'signals_scout',
+        'posthog_survey',
+        'replay_vision_scan',
         'task_skills',
     ]),
     key: z.string(),
@@ -132,6 +134,11 @@ export const CyclotronInvocationQueueParametersFetchStandardWebhooksSchema = z.o
     webhook_id: z.string(),
 })
 
+export const CyclotronInvocationQueueParametersFetchHmacSha256Schema = z.object({
+    secret_input: z.string(),
+    webhook_id: z.string(),
+})
+
 export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     type: z.literal('fetch'),
     url: z.string(),
@@ -141,9 +148,24 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     headers: z.record(z.string(), z.string()).optional(),
     aws_sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Schema.optional(),
     standard_webhooks: CyclotronInvocationQueueParametersFetchStandardWebhooksSchema.optional(),
+    hmac_sha256: CyclotronInvocationQueueParametersFetchHmacSha256Schema.optional(),
+    // An input-key reference, like the `*_input` fields above, so credential header values stay out of the fetch parameters.
+    secret_headers_input: z.string().optional(),
 })
 
 export const MAX_WORKFLOW_EMAIL_SENDERS = 10
+
+export const MAX_EMAIL_ATTACHMENTS = 10
+
+export const EmailAttachmentMetadataSchema = z.object({
+    filename: z.string(),
+    contentType: z.string().optional(),
+    contentId: z.string().optional(),
+    sizeBytes: z.number().int().nonnegative(),
+    sha256: z.string(),
+})
+
+export type EmailAttachmentMetadata = z.infer<typeof EmailAttachmentMetadataSchema>
 
 export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     type: z.literal('email'),
@@ -167,6 +189,8 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     // Emails authored through the API or MCP often carry html only.
     text: z.string().optional(),
     html: z.string(),
+    attachments: z.array(EmailAttachmentMetadataSchema).max(MAX_EMAIL_ATTACHMENTS).optional(),
+    template: z.object({ template_uuid: z.string().optional(), template_key: z.string().optional() }).optional(),
 })
 
 export const CyclotronInvocationQueueParametersSendPushNotificationSchema = z.object({
@@ -185,6 +209,9 @@ export type CyclotronInvocationQueueParametersFetchAwsSigV4Type = z.infer<
 >
 export type CyclotronInvocationQueueParametersFetchStandardWebhooksType = z.infer<
     typeof CyclotronInvocationQueueParametersFetchStandardWebhooksSchema
+>
+export type CyclotronInvocationQueueParametersFetchHmacSha256Type = z.infer<
+    typeof CyclotronInvocationQueueParametersFetchHmacSha256Schema
 >
 export type CyclotronInvocationQueueParametersFetchType = z.infer<typeof CyclotronInvocationQueueParametersFetchSchema>
 export type CyclotronInvocationQueueParametersEmailType = z.infer<typeof CyclotronInvocationQueueParametersEmailSchema>

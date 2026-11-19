@@ -1,0 +1,35 @@
+"""The warehouse sources and destinations that use an integration row. The integrations SDK loads this module."""
+
+from posthog.integrations import IntegrationUsage
+
+from products.warehouse_sources.backend.facade.contracts import (
+    UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE,
+    WAREHOUSE_DESTINATION_USAGE_TYPE,
+    WAREHOUSE_SOURCE_USAGE_TYPE,
+    SourceReferencingIntegration,
+)
+from products.warehouse_sources.backend.logic.integration_references import (
+    list_destinations_using_integration,
+    list_sources_using_integration,
+)
+
+
+def integration_usages(team_id: int, integration_id: int) -> list[IntegrationUsage]:
+    return [
+        *(
+            IntegrationUsage(
+                type=UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE if source.unreadable else WAREHOUSE_SOURCE_USAGE_TYPE,
+                id=str(source.id),
+                name=_name(source),
+            )
+            for source in list_sources_using_integration(team_id=team_id, integration_pk=integration_id)
+        ),
+        *(
+            IntegrationUsage(type=WAREHOUSE_DESTINATION_USAGE_TYPE, id=str(destination.id), name=destination.name)
+            for destination in list_destinations_using_integration(team_id=team_id, integration_pk=integration_id)
+        ),
+    ]
+
+
+def _name(source: SourceReferencingIntegration) -> str:
+    return f"{source.source_type} ({source.prefix})" if source.prefix else source.source_type

@@ -48,6 +48,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `action` - action
  * * `access_control` - access_control
  * * `account` - account
+ * * `account_note` - account_note
  * * `activity_log` - activity_log
  * * `alert` - alert
  * * `annotation` - annotation
@@ -59,6 +60,8 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `billing` - billing
  * * `business_knowledge` - business_knowledge
  * * `canvas` - canvas
+ * * `code_review` - code_review
+ * * `code_review_approval` - code_review_approval
  * * `cohort` - cohort
  * * `comment` - comment
  * * `conversation` - conversation
@@ -95,10 +98,12 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `heatmap` - heatmap
  * * `hog_flow` - hog_flow
  * * `hog_function` - hog_function
+ * * `inbox` - inbox
  * * `ingestion_warning` - ingestion_warning
  * * `insight` - insight
  * * `insight_variable` - insight_variable
  * * `integration` - integration
+ * * `knowledge_writer` - knowledge_writer
  * * `legal_document` - legal_document
  * * `link` - link
  * * `live_debugger` - live_debugger
@@ -114,6 +119,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `marketing_analytics` - marketing_analytics
  * * `mcp_analytics` - mcp_analytics
  * * `mcp_registry` - mcp_registry
+ * * `messaging_preference` - messaging_preference
  * * `metrics` - metrics
  * * `notebook` - notebook
  * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -129,13 +135,12 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `query` - query
  * * `query_performance` - query_performance
  * * `replay_scanner` - replay_scanner
- * * `review_hog` - review_hog
  * * `revenue_analytics` - revenue_analytics
  * * `session_recording` - session_recording
  * * `session_recording_playlist` - session_recording_playlist
  * * `sharing_configuration` - sharing_configuration
  * * `signal_scout` - signal_scout
- * * `stamphog` - stamphog
+ * * `signal_usage` - signal_usage
  * * `streamlit_app` - streamlit_app
  * * `subscription` - subscription
  * * `support_ticket` - support_ticket
@@ -146,11 +151,11 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `today` - today
  * * `toolbar` - toolbar
  * * `tracing` - tracing
+ * * `transactional_email` - transactional_email
  * * `field_note` - field_note
  * * `uploaded_media` - uploaded_media
  * * `usage_metric` - usage_metric
  * * `user` - user
- * * `user_interview` - user_interview
  * * `vision_action` - vision_action
  * * `vision_alert` - vision_alert
  * * `visual_review` - visual_review
@@ -161,6 +166,8 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `webhook` - webhook
  * * `wizard_session` - wizard_session
  * * `wizard_run` - wizard_run
+ * * `workload_trust_policy` - workload_trust_policy
+ * * `workload_trust_policy_request` - workload_trust_policy_request
  */
 export type ScopeObjectEnumApi = (typeof ScopeObjectEnumApi)[keyof typeof ScopeObjectEnumApi]
 
@@ -168,6 +175,7 @@ export const ScopeObjectEnumApi = {
     Action: 'action',
     AccessControl: 'access_control',
     Account: 'account',
+    AccountNote: 'account_note',
     ActivityLog: 'activity_log',
     Alert: 'alert',
     Annotation: 'annotation',
@@ -179,6 +187,8 @@ export const ScopeObjectEnumApi = {
     Billing: 'billing',
     BusinessKnowledge: 'business_knowledge',
     Canvas: 'canvas',
+    CodeReview: 'code_review',
+    CodeReviewApproval: 'code_review_approval',
     Cohort: 'cohort',
     Comment: 'comment',
     Conversation: 'conversation',
@@ -215,10 +225,12 @@ export const ScopeObjectEnumApi = {
     Heatmap: 'heatmap',
     HogFlow: 'hog_flow',
     HogFunction: 'hog_function',
+    Inbox: 'inbox',
     IngestionWarning: 'ingestion_warning',
     Insight: 'insight',
     InsightVariable: 'insight_variable',
     Integration: 'integration',
+    KnowledgeWriter: 'knowledge_writer',
     LegalDocument: 'legal_document',
     Link: 'link',
     LiveDebugger: 'live_debugger',
@@ -234,6 +246,7 @@ export const ScopeObjectEnumApi = {
     MarketingAnalytics: 'marketing_analytics',
     McpAnalytics: 'mcp_analytics',
     McpRegistry: 'mcp_registry',
+    MessagingPreference: 'messaging_preference',
     Metrics: 'metrics',
     Notebook: 'notebook',
     OfflineEvaluationIngestion: 'offline_evaluation_ingestion',
@@ -249,13 +262,12 @@ export const ScopeObjectEnumApi = {
     Query: 'query',
     QueryPerformance: 'query_performance',
     ReplayScanner: 'replay_scanner',
-    ReviewHog: 'review_hog',
     RevenueAnalytics: 'revenue_analytics',
     SessionRecording: 'session_recording',
     SessionRecordingPlaylist: 'session_recording_playlist',
     SharingConfiguration: 'sharing_configuration',
     SignalScout: 'signal_scout',
-    Stamphog: 'stamphog',
+    SignalUsage: 'signal_usage',
     StreamlitApp: 'streamlit_app',
     Subscription: 'subscription',
     SupportTicket: 'support_ticket',
@@ -266,11 +278,11 @@ export const ScopeObjectEnumApi = {
     Today: 'today',
     Toolbar: 'toolbar',
     Tracing: 'tracing',
+    TransactionalEmail: 'transactional_email',
     FieldNote: 'field_note',
     UploadedMedia: 'uploaded_media',
     UsageMetric: 'usage_metric',
     User: 'user',
-    UserInterview: 'user_interview',
     VisionAction: 'vision_action',
     VisionAlert: 'vision_alert',
     VisualReview: 'visual_review',
@@ -281,6 +293,8 @@ export const ScopeObjectEnumApi = {
     Webhook: 'webhook',
     WizardSession: 'wizard_session',
     WizardRun: 'wizard_run',
+    WorkloadTrustPolicy: 'workload_trust_policy',
+    WorkloadTrustPolicyRequest: 'workload_trust_policy_request',
 } as const
 
 /**
@@ -311,6 +325,7 @@ export interface ProjectAccessSourceApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `account_note` - account_note
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -322,6 +337,8 @@ export interface ProjectAccessSourceApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
+     * * `code_review` - code_review
+     * * `code_review_approval` - code_review_approval
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -358,10 +375,12 @@ export interface ProjectAccessSourceApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -377,6 +396,7 @@ export interface ProjectAccessSourceApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -392,13 +412,12 @@ export interface ProjectAccessSourceApi {
      * * `query` - query
      * * `query_performance` - query_performance
      * * `replay_scanner` - replay_scanner
-     * * `review_hog` - review_hog
      * * `revenue_analytics` - revenue_analytics
      * * `session_recording` - session_recording
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
-     * * `stamphog` - stamphog
+     * * `signal_usage` - signal_usage
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
@@ -409,11 +428,11 @@ export interface ProjectAccessSourceApi {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user
-     * * `user_interview` - user_interview
      * * `vision_action` - vision_action
      * * `vision_alert` - vision_alert
      * * `visual_review` - visual_review
@@ -423,7 +442,9 @@ export interface ProjectAccessSourceApi {
      * * `web_analytics` - web_analytics
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
-     * * `wizard_run` - wizard_run */
+     * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request */
     source_resource: ScopeObjectEnumApi
     /**
      * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -474,6 +495,7 @@ export interface AccessControlObjectRuleApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `account_note` - account_note
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -485,6 +507,8 @@ export interface AccessControlObjectRuleApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
+     * * `code_review` - code_review
+     * * `code_review_approval` - code_review_approval
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -521,10 +545,12 @@ export interface AccessControlObjectRuleApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -540,6 +566,7 @@ export interface AccessControlObjectRuleApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -555,13 +582,12 @@ export interface AccessControlObjectRuleApi {
      * * `query` - query
      * * `query_performance` - query_performance
      * * `replay_scanner` - replay_scanner
-     * * `review_hog` - review_hog
      * * `revenue_analytics` - revenue_analytics
      * * `session_recording` - session_recording
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
-     * * `stamphog` - stamphog
+     * * `signal_usage` - signal_usage
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
@@ -572,11 +598,11 @@ export interface AccessControlObjectRuleApi {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user
-     * * `user_interview` - user_interview
      * * `vision_action` - vision_action
      * * `vision_alert` - vision_alert
      * * `visual_review` - visual_review
@@ -586,7 +612,9 @@ export interface AccessControlObjectRuleApi {
      * * `web_analytics` - web_analytics
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
-     * * `wizard_run` - wizard_run */
+     * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request */
     resource: ScopeObjectEnumApi
     /** The object's primary key. */
     resource_id: string
@@ -627,10 +655,13 @@ export interface AccessControlPropertyRulesResponseApi {
 
 /**
  * * `account` - account
+ * * `account_note` - account_note
  * * `action` - action
  * * `activity_log` - activity_log
  * * `ai_observability_clusters` - ai_observability_clusters
  * * `business_knowledge` - business_knowledge
+ * * `canvas` - canvas
+ * * `code_review_approval` - code_review_approval
  * * `customer_analytics` - customer_analytics
  * * `customer_journey` - customer_journey
  * * `customer_task` - customer_task
@@ -651,6 +682,7 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `feature_flag` - feature_flag
  * * `heatmap` - heatmap
  * * `hog_flow` - hog_flow
+ * * `inbox` - inbox
  * * `insight` - insight
  * * `llm_analytics` - llm_analytics
  * * `llm_playground` - llm_playground
@@ -669,7 +701,6 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `session_recording` - session_recording
  * * `session_recording_playlist` - session_recording_playlist
  * * `sharing_configuration` - sharing_configuration
- * * `stamphog` - stamphog
  * * `survey` - survey
  * * `tagger` - tagger
  * * `ticket` - ticket
@@ -685,10 +716,13 @@ export type RuleResourceEnumApi = (typeof RuleResourceEnumApi)[keyof typeof Rule
 
 export const RuleResourceEnumApi = {
     Account: 'account',
+    AccountNote: 'account_note',
     Action: 'action',
     ActivityLog: 'activity_log',
     AiObservabilityClusters: 'ai_observability_clusters',
     BusinessKnowledge: 'business_knowledge',
+    Canvas: 'canvas',
+    CodeReviewApproval: 'code_review_approval',
     CustomerAnalytics: 'customer_analytics',
     CustomerJourney: 'customer_journey',
     CustomerTask: 'customer_task',
@@ -709,6 +743,7 @@ export const RuleResourceEnumApi = {
     FeatureFlag: 'feature_flag',
     Heatmap: 'heatmap',
     HogFlow: 'hog_flow',
+    Inbox: 'inbox',
     Insight: 'insight',
     LlmAnalytics: 'llm_analytics',
     LlmPlayground: 'llm_playground',
@@ -727,7 +762,6 @@ export const RuleResourceEnumApi = {
     SessionRecording: 'session_recording',
     SessionRecordingPlaylist: 'session_recording_playlist',
     SharingConfiguration: 'sharing_configuration',
-    Stamphog: 'stamphog',
     Survey: 'survey',
     Tagger: 'tagger',
     Ticket: 'ticket',
@@ -748,10 +782,13 @@ export interface AccessControlRuleRequestApi {
     /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
      *
      * * `account` - account
+     * * `account_note` - account_note
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
+     * * `canvas` - canvas
+     * * `code_review_approval` - code_review_approval
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
@@ -772,6 +809,7 @@ export interface AccessControlRuleRequestApi {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
@@ -790,7 +828,6 @@ export interface AccessControlRuleRequestApi {
      * * `session_recording` - session_recording
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
-     * * `stamphog` - stamphog
      * * `survey` - survey
      * * `tagger` - tagger
      * * `ticket` - ticket
@@ -862,6 +899,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `account_note` - account_note
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -873,6 +911,8 @@ export interface AccessControlObjectRuleResourceApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
+     * * `code_review` - code_review
+     * * `code_review_approval` - code_review_approval
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -909,10 +949,12 @@ export interface AccessControlObjectRuleResourceApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -928,6 +970,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -943,13 +986,12 @@ export interface AccessControlObjectRuleResourceApi {
      * * `query` - query
      * * `query_performance` - query_performance
      * * `replay_scanner` - replay_scanner
-     * * `review_hog` - review_hog
      * * `revenue_analytics` - revenue_analytics
      * * `session_recording` - session_recording
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
-     * * `stamphog` - stamphog
+     * * `signal_usage` - signal_usage
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
@@ -960,11 +1002,11 @@ export interface AccessControlObjectRuleResourceApi {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user
-     * * `user_interview` - user_interview
      * * `vision_action` - vision_action
      * * `vision_alert` - vision_alert
      * * `visual_review` - visual_review
@@ -974,7 +1016,9 @@ export interface AccessControlObjectRuleResourceApi {
      * * `web_analytics` - web_analytics
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
-     * * `wizard_run` - wizard_run */
+     * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request */
     resource: ScopeObjectEnumApi
     /** The levels an object rule on this resource type accepts, lowest first. */
     available_access_levels: string[]
@@ -992,12 +1036,31 @@ export interface AccessControlDefaultsResponseApi {
     available_resource_levels: string[]
     /** Whether the caller may change access rules in this project. */
     can_edit: boolean
+    /** Whether the access rules of this project are locked to Terraform. */
+    is_managed_by_terraform: boolean
     /** The default project access level for members. */
     project_access_level: string
     /** The default level per resource type, keyed by resource name. */
     resource_access_levels: AccessControlDefaultsResponseApiResourceAccessLevels
     /** The resource types that accept rules on single objects, with the levels each accepts. */
     object_rule_resources: AccessControlObjectRuleResourceApi[]
+}
+
+export interface AccessControlManagementApi {
+    /** Whether Terraform manages this project's access rules. While true, only the account behind Terraform's API key may change them. */
+    managed: boolean
+    /**
+     * When Terraform last wrote an access rule in this project, or null.
+     * @nullable
+     */
+    terraform_last_applied_at: string | null
+    /** Whether Terraform wrote access rules to this project at least once. Until then, an enabled lock refuses all writes. */
+    has_terraform_account: boolean
+}
+
+export interface AccessControlManagementRequestApi {
+    /** False: the UI manages this project's access rules. True: only the account behind Terraform's API key can change them. Before the first Terraform write, true locks everyone out. */
+    managed: boolean
 }
 
 /**
@@ -1007,10 +1070,13 @@ export interface AccessControlMemberRuleRequestApi {
     /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
      *
      * * `account` - account
+     * * `account_note` - account_note
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
+     * * `canvas` - canvas
+     * * `code_review_approval` - code_review_approval
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
@@ -1031,6 +1097,7 @@ export interface AccessControlMemberRuleRequestApi {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
@@ -1049,7 +1116,6 @@ export interface AccessControlMemberRuleRequestApi {
      * * `session_recording` - session_recording
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
-     * * `stamphog` - stamphog
      * * `survey` - survey
      * * `tagger` - tagger
      * * `ticket` - ticket
@@ -1128,6 +1194,7 @@ export interface ResolvedAccessApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `account_note` - account_note
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -1139,6 +1206,8 @@ export interface ResolvedAccessApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
+     * * `code_review` - code_review
+     * * `code_review_approval` - code_review_approval
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -1175,10 +1244,12 @@ export interface ResolvedAccessApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -1194,6 +1265,7 @@ export interface ResolvedAccessApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -1209,13 +1281,12 @@ export interface ResolvedAccessApi {
      * * `query` - query
      * * `query_performance` - query_performance
      * * `replay_scanner` - replay_scanner
-     * * `review_hog` - review_hog
      * * `revenue_analytics` - revenue_analytics
      * * `session_recording` - session_recording
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
-     * * `stamphog` - stamphog
+     * * `signal_usage` - signal_usage
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
@@ -1226,11 +1297,11 @@ export interface ResolvedAccessApi {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user
-     * * `user_interview` - user_interview
      * * `vision_action` - vision_action
      * * `vision_alert` - vision_alert
      * * `visual_review` - visual_review
@@ -1240,7 +1311,9 @@ export interface ResolvedAccessApi {
      * * `web_analytics` - web_analytics
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
-     * * `wizard_run` - wizard_run */
+     * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request */
     source_resource: ScopeObjectEnumApi
     /**
      * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -1317,10 +1390,13 @@ export interface AccessControlRoleRuleRequestApi {
     /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
      *
      * * `account` - account
+     * * `account_note` - account_note
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
+     * * `canvas` - canvas
+     * * `code_review_approval` - code_review_approval
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
@@ -1341,6 +1417,7 @@ export interface AccessControlRoleRuleRequestApi {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
@@ -1359,7 +1436,6 @@ export interface AccessControlRoleRuleRequestApi {
      * * `session_recording` - session_recording
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
-     * * `stamphog` - stamphog
      * * `survey` - survey
      * * `tagger` - tagger
      * * `ticket` - ticket
@@ -1650,7 +1726,12 @@ export interface PropertyAccessControlUpdateApi {
 
 export type MembersProjectAccessRetrieveParams = {
     /**
-     * Narrow the list to one organization membership id.
+     * Narrow the list to the member with this email address (case-insensitive). Combined with `member_id`, both must match.
+     * @minLength 1
+     */
+    email?: string
+    /**
+     * Narrow the list to one organization membership id. Combined with `email`, both must match.
      */
     member_id?: string
 }

@@ -32,6 +32,7 @@ import type {
 } from 'products/signals/frontend/generated/api.schemas'
 import { SKILL_DESCRIPTION_MAX_LENGTH, validateSkillName } from 'products/skills/frontend/skillConstants'
 
+import { SCOUT_DEFAULT_WRITE_SCOPES } from '../components/config/scouts/scoutWriteScopes'
 import {
     dailyCronToTime,
     dayTimeToWeeklyCron,
@@ -121,7 +122,7 @@ export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
         tags: [],
         mcp_gateway_server_ids: [],
         repositories: [],
-        write_scopes: [],
+        write_scopes: [...SCOUT_DEFAULT_WRITE_SCOPES],
     },
 }
 

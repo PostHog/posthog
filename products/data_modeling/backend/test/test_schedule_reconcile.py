@@ -6,23 +6,32 @@ from unittest import mock
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
 from temporalio.client import ScheduleAlreadyRunningError, ScheduleListActionStartWorkflow
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.constants import AvailableFeature
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
 
+from products.data_modeling.backend.facade.contracts import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
-from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import (
     get_declared_anchor,
+    get_declared_pin,
+    get_declared_target,
     set_declared_anchor,
+    set_declared_pin,
     set_declared_target,
+    target_before_plan_floor_clamp,
 )
 from products.data_modeling.backend.logic.saved_query_dag_sync import promote_dag_view_nodes_to_matview
 from products.data_modeling.backend.logic.schedule_reconcile import (
     DagScheduleTeardown,
     TeamScheduleTeardownError,
     apply_saved_query_frequency_anchor,
+    apply_saved_query_frequency_target,
+    bootstrap_dag_to_tiers,
+    clamp_dag_targets_to_plan_floor,
     convert_dag_to_tiers,
     delete_dag_schedules,
     delete_team_data_modeling_schedules,
@@ -30,6 +39,7 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
     reconcile_dag_schedules,
 )
 from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
@@ -42,12 +52,22 @@ from products.data_modeling.backend.test.helpers import (
     warehouse_source_node as _warehouse_source_node,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
+FLOOR_FLAG = "products.data_modeling.backend.logic.refresh_floor.feature_enabled_or_false"
 
 M15 = timedelta(minutes=15)
 H1 = timedelta(hours=1)
 H6 = timedelta(hours=6)
+DAY = timedelta(days=1)
+
+
+def _grant_refresh_interval(organization, minutes):
+    organization.available_product_features = [
+        {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": minutes}
+    ]
+    organization.save(update_fields=["available_product_features"])
 
 
 def _listing(schedule_id, workflow="data-modeling-execute-dag"):
@@ -133,6 +153,7 @@ class TestReconcileDagSchedules(BaseTest):
         # the 15min tier already exists, so it is rewritten in place — no create, no delete
         update.assert_called_once()
         self.assertEqual(update.call_args.kwargs["id"], existing_id)
+        self.assertTrue(update.call_args.kwargs["keep_paused"])
         create.assert_not_called()
         delete.assert_not_called()
 
@@ -238,38 +259,7 @@ class TestReconcileDagSchedules(BaseTest):
         delete.assert_called_once_with(temporal, schedule_id=created_ids[0])
         self.assertNotEqual(created_ids[0], legacy_id)
 
-    def test_refuses_to_unschedule_covered_dag_without_targets(self):
-        # a covered DAG with no targets means unseeded conversion, not a wind-down —
-        # converging to zero schedules would silently stop all materialization
-        dag = DAG.get_or_create_default(self.team)
-        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
-        endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
-        Edge.objects.create(team=self.team, dag=dag, source=source, target=endpoint)
-
-        legacy_id = str(dag.id)
-
-        async def fake_list_schedules(*_args, **_kwargs):
-            async def gen():
-                yield _listing(legacy_id)
-
-            return gen()
-
-        temporal = mock.Mock()
-        temporal.list_schedules = fake_list_schedules
-
-        with (
-            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
-            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
-            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
-        ):
-            reconcile_dag_schedules(dag)
-
-        create.assert_not_called()
-        delete.assert_not_called()
-
     def test_sweeps_legacy_schedule_when_dag_has_no_schedulable_nodes(self):
-        # a DAG holding only source tables has nothing to seed, so the unseeded-conversion
-        # guard must not apply: its legacy schedule just fires no-op execute-dag runs forever
         dag = DAG.get_or_create_default(self.team)
         _table_node(self.team, dag, "events", {"origin": "posthog"})
 
@@ -357,7 +347,50 @@ class TestReconcileDagSchedules(BaseTest):
 
         update.assert_called_once()
         self.assertEqual(update.call_args.kwargs["id"], tier_schedule_id(str(dag.id), M15))
+        self.assertTrue(update.call_args.kwargs["keep_paused"])
         delete.assert_not_called()
+
+    def test_listed_tier_that_is_already_gone_is_recreated_and_stays_materialized(self):
+        # the listing reads Temporal's eventually consistent visibility store, so it can name a
+        # tier that is already deleted; a failed bootstrap would mark the query not materialized
+        dag = DAG.get_or_create_default(self.team)
+        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
+        endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=endpoint)
+        set_declared_target(endpoint, M15)
+        saved_query = endpoint.saved_query
+        assert saved_query is not None
+        saved_query.is_materialized = True
+        saved_query.save(update_fields=["is_materialized"])
+
+        tier_id = tier_schedule_id(str(dag.id), M15)
+
+        async def fake_list_schedules(*_args, **_kwargs):
+            async def gen():
+                yield _listing(tier_id)
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+
+        with (
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(
+                f"{RECONCILE}.a_update_schedule",
+                new=mock.AsyncMock(side_effect=RPCError("schedule not found", RPCStatusCode.NOT_FOUND, b"")),
+            ),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            bootstrap_dag_to_tiers(dag, requested_by=saved_query)
+
+        create.assert_called_once()
+        self.assertEqual(create.call_args.kwargs["id"], tier_id)
+        delete.assert_not_called()
+        saved_query.refresh_from_db()
+        self.assertTrue(saved_query.is_materialized)
 
     def test_refuses_non_bucket_tier_before_touching_temporal(self):
         # the guard must fire before any Temporal call — a non-bucket tier would crash
@@ -427,24 +460,6 @@ class TestMaybeReconcileDag(BaseTest):
         temporal.list_schedules = fake_list_schedules
         return temporal
 
-    def test_untiered_dag_is_left_alone(self):
-        # a legacy single-schedule DAG converts only via the conversion command: tiering the
-        # seeded nodes here would delete the whole-DAG schedule the unseeded ones still ride
-        dag = self._dag_with_target()
-        with (
-            mock.patch(
-                f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([str(dag.id)]))
-            ),
-            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
-            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()) as update,
-            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
-        ):
-            with self.captureOnCommitCallbacks(execute=True):
-                maybe_reconcile_dag(dag)
-        create.assert_not_called()
-        update.assert_not_called()
-        delete.assert_not_called()
-
     def test_dag_with_no_schedule_regains_a_tier(self):
         dag = self._dag_with_target()
         with (
@@ -472,6 +487,239 @@ class TestMaybeReconcileDag(BaseTest):
                 maybe_reconcile_dag(dag)
         update.assert_called_once()
         self.assertEqual(update.call_args.kwargs["id"], tier_id)
+
+    @parameterized.expand(
+        [
+            ("unpinned_runs_at_the_consumer_cadence", False, True, {H6: ["upstream", "consumer"]}),
+            ("pinned_keeps_its_own_cadence", True, True, {DAY: ["upstream"], H6: ["consumer"]}),
+            ("pinned_holds_back_a_consumer_with_no_fresher_parent", True, False, {DAY: ["upstream", "consumer"]}),
+        ]
+    )
+    def test_upstream_slower_than_its_consumer_keeps_its_setting(
+        self, _name, pinned, consumer_reads_source, expected_tiers
+    ):
+        dag = DAG.get_or_create_default(self.team)
+        source = _warehouse_source_node(self.team, dag, sync_frequency_interval=H1)
+        upstream = _saved_query_node(self.team, dag, "org_universe", NodeType.MAT_VIEW)
+        consumer = _saved_query_node(self.team, dag, "maps", NodeType.MAT_VIEW)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=upstream)
+        Edge.objects.create(team=self.team, dag=dag, source=upstream, target=consumer)
+        if consumer_reads_source:
+            Edge.objects.create(team=self.team, dag=dag, source=source, target=consumer)
+        set_declared_target(upstream, DAY)
+        set_declared_target(consumer, H6)
+        if pinned:
+            set_declared_pin(upstream, True)
+
+        with (
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([]))),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                maybe_reconcile_dag(dag)
+
+        ids = {"upstream": str(upstream.id), "consumer": str(consumer.id)}
+        created = {
+            call.kwargs["id"]: sorted(call.kwargs["schedule"].action.args[0]["node_ids"])
+            for call in create.call_args_list
+        }
+        self.assertEqual(
+            created,
+            {
+                tier_schedule_id(str(dag.id), cadence): sorted(ids[name] for name in names)
+                for cadence, names in expected_tiers.items()
+            },
+        )
+        upstream.refresh_from_db()
+        self.assertEqual(get_declared_target(upstream), DAY)
+
+    def test_saving_a_cadence_finer_than_the_plan_floor_is_refused(self):
+        _grant_refresh_interval(self.organization, 360)
+        node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)
+        set_declared_target(node, DAY)
+        assert node.saved_query is not None
+
+        with (
+            mock.patch(FLOOR_FLAG, return_value=True),
+            mock.patch(f"{RECONCILE}.maybe_reconcile_dag"),
+            mock.patch("posthog.event_usage.posthoganalytics.capture") as capture,
+            self.assertRaisesMessage(UnsatisfiableFrequencyError, "on your plan"),
+        ):
+            apply_saved_query_frequency_target(node.saved_query, M15)
+
+        node.refresh_from_db()
+        self.assertEqual(get_declared_target(node), DAY)
+        capture.assert_called_once()
+        self.assertEqual(capture.call_args.kwargs["event"], "data modeling refresh refused by plan floor")
+        self.assertEqual(capture.call_args.kwargs["properties"], {"requested_cadence": "15min", "plan_floor": "6hour"})
+
+    def test_resaving_a_cadence_saved_before_the_plan_floor_is_accepted(self):
+        _grant_refresh_interval(self.organization, 360)
+        node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)
+        set_declared_target(node, M15)
+        assert node.saved_query is not None
+
+        with mock.patch(FLOOR_FLAG, return_value=True), mock.patch(f"{RECONCILE}.maybe_reconcile_dag"):
+            apply_saved_query_frequency_target(node.saved_query, M15)
+
+        node.refresh_from_db()
+        self.assertEqual(get_declared_target(node), M15)
+
+    @parameterized.expand(
+        [
+            ("resaving_the_floor_keeps_it", H6, M15),
+            ("a_new_cadence_drops_it", DAY, None),
+            ("clearing_the_cadence_drops_it", None, None),
+        ]
+    )
+    def test_the_plan_floor_clamp_record_lasts_until_a_new_cadence_is_saved(self, _name, saved, expected):
+        _grant_refresh_interval(self.organization, 360)
+        dag = DAG.get_or_create_default(self.team)
+        node = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
+        set_declared_target(node, M15)
+        assert node.saved_query is not None
+
+        with (
+            mock.patch(FLOOR_FLAG, return_value=True),
+            mock.patch(f"{RECONCILE}.reconcile_dag_schedules"),
+            mock.patch(f"{RECONCILE}.maybe_reconcile_dag"),
+            mock.patch(f"{RECONCILE}.ph_background_capture"),
+        ):
+            clamp_dag_targets_to_plan_floor(self.team.pk, str(dag.id))
+            apply_saved_query_frequency_target(node.saved_query, saved)
+
+        node.refresh_from_db()
+        self.assertEqual(target_before_plan_floor_clamp(node.properties), expected)
+
+    def test_a_pin_on_its_own_keeps_the_stored_target(self):
+        node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)
+        set_declared_target(node, H6)
+        assert node.saved_query is not None
+
+        with mock.patch(f"{RECONCILE}.maybe_reconcile_dag"):
+            apply_saved_query_frequency_target(node.saved_query, None, pinned=True, keep_target=True)
+
+        node.refresh_from_db()
+        self.assertEqual((get_declared_target(node), get_declared_pin(node)), (H6, True))
+
+    def test_a_pin_on_its_own_is_refused_when_the_node_has_no_target(self):
+        node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)
+        assert node.saved_query is not None
+
+        with mock.patch(f"{RECONCILE}.maybe_reconcile_dag"), self.assertRaises(ValueError):
+            apply_saved_query_frequency_target(node.saved_query, None, pinned=True, keep_target=True)
+
+        node.refresh_from_db()
+        self.assertFalse(get_declared_pin(node))
+
+    @parameterized.expand(
+        [
+            ("finer_than_the_floor_is_rewritten", M15, True, False, H6),
+            ("at_the_floor_is_kept", H6, True, False, H6),
+            ("flag_off_keeps_the_cadence", M15, False, False, M15),
+            ("managed_view_keeps_its_provider_cadence", M15, True, True, M15),
+        ]
+    )
+    def test_plan_floor_clamp_rewrites_only_user_set_cadences_finer_than_the_floor(
+        self, _name, saved, flag_on, managed, expected
+    ):
+        _grant_refresh_interval(self.organization, 360)
+        dag = DAG.get_or_create_default(self.team)
+        node = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
+        assert node.saved_query is not None
+        if managed:
+            node.saved_query.managed_viewset = DataWarehouseManagedViewSet.objects.create(
+                team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+            )
+            node.saved_query.save(update_fields=["managed_viewset"])
+        set_declared_target(node, saved)
+        set_declared_pin(node, True)
+
+        with (
+            mock.patch(FLOOR_FLAG, return_value=flag_on),
+            mock.patch(f"{RECONCILE}.reconcile_dag_schedules") as reconcile,
+            mock.patch(f"{RECONCILE}.ph_background_capture") as background_capture,
+        ):
+            rewritten = clamp_dag_targets_to_plan_floor(self.team.pk, str(dag.id))
+
+        capture = background_capture.return_value
+        node.refresh_from_db()
+        self.assertEqual((get_declared_target(node), get_declared_pin(node)), (expected, True))
+        self.assertEqual(target_before_plan_floor_clamp(node.properties), saved if expected != saved else None)
+        self.assertEqual((rewritten, reconcile.call_count), (1, 1) if expected != saved else (0, 0))
+        if expected != saved:
+            self.assertEqual(reconcile.call_args.kwargs["graph"].declared_targets[str(node.id)], expected)
+            self.assertEqual(
+                capture.call_args.kwargs["properties"],
+                {"saved_query_id": str(node.saved_query_id), "previous_cadence": "15min", "plan_floor": "6hour"},
+            )
+
+    def test_plan_floor_clamp_keeps_a_cadence_saved_during_its_reconcile(self):
+        _grant_refresh_interval(self.organization, 360)
+        dag = DAG.get_or_create_default(self.team)
+        node = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
+        set_declared_target(node, M15)
+
+        def save_during_reconcile(*_args, **_kwargs):
+            set_declared_target(Node.objects.get(pk=node.pk), H1)
+
+        with (
+            mock.patch(FLOOR_FLAG, return_value=True),
+            mock.patch(f"{RECONCILE}.reconcile_dag_schedules", side_effect=save_during_reconcile),
+            mock.patch(f"{RECONCILE}.ph_background_capture"),
+        ):
+            rewritten = clamp_dag_targets_to_plan_floor(self.team.pk, str(dag.id))
+
+        node.refresh_from_db()
+        self.assertEqual((rewritten, get_declared_target(node)), (0, H1))
+
+    @parameterized.expand(
+        [
+            ("creating_the_floor_tier_fails", "a_create_schedule", RuntimeError("temporal down"), (0, M15)),
+            ("deleting_the_faster_tier_fails", "a_delete_schedule", RuntimeError("temporal down"), (0, M15)),
+            (
+                "the_faster_tier_is_already_gone",
+                "a_delete_schedule",
+                RPCError("gone", RPCStatusCode.NOT_FOUND, b""),
+                (1, H6),
+            ),
+        ]
+    )
+    def test_plan_floor_clamp_keeps_the_cadence_until_its_reconcile_succeeds(
+        self, _name, failing_call, error, expected
+    ):
+        _grant_refresh_interval(self.organization, 360)
+        dag = DAG.get_or_create_default(self.team)
+        node = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
+        set_declared_target(node, M15)
+
+        async def fake_list_schedules(*_args, **_kwargs):
+            async def gen():
+                yield _listing(tier_schedule_id(str(dag.id), M15))
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+
+        with (
+            mock.patch(FLOOR_FLAG, return_value=True),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.{failing_call}", new=mock.AsyncMock(side_effect=error)),
+            mock.patch(f"{RECONCILE}.ph_background_capture") as background_capture,
+        ):
+            try:
+                rewritten = clamp_dag_targets_to_plan_floor(self.team.pk, str(dag.id))
+            except Exception:
+                rewritten = 0
+
+        capture = background_capture.return_value
+        node.refresh_from_db()
+        self.assertEqual((rewritten, get_declared_target(node)), expected)
+        self.assertEqual(capture.call_count, expected[0])
 
     def test_reconcile_failure_never_raises_past_commit(self):
         dag = self._dag_with_target()
@@ -542,14 +790,11 @@ class TestPromoteDagViewNodesToMatview(BaseTest):
         assert has_run.type == NodeType.MAT_VIEW
 
     def test_conversion_to_tiers_repairs_stranded_nodes(self):
-        # The v1 sweep that follows conversion is what makes a view-typed node go dark, so the
-        # repair has to happen as part of converting, not on some later pass.
         dag = DAG.get_or_create_default(self.team)
         stranded = self._backed(dag, "stranded", NodeType.VIEW)
         set_declared_target(stranded, M15)
 
         with (
-            mock.patch(f"{RECONCILE}.sync_connect", return_value=no_existing_schedules()),
             mock.patch(f"{RECONCILE}.async_connect", return_value=no_existing_schedules()),
             mock.patch(f"{RECONCILE}.a_create_schedule"),
         ):
@@ -612,27 +857,15 @@ class TestDeleteDagSchedules(SimpleTestCase):
 
 
 class TestDeleteTeamDataModelingSchedules(BaseTest):
-    def test_sweeps_both_halves_for_a_team_converted_to_dag_schedules(self):
-        # Conversion nulls sync_frequency_interval, so no field can decide which half to sweep.
-        saved_query = DataWarehouseSavedQuery.objects.create(
-            team=self.team,
-            name="converted_query",
-            query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            sync_frequency_interval=None,
-        )
+    def test_deletes_the_schedules_of_every_dag_of_the_team(self):
         dag = DAG.objects.create(team=self.team, name="Default")
 
-        with (
-            mock.patch(f"{RECONCILE}.sync_connect"),
-            mock.patch(f"{RECONCILE}.delete_schedule") as delete_query,
-            mock.patch(
-                f"{RECONCILE}.delete_dag_schedules",
-                return_value=DagScheduleTeardown(ok=True, deleted=(str(dag.id),)),
-            ) as delete_dag,
-        ):
+        with mock.patch(
+            f"{RECONCILE}.delete_dag_schedules",
+            return_value=DagScheduleTeardown(ok=True, deleted=(str(dag.id),)),
+        ) as delete_dag:
             delete_team_data_modeling_schedules(self.team.id)
 
-        delete_query.assert_called_once_with(mock.ANY, schedule_id=str(saved_query.id))
         delete_dag.assert_called_once_with(str(dag.id))
 
     def test_raises_when_a_dag_teardown_fails_so_the_activity_retries(self):

@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from posthog.schema import DateRange
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import acreate_action, create_action
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
     UtmSplitCounts,
     explain_conversion_goal,
@@ -317,12 +317,12 @@ class TestResolveAction(APIBaseTest):
         # Create a second team in a separate organization to ensure cross-team isolation.
         other_org = await sync_to_async(Organization.objects.create)(name="Other Org")
         other_team = await sync_to_async(Team.objects.create)(organization=other_org, name="Other Team")
-        other_action = await sync_to_async(Action.objects.create)(team=other_team, name="Other Team Action")
+        other_action = await acreate_action(team=other_team, name="Other Team Action")
 
         # _resolve_action scoped to self.team must NOT return an action that belongs
         # to other_team — otherwise team A could read team B's action name and step
         # events through the diagnostic tool.
-        action, error = await _resolve_action(self.team, str(other_action.pk))
+        action, error = await _resolve_action(self.team, str(other_action.id))
         assert action is None
         assert error is not None
 
@@ -331,7 +331,7 @@ class TestResolveAction(APIBaseTest):
         from products.marketing_analytics.backend.services.conversion_goals_inspector import _resolve_action
 
         with patch(
-            "products.marketing_analytics.backend.services.conversion_goals_inspector.Action.objects.get",
+            "products.marketing_analytics.backend.services.conversion_goals_inspector.get_action",
         ) as p_get:
             action, error = await _resolve_action(self.team, "not-an-int")
         assert action is None
@@ -670,7 +670,7 @@ class TestListActionGoalFiltersClickhouse(ClickhouseTestMixin, BaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        self.action = Action.objects.create(
+        self.action = create_action(
             team=self.team,
             name="Pro purchase",
             steps_json=[

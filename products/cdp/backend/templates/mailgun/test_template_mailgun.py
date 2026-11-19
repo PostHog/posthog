@@ -1,7 +1,6 @@
 from typing import Optional
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.cdp.backend.templates.mailgun.template_mailgun import template_mailgun_send_email
 
 

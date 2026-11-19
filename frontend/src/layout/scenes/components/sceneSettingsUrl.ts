@@ -6,7 +6,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 const SETTINGS_SECTION_BY_PRODUCT: Partial<Record<ProductKey, SettingSectionId>> = {
     [ProductKey.PRODUCT_ANALYTICS]: 'environment-product-analytics',
     [ProductKey.WEB_ANALYTICS]: 'environment-web-analytics',
-    [ProductKey.SESSION_REPLAY]: 'environment-replay',
     [ProductKey.FEATURE_FLAGS]: 'environment-feature-flags',
     [ProductKey.EXPERIMENTS]: 'environment-experiments',
     [ProductKey.SURVEYS]: 'environment-surveys',

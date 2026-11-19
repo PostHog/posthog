@@ -38,6 +38,7 @@ use crate::{
     metrics::consts::{REMOTE_CONFIG_AUTH_COUNTER, REMOTE_CONFIG_ETAG_COUNTER},
     router::State as AppState,
     team::team_models::Team,
+    utils::python_truthiness::is_falsy,
 };
 use axum::{
     debug_handler,
@@ -187,8 +188,12 @@ pub async fn remote_config(
     // `resolved_key` is the flag's actual `key` column, not the URL segment (which may be a
     // numeric id when the caller addresses the flag by id), so decrypt-failure logs always carry
     // the human-readable key.
-    let Some((filters, has_encrypted_payloads, resolved_key)) =
-        load_remote_config_flag(&state, scope_project_id, &key).await?
+    let Some(RemoteConfigFlag {
+        filters,
+        has_encrypted_payloads,
+        key: resolved_key,
+        active,
+    }) = load_remote_config_flag(&state, scope_project_id, &key).await?
     else {
         return Ok(StatusCode::NOT_FOUND.into_response());
     };
@@ -209,18 +214,25 @@ pub async fn remote_config(
     // InvalidToken. Both are shapes the serializer shouldn't allow. We return gracefully instead
     // -- a missing payload is an empty body on either credential, and the redact path only marks a
     // payload that actually exists -- so phase 2 reads these rare rows as a known diff, not a bug.
-    let payload: Option<Value> = if has_encrypted_payloads != Some(true) {
-        stored.cloned()
-    } else if should_decrypt {
-        resolve_decrypted_payload(&state, stored, scope_project_id, &resolved_key)?
+    //
+    // A disabled flag evaluates as off in local evaluation and /flags, so it serves the JSON
+    // literal `null`, which every SDK's JSON parser reads as no payload.
+    let payload: Option<Value> = if !active {
+        Some(Value::Null)
     } else {
-        stored.map(|_| Value::String(REDACTED_PAYLOAD_VALUE.to_string()))
-    };
+        let resolved = if has_encrypted_payloads != Some(true) {
+            stored.cloned()
+        } else if should_decrypt {
+            resolve_decrypted_payload(&state, stored, scope_project_id, &resolved_key)?
+        } else {
+            stored.map(|_| Value::String(REDACTED_PAYLOAD_VALUE.to_string()))
+        };
 
-    // Django applies `or None` to the final value and renders None as an empty body, not
-    // the JSON literal `null`. Apply the falsy check after decryption so an empty decrypted
-    // string nulls out too.
-    let payload = payload.filter(|v| !is_falsy(v));
+        // Django applies `or None` to the final value and renders None as an empty body, not
+        // the JSON literal `null`. Apply the falsy check after decryption so an empty decrypted
+        // string nulls out too. In practice the payload is always a JSON-encoded string.
+        resolved.filter(|v| !is_falsy(v))
+    };
 
     // `Value::to_string` produces the same compact JSON `Json(v)` would serialize, so the
     // etag hashes the exact bytes the client receives (empty payloads hash the empty body).
@@ -336,20 +348,6 @@ fn empty_ok_no_content_type(etag: &str) -> Response {
     (StatusCode::OK, revalidation_headers(etag)).into_response()
 }
 
-/// Mirrors Python truthiness for `payloads.get("true") or None`. In practice the payload
-/// is always a JSON-encoded string, but cover every falsy JSON value so the behaviour
-/// matches Python exactly: null, false, zero, and empty string/array/object.
-fn is_falsy(v: &Value) -> bool {
-    match v {
-        Value::Null => true,
-        Value::Bool(b) => !b,
-        Value::Number(n) => n.as_f64() == Some(0.0),
-        Value::String(s) => s.is_empty(),
-        Value::Array(a) => a.is_empty(),
-        Value::Object(o) => o.is_empty(),
-    }
-}
-
 /// Authenticates and resolves the decrypt gate against the already-resolved scope team,
 /// mirroring Django.
 ///
@@ -383,7 +381,7 @@ async fn authenticate(
         // because it decides redact-vs-decrypt, so the mix is worth watching during phase 2/3.
         inc(
             REMOTE_CONFIG_AUTH_COUNTER,
-            &[("method".to_string(), secret.method_label().to_string())],
+            &[("method".to_string(), "project_secret_api_key".to_string())],
             1,
         );
         state
@@ -490,17 +488,23 @@ async fn project_id_for_team(state: &AppState, team_id: i32) -> Result<Option<i6
     Ok(row.map(|r| r.0))
 }
 
-/// Loads `(filters, has_encrypted_payloads, key)` for a remote-config flag matched by numeric id
-/// (if `key` is all digits) or key, scoped to `team.project_id == project_id`. The returned `key`
-/// is the flag's canonical key column, which is why it is selected even though the caller may have
-/// addressed the flag by id. The query filters on `is_remote_configuration IS TRUE`, so a
+#[derive(sqlx::FromRow)]
+struct RemoteConfigFlag {
+    filters: Value,
+    has_encrypted_payloads: Option<bool>,
+    key: String,
+    active: bool,
+}
+
+/// Loads a remote-config flag matched by numeric id (if `key` is all digits) or key, scoped to
+/// `team.project_id == project_id`. The query filters on `is_remote_configuration IS TRUE`, so a
 /// non-remote-config flag returns `None` and the caller 404s. Uses its own query, not the
 /// flag-list path, which excludes encrypted RC flags.
 async fn load_remote_config_flag(
     state: &AppState,
     project_id: i64,
     key: &str,
-) -> Result<Option<(Value, Option<bool>, String)>, FlagError> {
+) -> Result<Option<RemoteConfigFlag>, FlagError> {
     let client: common_database::PostgresReader = state.database_pools.non_persons_reader.clone();
     let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "remote_config")
         .await
@@ -522,8 +526,8 @@ async fn load_remote_config_flag(
     };
 
     let result = if let Some(id) = parsed_id {
-        sqlx::query_as::<_, (Value, Option<bool>, String)>(
-            "SELECT f.filters, f.has_encrypted_payloads, f.key \
+        sqlx::query_as::<_, RemoteConfigFlag>(
+            "SELECT f.filters, f.has_encrypted_payloads, f.key, f.active \
              FROM posthog_featureflag f JOIN posthog_team t ON f.team_id = t.id \
              WHERE t.project_id = $1 AND f.deleted = false AND f.is_remote_configuration IS TRUE \
              AND f.id = $2 LIMIT 1",
@@ -533,8 +537,8 @@ async fn load_remote_config_flag(
         .fetch_optional(&mut *conn)
         .await
     } else {
-        sqlx::query_as::<_, (Value, Option<bool>, String)>(
-            "SELECT f.filters, f.has_encrypted_payloads, f.key \
+        sqlx::query_as::<_, RemoteConfigFlag>(
+            "SELECT f.filters, f.has_encrypted_payloads, f.key, f.active \
              FROM posthog_featureflag f JOIN posthog_team t ON f.team_id = t.id \
              WHERE t.project_id = $1 AND f.deleted = false AND f.is_remote_configuration IS TRUE \
              AND f.key = $2 LIMIT 1",
@@ -549,28 +553,4 @@ async fn load_remote_config_flag(
         warn!("remote_config flag query failed: {e}");
         FlagError::DatabaseUnavailable
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::is_falsy;
-    use serde_json::json;
-
-    #[test]
-    fn is_falsy_matches_python_truthiness() {
-        // Django's `payloads["true"] or None` nulls out every falsy JSON value.
-        assert!(is_falsy(&json!(null)));
-        assert!(is_falsy(&json!(false)));
-        assert!(is_falsy(&json!(0)));
-        assert!(is_falsy(&json!(0.0)));
-        assert!(is_falsy(&json!("")));
-        assert!(is_falsy(&json!([])));
-        assert!(is_falsy(&json!({})));
-        // Truthy values pass through.
-        assert!(!is_falsy(&json!(true)));
-        assert!(!is_falsy(&json!(1)));
-        assert!(!is_falsy(&json!("x")));
-        assert!(!is_falsy(&json!([1])));
-        assert!(!is_falsy(&json!({"k": "v"})));
-    }
 }

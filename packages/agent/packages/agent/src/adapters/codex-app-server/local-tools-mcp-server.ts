@@ -42,6 +42,7 @@ let parsed: {
   taskRunId?: string;
   token?: string;
   baseBranch?: string;
+  finishReportRequired?: boolean;
 };
 try {
   parsed = JSON.parse(Buffer.from(ctxEnv, "base64").toString("utf-8"));
@@ -59,6 +60,7 @@ const ctx: LocalToolCtx = {
   taskId: parsed.taskId,
   taskRunId: parsed.taskRunId,
   baseBranch: parsed.baseBranch,
+  finishReportRequired: parsed.finishReportRequired,
 };
 
 const enabledNames = (process.env.POSTHOG_LOCAL_TOOLS_ENABLED ?? "")

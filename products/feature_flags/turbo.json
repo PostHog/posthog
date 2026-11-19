@@ -1,6 +1,10 @@
 {
     "extends": ["//"],
     "tasks": {
+        "backend:test": {
+            // Tests read the vendored JSON under backend/test/fixtures/, which the root .py globs miss.
+            "inputs": ["$TURBO_EXTENDS$", "backend/test/fixtures/**"]
+        },
         // No script backs this task. It exists so a product whose tests read tools.yaml can
         // depend on it, and Turbo then marks that product's backend:test affected on a change.
         "backend:mcp-surface": {

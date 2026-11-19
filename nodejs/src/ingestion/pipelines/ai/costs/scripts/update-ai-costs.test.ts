@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
-import { normalizeProviderKey } from '~/ingestion/pipelines/ai/costs/provider-matching'
+import { PROVIDER_ALIASES, normalizeProviderKey } from '~/ingestion/pipelines/ai/costs/provider-matching'
 import { openRouterCostsByModel } from '~/ingestion/pipelines/ai/costs/providers'
 import type { ModelCost } from '~/ingestion/pipelines/ai/costs/providers/types'
 
@@ -187,11 +187,13 @@ describe('isFirstPartyRoute()', () => {
         }
     })
 
-    it('maps every alias onto a vendor that hosts most of its own namespace', () => {
+    it('maps every alias onto the top host of its own namespace', () => {
         // Binds the table to the price book rather than to itself. Mere presence
         // is too weak: resellers appear on other vendors' namespaces too, and
-        // `qwen: 'together'` would pass that. A vendor hosts the bulk of its own
-        // models (80-100% live) where a reseller reaches a third at most.
+        // `qwen: 'together'` would pass that. A fixed share is too brittle too:
+        // Alibaba serves only the closed Qwen models, under half the namespace,
+        // with a reseller close behind. So the vendor must out-host every rival.
+        // Rivals group by first key segment, which only overstates them.
         const book: Array<{ model: string; cost: Record<string, unknown> }> = parseJSON(
             fs.readFileSync(path.join(__dirname, '../providers/llm-costs.json'), 'utf8')
         )
@@ -203,10 +205,23 @@ describe('isFirstPartyRoute()', () => {
             if (models.length === 0) {
                 continue
             }
-            const hosted = models.filter((row) =>
-                Object.keys(row.cost).some((key) => key === vendor || key.startsWith(`${vendor}-`))
-            )
-            expect(hosted.length / models.length).toBeGreaterThan(0.5)
+            const hostCounts = new Map<string, number>()
+            for (const row of models) {
+                const hosts = new Set(
+                    Object.keys(row.cost)
+                        .filter((key) => key !== 'default')
+                        .map((key) => (key === vendor || key.startsWith(`${vendor}-`) ? vendor : key.split('-')[0]))
+                )
+                for (const host of hosts) {
+                    hostCounts.set(host, (hostCounts.get(host) ?? 0) + 1)
+                }
+            }
+            const hosted = hostCounts.get(vendor) ?? 0
+            const topRival = Math.max(0, ...[...hostCounts].filter(([host]) => host !== vendor).map(([, n]) => n))
+            expect({ namespace, vendorOutHostsRivals: hosted > topRival }).toEqual({
+                namespace,
+                vendorOutHostsRivals: true,
+            })
             checked += 1
         }
         expect(checked).toBeGreaterThan(0)
@@ -1468,6 +1483,14 @@ describe('fetchOpenRouterCosts()', () => {
                 json: () => Promise.resolve(url.includes('/endpoints') ? endpointsPayload : listPayload),
             })) as never)
 
+    it('asks for decision and embedding models as well as text models', async () => {
+        jest.spyOn(console, 'log').mockImplementation(() => {})
+        const fetchSpy = mockFetch()
+        await fetchOpenRouterCosts()
+        const listUrl = new URL(fetchSpy.mock.calls[0][0])
+        expect(listUrl.searchParams.get('output_modalities')).toBe('text,decisions,embeddings')
+    })
+
     it('reads per-endpoint pricing, not just the list payload', async () => {
         // Pins that production hands the loop the real reader, not a fake.
         jest.spyOn(console, 'log').mockImplementation(() => {})
@@ -1615,6 +1638,21 @@ describe('writeOutputs()', () => {
         writeOutputs([{ model: 'm', cost: { default: cost('0.000001')! } }], [], 0)
 
         expect(writes.some(([f]) => f.endsWith('canonical-providers.ts'))).toBe(true)
+    })
+
+    it('keeps alias targets in the union when the feed drops their route', () => {
+        // The feed omits a provider whenever its route goes quiet for one fetch.
+        // Dropping the key then fails typecheck in provider-matching.ts, so the
+        // union must hold the alias targets even with no cost row behind them.
+        process.env[DISCOUNT_SUMMARY_ENV] = summaryPath
+        const writes = captureWrites()
+
+        writeOutputs([{ model: 'm', cost: { default: cost('0.000001')! } }], [], 0)
+
+        const [, body] = writes.find(([f]) => f.endsWith('canonical-providers.ts'))!
+        for (const target of Object.values(PROVIDER_ALIASES)) {
+            expect(body).toContain(`| '${target}'`)
+        }
     })
 
     it('does not throw when the summary write fails', () => {

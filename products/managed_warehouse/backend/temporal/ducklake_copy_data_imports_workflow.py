@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 import typing
+import asyncio
 import datetime as dt
 import dataclasses
 from urllib.parse import urlparse
@@ -18,15 +19,20 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.metrics import Attributes, ExecutionTimeRecorder
 
+from products.managed_warehouse.backend.backfill_trino import (
+    data_imports_gigahog_flag,
+    data_imports_register_in_hoglake,
+    data_imports_through_trino,
+)
 from products.managed_warehouse.backend.common import (
     _get_org_id_for_team,
     attach_catalog,
@@ -42,6 +48,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseSourceJobUpdate,
     ManagedWarehouseSourceJobWorkflow,
 )
+from products.managed_warehouse.backend.logic.ducklake_copy import data_imports_ducklake_copy_enabled
 from products.managed_warehouse.backend.logic.verification import (
     DuckLakeCopyVerificationParameter,
     DuckLakeCopyVerificationQuery,
@@ -59,6 +66,12 @@ from products.managed_warehouse.backend.storage import (
     get_deltalake_storage_options,
     setup_duckgres_session,
     stage_delta_table_with_workload,
+)
+from products.managed_warehouse.backend.temporal.ducklake_declared_columns import (
+    DeclaredColumn,
+    columns_missing_from_files,
+    declared_columns,
+    duckdb_type_for_clickhouse,
 )
 from products.managed_warehouse.backend.temporal.metrics import (
     get_ducklake_copy_data_imports_bytes_metric,
@@ -211,20 +224,22 @@ class _VerificationConnection(typing.Protocol):
     def execute(self, query: str, params: typing.Sequence[object] | None = None) -> _VerificationCursor: ...
 
 
-@dataclasses.dataclass
+@frozen
 class DuckLakeCopyWorkflowGateInputs:
     """Inputs for the DuckLake copy workflow gate activity."""
 
     team_id: int
+    internal_bootstrap: bool = False
 
 
-@dataclasses.dataclass
+@frozen
 class DataImportsDuckLakeCopyInputs:
     """Workflow inputs passed to DuckLakeCopyDataImportsWorkflow."""
 
     team_id: int
     job_id: str
     schema_ids: list[uuid.UUID]
+    internal_bootstrap: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -235,7 +250,7 @@ class DataImportsDuckLakeCopyInputs:
         }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class DuckLakeCopyDataImportsMetadata:
     """Metadata for a data imports schema to copy into DuckLake."""
 
@@ -261,6 +276,10 @@ class DuckLakeCopyDataImportsMetadata:
     # Verification
     verification_queries: list[DuckLakeCopyVerificationQuery] = dataclasses.field(default_factory=list)
 
+    # The columns of the table record. Histories recorded before this field have none, which copies the Delta
+    # columns only.
+    declared_columns: list[DeclaredColumn] = dataclasses.field(default_factory=list)
+
 
 @dataclasses.dataclass
 class DuckLakeCopyDataImportsActivityInputs:
@@ -285,6 +304,33 @@ class DuckLakeCopyDataImportsVerificationResult:
     error: str | None = None
 
 
+def _registers_in_gigahog(organization_id: str) -> bool:
+    """Whether the organization's data imports go to Gigahog, as the registration workflow decides it.
+
+    Where Gigahog is deployed, a flag lookup without an answer is retried rather than read as off, because off would
+    run a duckgres copy that a Gigahog organization without duckgres fails on every sync.
+    """
+    flag = data_imports_gigahog_flag(organization_id)
+    if flag is None and settings.GIGAHOG_URL:
+        raise ApplicationError(
+            f"The Gigahog data imports flag gave no answer for organization {organization_id}", non_retryable=False
+        )
+    return flag is True
+
+
+def _registers_without_duckgres(organization_id: str) -> bool:
+    return (
+        _registers_in_gigahog(organization_id)
+        or data_imports_through_trino(organization_id)
+        or data_imports_register_in_hoglake(organization_id)
+    )
+
+
+async def _organization_registers_without_duckgres(organization_id: object) -> bool:
+    # This workflow runs DuckDB statements on duckgres, which a Gigahog, Trino or hoglake organization does not have.
+    return await asyncio.to_thread(_registers_without_duckgres, str(organization_id))
+
+
 @activity.defn
 async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowGateInputs) -> bool:
     """Evaluate whether the DuckLake data imports copy workflow should run for a team."""
@@ -297,25 +343,22 @@ async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowG
         await logger.aerror("Team does not exist when evaluating DuckLake data imports gate")
         return False
 
+    if inputs.internal_bootstrap:
+        from products.managed_warehouse.backend.facade.access import internal_loading_enabled  # noqa: PLC0415
+
+        if not await database_sync_to_async(internal_loading_enabled)(team.organization_id):
+            return False
+        return not await _organization_registers_without_duckgres(team.organization_id)
+
+    if not data_imports_ducklake_copy_enabled(
+        team_id=team.id, team_uuid=team.uuid, organization_id=team.organization_id
+    ):
+        return False
+
     try:
-        return feature_enabled_or_false(
-            "ducklake-data-imports-copy-workflow",
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(team.organization_id),
-                },
-                "project": {
-                    "id": str(team.id),
-                },
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
+        return not await _organization_registers_without_duckgres(team.organization_id)
+    except ApplicationError:
+        raise
     except Exception as error:
         await logger.awarning(
             "Failed to evaluate DuckLake data imports feature flag",
@@ -379,6 +422,7 @@ async def _prepare_data_imports_ducklake_metadata(
                 verification_queries=list(get_data_imports_verification_queries(normalized_name)),
                 source_partition_column=partition_column,
                 staging_uri=staging_uri,
+                declared_columns=declared_columns(schema.table.columns if schema.table is not None else None),
             )
         )
 
@@ -428,7 +472,13 @@ def _copy_data_imports_via_duckdb(
         )
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {qualified_schema}")
         conn.execute(
-            f"CREATE OR REPLACE TABLE {qualified_table} AS SELECT * FROM delta_scan(?)",
+            _create_table_from_delta_statement(
+                conn,
+                qualified_table,
+                inputs.model.source_table_uri,
+                inputs.model.declared_columns,
+                parameter_placeholder="?",
+            ),
             [inputs.model.source_table_uri],
         )
         logger.info("Successfully materialized DuckLake table", ducklake_table=qualified_table)
@@ -443,6 +493,38 @@ def _copy_data_imports_via_duckdb(
 # a consumer outage beyond it fails the copy, and the next sync retries.
 DELTA_REBUILD_WAIT_SECONDS = 600
 DELTA_REBUILD_POLL_SECONDS = 20
+
+
+def _quote_identifier_for_placeholder(identifier: str, parameter_placeholder: str) -> str:
+    # psycopg looks for `%` placeholders in the whole statement text, quoted identifiers included, so a literal `%`
+    # in a column name must be written as `%%` when the statement runs with `%s` parameters.
+    quoted = _quote_identifier(identifier)
+    return quoted.replace("%", "%%") if parameter_placeholder == "%s" else quoted
+
+
+def _create_table_from_delta_statement(
+    conn: _VerificationConnection,
+    qualified_table: str,
+    source_uri: str,
+    declared: typing.Sequence[DeclaredColumn],
+    *,
+    parameter_placeholder: str,
+) -> str:
+    """Copy the Delta table, plus a NULL column for each declared column that the Delta schema lacks."""
+    declared_only_columns = ""
+    if declared:
+        delta_columns = [
+            name for name, _ in _fetch_delta_schema(conn, source_uri, parameter_placeholder=parameter_placeholder)
+        ]
+        declared_only_columns = "".join(
+            f", CAST(NULL AS {duckdb_type_for_clickhouse(column.clickhouse_type)}) AS "
+            f"{_quote_identifier_for_placeholder(column.name, parameter_placeholder)}"
+            for column in columns_missing_from_files(declared, delta_columns)
+        )
+    return (
+        f"CREATE OR REPLACE TABLE {qualified_table} AS "
+        f"SELECT *{declared_only_columns} FROM delta_scan({parameter_placeholder})"
+    )
 
 
 def _is_delta_table_absent_error(error: Exception) -> bool:
@@ -521,7 +603,13 @@ def _copy_data_imports_via_duckgres(
         )
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
         conn.execute(
-            f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM delta_scan(%s)",
+            _create_table_from_delta_statement(
+                conn,
+                table,
+                inputs.model.staging_uri,
+                inputs.model.declared_columns,
+                parameter_placeholder="%s",
+            ),
             [inputs.model.staging_uri],
         )
         logger.info("Successfully materialized DuckLake table via duckgres", ducklake_table=table)
@@ -906,6 +994,14 @@ def _run_data_imports_schema_verification(
             error=str(exc),
         )
 
+    # The copy adds the declared columns that the Delta schema lacks, so they are not a mismatch.
+    declared_only = {
+        column.name.lower()
+        for column in columns_missing_from_files(inputs.model.declared_columns, (name for name, _ in source_schema))
+    }
+    ducklake_schema = [
+        (name, column_type) for name, column_type in ducklake_schema if name.lower() not in declared_only
+    ]
     mismatches = _diff_schema(source_schema, ducklake_schema)
     passed = not mismatches
     error = None
@@ -1115,6 +1211,7 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
             team_id=loaded["team_id"],
             job_id=loaded["job_id"],
             schema_ids=schema_ids,
+            internal_bootstrap=loaded.get("internal_bootstrap", False),
         )
 
     @workflow.run
@@ -1130,7 +1227,7 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
 
         should_copy = await workflow.execute_activity(
             ducklake_copy_data_imports_gate_activity,
-            DuckLakeCopyWorkflowGateInputs(team_id=inputs.team_id),
+            DuckLakeCopyWorkflowGateInputs(team_id=inputs.team_id, internal_bootstrap=inputs.internal_bootstrap),
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )

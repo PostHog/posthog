@@ -1,3 +1,5 @@
+import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
+
 import { PropValue } from '~/models/propertyDefinitionsModel'
 import { HogFunctionConfigurationContextId } from '~/types'
 
@@ -103,18 +105,18 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     value: '$batch_export_run_failed',
                 },
             ]
-        case 'data-warehouse-alerts':
-            return [
-                { label: 'Sync failed', value: '$data_warehouse_sync_failed' },
-                { label: 'Sync recovered', value: '$data_warehouse_sync_recovered' },
-                { label: 'Sync completed', value: '$data_warehouse_sync_completed' },
-                { label: 'Billing limit reached', value: '$data_warehouse_billing_limit_reached' },
-            ]
         case 'replay-vision-requests':
             return [
                 {
                     label: 'Replay vision request completed',
                     value: '$replay_vision_request_completed',
+                },
+            ]
+        case 'signals-reports':
+            return [
+                {
+                    label: 'Inbox report ready',
+                    value: '$signals_report_ready',
                 },
             ]
         default:
@@ -156,9 +158,28 @@ export const getProductEventPropertyFilterOptions = (contextId: HogFunctionConfi
                 '$exception_functions',
                 '$exception_handled',
             ]
+        case 'signals-reports':
+            // The list property compares as a whole array, so filters use its comma-joined text copy.
+            return ['priority', 'actionability', 'source_products_text']
     }
 
     return []
+}
+
+/**
+ * Property keys for the trigger's property filters in contexts whose properties no definition endpoint lists.
+ */
+export const getProductEventPropertyTaxonomicOptions = (
+    contextId: HogFunctionConfigurationContextId
+): TaxonomicFilterProps['optionsFromProp'] => {
+    if (contextId !== 'signals-reports') {
+        return undefined
+    }
+    return {
+        [TaxonomicFilterGroupType.InternalEventProperties]: getProductEventPropertyFilterOptions(contextId).map(
+            (name) => ({ name, group: TaxonomicFilterGroupType.EventProperties })
+        ),
+    }
 }
 
 // Hoisted so repeated calls return stable references, keeping downstream memos idle.
@@ -171,6 +192,12 @@ const ACTIVITY_LOG_SCOPE_VALUES: PropValue[] = Object.values(ActivityLogListScop
 // which can still be entered as custom values.
 const ACTIVITY_LOG_ACTIVITY_VALUES: PropValue[] = ['created', 'updated', 'deleted'].map((name) => ({ name }))
 const NO_SUGGESTED_VALUES: PropValue[] = []
+const SIGNALS_REPORT_PRIORITY_VALUES: PropValue[] = ['P0', 'P1', 'P2', 'P3', 'P4'].map((name) => ({ name }))
+const SIGNALS_REPORT_ACTIONABILITY_VALUES: PropValue[] = [
+    'immediately_actionable',
+    'requires_human_input',
+    'not_actionable',
+].map((name) => ({ name }))
 
 /**
  * Value suggestions for the property filters on the 'Trigger' field. Internal events are
@@ -182,15 +209,25 @@ export const getProductEventPropertyValues = (
     contextId: HogFunctionConfigurationContextId,
     propertyKey: string
 ): PropValue[] | null => {
-    if (contextId !== 'activity-log') {
-        return null
+    if (contextId === 'activity-log') {
+        switch (propertyKey) {
+            case 'scope':
+                return ACTIVITY_LOG_SCOPE_VALUES
+            case 'activity':
+                return ACTIVITY_LOG_ACTIVITY_VALUES
+            default:
+                return NO_SUGGESTED_VALUES
+        }
     }
-    switch (propertyKey) {
-        case 'scope':
-            return ACTIVITY_LOG_SCOPE_VALUES
-        case 'activity':
-            return ACTIVITY_LOG_ACTIVITY_VALUES
-        default:
-            return NO_SUGGESTED_VALUES
+    if (contextId === 'signals-reports') {
+        switch (propertyKey) {
+            case 'priority':
+                return SIGNALS_REPORT_PRIORITY_VALUES
+            case 'actionability':
+                return SIGNALS_REPORT_ACTIONABILITY_VALUES
+            default:
+                return NO_SUGGESTED_VALUES
+        }
     }
+    return null
 }

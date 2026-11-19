@@ -1,17 +1,17 @@
 import { match } from 'ts-pattern'
 
 import { getSeriesColor } from 'lib/colors'
-import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout, MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
+import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { uuid } from 'lib/utils/dom'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { SeriesNode, isActionsSeriesNode, isEventsSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
+import { isFunnelsQuery, isNodeWithSource, isTrendsQuery } from '~/queries/schema/node-guards'
 import {
-    AnyDataWarehouseNode,
+    ActionsNode,
     AnyEntityNode,
     Breakdown,
     CachedNewExperimentQueryResponse,
-    EventsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureConfig,
     ExperimentFunnelMetricStep,
@@ -20,18 +20,19 @@ import {
     ExperimentMetricSource,
     ExperimentMetricType,
     ExperimentTrendsQuery,
-    GroupNode,
     NodeKind,
     ProductKey,
     TrendsQuery,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    isExperimentQuantileMetric,
     isExperimentRatioMetric,
     isExperimentExposureNode,
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
+import { isValidQueryForExperiment } from '~/queries/utils'
 import {
+    AnyPropertyFilter,
     BreakdownAttributionType,
     ChartDisplayType,
     Experiment,
@@ -39,12 +40,9 @@ import {
     ExperimentMetricMathType,
     FeatureFlagBasicType,
     FeatureFlagType,
-    FilterType,
     FunnelConversionWindowTimeUnit,
-    FunnelVizType,
     MultivariateFlagVariant,
     PropertyFilterType,
-    PropertyOperator,
     type InsightModel,
     UniversalFiltersGroupValue,
 } from '~/types'
@@ -56,13 +54,7 @@ import type {
     ExperimentToSavedMetricApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
-import {
-    EXPOSURE_DEFAULT_EVENT,
-    EXPOSURE_FEATURE_FLAG_PROPERTY,
-    EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
-    featureFlagVariantProperty,
-    resolvedExposureEvent,
-} from './exposureContract'
+import { EXPOSURE_DEFAULT_EVENT, resolvedExposureEvent } from './exposureContract'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
 const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5 // on the 0-100 scale (0.5 = 0.5%)
@@ -88,7 +80,13 @@ export function isEventExposureConfig(config: ExperimentExposureConfig): config 
 }
 
 export function getExposureConfigDisplayName(config: ExperimentExposureConfig): string {
-    return isEventExposureConfig(config) ? config.event || 'Unknown Event' : config.name || `Action ${config.id}`
+    if (isEventExposureConfig(config)) {
+        return config.event || 'Unknown Event'
+    }
+    if (config.kind === NodeKind.ExperimentWarehouseNativeExposureConfig) {
+        return 'Warehouse-native query'
+    }
+    return config.name || `Action ${config.id}`
 }
 
 export function getVariantColor(variantKey: string, featureFlagVariants: MultivariateFlagVariant[]): string {
@@ -161,33 +159,12 @@ export function isEvenlyDistributed(variants: MultivariateFlagVariant[]): boolea
     return variants.every((variant, index) => variant.rollout_percentage === evenPercentages[index])
 }
 
-function seriesToFilterLegacy(
-    series: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
-    featureFlagKey: string,
-    variantKey: string
-): UniversalFiltersGroupValue | null {
-    if (series.kind === NodeKind.EventsNode) {
-        return {
-            id: series.event as string,
-            name: series.event as string,
-            type: 'events',
-            properties: [
-                {
-                    key: featureFlagVariantProperty(featureFlagKey),
-                    type: PropertyFilterType.Event,
-                    value: [variantKey],
-                    operator: PropertyOperator.Exact,
-                },
-            ],
-        }
-    } else if (series.kind === NodeKind.ActionsNode) {
-        return {
-            id: series.id,
-            name: series.name,
-            type: 'actions',
-        }
-    }
-    return null
+// The experiments backend replaces these HogQL filter keys with the team's current evaluation pass rules. Other query
+// kinds cannot resolve them, so queries outside the experiment results drop them.
+const EVALUATION_PASS_MARKERS = new Set(['aiEvaluationGraded()', 'aiEvaluationPassed()'])
+
+function withoutEvaluationPassMarkers(properties: AnyPropertyFilter[]): AnyPropertyFilter[] {
+    return properties.filter((p) => !(p.type === PropertyFilterType.HogQL && EVALUATION_PASS_MARKERS.has(p.key)))
 }
 
 function seriesToFilter(series: AnyEntityNode | ExperimentMetricSource): UniversalFiltersGroupValue | null {
@@ -196,7 +173,7 @@ function seriesToFilter(series: AnyEntityNode | ExperimentMetricSource): Univers
             id: series.event ?? null,
             name: series.event as string,
             type: 'events',
-            properties: series.properties ?? [],
+            properties: withoutEvaluationPassMarkers(series.properties ?? []),
         }
     }
 
@@ -226,13 +203,14 @@ function seriesToFilter(series: AnyEntityNode | ExperimentMetricSource): Univers
  * surfaces don't enumerate) yields no filters.
  */
 export function getMetricSessionFilters(metric: ExperimentMetric): UniversalFiltersGroupValue[] {
-    const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] = isExperimentMeanMetric(metric)
-        ? [metric.source]
-        : isExperimentFunnelMetric(metric)
-          ? metric.series
-          : isExperimentRatioMetric(metric)
-            ? [metric.numerator, metric.denominator]
-            : []
+    const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] =
+        isExperimentMeanMetric(metric) || isExperimentQuantileMetric(metric)
+            ? [metric.source]
+            : isExperimentFunnelMetric(metric)
+              ? metric.series
+              : isExperimentRatioMetric(metric)
+                ? [metric.numerator, metric.denominator]
+                : []
     return sources
         .filter((source) => source.kind === NodeKind.EventsNode || source.kind === NodeKind.ActionsNode)
         .map((source) => seriesToFilter(source))
@@ -379,13 +357,14 @@ export function getSessionLinkabilityEventNames(experiment: Experiment): string[
     ].filter((metric): metric is ExperimentMetric => metric?.kind === NodeKind.ExperimentMetric)
 
     for (const metric of metrics) {
-        const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] = isExperimentMeanMetric(metric)
-            ? [metric.source]
-            : isExperimentFunnelMetric(metric)
-              ? metric.series
-              : isExperimentRatioMetric(metric)
-                ? [metric.numerator, metric.denominator]
-                : []
+        const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] =
+            isExperimentMeanMetric(metric) || isExperimentQuantileMetric(metric)
+                ? [metric.source]
+                : isExperimentFunnelMetric(metric)
+                  ? metric.series
+                  : isExperimentRatioMetric(metric)
+                    ? [metric.numerator, metric.denominator]
+                    : []
         for (const source of sources) {
             if (source.kind === NodeKind.EventsNode && source.event) {
                 eventNames.add(source.event)
@@ -394,83 +373,6 @@ export function getSessionLinkabilityEventNames(experiment: Experiment): string[
     }
 
     return Array.from(eventNames)
-}
-
-export function getViewRecordingFiltersLegacy(
-    metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
-    featureFlagKey: string,
-    variantKey: string
-): UniversalFiltersGroupValue[] {
-    const filters: UniversalFiltersGroupValue[] = []
-    if (metric.kind === NodeKind.ExperimentMetric) {
-        if (isExperimentMeanMetric(metric)) {
-            if (metric.source.kind === NodeKind.EventsNode) {
-                return [
-                    {
-                        id: metric.source.event ?? null,
-                        name: metric.source.event,
-                        type: 'events',
-                        properties: [
-                            {
-                                key: featureFlagVariantProperty(featureFlagKey),
-                                type: PropertyFilterType.Event,
-                                value: [variantKey],
-                                operator: PropertyOperator.Exact,
-                            },
-                        ],
-                    },
-                ]
-            }
-        }
-        return []
-    } else if (metric.kind === NodeKind.ExperimentTrendsQuery) {
-        if (metric.exposure_query) {
-            const exposureSeries = metric.exposure_query.series[0]
-            // Experiments don't support GroupNode yet - skip if it's a group
-            if (exposureSeries.kind !== NodeKind.GroupNode) {
-                const exposure_filter = seriesToFilterLegacy(exposureSeries, featureFlagKey, variantKey)
-                if (exposure_filter) {
-                    filters.push(exposure_filter)
-                }
-            }
-        } else {
-            filters.push({
-                id: EXPOSURE_DEFAULT_EVENT,
-                name: EXPOSURE_DEFAULT_EVENT,
-                type: 'events',
-                properties: [
-                    {
-                        key: EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
-                        type: PropertyFilterType.Event,
-                        value: [variantKey],
-                        operator: PropertyOperator.Exact,
-                    },
-                    {
-                        key: EXPOSURE_FEATURE_FLAG_PROPERTY,
-                        type: PropertyFilterType.Event,
-                        value: featureFlagKey,
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-            })
-        }
-        const countSeries = metric.count_query.series[0]
-        // Experiments don't support GroupNode yet - skip if it's a group
-        if (countSeries.kind !== NodeKind.GroupNode) {
-            const count_filter = seriesToFilterLegacy(countSeries, featureFlagKey, variantKey)
-            if (count_filter) {
-                filters.push(count_filter)
-            }
-        }
-        return filters
-    }
-    metric.funnels_query.series.forEach((series) => {
-        const filter = seriesToFilterLegacy(series, featureFlagKey, variantKey)
-        if (filter) {
-            filters.push(filter)
-        }
-    })
-    return filters
 }
 
 // Mirrors the backend eligibility rule (experiment_eligibility_error): multivariate with 2-20 variants
@@ -483,70 +385,6 @@ export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): 
         throw new Error(`Feature flag must have at most ${MAX_EXPERIMENT_VARIANTS} variants.`)
     }
     return true
-}
-
-/**
- * TODO: review. Probably deprecated
- */
-export function getDefaultTrendsMetric(): ExperimentTrendsQuery {
-    return {
-        kind: NodeKind.ExperimentTrendsQuery,
-        uuid: uuid(),
-        count_query: {
-            kind: NodeKind.TrendsQuery,
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    name: '$pageview',
-                    event: '$pageview',
-                },
-            ],
-            interval: 'day',
-            dateRange: {
-                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                explicitDate: true,
-            },
-            trendsFilter: {
-                display: ChartDisplayType.ActionsLineGraph,
-            },
-            filterTestAccounts: true,
-        },
-    }
-}
-
-export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
-    return {
-        kind: NodeKind.ExperimentFunnelsQuery,
-        uuid: uuid(),
-        funnels_query: {
-            kind: NodeKind.FunnelsQuery,
-            filterTestAccounts: true,
-            dateRange: {
-                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                explicitDate: true,
-            },
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    event: '$pageview',
-                    name: '$pageview',
-                },
-                {
-                    kind: NodeKind.EventsNode,
-                    event: '$pageview',
-                    name: '$pageview',
-                },
-            ],
-            funnelsFilter: {
-                funnelVizType: FunnelVizType.Steps,
-                funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
-                funnelWindowInterval: 14,
-                layout: FunnelLayout.horizontal,
-            },
-        },
-    }
 }
 
 /**
@@ -631,8 +469,28 @@ export function getDefaultRetentionMetric(): ExperimentMetric {
     }
 }
 
+export const DEFAULT_METRIC_QUANTILE = 0.9
+
+export function getDefaultQuantileMetric(): ExperimentMetric {
+    return {
+        kind: NodeKind.ExperimentMetric,
+        uuid: uuid(),
+        metric_type: ExperimentMetricType.QUANTILE,
+        // Percentile metrics usually measure durations such as load time, where lower is better
+        goal: ExperimentMetricGoal.Decrease,
+        quantile: DEFAULT_METRIC_QUANTILE,
+        source: {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            name: '$pageview',
+        },
+    }
+}
+
 export function getDefaultExperimentMetric(metricType: ExperimentMetricType): ExperimentMetric {
     switch (metricType) {
+        case ExperimentMetricType.QUANTILE:
+            return getDefaultQuantileMetric()
         case ExperimentMetricType.FUNNEL:
             return getDefaultFunnelMetric()
         case ExperimentMetricType.RATIO:
@@ -699,70 +557,75 @@ export function getExperimentMetricFromInsight(insight: InsightModel | null): Ex
     return undefined
 }
 
-/**
- * Used when setting a custom exposure criteria
- */
-export function exposureConfigToFilter(exposure_config: ExperimentExposureConfig): FilterType {
-    if (exposure_config.kind === NodeKind.ExperimentEventExposureConfig) {
-        return {
-            events: [
-                {
-                    id: exposure_config.event,
-                    name: exposure_config.event,
-                    kind: NodeKind.EventsNode,
-                    type: 'events',
-                    properties: exposure_config.properties,
-                } as EventsNode,
-            ],
-            actions: [],
-            data_warehouse: [],
-        }
+export function exposureConfigToSeries(exposureConfig: ExperimentExposureConfig): SeriesNode[] {
+    if (exposureConfig.kind === NodeKind.ExperimentEventExposureConfig) {
+        return [
+            {
+                kind: NodeKind.EventsNode,
+                event: exposureConfig.event,
+                name: exposureConfig.event,
+                properties: exposureConfig.properties,
+            },
+        ]
     }
-    if (exposure_config.kind === NodeKind.ActionsNode) {
-        return {
-            events: [],
-            actions: [
-                {
-                    id: exposure_config.id,
-                    name: exposure_config.name || '',
-                    kind: NodeKind.ActionsNode,
-                    type: 'actions' as const,
-                    properties: exposure_config.properties,
-                },
-            ],
-            data_warehouse: [],
-        }
+    if (exposureConfig.kind === NodeKind.ActionsNode) {
+        return [exposureConfig]
     }
-
-    return {}
+    return []
 }
 
 /**
- * Used when setting a custom exposure criteria
+ * Only an event or an action can mark exposure, so any other series gives no config.
  */
-export function filterToExposureConfig(entity: Record<string, any> | undefined): ExperimentExposureConfig | undefined {
-    if (!entity) {
-        return undefined
-    }
-
-    // Check type first since ActionFilter may set kind incorrectly
-    if (entity.type === 'actions') {
-        return {
-            kind: NodeKind.ActionsNode,
-            id: entity.id,
-            name: entity.name,
-            properties: entity.properties,
-        }
-    }
-
-    if (entity.type === 'events' || entity.kind === NodeKind.EventsNode) {
+export function seriesToExposureConfig(series: SeriesNode[]): ExperimentEventExposureConfig | ActionsNode | undefined {
+    const [node] = series
+    if (isEventsSeriesNode(node)) {
         return {
             kind: NodeKind.ExperimentEventExposureConfig,
-            event: entity.id,
-            properties: entity.properties,
+            // "All events" leaves `event` null, which the API rejects as an exposure event.
+            event: node.event as string,
+            properties: node.properties ?? [],
         }
     }
+    if (isActionsSeriesNode(node)) {
+        return {
+            kind: NodeKind.ActionsNode,
+            id: node.id,
+            name: node.name,
+            properties: node.properties,
+        }
+    }
+    return undefined
+}
 
+// The backend accepts quantile levels from 0.01 to 0.99.
+export const MIN_PERCENTILE = 1
+export const MAX_PERCENTILE = 99
+
+/** Why a percentile level can't be saved, or undefined when it can. */
+export function getPercentileError(percentile: number | undefined): string | undefined {
+    const hasAtMostOneDecimal =
+        percentile !== undefined && Math.abs(Math.round(percentile * 10) - percentile * 10) < 1e-6
+    if (
+        percentile === undefined ||
+        !Number.isFinite(percentile) ||
+        percentile < MIN_PERCENTILE ||
+        percentile > MAX_PERCENTILE ||
+        !hasAtMostOneDecimal
+    ) {
+        return `Enter a percentile from ${MIN_PERCENTILE} to ${MAX_PERCENTILE}, with up to one decimal place`
+    }
+    return undefined
+}
+
+/** The backend rejects an incomplete metric too, but this lets the save button say what is missing first. */
+export function getMetricIncompleteReason(metric: ExperimentMetric): string | undefined {
+    if (isExperimentQuantileMetric(metric)) {
+        if (!metric.source.math_property) {
+            return 'Select a numeric property for the percentile'
+        }
+        return getPercentileError(metric.quantile * 100)
+    }
     return undefined
 }
 
@@ -830,10 +693,8 @@ export const isLegacyExperimentQuery = (query: unknown): query is ExperimentTren
 }
 
 /**
- * The legacy query runner uses ExperimentTrendsQuery and ExperimentFunnelsQuery
- * to run experiments.
- *
- * We should remove these legacy metrics once we've migrated all experiments to the new query runner.
+ * True when an inline or shared metric of the experiment still uses the legacy ExperimentTrendsQuery or
+ * ExperimentFunnelsQuery shape. The app shows no results for such an experiment until it is migrated.
  */
 export const isLegacyExperiment = (experiment?: Experiment | null): boolean => {
     if (!experiment) {
@@ -864,7 +725,9 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
                         event: lastStep.event,
                         math: ExperimentMetricMathType.TotalCount,
                         ...(lastStep.properties &&
-                            lastStep.properties.length > 0 && { properties: lastStep.properties }),
+                            lastStep.properties.length > 0 && {
+                                properties: withoutEvaluationPassMarkers(lastStep.properties),
+                            }),
                     },
                 ]
             } else if (lastStep.kind === NodeKind.ActionsNode) {
@@ -891,6 +754,7 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
                 : retentionMetric.start_event
         )
         .when(isExperimentMeanMetric, (meanMetric) => meanMetric.source)
+        .when(isExperimentQuantileMetric, (quantileMetric) => quantileMetric.source)
         .otherwise(() => null)
 
     if (!source) {
@@ -904,7 +768,10 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
                 name: eventsNode.event || undefined,
                 event: eventsNode.event || undefined,
                 math: ExperimentMetricMathType.TotalCount,
-                ...(eventsNode.properties && eventsNode.properties.length > 0 && { properties: eventsNode.properties }),
+                ...(eventsNode.properties &&
+                    eventsNode.properties.length > 0 && {
+                        properties: withoutEvaluationPassMarkers(eventsNode.properties),
+                    }),
             },
         ])
         .with({ kind: NodeKind.ActionsNode }, (actionsNode) => [
@@ -931,6 +798,8 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
                     dataWarehouseNode.properties.length > 0 && { properties: dataWarehouseNode.properties }),
             },
         ])
+        // PostHog holds no rows of a warehouse-native source, so it has no recent activity to count.
+        .with({ kind: NodeKind.ExperimentWarehouseNativeNode }, () => [])
         .exhaustive()
 
     return series

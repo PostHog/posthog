@@ -7,14 +7,12 @@ import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import { join } from "node:path";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
 import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent/gateway-models";
-import {
-  getGatewayUsageUrl,
-  getLlmGatewayUrl,
-} from "@posthog/agent/posthog-api";
+import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import { AuthService } from "@posthog/core/auth/auth";
 import { AUTH_SERVICE } from "@posthog/core/auth/auth.module";
 import {
   AUTH_CONNECTIVITY,
+  AUTH_FETCH,
   AUTH_FETCH_EXTRA_ORIGINS,
   AUTH_OAUTH_FLOW_SERVICE,
   AUTH_PREFERENCE_STORE,
@@ -264,6 +262,7 @@ import { ElectronFileIcon } from "../platform-adapters/electron-file-icon";
 import { ElectronImageProcessor } from "../platform-adapters/electron-image-processor";
 import { ElectronMainWindow } from "../platform-adapters/electron-main-window";
 import { MissionControlService } from "../platform-adapters/electron-mission-control";
+import { electronNetFetch } from "../platform-adapters/electron-net-fetch";
 import { ElectronNotifier } from "../platform-adapters/electron-notifier";
 import { ElectronPowerManager } from "../platform-adapters/electron-power-manager";
 import { ElectronScreenCapture } from "../platform-adapters/electron-screen-capture";
@@ -440,6 +439,7 @@ container
       (value): value is string => Boolean(value),
     ),
   );
+container.bind(AUTH_FETCH).toConstantValue(electronNetFetch);
 container.bind(MAIN_AUTH_SERVICE).to(AuthService);
 container.bind(AUTH_SERVICE).toService(MAIN_AUTH_SERVICE);
 container.load(feedbackCoreModule);
@@ -577,7 +577,6 @@ container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
     messagesUrl: (apiHost: string) =>
       `${getLlmGatewayUrl(apiHost)}/v1/messages`,
     usageUrl: desktopUsageUrl,
-    legacyUsageUrl: (apiHost: string) => getGatewayUsageUrl(apiHost),
     defaultModel: DEFAULT_GATEWAY_MODEL,
   };
 });

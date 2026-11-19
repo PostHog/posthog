@@ -14,6 +14,17 @@ import botocore.exceptions
 
 from products.data_warehouse.backend.s3_proxy import boto_proxy_config_kwargs
 
+# A full-object checksum we write on PutObject (botocore's default since it added flexible
+# checksums) comes back on a ranged GetObject response too, but only covers the whole object, not
+# the range fsspec actually read. botocore's default response validation checks the range bytes
+# against it anyway and raises FlexibleChecksumError on every parquet footer read, which is always
+# ranged. "when_required" matches the request side, so GetObject (which never requires it) stops
+# computing and checking a checksum it can't validate correctly for a partial read.
+_CHECKSUM_CONFIG_KWARGS: dict[str, object] = {
+    "request_checksum_calculation": "when_required",
+    "response_checksum_validation": "when_required",
+}
+
 
 def get_s3_client(*, endpoint_url: Optional[str] = None, skip_instance_cache: bool = False):
     # Defaults for localhost dev and test suites
@@ -22,6 +33,7 @@ def get_s3_client(*, endpoint_url: Optional[str] = None, skip_instance_cache: bo
             key=settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
             secret=settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
             endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            config_kwargs=_CHECKSUM_CONFIG_KWARGS,
             # skip_instance_cache ensures a fresh S3FileSystem instance is created each time,
             # avoiding "Event loop is closed" errors when the event loop changes between async
             # operations (e.g., between test modules with module-scoped event loops).
@@ -40,7 +52,7 @@ def get_s3_client(*, endpoint_url: Optional[str] = None, skip_instance_cache: bo
     # (and the open sockets/file handles it holds) isn't worth the connection-reuse it'd otherwise buy.
     extra = {"endpoint_url": endpoint_url} if endpoint_url is not None else {}
     return s3fs.S3FileSystem(
-        config_kwargs=boto_proxy_config_kwargs(endpoint_url=endpoint_url),
+        config_kwargs={**_CHECKSUM_CONFIG_KWARGS, **boto_proxy_config_kwargs(endpoint_url=endpoint_url)},
         skip_instance_cache=skip_instance_cache,
         **extra,
     )
@@ -75,7 +87,7 @@ async def _shared_async_s3_client(endpoint_url: Optional[str]) -> s3fs.S3FileSys
         s3 = s3fs.S3FileSystem(
             asynchronous=True,
             skip_instance_cache=True,
-            config_kwargs=boto_proxy_config_kwargs(endpoint_url=endpoint_url),
+            config_kwargs={**_CHECKSUM_CONFIG_KWARGS, **boto_proxy_config_kwargs(endpoint_url=endpoint_url)},
             **extra,
         )
         await s3.set_session()
@@ -99,6 +111,7 @@ async def aget_s3_client(*, fresh_instance: bool = False, endpoint_url: Optional
             key=settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
             secret=settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
             endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            config_kwargs=_CHECKSUM_CONFIG_KWARGS,
             skip_instance_cache=True,
             asynchronous=True,
         )
@@ -108,7 +121,7 @@ async def aget_s3_client(*, fresh_instance: bool = False, endpoint_url: Optional
         s3 = s3fs.S3FileSystem(
             asynchronous=True,
             skip_instance_cache=True,
-            config_kwargs=boto_proxy_config_kwargs(endpoint_url=endpoint_url),
+            config_kwargs={**_CHECKSUM_CONFIG_KWARGS, **boto_proxy_config_kwargs(endpoint_url=endpoint_url)},
             **extra,
         )
         await s3.set_session()
@@ -157,7 +170,14 @@ def get_size_of_folder(path: str) -> float:
 # SeaweedFS's credential bootstrap loop, see docker-compose.base.yml) by message here, same ambiguity
 # `_is_retryable_purge_error` documents for the sibling HeadObject case. Retry the bounded budget below
 # to let that race self-heal; a persistent misconfiguration still raises once it's exhausted.
+#
+# The same bodyless response reports a transient server-side blip (the store answering before it's
+# fully up) as a bare 500 or 503 instead of 403 — the identical "InternalError"/"ServiceUnavailable"
+# condition `is_transient_object_store_error` already retries elsewhere for calls that go through
+# s3fs/delta-rs. A direct `head_bucket` call here bypasses that layer, so it needs the same bounded
+# retry to avoid raising on what is usually a boot race rather than a real outage.
 _HEAD_BUCKET_MAX_ATTEMPTS = 4
+_HEAD_BUCKET_RETRYABLE_CODES = (403, 500, 503)
 
 # SeaweedFS (the S3-compatible backend behind local/self-hosted setups) has no per-account ownership
 # check like AWS's, so it reports the loser of a concurrent create_bucket race as a bare
@@ -220,7 +240,7 @@ def ensure_bucket_exists(s3_url: str, s3_key: str, s3_secret: str, s3_endpoint: 
                         raise
                 return
 
-            if int(error_code) != 403:
+            if int(error_code) not in _HEAD_BUCKET_RETRYABLE_CODES:
                 raise
 
             attempt += 1

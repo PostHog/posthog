@@ -10,6 +10,7 @@ EVALUATION_KEY = "slot:2026-09-16T10:00:00+00:00|window:2026-09-16T09:59:00+00:0
 def _row(grouping_key: str) -> PlatformAlertEventRow:
     return PlatformAlertEventRow(
         team_id=2,
+        source_kind="logs",
         configuration_id=CONFIGURATION_ID,
         alert_id=uuid4(),
         grouping_key=grouping_key,

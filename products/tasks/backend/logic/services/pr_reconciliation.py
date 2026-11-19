@@ -8,6 +8,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import (
     GitHubIntegrationBase,
     GitHubIntegrationError,
@@ -19,7 +20,14 @@ from posthog.models.user_integration import UserGitHubIntegration
 
 from products.signals.backend.facade.github import reconcile_pull_request_state
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.pr_urls import read_head_branches, read_pr_urls
+from products.tasks.backend.pr_urls import (
+    canonical_github_pull_request_url,
+    normalize_verified_pull_request_urls,
+    read_head_branches,
+    read_pr_urls,
+)
+from products.tasks.backend.task_done import record_pull_request_outcome
+from products.tasks.backend.task_run_sync import sync_task_pr_urls_on_commit
 from products.tasks.backend.webhooks import _run_repository_filter, _task_run_scope_team_ids, find_task_run
 
 logger = structlog.get_logger(__name__)
@@ -66,7 +74,8 @@ class PullRequestReconciler:
         )
 
         state = run.state if isinstance(run.state, dict) else {}
-        verified = state.get("verified_pr_urls") or []
+        raw_verified = state.get("verified_pr_urls")
+        verified = raw_verified if isinstance(raw_verified, list) else []
         metadata_changed = run.branch != previous_branch or read_head_branches(run.output) != read_head_branches(
             previous_output
         )
@@ -95,17 +104,26 @@ class PullRequestReconciler:
 
     def _eligible(self, run: TaskRun) -> bool:
         state = run.state if isinstance(run.state, dict) else {}
+        raw_verified = state.get("verified_pr_urls")
+        verified = raw_verified if isinstance(raw_verified, list) else []
+        canonical_url = canonical_github_pull_request_url(self.pr_url)
         return (
             not run.task.deleted
             and run.task.origin_product != Task.OriginProduct.REVIEW_HOG
             and self.pr_url in read_pr_urls(run.output)
-            and self.pr_url not in (state.get("verified_pr_urls") or [])
+            and self.pr_url not in verified
+            and (canonical_url is None or canonical_url not in verified)
         )
 
     @staticmethod
     def _github(run: TaskRun) -> GitHubIntegrationBase | None:
-        integration = run.task.github_integration
-        if integration is not None and integration.team_id == run.team_id and integration.kind == "github":
+        integration_id = run.task.github_integration_id
+        integration = (
+            IntegrationManager.github.oauth.get_many(run.team_id, [integration_id]).get(integration_id)
+            if integration_id is not None
+            else None
+        )
+        if integration is not None:
             return GitHubIntegration(integration, source="task_pr_reconciliation", priority=Priority.BATCH)
         personal = run.task.github_user_integration
         if (
@@ -131,7 +149,7 @@ class PullRequestReconciler:
         runs = TaskRun.objects.using("default").filter(team_id=self.team_id, id=self.run_id)
         run = (
             runs.filter(_run_repository_filter(parsed.repository))
-            .select_related("task__github_integration", "task__github_user_integration", "team")
+            .select_related("task__github_user_integration", "team")
             .first()
         )
         if run is None or not self._eligible(run):
@@ -191,7 +209,9 @@ class PullRequestReconciler:
             verified = state.get("verified_pr_urls")
             locked.state = {
                 **state,
-                "verified_pr_urls": [*(verified if isinstance(verified, list) else []), self.pr_url],
+                "verified_pr_urls": normalize_verified_pull_request_urls(
+                    [*(verified if isinstance(verified, list) else []), self.pr_url]
+                ),
             }
             output = locked.output if isinstance(locked.output, dict) else {}
             if output.get("pr_url") == self.pr_url:
@@ -204,6 +224,15 @@ class PullRequestReconciler:
                     locked.state["reconciled_pr_merge_url"] = self.pr_url
             # Output receivers must retry report linking after verification, even if the URL is unchanged.
             locked.save(update_fields=["state", "output", "updated_at"])
+            sync_task_pr_urls_on_commit(locked.task_id)
+            task_id, pr_url = locked.task_id, self.pr_url
+            outcome: Literal["merged", "closed", "open"] = (
+                snapshot.state if snapshot.state in ("merged", "closed") else "open"
+            )
+            transaction.on_commit(
+                lambda: record_pull_request_outcome(task_id, pr_url, state=outcome),
+                robust=True,
+            )
             reconcile_pull_request_state(
                 team_id=self.team_id,
                 repository=parsed.repository,

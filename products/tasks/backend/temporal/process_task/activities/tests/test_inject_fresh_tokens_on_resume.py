@@ -92,7 +92,7 @@ class TestInjectFreshTokensOnResumeActivity:
             patch(
                 "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_readonly_github_token",
                 return_value="ghs_readonly",
-            ),
+            ) as resolve_readonly,
             patch(
                 "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token"
             ) as resolve_full,
@@ -110,6 +110,7 @@ class TestInjectFreshTokensOnResumeActivity:
                 ),
             )
 
+        resolve_readonly.assert_called_once_with(context.team_id, repositories=context.repositories)
         resolve_full.assert_not_called()
         # Both clones carry the token in their own `origin`, so both remotes are rewritten.
         rewritten = [c.args[0] for c in sandbox.execute.call_args_list if "x-access-token:ghs_readonly" in c.args[0]]
@@ -194,9 +195,12 @@ class TestInjectFreshTokensOnResumeActivity:
         assert sandbox.execute.call_count == 3
         assert sandbox.write_file.call_count == 2
 
-    def test_prepare_sandbox_injects_user_github_token_without_repository(self, activity_environment, team, user):
+    def test_prepare_sandbox_injects_user_github_token_without_repository(
+        self, activity_environment, team, user, settings, sandbox_ai_gateway
+    ):
         from products.tasks.backend.models import Task
 
+        settings.SANDBOX_AI_GATEWAY_PRODUCTS = "slack_app"
         task = Task.objects.create(
             team=team,
             created_by=user,
@@ -220,6 +224,7 @@ class TestInjectFreshTokensOnResumeActivity:
             github_integration_id=None,
             github_user_integration_id="user-integration-id",
             repository=None,
+            origin_product=task.origin_product,
             distinct_id=user.distinct_id or "test-distinct-id",
             task_created_by_id=user.id,
             state=task_run.state,
@@ -249,10 +254,11 @@ class TestInjectFreshTokensOnResumeActivity:
         assert prepared.environment_variables["POSTHOG_PERSONAL_API_KEY"] == "oauth_new"
 
     def test_prepare_sandbox_injects_team_github_token_without_repository(
-        self, activity_environment, team, user, github_integration
+        self, activity_environment, team, user, github_integration, settings, sandbox_ai_gateway
     ):
         from products.tasks.backend.models import Task
 
+        settings.SANDBOX_AI_GATEWAY_PRODUCTS = "slack_app"
         task = Task.objects.create(
             team=team,
             created_by=user,
@@ -277,6 +283,7 @@ class TestInjectFreshTokensOnResumeActivity:
             github_integration_id=github_integration.id,
             github_user_integration_id=None,
             repository=None,
+            origin_product=task.origin_product,
             distinct_id=user.distinct_id or "test-distinct-id",
             task_created_by_id=user.id,
             state=task_run.state,
@@ -306,7 +313,7 @@ class TestInjectFreshTokensOnResumeActivity:
         assert prepared.environment_variables["POSTHOG_PERSONAL_API_KEY"] == "oauth_new"
 
     def test_build_environment_variables_ignores_other_users_private_sandbox_environment(
-        self, task_context, test_task, test_task_run
+        self, task_context, test_task, test_task_run, sandbox_ai_gateway
     ):
         other_user = User.objects.create_user(
             email="victim@example.com",

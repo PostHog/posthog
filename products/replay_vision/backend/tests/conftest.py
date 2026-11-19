@@ -9,6 +9,7 @@ from temporalio.testing import ActivityEnvironment
 from posthog.redis import get_async_client
 
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import REDIS_INDEX_KEY, REDIS_KEY_PREFIX
+from products.replay_vision.backend.tests.helpers import unsynced_allowance
 
 
 async def _drop_gemini_tracking_keys(client) -> None:
@@ -34,9 +35,16 @@ def activity_environment():
 
 
 @pytest.fixture(autouse=True)
+def _unsynced_orgs_get_the_free_plan():
+    """Test orgs carry no billing sync, so they get the free plan unless a test sets their usage or patches this."""
+    with unsynced_allowance():
+        yield
+
+
+@pytest.fixture(autouse=True)
 def _no_prompt_question_model_call():
     """Every scanner save condenses its prompt with a model call. Tests fall back to the prompt's first line
     unless they patch the client themselves."""
-    with patch("products.replay_vision.backend.prompt_questions.genai.Client") as client:
-        client.return_value.models.generate_content.side_effect = RuntimeError("no model calls in tests")
+    with patch("products.replay_vision.backend.prompt_questions.gemini_text_models") as client:
+        client.return_value.generate_content.side_effect = RuntimeError("no model calls in tests")
         yield client

@@ -11,6 +11,13 @@ A schema is in scope for scheduling when all of these hold:
 its state row and gets a ``skip_cdc_halted`` decision at fire time, so the
 shadow report can show what Temporal's SKIP overlap policy hides.
 
+Overlap is decided from the queue's own job state, never from
+``ExternalDataJob`` rows: a run that dies without a status update can leave its
+row in RUNNING, and that row must not block the schedule. Each scheduled kind
+declares its queue lane and its ``OverlapPolicy``; ``sync.extract`` uses
+``SKIP``, as the Temporal schedules do. A ``skip_overlap`` decision means the
+policy refused the window because of the schema's live queue jobs.
+
 Due times are epoch-aligned integers, matching Temporal's
 ``ScheduleIntervalSpec`` semantics: a schedule fires at ``n * interval +
 offset`` (UTC epoch), where the offset ports ``get_sync_schedule`` exactly,
@@ -22,17 +29,28 @@ from __future__ import annotations
 
 import random
 from datetime import UTC, datetime, time, timedelta
+from typing import Any
+
+import psycopg
 
 from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async_pool
 
-from products.warehouse_sources.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources_queue.backend.sdk import DecisionRecord, DueSchedule
+from products.warehouse_sources.backend.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources_queue.backend.sdk import (
+    DecisionRecord,
+    DueSchedule,
+    GroupJobState,
+    JobsTable,
+    OverlapPolicy,
+    overlap_allows,
+)
 
 SCHEDULER_LANE = "scheduler"
 TICK_SLOT_KEY = "tick-slot"
 REFRESH_SLOT_KEY = "refresh-slot"
 SYNC_EXTRACT_KIND = "sync.extract"
+SYNC_EXTRACT_LANE = "extract"
 
 DECISION_WOULD_FIRE = "would_fire"
 DECISION_SKIP_OVERLAP = "skip_overlap"
@@ -44,6 +62,24 @@ SKIP_REASONS = {
     DECISION_SKIP_CDC_HALTED: "cdc_halted",
     DECISION_SKIP_OUT_OF_SCOPE: "out_of_scope",
 }
+
+
+@frozen
+class ScheduledKind:
+    """How the scheduler enqueues one kind: its queue lane and overlap policy."""
+
+    lane: str
+    overlap_policy: OverlapPolicy
+
+
+SCHEDULED_KINDS: dict[str, ScheduledKind] = {
+    SYNC_EXTRACT_KIND: ScheduledKind(lane=SYNC_EXTRACT_LANE, overlap_policy=OverlapPolicy.SKIP),
+}
+
+
+def queue_group_key(team_id: int, schema_id: str) -> str:
+    """The queue group of a schema: one run of a schema executes at a time."""
+    return f"{team_id}:{schema_id}"
 
 
 @frozen
@@ -162,16 +198,28 @@ def _fetch_due_scope(schema_ids: list[str]) -> dict[str, dict | None]:
     return {str(schema_id): config for schema_id, config in rows}
 
 
-def _fetch_running_jobs(schema_ids: list[str]) -> list[tuple[str, datetime]]:
-    rows = ExternalDataJob.objects.filter(schema_id__in=schema_ids, status=ExternalDataJob.Status.RUNNING).values_list(
-        "schema_id", "created_at"
-    )
-    return [(str(schema_id), created_at) for schema_id, created_at in rows]
+async def _fetch_group_job_states(
+    conn: psycopg.AsyncConnection[Any], due: list[DueSchedule]
+) -> dict[DueSchedule, GroupJobState]:
+    """Live queue-job state per due row. One query per kind."""
+    states: dict[DueSchedule, GroupJobState] = {}
+    for kind in sorted({row.kind for row in due}):
+        rows = [row for row in due if row.kind == kind]
+        by_group = await JobsTable.get_group_job_states(
+            conn,
+            kind=kind,
+            lane=SCHEDULED_KINDS[kind].lane,
+            group_keys=[queue_group_key(row.team_id, row.schedule_key) for row in rows],
+        )
+        for row in rows:
+            states[row] = by_group[queue_group_key(row.team_id, row.schedule_key)]
+    return states
 
 
-async def evaluate_due(due: list[DueSchedule], now_epoch: int) -> EvaluationResult:
+async def evaluate_due(conn: psycopg.AsyncConnection[Any], due: list[DueSchedule], now_epoch: int) -> EvaluationResult:
     """Decide, per due schema, what a real scheduler would have done.
 
+    ``conn`` is a connection to the queue database, where the job tables live.
     Records exactly one decision per schema, for the latest window only: a tick
     late by several intervals counts the earlier windows on the missed-windows
     metric rather than back-filling decisions Temporal never took either (its
@@ -182,7 +230,7 @@ async def evaluate_due(due: list[DueSchedule], now_epoch: int) -> EvaluationResu
 
     due_ids = [row.schedule_key for row in due]
     scope_config = await database_sync_to_async_pool(_fetch_due_scope)(due_ids)
-    running_jobs = await database_sync_to_async_pool(_fetch_running_jobs)(due_ids)
+    group_states = await _fetch_group_job_states(conn, due)
 
     records: list[DecisionRecord] = []
     missed_windows = 0
@@ -192,17 +240,11 @@ async def evaluate_due(due: list[DueSchedule], now_epoch: int) -> EvaluationResu
         stored_due_epoch = int(row.next_due_at.timestamp())
         missed_windows += max(0, (fire - stored_due_epoch) // cadence.interval_seconds)
 
-        # Only work that existed before this boundary can overlap it. The
-        # Temporal run fired for this boundary may already be RUNNING by the
-        # time the shadow tick evaluates, but it is the run being compared.
-        had_running_job_at_boundary = any(
-            schema_id == row.schedule_key and created_at < datetime.fromtimestamp(fire, tz=UTC)
-            for schema_id, created_at in running_jobs
-        )
+        overlap_allowed = overlap_allows(SCHEDULED_KINDS[row.kind].overlap_policy, group_states[row])
 
         if row.schedule_key not in scope_config:
             decision = DECISION_SKIP_OUT_OF_SCOPE
-        elif had_running_job_at_boundary:
+        elif not overlap_allowed:
             decision = DECISION_SKIP_OVERLAP
         elif cdc_halted_from_config(scope_config[row.schedule_key]):
             decision = DECISION_SKIP_CDC_HALTED

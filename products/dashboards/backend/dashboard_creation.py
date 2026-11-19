@@ -12,75 +12,24 @@ from typing import Any
 
 from django.db import transaction
 
-from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.dashboards.backend.facade.contracts import (
+    CreatedDashboard,
+    DashboardCreationDenied,
+    DashboardTileSnapshot,
+    NewDashboard,
+    NewInsightTile,
+    TileLayout,
+)
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.facade.api import get_or_create_saved_insight
 
-GRID_COLUMNS = 12
 MAX_DASHBOARD_NAME_LENGTH = 400
-MAX_TEXT_TILE_LENGTH = 4000
-
-
-class DashboardCreationDenied(Exception):
-    """The user cannot create a dashboard or its insights in this project. The message is safe to show."""
-
-
-@frozen
-class TileLayout:
-    """A tile box on the 12-column desktop grid."""
-
-    x: int
-    y: int
-    w: int
-    h: int
-
-    def __post_init__(self) -> None:
-        if self.x < 0 or self.y < 0 or self.w < 1 or self.h < 1 or self.x + self.w > GRID_COLUMNS:
-            raise ValueError(f"The tile box {self} does not fit the {GRID_COLUMNS}-column grid.")
-
-
-@frozen
-class NewInsightTile:
-    name: str
-    description: str
-    query: dict[str, Any]
-    layout: TileLayout
-
-
-@frozen
-class NewTextTile:
-    body: str
-    layout: TileLayout
-
-    def __post_init__(self) -> None:
-        if len(self.body) > MAX_TEXT_TILE_LENGTH:
-            raise ValueError(f"A text tile can hold at most {MAX_TEXT_TILE_LENGTH} characters.")
-
-
-@frozen
-class NewDashboard:
-    name: str
-    description: str
-    tiles: tuple[NewInsightTile | NewTextTile, ...]
-    # Seeds the insight short ids. A second creation with the same key collides on them and rolls back,
-    # so a retried job cannot leave two copies of the same dashboard.
-    idempotency_key: str
-    date_from: str | None = None
-
-
-@frozen
-class CreatedDashboard:
-    id: int
-    insight_count: int
-    text_tile_count: int
-    # In the order of `NewDashboard.tiles`.
-    tile_ids: tuple[int, ...] = ()
 
 
 def _insight_short_id(idempotency_key: str, index: int) -> str:
@@ -117,7 +66,11 @@ def create_dashboard_with_tiles(*, team_id: int, user_id: int, dashboard: NewDas
             name=dashboard.name[:MAX_DASHBOARD_NAME_LENGTH],
             description=dashboard.description,
             created_by=user,
-            filters={"date_from": dashboard.date_from} if dashboard.date_from else {},
+            filters={
+                **(dashboard.filters or {}),
+                **({"date_from": dashboard.date_from} if dashboard.date_from else {}),
+            },
+            creation_mode=Dashboard.CreationMode.UNLISTED if dashboard.unlisted else Dashboard.CreationMode.DEFAULT,
         )
         for index, tile in enumerate(dashboard.tiles):
             if isinstance(tile, NewInsightTile):
@@ -129,11 +82,16 @@ def create_dashboard_with_tiles(*, team_id: int, user_id: int, dashboard: NewDas
                     description=tile.description,
                     query=tile.query,
                     revive_deleted=False,
+                    saved=not dashboard.unlisted,
                 )
                 if not was_created:
                     raise ValueError("A dashboard was already created with this idempotency key.")
                 created_tile = DashboardTile.objects.create(
-                    dashboard=created, team_id=team_id, insight_id=insight_id, layouts=_layouts(tile.layout)
+                    dashboard=created,
+                    team_id=team_id,
+                    insight_id=insight_id,
+                    layouts=_layouts(tile.layout),
+                    show_description=tile.show_description,
                 )
                 insight_count += 1
             else:
@@ -172,3 +130,60 @@ def move_dashboard_tiles(*, team_id: int, user_id: int, dashboard_id: int, layou
             tile.save(update_fields=["layouts"])
             moved += 1
     return moved
+
+
+def _snapshot_layout(layouts: object) -> TileLayout | None:
+    box = layouts.get("sm") if isinstance(layouts, dict) else None
+    if not isinstance(box, dict):
+        return None
+    try:
+        return TileLayout(x=int(box["x"]), y=int(box["y"]), w=int(box["w"]), h=int(box["h"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def read_dashboard_tiles(*, team_id: int, dashboard_id: int) -> tuple[DashboardTileSnapshot, ...]:
+    """The live insight and text tiles of a dashboard, top to bottom. Other tile kinds are left out."""
+    tiles = (
+        DashboardTile.objects.filter(team_id=team_id, dashboard_id=dashboard_id)
+        .select_related("insight", "text")
+        .order_by("id")
+    )
+    snapshots: list[DashboardTileSnapshot] = []
+    for tile in tiles:
+        layout = _snapshot_layout(tile.layouts)
+        if tile.insight is not None and not tile.insight.deleted:
+            snapshots.append(
+                DashboardTileSnapshot(
+                    tile_id=tile.id,
+                    layout=layout,
+                    name=tile.insight.name or tile.insight.derived_name or "",
+                    description=tile.insight.description or "",
+                    query=tile.insight.query,
+                    show_description=tile.show_description,
+                )
+            )
+        elif tile.text is not None:
+            snapshots.append(DashboardTileSnapshot(tile_id=tile.id, layout=layout, body=tile.text.body or ""))
+    return tuple(
+        sorted(snapshots, key=lambda snapshot: (snapshot.layout.y, snapshot.layout.x) if snapshot.layout else (0, 0))
+    )
+
+
+def read_dashboard_metric_variables(*, team_id: int, dashboard_id: int) -> list[dict[str, Any]]:
+    """The metrics dashboard variables of a dashboard, as MetricsDashboardVariable JSON."""
+    filters = (
+        Dashboard.objects.filter(team_id=team_id, id=dashboard_id, deleted=False)
+        .values_list("filters", flat=True)
+        .first()
+    )
+    variables = filters.get("metricVariables") if isinstance(filters, dict) else None
+    return [variable for variable in variables if isinstance(variable, dict)] if isinstance(variables, list) else []
+
+
+def delete_unlisted_dashboard(*, team_id: int, dashboard_id: int) -> bool:
+    """Soft-delete an unlisted dashboard that a product created. Returns False when there is no such dashboard."""
+    deleted = Dashboard.objects.filter(
+        team_id=team_id, id=dashboard_id, creation_mode=Dashboard.CreationMode.UNLISTED, deleted=False
+    ).update(deleted=True)
+    return deleted > 0

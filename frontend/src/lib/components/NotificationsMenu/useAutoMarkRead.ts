@@ -9,11 +9,13 @@ export const AUTO_MARK_READ_DWELL_MS = 3000
 // barely peeking past the scroll edges don't get marked read.
 const VISIBILITY_THRESHOLD = 0.5
 
+const NOT_FIRED = Symbol('not-fired')
+
 /**
  * Marks a notification (or collapsed group) read once it has stayed continuously
  * visible in the viewport for `dwellMs`. Scrolling it out of view — or the browser
  * tab becoming hidden — resets the timer, so the dwell must be uninterrupted.
- * `onDwell` fires at most once per mounted item.
+ * `onDwell` fires at most once per mounted item, or once per `resetKey` value when one is passed.
  *
  * `active` gates the whole thing: pass the item's unread state so an already-read
  * item is never observed, and pass false to disarm (e.g. an expanded group whose
@@ -24,7 +26,8 @@ const VISIBILITY_THRESHOLD = 0.5
 export function useAutoMarkRead(
     active: boolean,
     onDwell: () => void,
-    dwellMs: number = AUTO_MARK_READ_DWELL_MS
+    dwellMs: number = AUTO_MARK_READ_DWELL_MS,
+    resetKey?: unknown
 ): (node?: Element | null) => void {
     const { ref, inView } = useInView({ threshold: VISIBILITY_THRESHOLD, skip: !active })
     const { isVisible: pageVisible } = usePageVisibility()
@@ -36,18 +39,18 @@ export function useAutoMarkRead(
         onDwellRef.current = onDwell
     })
 
-    const firedRef = useRef(false)
+    const firedForRef = useRef<unknown>(NOT_FIRED)
 
     useEffect(() => {
-        if (!active || firedRef.current || !inView || !pageVisible) {
+        if (!active || firedForRef.current === resetKey || !inView || !pageVisible) {
             return
         }
         const timer = setTimeout(() => {
-            firedRef.current = true
+            firedForRef.current = resetKey
             onDwellRef.current()
         }, dwellMs)
         return () => clearTimeout(timer)
-    }, [active, inView, pageVisible, dwellMs])
+    }, [active, inView, pageVisible, dwellMs, resetKey])
 
     return ref
 }

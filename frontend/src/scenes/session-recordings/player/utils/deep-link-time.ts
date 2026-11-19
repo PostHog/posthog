@@ -54,12 +54,14 @@ function toFiniteNumber(value: string | number): number | null {
 
 // Zone-less and partial dates parse in the viewer's local zone, so the same link would land on
 // different frames for different viewers. Require a full ISO datetime with an explicit zone.
-const ISO_DATETIME_WITH_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/
+// Error tracking links carry Python-formatted timestamps with a space instead of `T`.
+const ISO_DATETIME_WITH_ZONE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/
 
 function parseDate(value: string | number): number | null {
     if (typeof value !== 'string' || !ISO_DATETIME_WITH_ZONE.test(value)) {
         return null
     }
-    const parsed = dayjs(value)
+    // Some browsers reject the space separator in `Date` parsing, so normalize it to `T`.
+    const parsed = dayjs(value.replace(' ', 'T'))
     return parsed.isValid() ? parsed.valueOf() : null
 }

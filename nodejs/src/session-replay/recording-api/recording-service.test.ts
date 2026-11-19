@@ -1,13 +1,16 @@
-import { NoSuchKey, S3Client } from '@aws-sdk/client-s3'
+import { NoSuchKey, S3Client, S3ServiceException } from '@aws-sdk/client-s3'
 import { ClickHouseClient } from '@clickhouse/client'
+import sodium from 'libsodium-wrappers'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import snappy from 'snappy'
 
 import { PostgresRouter } from '~/common/utils/db/postgres'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
+import * as envUtils from '~/common/utils/env-utils'
+import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
+import { SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
 import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingService } from './recording-service'
@@ -20,7 +23,6 @@ describe('RecordingService', () => {
     let mockKeyStore: jest.Mocked<KeyStore>
     let mockDecryptor: jest.Mocked<RecordingDecryptor>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
-    let mockFeatureStore: jest.Mocked<SessionFeatureStore>
     let mockPostgres: jest.Mocked<PostgresRouter>
     let mockClickhouse: jest.Mocked<ClickHouseClient>
 
@@ -48,11 +50,6 @@ describe('RecordingService', () => {
             storeSessionBlocks: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionMetadataStore>
 
-        mockFeatureStore = {
-            storeSessionFeatures: jest.fn().mockResolvedValue(undefined),
-            storeDeletionMarkers: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<SessionFeatureStore>
-
         mockPostgres = {
             query: jest.fn().mockResolvedValue({ rows: [] }),
         } as unknown as jest.Mocked<PostgresRouter>
@@ -68,9 +65,9 @@ describe('RecordingService', () => {
             mockKeyStore,
             mockDecryptor,
             mockMetadataStore,
-            mockFeatureStore,
             mockPostgres,
-            { client: mockClickhouse, credential: new ClickHouseCredential('recording_api', 'static', '') }
+            { client: mockClickhouse, credential: new ClickHouseCredential('recording_api', 'static', '') },
+            new SodiumRecordingEncryptor(mockKeyStore)
         )
     })
 
@@ -183,12 +180,30 @@ describe('RecordingService', () => {
             expect(result).toEqual({ ok: false, error: 'deleted', deletedAt: undefined, deletedBy: '' })
         })
 
-        it('returns not_found when S3 throws NoSuchKey', async () => {
-            mockS3Send.mockRejectedValue(new NoSuchKey({ message: 'The specified key does not exist.', $metadata: {} }))
+        const s3Error = (name: string) =>
+            new S3ServiceException({ name, $fault: 'client', message: name, $metadata: { httpStatusCode: 403 } })
 
-            const result = await service.getBlock(validParams)
+        it.each([
+            ['NoSuchKey on any route', () => new NoSuchKey({ message: 'missing', $metadata: {} }), false],
+            // The public role has no s3:ListBucket, so S3 answers a missing key with AccessDenied.
+            ['AccessDenied on the public block route', () => s3Error('AccessDenied'), true],
+        ])('returns not_found for %s', async (_, makeError, accessDeniedMeansMissing) => {
+            mockS3Send.mockRejectedValue(makeError())
+
+            const result = await service.getBlock({ ...validParams, accessDeniedMeansMissing })
 
             expect(result).toEqual({ ok: false, error: 'not_found' })
+        })
+
+        it.each([
+            // On the internal routes AccessDenied is a real permission fault and must surface.
+            ['AccessDenied on an internal route', 'AccessDenied', false],
+            // A credential error must surface on every route, even where AccessDenied means missing.
+            ['InvalidAccessKeyId on the public block route', 'InvalidAccessKeyId', true],
+        ])('throws for %s', async (_, name, accessDeniedMeansMissing) => {
+            mockS3Send.mockRejectedValue(s3Error(name))
+
+            await expect(service.getBlock({ ...validParams, accessDeniedMeansMissing })).rejects.toThrow(name)
         })
 
         it('propagates unexpected S3 errors', async () => {
@@ -366,6 +381,111 @@ describe('RecordingService', () => {
         })
     })
 
+    describe('block refs', () => {
+        const sessionKey = (sessionState: 'ciphertext' | 'cleartext' | 'deleted'): SessionKey => ({
+            plaintextKey: Buffer.alloc(32, 7),
+            encryptedKey: Buffer.alloc(0),
+            sessionState,
+        })
+        const block = {
+            key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
+            start_byte: 100,
+            end_byte: 250,
+            start_timestamp: '2024-01-01T00:00:00Z',
+            end_timestamp: '2024-01-01T00:01:00Z',
+        }
+
+        beforeAll(async () => {
+            await sodium.ready
+        })
+
+        it('reports a shredded key in place of the blocks', async () => {
+            mockKeyStore.getKey.mockResolvedValue({
+                ...sessionKey('deleted'),
+                deletedAt: 1700000000,
+                deletedBy: 'user@example.com',
+            })
+
+            expect(await service.annotateBlocks('sess-1', 1, [block])).toEqual({
+                ok: false,
+                error: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'user@example.com',
+            })
+        })
+
+        it('gives a pre-encryption recording no refs', async () => {
+            mockKeyStore.getKey.mockResolvedValue(sessionKey('cleartext'))
+
+            expect(await service.annotateBlocks('sess-1', 1, [block])).toEqual([block])
+            expect(mockKeyStore.getKey).toHaveBeenCalledWith('sess-1', 1)
+        })
+
+        it('fetches the byte range a listed ref names', async () => {
+            mockKeyStore.getKey.mockResolvedValue(sessionKey('ciphertext'))
+            const [listed] = (await service.annotateBlocks('sess-1', 1, [block])) as { ref: string }[]
+            mockS3Send.mockResolvedValue({
+                Body: { transformToByteArray: jest.fn().mockResolvedValue(new Uint8Array([1])) },
+            })
+            mockDecryptor.decryptBlockWithKey = jest
+                .fn()
+                .mockReturnValue({ data: Buffer.from('data'), sessionState: 'ciphertext' })
+            mockKeyStore.getKey.mockClear()
+
+            const result = await service.getBlockByRef(1, 'sess-1', listed.ref)
+
+            expect(result).toEqual({ ok: true, data: Buffer.from('data') })
+            expect(mockKeyStore.getKey).toHaveBeenCalledTimes(1)
+            expect(mockKeyStore.getKey).toHaveBeenCalledWith('sess-1', 1)
+            expect(mockDecryptor.decryptBlock).not.toHaveBeenCalled()
+            expect(mockS3Send).toHaveBeenCalledWith(
+                expect.objectContaining({ input: { Bucket: 'test-bucket', Key: block.key, Range: 'bytes=100-250' } })
+            )
+        })
+
+        it('aborts the S3 read for a ref once its deadline passes', async () => {
+            mockKeyStore.getKey.mockResolvedValue(sessionKey('ciphertext'))
+            const [listed] = (await service.annotateBlocks('sess-1', 1, [block])) as { ref: string }[]
+            mockS3Send.mockImplementation(
+                (_command, options: { abortSignal: AbortSignal }) =>
+                    new Promise((_resolve, reject) =>
+                        options.abortSignal.addEventListener('abort', () => reject(options.abortSignal.reason))
+                    )
+            )
+
+            await expect(service.getBlockByRef(1, 'sess-1', listed.ref, () => 'ok', 10)).rejects.toThrow()
+        })
+
+        it('reads AccessDenied for a ref as a missing block', async () => {
+            mockKeyStore.getKey.mockResolvedValue(sessionKey('ciphertext'))
+            const [listed] = (await service.annotateBlocks('sess-1', 1, [block])) as { ref: string }[]
+            mockS3Send.mockRejectedValue(
+                new S3ServiceException({
+                    name: 'AccessDenied',
+                    $fault: 'client',
+                    message: 'Access Denied',
+                    $metadata: { httpStatusCode: 403 },
+                })
+            )
+
+            expect(await service.getBlockByRef(1, 'sess-1', listed.ref)).toEqual({ ok: false, error: 'not_found' })
+        })
+
+        it.each([
+            ['a deleted session', 'deleted', 'deleted'],
+            ['a pre-encryption session', 'cleartext', 'not_found'],
+        ] as const)('serves no block by ref for %s', async (_, sessionState, expectedError) => {
+            mockKeyStore.getKey.mockResolvedValue(sessionKey('ciphertext'))
+            const [listed] = (await service.annotateBlocks('sess-1', 1, [block])) as { ref: string }[]
+            mockKeyStore.getKey.mockResolvedValue(sessionKey(sessionState))
+
+            const result = await service.getBlockByRef(1, 'sess-1', listed.ref)
+
+            expect(result).toMatchObject({ ok: false, error: expectedError })
+            expect(mockS3Send).not.toHaveBeenCalled()
+        })
+    })
+
     describe('listBlocks', () => {
         function mockClickhouseResult(rows: any[]): void {
             mockClickhouse.query.mockResolvedValue({
@@ -456,7 +576,6 @@ describe('RecordingService', () => {
                     mockKeyStore,
                     mockDecryptor,
                     mockMetadataStore,
-                    mockFeatureStore,
                     mockPostgres,
                     {
                         client: mockClickhouse,
@@ -744,6 +863,96 @@ describe('RecordingService', () => {
             ])
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalled()
             expect(mockPostgres.query).toHaveBeenCalled()
+        })
+    })
+
+    describe('encryptBlocks', () => {
+        const plaintextKey = Buffer.alloc(32, 7)
+        const ciphertextKey = {
+            plaintextKey,
+            encryptedKey: Buffer.from('wrapped'),
+            sessionState: 'ciphertext' as const,
+        }
+        const cleartextKey = {
+            plaintextKey: Buffer.alloc(0),
+            encryptedKey: Buffer.alloc(0),
+            sessionState: 'cleartext' as const,
+        }
+
+        beforeAll(async () => {
+            await sodium.ready
+        })
+
+        beforeEach(() => {
+            mockKeyStore.generateKey.mockResolvedValue(ciphertextKey)
+        })
+
+        const mockRecordingExists = (exists: boolean): void => {
+            mockClickhouse.query.mockResolvedValue({
+                json: jest.fn().mockResolvedValue(exists ? [{ '1': 1 }] : []),
+            } as any)
+        }
+
+        it.each([
+            ['an existing key', ciphertextKey, 0],
+            ['no key and no recording yet', cleartextKey, 1],
+        ])('encrypts with %s so the decryptor can read it back', async (_, existingKey, expectedKeyMints) => {
+            mockKeyStore.getKey.mockResolvedValue(existingKey)
+            mockRecordingExists(false)
+
+            const result = await service.encryptBlocks('session-1', 1, [Buffer.from('block-a'), Buffer.from('b')], 365)
+
+            expect(result.ok).toBe(true)
+            const decryptor = new SodiumRecordingDecryptor(mockKeyStore)
+            const decrypted = (result as { blocks: Buffer[] }).blocks.map(
+                (b) => decryptor.decryptBlockWithKey('session-1', 1, b, ciphertextKey).data
+            )
+            expect(decrypted).toEqual([Buffer.from('block-a'), Buffer.from('b')])
+            expect(mockKeyStore.generateKey).toHaveBeenCalledTimes(expectedKeyMints)
+        })
+
+        it.each([
+            ['a recording that predates encryption', cleartextKey],
+            ['an ingested encrypted recording', ciphertextKey],
+        ])('refuses to encrypt into %s', async (_, existingKey) => {
+            mockKeyStore.getKey.mockResolvedValue(existingKey)
+            mockRecordingExists(true)
+
+            const result = await service.encryptBlocks('session-1', 1, [Buffer.from('block')], 365)
+
+            expect(result).toEqual({ ok: false, error: 'recording_exists' })
+            expect(mockKeyStore.generateKey).not.toHaveBeenCalled()
+        })
+
+        it('refuses to return plaintext when a cloud key mint reads back no key', async () => {
+            const isCloud = jest.spyOn(envUtils, 'isCloud').mockReturnValue(true)
+            mockRecordingExists(false)
+            mockKeyStore.getKey.mockResolvedValue(cleartextKey)
+            mockKeyStore.generateKey.mockResolvedValue(cleartextKey)
+
+            const result = await service.encryptBlocks('session-1', 1, [Buffer.from('block')], 365)
+
+            expect(result).toEqual({ ok: false, error: 'key_unavailable' })
+            isCloud.mockRestore()
+        })
+
+        it('returns deleted when the session key was shredded', async () => {
+            mockRecordingExists(false)
+            mockKeyStore.getKey.mockResolvedValue({
+                ...cleartextKey,
+                sessionState: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'user@example.com',
+            })
+
+            const result = await service.encryptBlocks('session-1', 1, [Buffer.from('block')], 365)
+
+            expect(result).toEqual({
+                ok: false,
+                error: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'user@example.com',
+            })
         })
     })
 })

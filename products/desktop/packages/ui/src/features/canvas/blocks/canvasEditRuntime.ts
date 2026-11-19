@@ -213,6 +213,8 @@ export function installCanvasEditing(
   const selectBox = document.createElement("div");
   const label = document.createElement("div");
   const line = document.createElement("div");
+  const openBox = document.createElement("div");
+  openBox.style.cssText = `position:fixed;left:0;top:0;border:1px dashed rgba(245,78,0,.55);border-radius:12px;opacity:0;transition:opacity 120ms ease;`;
   hoverBox.style.cssText = `position:fixed;left:0;top:0;border:1px solid rgba(245,78,0,.45);border-radius:8px;opacity:0;transition:opacity 100ms ease;`;
   selectBox.style.cssText = `position:fixed;left:0;top:0;border:1.5px solid ${PRIMARY};border-radius:10px;opacity:0;box-shadow:0 0 0 3px rgba(245,78,0,.08);transition:opacity 120ms ease;`;
   label.style.cssText = `position:fixed;left:0;top:0;background:${PRIMARY};color:#fff;font:600 10.5px/18px system-ui,sans-serif;padding:0 7px;border-radius:5px 5px 0 0;opacity:0;white-space:nowrap;transition:opacity 120ms ease;`;
@@ -221,7 +223,7 @@ export function installCanvasEditing(
   emptyHint.textContent = "Drop blocks here, or click one in the panel";
   emptyHint.style.cssText =
     "position:fixed;display:flex;align-items:center;justify-content:center;border:1.5px dashed rgba(128,128,128,.35);border-radius:12px;color:rgba(128,128,128,.95);font:500 13px/1.4 system-ui,sans-serif;opacity:0;transition:opacity 160ms;";
-  layer.append(emptyHint, hoverBox, selectBox, label, line);
+  layer.append(emptyHint, openBox, hoverBox, selectBox, label, line);
 
   const parseSource = (element: Element) => {
     const raw = element.getAttribute("data-ph-src");
@@ -236,7 +238,57 @@ export function installCanvasEditing(
     };
   };
 
-  let openBlock: Element | null = null;
+  const sourceAt = (key: string) =>
+    document.querySelector(`[data-ph-src^="${CSS.escape(`${key}|`)}"]`);
+
+  const sourceKey = (element: Element) => {
+    const source = parseSource(element);
+    return source ? `${source.file}|${source.start}` : null;
+  };
+
+  const openBlocks = new Set<string>();
+
+  const isOpen = (block: Element) => {
+    if (block === document.getElementById("root")?.firstElementChild)
+      return true;
+    const key = sourceKey(block);
+    return !!key && openBlocks.has(key);
+  };
+
+  const openAncestor = (element: Element | null): HTMLElement | null => {
+    const rootElement = document.getElementById("root")?.firstElementChild;
+    let current = element?.closest("[data-ph-block]") ?? null;
+    while (current && current !== rootElement) {
+      if (current instanceof HTMLElement && isOpen(current)) return current;
+      current = current.parentElement?.closest("[data-ph-block]") ?? null;
+    }
+    return null;
+  };
+
+  const closeBlock = (block: Element) => {
+    for (const key of Array.from(openBlocks)) {
+      const element = sourceAt(key);
+      if (!element || block.contains(element)) openBlocks.delete(key);
+    }
+  };
+
+  const openAround = (element: Element) => {
+    const rootElement = document.getElementById("root")?.firstElementChild;
+    let block = element.parentElement?.closest("[data-ph-block]") ?? null;
+    while (block && block !== rootElement) {
+      const key = sourceKey(block);
+      if (key) openBlocks.add(key);
+      block = block.parentElement?.closest("[data-ph-block]") ?? null;
+    }
+  };
+
+  const closeOutside = (element: Element | null) => {
+    for (const key of Array.from(openBlocks)) {
+      const block = sourceAt(key);
+      if (!block || !element || !block.contains(element))
+        openBlocks.delete(key);
+    }
+  };
 
   const candidateOf = (start: Element | null): HTMLElement | null => {
     let element: Element | null = start;
@@ -244,7 +296,7 @@ export function installCanvasEditing(
       const blockRoot = element.closest("[data-ph-block]");
       if (
         blockRoot instanceof HTMLElement &&
-        blockRoot !== openBlock &&
+        !isOpen(blockRoot) &&
         blockRoot.hasAttribute("data-ph-src")
       )
         return blockRoot;
@@ -373,9 +425,14 @@ export function installCanvasEditing(
   const paint = () => {
     place(hoverBox, hovered && hovered !== selected ? hovered : null, 3);
     place(selectBox, selected, 4);
+    const parent = openAncestor(selected ?? hovered);
+    place(openBox, parent, 8);
     if (selected?.isConnected) {
       const rect = selected.getBoundingClientRect();
-      label.textContent = labelFor(selected);
+      label.textContent =
+        parent && parent !== selected
+          ? `${labelFor(parent)} › ${labelFor(selected)}`
+          : labelFor(selected);
       label.style.transform = `translate3d(${rect.left - 4}px, ${rect.top - 22}px, 0)`;
       label.style.opacity = "1";
     } else {
@@ -452,6 +509,18 @@ export function installCanvasEditing(
     return best;
   };
 
+  const enter = (block: HTMLElement, x: number, y: number) => {
+    const key = sourceKey(block);
+    if (!key) return null;
+    openBlocks.add(key);
+    let inner = candidateOf(document.elementFromPoint(x, y));
+    if (!inner || inner === block || !block.contains(inner))
+      inner = nearestChild(block, x, y);
+    if (inner && inner !== block && block.contains(inner)) return inner;
+    openBlocks.delete(key);
+    return null;
+  };
+
   const isBox = (element: HTMLElement) => {
     const style = getComputedStyle(element);
     const bordered =
@@ -506,7 +575,7 @@ export function installCanvasEditing(
       target === root ||
       (!atomic &&
         target.children.length > 1 &&
-        !target.hasAttribute("data-ph-block") &&
+        (!target.hasAttribute("data-ph-block") || isOpen(target)) &&
         arrangesChildren);
     if (isContainer) {
       const child = nearestChild(target, x, y);
@@ -568,21 +637,6 @@ export function installCanvasEditing(
       },
       indicator,
     };
-  };
-
-  const dropTarget = (
-    x: number,
-    y: number,
-    exclude: string | null,
-    coarse: boolean,
-  ) => {
-    const rootElement = document.getElementById("root")?.firstElementChild;
-    openBlock = rootElement?.hasAttribute("data-ph-block") ? rootElement : null;
-    try {
-      return findDropTarget(x, y, exclude, coarse);
-    } finally {
-      openBlock = null;
-    }
   };
 
   const showLine = (
@@ -735,7 +789,13 @@ export function installCanvasEditing(
     event.preventDefault();
     event.stopPropagation();
     const element = candidateOf(event.target as Element);
-    if (element && element !== editingText?.element) startText(element);
+    if (!element || element === editingText?.element) return;
+    if (element.hasAttribute("data-ph-block") && !isOpen(element)) {
+      const inner = enter(element, event.clientX, event.clientY);
+      if (inner) select(inner);
+      return;
+    }
+    startText(element);
   };
 
   const onDown = (event: MouseEvent) => {
@@ -746,6 +806,7 @@ export function installCanvasEditing(
     const element = candidateOf(event.target as Element);
     event.preventDefault();
     event.stopPropagation();
+    closeOutside(element);
     if (!element) {
       select(null);
       return;
@@ -773,8 +834,26 @@ export function installCanvasEditing(
     });
   };
 
+  const climb = () => {
+    const parent = openAncestor(selected);
+    if (!parent) return false;
+    closeBlock(parent);
+    select(parent);
+    return true;
+  };
+
+  const descend = () => {
+    if (!selected?.hasAttribute("data-ph-block") || isOpen(selected))
+      return false;
+    const box = selected.getBoundingClientRect();
+    const inner = enter(selected, box.left + 1, box.top + 1);
+    if (!inner) return false;
+    select(inner);
+    return true;
+  };
+
   const onKey = (event: KeyboardEvent) => {
-    if (!enabled || !event.isTrusted) return;
+    if (!enabled || !event.isTrusted || event.defaultPrevented) return;
     const target = event.target as HTMLElement | null;
     if (
       target &&
@@ -782,6 +861,14 @@ export function installCanvasEditing(
         ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
     )
       return;
+    if (event.key === "Enter") {
+      if (event.shiftKey ? climb() : descend()) event.preventDefault();
+      return;
+    }
+    if (event.key === "Escape" && climb()) {
+      event.preventDefault();
+      return;
+    }
     if (
       ["Backspace", "Delete", "Escape"].includes(event.key) ||
       ((event.metaKey || event.ctrlKey) &&
@@ -876,9 +963,10 @@ export function installCanvasEditing(
           }
         : null,
     });
+    for (const key of Array.from(openBlocks)) {
+      if (!sourceAt(key)?.hasAttribute("data-ph-block")) openBlocks.delete(key);
+    }
     const id = focusBlockId ?? selectedBlockId;
-    const sourceAt = (key: string) =>
-      document.querySelector(`[data-ph-src^="${CSS.escape(`${key}|`)}"]`);
     const previous = selectedSource ? sourceAt(selectedSource.key) : null;
     const sameBlock =
       previous?.getAttribute("data-ph-block") === selectedSource?.block;
@@ -891,6 +979,7 @@ export function installCanvasEditing(
       ? document.querySelector(`[data-ph-block-id="${CSS.escape(id)}"]`)
       : bySource;
     if (element instanceof HTMLElement) {
+      openAround(element);
       remember(element);
       post({ type: "canvas-edit-select", element: describe(element) });
       const arrived =
@@ -914,6 +1003,7 @@ export function installCanvasEditing(
       cancelAnimationFrame(frame);
       selected = null;
       hovered = null;
+      openBlocks.clear();
     }
   };
 
@@ -936,7 +1026,7 @@ export function installCanvasEditing(
     handle(message: Record<string, unknown>) {
       if (message.type === "canvas-edit-drag-move") {
         const hit = enabled
-          ? dropTarget(
+          ? findDropTarget(
               Number(message.x),
               Number(message.y),
               (message.exclude as string | null) ?? null,
@@ -961,6 +1051,19 @@ export function installCanvasEditing(
       }
       if (message.type === "canvas-edit-deselect") {
         remember(null);
+        return true;
+      }
+      if (message.type === "canvas-edit-escape") {
+        if (enabled && climb()) return true;
+        remember(null);
+        post({ type: "canvas-edit-select", element: null });
+        return true;
+      }
+      if (message.type === "canvas-edit-enter") {
+        if (enabled) {
+          if (message.shiftKey === true) climb();
+          else descend();
+        }
         return true;
       }
       return false;

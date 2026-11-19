@@ -1,28 +1,46 @@
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable, Iterator, Mapping
 from typing import Any
 from uuid import UUID
 
-from django.db.models import F
+from django.db.models import F, Q, QuerySet
 
 from posthog.helpers.full_text_search import build_rank
 from posthog.ingress.contracts import WebhookDelivery
+from posthog.models import OrganizationMembership, Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import (
+    CohortDependentWorkflow,
+    EmailDomainCheck,
     EmailDomainDnsRecord,
     EmailDomainVerification,
+    EmailSendingSuspensionChange,
+    FlowUtmUpdate,
     RecentWorkflow,
+    SendCalendarBatchJob,
+    TeamUtmDefaults,
     TierDecision,
     TwilioAccount,
     TwilioPhoneNumber,
     WorkflowAccessDenied,
     WorkflowActivitySummary,
     WorkflowArchived,
+    WorkflowListQuery,
     WorkflowNotFound,
     WorkflowSummary,
     WorkflowTaskDailyLimits,
+    WorkflowViewAccess,
+    WorkflowVisionScanDailyLimits,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
+from products.workflows.backend.models.hog_flow.hog_flow import (
+    MESSAGING_ACTION_TYPES,
+    SANDBOX_EMAIL_ACTION_TYPE,
+    opt_out_category_ids,
+    static_cohort_ids,
+)
+from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
+from products.workflows.backend.services import email_utm_defaults
 from products.workflows.backend.services.batch_jobs import create_batch_job
 from products.workflows.backend.services.default_email_sender import (
     clear_default_email_sender,
@@ -32,10 +50,13 @@ from products.workflows.backend.services.email_sending_controls import (
     ensure_workflows_config,
     get_email_sending_state,
     set_email_sending_tier,
-    suspend_email_sending,
-    unsuspend_email_sending,
+)
+from products.workflows.backend.services.existing_email_tools import (
+    lookup_existing_email_tools as _lookup_existing_email_tools,
+    lookup_existing_email_tools_when_answered as _lookup_existing_email_tools_when_answered,
 )
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
+from products.workflows.backend.services.owned_workflow_health import list_owned_workflow_health
 from products.workflows.backend.services.template_input_usage import (
     filter_hog_flow_references_by_access_level,
     get_hog_flows_referencing_template_input_keys,
@@ -59,7 +80,11 @@ __all__ = [
     "filter_hog_flow_references_by_access_level",
     "get_email_sending_state",
     "get_email_sending_tier_limits",
+    "get_viewable_workflow_ids",
+    "get_workflow_access_levels",
+    "get_workflow_view_access",
     "get_hog_flows_referencing_template_input_keys",
+    "list_owned_workflow_health",
     "max_email_sending_tier",
     "set_default_email_sender_if_unset",
     "set_email_sending_tier",
@@ -89,6 +114,7 @@ def search_workflows(
     if include_archived:
         statuses.append(HogFlow.State.ARCHIVED)
     queryset = access_control.filter_queryset_by_access_level(
+        # nosemgrep: environment-model-scoped-by-project -- keeps the project-wide scope core /api/search used for workflows before the facade move; owners decide whether search narrows to one environment
         HogFlow.objects.filter(team__project_id=project_id, status__in=statuses)
     )
 
@@ -137,6 +163,36 @@ def get_workflow_owner_id(*, team_id: int, workflow_id: UUID) -> int | None:
         raise WorkflowNotFound() from None
 
 
+def get_workflow_static_cohort_ids(*, team_id: int, workflow_id: UUID) -> set[int]:
+    try:
+        actions = HogFlow.objects.values_list("actions", flat=True).get(team_id=team_id, id=workflow_id)
+    except HogFlow.DoesNotExist:
+        raise WorkflowNotFound() from None
+    return static_cohort_ids(actions)
+
+
+def get_workflow_opt_out_category_ids(*, team_id: int, workflow_id: UUID) -> set[str]:
+    try:
+        actions = HogFlow.objects.values_list("actions", flat=True).get(team_id=team_id, id=workflow_id)
+    except HogFlow.DoesNotExist:
+        raise WorkflowNotFound() from None
+    return opt_out_category_ids(actions)
+
+
+def can_edit_workflows(*, team_id: int, user_id: int | None) -> bool:
+    """Whether the user is active, still in the team's organization, and may edit its workflows."""
+    user = User.objects.filter(id=user_id, is_active=True).first() if user_id else None
+    team = Team.objects.get(id=team_id)
+    # Access rules alone don't say whether the person is still in the organization.
+    if (
+        user is None
+        or not OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).exists()
+    ):
+        return False
+    access = UserAccessControl(user=user, team=team)
+    return access.has_project_access and access.check_access_level_for_resource("hog_flow", "editor")
+
+
 def workflow_exists(*, team_id: int, workflow_id: UUID) -> bool:
     return HogFlow.objects.filter(team_id=team_id, id=workflow_id).exists()
 
@@ -152,6 +208,20 @@ def get_workflow_task_daily_limits(*, team_id: int) -> WorkflowTaskDailyLimits:
     return WorkflowTaskDailyLimits(
         per_workflow=config.workflow_task_rate_limit_per_day,
         per_team=config.workflow_task_team_rate_limit_per_day,
+    )
+
+
+def get_workflow_vision_scan_daily_limits(*, team_id: int) -> WorkflowVisionScanDailyLimits:
+    config = (
+        TeamWorkflowsConfig.objects.filter(team_id=team_id)
+        .only("replay_vision_scan_rate_limit_per_day", "replay_vision_scan_team_rate_limit_per_day")
+        .first()
+    )
+    if config is None:
+        return WorkflowVisionScanDailyLimits(per_workflow=None, per_team=None)
+    return WorkflowVisionScanDailyLimits(
+        per_workflow=config.replay_vision_scan_rate_limit_per_day,
+        per_team=config.replay_vision_scan_team_rate_limit_per_day,
     )
 
 
@@ -179,6 +249,53 @@ def get_workflow_names(*, team_id: int, workflow_ids: Iterable[str]) -> dict[str
     }
 
 
+def _team_workflows(team_id: int, workflow_ids: Iterable[str] | None) -> QuerySet[HogFlow]:
+    queryset = HogFlow.objects.filter(team_id=team_id)
+    return queryset if workflow_ids is None else queryset.filter(id__in=list(workflow_ids))
+
+
+def get_viewable_workflow_ids(
+    *,
+    team_id: int,
+    user_access_control: UserAccessControl,
+    workflow_ids: Iterable[str] | None = None,
+    tag_name: str | None = None,
+) -> set[str]:
+    """The ids, as strings, of the team's workflows the reader may view."""
+    workflows = _team_workflows(team_id, workflow_ids)
+    if tag_name is not None:
+        workflows = workflows.filter(tagged_items__tag__name=tag_name)
+    return {
+        str(pk) for pk in user_access_control.filter_queryset_by_access_level(workflows).values_list("id", flat=True)
+    }
+
+
+def get_workflow_access_levels(
+    *, team_id: int, user_access_control: UserAccessControl, workflow_ids: Collection[str]
+) -> Mapping[str, str | None]:
+    """The reader's effective access level for each of the team's workflows, keyed by the workflow id as a string."""
+    rows = HogFlow.objects.filter(team_id=team_id, id__in=list(workflow_ids)).values_list("id", "created_by_id")
+    return user_access_control.bulk_object_access_levels("hog_flow", [(str(pk), creator) for pk, creator in rows])
+
+
+def get_workflow_view_access(
+    *, team_id: int, user_access_control: UserAccessControl, workflow_ids: Iterable[str] | None = None
+) -> WorkflowViewAccess:
+    """What the reader may view, for records that outlive their workflow. A denial outlives the workflow it names, so a
+    deleted workflow stays hidden from a reader denied it, and otherwise follows their access to workflows as a whole."""
+    viewable = get_viewable_workflow_ids(
+        team_id=team_id, user_access_control=user_access_control, workflow_ids=workflow_ids
+    )
+    existing = {str(pk) for pk in _team_workflows(team_id, workflow_ids).values_list("id", flat=True)}
+    return WorkflowViewAccess(
+        viewable_ids=frozenset(viewable),
+        blocked_ids=frozenset(
+            (existing | user_access_control.blocked_resource_ids_by_scope.get("hog_flow", frozenset())) - viewable
+        ),
+        can_view_deleted=user_access_control.has_resource_access("hog_flow"),
+    )
+
+
 def get_workflow_summary(*, team_id: int, workflow_id: str) -> WorkflowSummary:
     row = HogFlow.objects.filter(team_id=team_id, id=workflow_id).values("id", "name", "status").first()
     if row is None:
@@ -186,8 +303,54 @@ def get_workflow_summary(*, team_id: int, workflow_id: str) -> WorkflowSummary:
     return WorkflowSummary(id=str(row["id"]), name=row["name"] or "", status=row["status"])
 
 
+def get_workflow_summaries(*, team_id: int, workflow_ids: Iterable[str]) -> list[WorkflowSummary]:
+    return [
+        WorkflowSummary(id=str(row["id"]), name=row["name"] or "", status=row["status"])
+        for row in _team_workflows(team_id, workflow_ids).values("id", "name", "status")
+    ]
+
+
+def get_recent_batch_jobs(
+    *, team_id: int, workflow_ids: Iterable[str], limit: int
+) -> dict[str, list[SendCalendarBatchJob]]:
+    queries = [
+        HogFlowBatchJob.objects.filter(team_id=team_id, hog_flow_id=workflow_id)
+        .order_by("-created_at")
+        .values("id", "hog_flow_id", "status", "created_at")[:limit]
+        for workflow_id in dict.fromkeys(workflow_ids)
+    ]
+    if not queries:
+        return {}
+    rows = queries[0].union(*queries[1:], all=True) if len(queries) > 1 else queries[0]
+    jobs: dict[str, list[SendCalendarBatchJob]] = {}
+    for row in sorted(rows, key=lambda item: item["created_at"], reverse=True):
+        jobs.setdefault(str(row["hog_flow_id"]), []).append(
+            SendCalendarBatchJob(id=row["id"], status=row["status"], created_at=row["created_at"])
+        )
+    return jobs
+
+
+def search_broadcast_summaries(
+    *, team_id: int, search: str, user_access_control: UserAccessControl, limit: int
+) -> list[WorkflowSummary]:
+    from products.workflows.backend.services.hog_flow_reads import list_workflow_summaries  # noqa: PLC0415
+
+    return list_workflow_summaries(
+        team_id=team_id,
+        query=WorkflowListQuery(broadcast_eligible=True),
+        user_access_control=user_access_control,
+        limit=limit,
+        name_contains=search,
+    )
+
+
 def has_active_workflows(*, team_id: int) -> bool:
-    return HogFlow.objects.filter(team_id=team_id, status=HogFlow.State.ACTIVE).exists()
+    active = HogFlow.objects.filter(team_id=team_id, status=HogFlow.State.ACTIVE)
+    sends_own_messages = Q()
+    for action_type in MESSAGING_ACTION_TYPES:
+        if action_type != SANDBOX_EMAIL_ACTION_TYPE:
+            sends_own_messages |= Q(actions__contains=[{"type": action_type}])
+    return active.filter(~Q(actions__contains=[{"type": SANDBOX_EMAIL_ACTION_TYPE}]) | sends_own_messages).exists()
 
 
 def has_active_workflow_for_warehouse_table(*, team_id: int, trigger_source: str, table_name: str) -> bool:
@@ -197,6 +360,20 @@ def has_active_workflow_for_warehouse_table(*, team_id: int, trigger_source: str
         trigger__type=trigger_source,
         trigger__table_name=table_name,
     ).exists()
+
+
+def active_workflow_warehouse_table_names(
+    *, team_id: int, trigger_source: str, table_names: Collection[str]
+) -> set[str]:
+    """The given warehouse table names that an active workflow triggers on."""
+    return set(
+        HogFlow.objects.filter(
+            team_id=team_id,
+            status=HogFlow.State.ACTIVE,
+            trigger__type=trigger_source,
+            trigger__table_name__in=list(table_names),
+        ).values_list("trigger__table_name", flat=True)
+    )
 
 
 def get_workflow_activity_summary(*, team_id: int, recent_limit: int) -> WorkflowActivitySummary:
@@ -222,13 +399,61 @@ def get_active_workflows_using_integration(*, team_id: int, integration_id: int)
     ]
 
 
-def recompute_email_sending_tier(team_id: int) -> TierDecision | None:
+def get_active_workflows_using_realtime_cohort(
+    *, team_id: int, cohort_ids: Collection[int]
+) -> list[CohortDependentWorkflow]:
+    # Deferred to keep the cdp filter compiler, and the HogQL schema it loads, off the django.setup() path.
+    from products.workflows.backend.services.cohort_usage import (  # noqa: PLC0415
+        get_active_hog_flows_using_realtime_cohort,
+    )
+
+    return [
+        CohortDependentWorkflow(id=str(flow.id), name=flow.name or "", status=flow.status)
+        for flow in get_active_hog_flows_using_realtime_cohort(team_id=team_id, cohort_ids=cohort_ids)
+    ]
+
+
+def team_has_active_workflows_using_cohorts(*, team_id: int) -> bool:
+    """Cheap pre-check: False means no active workflow in the team can rely on any cohort."""
+    # Deferred for the same reason as get_active_workflows_using_realtime_cohort.
+    from products.workflows.backend.services.cohort_usage import (  # noqa: PLC0415
+        team_has_active_hog_flows_mentioning_cohorts,
+    )
+
+    return team_has_active_hog_flows_mentioning_cohorts(team_id)
+
+
+def recompute_email_sending_tier(
+    team_id: int, *, user_id: int | None = None, was_impersonated: bool = False
+) -> TierDecision | None:
     # Deferred to keep the ClickHouse metrics client off the facade import path.
     from products.workflows.backend.services.email_sending_tier import (  # noqa: PLC0415
         recompute_email_sending_tier_for_team,
     )
 
-    return recompute_email_sending_tier_for_team(team_id)
+    return recompute_email_sending_tier_for_team(team_id, user_id=user_id, was_impersonated=was_impersonated)
+
+
+def suspend_email_sending(
+    team_id: int, reason: str, *, user_id: int | None = None, was_impersonated: bool = False
+) -> EmailSendingSuspensionChange:
+    """Suspends the team's workflow email, writes the audit row, and tells the team by email and in the app."""
+    # Deferred because the facade loads while Django loads models, and the email tasks need the models loaded.
+    from products.workflows.backend.services import email_sending_suspension  # noqa: PLC0415
+
+    return email_sending_suspension.suspend_email_sending(
+        team_id, reason, user_id=user_id, was_impersonated=was_impersonated
+    )
+
+
+def unsuspend_email_sending(
+    team_id: int, *, user_id: int | None = None, was_impersonated: bool = False
+) -> EmailSendingSuspensionChange:
+    """Re-enables the team's workflow email, writes the audit row, and tells the team by email and in the app."""
+    # Deferred for the same reason as suspend_email_sending.
+    from products.workflows.backend.services import email_sending_suspension  # noqa: PLC0415
+
+    return email_sending_suspension.unsuspend_email_sending(team_id, user_id=user_id, was_impersonated=was_impersonated)
 
 
 # The provider helpers look the provider class up on the providers package at call time, which
@@ -236,13 +461,30 @@ def recompute_email_sending_tier(team_id: int) -> TierDecision | None:
 
 
 def create_ses_email_domain(
-    domain: str, *, mail_from_subdomain: str, team_id: int, org_team_ids: Iterable[int] | None = None
+    domain: str,
+    *,
+    mail_from_subdomain: str,
+    team_id: int,
+    org_team_ids: Iterable[int] | None = None,
+    unverified_claimant_team_ids: Iterable[int] = (),
+    keep_existing_mail_from: bool = False,
 ) -> None:
     from products.workflows.backend import providers  # noqa: PLC0415
 
     providers.SESProvider().create_email_domain(
-        domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id, org_team_ids=org_team_ids
+        domain,
+        mail_from_subdomain=mail_from_subdomain,
+        team_id=team_id,
+        org_team_ids=org_team_ids,
+        unverified_claimant_team_ids=unverified_claimant_team_ids,
+        keep_existing_mail_from=keep_existing_mail_from,
     )
+
+
+def get_ses_mail_from_subdomain(domain: str) -> str | None:
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    return providers.SESProvider().get_mail_from_subdomain(domain)
 
 
 def update_ses_mail_from_subdomain(domain: str, *, mail_from_subdomain: str) -> None:
@@ -254,13 +496,76 @@ def update_ses_mail_from_subdomain(domain: str, *, mail_from_subdomain: str) -> 
 def verify_ses_email_domain(domain: str, *, mail_from_subdomain: str, team_id: int) -> EmailDomainVerification:
     from products.workflows.backend import providers  # noqa: PLC0415
 
-    return providers.SESProvider().verify_email_domain(domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id)
+    return providers.SESProvider().verify_email_domain(
+        domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id, keep_existing_mail_from=True
+    )
+
+
+def get_ses_email_domain_status(domain: str, *, mail_from_subdomain: str, team_id: int) -> EmailDomainCheck:
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    return providers.SESProvider().get_email_domain_status(
+        domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id
+    )
+
+
+def email_domain_check_with_organization_proof(check: EmailDomainCheck, *, domain: str, token: str) -> EmailDomainCheck:
+    """The check, with the record that proves this organization owns a domain another organization also claims."""
+    from products.workflows.backend.services.email_domain_proof import with_organization_proof  # noqa: PLC0415
+
+    return with_organization_proof(check, domain=domain, token=token)
+
+
+def email_domain_organization_proof_published(domain: str, *, token: str) -> bool:
+    from products.workflows.backend.services.email_domain_proof import organization_proof_published  # noqa: PLC0415
+
+    return organization_proof_published(domain, token)
+
+
+def email_domain_organization_proof_record(domain: str, *, token: str) -> EmailDomainDnsRecord:
+    from products.workflows.backend.services.email_domain_proof import organization_proof_record  # noqa: PLC0415
+
+    record = organization_proof_record(domain, token)
+    return {
+        "type": "verification",
+        "recordType": "TXT",
+        "recordHostname": record.hostname,
+        "recordValue": record.value,
+        "status": "pending",
+    }
+
+
+def remove_ses_tenant_associations(domain: str, *, team_ids: Iterable[int]) -> None:
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    providers.SESProvider().remove_tenant_associations(domain, team_ids=team_ids)
+
+
+def get_maildev_email_domain_status(domain: str, *, mail_from_subdomain: str) -> EmailDomainCheck:
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    return providers.maildev_email_domain_status(domain, mail_from_subdomain=mail_from_subdomain)
+
+
+def lookup_existing_email_tools(root_domain: str) -> list[str]:
+    return _lookup_existing_email_tools(root_domain)
+
+
+def lookup_existing_email_tools_when_answered(root_domain: str) -> list[str] | None:
+    return _lookup_existing_email_tools_when_answered(root_domain)
 
 
 def delete_ses_identity(identity: str) -> None:
     from products.workflows.backend import providers  # noqa: PLC0415
 
     providers.SESProvider().delete_identity(identity)
+
+
+def list_ses_bounce_suppressions() -> Iterator[list[str]]:
+    """Yield the addresses on the SES account-level suppression list for a bounce, one page at a time."""
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    yield from providers.SESProvider().list_bounce_suppressions()
 
 
 def get_maildev_mock_dns_records() -> list[EmailDomainDnsRecord]:
@@ -279,3 +584,38 @@ def get_twilio_account_info(*, account_sid: str, auth_token: str) -> TwilioAccou
     from products.workflows.backend import providers  # noqa: PLC0415
 
     return providers.TwilioProvider(account_sid=account_sid, auth_token=auth_token).get_account_info()
+
+
+def load_team_utm_defaults(team_id: int) -> TeamUtmDefaults:
+    return email_utm_defaults.load_team_utm_defaults(team_id)
+
+
+def flow_ids_with_active_schedule(team_id: int) -> set[UUID]:
+    return email_utm_defaults.flow_ids_with_active_schedule(team_id)
+
+
+def seed_new_email_steps_with_utm_defaults(
+    actions: list[dict[str, Any]], existing_action_ids: Iterable[str], defaults: TeamUtmDefaults
+) -> None:
+    email_utm_defaults.seed_new_email_actions(actions, existing_action_ids, defaults)
+
+
+def release_edited_email_utm_keys(
+    actions: list[dict[str, Any]],
+    stored_actions: list[Any],
+    stored_draft: dict[str, Any] | None,
+    defaults: TeamUtmDefaults,
+    *,
+    saving_draft: bool,
+) -> None:
+    email_utm_defaults.release_edited_keys(actions, stored_actions, stored_draft, defaults, saving_draft=saving_draft)
+
+
+def is_utm_apply_eligible(flow: HogFlow, has_active_schedule: bool) -> bool:
+    return email_utm_defaults.is_apply_eligible(flow, has_active_schedule)
+
+
+def plan_flow_utm_update(
+    actions: list[Any], draft: dict[str, Any] | None, defaults: TeamUtmDefaults, enable_where_off: bool
+) -> FlowUtmUpdate | None:
+    return email_utm_defaults.plan_flow_update(actions, draft, defaults, enable_where_off)

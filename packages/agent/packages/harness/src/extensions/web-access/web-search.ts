@@ -98,12 +98,16 @@ export function createWebSearchTool(options: PosthogProviderOptions = {}) {
       return renderWebSearchResult(result, options, theme, context.isError);
     },
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const { baseUrl, apiKey } = await resolveGatewayAuth(options, ctx);
+      const { baseUrl, apiKey, headers } = await resolveGatewayAuth(
+        options,
+        ctx,
+      );
       const contextSize = parseSearchContextSize(params.search_context_size);
 
       const response = await fetch(`${baseUrl}/v1/responses`, {
         method: "POST",
         headers: {
+          ...headers,
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
         },

@@ -1,7 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
-import userEvent from '@testing-library/user-event'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { makeDelay } from 'lib/utils/async'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -14,22 +14,31 @@ import { NodeKind } from '~/queries/schema/schema-general'
 
 import { recalculationMocks, resultsByMetricType } from './recalculationMocks'
 
-const EXPERIMENT_WITH_HEALTH_FINDINGS = {
-    ...EXPERIMENT_WITH_MEAN_METRIC,
-    health: {
-        findings: [
-            {
-                code: 'flag_off_while_running',
-                subcode: 'running_but_no_rollout',
-                severity: 'warning',
-                title: 'The experiment is running, but no new users are being exposed',
-                detail: 'The linked feature flag has a 0% rollout, so no new users are being exposed. Users exposed earlier are still included in the results. End the experiment with a conclusion, or increase the rollout percentage to expose users.',
-                evidence: {},
-                actions: ['open_feature_flag'],
-                diagnostic_ref: 'A5',
-            },
-        ],
-    },
+const EXPERIMENT_HEALTH = {
+    findings: [
+        {
+            code: 'flag_off_while_running',
+            subcode: 'running_but_no_rollout',
+            severity: 'warning',
+            title: 'The experiment is running, but no new users are being exposed',
+            detail: 'The linked feature flag has a 0% rollout, so no new users are being exposed. Users exposed earlier are still included in the results. End the experiment with a conclusion, or increase the rollout percentage to expose users.',
+            evidence: {},
+            actions: ['open_feature_flag'],
+            diagnostic_ref: 'A5',
+        },
+    ],
+    checks: [
+        { key: 'flag_state', name: "Flag state that doesn't match the experiment", status: 'finding', reason: null },
+        { key: 'flag_history', name: 'Unreadable flag history', status: 'passed', reason: null },
+        { key: 'split_changed_mid_run', name: 'Variant split changes since launch', status: 'passed', reason: null },
+        {
+            key: 'flag_variants_mismatch',
+            name: 'Flag variants not set up',
+            status: 'passed',
+            reason: null,
+        },
+        { key: 'no_metric', name: 'Metrics not set up', status: 'passed', reason: null },
+    ],
 }
 
 const EXPOSURES_WITH_BIAS_RISK = {
@@ -51,18 +60,24 @@ const EXPOSURES_WITH_BIAS_RISK = {
             code: 'bias_risk_multiple_excluded',
             subcode: null,
             severity: 'warning',
-            title: 'Setup likely introduced bias',
+            title: 'The uneven split may bias the results',
             detail: '4.2% of users were exposed to multiple variants. With an uneven variant split and the Exclude handling, these users were dropped more often from the smaller variant, so its metrics can be biased. Use an even split and control exposure with the overall rollout, or switch the handling to First seen.',
             evidence: { multiple_variant_percentage: 4.2 },
             actions: ['adjust_distribution', 'use_first_seen_variant'],
             diagnostic_ref: 'A1',
         },
     ],
+    health_checks: [
+        { key: 'srm', name: 'Split of users across variants', status: 'finding', reason: null },
+        { key: 'bias_risk_multiple_excluded', name: 'Bias from an uneven split', status: 'finding', reason: null },
+        { key: 'zero_exposures', name: 'Exposures not received since launch', status: 'passed', reason: null },
+        { key: 'multiple_variants_share', name: 'Users exposed to multiple variants', status: 'passed', reason: null },
+    ],
 }
 
 const RECALCULATION = recalculationMocks(
-    EXPERIMENT_WITH_HEALTH_FINDINGS,
-    resultsByMetricType(EXPERIMENT_WITH_HEALTH_FINDINGS, { mean: MEAN_METRIC_RESULT })
+    EXPERIMENT_WITH_MEAN_METRIC,
+    resultsByMetricType(EXPERIMENT_WITH_MEAN_METRIC, { mean: MEAN_METRIC_RESULT })
 )
 
 const meta: Meta = {
@@ -73,13 +88,14 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-01-27',
         pageUrl: urls.experiment(EXPERIMENT_WITH_MEAN_METRIC.id),
+        featureFlags: [FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS],
     },
     decorators: [
         mswDecorator({
             get: {
                 ...RECALCULATION.get,
-                [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_MEAN_METRIC.id}/`]:
-                    EXPERIMENT_WITH_HEALTH_FINDINGS,
+                [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_MEAN_METRIC.id}/`]: EXPERIMENT_WITH_MEAN_METRIC,
+                [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_MEAN_METRIC.id}/health/`]: EXPERIMENT_HEALTH,
                 [`/api/projects/:team_id/experiment_holdouts`]: [],
                 [`/api/projects/:team_id/experiment_saved_metrics/`]: [],
                 [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_MEAN_METRIC.feature_flag.id}/`]: {},
@@ -103,13 +119,11 @@ export default meta
 
 type Story = StoryObj<{}>
 
-// One finding open and two closed, so both row states are in one picture.
+// The metrics tab with issues: the chip and the health tab's count show them, and no warning banner renders.
 export const ExperimentWithHealthFindings: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await makeDelay(500)()
-        const [firstWhy] = await canvas.findAllByText('Why?', {}, { timeout: 5000 })
-        await userEvent.click(firstWhy)
+        await canvas.findByText('3 issues', {}, { timeout: 15000 })
         await makeDelay(500)()
     },
 }

@@ -9,6 +9,8 @@ from __future__ import annotations
 import re
 from typing import Literal
 
+import re2
+
 from posthog.dataclasses import frozen
 
 from products.metrics.backend.promql import CLAUSE_LABEL
@@ -49,10 +51,8 @@ GROUPING_KEYWORDS = frozenset({"by", "without", "on", "ignoring", "group_left", 
 KEYWORDS = GROUPING_KEYWORDS | {"bool", "and", "or", "unless", "offset", "atan2", "inf", "nan"}
 
 # Grafana fills these per panel. PostHog runs a range-less rate or increase over the query step,
-# which is what `$__rate_interval` and `$__interval` stand for.
+# which is what `$__rate_interval` and `$__interval` stand for. The PromQL runner fills `$__range`.
 _STEP_RANGE_VARIABLE = re.compile(r"^\$\{?__(rate_interval|interval|auto)\}?$")
-# Grafana also writes the dashboard range as `${__range_s}s` or `${__range_ms}ms`.
-_DASHBOARD_RANGE_VARIABLE = re.compile(r"^\$\{?__range(?:\}?|_s\}?s|_ms\}?ms)$")
 
 _LOGQL_PIPELINE = re.compile(
     r"\}\s*(?:\|=|!=|\|~|!~|\|\s*(?:json|logfmt|pattern|regexp|unpack|line_format|label_format|unwrap|drop|keep|decolorize)\b)"
@@ -65,13 +65,6 @@ class Token:
     text: str
     start: int
     end: int
-
-
-@frozen
-class RangeRewrite:
-    expr: str
-    # True when a `$__range` window became the query step, which changes what the panel shows.
-    changed_meaning: bool
 
 
 def tokenize(expr: str) -> list[Token]:
@@ -166,11 +159,10 @@ def metric_names(expr: str) -> list[str]:
     return list(dict.fromkeys(names))
 
 
-def strip_grafana_ranges(expr: str) -> RangeRewrite:
-    """Remove `[$__rate_interval]`, `[$__interval]` and `[$__range]` windows from range functions."""
+def strip_grafana_ranges(expr: str) -> str:
+    """Remove `[$__rate_interval]` and `[$__interval]` windows from range functions."""
     tokens = tokenize(expr)
     removals: list[tuple[int, int]] = []
-    changed_meaning = False
     index = 0
     while index < len(tokens):
         token = tokens[index]
@@ -179,16 +171,13 @@ def strip_grafana_ranges(expr: str) -> RangeRewrite:
             inner = expr[token.end : tokens[end].start].strip()
             if _STEP_RANGE_VARIABLE.match(inner):
                 removals.append((token.start, tokens[end].end))
-            elif _DASHBOARD_RANGE_VARIABLE.match(inner):
-                removals.append((token.start, tokens[end].end))
-                changed_meaning = True
             index = end + 1
             continue
         index += 1
     rewritten = expr
     for start, end in reversed(removals):
         rewritten = rewritten[:start] + rewritten[end:]
-    return RangeRewrite(expr=rewritten, changed_meaning=changed_meaning)
+    return rewritten
 
 
 def drop_match_all_matchers(expr: str) -> str:
@@ -205,8 +194,13 @@ def drop_match_all_matchers(expr: str) -> str:
             if len(kept) != len(elements):
                 inner = ", ".join(expr[element[0].start : element[-1].end] for element in kept)
                 previous = _previous_significant(tokens, index)
-                if not inner and previous is not None and previous.kind == "ident":
+                if not inner and previous is not None and _is_metric_name(previous):
                     edits.append((token.start, tokens[end].end, ""))
+                elif previous is None or not _is_metric_name(previous):
+                    # PromQL rejects a selector without a metric name when every matcher accepts an empty label.
+                    if all(_accepts_empty(element) for element in kept):
+                        inner = ", ".join(['__name__=~".+"', *([inner] if inner else [])])
+                    edits.append((token.end, tokens[end].start, inner))
                 else:
                     edits.append((token.end, tokens[end].start, inner))
             index = end + 1
@@ -216,6 +210,23 @@ def drop_match_all_matchers(expr: str) -> str:
     for start, end, replacement in reversed(edits):
         rewritten = rewritten[:start] + replacement + rewritten[end:]
     return rewritten
+
+
+def _accepts_empty(element: list[Token]) -> bool:
+    if len(element) != 3 or element[2].kind != "string" or element[1].text not in ("=", "!=", "=~", "!~"):
+        return False
+    value = unquote(element[2].text)
+    if element[1].text in ("=", "!="):
+        return (value == "") == (element[1].text == "=")
+    try:
+        matches_empty = re2.fullmatch(value, "") is not None
+    except re2.error:
+        return False
+    return matches_empty == (element[1].text == "=~")
+
+
+def _is_metric_name(token: Token) -> bool:
+    return token.kind == "ident" and token.text.lower() not in KEYWORDS
 
 
 def _previous_significant(tokens: list[Token], index: int) -> Token | None:

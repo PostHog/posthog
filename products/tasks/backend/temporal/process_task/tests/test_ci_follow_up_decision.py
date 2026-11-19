@@ -28,10 +28,6 @@ pytestmark = [pytest.mark.asyncio]
 
 
 class TestShouldRunCIFollowUpDecision:
-    # Direct decision tests for ProcessTaskWorkflow's copy of the CI follow-up
-    # gate (task_management has its own copy with an equivalent suite). Guards
-    # against re-introducing "nothing to report" wake-ups: a fingerprint change
-    # must only fire when the PR state is actionable.
     @pytest.mark.parametrize(
         "ci_status,changes_requested,expected_decision,expected_fingerprint",
         [
@@ -252,7 +248,6 @@ class TestBabysitFollowUpDecision:
             return snapshot if activity_fn is get_pr_babysit_snapshot else False
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: True)
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
 
         await wf._should_run_ci_follow_up()
@@ -298,21 +293,13 @@ class TestBabysitFollowUpDecision:
 
         assert await wf._should_run_ci_follow_up() is expected_decision
 
-    @pytest.mark.parametrize(
-        "patch_recorded,expected_decision",
-        [
-            (True, CIFollowUpDecision.WAIT),
-            (False, CIFollowUpDecision.FIRE),
-        ],
-    )
-    async def test_merge_queue_skip_follows_the_patch_marker(self, monkeypatch, patch_recorded, expected_decision):
+    async def test_merge_queue_push_waits_instead_of_firing(self, monkeypatch):
         wf = _babysit_workflow()
         _patch_snapshot(
             monkeypatch, _babysit_snapshot(failing_checks=[BABYSIT_CHECK], merge_queue_push_would_eject=True)
         )
-        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: patch_recorded)
 
-        assert await wf._should_run_ci_follow_up() is expected_decision
+        assert await wf._should_run_ci_follow_up() is CIFollowUpDecision.WAIT
 
     async def test_dispatched_check_is_silenced_until_a_new_head(self, monkeypatch):
         wf = _babysit_workflow()

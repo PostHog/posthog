@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -104,34 +106,45 @@ describe('connectionSelectorLogic', () => {
         )
     })
 
-    it('shows a provisioned managed warehouse below ClickHouse', async () => {
-        mockConnectionsList.mockResolvedValue([
-            {
-                id: 'conn-duck',
-                prefix: 'managed_warehouse',
-                engine: 'duckdb',
-                source_type: 'Postgres',
-                access_method: 'direct',
-                supports_hogql: true,
-                is_builtin_managed_warehouse: true,
-            },
-        ])
-        logic = connectionSelectorLogic()
-        logic.mount()
-        logic.actions.maybeLoadConnectionOptions()
+    it.each([false, true])(
+        'keeps the managed connection but hides its menu option with Trino enabled=%s',
+        async (enabled) => {
+            mockConnectionsList.mockResolvedValue([
+                {
+                    id: 'conn-duck',
+                    prefix: 'managed_warehouse',
+                    engine: 'duckdb',
+                    source_type: 'Postgres',
+                    access_method: 'direct',
+                    supports_hogql: true,
+                    is_builtin_managed_warehouse: true,
+                },
+            ])
+            logic = connectionSelectorLogic()
+            logic.mount()
+            featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.MANAGED_TRINO_QUERY] : [], {
+                [FEATURE_FLAGS.MANAGED_TRINO_QUERY]: enabled,
+            })
+            logic.actions.maybeLoadConnectionOptions()
 
-        await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
 
-        const [clickHouseOption, managedWarehouseOption] = logic.values.connectionSelectOptions[0].options
-        expect(clickHouseOption).toEqual(
-            expect.objectContaining({ value: POSTHOG_WAREHOUSE, label: 'PostHog (ClickHouse)' })
-        )
-        expect(managedWarehouseOption).toEqual(
-            expect.objectContaining({ value: 'conn-duck', label: 'PostHog (Managed warehouse)' })
-        )
-        expect(managedWarehouseOption.iconSrc).toEqual(clickHouseOption.iconSrc)
-        expect(managedWarehouseOption).not.toHaveProperty('managementUrl')
-    })
+            const [clickHouseOption, managedWarehouseOption] = logic.values.connectionSelectOptions[0].options
+            expect(clickHouseOption).toEqual(
+                expect.objectContaining({ value: POSTHOG_WAREHOUSE, label: 'PostHog (ClickHouse)' })
+            )
+            expect(managedWarehouseOption).toEqual(
+                expect.objectContaining({ value: 'conn-duck', label: 'PostHog (Managed warehouse)', hidden: enabled })
+            )
+            expect(managedWarehouseOption.iconSrc).toEqual(clickHouseOption.iconSrc)
+            expect(managedWarehouseOption).not.toHaveProperty('managementUrl')
+            expect(logic.values.connectionOptions).toContainEqual(expect.objectContaining({ id: 'conn-duck' }))
+            expect(getConnectionSelectorValue(false, 'conn-duck')).toEqual('conn-duck')
+
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            expect(logic.values.connectionSelectOptions[0].options[1].hidden).toBe(false)
+        }
+    )
 
     it('keeps the auto-provisioned Duckgres source external when the backend marks it external', async () => {
         mockConnectionsList.mockResolvedValue([
@@ -148,6 +161,9 @@ describe('connectionSelectorLogic', () => {
         ])
         logic = connectionSelectorLogic()
         logic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MANAGED_TRINO_QUERY], {
+            [FEATURE_FLAGS.MANAGED_TRINO_QUERY]: true,
+        })
         logic.actions.maybeLoadConnectionOptions()
 
         await expectLogic(logic).toFinishAllListeners()
@@ -160,6 +176,7 @@ describe('connectionSelectorLogic', () => {
                 managementUrl: urls.dataWarehouseSource('managed-conn-duck'),
             })
         )
+        expect(externalOption.hidden).toBe(false)
     })
 
     it('derives the selected connection value from sql editor state', async () => {

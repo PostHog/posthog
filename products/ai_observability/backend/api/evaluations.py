@@ -1,7 +1,9 @@
-from collections import Counter
-from collections.abc import Mapping, Sequence
+import hashlib
+from collections.abc import Callable, Mapping, Sequence
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any, cast
 
+from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.http import Http404
@@ -9,7 +11,8 @@ from django.http import Http404
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -17,38 +20,53 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 
 from posthog.hogql import ast
 
+from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
-from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError, query_ai_events
-from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
+from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError
 from posthog.models.team import Team
-from posthog.permissions import AccessControlPermission, posthog_feature_flag_enabled
-from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
-from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
+from posthog.permissions import AccessControlPermission, is_service_auth
+from posthog.rate_limit import (
+    AIObservabilityEvaluationJudgeTestTeamThrottle,
+    AIObservabilityEvaluationJudgeTestThrottle,
+)
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
-from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
+from posthog.temporal.ai_observability.run_evaluation import run_hog_eval
 from posthog.temporal.ai_observability.run_session_evaluation import run_hog_eval_over_recent_sessions
 from posthog.temporal.ai_observability.run_trace_evaluation import run_hog_eval_over_recent_traces
 
+from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
+from products.access_control.backend.facade.property_access import restriction_fingerprint
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
 
 from ..evaluation_conditions import build_condition_filter
-from ..hog import compile_ai_observability_hog
-from ..llm import DEFAULT_MODEL_BY_PROVIDER
-from ..llm.decisions import decision_evaluations_enabled, is_decision_model
+from ..facade import (
+    api as facade,
+    contracts,
+)
+from ..facade.contracts import Contract
+from ..hog import compile_ai_observability_hog, hog_compile_error_message
+from ..llm import DEFAULT_MODEL_BY_PROVIDER, supports_reasoning_level
+from ..llm.decisions import is_decision_model
 from ..llm.errors import ProviderConnectionError
-from ..llm.providers.openrouter import OPENROUTER_BASE_URL, is_non_chat_model
+from ..llm.providers.openai import OpenAIConfig
+from ..llm.providers.openrouter import is_non_chat_model
+from ..logic.evaluations.preview_outcomes import outcome_counts, preview_grader
+from ..logic.evaluations.preview_queries import generation_io_preview, load_generation_events
+from ..logic.evaluations.preview_units import session_quiet_period_seconds, trace_window_seconds
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
@@ -81,34 +99,16 @@ from ..models.evaluation_reports import EvaluationReport
 from ..models.evaluations import Evaluation, EvaluationTarget
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
+from ..presentation.query_concurrency import query_concurrency_slots
+from .condition_sets import ConditionSetSerializer
 from .metrics import llma_track_latency
 
 if TYPE_CHECKING:
     from posthog.models import User
 
+    from ..logic.evaluations.period import PeriodBounds
+
 logger = structlog.get_logger(__name__)
-
-NUMERIC_EVALUATIONS_FEATURE_FLAG = "llm-analytics-numeric-evaluations"
-CATEGORICAL_EVALUATIONS_FEATURE_FLAG = "llm-analytics-categorical-evaluations"
-
-
-def _evaluation_output_enabled(serializer: serializers.BaseSerializer, flag_key: str) -> bool:
-    request = serializer.context.get("request")
-    get_team = serializer.context.get("get_team")
-    user = getattr(request, "user", None)
-    if user is None or not getattr(user, "is_authenticated", False) or not callable(get_team):
-        return False
-
-    team = get_team()
-    try:
-        return posthog_feature_flag_enabled(
-            flag_key,
-            str(user.distinct_id),
-            organization_id=team.organization_id,
-            team_id=team.id,
-        )
-    except Exception:
-        return False
 
 
 @extend_schema_field(
@@ -123,7 +123,27 @@ def _evaluation_output_enabled(serializer: serializers.BaseSerializer, flag_key:
                         "type": "string",
                         "description": "Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.",
                         "minLength": 1,
-                    }
+                    },
+                    "judge_method": {
+                        "type": "string",
+                        "enum": ["llm", "decision"],
+                        "nullable": True,
+                        "description": "Judge method. Omit to keep the saved method; null restores automatic routing.",
+                    },
+                    "include_media": {
+                        "type": "boolean",
+                        "description": "Set to false to judge text only.",
+                    },
+                    "reasoning_level": {
+                        "type": "string",
+                        "enum": ["minimal", "low", "medium", "high"],
+                        "nullable": True,
+                        "description": (
+                            "How much the judge model reasons before it answers. Only Anthropic and OpenAI "
+                            "reasoning models with the 'llm' judge method support it. Omit to keep the saved "
+                            "level; null uses the model's default."
+                        ),
+                    },
                 },
                 "additionalProperties": False,
             },
@@ -182,6 +202,13 @@ class _EvaluationConfigField(serializers.JSONField):
                 "evaluations, where a true result satisfied the criteria. "
                 "Set it to true for detector-style evaluations, so a true "
                 "result is counted and labeled as a fail.",
+            },
+            "decision_threshold": {
+                "type": "number",
+                "nullable": True,
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.",
             },
             "min": {
                 "type": "number",
@@ -274,75 +301,62 @@ class _OutputConfigField(serializers.DictField):
     child = serializers.JSONField(allow_null=True)
 
 
+# One object rather than a `oneOf` per strategy: a generated zod union strips the keys a branch does not
+# declare, so a payload that matches the wrong branch loses its settings, and the empty config of a
+# generation target matches no branch. `validate_target_config` checks the per-strategy combination.
 @extend_schema_field(
     {
-        "oneOf": [
-            {
-                "type": "object",
-                "title": "Fixed window settle config",
-                "required": ["strategy"],
-                "properties": {
-                    "strategy": {
-                        "type": "string",
-                        "enum": ["fixed_window"],
-                        "description": "Wait a fixed window after the first matching generation, then evaluate.",
-                    },
-                    "window_seconds": {
-                        "type": "integer",
-                        "description": (
-                            "Seconds to wait after the first matching generation before evaluating the whole "
-                            "unit. Captured when the run is scheduled — editing it does not change runs "
-                            "already in flight. The accepted range depends on `target`: "
-                            f"{TRACE_EVAL_MIN_WINDOW_SECONDS}–{TRACE_EVAL_MAX_WINDOW_SECONDS} for 'trace', "
-                            f"{SESSION_EVAL_MIN_WINDOW_SECONDS}–{SESSION_EVAL_MAX_WINDOW_SECONDS} for 'session'. "
-                            "The default also depends on `target`; see the field-level help_text."
-                        ),
-                        "minimum": min(TRACE_EVAL_MIN_WINDOW_SECONDS, SESSION_EVAL_MIN_WINDOW_SECONDS),
-                        "maximum": max(TRACE_EVAL_MAX_WINDOW_SECONDS, SESSION_EVAL_MAX_WINDOW_SECONDS),
-                    },
-                },
-                "additionalProperties": False,
+        "type": "object",
+        "title": "Settle config",
+        "properties": {
+            "strategy": {
+                "type": "string",
+                "enum": ["fixed_window", "inactivity"],
+                "description": (
+                    "'fixed_window' waits a fixed window after the first matching generation, then evaluates. "
+                    "'inactivity' evaluates once the unit has had no new activity for the quiet period. "
+                    "Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'."
+                ),
             },
-            {
-                "type": "object",
-                "title": "Inactivity settle config",
-                "required": ["strategy"],
-                "properties": {
-                    "strategy": {
-                        "type": "string",
-                        "enum": ["inactivity"],
-                        "description": "Evaluate once the unit has had no new activity for the quiet period.",
-                    },
-                    "quiet_period_seconds": {
-                        "type": "integer",
-                        "description": (
-                            "Seconds without new activity before the unit counts as settled. The accepted "
-                            f"range depends on `target`: {TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS}–"
-                            f"{TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS} for 'trace', "
-                            f"{SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS}–{SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS} "
-                            "for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                        "minimum": min(TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS, SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS),
-                        "maximum": max(TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS, SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS),
-                    },
-                    "max_age_seconds": {
-                        "type": "integer",
-                        "description": (
-                            "Hard cap in seconds on the total wait from the first matching generation, even "
-                            "if the unit stays active. Must be at least quiet_period_seconds. The accepted "
-                            f"range depends on `target`: {TRACE_EVAL_MIN_MAX_AGE_SECONDS}–"
-                            f"{TRACE_EVAL_MAX_MAX_AGE_SECONDS} for 'trace', "
-                            f"{SESSION_EVAL_MIN_MAX_AGE_SECONDS}–{SESSION_EVAL_MAX_MAX_AGE_SECONDS} for 'session'. "
-                            "The default also depends on `target`; see the field-level help_text."
-                        ),
-                        "minimum": min(TRACE_EVAL_MIN_MAX_AGE_SECONDS, SESSION_EVAL_MIN_MAX_AGE_SECONDS),
-                        "maximum": max(TRACE_EVAL_MAX_MAX_AGE_SECONDS, SESSION_EVAL_MAX_MAX_AGE_SECONDS),
-                    },
-                },
-                "additionalProperties": False,
+            "window_seconds": {
+                "type": "integer",
+                "description": (
+                    "fixed_window only. Seconds to wait after the first matching generation before evaluating "
+                    "the whole unit. Captured when the run is scheduled — editing it does not change runs "
+                    "already in flight. The accepted range depends on `target`: "
+                    f"{TRACE_EVAL_MIN_WINDOW_SECONDS}–{TRACE_EVAL_MAX_WINDOW_SECONDS} for 'trace', "
+                    f"{SESSION_EVAL_MIN_WINDOW_SECONDS}–{SESSION_EVAL_MAX_WINDOW_SECONDS} for 'session'. "
+                    "The default also depends on `target`; see the field-level help_text."
+                ),
+                "minimum": min(TRACE_EVAL_MIN_WINDOW_SECONDS, SESSION_EVAL_MIN_WINDOW_SECONDS),
+                "maximum": max(TRACE_EVAL_MAX_WINDOW_SECONDS, SESSION_EVAL_MAX_WINDOW_SECONDS),
             },
-        ],
-        "discriminator": {"propertyName": "strategy"},
+            "quiet_period_seconds": {
+                "type": "integer",
+                "description": (
+                    "inactivity only. Seconds without new activity before the unit counts as settled. The "
+                    f"accepted range depends on `target`: {TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS}–"
+                    f"{TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS} for 'trace', "
+                    f"{SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS}–{SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS} "
+                    "for 'session'. The default also depends on `target`; see the field-level help_text."
+                ),
+                "minimum": min(TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS, SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS),
+                "maximum": max(TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS, SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS),
+            },
+            "max_age_seconds": {
+                "type": "integer",
+                "description": (
+                    "inactivity only. Hard cap in seconds on the total wait from the first matching generation, "
+                    "even if the unit stays active. Must be at least quiet_period_seconds. The accepted range "
+                    f"depends on `target`: {TRACE_EVAL_MIN_MAX_AGE_SECONDS}–{TRACE_EVAL_MAX_MAX_AGE_SECONDS} "
+                    f"for 'trace', {SESSION_EVAL_MIN_MAX_AGE_SECONDS}–{SESSION_EVAL_MAX_MAX_AGE_SECONDS} for "
+                    "'session'. The default also depends on `target`; see the field-level help_text."
+                ),
+                "minimum": min(TRACE_EVAL_MIN_MAX_AGE_SECONDS, SESSION_EVAL_MIN_MAX_AGE_SECONDS),
+                "maximum": max(TRACE_EVAL_MAX_MAX_AGE_SECONDS, SESSION_EVAL_MAX_MAX_AGE_SECONDS),
+            },
+        },
+        "additionalProperties": False,
     }
 )
 class _TargetConfigField(serializers.JSONField):
@@ -389,7 +403,7 @@ class ModelConfigurationSerializer(serializers.Serializer):
         }
 
 
-class EvaluationConditionSerializer(serializers.Serializer):
+class EvaluationConditionSerializer(ConditionSetSerializer):
     """A trigger condition set controlling which generations an evaluation runs on."""
 
     id = serializers.CharField(max_length=100, help_text="Stable identifier for this condition set.")
@@ -452,6 +466,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         help_text=(
             "Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and "
             "{true_is_failure} to declare that a true result means the evaluation found a problem. "
+            "For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). "
             "For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. "
             "For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
         ),
@@ -459,11 +474,10 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     target_config = _TargetConfigField(
         required=False,
         help_text=(
-            "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on "
-            "`strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, "
-            "max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, "
-            "using per-target defaults, and the accepted bounds also depend on `target`. "
-            "Empty for 'generation'."
+            "Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a "
+            "settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, "
+            "max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other "
+            "field you omit, using per-target defaults, and the accepted bounds also depend on `target`."
         ),
     )
     conditions = EvaluationConditionSerializer(
@@ -543,42 +557,93 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "deleted": {"help_text": "Set to true to soft-delete the evaluation."},
         }
 
+    def _is_paused_without_model(self, data: dict[str, object]) -> bool:
+        """An LLM judge that is created paused without a model, or stays that way through an edit. A team with
+        no provider key has no model to pick, so the judge may wait for one. Turning it on runs
+        `_validate_can_run`, which needs a key and a model that can run it.
+
+        A new evaluation counts only when the payload sets `enabled` to false, so a request that forgot the
+        model still gets the error. An edit counts only when it leaves the type and the judge method as they
+        are, so choosing a method for an older evaluation still asks for a model."""
+        if data.get("model_configuration") or data.get("enabled", False) is not False:
+            return False
+        if self.instance is None:
+            return "enabled" in data
+        config = data.get("evaluation_config", self.instance.evaluation_config)
+        method = config.get("judge_method") if isinstance(config, dict) else None
+        return (
+            self.instance.evaluation_type == EvaluationType.LLM_JUDGE.value
+            and data.get("evaluation_type", self.instance.evaluation_type) == EvaluationType.LLM_JUDGE.value
+            and not self.instance.enabled
+            and self.instance.model_configuration_id is None
+            and method == (self.instance.evaluation_config or {}).get("judge_method")
+        )
+
     def _uses_decision_model(self, data: dict[str, object]) -> bool:
+        evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
+        if evaluation_type != EvaluationType.LLM_JUDGE.value:
+            return False
+
+        stored_config = getattr(self.instance, "evaluation_config", {})
+        evaluation_config = data.get("evaluation_config", stored_config)
+        judge_method = evaluation_config.get("judge_method") if isinstance(evaluation_config, dict) else None
+        method_changed = judge_method != stored_config.get("judge_method")
         should_validate_model = (
             self.instance is None
             or bool({"model_configuration", "evaluation_type", "output_type", "output_config"} & data.keys())
             or data.get("enabled", False)
+            or method_changed
         )
         if not should_validate_model:
             return False
 
         model_configuration = self._effective_model_configuration(data) or {}
+        if judge_method is not None and not model_configuration:
+            if self._is_paused_without_model(data):
+                return False
+            raise serializers.ValidationError(
+                {"model_configuration": "Select a provider and model for this LLM judge evaluation."}
+            )
         model_provider = model_configuration.get("provider")
+        if judge_method == "llm":
+            if model_provider == "system_one":
+                raise serializers.ValidationError({"model_configuration": "Select a model that supports LLM judging."})
+            return False
         try:
-            return is_decision_model(
+            supports_decisions = is_decision_model(
                 model_provider,
                 model_configuration.get("model"),
-                openrouter_enabled=model_provider == "openrouter"
-                and decision_evaluations_enabled(self.context["get_team"]().id, base_url=OPENROUTER_BASE_URL),
+                decision_only=judge_method is None,
+                openai_enabled=judge_method == "decision"
+                and model_provider == LLMProvider.OPENAI
+                and model_configuration.get("model") in OpenAIConfig.DECISION_MODELS,
             )
         except ProviderConnectionError as e:
             raise serializers.ValidationError({"model_configuration": str(e)}) from e
+        if judge_method == "decision" and not supports_decisions:
+            raise serializers.ValidationError(
+                {"model_configuration": "Select an available decision model for this judge method."}
+            )
+        return supports_decisions
 
     def validate(self, data):
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
         output_type = data.get("output_type") or getattr(self.instance, "output_type", None)
-        flag_key = {
-            "numeric": NUMERIC_EVALUATIONS_FEATURE_FLAG,
-            "categorical": CATEGORICAL_EVALUATIONS_FEATURE_FLAG,
-        }.get(str(output_type))
-        if (
-            flag_key
-            and (self.instance is None or self.instance.output_type != output_type)
-            and not _evaluation_output_enabled(self, flag_key)
-        ):
-            raise serializers.ValidationError(
-                {"output_type": f"{str(output_type).capitalize()} evaluations are not enabled for this project."}
-            )
+        requests_reasoning_level = isinstance(data.get("evaluation_config"), dict) and (
+            "reasoning_level" in data["evaluation_config"]
+        )
+        if "evaluation_config" in data:
+            config = data["evaluation_config"]
+            if not isinstance(config, dict):
+                raise serializers.ValidationError({"evaluation_config": "Must be an object."})
+            if self.partial and self.instance is not None and evaluation_type == EvaluationType.LLM_JUDGE.value:
+                # A prompt-only PATCH must not reset the saved judge settings or image opt-out.
+                saved = {
+                    key: self.instance.evaluation_config[key]
+                    for key in ("judge_method", "reasoning_level", "include_media")
+                    if key not in config and key in self.instance.evaluation_config
+                }
+                data["evaluation_config"] = {**saved, **config}
         if (
             self.instance
             and output_type != self.instance.output_type
@@ -608,13 +673,21 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             clears_existing_model_configuration = bool(
                 self.instance and self.instance.model_configuration_id and "model_configuration" in data
             )
-            if newly_requires_model_configuration or clears_existing_model_configuration:
+            if (
+                newly_requires_model_configuration and not self._is_paused_without_model(data)
+            ) or clears_existing_model_configuration:
                 raise serializers.ValidationError(
                     {"model_configuration": "Select a provider and model for this LLM judge evaluation."}
                 )
 
-        if data.get("model_configuration") or data.get("enabled"):
+        method_changed = "evaluation_config" in data and data["evaluation_config"].get("judge_method") != getattr(
+            self.instance, "evaluation_config", {}
+        ).get("judge_method")
+        if data.get("model_configuration") or data.get("enabled") or method_changed:
             self._validate_chat_model(data, uses_decision_model=uses_decision_model)
+        self._validate_reasoning_level(
+            data, uses_decision_model=uses_decision_model, requested=requests_reasoning_level
+        )
 
         should_validate_configs = (
             self.instance is None
@@ -647,6 +720,20 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 raise serializers.ValidationError(
                     {
                         "output_config": "Numeric evaluations with decision models require a minimum score below the maximum score."
+                    }
+                )
+
+        if uses_decision_model and output_type == "categorical":
+            model_configuration = self._effective_model_configuration(data) or {}
+            config = data.get("output_config", getattr(self.instance, "output_config", {}))
+            if (
+                model_configuration.get("provider") == LLMProvider.OPENAI
+                and config.get("selection_mode", "single") == "single"
+                and len(config.get("options", [])) < 2
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "output_config": "OpenAI decision models require at least two options for single-selection categories."
                     }
                 )
 
@@ -697,13 +784,30 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         if uses_decision_model:
             return
         if model and is_non_chat_model(model):
-            guidance = (
-                "Choose a chat model or a supported decision model."
-                if decision_evaluations_enabled(self.context["get_team"]().id, base_url=OPENROUTER_BASE_URL)
-                else "Choose a chat model."
-            )
             raise serializers.ValidationError(
-                {"model_configuration": f"'{model}' is not supported as an evaluation judge. {guidance}"}
+                {
+                    "model_configuration": f"'{model}' is not supported as an evaluation judge. "
+                    "Choose a chat model or a supported decision model."
+                }
+            )
+
+    def _validate_reasoning_level(self, data: dict, *, uses_decision_model: bool, requested: bool) -> None:
+        evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
+        if evaluation_type != EvaluationType.LLM_JUDGE.value:
+            return
+        evaluation_config = data.get("evaluation_config", getattr(self.instance, "evaluation_config", None))
+        if not isinstance(evaluation_config, dict) or not evaluation_config.get("reasoning_level"):
+            return
+        model_config = self._effective_model_configuration(data) or {}
+        if uses_decision_model or not supports_reasoning_level(model_config.get("provider"), model_config.get("model")):
+            if self.instance is not None and not requested:
+                # A saved level must not block a model change. The create page drops it the same way.
+                data["evaluation_config"] = {k: v for k, v in evaluation_config.items() if k != "reasoning_level"}
+                return
+            raise serializers.ValidationError(
+                {
+                    "evaluation_config": "This judge model doesn't support a reasoning level. Choose an Anthropic or OpenAI reasoning model, or use the model default."
+                }
             )
 
     def _validate_can_run(self, data: dict) -> None:
@@ -756,17 +860,18 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         config's active-key fallback, is already handled by `_validate_can_run`; this covers what
         is left: a null config resolves via the team's active key, and anything else must add a
         provider key of its own."""
-        add_key_message = "Add a provider API key to enable this evaluation."
         team = self.context["get_team"]()
         config = EvaluationConfig.objects.filter(team=team).first()
 
         explicit_config = self._effective_model_configuration(data)
         if explicit_config is not None:
-            raise serializers.ValidationError({"enabled": add_key_message})
+            raise serializers.ValidationError(
+                {"enabled": self._missing_key_message(team, explicit_config.get("provider"))}
+            )
 
         active_key = config.active_provider_key if config else None
         if active_key is None:
-            raise serializers.ValidationError({"enabled": add_key_message})
+            raise serializers.ValidationError({"enabled": self._missing_key_message(team, None)})
 
         if active_key.state != LLMProviderKey.State.OK:
             raise serializers.ValidationError(
@@ -778,6 +883,22 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                     "enabled": "This evaluation's provider has no default model. Set a model on the evaluation before enabling it."
                 }
             )
+
+    def _missing_key_message(self, team: Team, provider: str | None) -> str:
+        """A team with a working key the eval isn't set to use needs to pick it, not add another one."""
+        keys = LLMProviderKey.objects.filter(team=team, state=LLMProviderKey.State.OK)
+        if provider:
+            keys = keys.filter(provider=provider)
+        if keys.exists():
+            return (
+                "This project has a working AI provider API key, but this evaluation isn't set to use it. "
+                "Choose that key for the evaluation's model, or make it the project's active key, then enable the evaluation."
+            )
+        return (
+            "LLM judges run on your own AI provider API key, and this project doesn't have a working one yet. "
+            "A project admin can add one in Settings > AI observability > Bring your own key (BYOK), "
+            "then enable this evaluation."
+        )
 
     def _effective_model_configuration(self, data: dict) -> dict[str, Any] | None:
         """The explicit model configuration the evaluation will have after this update, or None
@@ -947,22 +1068,39 @@ class EvaluationListSerializer(EvaluationSerializer):
         read_only_fields = [f for f in EvaluationSerializer.Meta.read_only_fields if f != "created_by"]
 
 
+class PreviewSettleStrategy(models.TextChoices):
+    FIXED_WINDOW = "fixed_window", "Fixed window"
+    INACTIVITY = "inactivity", "Inactivity"
+
+
 class TestHogTargetConfigSerializer(serializers.Serializer):
+    """The evaluation's own `target_config` works here, so a client sends it as it is."""
+
+    strategy = serializers.ChoiceField(
+        choices=PreviewSettleStrategy.choices,
+        required=False,
+        help_text=(
+            "The evaluation's settle strategy. A session evaluation with a fixed window is previewed on "
+            "sessions that have been quiet for `window_seconds`, otherwise for `quiet_period_seconds`."
+        ),
+    )
     window_seconds = serializers.IntegerField(
         required=False,
-        default=TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
         min_value=TRACE_EVAL_MIN_WINDOW_SECONDS,
-        max_value=TRACE_EVAL_MAX_WINDOW_SECONDS,
-        help_text="Aggregation window for trace samples, in seconds.",
+        max_value=SESSION_EVAL_MAX_WINDOW_SECONDS,
+        help_text=(
+            f"Aggregation window in seconds. A trace preview defaults to {TRACE_EVAL_DEFAULT_WINDOW_SECONDS} "
+            f"and uses at most {TRACE_EVAL_MAX_WINDOW_SECONDS}."
+        ),
     )
     quiet_period_seconds = serializers.IntegerField(
         required=False,
-        default=SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
         min_value=SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
         max_value=SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
         help_text=(
             "For session samples: only sessions with no activity for this long are previewed, "
-            "matching when a session evaluation would actually run."
+            "matching when a session evaluation would actually run. Defaults to "
+            f"{SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS}."
         ),
     )
 
@@ -973,7 +1111,107 @@ class HogEvaluationOutputType(models.TextChoices):
     CATEGORICAL = OutputType.CATEGORICAL.value, OutputType.CATEGORICAL.label
 
 
-class TestHogRequestSerializer(serializers.Serializer):
+OVERVIEW_CACHE_SECONDS = 300
+
+
+@extend_schema_field(OpenApiTypes.STR)
+class _DateOrDateTimeField(serializers.Field):
+    """A `YYYY-MM-DD` date for whole days, or an ISO 8601 datetime for an exact instant."""
+
+    def to_internal_value(self, data: Any) -> date | datetime:
+        if not isinstance(data, str):
+            self.fail("invalid")
+        try:
+            return date.fromisoformat(data) if len(data) == 10 else datetime.fromisoformat(data)
+        except ValueError:
+            self.fail("invalid")
+
+    def to_representation(self, value: date | datetime) -> str:
+        return value.isoformat()
+
+    default_error_messages = {"invalid": "Enter a date (YYYY-MM-DD) or an ISO 8601 datetime."}
+
+
+class EvaluationsOverviewPeriodSerializer(serializers.Serializer):
+    date_from = _DateOrDateTimeField(
+        required=False,
+        help_text="Start of the period: a date for the whole day in the project's timezone, or an ISO 8601 datetime. "
+        "Defaults to 13 days before `date_to`.",
+    )
+    date_to = _DateOrDateTimeField(
+        required=False,
+        help_text="End of the period: a date includes that whole day, a datetime is an exclusive instant. "
+        "Defaults to today.",
+    )
+    refresh = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Skip the result cached for the last five minutes and compute it again.",
+    )
+
+
+class EvaluationsOverviewQuerySerializer(EvaluationsOverviewPeriodSerializer):
+    evaluation_ids = RepeatedOrCommaSeparatedListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text="Only these evaluations. Defaults to every evaluation the user can see.",
+    )
+
+
+class EvaluationRunOutcome(models.TextChoices):
+    PASSED = "passed", "Passed"
+    FAILED = "failed", "Failed"
+
+
+class EvaluationRunsQuerySerializer(EvaluationsOverviewPeriodSerializer):
+    outcome = serializers.ChoiceField(
+        choices=EvaluationRunOutcome.choices,
+        required=False,
+        help_text="Only runs with this outcome under the evaluation's passing rule. Without it, every graded run, "
+        "including scored, categorized and sentiment runs. An evaluation without a passing rule rejects this filter "
+        "with a 400.",
+    )
+    limit = serializers.IntegerField(
+        required=False, default=5, min_value=1, max_value=50, help_text="How many runs to return, newest first."
+    )
+
+
+class PreviewConditionSerializer(EvaluationConditionSerializer):
+    """A trigger condition set, as on an evaluation. The id is optional here."""
+
+    id = serializers.CharField(max_length=100, required=False, help_text="Identifier of this condition set, if any.")
+
+
+class _EvaluationPreviewScopeSerializer(serializers.Serializer):
+    """What a preview samples from: the unsaved evaluation's conditions and target."""
+
+    conditions = PreviewConditionSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Optional trigger conditions to filter which events are sampled.",
+    )
+    target = serializers.ChoiceField(
+        choices=EvaluationTarget.choices,
+        required=False,
+        default=EvaluationTarget.GENERATION,
+        help_text=(
+            "What the evaluation runs against: 'generation' samples individual generations, "
+            "'trace' samples whole traces, and 'session' samples whole sessions that have gone "
+            "quiet. Each target runs against the same globals it would run against online."
+        ),
+    )
+    target_config = TestHogTargetConfigSerializer(
+        required=False,
+        default=dict,
+        help_text=(
+            "Target-specific preview settings. For a trace target, set window_seconds between "
+            f"{TRACE_EVAL_MIN_WINDOW_SECONDS} and {TRACE_EVAL_MAX_WINDOW_SECONDS}."
+        ),
+    )
+
+
+class TestHogRequestSerializer(_EvaluationPreviewScopeSerializer):
     output_type = serializers.ChoiceField(
         choices=HogEvaluationOutputType.choices,
         required=False,
@@ -1005,28 +1243,16 @@ class TestHogRequestSerializer(serializers.Serializer):
     allows_na = serializers.BooleanField(
         required=False, default=False, help_text="Whether the evaluation can return N/A for non-applicable generations."
     )
-    conditions = serializers.ListField(
-        child=serializers.DictField(),
+    sample_ids = serializers.ListField(
+        child=serializers.CharField(max_length=400),
         required=False,
-        default=list,
-        help_text="Optional trigger conditions to filter which events are sampled.",
-    )
-    target = serializers.ChoiceField(
-        choices=EvaluationTarget.choices,
-        required=False,
-        default=EvaluationTarget.GENERATION,
+        max_length=facade.MAX_PREVIEW_UNITS,
         help_text=(
-            "What the evaluation runs against: 'generation' samples individual generations, "
-            "'trace' samples whole traces, and 'session' samples whole sessions that have gone "
-            "quiet. Each target runs against the same globals it would run against online."
-        ),
-    )
-    target_config = TestHogTargetConfigSerializer(
-        required=False,
-        default=dict,
-        help_text=(
-            "Target-specific preview settings. For a trace target, set window_seconds between "
-            f"{TRACE_EVAL_MIN_WINDOW_SECONDS} and {TRACE_EVAL_MAX_WINDOW_SECONDS}."
+            "Test exactly these units instead of sampling: generation event UUIDs, trace IDs, or session IDs, "
+            f"matching `target`. Up to {facade.MAX_PREVIEW_UNITS}, and only units from the last "
+            f"{EVALUATION_TEST_LOOKBACK_DAYS} days. Conditions and sampling are ignored for pinned units, and "
+            "unknown IDs are skipped. A session target tests at most "
+            f"{SESSION_TEST_HOG_MAX_SAMPLES} sessions."
         ),
     )
 
@@ -1041,6 +1267,13 @@ class TestHogRequestSerializer(serializers.Serializer):
         data["output_config"] = output_config
         data["allows_na"] = output_config.get("allows_na", False)
         return data
+
+
+class PreviewOutcome(models.TextChoices):
+    PASS = "pass", "Pass"
+    FAIL = "fail", "Fail"
+    NA = "na", "Not applicable"
+    ERROR = "error", "Error"
 
 
 class TestHogResultItemSerializer(serializers.Serializer):
@@ -1070,6 +1303,14 @@ class TestHogResultItemSerializer(serializers.Serializer):
     )
     reasoning = serializers.CharField(allow_null=True, help_text="Hog evaluation reasoning string, if any.")
     error = serializers.CharField(allow_null=True, help_text="Error message if the Hog code raised an exception.")
+    outcome = serializers.ChoiceField(
+        choices=PreviewOutcome.choices,
+        allow_null=True,
+        help_text=(
+            "How the evaluation's passing rule grades this result: pass, fail, na for a not-applicable result, "
+            "or error. Null when there is no rule to grade it, such as a score with no passing rule."
+        ),
+    )
 
 
 class TestHogResponseSerializer(serializers.Serializer):
@@ -1079,28 +1320,97 @@ class TestHogResponseSerializer(serializers.Serializer):
     )
 
 
-def _hog_test_result_counts(
-    results: Sequence[Mapping[str, object]], output_type: str, output_config: dict[str, object] | None
-) -> dict[str, int]:
-    config = output_config or {}
-    # Preview telemetry and reports must agree on polarity and thresholds.
-    definition = get_outcome_definition(
-        output_type, true_is_failure=config.get("true_is_failure") is True, output_config=config
+class EvaluationSampleTrafficRequestSerializer(_EvaluationPreviewScopeSerializer):
+    count = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=facade.MAX_PREVIEW_UNITS,
+        help_text=(
+            f"How many units to return, {facade.DEFAULT_PREVIEW_UNITS} by default. Sessions return at most "
+            f"{SESSION_TEST_HOG_MAX_SAMPLES}, the number a session test covers."
+        ),
     )
-    counts: Counter[str | None] = Counter()
-    for result in results:
-        if result["error"]:
-            counts["error"] += 1
-        else:
-            value = (
-                result.get("categories")
-                if output_type == "categorical"
-                else result.get("score")
-                if output_type == "numeric"
-                else result["result"]
-            )
-            counts[definition.label_for(value, applicable=value is not None)] += 1
-    return {f"{outcome}_count": counts[outcome] for outcome in ("pass", "fail", "na", "error")}
+
+
+class EvaluationSampleTrafficItemSerializer(serializers.Serializer):
+    sample_id = serializers.CharField(help_text="Generation event UUID, trace ID, or session ID, matching `target`.")
+    sample_type = serializers.ChoiceField(
+        choices=EvaluationTarget.choices, help_text="Type of unit: generation, trace, or session."
+    )
+    trace_id = serializers.CharField(
+        allow_null=True,
+        help_text="Trace to open for this unit. For a session, its most recent trace. Null when the unit has none.",
+    )
+    timestamp = serializers.DateTimeField(help_text="When the unit's latest generation happened.")
+    input_preview = serializers.CharField(
+        help_text="First 200 characters of the last user message in the unit's latest generation."
+    )
+    output_preview = serializers.CharField(
+        help_text="First 200 characters of the last assistant message in the unit's latest generation."
+    )
+
+
+class EvaluationSampleTrafficResponseSerializer(serializers.Serializer):
+    results = EvaluationSampleTrafficItemSerializer(many=True)
+
+
+# Sentiment is not offered: its classifier ships only in the AI observability worker image, not the web image.
+class TestOnSampleEvaluationType(models.TextChoices):
+    LLM_JUDGE = EvaluationType.LLM_JUDGE.value, EvaluationType.LLM_JUDGE.label
+
+
+class EvaluationTestOnSampleRequestSerializer(_EvaluationPreviewScopeSerializer):
+    evaluation_type = serializers.ChoiceField(
+        choices=TestOnSampleEvaluationType.choices,
+        help_text="'llm_judge' runs the judge, or the decision model, on your own provider key.",
+    )
+    evaluation_config = _EvaluationConfigField(
+        help_text="Same as on an evaluation: {prompt, judge_method}.",
+    )
+    model_configuration = ModelConfigurationSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Provider and model for an llm_judge, as on an evaluation. Required for llm_judge.",
+    )
+    output_type = serializers.ChoiceField(
+        choices=OutputType.choices,
+        required=False,
+        default=OutputType.BOOLEAN,
+        help_text="Expected output: boolean, numeric, or categorical.",
+    )
+    output_config = _OutputConfigField(
+        required=False,
+        default=dict,
+        help_text="Output settings, as on an evaluation: bounds, categories, allows_na, and passing rules.",
+    )
+    sample_ids = serializers.ListField(
+        child=serializers.CharField(max_length=400),
+        required=False,
+        max_length=facade.MAX_JUDGE_TEST_UNITS,
+        help_text=(
+            f"Test exactly these units instead of sampling, up to {facade.MAX_JUDGE_TEST_UNITS}: generation event "
+            "UUIDs, trace IDs, or session IDs, matching `target`. Conditions are ignored for pinned units, and "
+            "unknown IDs are skipped."
+        ),
+    )
+
+
+def _preview_settle(target_config: Mapping[str, Any]) -> contracts.EvaluationPreviewSettle:
+    return contracts.EvaluationPreviewSettle(
+        strategy=target_config.get("strategy"),
+        window_seconds=target_config.get("window_seconds"),
+        quiet_period_seconds=target_config.get("quiet_period_seconds"),
+    )
+
+
+def _preview_scope(data: Mapping[str, Any]) -> contracts.EvaluationPreviewScope:
+    return contracts.EvaluationPreviewScope(
+        target=data["target"], conditions=data["conditions"], settle=_preview_settle(data["target_config"])
+    )
+
+
+def _hog_test_row_counts(results: Sequence[Mapping[str, object]]) -> dict[str, int]:
+    return outcome_counts(cast("contracts.PreviewOutcome | None", result["outcome"]) for result in results)
 
 
 def _humanize_seconds(seconds: int) -> str:
@@ -1127,6 +1437,7 @@ def _test_hog_over_sessions(
     quiet_period_seconds: int,
     output_type: str = "boolean",
     output_config: dict | None = None,
+    sample_ids: Sequence[str] | None = None,
 ) -> Response:
     """Session-target variant of `test_hog`: sample sessions that have gone quiet and run the code
     against session-level globals, so the editor preview matches how a session eval runs online."""
@@ -1142,10 +1453,12 @@ def _test_hog_over_sessions(
             output_type=output_type,
             output_config=output_config,
             quiet_period_seconds=quiet_period_seconds,
+            sample_ids=sample_ids,
         )
     except AIEventsUnavailableError:
         session_results = []
 
+    grader = preview_grader(output_type, output_config)
     results = [
         {
             "sample_id": r.session_id,
@@ -1159,6 +1472,7 @@ def _test_hog_over_sessions(
             **({"categories": r.categories} if output_type == "categorical" else {}),
             "reasoning": r.reasoning,
             "error": r.error,
+            "outcome": grader.outcome(error=r.error, result=r.verdict, score=r.score, categories=r.categories),
         }
         for r in session_results
     ]
@@ -1169,7 +1483,7 @@ def _test_hog_over_sessions(
         {
             "sample_count": sample_count,
             "results_count": len(results),
-            **_hog_test_result_counts(results, output_type, output_config),
+            **_hog_test_row_counts(results),
             "target": EvaluationTarget.SESSION.value,
             "condition_count": len(conditions),
         },
@@ -1205,6 +1519,7 @@ def _test_hog_over_traces(
     window_seconds: int,
     output_type: str = "boolean",
     output_config: dict | None = None,
+    sample_ids: Sequence[str] | None = None,
 ) -> Response:
     """Trace-target variant of the `test_hog` action: sample recent whole traces and run the code
     against trace-level globals, so the editor preview matches how a trace eval runs online."""
@@ -1220,10 +1535,12 @@ def _test_hog_over_traces(
             output_type=output_type,
             output_config=output_config,
             window_seconds=window_seconds,
+            sample_ids=sample_ids,
         )
     except AIEventsUnavailableError:
         trace_results = []
 
+    grader = preview_grader(output_type, output_config)
     results = [
         {
             "sample_id": r.trace_id,
@@ -1237,6 +1554,7 @@ def _test_hog_over_traces(
             **({"categories": r.categories} if output_type == "categorical" else {}),
             "reasoning": r.reasoning,
             "error": r.error,
+            "outcome": grader.outcome(error=r.error, result=r.verdict, score=r.score, categories=r.categories),
         }
         for r in trace_results
     ]
@@ -1249,7 +1567,7 @@ def _test_hog_over_traces(
             "allows_na": allows_na,
             "condition_count": len(conditions),
             "result_count": len(results),
-            **_hog_test_result_counts(results, output_type, output_config),
+            **_hog_test_row_counts(results),
             "no_events": not results,
             "target": EvaluationTarget.TRACE.value,
         },
@@ -1267,6 +1585,247 @@ def _test_hog_over_traces(
     return Response({"results": results})
 
 
+def _test_hog_over_generations(
+    *,
+    request: Request,
+    team: Team,
+    bytecode: list[Any],
+    condition_filter: ast.Expr | None,
+    sample_count: int,
+    allows_na: bool,
+    conditions: list[dict[str, Any]],
+    output_type: str = "boolean",
+    output_config: dict | None = None,
+    sample_ids: Sequence[str] | None = None,
+) -> Response:
+    """Generation-target variant of the `test_hog` action: run the code against recent generations."""
+    tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
+    try:
+        events = load_generation_events(
+            team,
+            cast("User", request.user),
+            condition_filter=condition_filter,
+            sample_count=sample_count,
+            sample_ids=sample_ids,
+        )
+    except AIEventsUnavailableError:
+        events = []
+
+    grader = preview_grader(output_type, output_config)
+    results = []
+    for event_data in events:
+        result = run_hog_eval(
+            bytecode, event_data, allows_na=allows_na, output_type=output_type, output_config=output_config
+        )
+        io_preview = generation_io_preview(event_data)
+        results.append(
+            {
+                "sample_id": event_data["uuid"],
+                "sample_type": EvaluationTarget.GENERATION.value,
+                "event_uuid": event_data["uuid"],
+                "trace_id": event_data["properties"].get("$ai_trace_id"),
+                "input_preview": io_preview.input,
+                "output_preview": io_preview.output,
+                "result": result.get("verdict"),
+                **({"score": result.get("score")} if output_type == "numeric" else {}),
+                **({"categories": result.get("categories")} if output_type == "categorical" else {}),
+                "reasoning": result["reasoning"],
+                "error": result["error"],
+                "outcome": grader.outcome(
+                    error=result["error"],
+                    result=result.get("verdict"),
+                    score=result.get("score"),
+                    categories=result.get("categories"),
+                ),
+            }
+        )
+
+    report_user_action(
+        request.user,
+        "llma evaluation hog code tested",
+        {
+            "sample_count": sample_count,
+            "allows_na": allows_na,
+            "condition_count": len(conditions),
+            "result_count": len(results),
+            **_hog_test_row_counts(results),
+            "no_events": not results,
+            "target": EvaluationTarget.GENERATION.value,
+        },
+        team=team,
+        request=request,
+    )
+
+    if not results:
+        return Response(
+            {
+                "results": [],
+                "message": f"No recent AI events found in the last {EVALUATION_TEST_LOOKBACK_DAYS} days",
+            }
+        )
+    return Response({"results": results})
+
+
+def _config_length(instance: Evaluation) -> int:
+    """Get the relevant config content length for tracking."""
+    if instance.evaluation_config and isinstance(instance.evaluation_config, dict):
+        content_key = get_evaluation_config_content_key(instance.evaluation_type)
+        content = instance.evaluation_config.get(content_key, "") if content_key else ""
+        return len(content) if isinstance(content, str) else 0
+    return 0
+
+
+def update_evaluation(
+    serializer: EvaluationSerializer,
+    *,
+    request: Request,
+    team: Team,
+    tracking_properties: Mapping[str, Any] | None = None,
+) -> None:
+    """Save a validated evaluation update, restart its reports when they become supported, and track the change.
+
+    Shared by the evaluations API and applied eval suggestion fixes, which add the suggestion to the event.
+    """
+    existing = serializer.instance
+    if existing is None:
+        raise ValueError("update_evaluation needs a serializer bound to an evaluation")
+    previously_supported_reports = evaluation_supports_reports(
+        existing.output_type, existing.target, existing.output_config
+    )
+    # Check if this is a deletion (soft delete)
+    is_deletion = serializer.validated_data.get("deleted") is True and not existing.deleted
+
+    # Capture old enabled state before save (for deletion tracking)
+    old_enabled_value = existing.enabled
+
+    # Track changes before update
+    changed_fields: list[str] = []
+    enabled_changed = False
+    enabled_new_value = None
+    condition_count_changed = False
+    condition_count_new = 0
+    config_content_changed = False
+
+    for field in [
+        "name",
+        "description",
+        "directory",
+        "enabled",
+        "evaluation_type",
+        "output_type",
+        "evaluation_config",
+        "output_config",
+        "conditions",
+        "deleted",
+    ]:
+        if field in serializer.validated_data:
+            old_value = getattr(existing, field)
+            new_value = serializer.validated_data[field]
+            if old_value != new_value:
+                changed_fields.append(field)
+
+                if field == "enabled":
+                    enabled_changed = True
+                    enabled_new_value = new_value
+                elif field == "conditions":
+                    condition_count_changed = True
+                    condition_count_new = len(new_value) if new_value else 0
+                elif field == "evaluation_config":
+                    eval_type = serializer.validated_data.get("evaluation_type", existing.evaluation_type)
+                    config_key = get_evaluation_config_content_key(eval_type)
+                    old_content = old_value.get(config_key, "") if config_key and isinstance(old_value, dict) else ""
+                    new_content = new_value.get(config_key, "") if config_key and isinstance(new_value, dict) else ""
+                    if old_content != new_content:
+                        config_content_changed = True
+
+    with transaction.atomic():
+        instance = serializer.save()
+        if (
+            not previously_supported_reports
+            and not instance.deleted
+            and evaluation_supports_reports(instance.output_type, instance.target, instance.output_config)
+        ):
+            report, created = EvaluationReport.objects.get_or_create(evaluation=instance, team_id=team.id)
+            if not created:
+                report.restart_reporting()
+
+    # Track appropriate event
+    if is_deletion:
+        report_user_action(
+            request.user,
+            "llma evaluation deleted",
+            {
+                "evaluation_id": str(instance.id),
+                "evaluation_name": instance.name,
+                "was_enabled": old_enabled_value,
+            },
+            team=team,
+            request=request,
+        )
+    elif changed_fields:
+        event_properties: dict[str, Any] = {
+            "evaluation_id": str(instance.id),
+            "changed_fields": changed_fields,
+            **(tracking_properties or {}),
+        }
+
+        if enabled_changed:
+            event_properties["enabled_changed"] = True
+            event_properties["enabled_new_value"] = enabled_new_value
+        if condition_count_changed:
+            event_properties["condition_count_changed"] = True
+            event_properties["condition_count_new"] = condition_count_new
+        if config_content_changed:
+            event_properties["config_content_changed"] = True
+
+        report_user_action(
+            request.user,
+            "llma evaluation updated",
+            event_properties,
+            team=team,
+            request=request,
+        )
+
+
+def create_evaluation(
+    serializer: EvaluationSerializer,
+    *,
+    request: Request,
+    team: Team,
+    tracking_properties: Mapping[str, Any] | None = None,
+) -> Evaluation:
+    """Save a validated evaluation with its default report and track the creation."""
+    with transaction.atomic():
+        instance = serializer.save()
+
+        if evaluation_supports_reports(instance.output_type, instance.target, instance.output_config):
+            # Auto-create a default report config so reports are generated from the start.
+            # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
+            # and users add email/Slack delivery targets later if they want notifications.
+            EvaluationReport.objects.get_or_create(evaluation=instance, team_id=team.id)
+
+    conditions = instance.conditions or []
+    report_user_action(
+        request.user,
+        "llma evaluation created",
+        {
+            "evaluation_id": str(instance.id),
+            "evaluation_name": instance.name,
+            "evaluation_type": instance.evaluation_type,
+            "output_type": instance.output_type,
+            "has_description": bool(instance.description),
+            "enabled": instance.enabled,
+            "condition_count": len(conditions),
+            "has_rollout_percentage": any(condition.get("rollout_percentage", 100) < 100 for condition in conditions),
+            **(tracking_properties or {}),
+            "config_length": _config_length(instance),
+        },
+        team=team,
+        request=request,
+    )
+    return instance
+
+
 class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "evaluation"
     permission_classes = [IsAuthenticated, AccessControlPermission]
@@ -1274,6 +1833,15 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     queryset = Evaluation.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_class = EvaluationFilter
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action == "test_on_sample":
+            return [
+                *super().get_throttles(),
+                AIObservabilityEvaluationJudgeTestThrottle(),
+                AIObservabilityEvaluationJudgeTestTeamThrottle(),
+            ]
+        return super().get_throttles()
 
     @staticmethod
     def _is_mcp_request(request: Request) -> bool:
@@ -1309,153 +1877,11 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 "List the project's evaluations to look one up by name."
             )
 
-    @staticmethod
-    def _get_config_length(instance) -> int:
-        """Get the relevant config content length for tracking."""
-        if instance.evaluation_config and isinstance(instance.evaluation_config, dict):
-            content_key = get_evaluation_config_content_key(instance.evaluation_type)
-            content = instance.evaluation_config.get(content_key, "") if content_key else ""
-            return len(content) if isinstance(content, str) else 0
-        return 0
-
     def perform_create(self, serializer):
-        with transaction.atomic():
-            instance = serializer.save()
-
-            if evaluation_supports_reports(instance.output_type, instance.target, instance.output_config):
-                # Auto-create a default report config so reports are generated from the start.
-                # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
-                # and users add email/Slack delivery targets later if they want notifications.
-                EvaluationReport.objects.get_or_create(evaluation=instance, team_id=self.team_id)
-
-        # Calculate properties for tracking
-        conditions = instance.conditions or []
-        condition_count = len(conditions)
-        has_rollout_percentage = any(condition.get("rollout_percentage", 100) < 100 for condition in conditions)
-
-        config_length = self._get_config_length(instance)
-
-        # Track evaluation created
-        report_user_action(
-            self.request.user,
-            "llma evaluation created",
-            {
-                "evaluation_id": str(instance.id),
-                "evaluation_name": instance.name,
-                "evaluation_type": instance.evaluation_type,
-                "output_type": instance.output_type,
-                "has_description": bool(instance.description),
-                "enabled": instance.enabled,
-                "condition_count": condition_count,
-                "has_rollout_percentage": has_rollout_percentage,
-                "config_length": config_length,
-            },
-            team=self.team,
-            request=self.request,
-        )
+        create_evaluation(serializer, request=self.request, team=self.team)
 
     def perform_update(self, serializer):
-        previously_supported_reports = evaluation_supports_reports(
-            serializer.instance.output_type, serializer.instance.target, serializer.instance.output_config
-        )
-        # Check if this is a deletion (soft delete)
-        is_deletion = serializer.validated_data.get("deleted") is True and not serializer.instance.deleted
-
-        # Capture old enabled state before save (for deletion tracking)
-        old_enabled_value = serializer.instance.enabled
-
-        # Track changes before update
-        changed_fields: list[str] = []
-        enabled_changed = False
-        enabled_new_value = None
-        condition_count_changed = False
-        condition_count_new = 0
-        config_content_changed = False
-
-        for field in [
-            "name",
-            "description",
-            "directory",
-            "enabled",
-            "evaluation_type",
-            "output_type",
-            "evaluation_config",
-            "output_config",
-            "conditions",
-            "deleted",
-        ]:
-            if field in serializer.validated_data:
-                old_value = getattr(serializer.instance, field)
-                new_value = serializer.validated_data[field]
-                if old_value != new_value:
-                    changed_fields.append(field)
-
-                    if field == "enabled":
-                        enabled_changed = True
-                        enabled_new_value = new_value
-                    elif field == "conditions":
-                        condition_count_changed = True
-                        condition_count_new = len(new_value) if new_value else 0
-                    elif field == "evaluation_config":
-                        eval_type = serializer.validated_data.get(
-                            "evaluation_type", serializer.instance.evaluation_type
-                        )
-                        config_key = get_evaluation_config_content_key(eval_type)
-                        old_content = (
-                            old_value.get(config_key, "") if config_key and isinstance(old_value, dict) else ""
-                        )
-                        new_content = (
-                            new_value.get(config_key, "") if config_key and isinstance(new_value, dict) else ""
-                        )
-                        if old_content != new_content:
-                            config_content_changed = True
-
-        with transaction.atomic():
-            instance = serializer.save()
-            if (
-                not previously_supported_reports
-                and not instance.deleted
-                and evaluation_supports_reports(instance.output_type, instance.target, instance.output_config)
-            ):
-                report, created = EvaluationReport.objects.get_or_create(evaluation=instance, team_id=self.team_id)
-                if not created:
-                    report.restart_reporting()
-
-        # Track appropriate event
-        if is_deletion:
-            report_user_action(
-                self.request.user,
-                "llma evaluation deleted",
-                {
-                    "evaluation_id": str(instance.id),
-                    "evaluation_name": instance.name,
-                    "was_enabled": old_enabled_value,
-                },
-                team=self.team,
-                request=self.request,
-            )
-        elif changed_fields:
-            event_properties: dict[str, Any] = {
-                "evaluation_id": str(instance.id),
-                "changed_fields": changed_fields,
-            }
-
-            if enabled_changed:
-                event_properties["enabled_changed"] = True
-                event_properties["enabled_new_value"] = enabled_new_value
-            if condition_count_changed:
-                event_properties["condition_count_changed"] = True
-                event_properties["condition_count_new"] = condition_count_new
-            if config_content_changed:
-                event_properties["config_content_changed"] = True
-
-            report_user_action(
-                self.request.user,
-                "llma evaluation updated",
-                event_properties,
-                team=self.team,
-                request=self.request,
-            )
+        update_evaluation(serializer, request=self.request, team=self.team)
 
     @llma_track_latency("llma_evaluations_list")
     @monitor(feature=None, endpoint="llma_evaluations_list", method="GET")
@@ -1482,6 +1908,133 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
+    def _overview_period(self, request: ValidatedRequest) -> "PeriodBounds":
+        query = request.validated_query_data
+        try:
+            return facade.evaluations_period(self.team, query.get("date_from"), query.get("date_to"))
+        except facade.InvalidPeriodError as error:
+            raise serializers.ValidationError({error.field: str(error)} if error.field else str(error))
+
+    def _cached_overview_read(
+        self,
+        request: ValidatedRequest,
+        name: str,
+        evaluation_ids: Sequence[str],
+        period: "PeriodBounds",
+        read: Callable[[], Contract],
+    ) -> Response:
+        # Keyed by the evaluations the user can see and by their current property restrictions, because a hit skips
+        # the masking a fresh read applies, and a restriction can change while an entry is still cached.
+        visible = hashlib.sha256(",".join(sorted(evaluation_ids)).encode()).hexdigest()
+        restrictions = restriction_fingerprint(
+            get_restricted_properties_with_group_type_index_for_team(
+                user=cast("User", request.user), team_id=self.team.pk
+            )
+        )
+        cache_key = (
+            f"ai_evaluations_{name}/{self.team.pk}/{request.user.pk}/{period.start.astimezone(UTC).isoformat()}/{period.end.astimezone(UTC).isoformat()}"
+            f"/{visible}/{restrictions}"
+        )
+        if not request.validated_query_data["refresh"]:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return Response(cached)
+        tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
+        with query_concurrency_slots(self.team):
+            payload = read().model_dump(mode="json", by_alias=True)
+        cache.set(cache_key, payload, timeout=OVERVIEW_CACHE_SECONDS)
+        return Response(payload)
+
+    @validated_request(
+        query_serializer=EvaluationsOverviewQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=contracts.EvaluationsOverview),
+            400: OpenApiResponse(description="The period is malformed, empty, longer than 91 days or out of range."),
+            429: OpenApiResponse(description="Too many queries are running for the project or organization."),
+        },
+    )
+    @action(detail=False, methods=["get"], url_path="overview", required_scopes=["evaluation:read"])
+    def overview(self, request: ValidatedRequest, **kwargs) -> Response:
+        """Each evaluation's results over a period, compared with the period of equal length before it."""
+        period = self._overview_period(request)
+        queryset = self.get_queryset()
+        # The base viewset narrows by access level on `list` only, so this read applies it itself.
+        if not is_service_auth(request):
+            queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+        query = request.validated_query_data
+        if "evaluation_ids" in query:
+            queryset = queryset.filter(id__in=query["evaluation_ids"])
+        evaluation_ids = [str(evaluation_id) for evaluation_id in queryset.values_list("id", flat=True)]
+        return self._cached_overview_read(
+            request,
+            "overview",
+            evaluation_ids,
+            period,
+            lambda: facade.get_evaluations_overview(self.team, cast("User", request.user), evaluation_ids, period),
+        )
+
+    @validated_request(
+        query_serializer=EvaluationRunsQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=contracts.EvaluationRuns),
+            400: OpenApiResponse(
+                description="The period is invalid, or an outcome filter is set on an evaluation without a passing rule."
+            ),
+            429: OpenApiResponse(description="Too many queries are running for the project or organization."),
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="runs", required_scopes=["evaluation:read"])
+    def runs(self, request: ValidatedRequest, **kwargs) -> Response:
+        """One evaluation's latest graded runs in a period, newest first, optionally only the passed or failed ones."""
+        evaluation_id = str(self.get_object().id)
+        period = self._overview_period(request)
+        query = request.validated_query_data
+        outcome, limit = query.get("outcome"), query["limit"]
+        try:
+            return self._cached_overview_read(
+                request,
+                f"runs/{outcome}/{limit}",
+                [evaluation_id],
+                period,
+                lambda: facade.get_evaluation_runs(
+                    self.team, cast("User", request.user), evaluation_id, period, outcome, limit
+                ),
+            )
+        except facade.NoPassingRuleError:
+            raise serializers.ValidationError(
+                {"outcome": "This evaluation has no passing rule, so its runs are neither passed nor failed."}
+            )
+
+    @validated_request(
+        query_serializer=EvaluationsOverviewPeriodSerializer,
+        responses={
+            200: OpenApiResponse(response=contracts.ScoreHistogram),
+            400: OpenApiResponse(
+                description="The period is invalid, or the evaluation is not numeric with a minimum and maximum score."
+            ),
+            429: OpenApiResponse(description="Too many queries are running for the project or organization."),
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="score_distribution", required_scopes=["evaluation:read"])
+    def score_distribution(self, request: ValidatedRequest, **kwargs) -> Response:
+        """How one numeric evaluation's scores in a period spread across its configured scale."""
+        evaluation_id = str(self.get_object().id)
+        period = self._overview_period(request)
+        try:
+            return self._cached_overview_read(
+                request,
+                "score_distribution",
+                [evaluation_id],
+                period,
+                lambda: facade.get_evaluation_score_distribution(
+                    self.team, cast("User", request.user), evaluation_id, period
+                ),
+            )
+        except facade.NoScoreScaleError:
+            raise serializers.ValidationError(
+                "Only a numeric evaluation with a minimum and a maximum score has a score distribution."
+            )
+
     @extend_schema(request=TestHogRequestSerializer, responses=TestHogResponseSerializer)
     @action(detail=False, methods=["post"], url_path="test_hog", required_scopes=["evaluation:read"])
     def test_hog(self, request: Request, **kwargs) -> Response:
@@ -1501,38 +2054,57 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         conditions = serializer.validated_data.get("conditions", [])
         target = serializer.validated_data["target"]
         target_config = serializer.validated_data["target_config"]
+        sample_ids = serializer.validated_data.get("sample_ids") or None
 
         try:
             bytecode = compile_ai_observability_hog(source, "destination")
         except serializers.ValidationError as e:
-            return Response({"error": f"Compilation error: {e.detail}"}, status=400)
+            # The code lets the editor tell code that does not compile from a request that failed for another reason.
+            return Response({"error": hog_compile_error_message(source, e), "code": "hog_compile_error"}, status=400)
         except Exception:
             logger.exception("Unexpected error compiling Hog source")
             return Response({"error": "Compilation failed due to an unexpected error"}, status=400)
 
         team = Team.objects.get(id=self.team_id)
+        settle = _preview_settle(target_config)
 
         # Both targets reuse it; for traces it filters which triggering generation qualifies.
         condition_filter = build_condition_filter(conditions, team)
 
-        if target == EvaluationTarget.SESSION.value:
-            return _test_hog_over_sessions(
-                request=request,
-                team=team,
-                bytecode=bytecode,
-                condition_filter=condition_filter,
-                sample_count=min(sample_count, SESSION_TEST_HOG_MAX_SAMPLES),
-                allows_na=allows_na,
-                output_type=output_type,
-                output_config=output_config,
-                conditions=conditions,
-                quiet_period_seconds=target_config.get(
-                    "quiet_period_seconds", SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS
-                ),
-            )
+        # The editor runs this on every pause in typing, so it holds the slots a query runner holds.
+        with query_concurrency_slots(team):
+            if target == EvaluationTarget.SESSION.value:
+                return _test_hog_over_sessions(
+                    request=request,
+                    team=team,
+                    bytecode=bytecode,
+                    condition_filter=condition_filter,
+                    sample_count=min(sample_count, SESSION_TEST_HOG_MAX_SAMPLES),
+                    allows_na=allows_na,
+                    output_type=output_type,
+                    output_config=output_config,
+                    conditions=conditions,
+                    quiet_period_seconds=session_quiet_period_seconds(settle),
+                    # Each session is a whole conversation, so pinned sessions share the sampled cap.
+                    sample_ids=sample_ids[:SESSION_TEST_HOG_MAX_SAMPLES] if sample_ids else None,
+                )
 
-        if target == EvaluationTarget.TRACE.value:
-            return _test_hog_over_traces(
+            if target == EvaluationTarget.TRACE.value:
+                return _test_hog_over_traces(
+                    request=request,
+                    team=team,
+                    bytecode=bytecode,
+                    condition_filter=condition_filter,
+                    sample_count=sample_count,
+                    allows_na=allows_na,
+                    output_type=output_type,
+                    output_config=output_config,
+                    conditions=conditions,
+                    window_seconds=trace_window_seconds(settle),
+                    sample_ids=sample_ids,
+                )
+
+            return _test_hog_over_generations(
                 request=request,
                 team=team,
                 bytecode=bytecode,
@@ -1542,143 +2114,111 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 output_type=output_type,
                 output_config=output_config,
                 conditions=conditions,
-                window_seconds=target_config.get("window_seconds", TRACE_EVAL_DEFAULT_WINDOW_SECONDS),
+                sample_ids=sample_ids,
             )
 
-        where_exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.In,
-                left=ast.Field(chain=["event"]),
-                right=ast.Constant(value=["$ai_generation"]),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Gt,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.ArithmeticOperation(
-                    op=ast.ArithmeticOperationOp.Sub,
-                    left=ast.Call(name="now", args=[]),
-                    right=ast.Call(
-                        name="toIntervalDay",
-                        args=[ast.Constant(value=EVALUATION_TEST_LOOKBACK_DAYS)],
-                    ),
-                ),
-            ),
-        ]
-        if condition_filter is not None:
-            where_exprs.append(condition_filter)
+    @validated_request(
+        request_serializer=EvaluationSampleTrafficRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=EvaluationSampleTrafficResponseSerializer),
+            429: OpenApiResponse(description="Too many queries are running for the project or organization."),
+        },
+    )
+    @action(detail=False, methods=["post"], url_path="sample_traffic", required_scopes=["evaluation:read"])
+    def sample_traffic(self, request: ValidatedRequest, **kwargs) -> Response:
+        """The latest units an unsaved evaluation would run on, newest first."""
+        if not self.user_access_control.check_access_level_for_resource("evaluation", "viewer"):
+            raise exceptions.PermissionDenied()
 
-        query = ast.SelectQuery(
-            select=[
-                ast.Field(chain=["uuid"]),
-                ast.Field(chain=["event"]),
-                ast.Field(chain=["properties"]),
-                ast.Field(chain=["distinct_id"]),
-                ast.Field(chain=["timestamp"]),
-                *[ast.Field(chain=[column_name]) for column_name in HEAVY_COLUMN_NAMES],
-            ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
-            where=ast.Placeholder(expr=ast.Field(chain=["where_clause"])),
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
-            limit=ast.Constant(value=sample_count),
+        data = request.validated_data
+        tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
+        with query_concurrency_slots(self.team):
+            samples = facade.sample_evaluation_traffic(
+                self.team, cast("User", request.user), _preview_scope(data), data.get("count")
+            )
+        return Response(EvaluationSampleTrafficResponseSerializer({"results": samples}).data)
+
+    @validated_request(
+        request_serializer=EvaluationTestOnSampleRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TestHogResponseSerializer),
+            429: OpenApiResponse(
+                description="This user already has a test running, or too many queries are running for the project."
+            ),
+        },
+    )
+    @action(detail=False, methods=["post"], url_path="test_on_sample", required_scopes=["evaluation:write"])
+    def test_on_sample(self, request: ValidatedRequest, **kwargs) -> Response:
+        """Run an unsaved LLM judge on a few samples. Saves nothing and emits no results."""
+        # Each call spends the team's own provider key, so it takes the access that saving an evaluation does.
+        if not self.user_access_control.check_access_level_for_resource("evaluation", "editor"):
+            raise exceptions.PermissionDenied()
+
+        data = request.validated_data
+        # The create path's validation, so a test accepts exactly what saving would.
+        evaluation_serializer = EvaluationSerializer(
+            data={
+                "name": "Unsaved evaluation",
+                "evaluation_type": data["evaluation_type"],
+                "evaluation_config": data["evaluation_config"],
+                "output_type": data["output_type"],
+                "output_config": data["output_config"],
+                "target": data["target"],
+                "model_configuration": data.get("model_configuration"),
+            },
+            context=self.get_serializer_context(),
         )
+        evaluation_serializer.is_valid(raise_exception=True)
+        validated = evaluation_serializer.validated_data
+        model = validated.get("model_configuration")
+        judge = contracts.UnsavedJudge(
+            evaluation_config=validated["evaluation_config"],
+            output_type=data["output_type"],
+            output_config=validated["output_config"],
+            model=contracts.JudgeModel(
+                provider=model["provider"],
+                model=model["model"],
+                provider_key_id=str(model["provider_key_id"]) if model.get("provider_key_id") else None,
+            )
+            if model
+            else None,
+        )
+        sample_ids = data.get("sample_ids") or None
+        team = self.team
 
         tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
         try:
-            response = query_ai_events(
-                query=query,
-                placeholders={"where_clause": ast.And(exprs=where_exprs)},
-                team=team,
-                user=cast("User", request.user),
-                query_type="EvaluationTestHog",
-                fall_back_to_events=False,
-                limit_context=None,
+            results = facade.run_unsaved_judge(
+                team,
+                cast("User", request.user),
+                judge,
+                _preview_scope(data),
+                sample_ids,
+                # The slots cover each read, not the model calls between them.
+                reading=lambda: query_concurrency_slots(team),
             )
-            query_results = response.results or []
-        except AIEventsUnavailableError:
-            query_results = []
-
-        if not query_results:
-            report_user_action(
-                request.user,
-                "llma evaluation hog code tested",
-                {
-                    "sample_count": sample_count,
-                    "allows_na": allows_na,
-                    "condition_count": len(conditions),
-                    "result_count": 0,
-                    "pass_count": 0,
-                    "fail_count": 0,
-                    "error_count": 0,
-                    "na_count": 0,
-                    "no_events": True,
-                    "target": target,
-                },
-                team=self.team,
-                request=self.request,
-            )
-            return Response(
-                {
-                    "results": [],
-                    "message": f"No recent AI events found in the last {EVALUATION_TEST_LOOKBACK_DAYS} days",
-                }
-            )
-
-        results = []
-        for row in query_results:
-            event_uuid = str(row[0])
-            event_type = row[1]
-            timestamp = row[4]
-            heavy_values = row[5 : 5 + len(HEAVY_COLUMN_NAMES)]
-            heavy_columns = dict(zip(HEAVY_COLUMN_NAMES, heavy_values, strict=True))
-            properties = merge_heavy_properties(row[2], heavy_columns)
-            distinct_id = row[3]
-
-            event_data = {
-                "uuid": event_uuid,
-                "event": event_type,
-                "properties": properties,
-                "distinct_id": distinct_id or "",
-                "timestamp": timestamp,
-            }
-
-            result = run_hog_eval(
-                bytecode, event_data, allows_na=allows_na, output_type=output_type, output_config=output_config
-            )
-
-            io = extract_event_io(event_type, properties)
-            input_preview = extract_text_from_messages(io.input_raw)[:200]
-            output_preview = extract_text_from_messages(io.output_raw)[:200]
-
-            results.append(
-                {
-                    "sample_id": event_uuid,
-                    "sample_type": EvaluationTarget.GENERATION.value,
-                    "event_uuid": event_uuid,
-                    "trace_id": properties.get("$ai_trace_id"),
-                    "input_preview": input_preview,
-                    "output_preview": output_preview,
-                    "result": result.get("verdict"),
-                    **({"score": result.get("score")} if output_type == "numeric" else {}),
-                    **({"categories": result.get("categories")} if output_type == "categorical" else {}),
-                    "reasoning": result["reasoning"],
-                    "error": result["error"],
-                }
-            )
+        except contracts.JudgeModelError as error:
+            raise serializers.ValidationError({"model_configuration": str(error)})
+        except contracts.JudgeTestAlreadyRunningError:
+            raise exceptions.Throttled(detail="A test is already running. Wait for it to finish, then try again.")
 
         report_user_action(
             request.user,
-            "llma evaluation hog code tested",
+            "llma evaluation tested on sample",
             {
-                "sample_count": sample_count,
-                "allows_na": allows_na,
-                "condition_count": len(conditions),
-                "result_count": len(results),
-                **_hog_test_result_counts(results, output_type, output_config),
-                "no_events": False,
-                "target": target,
+                "evaluation_type": data["evaluation_type"],
+                "output_type": data["output_type"],
+                "target": data["target"],
+                "sample_count": len(results),
+                "pinned": sample_ids is not None,
+                "condition_count": len(data["conditions"]),
+                **outcome_counts(result.outcome for result in results),
             },
-            team=self.team,
-            request=self.request,
+            team=team,
+            request=request,
         )
 
-        return Response({"results": results})
+        response: dict[str, Any] = {"results": results}
+        if not results:
+            response["message"] = f"Nothing to test on from the last {EVALUATION_TEST_LOOKBACK_DAYS} days."
+        return Response(TestHogResponseSerializer(response).data)

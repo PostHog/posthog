@@ -1,10 +1,22 @@
 import { deepEqual as equal } from 'fast-equals'
-import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { combineUrl } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { JSONContent } from 'lib/components/RichContentEditor/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { uuid } from 'lib/utils/dom'
 import { removeUndefinedAndNull } from 'lib/utils/objects'
@@ -13,18 +25,20 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { notebooksModel } from '~/models/notebooksModel'
 import { DataVisualizationNode, FileSystemIconType, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
-import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
+import type { SaveAsTargetId } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
+
 import type { DataWarehouseSavedQuery, LinkBreadcrumb, InsightModel } from '../../../types'
 import { NEW_QUERY, normalizeFiltersForUrl, sqlEditorLogic, toDataVisualizationNode } from './sqlEditorLogic'
 import type { QueryTab, SqlEditorSource } from './sqlEditorLogic'
 import { SQLEditorMode } from './sqlEditorModes'
 
 export interface SaveAsMenuItem {
-    action: 'insight' | 'endpoint' | 'view' | 'metric'
+    action: SaveAsTargetId
     label: string
     dataAttr?: string
 }
@@ -65,33 +79,18 @@ export interface EditorSceneLogicProps {
 export function buildSqlNotebook(
     queryInput: string,
     activeTab: QueryTab | null,
-    editingInsight: InsightModel | null,
-    featureFlags: FeatureFlagsSet
+    editingInsight: InsightModel | null
 ): { title: string; content: JSONContent[] } {
     const activeTabName = activeTab?.name === NEW_QUERY ? undefined : activeTab?.name
-    const sqlNode = featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]
-        ? {
-              type: NotebookNodeType.SQLV2,
-              attrs: {
-                  nodeId: uuid(),
-                  code: queryInput,
-                  returnVariable: '',
-                  edit: true,
-              },
-          }
-        : {
-              type: NotebookNodeType.Query,
-              attrs: {
-                  query: {
-                      kind: NodeKind.DataTableNode,
-                      source: {
-                          kind: NodeKind.HogQLQuery,
-                          query: queryInput,
-                      },
-                  },
-                  edit: true,
-              },
-          }
+    const sqlNode = {
+        type: NotebookNodeType.SQLV2,
+        attrs: {
+            nodeId: uuid(),
+            code: queryInput,
+            returnVariable: '',
+            edit: true,
+        },
+    }
 
     return {
         title: editingInsight?.name || editingInsight?.derived_name || activeTabName || 'SQL query',
@@ -109,12 +108,12 @@ export interface editorSceneLogicValues {
     editingView: DataWarehouseSavedQuery | undefined // sqlEditorLogic
     editorSource: SqlEditorSource // sqlEditorLogic
     editorUrl: string // sqlEditorLogic
-    featureFlags: FeatureFlagsSet // sqlEditorLogic
     insightLoading: boolean // sqlEditorLogic
     queryInput: string | null // sqlEditorLogic
     sourceQuery: DataVisualizationNode // sqlEditorLogic
     viewLoading: boolean // sqlEditorLogic
     breadcrumbs: Breadcrumb[]
+    isCreateViewFlow: boolean
     isHistoryModalOpen: boolean
     projectTreeRef: ProjectTreeRef | null
     saveAsMenuItems: {
@@ -124,15 +123,15 @@ export interface editorSceneLogicValues {
     sidePanelContext: SidePanelSceneContext
     titleSectionProps:
         | {
-              description: string
-              forceBackTo: LinkBreadcrumb
+              description?: undefined
+              forceBackTo: Breadcrumb
               name: string
               resourceType: {
                   type: string
               }
           }
         | {
-              description?: undefined
+              description: string
               forceBackTo: LinkBreadcrumb
               name: string
               resourceType: {
@@ -177,6 +176,13 @@ export interface editorSceneLogicActions {
         shortId: string | undefined
         title: string | undefined
     } // notebooksModel
+    setLayoutNavCollapsedOverride: (
+        owner: string,
+        collapsed: boolean | null
+    ) => {
+        collapsed: boolean | null
+        owner: string
+    } // panelLayoutLogic
     closeHistoryModal: () => {
         value: true
     }
@@ -185,6 +191,12 @@ export interface editorSceneLogicActions {
     }
     openHistoryModal: () => {
         value: true
+    }
+    openSaveAsMenu: () => {
+        value: true
+    }
+    selectSaveAsTarget: (target: SaveAsTargetId) => {
+        target: SaveAsTargetId
     }
     shareTab: () => {
         value: true
@@ -199,6 +211,11 @@ export interface editorSceneLogicMeta {
             editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null
         ) => ProjectTreeRef | null
         breadcrumbs: (activeTab: QueryTab | null, editorUrl: string) => Breadcrumb[]
+        isCreateViewFlow: (
+            editorSource: SqlEditorSource,
+            editingView: DataWarehouseSavedQuery | undefined,
+            editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null
+        ) => boolean
         titleSectionProps: (
             editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null,
             insightLoading: boolean,
@@ -210,15 +227,15 @@ export interface editorSceneLogicMeta {
             editorUrl: string
         ) =>
             | {
-                  description: string
-                  forceBackTo: LinkBreadcrumb
+                  description?: undefined
+                  forceBackTo: Breadcrumb
                   name: string
                   resourceType: {
                       type: string
                   }
               }
             | {
-                  description?: undefined
+                  description: string
                   forceBackTo: LinkBreadcrumb
                   name: string
                   resourceType: {
@@ -256,6 +273,10 @@ export type editorSceneLogicType = MakeLogicType<
     editorSceneLogicMeta
 >
 
+// Only the full-scene editor changes the app navigation. An embedded editor sits inside another scene.
+const ownsLayoutNav = (props: EditorSceneLogicProps): boolean => !props.mode || props.mode === SQLEditorMode.FullScene
+const layoutNavOverrideOwner = (props: EditorSceneLogicProps): string => `sql-editor-${props.tabId}`
+
 export const editorSceneLogic = kea<editorSceneLogicType>([
     path(['data-warehouse', 'editor', 'editorSceneLogic']),
     props({} as EditorSceneLogicProps),
@@ -271,7 +292,6 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 'editingView',
                 'editorUrl',
                 'editorSource',
-                'featureFlags',
                 'insightLoading',
                 'queryInput',
                 'sourceQuery',
@@ -280,13 +300,15 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             notebooksModel,
             ['notebooksLoading'],
         ],
-        actions: [notebooksModel, ['createNotebook']],
+        actions: [notebooksModel, ['createNotebook'], panelLayoutLogic, ['setLayoutNavCollapsedOverride']],
     })),
     actions({
         convertToNotebook: true,
         shareTab: true,
         openHistoryModal: true,
         closeHistoryModal: true,
+        openSaveAsMenu: true,
+        selectSaveAsTarget: (target: SaveAsTargetId) => ({ target }),
     }),
     reducers({
         isHistoryModalOpen: [
@@ -306,7 +328,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         breadcrumbs: [
             (s) => [s.activeTab, s.editorUrl],
             (activeTab: null | import('./sqlEditorLogic').QueryTab, editorUrl: string): Breadcrumb[] => {
-                const { draft, insight, view } = activeTab || {}
+                const { draft, insight, view, metricName } = activeTab || {}
                 const biHash =
                     editorUrl === urls.businessIntelligence() && activeTab?.biEditorState
                         ? { mode: activeTab.biEditorState.editorView, bi: activeTab.biEditorState.config }
@@ -338,6 +360,16 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                             iconType: 'sql_editor',
                         },
                     ]
+                } else if (metricName) {
+                    return [
+                        first,
+                        {
+                            key: `metric-${metricName}`,
+                            name: metricName,
+                            path: combineUrl(editorUrl, { edit_metric: metricName }, biHash).url,
+                            iconType: 'metrics',
+                        },
+                    ]
                 } else if (draft) {
                     return [
                         first,
@@ -351,6 +383,15 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 }
                 return [first]
             },
+        ],
+        // Matches the state that titleSectionProps names "New view".
+        isCreateViewFlow: [
+            (s) => [s.editorSource, s.editingView, s.editingInsight],
+            (
+                editorSource: import('./sqlEditorLogic').SqlEditorSource,
+                editingView: import('~/types').DataWarehouseSavedQuery | undefined,
+                editingInsight: null | import('~/types').InsightModel
+            ): boolean => editorSource === 'view' && !editingView && !editingInsight,
         ],
         titleSectionProps: [
             (s) => [
@@ -412,6 +453,19 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     }
                 }
 
+                if (activeTab?.metricName) {
+                    return {
+                        forceBackTo: {
+                            key: `metric-${activeTab.metricName}`,
+                            name: 'Back to metric',
+                            path: urls.dataCatalogMetric(activeTab.metricName),
+                            iconType: 'metrics',
+                        } as Breadcrumb,
+                        name: activeTab.metricName,
+                        resourceType: { type: 'metrics' },
+                    }
+                }
+
                 if (viewLoading) {
                     return {
                         name: 'Loading view...',
@@ -426,6 +480,14 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                         return {
                             name: 'Loading view...',
                             resourceType: { type: 'view' },
+                        }
+                    }
+
+                    const metricName = searchParams.get('edit_metric')
+                    if (metricName) {
+                        return {
+                            name: metricName,
+                            resourceType: { type: 'metrics' },
                         }
                     }
 
@@ -572,12 +634,24 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        openSaveAsMenu: () => {
+            // pinned: analytics event name - renaming breaks dashboards
+            posthog.capture('sql-editor-save-as-modal-opened', {
+                editor_source: values.editorSource,
+            })
+        },
+        selectSaveAsTarget: ({ target }) => {
+            // pinned: analytics event name and property - renaming breaks dashboards
+            posthog.capture('sql-editor-save-as-target-selected', {
+                target,
+                editor_source: values.editorSource,
+            })
+        },
         convertToNotebook: () => {
             const { title, content } = buildSqlNotebook(
                 values.queryInput ?? '',
                 values.activeTab,
-                values.editingInsight,
-                values.featureFlags
+                values.editingInsight
             )
             actions.createNotebook(NotebookTarget.Scene, title, content)
         },
@@ -632,5 +706,18 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 access_control_resource: 'warehouse_objects',
             }),
         ],
+    }),
+    subscriptions(({ actions, props }) => ({
+        // A subscription, because several sqlEditorLogic actions move the editor in and out of the flow.
+        isCreateViewFlow: (isCreateViewFlow: boolean) => {
+            if (ownsLayoutNav(props)) {
+                actions.setLayoutNavCollapsedOverride(layoutNavOverrideOwner(props), isCreateViewFlow ? true : null)
+            }
+        },
+    })),
+    beforeUnmount(({ actions, props }) => {
+        if (ownsLayoutNav(props)) {
+            actions.setLayoutNavCollapsedOverride(layoutNavOverrideOwner(props), null)
+        }
     }),
 ])

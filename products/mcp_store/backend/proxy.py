@@ -20,14 +20,14 @@ from ee.hogai.utils.asgi import SyncIterableToAsync
 
 from .models import MCPAuditEvent, MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, TokenRefreshRejectedError, is_token_expiring, refresh_installation_token
-from .oauth_credentials import oauth_credentials_source_is_allowed
-from .policy import GatewayCaller, PolicyContext
+from .policy import GatewayCaller, PolicyContext, legacy_state_for_caller
 from .url_policy import resolve_mcp_url_policy, trust_environment_proxy
 
 logger = structlog.get_logger(__name__)
 
 UPSTREAM_TIMEOUT = 180
 MAX_PROXY_BODY_SIZE = 1_048_576  # 1 MB
+MAX_UPSTREAM_RESPONSE_SIZE = 8 * 1024 * 1024
 MAX_LOGGED_MISSING_TOOLS = 20
 REDIRECT_STATUS_CODES = {301, 302, 307, 308}
 
@@ -119,10 +119,6 @@ def send_mcp_request_with_same_origin_redirect(
 
 
 def build_upstream_auth_headers(installation: MCPServerInstallation) -> dict[str, str]:
-    if installation.template and not oauth_credentials_source_is_allowed(
-        installation.template.oauth_credentials_source, installation.team_id
-    ):
-        raise TokenRefreshRejectedError("OAuth app is not available for this project")
     sensitive = installation.sensitive_configuration or {}
 
     if installation.auth_type == "api_key":
@@ -132,7 +128,7 @@ def build_upstream_auth_headers(installation: MCPServerInstallation) -> dict[str
         return {"Authorization": f"Bearer {api_key}"}
 
     if installation.auth_type == "oauth":
-        access_token = sensitive.get("access_token")
+        access_token = installation.upstream_access_token()
         if not access_token:
             return {}
         return {"Authorization": f"Bearer {access_token}"}
@@ -153,12 +149,7 @@ def validate_installation_auth(
 
     Returns (True, None) if auth is valid, or (False, error_response) if not.
     """
-    if not installation.is_enabled or (
-        installation.template
-        and not oauth_credentials_source_is_allowed(
-            installation.template.oauth_credentials_source, installation.team_id
-        )
-    ):
+    if not installation.is_enabled:
         logger.warning(
             "Proxy auth failed: server is disabled",
             installation_id=str(installation.id),
@@ -183,7 +174,7 @@ def validate_installation_auth(
         )
 
     if installation.auth_type == "oauth":
-        if not sensitive.get("access_token"):
+        if not installation.upstream_access_token():
             logger.warning(
                 "Proxy auth failed: no OAuth credentials", installation_id=str(installation.id), url=installation.url
             )
@@ -254,6 +245,8 @@ def _gateway_decision(policy_context: PolicyContext, tool: MCPServerInstallation
 def resolve_call_decision(
     tool: MCPServerInstallationTool,
     policy_context: PolicyContext | None,
+    *,
+    caller_owns_installation: bool,
 ) -> tuple[str, str | None]:
     """Decide one tool call outside the JSON-RPC proxy path.
 
@@ -273,9 +266,10 @@ def resolve_call_decision(
         return decision, "needs_approval" if decision == "pending" else "disabled"
 
     # Pre-gateway installations fall back to the cached per-tool approval flag.
-    if tool.approval_state == "approved":
+    state = legacy_state_for_caller(tool.approval_state, caller_owns_installation=caller_owns_installation)
+    if state == "approved":
         return "approved", None
-    if tool.approval_state == "needs_approval":
+    if state == "needs_approval":
         return "pending", "needs_approval"
     return "blocked", "disabled"
 
@@ -295,8 +289,10 @@ def record_tool_call_audit(
 def _evaluate_tool_call(
     tools_by_name: dict[str, MCPServerInstallationTool],
     item: dict[str, Any],
-    policy_context: PolicyContext | None = None,
-    audit_entries: list[tuple[str, str]] | None = None,
+    policy_context: PolicyContext | None,
+    audit_entries: list[tuple[str, str]] | None,
+    *,
+    caller_owns_installation: bool,
 ) -> dict[str, Any] | None:
     """Check a single JSON-RPC item against the installation's tool approval state.
 
@@ -349,15 +345,16 @@ def _evaluate_tool_call(
             f"Tool '{tool_name}' is blocked by team policy",
         )
 
-    if tool.approval_state == "approved":
+    state = legacy_state_for_caller(tool.approval_state, caller_owns_installation=caller_owns_installation)
+    if state == "approved":
         return None
-    if tool.approval_state == "needs_approval":
+    if state == "needs_approval":
         return _jsonrpc_error(
             request_id,
             TOOL_NEEDS_APPROVAL_CODE,
             f"Tool '{tool_name}' requires approval before it can be called",
         )
-    if tool.approval_state == "do_not_use":
+    if state == "do_not_use":
         return _jsonrpc_error(
             request_id,
             TOOL_DISABLED_CODE,
@@ -422,6 +419,8 @@ def enforce_tool_approval(
     data: dict[str, Any] | list[Any],
     policy_context: PolicyContext | None = None,
     audit_entries: list[tuple[str, str]] | None = None,
+    *,
+    caller_user_id: int | None,
 ) -> HttpResponse | None:
     """Inspect a JSON-RPC body and short-circuit tools/call that isn't approved.
 
@@ -430,6 +429,7 @@ def enforce_tool_approval(
     passed through; unknown tool names return a JSON-RPC method-not-found error
     without hitting the upstream server.
     """
+    caller_owns_installation = caller_user_id is not None and caller_user_id == installation.user_id
     if isinstance(data, list):
         if not any(_is_tools_call(item) for item in data):
             return None
@@ -439,7 +439,9 @@ def enforce_tool_approval(
         any_blocked = False
         any_passthrough = False
         for item in data:
-            blocked = _evaluate_tool_call(tools_by_name, item, policy_context, audit_entries)
+            blocked = _evaluate_tool_call(
+                tools_by_name, item, policy_context, audit_entries, caller_owns_installation=caller_owns_installation
+            )
             if blocked is not None:
                 responses.append(blocked)
                 any_blocked = True
@@ -476,7 +478,9 @@ def enforce_tool_approval(
     if not _is_tools_call(data):
         return None
     tools_by_name = _tools_by_name(installation, _requested_tool_names(data))
-    blocked = _evaluate_tool_call(tools_by_name, data, policy_context, audit_entries)
+    blocked = _evaluate_tool_call(
+        tools_by_name, data, policy_context, audit_entries, caller_owns_installation=caller_owns_installation
+    )
     if blocked is None:
         return None
     return HttpResponse(json.dumps(blocked), content_type="application/json", status=200)
@@ -561,7 +565,13 @@ def proxy_mcp_request(
             installation=installation,
         )
 
-    enforcement_response = enforce_tool_approval(installation, data, policy_context, audit_entries)
+    enforcement_response = enforce_tool_approval(
+        installation,
+        data,
+        policy_context,
+        audit_entries,
+        caller_user_id=caller.user_id if caller is not None and caller.kind == "member" else None,
+    )
     if gateway_server is not None and caller is not None and audit_entries:
         _write_audit_events(
             installation,
@@ -592,16 +602,16 @@ def proxy_mcp_request(
         **auth_headers,
     }
 
-    # Forward the full `x-posthog-*` namespace so the upstream server can
-    # identify the consumer, mode, and version that the caller declared, plus
-    # any custom PostHog-namespace headers the caller wants to pass through.
-    # Without this, the PostHog MCP cannot resolve single-exec mode for
-    # posthog-code-installed PostHog MCPs (the consumer header never reaches
-    # the resolver) and the `exec` tool comes back as "Tool exec not found".
-    # Non-PostHog upstreams ignore unknown headers in that namespace.
     for header_name in request.headers:
-        if header_name.lower().startswith("x-posthog-"):
+        if header_name.lower().startswith("x-posthog-") and header_name.lower() not in {
+            "x-posthog-mcp-mode",
+            "x-posthog-mcp-store",
+        }:
             headers[header_name] = request.headers[header_name]
+
+    # Store policy must see leaf tools, and shared credentials must not expand nested connectors.
+    headers["x-posthog-mcp-mode"] = "tools"
+    headers["x-posthog-mcp-store"] = "true"
 
     mcp_session_id = request.headers.get("mcp-session-id")
     if mcp_session_id:
@@ -611,6 +621,8 @@ def proxy_mcp_request(
         installation.url,
         verdict.pinned_ips,
         timeout=UPSTREAM_TIMEOUT,
+        total_timeout=UPSTREAM_TIMEOUT,
+        max_response_bytes=MAX_UPSTREAM_RESPONSE_SIZE,
         trust_env=trust_environment_proxy(installation.url, installation.team_id),
     )
     try:
@@ -646,6 +658,9 @@ def proxy_mcp_request(
             content_type="application/json",
             status=502,
         )
+    except httpx.DecodingError:
+        client.close()
+        return _rejected_upstream_response(installation.url)
     except Exception:
         client.close()
         raise
@@ -655,9 +670,17 @@ def proxy_mcp_request(
     if "text/event-stream" in content_type:
         return _build_sse_response(upstream_response, client)
 
-    # Read body then close to avoid memory leaks from buffered responses
     try:
         upstream_response.read()
+    except httpx.TimeoutException:
+        logger.warning("Upstream MCP server timed out", url=upstream_url)
+        return HttpResponse(
+            '{"error": "Upstream MCP server timed out"}',
+            content_type="application/json",
+            status=502,
+        )
+    except httpx.DecodingError:
+        return _rejected_upstream_response(upstream_url)
     finally:
         client.close()
 
@@ -682,9 +705,21 @@ def proxy_mcp_request(
     return response
 
 
+def _rejected_upstream_response(url: str) -> HttpResponse:
+    # The bounded transport raises DecodingError for bodies over the size limit and for compressed bodies.
+    logger.warning("Upstream MCP response rejected", url=url)
+    return HttpResponse(
+        '{"error": "Upstream MCP response rejected"}',
+        content_type="application/json",
+        status=502,
+    )
+
+
 def _stream_upstream(upstream_response: httpx.Response, client: httpx.Client) -> Iterator[bytes]:
     try:
         yield from upstream_response.iter_bytes(4096)
+    except (httpx.TimeoutException, httpx.DecodingError):
+        logger.warning("Upstream MCP stream ended at the response limit", url=str(upstream_response.url))
     finally:
         upstream_response.close()
         client.close()

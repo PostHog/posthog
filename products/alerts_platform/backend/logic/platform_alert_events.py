@@ -7,33 +7,52 @@ keeping.
 ClickHouse has no unique constraint, so the insert carries a deduplication token instead. The
 token names the batch by its contents, and the replicated engine drops a second insert that
 arrives under a token it has already seen. A reader still deduplicates on
-`(alert_id, evaluation_key)`, because the token only covers a retry of the same batch and the
-engine only remembers a bounded window of them.
+`(configuration_id, alert_id, evaluation_key)`, because the token only covers a retry of the same
+batch and the engine only remembers a bounded window of them.
 """
 
 import json
 import hashlib
-from collections.abc import Collection, Sequence
-from dataclasses import fields
-from datetime import datetime
-from typing import Any
+from collections.abc import Collection, Mapping, Sequence
+from dataclasses import field, fields
+from datetime import UTC, datetime, timedelta
+from enum import StrEnum
+from time import sleep
+from typing import Any, Final
 from uuid import UUID
 
 import structlog
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
+    ControlChangeKind,
     EvaluationAnnouncement,
+    PlatformAlertHistory,
+    PlatformCheckEntry,
+    PlatformCheckEvent,
+    PlatformCheckEventPage,
+    PlatformCheckPage,
+    PlatformControlChange,
+    PlatformControlChangePage,
+    PlatformControlHistory,
+    PlatformLastCheck,
+    PlatformStateChange,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
 
 logger = structlog.get_logger(__name__)
+
+# The `alert_id` of a history row that belongs to the check rather than to a group. The column is in
+# the table's sort key, which rejects Nullable, so the nil UUID stands in for "no instance".
+CONFIGURATION_ROW_ALERT_ID: Final = UUID(int=0)
 
 
 @frozen
@@ -46,6 +65,8 @@ class PlatformAlertEventRow:
     """
 
     team_id: int
+    # The source whose check this was, so a reader can tell sources apart without a Postgres join.
+    source_kind: str
     configuration_id: UUID
     alert_id: UUID
     grouping_key: str
@@ -66,16 +87,18 @@ class PlatformAlertEventRow:
     consecutive_failures: int
     muted_notification: str
     occurred_at: datetime
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
     def as_row(self) -> dict[str, Any]:
         """The row as ClickHouse takes it, derived from the fields so a new one cannot be missed.
 
-        Only the three the wire needs in another shape are named.
+        Only the four the wire needs in another shape are named.
         """
         return {f.name: getattr(self, f.name) for f in fields(self)} | {
             "condition_snapshot": json.dumps(self.condition_snapshot),
             "source_config_snapshot": json.dumps(self.source_config_snapshot),
             "error_message": self.error_message or "",
+            "source_detail": json.dumps(self.source_detail) if self.source_detail else "",
         }
 
 
@@ -114,8 +137,31 @@ def _deduplication_token(team_id: int, rows: Sequence[PlatformAlertEventRow]) ->
     return digest.hexdigest()
 
 
-def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
-    """Records a batch's history. Returns how many rows it wrote.
+def _execute(
+    query: str,
+    args: Any,
+    *,
+    team_id: int,
+    settings: dict[str, Any] | None = None,
+    send_receive_timeout: int | None = None,
+) -> Any:
+    """`sync_execute` as the platform's own user, so this bookkeeping never takes from `default`'s
+    per-user concurrency budget. A pod without that user wired falls back to its own default user."""
+    return sync_execute(
+        query,
+        args,
+        team_id=team_id,
+        settings=settings,
+        ch_user=ClickHouseUser.ALERTS_PLATFORM,
+        send_receive_timeout=send_receive_timeout,
+    )
+
+
+def insert_events(
+    team_id: int, rows: Sequence[PlatformAlertEventRow], *, send_receive_timeout: int | None = None
+) -> int:
+    """Records a batch's history. Returns how many rows it wrote. With `send_receive_timeout`, a
+    stalled socket fails the insert after that many seconds, as the shared pool's never does.
 
     Never raises. History is a record of what the platform decided, not a step in deciding it, so
     a ClickHouse outage must not fail a batch whose state and schedule are already written. The
@@ -127,11 +173,13 @@ def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
         # `sync_execute` requires both tags. The platform product rather than a source's, because
         # the table serves every source and the write is the platform's own bookkeeping.
         tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
-        sync_execute(
+        insert_settings = {"insert_deduplication_token": _deduplication_token(team_id, rows)}
+        _execute(
             _INSERT_SQL,
             [row.as_row() for row in rows],
-            settings={"insert_deduplication_token": _deduplication_token(team_id, rows)},
+            settings=insert_settings,
             team_id=team_id,
+            send_receive_timeout=send_receive_timeout,
         )
     except Exception as error:
         logger.exception(
@@ -144,9 +192,7 @@ def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
     return len(rows)
 
 
-_ANNOUNCEMENT_SQL = f"""
-SELECT grouping_key, kind, episode_started_at, value, labels, condition_snapshot,
-       source_config_snapshot, error_message, occurred_at, alert_name, consecutive_failures
+_ANNOUNCED_ROWS = f"""
 FROM {PLATFORM_ALERT_EVENTS_TABLE}
 WHERE team_id = %(team_id)s
   AND configuration_id = %(configuration_id)s
@@ -156,6 +202,45 @@ ORDER BY grouping_key, occurred_at DESC
 LIMIT 1 BY grouping_key
 """
 
+_ANNOUNCEMENT_COLUMNS = """grouping_key, kind, episode_started_at, value, labels, condition_snapshot,
+       source_config_snapshot, error_message, occurred_at, source_detail, alert_name, consecutive_failures"""
+
+# Reads every row of the evaluation, `CHECK` included, in one query, so whether the evaluation was
+# recorded and what it announced come from the same snapshot. Two reads could each land on a
+# different replica, and a firing the first missed would come back as a quiet evaluation.
+#
+# `announced` marks the rows `announcement` sends: not a `CHECK`, unless the group is in
+# `incident_grouping_keys`. Ordering on it before `occurred_at` keeps a group's newest announced
+# row over a silent one, as filtering before `LIMIT 1 BY` would. The announced groups are dealt
+# out by their position in key order, so the parts of one evaluation cover every group exactly
+# once. The evaluation's first row always comes back too, with `deliver` false unless this part
+# owns it, so a recorded evaluation is never read as an absent one.
+_ANNOUNCEMENT_SQL = f"""
+SELECT {_ANNOUNCEMENT_COLUMNS}, deliver
+FROM (
+    SELECT *,
+           announced AND modulo(position, %(parts)s) = %(part)s AS deliver,
+           row_number() OVER (ORDER BY grouping_key) = 1 AS first_row
+    FROM (
+        SELECT *, row_number() OVER (PARTITION BY announced ORDER BY grouping_key) - 1 AS position
+        FROM (
+            SELECT {_ANNOUNCEMENT_COLUMNS},
+                   kind != %(check_kind)s OR has(%(incident_grouping_keys)s, grouping_key) AS announced
+            FROM {PLATFORM_ALERT_EVENTS_TABLE}
+            WHERE team_id = %(team_id)s
+              AND configuration_id = %(configuration_id)s
+              AND evaluation_key = %(evaluation_key)s
+            ORDER BY grouping_key, announced DESC, occurred_at DESC
+            LIMIT 1 BY grouping_key
+        )
+    )
+)
+WHERE deliver OR first_row
+ORDER BY grouping_key
+"""
+
+_ANNOUNCED_KINDS_SQL = f"SELECT grouping_key, kind {_ANNOUNCED_ROWS}"
+
 
 def announcement(
     team_id: int,
@@ -164,6 +249,8 @@ def announcement(
     *,
     source: SourceKind,
     incident_grouping_keys: Collection[str] = (),
+    part: int = 0,
+    parts: int = 1,
 ) -> EvaluationAnnouncement | None:
     """What one evaluation left for a destination to say, or None when it announced nothing.
 
@@ -175,9 +262,33 @@ def announcement(
     `LIMIT 1 BY grouping_key` is the read's own deduplication. The insert carries a token the
     engine drops a repeat under, but it only remembers a bounded window of them, so a retry far
     enough behind writes a second row for a group. The newest is the one this evaluation meant.
+
+    With `parts` above one, only the groups of that `part` come back, and None when it has none.
     """
+    return _read_evaluation(
+        team_id,
+        configuration_id,
+        evaluation_key,
+        source=source,
+        incident_grouping_keys=incident_grouping_keys,
+        part=part,
+        parts=parts,
+    ).announcement
+
+
+def _read_evaluation(
+    team_id: int,
+    configuration_id: str,
+    evaluation_key: str,
+    *,
+    source: SourceKind,
+    incident_grouping_keys: Collection[str],
+    part: int,
+    parts: int,
+) -> "AnnouncementRead":
+    """One read of `_ANNOUNCEMENT_SQL`: `MISSING` when the evaluation has no row at all."""
     tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
-    rows = sync_execute(
+    rows = _execute(
         _ANNOUNCEMENT_SQL,
         {
             "team_id": team_id,
@@ -185,11 +296,16 @@ def announcement(
             "evaluation_key": evaluation_key,
             "check_kind": AlertEventKind.CHECK.value,
             "incident_grouping_keys": list(incident_grouping_keys),
+            "part": part,
+            "parts": parts,
         },
         team_id=team_id,
     )
     if not rows:
-        return None
+        return AnnouncementRead(status=AnnouncementStatus.MISSING)
+    delivered = [row[:-1] for row in rows if row[-1]]
+    if not delivered:
+        return AnnouncementRead(status=AnnouncementStatus.EMPTY)
 
     transitions = tuple(
         AnnouncedTransition(
@@ -202,18 +318,215 @@ def announcement(
             source_config=_snapshot(source_config_snapshot),
             error_message=error_message or None,
             occurred_at=occurred_at,
+            evaluation_key=evaluation_key,
+            source_detail=_snapshot(source_detail),
+            configuration_id=configuration_id,
         )
-        for grouping_key, kind, episode_started_at, value, labels, condition_snapshot, source_config_snapshot, error_message, occurred_at, _, _ in rows
+        for grouping_key, kind, episode_started_at, value, labels, condition_snapshot, source_config_snapshot, error_message, occurred_at, source_detail, _, _ in delivered
     )
     # Evaluation-level, and the same on every row of one evaluation, so the first row carries it.
-    *_, alert_name, consecutive_failures = rows[0]
+    *_, alert_name, consecutive_failures = delivered[0]
+    return AnnouncementRead(
+        status=AnnouncementStatus.FOUND,
+        announcement=EvaluationAnnouncement(
+            configuration_id=configuration_id,
+            source=source,
+            alert_name=alert_name,
+            consecutive_failures=consecutive_failures,
+            transitions=transitions,
+        ),
+    )
+
+
+_ANNOUNCEMENT_RETRY_DELAYS_SECONDS: Final = (1, 2)
+
+
+class AnnouncementStatus(StrEnum):
+    FOUND = "found"
+    """This part has transitions to announce."""
+    EMPTY = "empty"
+    """The evaluation is recorded and this part has nothing to announce, as when a mute held it."""
+    MISSING = "missing"
+    """No record of the evaluation was found."""
+
+
+@frozen
+class AnnouncementRead:
+    status: AnnouncementStatus
+    announcement: EvaluationAnnouncement | None = None
+    """Set only when `status` is `FOUND`."""
+
+
+def read_announcement(
+    team_id: int,
+    configuration_id: str,
+    evaluation_key: str,
+    *,
+    source: SourceKind,
+    incident_grouping_keys: Collection[str] = (),
+    part: int = 0,
+    parts: int = 1,
+) -> AnnouncementRead:
+    """`announcement` for a delivery, which must tell a quiet evaluation from one whose record it
+    cannot see.
+
+    A recorded evaluation with nothing to announce comes back `EMPTY` at once. One with no row at
+    all is read again after each delay in `_ANNOUNCEMENT_RETRY_DELAYS_SECONDS`, and comes back
+    `MISSING` if it is still not there. The waits total 3s, which `DELIVERY_START_TO_CLOSE` budgets
+    for. That is enough for a lagging replica or an asynchronous Distributed insert, though no
+    retry brings back a failed insert. The reads use no consistency setting: without
+    `insert_quorum` on the write, none would help.
+    """
+    for delay in (0, *_ANNOUNCEMENT_RETRY_DELAYS_SECONDS):
+        if delay:
+            sleep(delay)
+        read = _read_evaluation(
+            team_id,
+            configuration_id,
+            evaluation_key,
+            source=source,
+            incident_grouping_keys=incident_grouping_keys,
+            part=part,
+            parts=parts,
+        )
+        if read.status is not AnnouncementStatus.MISSING:
+            return read
+    return AnnouncementRead(status=AnnouncementStatus.MISSING)
+
+
+_OPENING_ROWS_SQL = f"""
+SELECT {_ANNOUNCEMENT_COLUMNS}, evaluation_key
+FROM {PLATFORM_ALERT_EVENTS_TABLE}
+WHERE team_id = %(team_id)s
+  AND configuration_id = %(configuration_id)s
+  AND has(%(grouping_keys)s, grouping_key)
+  AND state = %(firing)s
+  AND previous_state != %(firing)s
+  AND episode_started_at >= %(earliest)s
+ORDER BY grouping_key, occurred_at
+"""
+
+
+def opening_transitions(
+    team_id: int, configuration_id: str, *, source: SourceKind, episodes: Mapping[str, datetime]
+) -> EvaluationAnnouncement | None:
+    """The rows that opened these firings, by grouping key and firing start, as the announcement their
+    trigger was sent from. A group whose opening row is absent is left out: its trigger was read from
+    that row, so no destination heard it either. A group still missing is read again after each delay in
+    `_ANNOUNCEMENT_RETRY_DELAYS_SECONDS`, for a replica that has not received its row yet. None when no
+    group has one."""
+    if not episodes:
+        return None
+    found: dict[str, AnnouncedTransition] = {}
+    alert_name, consecutive_failures = "", 0
+    for delay in (0, *_ANNOUNCEMENT_RETRY_DELAYS_SECONDS):
+        missing = {key: started for key, started in episodes.items() if key not in found}
+        if not missing:
+            break
+        if delay:
+            sleep(delay)
+        name, failures = _read_openings(team_id, configuration_id, missing, found)
+        if name is not None:
+            alert_name, consecutive_failures = name, failures
+    if not found:
+        return None
     return EvaluationAnnouncement(
         configuration_id=configuration_id,
         source=source,
         alert_name=alert_name,
         consecutive_failures=consecutive_failures,
-        transitions=transitions,
+        transitions=tuple(found[key] for key in episodes if key in found),
     )
+
+
+def _read_openings(
+    team_id: int, configuration_id: str, episodes: Mapping[str, datetime], found: dict[str, AnnouncedTransition]
+) -> tuple[str | None, int]:
+    """Adds the opening row of each of `episodes` that this read finds to `found`, and returns the
+    evaluation-level name and failure count from the last one, or None when it found none."""
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    rows = _execute(
+        _OPENING_ROWS_SQL,
+        {
+            "team_id": team_id,
+            "configuration_id": configuration_id,
+            "grouping_keys": list(episodes),
+            "firing": PlatformAlertState.FIRING.value,
+            # Bounds the read to the firings asked about, with a second of slack for how the
+            # parameter is rendered, rather than every firing the groups ever had.
+            "earliest": (min(_utc(started) for started in episodes.values()) - timedelta(seconds=1)).replace(
+                tzinfo=None
+            ),
+        },
+        team_id=team_id,
+    )
+    alert_name: str | None = None
+    consecutive_failures = 0
+    for (
+        grouping_key,
+        kind,
+        episode_started_at,
+        value,
+        labels,
+        condition_snapshot,
+        source_config_snapshot,
+        error_message,
+        occurred_at,
+        source_detail,
+        row_alert_name,
+        row_consecutive_failures,
+        row_evaluation_key,
+    ) in rows:
+        if (
+            grouping_key in found
+            or episode_started_at is None
+            or _utc(episode_started_at) != _utc(episodes[grouping_key])
+        ):
+            continue
+        found[grouping_key] = AnnouncedTransition(
+            grouping_key=grouping_key,
+            kind=AlertEventKind(kind),
+            episode_started_at=episode_started_at,
+            value=value,
+            labels=dict(labels or {}),
+            condition=_snapshot(condition_snapshot),
+            source_config=_snapshot(source_config_snapshot),
+            error_message=error_message or None,
+            occurred_at=occurred_at,
+            evaluation_key=row_evaluation_key,
+            source_detail=_snapshot(source_detail),
+            configuration_id=configuration_id,
+        )
+        alert_name, consecutive_failures = row_alert_name, row_consecutive_failures
+    return alert_name, consecutive_failures
+
+
+def _utc(moment: datetime) -> datetime:
+    # History rows come back from ClickHouse without a zone, and their times are UTC.
+    return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
+
+
+def announced_kinds(
+    team_id: int,
+    configuration_id: str,
+    evaluation_key: str,
+    *,
+    incident_grouping_keys: Collection[str] = (),
+) -> dict[str, AlertEventKind]:
+    """The kind of every group `announcement` returns across all parts, without the rows' payloads."""
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    rows = _execute(
+        _ANNOUNCED_KINDS_SQL,
+        {
+            "team_id": team_id,
+            "configuration_id": configuration_id,
+            "evaluation_key": evaluation_key,
+            "check_kind": AlertEventKind.CHECK.value,
+            "incident_grouping_keys": list(incident_grouping_keys),
+        },
+        team_id=team_id,
+    )
+    return {grouping_key: AlertEventKind(kind) for grouping_key, kind in rows}
 
 
 def _snapshot(raw: str) -> dict[str, Any]:
@@ -225,3 +538,531 @@ def _snapshot(raw: str) -> dict[str, Any]:
     except ValueError:
         return {}
     return loaded if isinstance(loaded, dict) else {}
+
+
+# Every read of checks leaves out follow-ups and control-plane changes. It lists the kinds it keeps,
+# so a kind added later stays out of the checks until a reader opts in.
+_CHECK_KINDS: Final = tuple(kind.value for kind in AlertEventKind if kind is not AlertEventKind.VERDICT_CHANGED)
+CHECKS_ONLY: Final = f"kind IN ({', '.join(repr(kind) for kind in _CHECK_KINDS)})"
+
+
+# The inner read deduplicates on the key the module docstring names. Every configuration-wide row
+# has the nil `alert_id`, and alerts on one schedule share evaluation keys, so without the
+# configuration one alert's check hides another's. The outer read keeps the checks that moved the
+# alert and the newest check, so a page of alerts that check every minute returns a few rows each
+# rather than a day of them.
+_HISTORY_SQL = f"""
+SELECT configuration_id, occurred_at, previous_state, state, error_message, is_latest, grouping_key
+FROM (
+    SELECT configuration_id, occurred_at, previous_state, state, error_message, grouping_key,
+           occurred_at = max(occurred_at) OVER (PARTITION BY configuration_id) AS is_latest
+    FROM (
+        SELECT configuration_id, alert_id, evaluation_key, occurred_at, previous_state, state, error_message,
+               grouping_key
+        FROM {PLATFORM_ALERT_EVENTS_TABLE}
+        WHERE team_id = %(team_id)s
+          AND configuration_id IN %(configuration_ids)s
+          AND (%(all_groups)s OR grouping_key = '')
+          AND {CHECKS_ONLY}
+          AND occurred_at >= %(since)s
+          AND occurred_at < %(until)s
+        ORDER BY configuration_id, alert_id, occurred_at, evaluation_key
+        LIMIT 1 BY configuration_id, alert_id, evaluation_key
+    )
+)
+WHERE previous_state != state OR is_latest
+ORDER BY configuration_id, occurred_at
+"""
+
+
+def history(
+    team_id: int,
+    configuration_ids: Collection[UUID],
+    *,
+    since: datetime,
+    until: datetime,
+    all_groups: bool = False,
+) -> dict[UUID, PlatformAlertHistory]:
+    """Each configuration's state changes and last check in `[since, until)`, in one query.
+
+    Only the ungrouped instance is read unless `all_groups`, because a source that shows one state
+    per alert has no groups. A configuration with no check in the window is left out.
+
+    Raises on a ClickHouse failure, because only the caller knows what it can show instead.
+    """
+    if not configuration_ids:
+        return {}
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    # Not `_execute`: the web API calls this too, and naming a user would replace the one
+    # `sync_execute` picks for request traffic.
+    rows = sync_execute(
+        _HISTORY_SQL,
+        {
+            "team_id": team_id,
+            "configuration_ids": list(configuration_ids),
+            "since": since,
+            "until": until,
+            "all_groups": all_groups,
+        },
+        team_id=team_id,
+        settings={**_READ_BUDGET, **_HISTORY_ROW_BUDGET},
+        send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
+    )
+    changes: dict[UUID, list[PlatformStateChange]] = {}
+    latest: dict[UUID, tuple[datetime, str]] = {}
+    for configuration_id, occurred_at, previous_state, state, error_message, is_latest, grouping_key in rows:
+        if previous_state != state:
+            changes.setdefault(configuration_id, []).append(
+                PlatformStateChange(
+                    occurred_at=occurred_at,
+                    previous_state=PlatformAlertState(previous_state),
+                    state=PlatformAlertState(state),
+                    grouping_key=grouping_key,
+                )
+            )
+        if is_latest:
+            latest[configuration_id] = (occurred_at, error_message)
+    return {
+        configuration_id: PlatformAlertHistory(
+            state_changes=tuple(changes.get(configuration_id, ())),
+            last_checked_at=last_checked_at,
+            last_error_message=error_message or None,
+        )
+        for configuration_id, (last_checked_at, error_message) in latest.items()
+    }
+
+
+# A source reads these to fill in a page it can show without them, so a stalled query gives up
+# rather than holding the request.
+_READ_BUDGET: Final = {"max_execution_time": 5}
+# The client's default socket timeout is effectively unbounded, so a stalled connection would hold the
+# request past the execution budget.
+READ_SOCKET_TIMEOUT_SECONDS: Final = 10
+# A grouped alert that flaps returns a row per group per change, so the read holds a row ceiling and
+# fails rather than load an unbounded result into the web worker. Its callers show the page without it.
+_HISTORY_ROW_BUDGET: Final = {"max_result_rows": 50_000, "result_overflow_mode": "throw"}
+# The earliest time a read that keeps all history passes as its lower bound.
+_EPOCH: Final = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+def _microseconds(moment: datetime) -> str:
+    # A datetime parameter is sent to the second, which would move a window's end past checks inside it.
+    return moment.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+# Deduplicated as `_HISTORY_SQL` is. The quiet checks are dropped before the deduplication, which
+# is safe because two copies of one check are identical rows. The total is a window over every
+# matching check, so one query answers both the page and the count a paginated list needs.
+_NOTABLE_CHECKS_SQL = f"""
+SELECT occurred_at, evaluation_key, previous_state, state, value, condition_snapshot, query_duration_ms,
+       error_message, grouping_key, count() OVER () AS total
+FROM (
+    SELECT alert_id, evaluation_key, occurred_at, previous_state, state, value, condition_snapshot,
+           query_duration_ms, error_message, grouping_key
+    FROM {PLATFORM_ALERT_EVENTS_TABLE}
+    WHERE team_id = %(team_id)s
+      AND configuration_id = %(configuration_id)s
+      AND (%(all_groups)s OR grouping_key = '')
+      AND {CHECKS_ONLY}
+      AND occurred_at >= %(since)s
+      AND (previous_state != state OR error_message != '')
+    ORDER BY alert_id, occurred_at, evaluation_key
+    LIMIT 1 BY alert_id, evaluation_key
+)
+ORDER BY occurred_at DESC, evaluation_key DESC
+LIMIT %(limit)s
+"""
+
+
+def notable_checks(
+    team_id: int, configuration_id: UUID, *, since: datetime, limit: int, all_groups: bool = False
+) -> PlatformCheckEventPage:
+    """The newest `limit` checks since `since` that moved the configuration's state or failed.
+
+    A check that confirmed the state it found is left out, because a source that lists events
+    shows what changed. Only the ungrouped instance is read unless `all_groups`, as in `history`.
+
+    Raises on a ClickHouse failure, because only the caller knows what it can show instead.
+    """
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    rows = sync_execute(
+        _NOTABLE_CHECKS_SQL,
+        {
+            "team_id": team_id,
+            "configuration_id": configuration_id,
+            "since": since,
+            "limit": limit,
+            "all_groups": all_groups,
+        },
+        team_id=team_id,
+        settings=_READ_BUDGET,
+        send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
+    )
+    return PlatformCheckEventPage(
+        events=tuple(
+            PlatformCheckEvent(
+                occurred_at=occurred_at,
+                evaluation_key=evaluation_key,
+                previous_state=PlatformAlertState(previous_state),
+                state=PlatformAlertState(state),
+                value=value,
+                condition=_snapshot(condition_snapshot),
+                query_duration_ms=query_duration_ms,
+                error_message=error_message or None,
+                grouping_key=grouping_key,
+            )
+            for occurred_at, evaluation_key, previous_state, state, value, condition_snapshot, query_duration_ms, error_message, grouping_key, _ in rows
+        ),
+        total=rows[0][-1] if rows else 0,
+    )
+
+
+def _check_entry(
+    occurred_at: datetime, evaluation_key: str, state: str, value: float | None, error_message: str, source_detail: str
+) -> PlatformCheckEntry:
+    return PlatformCheckEntry(
+        occurred_at=occurred_at,
+        evaluation_key=evaluation_key,
+        state=PlatformAlertState(state),
+        value=value,
+        error_message=error_message or None,
+        source_detail=_snapshot(source_detail),
+    )
+
+
+_CHECKS_SQL = f"""
+SELECT occurred_at, evaluation_key, state, value, error_message, count() OVER () AS total, source_detail
+FROM (
+    SELECT alert_id, evaluation_key, occurred_at, state, value, error_message, source_detail
+    FROM {PLATFORM_ALERT_EVENTS_TABLE}
+    WHERE team_id = %(team_id)s
+      AND configuration_id = %(configuration_id)s
+      AND grouping_key = ''
+      AND {CHECKS_ONLY}
+      AND occurred_at >= toDateTime64(%(since)s, 6, 'UTC')
+      AND occurred_at < toDateTime64(%(until)s, 6, 'UTC')
+    ORDER BY alert_id, occurred_at, evaluation_key
+    LIMIT 1 BY alert_id, evaluation_key
+)
+ORDER BY occurred_at DESC, evaluation_key DESC
+LIMIT %(limit)s OFFSET %(offset)s
+"""
+
+_CHECK_COUNT_SQL = f"""
+SELECT count()
+FROM (
+    SELECT alert_id, evaluation_key
+    FROM {PLATFORM_ALERT_EVENTS_TABLE}
+    WHERE team_id = %(team_id)s
+      AND configuration_id = %(configuration_id)s
+      AND grouping_key = ''
+      AND {CHECKS_ONLY}
+      AND occurred_at >= toDateTime64(%(since)s, 6, 'UTC')
+      AND occurred_at < toDateTime64(%(until)s, 6, 'UTC')
+    LIMIT 1 BY alert_id, evaluation_key
+)
+"""
+
+
+def check_page(
+    team_id: int, configuration_id: UUID, *, since: datetime, until: datetime, limit: int, offset: int
+) -> PlatformCheckPage:
+    """One configuration's checks in `[since, until)`, newest first, with how many the window holds.
+
+    Only the ungrouped instance is read, for the same reason as `history`. Raises on a ClickHouse
+    failure, because only the caller knows what it can show instead.
+    """
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    # Not `_execute`, for the same reason as `history`.
+    parameters = {
+        "team_id": team_id,
+        "configuration_id": configuration_id,
+        "since": _microseconds(since),
+        "until": _microseconds(until),
+        "limit": limit,
+        "offset": offset,
+    }
+    rows = sync_execute(
+        _CHECKS_SQL,
+        parameters,
+        team_id=team_id,
+        settings=_READ_BUDGET,
+        send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
+    )
+    if rows:
+        total = rows[0][5]
+    elif offset:
+        # A page past the end has no row to carry the window's count, so it is counted on its own.
+        total = sync_execute(
+            _CHECK_COUNT_SQL,
+            parameters,
+            team_id=team_id,
+            settings=_READ_BUDGET,
+            send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
+        )[0][0]
+    else:
+        total = 0
+    return PlatformCheckPage(
+        total=total,
+        configuration_id=configuration_id,
+        checks=tuple(
+            _check_entry(occurred_at, evaluation_key, state, value, error_message, source_detail)
+            for occurred_at, evaluation_key, state, value, error_message, _, source_detail in rows
+        ),
+    )
+
+
+# Deduplicated as `_CHECKS_SQL` is. `JSONHas` is false for the empty string a check without detail
+# stores, so only checks whose source recorded every path are read. The paths filter before the
+# limit, so checks a caller does not want never use it up.
+def _checks_with_detail_sql(paths: Sequence[Sequence[str]]) -> str:
+    has_paths = "".join(
+        f"\n      AND JSONHas(source_detail, {', '.join(f'%(path_{i}_{j})s' for j in range(len(path)))})"
+        for i, path in enumerate(paths)
+    )
+    return f"""
+SELECT configuration_id, occurred_at, evaluation_key, state, value, error_message, source_detail
+FROM (
+    SELECT configuration_id, alert_id, evaluation_key, occurred_at, state, value, error_message, source_detail
+    FROM {PLATFORM_ALERT_EVENTS_TABLE}
+    WHERE team_id = %(team_id)s
+      AND configuration_id IN %(configuration_ids)s
+      AND grouping_key = ''
+      AND {CHECKS_ONLY}
+      AND occurred_at >= toDateTime64(%(since)s, 6, 'UTC'){has_paths}
+    ORDER BY configuration_id, alert_id, occurred_at, evaluation_key
+    LIMIT 1 BY configuration_id, alert_id, evaluation_key
+)
+ORDER BY configuration_id, occurred_at DESC, evaluation_key DESC
+LIMIT %(limit)s BY configuration_id
+"""
+
+
+def checks_with_detail(
+    team_id: int,
+    configuration_ids: Collection[UUID],
+    *,
+    detail_paths: Sequence[Sequence[str]],
+    since: datetime,
+    limit: int,
+) -> dict[UUID, tuple[PlatformCheckEntry, ...]]:
+    """Each configuration's newest `limit` checks since `since` whose source detail holds every one
+    of `detail_paths`, newest first, in one query. A path is a list of keys into nested objects.
+
+    Only the ungrouped instance is read, as in `history`. A configuration with no such check is left
+    out. Raises on a ClickHouse failure, because only the caller knows what it can show instead.
+    """
+    if not configuration_ids:
+        return {}
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    # Not `_execute`, for the same reason as `history`.
+    rows = sync_execute(
+        _checks_with_detail_sql(detail_paths),
+        {
+            "team_id": team_id,
+            "configuration_ids": list(configuration_ids),
+            "since": _microseconds(since),
+            "limit": limit,
+            **{f"path_{i}_{j}": key for i, path in enumerate(detail_paths) for j, key in enumerate(path)},
+        },
+        team_id=team_id,
+        settings=_READ_BUDGET,
+        send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
+    )
+    checks: dict[UUID, list[PlatformCheckEntry]] = {}
+    for configuration_id, occurred_at, evaluation_key, state, value, error_message, source_detail in rows:
+        checks.setdefault(configuration_id, []).append(
+            _check_entry(occurred_at, evaluation_key, state, value, error_message, source_detail)
+        )
+    return {configuration_id: tuple(entries) for configuration_id, entries in checks.items()}
+
+
+# Deduplication does not matter here, because two copies of one check are identical rows. The tuple
+# keeps a NULL value, which `argMax` would otherwise skip in favor of an older check's.
+_LAST_CHECKS_SQL = f"""
+SELECT configuration_id, max(occurred_at), argMax(tuple(value), (occurred_at, evaluation_key)).1
+FROM {PLATFORM_ALERT_EVENTS_TABLE}
+WHERE team_id = %(team_id)s
+  AND configuration_id IN %(configuration_ids)s
+  AND (%(all_groups)s OR grouping_key = '')
+  AND {CHECKS_ONLY}
+GROUP BY configuration_id
+"""
+
+
+def last_checks(
+    team_id: int, configuration_ids: Collection[UUID], *, all_groups: bool = False
+) -> dict[UUID, PlatformLastCheck]:
+    """Each configuration's newest check across its whole history, in one query.
+
+    Only the ungrouped instance is read unless `all_groups`, as in `history`. A configuration with no check is left out.
+    Raises on a ClickHouse failure, because only the caller knows what it can show instead.
+    """
+    if not configuration_ids:
+        return {}
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    # Not `_execute`, for the same reason as `history`.
+    rows = sync_execute(
+        _LAST_CHECKS_SQL,
+        {"team_id": team_id, "configuration_ids": list(configuration_ids), "all_groups": all_groups},
+        team_id=team_id,
+        settings=_READ_BUDGET,
+        send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
+    )
+    return {
+        configuration_id: PlatformLastCheck(checked_at=checked_at, value=value)
+        for configuration_id, checked_at, value in rows
+    }
+
+
+_CONTROL_CHANGES_SQL = f"""
+SELECT occurred_at, evaluation_key, kind, previous_state, state, count() OVER () AS total
+FROM (
+    SELECT evaluation_key, occurred_at, kind, previous_state, state
+    FROM {PLATFORM_ALERT_EVENTS_TABLE}
+    WHERE team_id = %(team_id)s
+      AND configuration_id = %(configuration_id)s
+      AND alert_id = %(alert_id)s
+      AND kind IN %(kinds)s
+      AND occurred_at >= %(since)s
+    ORDER BY occurred_at, evaluation_key
+    LIMIT 1 BY evaluation_key
+)
+ORDER BY occurred_at DESC, evaluation_key DESC
+LIMIT %(limit)s
+"""
+
+# Over every control-plane kind whatever the page asks for, so a source that hands over its own
+# rows at this moment hands them over at the same moment for every kind.
+_OLDEST_CONTROL_CHANGE_SQL = f"""
+SELECT min(occurred_at), count()
+FROM {PLATFORM_ALERT_EVENTS_TABLE}
+WHERE team_id = %(team_id)s
+  AND configuration_id = %(configuration_id)s
+  AND alert_id = %(alert_id)s
+  AND kind IN %(kinds)s
+"""
+
+
+def control_changes(
+    team_id: int,
+    configuration_id: UUID,
+    *,
+    kinds: Collection[ControlChangeKind],
+    limit: int,
+    since: datetime | None = None,
+) -> PlatformControlChangePage:
+    """The newest `limit` control-plane changes of `kinds` to a configuration, since `since` or across its
+    kept history, and when the oldest kept change of any kind happened.
+
+    Raises on a ClickHouse failure, because only the caller knows what it can show instead.
+    """
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    parameters = {"team_id": team_id, "configuration_id": configuration_id, "alert_id": CONFIGURATION_ROW_ALERT_ID}
+    # Not `_execute`, for the same reason as `history`.
+    [(oldest_at, kept)] = sync_execute(
+        _OLDEST_CONTROL_CHANGE_SQL,
+        {**parameters, "kinds": [kind.value for kind in ControlChangeKind]},
+        team_id=team_id,
+        settings=_READ_BUDGET,
+        send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
+    )
+    rows = (
+        sync_execute(
+            _CONTROL_CHANGES_SQL,
+            {
+                **parameters,
+                "kinds": [kind.value for kind in kinds],
+                "limit": limit,
+                "since": since or _EPOCH,
+            },
+            team_id=team_id,
+            settings=_READ_BUDGET,
+            send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
+        )
+        if kinds and kept
+        else []
+    )
+    return PlatformControlChangePage(
+        changes=tuple(
+            PlatformControlChange(
+                occurred_at=occurred_at,
+                evaluation_key=evaluation_key,
+                kind=ControlChangeKind(kind),
+                previous_state=PlatformAlertState(previous_state),
+                state=PlatformAlertState(state),
+            )
+            for occurred_at, evaluation_key, kind, previous_state, state, _ in rows
+        ),
+        total=rows[0][-1] if rows else 0,
+        oldest_at=oldest_at if kept else None,
+    )
+
+
+# `argMaxIf` returns '' when no toggle precedes the window.
+_CONTROL_HISTORY_SQL = f"""
+SELECT configuration_id,
+       min(occurred_at),
+       argMaxIf(kind, occurred_at, kind IN %(toggles)s AND occurred_at < toDateTime64(%(since)s, 6, 'UTC')),
+       arraySort(change -> change.1, groupArrayIf(
+           (occurred_at, evaluation_key, kind, previous_state, state),
+           occurred_at >= toDateTime64(%(since)s, 6, 'UTC') AND occurred_at < toDateTime64(%(until)s, 6, 'UTC')
+       ))
+FROM (
+    SELECT configuration_id, evaluation_key, occurred_at, kind, previous_state, state
+    FROM {PLATFORM_ALERT_EVENTS_TABLE}
+    WHERE team_id = %(team_id)s
+      AND configuration_id IN %(configuration_ids)s
+      AND alert_id = %(alert_id)s
+      AND kind IN %(kinds)s
+    ORDER BY configuration_id, occurred_at, evaluation_key
+    LIMIT 1 BY configuration_id, evaluation_key
+)
+GROUP BY configuration_id
+"""
+
+
+def control_history(
+    team_id: int, configuration_ids: Collection[UUID], *, since: datetime, until: datetime
+) -> dict[UUID, PlatformControlHistory]:
+    """Each configuration's control-plane changes in `[since, until)`, in one query. A configuration
+    with no kept change is left out.
+
+    Raises on a ClickHouse failure, because only the caller knows what it can show instead.
+    """
+    if not configuration_ids:
+        return {}
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    # Not `_execute`, for the same reason as `history`.
+    rows = sync_execute(
+        _CONTROL_HISTORY_SQL,
+        {
+            "team_id": team_id,
+            "configuration_ids": list(configuration_ids),
+            "alert_id": CONFIGURATION_ROW_ALERT_ID,
+            "kinds": [kind.value for kind in ControlChangeKind],
+            "toggles": [ControlChangeKind.ENABLE.value, ControlChangeKind.DISABLE.value],
+            "since": _microseconds(since),
+            "until": _microseconds(until),
+        },
+        team_id=team_id,
+        settings=_READ_BUDGET,
+        send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
+    )
+    return {
+        configuration_id: PlatformControlHistory(
+            changes=tuple(
+                PlatformControlChange(
+                    occurred_at=occurred_at,
+                    evaluation_key=evaluation_key,
+                    kind=ControlChangeKind(kind),
+                    previous_state=PlatformAlertState(previous_state),
+                    state=PlatformAlertState(state),
+                )
+                for occurred_at, evaluation_key, kind, previous_state, state in changes
+            ),
+            oldest_at=oldest_at,
+            toggle_before=ControlChangeKind(toggle_before) if toggle_before else None,
+        )
+        for configuration_id, oldest_at, toggle_before, changes in rows
+    }

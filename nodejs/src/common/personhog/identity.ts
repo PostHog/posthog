@@ -1,10 +1,12 @@
-import { create } from '@bufbuild/protobuf'
+import { MessageInitShape, create } from '@bufbuild/protobuf'
 import { Client, Code, ConnectError } from '@connectrpc/connect'
 import { Counter } from 'prom-client'
 
 import {
     GetDistinctIdsForPersonsRequestSchema,
     GetOrCreatePersonByDistinctIdRequestSchema,
+    GetOrCreatePersonEntrySchema,
+    GetOrCreatePersonsByDistinctIdsRequestSchema,
     GetPersonByDistinctIdResult,
     GetPersonsByDistinctIdsRequestSchema,
     MergePersonsRequestSchema,
@@ -38,7 +40,12 @@ export interface GetOrCreatePersonEntry {
 }
 
 /** The identity service rejects batches above this; chunk client-side. */
-const IDENTITY_BATCH_SIZE = 250
+export const IDENTITY_BATCH_SIZE = 250
+
+export type GetOrCreatePersonBatchResult = { teamId: number; distinctId: string } & (
+    | { outcome: GetOrCreatePersonOutcome; error?: undefined }
+    | { outcome?: undefined; error: Error }
+)
 
 export interface DistinctIdKey {
     teamId: number
@@ -84,6 +91,8 @@ export interface MergeSagaRequest {
 export const SEMANTIC_REFUSAL_METADATA_KEY = 'x-semantic-refusal'
 /** The op id belongs to a different recorded merge; refused before any durable work. */
 export const SEMANTIC_REFUSAL_OP_ID_REUSED = 'op_id_reused'
+/** Metadata key on a refusal made before the request reached the service; the value is a reason slug. */
+export const NOT_APPLIED_METADATA_KEY = 'x-not-applied'
 
 /** Only a created person carries a document; a found one is identity only, the leader owns its properties. */
 export type GetOrCreatePersonOutcome =
@@ -154,6 +163,68 @@ function namedOutcome(wire: MergeSourceOutcome): MergeSagaSourceOutcome {
     }
     personhogUnknownMergeOutcomeCounter.labels({ wire_value: String(wire) }).inc()
     return 'unknown'
+}
+
+function toProtoEntry(entry: GetOrCreatePersonEntry): MessageInitShape<typeof GetOrCreatePersonEntrySchema> {
+    return {
+        teamId: BigInt(entry.teamId),
+        distinctId: entry.distinctId,
+        extraDistinctIds: entry.extraDistinctIds ?? [],
+        eventName: entry.eventName,
+        setProperties: encodeJsonBytes(entry.setProperties ?? {}),
+        setOnceProperties: encodeJsonBytes(entry.setOnceProperties ?? {}),
+        createdAt: BigInt(entry.createdAtMs),
+        isIdentified: entry.isIdentified ?? false,
+    }
+}
+
+export function getOrCreateEntryBytes(entry: GetOrCreatePersonEntry): number {
+    const ids = [entry.distinctId, ...(entry.extraDistinctIds ?? [])]
+    return (
+        encodeJsonBytes(entry.setProperties ?? {}).byteLength +
+        encodeJsonBytes(entry.setOnceProperties ?? {}).byteLength +
+        ids.reduce((total, id) => total + Buffer.byteLength(id), 0)
+    )
+}
+
+/** The service renders a refused batch entry as "<tonic code name>: <message>". */
+const ENTRY_ERROR_CODES: Record<string, Code> = {
+    Cancelled: Code.Canceled,
+    Unknown: Code.Unknown,
+    InvalidArgument: Code.InvalidArgument,
+    DeadlineExceeded: Code.DeadlineExceeded,
+    NotFound: Code.NotFound,
+    AlreadyExists: Code.AlreadyExists,
+    PermissionDenied: Code.PermissionDenied,
+    ResourceExhausted: Code.ResourceExhausted,
+    FailedPrecondition: Code.FailedPrecondition,
+    Aborted: Code.Aborted,
+    OutOfRange: Code.OutOfRange,
+    Unimplemented: Code.Unimplemented,
+    Internal: Code.Internal,
+    Unavailable: Code.Unavailable,
+    DataLoss: Code.DataLoss,
+    Unauthenticated: Code.Unauthenticated,
+}
+
+function decodeEntryError(error: string): ConnectError {
+    const separator = error.indexOf(': ')
+    const code = separator === -1 ? undefined : ENTRY_ERROR_CODES[error.slice(0, separator)]
+    return code === undefined
+        ? new ConnectError(error, Code.Unknown)
+        : new ConnectError(error.slice(separator + 2), code)
+}
+
+/** Untranslated, the size-limit refusal matches no non-retriable class and the event redelivers forever. */
+function creationError(error: Error, teamId: number, distinctId: string): Error {
+    if (
+        error instanceof ConnectError &&
+        error.code === Code.InvalidArgument &&
+        error.rawMessage.includes('size limit')
+    ) {
+        return new PersonPropertiesSizeViolationError(error.rawMessage, teamId, undefined, distinctId)
+    }
+    return error
 }
 
 /**
@@ -264,18 +335,7 @@ export class PersonhogIdentityOperations {
     ): Promise<GetOrCreatePersonOutcome> {
         try {
             const response = await this.client.getOrCreatePersonByDistinctId(
-                create(GetOrCreatePersonByDistinctIdRequestSchema, {
-                    entry: {
-                        teamId: BigInt(entry.teamId),
-                        distinctId: entry.distinctId,
-                        extraDistinctIds: entry.extraDistinctIds ?? [],
-                        eventName: entry.eventName,
-                        setProperties: encodeJsonBytes(entry.setProperties ?? {}),
-                        setOnceProperties: encodeJsonBytes(entry.setOnceProperties ?? {}),
-                        createdAt: BigInt(entry.createdAtMs),
-                        isIdentified: entry.isIdentified ?? false,
-                    },
-                }),
+                create(GetOrCreatePersonByDistinctIdRequestSchema, { entry: toProtoEntry(entry) }),
                 callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
             )
             if (!response.person) {
@@ -287,21 +347,43 @@ export class PersonhogIdentityOperations {
                 ? { created: true, person: protoPersonToDomain(response.person) }
                 : { created: false, person: protoPersonToIdentity(response.person) }
         } catch (error) {
-            // Surfaced as the domain error the create service handles;
-            // untranslated, the raw gRPC error matches no non-retriable
-            // class and the batch redelivers the oversized event forever.
-            if (error instanceof ConnectError && error.code === Code.InvalidArgument) {
-                if (error.rawMessage.includes('size limit')) {
-                    throw new PersonPropertiesSizeViolationError(
-                        error.rawMessage,
-                        entry.teamId,
-                        undefined,
-                        entry.distinctId
-                    )
+            throw error instanceof Error ? creationError(error, entry.teamId, entry.distinctId) : error
+        }
+    }
+
+    /** A refused entry comes back as its error with the service's gRPC code, so callers retry keys, not batches. */
+    async getOrCreatePersonsByDistinctIds(
+        entries: GetOrCreatePersonEntry[],
+        callerTag?: string
+    ): Promise<GetOrCreatePersonBatchResult[]> {
+        if (entries.length > IDENTITY_BATCH_SIZE) {
+            throw new Error(`identity get-or-create batch of ${entries.length} exceeds ${IDENTITY_BATCH_SIZE}`)
+        }
+        const response = await this.client.getOrCreatePersonsByDistinctIds(
+            create(GetOrCreatePersonsByDistinctIdsRequestSchema, { entries: entries.map(toProtoEntry) }),
+            callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
+        )
+        return response.results.map((result) => {
+            const teamId = Number(result.teamId)
+            const key = { teamId, distinctId: result.distinctId }
+            if (result.error !== undefined) {
+                return { ...key, error: creationError(decodeEntryError(result.error), teamId, result.distinctId) }
+            }
+            if (!result.person) {
+                return {
+                    ...key,
+                    error: new Error(
+                        `identity get-or-create returned no person for team ${teamId} distinct_id ${result.distinctId}`
+                    ),
                 }
             }
-            throw error
-        }
+            return {
+                ...key,
+                outcome: result.created
+                    ? { created: true, person: protoPersonToDomain(result.person) }
+                    : { created: false, person: protoPersonToIdentity(result.person) },
+            }
+        })
     }
 
     /**

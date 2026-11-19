@@ -5,7 +5,9 @@ import { LemonButton, LemonCheckbox, LemonDrawer, LemonTabs } from '@posthog/lem
 
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useApmMobileLayout } from 'lib/hooks/useApmMobileLayout'
 import { IconLink } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -57,6 +59,7 @@ interface LogDetailsModalProps {
 }
 
 export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element | null {
+    const mobileLayout = useApmMobileLayout()
     const { isLogDetailsOpen, selectedLog, jsonParseAllFields, activeTab, sessionId, relatedErrorsInitialScope } =
         useValues(logDetailsModalLogic)
     const { closeLogDetails, setJsonParseAllFields, setActiveTab } = useActions(logDetailsModalLogic)
@@ -83,15 +86,15 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
             isOpen={isLogDetailsOpen}
             onClose={closeLogDetails}
             simple
-            width="50vw"
-            resizable
+            width={mobileLayout ? '100vw' : '50vw'}
+            resizable={!mobileLayout}
             hideCloseButton
             overlayTransparent
             aria-label="Log details"
         >
             <div className="flex flex-col h-full">
                 <LemonDrawer.Header className="flex flex-col gap-2">
-                    <div className="flex items-center justify-between">
+                    <div className={cn('flex items-center justify-between', mobileLayout && 'flex-wrap gap-2')}>
                         <h3>Log details</h3>
                         <div className="flex items-center gap-1">
                             <CopyLogButton log={selectedLog} />
@@ -114,7 +117,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                         </div>
                     </div>
                     <div className="flex items-center justify-between flex-wrap gap-2">
-                        <div className="flex items-center gap-6">
+                        <div className={cn('flex items-center gap-6', mobileLayout && 'flex-wrap')}>
                             <div className="flex items-center gap-2">
                                 <span className="text-muted text-xs font-semibold uppercase">Timestamp</span>
                                 <span className="text-xs font-mono">
@@ -142,6 +145,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                             // selected. Passing it as the initial scope would reapply it each time the tab
                             // remounts and overwrite a scope the user picked in the tab.
                             onOpenRelatedErrors={() => setActiveTab('related-errors')}
+                            onLeave={closeLogDetails}
                         />
                     </div>
                 </LemonDrawer.Header>
@@ -160,7 +164,12 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                                 label: 'Raw',
                                 content: (
                                     <div className="flex flex-col gap-2">
-                                        <div className="flex items-center justify-between">
+                                        <div
+                                            className={cn(
+                                                'flex items-center justify-between',
+                                                mobileLayout && 'flex-wrap gap-2'
+                                            )}
+                                        >
                                             <LemonCheckbox
                                                 checked={jsonParseAllFields}
                                                 onChange={setJsonParseAllFields}

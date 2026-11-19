@@ -3,7 +3,9 @@ import { Form } from 'kea-forms'
 
 import { IconCopy, IconInfo } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -66,6 +68,14 @@ export function SqlVariableEditScene(): JSX.Element {
     } = useValues(sqlVariableEditSceneLogic)
     const { setVariableType, setVariableFormValues, submitVariableForm, resetVariableForm } =
         useActions(sqlVariableEditSceneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const discardChanges = (): void => {
+        if (variable) {
+            resetVariableForm(variableToFormValues(variable))
+            setVariableType(variable.type)
+        }
+    }
 
     const title = isNew ? 'New variable' : variableForm.name || 'Edit variable'
     const codeNameFallback = getCodeName(variableForm.name ?? '')
@@ -91,32 +101,49 @@ export function SqlVariableEditScene(): JSX.Element {
                         key: 'variables',
                     }}
                     actions={
-                        <>
-                            <LemonButton
-                                data-attr="discard-variable-changes"
-                                type="secondary"
-                                size="small"
-                                disabledReason={!isNew && !hasChanges ? 'No changes to discard' : undefined}
-                                onClick={() => {
-                                    if (variable) {
-                                        resetVariableForm(variableToFormValues(variable))
-                                        setVariableType(variable.type)
-                                    }
-                                }}
-                            >
-                                Discard changes
-                            </LemonButton>
-                            <LemonButton
-                                data-attr="save-variable"
-                                type="primary"
-                                size="small"
-                                onClick={submitVariableForm}
-                                loading={isVariableFormSubmitting}
-                                disabledReason={!isNew && !hasChanges ? 'No changes to save' : undefined}
-                            >
-                                Save
-                            </LemonButton>
-                        </>
+                        todayRailNav ? (
+                            <>
+                                <Button
+                                    data-attr="discard-variable-changes"
+                                    variant="outline"
+                                    disabledReason={!isNew && !hasChanges ? 'No changes to discard' : undefined}
+                                    onClick={discardChanges}
+                                >
+                                    Discard changes
+                                </Button>
+                                <Button
+                                    data-attr="save-variable"
+                                    variant="primary"
+                                    onClick={submitVariableForm}
+                                    loading={isVariableFormSubmitting}
+                                    disabledReason={!isNew && !hasChanges ? 'No changes to save' : undefined}
+                                >
+                                    Save
+                                </Button>
+                            </>
+                        ) : (
+                            <>
+                                <LemonButton
+                                    data-attr="discard-variable-changes"
+                                    type="secondary"
+                                    size="small"
+                                    disabledReason={!isNew && !hasChanges ? 'No changes to discard' : undefined}
+                                    onClick={discardChanges}
+                                >
+                                    Discard changes
+                                </LemonButton>
+                                <LemonButton
+                                    data-attr="save-variable"
+                                    type="primary"
+                                    size="small"
+                                    onClick={submitVariableForm}
+                                    loading={isVariableFormSubmitting}
+                                    disabledReason={!isNew && !hasChanges ? 'No changes to save' : undefined}
+                                >
+                                    Save
+                                </LemonButton>
+                            </>
+                        )
                     }
                 />
 

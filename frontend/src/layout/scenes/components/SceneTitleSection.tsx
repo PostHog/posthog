@@ -14,10 +14,9 @@ import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 import { AnimatedSparkles } from 'scenes/max/components/AnimatedSparkles'
-import { UseMaxToolOptions } from 'scenes/max/useMaxTool'
+import type { UseMaxToolOptions } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 
-import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
@@ -39,6 +38,8 @@ export type ResourceType = {
     forceIcon?: JSX.Element
     /** If your resource type matches a product in fileSystemTypes and has a color defined, you can use this to override the product's icon color */
     forceIconColorOverride?: FileSystemIconColor
+    /** Set when the icon depicts this resource, not its product, so it leads the name instead of the parent breadcrumb */
+    iconLeadsName?: boolean
 }
 
 export type SceneMainTitleProps = {
@@ -51,6 +52,8 @@ export type SceneMainTitleProps = {
      * Optional node rendered inline immediately after the name (e.g. a status tag)
      */
     nameSuffix?: React.ReactNode
+    /** A control right after the name, outside the tags' colour scope. Shown only under the Today layout. */
+    nameAction?: React.ReactNode
     /**
      * null to hide the description,
      * undefined to show the default description
@@ -74,6 +77,8 @@ export type SceneMainTitleProps = {
      * If true, the description is always rendered and the show/hide toggle is omitted
      */
     descriptionAlwaysVisible?: boolean
+    /** Only the rail navigation honours it. */
+    descriptionIgnoresForceEdit?: boolean
     /**
      * The number of milliseconds to debounce the name and description changes
      * useful for renaming resources that update too fast
@@ -108,6 +113,11 @@ export type SceneMainTitleProps = {
      * @default undefined
      */
     forceBackTo?: Breadcrumb
+    /**
+     * A plain-text crumb before the name that says where the scene sits, for example a settings level.
+     * Only the rail navigation shows it.
+     */
+    scope?: string
 
     /**
      * Additional class name for the title section
@@ -134,11 +144,7 @@ export type SceneMainTitleProps = {
 }
 
 export function SceneTitleSection(props: SceneMainTitleProps): JSX.Element | null {
-    const { zenMode } = useValues(navigation3000Logic)
     const { todayRailEnabled } = useValues(todayShellLogic)
-    if (zenMode) {
-        return null
-    }
     return todayRailEnabled ? <QuillSceneTitleSection {...props} /> : <LemonSceneTitleSection {...props} />
 }
 
@@ -198,11 +204,12 @@ function LemonSceneTitleSection({
             return
         }
 
+        // Threshold 0: at the top of the page a sub-pixel offset made threshold 1 report the title as scrolled.
         const observer = new IntersectionObserver(
             ([entry]) => {
                 setIsScrolled(!entry.isIntersecting)
             },
-            { threshold: 1 }
+            { threshold: 0 }
         )
 
         observer.observe(stickyElement)
@@ -212,7 +219,7 @@ function LemonSceneTitleSection({
     const icon = sceneResourceIcon(resourceType)
 
     const descriptionBlock = hasDescription && (descriptionAlwaysVisible || showDescription || forceEdit) && (
-        <div className={cn('[&_svg]:size-6', noPadding ? cn('pl-4 pr-2', className) : '-mt-4')}>
+        <div className={noPadding ? cn('pl-4 pr-2', className) : '-mt-4'}>
             <SceneDescription
                 description={effectiveDescription}
                 markdown={markdown}
@@ -294,10 +301,12 @@ function LemonSceneTitleSection({
                                             {hasDescription && !descriptionAlwaysVisible ? (
                                                 <ButtonPrimitive
                                                     className={cn(
-                                                        'size-[var(--button-height-sm)] shrink-0',
+                                                        // A transition, not keyframes: the test runner sometimes paints a forwards fill at 0%.
+                                                        'size-[var(--button-height-sm)] shrink-0 transition-opacity duration-200 motion-reduce:transition-none',
+                                                        // Pinned in snapshots like the border, because the observer still flips in some captures.
                                                         isScrolled
-                                                            ? 'animate-fade-out-subtle pointer-events-none'
-                                                            : 'animate-fade-in-subtle group-hover/scene-title-section:opacity-100 opacity-30 transition-opacity duration-200 motion-reduce:transition-none'
+                                                            ? 'opacity-0 pointer-events-none [body.storybook-test-runner_&]:opacity-30'
+                                                            : 'opacity-30 group-hover/scene-title-section:opacity-100'
                                                     )}
                                                     onClick={toggleShowDescription}
                                                     tooltip={showDescription ? 'Hide description' : 'Show description'}

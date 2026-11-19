@@ -1,20 +1,17 @@
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useValues } from 'kea'
 
+import { playerUsesWatchLayout } from 'scenes/session-recordings/playlist/replayLayout'
+
+import { playerSettingsLogic } from '../playerSettingsLogic'
+import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { PlayerModeBar } from '../watch/PlayerModeBar'
 import { PlayerMeta } from './PlayerMeta'
-import { PlayerMetaTopSettings, useReportLowTtlViewed } from './PlayerMetaTopSettings'
+import { useReportLowTtlViewed } from './PlayerMetaTopSettings'
 
 export function PlayerMetaBar(): JSX.Element {
-    const consolidatedControls = useFeatureFlag('REPLAY_CONSOLIDATED_CONTROLS')
     useReportLowTtlViewed()
+    const { replayLayout } = useValues(playerSettingsLogic)
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
 
-    if (consolidatedControls) {
-        return <PlayerMeta consolidated />
-    }
-
-    return (
-        <>
-            <PlayerMeta />
-            <PlayerMetaTopSettings />
-        </>
-    )
+    return playerUsesWatchLayout(replayLayout, logicProps) ? <PlayerModeBar /> : <PlayerMeta />
 }

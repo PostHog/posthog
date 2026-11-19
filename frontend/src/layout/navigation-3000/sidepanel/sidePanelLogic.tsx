@@ -3,7 +3,7 @@ import { combineUrl, router, urlToAction } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -75,6 +75,8 @@ export interface sidePanelLogicValues {
     sidePanelOpen: boolean // sidePanelStateLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    defaultTab: SidePanelTab
+    deprecatedTabs: SidePanelTab[]
     enabledTabs: SidePanelTab[]
     isAccessControlSettings: boolean
     visibleTabs: SidePanelTab[]
@@ -109,10 +111,13 @@ export interface sidePanelLogicMeta {
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean, // userLogic
             isAccessControlSettings: boolean
         ) => SidePanelTab[]
+        deprecatedTabs: (featureFlags: FeatureFlagsSet) => SidePanelTab[]
+        defaultTab: (scenePanelIsPresent: boolean, deprecatedTabs: SidePanelTab[]) => SidePanelTab
         visibleTabs: (
             enabledTabs: SidePanelTab[],
             sceneSidePanelContext: SidePanelSceneContext,
-            featureFlags: FeatureFlagsSet
+            featureFlags: FeatureFlagsSet,
+            deprecatedTabs: SidePanelTab[]
         ) => SidePanelTab[]
     }
 }
@@ -175,11 +180,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 isAccessControlSettings: boolean
             ) => {
                 if (sceneSidePanelContext.canvas_id && currentTeam) {
-                    // Support stays openable from the help menu, but the canvas tabs take the bar.
+                    // Support stays openable from the help menu, but the canvas tabs take the bar. The web app
+                    // only views canvases, so the authoring tabs (chat and blocks) are left out.
                     return [
-                        ...CANVAS_SIDE_PANEL_TABS.filter(
-                            (tab) => tab !== SidePanelTab.CanvasBlocks || sceneSidePanelContext.canvas_blocks
-                        ),
+                        SidePanelTab.CanvasTimeline,
                         SidePanelTab.Exports,
                         ...(isCloudOrDev ? [SidePanelTab.Support] : []),
                     ]
@@ -234,23 +238,41 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             },
         ],
 
+        /** Tabs on their way out. They stay usable, but sit at the end of the bar and never open by default. */
+        deprecatedTabs: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): SidePanelTab[] =>
+                featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] ? [SidePanelTab.Info] : [],
+        ],
+        defaultTab: [
+            (s) => [s.scenePanelIsPresent, s.deprecatedTabs],
+            (scenePanelIsPresent: boolean, deprecatedTabs: SidePanelTab[]): SidePanelTab =>
+                scenePanelIsPresent && !deprecatedTabs.includes(SidePanelTab.Info)
+                    ? SidePanelTab.Info
+                    : SidePanelTab.Max,
+        ],
         /** Tabs shown in the navigation bar */
         visibleTabs: [
-            (s) => [s.enabledTabs, s.sceneSidePanelContext, s.featureFlags],
+            (s) => [s.enabledTabs, s.sceneSidePanelContext, s.featureFlags, s.deprecatedTabs],
             (
                 enabledTabs: SidePanelTab[],
                 sceneSidePanelContext: SidePanelSceneContext,
-                featureFlags: FeatureFlagsSet
+                featureFlags: FeatureFlagsSet,
+                deprecatedTabs: SidePanelTab[]
             ): SidePanelTab[] => {
                 // Some tabs are openable programmatically but not shown in the nav bar
                 const hiddenTabs: SidePanelTab[] = sceneSidePanelContext.canvas_id
                     ? [SidePanelTab.Exports, SidePanelTab.Support]
                     : [SidePanelTab.Exports]
-                // The Today layout has no home for these tabs yet. They stay openable from their entry points.
+                // The Today layout has no home for Notebooks yet. It stays openable from its entry points.
                 if (featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
-                    hiddenTabs.push(SidePanelTab.Discussion, SidePanelTab.Notebooks)
+                    hiddenTabs.push(SidePanelTab.Notebooks)
                 }
-                return enabledTabs.filter((tab) => !hiddenTabs.includes(tab))
+                const tabs = enabledTabs.filter((tab) => !hiddenTabs.includes(tab))
+                return [
+                    ...tabs.filter((tab) => !deprecatedTabs.includes(tab)),
+                    ...tabs.filter((tab) => deprecatedTabs.includes(tab)),
+                ]
             },
         ],
     }),

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { IconGitBranch } from '@posthog/icons'
 import {
@@ -14,6 +14,7 @@ import {
 
 import { ComboboxLoadMoreFooter, ComboboxSearchField } from './ComboboxSearchChrome'
 import { githubBranchSearchLogic } from './githubBranchSearchLogic'
+import { useGitHubDefaultBranch } from './useGitHubDefaultBranch'
 
 export interface GitHubBranchComboboxProps {
     integrationId: number
@@ -25,6 +26,9 @@ export interface GitHubBranchComboboxProps {
     disabled?: boolean
     placeholder?: string
     allowCustomValues?: boolean
+    triggerClassName?: string
+    contentSide?: 'top' | 'bottom'
+    contentClassName?: string
 }
 
 /** Sentinel item value for the "type a new branch name" action. */
@@ -45,35 +49,20 @@ export function GitHubBranchCombobox({
     disabled = false,
     placeholder = 'Select branch...',
     allowCustomValues = true,
+    triggerClassName,
+    contentSide = 'bottom',
+    contentClassName,
 }: GitHubBranchComboboxProps): JSX.Element {
     const logic = githubBranchSearchLogic({ integrationId, repo })
-    const { branches, defaultBranch, loading, hasMore, searchQuery, error } = useValues(logic)
+    const { branches, loading, hasMore, searchQuery, error } = useValues(logic)
     const { setSearchQuery, loadMore, refresh } = useActions(logic)
 
     const triggerRef = useRef<HTMLButtonElement>(null)
     const [open, setOpen] = useState(false)
-    const preselectRequestedFor = useRef<string | null>(null)
-
     const trimmedSearchQuery = searchQuery.trim()
     const showInlineLoadingState = open && loading
 
-    // Pre-select the repo's default branch once it's known and nothing is chosen yet (matches PostHog Desktop).
-    // Only a picker still missing a branch pays for the upfront fetch that surfaces it. One that already has
-    // its branch stays lazy, so a list of them doesn't fire a request per row.
-    useEffect(() => {
-        if (value) {
-            return
-        }
-        if (defaultBranch) {
-            onChange(defaultBranch)
-            return
-        }
-        const repoKey = `${integrationId}:${repo}`
-        if (preselectRequestedFor.current !== repoKey) {
-            preselectRequestedFor.current = repoKey
-            refresh()
-        }
-    }, [value, defaultBranch, onChange, refresh, integrationId, repo])
+    useGitHubDefaultBranch({ integrationId, repo, value, onChange })
 
     // Offer "Use <typed> as branch name" when the search doesn't match an existing branch — lets the agent
     // work on a brand-new branch.
@@ -116,13 +105,25 @@ export function GitHubBranchCombobox({
         >
             <ComboboxTrigger
                 render={
-                    <Button ref={triggerRef} variant="outline" size="sm" disabled={disabled} aria-label="Branch">
+                    <Button
+                        ref={triggerRef}
+                        variant="outline"
+                        size="sm"
+                        disabled={disabled}
+                        aria-label="Branch"
+                        className={triggerClassName}
+                    >
                         <IconGitBranch className="shrink-0" />
                         <span className="min-w-0 truncate">{value || placeholder}</span>
                     </Button>
                 }
             />
-            <ComboboxContent anchor={triggerRef} side="bottom" sideOffset={6} className="min-w-[280px]">
+            <ComboboxContent
+                anchor={triggerRef}
+                side={contentSide}
+                sideOffset={6}
+                className={contentClassName ?? 'min-w-[280px]'}
+            >
                 <ComboboxSearchField itemsLabel="branches" loading={loading} disabled={disabled} onRefresh={refresh} />
                 <ComboboxEmpty>
                     {showInlineLoadingState ? 'Loading branches...' : (error ?? 'No branches found.')}

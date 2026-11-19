@@ -1,14 +1,19 @@
 import datetime as dt
 from enum import auto
-from typing import Optional
+from typing import Any, Optional
+from uuid import UUID, uuid4, uuid5
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import ClickhouseDestroyTablesMixin
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+
+from posthog.schema import HogQLQueryModifiers
+
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
@@ -17,10 +22,12 @@ from posthog.models import OrganizationMembership
 from products.demo.backend.logic.matrix.manager import (
     QUEUE_FULL_MAX_FLUSHES,
     MatrixManager,
+    _EventToSave,
     _produce_when_queue_has_room,
+    _with_exposure_copies,
 )
 from products.demo.backend.logic.matrix.matrix import Cluster, Matrix
-from products.demo.backend.logic.matrix.models import SimPerson, SimSessionIntent
+from products.demo.backend.logic.matrix.models import SimEvent, SimPerson, SimSessionIntent
 
 
 class DummySessionIntent(SimSessionIntent):
@@ -35,9 +42,17 @@ class DummyPerson(SimPerson):
         return DummySessionIntent.FLAIL
 
     def simulate_session(self):
-        self.active_client.capture_pageview("/", {"foo": "bar"})
+        self.active_client.capture_pageview(
+            "/", {"foo": "bar", "optional": None, "nested": {"missing": None, "value": 1}}
+        )
         self.active_client.identify(self.in_product_id)
         self.active_client.group("company", "Acme", {"bar": "foo"})
+        self.active_client.capture(
+            "$feature_flag_called", {"$feature_flag": "multivariate-flag", "$feature_flag_response": "test"}
+        )
+        self.active_client.capture(
+            "$feature_flag_called", {"$feature_flag": "boolean-flag", "$feature_flag_response": "true"}
+        )
         self.advance_timer(86400 * 12)
 
 
@@ -58,6 +73,7 @@ class DummyMatrix(Matrix):
         return super().set_project_up(team, user)
 
 
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 class TestMatrixManager(ClickhouseDestroyTablesMixin):
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -69,6 +85,7 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
         cls.matrix = DummyMatrix(
             n_clusters=3,
             now=dt.datetime(2020, 1, 1, 0, 0, 0, 0, tzinfo=ZoneInfo("UTC")),
+            days_past=14,
             days_future=0,
         )
         cls.matrix.simulate()
@@ -112,6 +129,17 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
             >= 3
         )
         assert self.team.name == DummyMatrix.PRODUCT_NAME
+        exposures, multivariate_flag_calls = sync_execute(
+            """
+            SELECT
+                countIf(event = '$experiment_exposure'),
+                countIf(event = '$feature_flag_called' AND JSONExtractString(properties, '$feature_flag_response') = 'test')
+            FROM events WHERE team_id = %(team_id)s
+            """,
+            {"team_id": self.team.pk},
+        )[0]
+        assert multivariate_flag_calls >= 3
+        assert exposures == multivariate_flag_calls
 
     def test_run_on_team_marks_persons_that_identified(self):
         manager = MatrixManager(self.matrix)
@@ -126,20 +154,75 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
             >= 3
         )
 
-    def test_run_on_team_using_pre_save(self):
+    def test_run_on_team_using_pre_save(self) -> None:
         manager = MatrixManager(self.matrix, use_pre_save=True)
 
         manager.run_on_team(self.team, self.user)
 
-        # At least one event for each cluster
-        assert sync_execute("SELECT count() FROM events WHERE team_id = 0")[0][0] >= 3
-        assert (
-            sync_execute(
-                "SELECT count() FROM events WHERE team_id = %(team_id)s",
+        for read_table, rows_the_copy_waits_for in (
+            ("events", "1"),
+            ("events_json", "event != '$feature_flag_called'"),
+        ):
+            rows = sync_execute(
+                f"""
+                SELECT team_id, toJSONString(tuple(* EXCEPT (
+                    team_id, _timestamp, _offset, _partition, inserted_at, consumer_breadcrumbs, historical_migration
+                )))
+                FROM {read_table} WHERE team_id IN (0, %(team_id)s) AND {rows_the_copy_waits_for} ORDER BY 2
+                """,
                 {"team_id": self.team.pk},
-            )[0][0]
-            >= 3
+            )
+            source = [row for team_id, row in rows if team_id == 0]
+            target = [row for team_id, row in rows if team_id == self.team.pk]
+            assert source
+            assert target == source
+
+        for use_new_events_schema in (False, True):
+            copied = execute_hogql_query(
+                "SELECT count() FROM events WHERE properties.foo = 'bar'",
+                team=self.team,
+                modifiers=HogQLQueryModifiers(useNewEventsSchema=use_new_events_schema),
+            )
+            assert copied.results[0][0] >= 3
+
+
+class TestWithExposureCopies(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("multivariate_response", "$feature_flag_called", "test", True),
+            ("true_string_response", "$feature_flag_called", "true", False),
+            ("false_string_response", "$feature_flag_called", "false", False),
+            ("empty_string_response", "$feature_flag_called", "", False),
+            ("boolean_response", "$feature_flag_called", True, False),
+            ("other_event_with_variant", "$pageview", "test", False),
+        ]
+    )
+    def test_copies_only_multivariate_flag_calls(
+        self, _name: str, event_name: str, response: Any, expect_copy: bool
+    ) -> None:
+        timestamp = dt.datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+        event = SimEvent(
+            event=event_name,
+            distinct_id="person-1",
+            properties={"$feature_flag": "some-flag", "$feature_flag_response": response},
+            timestamp=timestamp,
+            person_id=uuid4(),
+            person_properties={},
+            person_created_at=timestamp,
         )
+
+        saved = list(_with_exposure_copies([event]))
+
+        source_uuid = saved[0].uuid
+        expected = [_EventToSave(uuid=source_uuid, name=event_name, source=event)]
+        if expect_copy:
+            ingestion_namespace = UUID("1b7c9119-5953-4668-97b7-ab0ef8a6bb48")
+            expected.append(
+                _EventToSave(
+                    uuid=uuid5(ingestion_namespace, str(source_uuid)), name="$experiment_exposure", source=event
+                )
+            )
+        assert saved == expected
 
 
 class TestProduceWhenQueueHasRoom(SimpleTestCase):

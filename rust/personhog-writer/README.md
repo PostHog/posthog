@@ -60,6 +60,12 @@ The upsert uses `WHERE EXCLUDED.version > COALESCE(table.version, -1)`, so out-o
 
 A person whose fields cannot be bound losslessly (malformed uuid, `team_id` beyond the column's integer range, non-UTF-8 JSON bytes, out-of-range timestamp) fails its chunk as a `Data` error rather than being silently dropped or repaired; the per-row pass then isolates it as an invariant violation (see below).
 
+## Row locks
+
+The update never assigns `uuid`, even as an unchanged value. The `(team_id, uuid)` unique index makes it a key column, and with no key column in its `SET` list `ON CONFLICT` locks the row `FOR NO KEY UPDATE`. That lock lets the foreign-key checks of distinct id and hash key override writes for the same person run while a flush is in flight. A person's uuid is fixed at creation, so only the insert branch writes it.
+
+The merge and delete sagas still wait on a flush that holds their person, because their `FOR NO KEY UPDATE` conflicts with the writer's. A longer statement holds its row locks longer.
+
 ## Error handling
 
 Failures are handled at chunk granularity: the store splits each batch into chunks (sized by `upsert_batch_size`), runs them in parallel against `PgStore::execute_chunk`, and reports successful, transient-failed, and data-failed chunks separately so only the affected rows need retry.
@@ -136,9 +142,9 @@ Consumer lag per partition is monitored externally via KMinion (`kminion_kafka_c
 | `KAFKA_TLS` | `false` | Enable TLS for Kafka |
 | `KAFKA_CLIENT_ID` | (empty) | Pod name for static group membership |
 | `KAFKA_CLIENT_RACK` | (empty) | Rack ID for rack-aware consumption |
-| `KAFKA_TOPIC` | `personhog_updates` | Topic to consume |
 | `KAFKA_CONSUMER_GROUP` | `personhog-writer` | Consumer group ID |
-| `KAFKA_CONSUMER_OFFSET_RESET` | `earliest` | Offset reset policy |
+| `ETCD_ENDPOINTS` | `http://localhost:2379` | etcd endpoints; the topic comes from `config/changelog` |
+| `ETCD_PREFIX` | `/personhog/` | etcd key prefix |
 | `DATABASE_URL` | (required) | Postgres connection string |
 | `PG_MAX_CONNECTIONS` | `20` | Connection pool size |
 | `PG_TARGET_TABLE` | `personhog_person_tmp` | Target table (`posthog_person` for production cutover) |

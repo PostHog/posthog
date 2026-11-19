@@ -7,8 +7,9 @@ import posthog from 'posthog-js'
 import { IconBug, IconCheckbox, IconDashboard, IconGraph, IconNotebook } from '@posthog/icons'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
-import { DashboardLoadAction, RefreshStatus, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import type { RefreshStatus } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookListItemType } from 'scenes/notebooks/types'
@@ -67,6 +68,15 @@ const addOrUpdateEntity = <TContext extends EntityWithIdAndType>(state: TContext
 
 const removeEntity = <TContext extends EntityWithIdAndType>(state: TContext[], id: string | number): TContext[] =>
     state.filter((item) => item.id !== id)
+
+const PICKER_GROUP_CONTEXT_TYPES: Partial<Record<TaxonomicFilterGroupType, MaxContextType>> = {
+    [TaxonomicFilterGroupType.Events]: MaxContextType.EVENT,
+    [TaxonomicFilterGroupType.Actions]: MaxContextType.ACTION,
+    [TaxonomicFilterGroupType.Insights]: MaxContextType.INSIGHT,
+    [TaxonomicFilterGroupType.Dashboards]: MaxContextType.DASHBOARD,
+    [TaxonomicFilterGroupType.Notebooks]: MaxContextType.NOTEBOOK,
+    [TaxonomicFilterGroupType.ErrorTrackingIssues]: MaxContextType.ERROR_TRACKING_ISSUE,
+}
 
 // A throw while building scene context blanks out ALL of PostHog AI's auto-collected context
 // (e.g. PostHog AI reporting it has no dashboard and falling back to search). The selector that
@@ -433,8 +443,11 @@ export const maxContextLogic = kea<maxContextLogicType>([
             },
         ],
     }),
-    listeners(({ actions, cache }) => ({
+    listeners(({ actions, cache, values }) => ({
         openContextPicker: () => {
+            posthog.capture('max context picker opened', {
+                has_page_context: values.contextOptions.length > 0,
+            })
             dashboardsModel.mount()
             dashboardsModel.actions.loadDashboardsIfNeeded()
         },
@@ -497,6 +510,15 @@ export const maxContextLogic = kea<maxContextLogicType>([
             let dashboard = data.preloaded
 
             if (!dashboard || !dashboard.tiles) {
+                const dashboardModule = await import('scenes/dashboard/dashboardLogic').catch((error) => {
+                    posthog.captureException(error, { feature: 'max_context_dashboard' })
+                    lemonToast.error('Could not load the dashboard. Try again.')
+                    return null
+                })
+                if (!dashboardModule) {
+                    return
+                }
+                const { DashboardLoadAction, dashboardLogic } = dashboardModule
                 const dashboardLogicInstance = dashboardLogic.build({ id: data.id })
                 dashboardLogicInstance.mount()
 
@@ -563,6 +585,14 @@ export const maxContextLogic = kea<maxContextLogicType>([
             groupType: TaxonomicFilterGroupType
             item: TaxonomicItem
         }) => {
+            posthog.capture('max context added', {
+                group_type: groupType,
+                context_type:
+                    groupType === TaxonomicFilterGroupType.MaxAIContext
+                        ? (item as MaxContextTaxonomicFilterOption).type
+                        : PICKER_GROUP_CONTEXT_TYPES[groupType],
+                from_page_tab: groupType === TaxonomicFilterGroupType.MaxAIContext,
+            })
             try {
                 if (groupType === TaxonomicFilterGroupType.Events) {
                     actions.addOrUpdateContextEvent(item as EventDefinition)

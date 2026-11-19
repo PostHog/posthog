@@ -23,14 +23,14 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     clickhouse_column_to_dwh_column,
     clickhouse_columns_to_dwh_columns,
+    persist_schema_metadata,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
-    extract_available_column_names,
     filter_columns_by_enabled_columns,
     filter_dwh_columns_by_enabled_columns,
     normalize_namespace,
-    prune_enabled_columns,
     sql_schema_metadata,
 )
 
@@ -137,7 +137,7 @@ def reconcile_clickhouse_schemas(
 
     is_direct = source.is_direct_query
     source_schema_names = [s.name for s in source_schemas]
-    default_database = (source.job_inputs or {}).get("database")
+    default_database = SourceInputsStore.load(source).get("database")
     schema_models = {
         s.name: s
         for s in ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False).select_related(
@@ -186,25 +186,17 @@ def reconcile_clickhouse_schemas(
             source_schema=resolved_database,
             source_table_name=resolved_table,
         )
-        new_sync_type_config = {**(matched.sync_type_config or {}), "schema_metadata": schema_metadata}
-        if source_schema.detected_primary_keys and not new_sync_type_config.get("primary_key_columns"):
-            new_sync_type_config["primary_key_columns"] = source_schema.detected_primary_keys
-        matched.sync_type_config = new_sync_type_config
-        update_fields = ["sync_type_config", "updated_at"]
-
-        available_names = extract_available_column_names(schema_metadata)
-        pruned = prune_enabled_columns(matched.enabled_columns, available_names)
-        if pruned.removed:
+        removed_columns = persist_schema_metadata(
+            matched, schema_metadata=schema_metadata, detected_primary_keys=source_schema.detected_primary_keys
+        )
+        if removed_columns:
             log.info(
                 "clickhouse.reconcile_schemas.pruned_enabled_columns",
                 source_id=str(source.id),
                 schema_id=str(matched.id),
                 schema_name=matched.name,
-                removed_columns=pruned.removed,
+                removed_columns=removed_columns,
             )
-            matched.enabled_columns = pruned.kept
-            update_fields.append("enabled_columns")
-        matched.save(update_fields=update_fields)
 
         if not is_direct:
             continue
@@ -258,7 +250,7 @@ def reproject_direct_clickhouse_table(
     source_database, source_table_name = get_clickhouse_source_location(
         schema_name=schema_row.name,
         schema_metadata=schema_row.schema_metadata,
-        default_database=(source.job_inputs or {}).get("database"),
+        default_database=SourceInputsStore.load(source).get("database"),
     )
     return upsert_direct_clickhouse_table(
         schema_row.table,

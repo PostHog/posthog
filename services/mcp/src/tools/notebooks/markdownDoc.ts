@@ -120,3 +120,61 @@ export async function applyMarkdownEdit(
     }
     throw lastError
 }
+
+export async function replaceMarkdownCell(
+    context: Context,
+    notebookId: string,
+    nodeId: string,
+    replacement: string
+): Promise<void> {
+    const projectId = await context.stateManager.getProjectId()
+    const state = await context.api.request<{ version: number | null; cells: Schemas.NotebookCellState[] }>({
+        method: 'GET',
+        path: `${notebookPathFor(projectId, notebookId)}sql_v2/state/`,
+    })
+    const block = state.cells.find((cell) => cell.node_id === nodeId)
+    if (!block) {
+        throw new Error(
+            `No cell with node_id ${nodeId} in notebook ${notebookId}. Read the current ids with notebooks-get.`
+        )
+    }
+    if (block.cell_type !== 'markdown') {
+        throw new Error(`Cell ${nodeId} is a ${block.cell_type} cell. Pass its replacement as \`code\`.`)
+    }
+    // A prose id counts occurrences of identical text, so a block that duplicates another one's
+    // text is only pinned by the position it held when the caller read it. A write arrives after
+    // that read, and an identical block inserted above in between shifts every later occurrence
+    // by one. The id would still resolve, and the fresh offsets would still validate, so the edit
+    // would land on a block the caller never saw.
+    const sameId = state.cells.filter((cell) => cell.node_id === nodeId)
+    if (sameId.length > 1) {
+        throw new Error(
+            `Cell ${nodeId} names ${sameId.length} blocks in notebook ${notebookId}, so it cannot name one of them. Re-read the notebook with notebooks-get.`
+        )
+    }
+    // The edit is bound to the document the caller read, rather than hunted for again in a newer
+    // one. Re-resolving needs the backend's block grammar, and this side does not have it: a tag
+    // `parseCellTags` cannot see is prose here and a live cell there, so a miss rewrites a cell.
+    // A changed document is therefore reported, and the caller reads again.
+    const notebook = await fetchMarkdownNotebook(context, notebookId)
+    if (notebook.version !== state.version) {
+        throw new Error(
+            `Notebook ${notebookId} changed since cell ${nodeId} was read. Read it again with notebooks-get and retry with the id it returns.`
+        )
+    }
+    if (notebook.markdown.slice(block.start, block.end) !== block.code) {
+        throw new Error(
+            `Cell ${nodeId} is not where the read placed it in notebook ${notebookId}. Read it again with notebooks-get and retry with the id it returns.`
+        )
+    }
+
+    let start = block.start
+    if (!replacement) {
+        const anchor = /<!--ph:(phb-[A-Za-z0-9._-]{1,124})-->(?:\r\n|\r|\n)$/.exec(notebook.markdown.slice(0, start))
+        if (anchor?.[1] === nodeId) {
+            start = anchor.index
+        }
+    }
+    const nextMarkdown = notebook.markdown.slice(0, start) + replacement + notebook.markdown.slice(block.end)
+    await saveMarkdown(context, notebook, nextMarkdown)
+}

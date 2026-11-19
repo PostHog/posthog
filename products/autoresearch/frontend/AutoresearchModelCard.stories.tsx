@@ -50,11 +50,15 @@ const BASE = {
 
 const LIVE_RUN: AutoresearchPipelineApi['live_training_run'] = {
     id: 'training-2',
+    task_id: null,
+    task_run_id: null,
+    task_url: null,
     iteration_budget: 8,
     experiment_count: 3,
     best_holdout_score: 0.81,
     latest_agent_description: 'Add the ratio of shares in the last 7 days to the last 30 days.',
     latest_summary: null,
+    trend: [0.74, 0.79, 0.81].map((best_holdout_score, iteration_number) => ({ iteration_number, best_holdout_score })),
 }
 
 const CONFIRMED = {
@@ -123,3 +127,8 @@ export const AwaitingCheckWithoutLikelyCount: Story = {
 export const Confirmed: Story = { args: { pipeline: CONFIRMED } }
 
 export const ConfirmedRetraining: Story = { args: { pipeline: { ...CONFIRMED, live_training_run: LIVE_RUN } } }
+
+export const AwaitingCheckNamedAsQuestion: Story = {
+    args: { pipeline: { ...BASE, name: 'Who will come back next week?', target_event: '$pageview' } },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}

@@ -17,6 +17,7 @@ import {
 import { useChartTheme } from 'lib/charts/hooks'
 
 import { ClusterListRow } from './ClusterListRow'
+import { LongTailRow } from './LongTailRow'
 import { ClusterSortKey, mcpClusteringLogic } from './mcpClusteringLogic'
 import { PRIMARY_SERIES, seriesColor } from './seriesColors'
 
@@ -37,6 +38,7 @@ export function ClusterListPanel(): JSX.Element {
         selectedCategories,
         totalClusterCount,
         clusters,
+        longTail,
     } = useValues(mcpClusteringLogic)
     const { selectCluster, setSortKey, setToolSearch, setClusterFilter, setSelectedCategories } =
         useActions(mcpClusteringLogic)
@@ -109,10 +111,11 @@ export function ClusterListPanel(): JSX.Element {
                     <div className="p-4 text-center text-sm text-secondary">No intent groups match these filters.</div>
                 ) : (
                     <ul className="flex flex-col list-none pl-0 m-0 divide-y divide-primary">
-                        {filteredClusters.map((cluster) => (
+                        {filteredClusters.map((cluster, index) => (
                             <li key={cluster.id}>
                                 <ClusterListRow
                                     cluster={cluster}
+                                    rank={index + 1}
                                     isActive={cluster.id === selectedClusterId}
                                     onSelect={selectCluster}
                                     barColor={barColor}
@@ -121,6 +124,8 @@ export function ClusterListPanel(): JSX.Element {
                         ))}
                     </ul>
                 )}
+                {/* An aggregate with no per-tool breakdown, so tool filters can't narrow it. */}
+                {longTail && !isNarrowed ? <LongTailRow longTail={longTail} /> : null}
             </div>
         </div>
     )

@@ -1,12 +1,6 @@
 import { ApiRequestError } from "./fetcher";
 import type { ApiClient, Schemas } from "./generated";
 
-/**
- * Requests behind a workflow-backed loop: the `hog_flows` endpoints Desktop
- * Loops read and write when `loops-hog-flows` is on, plus the tasks list that
- * serves as the loop's run history.
- */
-
 export const LOOPS_ORIGIN_PRODUCT = "loops";
 
 export type HogFlowLoopStatus = Extract<

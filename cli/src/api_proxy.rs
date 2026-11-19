@@ -256,6 +256,8 @@ fn inject_credentials(cmd: &mut Command, invocation_context: Option<&InvocationC
         "POSTHOG_PROJECT_ID",
         "POSTHOG_CLI_PROJECT_ID",
         "POSTHOG_CLI_ENV_ID",
+        "POSTHOG_ORGANIZATION_ID",
+        "POSTHOG_CLI_ORGANIZATION_ID",
     ]) {
         cmd.env("POSTHOG_CLI_PROJECT_ID", &config.env_id);
     }
@@ -286,6 +288,7 @@ pub fn run(
 ) -> Result<Option<i32>, CapturedError> {
     let script = find_script().map_err(|error| CapturedError::from(anyhow::Error::new(error)))?;
     let mut cmd = Command::new("node");
+    cmd.arg("--");
     cmd.arg(script);
     cmd.args(args);
     cmd.env("POSTHOG_CLI_VERSION", env!("CARGO_PKG_VERSION"));

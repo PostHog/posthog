@@ -1,5 +1,8 @@
 import { useValues } from 'kea'
 
+import { useApmMobileLayout } from 'lib/hooks/useApmMobileLayout'
+import { cn } from 'lib/utils/css-classes'
+
 import { LogsViewerScope } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { LogsFullScreenButton } from 'products/logs/frontend/components/LogsViewer/LogsFullScreenButton'
@@ -18,26 +21,34 @@ import { LogsAppliedFilters, LogsFilterGroup, LogsFilterSearch, LogsQueryControl
 export const LogsQueryBar = ({
     showSavedViewsButton = false,
     showFullScreenButton = false,
+    autoFocusSearch = true,
     scope,
 }: {
     showSavedViewsButton?: boolean
     showFullScreenButton?: boolean
+    autoFocusSearch?: boolean
     scope?: LogsViewerScope
 }): JSX.Element => {
     const { id } = useValues(logsViewerFiltersLogic)
+    const mobileLayout = useApmMobileLayout()
 
     return (
         <LogsFilterGroup>
             <div className="flex flex-col gap-2 w-full">
                 <div className="flex gap-2 flex-wrap w-full justify-between">
-                    <div className="flex shrink-0 flex-1 gap-1.5">
-                        <div className="flex-1 min-w-[300px]">
-                            <LogsFilterSearch />
+                    <div
+                        className={cn(
+                            'flex gap-1.5',
+                            mobileLayout ? 'min-w-0 w-full sm:w-auto sm:flex-1 sm:min-w-[220px]' : 'shrink-0 flex-1'
+                        )}
+                    >
+                        <div className={cn('flex-1', mobileLayout ? 'min-w-0' : 'min-w-[300px]')}>
+                            <LogsFilterSearch autoFocus={autoFocusSearch && !mobileLayout} />
                         </div>
                         <FilterHistoryDropdown />
                         {showSavedViewsButton && <SavedViewsButton id={id} iconOnly />}
                     </div>
-                    <div className="flex shrink-0 gap-1.5">
+                    <div className="flex gap-1.5 min-w-0">
                         <LogsQueryControls />
                         {showFullScreenButton && <LogsFullScreenButton id={id} scope={scope} />}
                     </div>

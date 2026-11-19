@@ -11,12 +11,20 @@ from posthog.schema import (
     BreakdownFilter,
     BreakdownType,
     CompareFilter,
+    DataWarehouseNode,
+    DataWarehousePropertyFilter,
+    EntityType,
+    EventPropertyFilter,
     EventsNode,
     FilterLogicalOperator,
     LifecycleDataWarehouseNode,
     LifecycleQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    PropertyOperator,
+    RetentionEntity,
+    RetentionFilter,
+    RetentionQuery,
     StickinessQuery,
     TrendsQuery,
 )
@@ -52,67 +60,146 @@ class TestRequireAtLeastOneSeries(BaseTest):
         RequireAtLeastOneSeries().validate(self._context(query))
 
 
+FLAG_CALLS_TABLE = "posthog.flag_evaluations"
+MESSAGES_SERIES = LifecycleDataWarehouseNode(
+    id="messages",
+    table_name="messages",
+    timestamp_field="sent_at",
+    aggregation_target_field="person_id",
+    created_at_field="signed_up_at",
+)
+FLAG_CALLS_SERIES = LifecycleDataWarehouseNode(
+    id=FLAG_CALLS_TABLE,
+    table_name=FLAG_CALLS_TABLE,
+    timestamp_field="timestamp",
+    aggregation_target_field="person_id",
+    created_at_field="timestamp",
+)
+EVENT_FILTER = EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)
+
+
+def _trends_warehouse_series(table_name: str) -> DataWarehouseNode:
+    return DataWarehouseNode(
+        id=table_name,
+        table_name=table_name,
+        timestamp_field="timestamp",
+        distinct_id_field="distinct_id",
+        id_field="uuid",
+    )
+
+
+def _retention_warehouse_entity(table_name: str) -> RetentionEntity:
+    return RetentionEntity(
+        id=table_name,
+        type=EntityType.DATA_WAREHOUSE,
+        table_name=table_name,
+        timestamp_field="timestamp",
+        aggregation_target_field="person_id",
+    )
+
+
 class TestDisallowUnsupportedDataWarehouseSettings(BaseTest):
-    def _context(self, query: LifecycleQuery) -> QueryValidationContext:
+    def _context(self, query: TrendsQuery | LifecycleQuery | RetentionQuery) -> QueryValidationContext:
         runner = MagicMock(query=query, team=self.team, user=None)
         return QueryValidationContext(query=query, team=self.team, user=None, runner=runner)
-
-    def _data_warehouse_series(self) -> list[LifecycleDataWarehouseNode]:
-        return [
-            LifecycleDataWarehouseNode(
-                id="messages",
-                table_name="messages",
-                timestamp_field="sent_at",
-                aggregation_target_field="person_id",
-                created_at_field="signed_up_at",
-            )
-        ]
 
     @parameterized.expand(
         [
             (
                 "filters",
-                {"properties": [{"key": "text", "value": "new", "operator": "exact", "type": "data_warehouse"}]},
+                LifecycleQuery(
+                    series=[MESSAGES_SERIES],
+                    properties=[DataWarehousePropertyFilter(key="text", value="new", operator=PropertyOperator.EXACT)],
+                ),
                 "Filters are not supported for lifecycle insights with a data warehouse series.",
             ),
             (
                 "test_account_filters",
-                {"filterTestAccounts": True},
+                LifecycleQuery(series=[MESSAGES_SERIES], filterTestAccounts=True),
                 "Test account filters are not supported for lifecycle insights with a data warehouse series.",
             ),
             (
                 "sampling",
-                {"samplingFactor": 0.1},
+                LifecycleQuery(series=[MESSAGES_SERIES], samplingFactor=0.1),
                 "Sampling is not supported for lifecycle insights with a data warehouse series.",
             ),
             (
                 "multiple_settings",
-                {"filterTestAccounts": True, "samplingFactor": 0.1},
+                LifecycleQuery(series=[MESSAGES_SERIES], filterTestAccounts=True, samplingFactor=0.1),
                 "Test account filters and sampling are not supported for lifecycle insights with a data warehouse series.",
+            ),
+            (
+                "flag_calls_beside_another_warehouse_table",
+                TrendsQuery(
+                    series=[_trends_warehouse_series(FLAG_CALLS_TABLE), _trends_warehouse_series("messages")],
+                    filterTestAccounts=True,
+                ),
+                "Test account filters are not supported for trends insights with a data warehouse series.",
+            ),
+            (
+                "flag_calls_target_returning_on_another_warehouse_table",
+                RetentionQuery(
+                    filterTestAccounts=True,
+                    retentionFilter=RetentionFilter(
+                        targetEntity=_retention_warehouse_entity(FLAG_CALLS_TABLE),
+                        returningEntity=_retention_warehouse_entity("messages"),
+                    ),
+                ),
+                "Test account filters are not supported for retention insights with a data warehouse series.",
+            ),
+            (
+                "flag_calls_sampling",
+                LifecycleQuery(series=[FLAG_CALLS_SERIES], samplingFactor=0.1),
+                "Sampling is not supported for lifecycle insights with a data warehouse series.",
             ),
         ]
     )
-    def test_disallows_unsupported_data_warehouse_settings(self, _name, query_kwargs, expected_error):
-        query = LifecycleQuery(series=self._data_warehouse_series(), **query_kwargs)
-
+    def test_disallows_unsupported_data_warehouse_settings(
+        self, _name: str, query: TrendsQuery | LifecycleQuery | RetentionQuery, expected_error: str
+    ):
         with self.assertRaises(ValidationError) as context:
             DisallowUnsupportedDataWarehouseSettings().validate(self._context(query))
 
         self.assertIn(expected_error, str(context.exception))
         self.assertEqual(context.exception.get_codes(), ["data_warehouse_series_unsupported_settings"])
 
-    def test_allows_supported_settings_without_data_warehouse_series(self):
-        query = LifecycleQuery(
-            filterTestAccounts=True,
-            samplingFactor=0.1,
-            series=[EventsNode(event="$pageview")],
-        )
-
+    @parameterized.expand(
+        [
+            (
+                "events_only",
+                LifecycleQuery(filterTestAccounts=True, samplingFactor=0.1, series=[EventsNode(event="$pageview")]),
+            ),
+            (
+                "flag_calls_only",
+                LifecycleQuery(filterTestAccounts=True, properties=[EVENT_FILTER], series=[FLAG_CALLS_SERIES]),
+            ),
+            (
+                "flag_calls_beside_events",
+                TrendsQuery(
+                    filterTestAccounts=True,
+                    properties=[EVENT_FILTER],
+                    series=[EventsNode(event="$pageview"), _trends_warehouse_series(FLAG_CALLS_TABLE)],
+                ),
+            ),
+            (
+                "retention_flag_calls_target_returning_on_events",
+                RetentionQuery(
+                    filterTestAccounts=True,
+                    properties=[EVENT_FILTER],
+                    retentionFilter=RetentionFilter(
+                        targetEntity=_retention_warehouse_entity(FLAG_CALLS_TABLE),
+                        returningEntity=RetentionEntity(id="$pageview", type=EntityType.EVENTS),
+                    ),
+                ),
+            ),
+        ]
+    )
+    def test_allows_supported_settings(self, _name: str, query: TrendsQuery | LifecycleQuery | RetentionQuery):
         DisallowUnsupportedDataWarehouseSettings().validate(self._context(query))
 
     def test_allows_empty_property_groups_for_data_warehouse_series(self):
         query = LifecycleQuery(
-            series=self._data_warehouse_series(),
+            series=[MESSAGES_SERIES],
             properties=PropertyGroupFilter(
                 type=FilterLogicalOperator.AND_,
                 values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[])],
@@ -123,7 +210,7 @@ class TestDisallowUnsupportedDataWarehouseSettings(BaseTest):
 
     def test_allows_empty_property_list_for_data_warehouse_series(self):
         query = LifecycleQuery(
-            series=self._data_warehouse_series(),
+            series=[MESSAGES_SERIES],
             properties=[],
         )
 

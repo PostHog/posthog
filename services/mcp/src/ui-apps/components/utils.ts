@@ -86,7 +86,10 @@ export function formatDate(dateStr: string): string {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-export function formatTooltipDate(dateStr: string): string {
+const SUB_DAY_INTERVALS = new Set(['second', 'minute', 'hour'])
+const WALL_CLOCK_TIME = /^\d{4}-\d{2}-\d{2}[T ](\d{2}:\d{2})/
+
+export function formatTooltipDate(dateStr: string, interval?: string): string {
     if (!ISO_DATE_PREFIX.test(dateStr)) {
         return dateStr
     }
@@ -94,11 +97,13 @@ export function formatTooltipDate(dateStr: string): string {
     if (Number.isNaN(date.getTime())) {
         return dateStr
     }
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    const day = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    const time = interval && SUB_DAY_INTERVALS.has(interval) ? WALL_CLOCK_TIME.exec(dateStr)?.[1] : undefined
+    return time ? `${day} ${time}` : day
 }
 
-export function getSeriesLabel(item: { label?: string; action?: { name?: string } }, index: number): string {
-    return item.label || item.action?.name || `Series ${index + 1}`
+export function getSeriesLabel(item: { label?: string }, index: number): string {
+    return item.label || `Series ${index + 1}`
 }
 
 export function buildProportionBarSeries(results: TrendsResultItem[], getColor: (index: number) => string): Series[] {
@@ -138,6 +143,13 @@ export function normalizeFunnelSteps(results: FunnelResult): Array<{ name: strin
 
 // Web stats columns that drive the web analytics UI only, not data.
 const HIDDEN_WEB_STATS_COLUMNS = new Set(['ui_fill_fraction', 'cross_sell'])
+
+// Worst band first, so the pages that need work lead the table.
+const WEB_VITALS_BANDS = [
+    ['poor', 'Poor'],
+    ['needs_improvements', 'Needs improvement'],
+    ['good', 'Good'],
+] as const
 
 function humanizeKey(key: string): string {
     const text = key.replace(/_/g, ' ')
@@ -192,6 +204,21 @@ export function toTableResult(query: unknown, results: unknown, columns: string[
             ),
             results: (results as unknown[][]).map((row) =>
                 kept.map((index) => webStatsCell(names[index]!, row[index]))
+            ),
+        }
+    }
+    if (node.kind === 'WebVitalsPathBreakdownQuery' && Array.isArray(results)) {
+        const { metric, percentile } = node as { metric?: string; percentile?: string }
+        // The response always holds one breakdown object, keyed by band.
+        const bands = (results[0] ?? {}) as Partial<Record<string, Array<{ path: string; value: number }>>>
+        return {
+            columns: ['Path', `${metric ?? 'Value'} (${percentile ?? 'p75'})`, 'Rating'],
+            results: WEB_VITALS_BANDS.flatMap(([band, label]) =>
+                (bands[band] ?? []).map(({ path, value }) => [
+                    path,
+                    metric === 'CLS' ? value.toFixed(2) : `${Math.round(value)} ms`,
+                    label,
+                ])
             ),
         }
     }

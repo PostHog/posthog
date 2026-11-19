@@ -1,7 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
-import { getOtelSessionIdStep } from './_snippets/otel-session-id'
+import { getOtelRequestContextStep } from './_snippets/otel-request-context'
 
 export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
@@ -37,14 +37,14 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install instructor openai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-openai-v2
+                                    pip install instructor openai opentelemetry-sdk "posthog[otel]~=8.0" opentelemetry-instrumentation-openai-v2
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @instructor-ai/instructor openai zod @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
+                                    npm install @instructor-ai/instructor openai zod @posthog/ai@8 @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
                                 `,
                             },
                         ]}
@@ -188,9 +188,10 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
 
                     <Blockquote>
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, omit the `posthog.distinct_id`
-                            resource attribute. See our docs on [anonymous vs identified
-                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                            **Note:** To capture LLM events anonymously, omit the `posthog.distinct_id` resource
+                            attribute and don't set a distinct ID in the PostHog context. See our docs on [anonymous vs
+                            identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn
+                            more.
                         </Markdown>
                     </Blockquote>
 
@@ -204,7 +205,7 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
                 </>
             ),
         },
-        getOtelSessionIdStep(ctx, { languages: ['Python', 'Node'] }),
+        getOtelRequestContextStep(ctx, { languages: ['Python', 'Node'] }),
     ]
 }
 

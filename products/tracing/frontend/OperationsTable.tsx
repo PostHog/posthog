@@ -1,9 +1,18 @@
+import { useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconEllipsis } from '@posthog/icons'
+import { LemonButton, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { urls } from 'scenes/urls'
 
-import { AggregatedSpanRow } from '~/queries/schema/schema-general'
+import { AggregatedSpanRow, SpanHealthStatus } from '~/queries/schema/schema-general'
 
+import { TRACES_ALERT_PRESETS, TracesAlertPreset, presetDisabledReason } from './alerting/tracesAlertPresets'
 import { formatIdentityCoverage } from './identityCoverage'
 import { formatDuration } from './TraceWaterfallView'
 import { VirtualizedTable, VirtualizedTableColumn } from './VirtualizedTable'
@@ -56,7 +65,83 @@ const impactCell =
         )
     }
 
-function buildColumns(windowMs: number, showImpact: boolean): VirtualizedTableColumn<AggregatedSpanRow>[] {
+// Listed worst first, so the Health column sorts unhealthy rows to the top.
+export const HEALTH_META: Record<SpanHealthStatus, { label: string; tagType: LemonTagType }> = {
+    silent: { label: 'Silent', tagType: 'danger' },
+    regressed: { label: 'Regressed', tagType: 'danger' },
+    degraded: { label: 'Degraded', tagType: 'warning' },
+    new: { label: 'New', tagType: 'highlight' },
+    recovered: { label: 'Recovered', tagType: 'success' },
+    improved: { label: 'Improved', tagType: 'success' },
+    ok: { label: 'OK', tagType: 'muted' },
+}
+const HEALTH_ORDER = Object.keys(HEALTH_META) as SpanHealthStatus[]
+
+function healthRank(row: AggregatedSpanRow): number {
+    return row.health_status ? HEALTH_ORDER.indexOf(row.health_status) : HEALTH_ORDER.length
+}
+
+function RowMenu({
+    row,
+    onCreateAlert,
+    disabledReason,
+}: {
+    row: AggregatedSpanRow
+    onCreateAlert: (row: AggregatedSpanRow, preset: TracesAlertPreset) => void
+    disabledReason: string | undefined
+}): JSX.Element {
+    const presetsDisabledReason = presetDisabledReason(row)
+    return (
+        // The row opens the operation on click and on Enter, so the menu keeps its own events.
+        // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+        <div onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+            <LemonMenu
+                placement="bottom-end"
+                items={[
+                    {
+                        title: 'Alert on this',
+                        items: TRACES_ALERT_PRESETS.map(({ value, label }) => ({
+                            label,
+                            'data-attr': `tracing-operation-alert-${value}`,
+                            disabledReason: presetsDisabledReason,
+                            onClick: () => onCreateAlert(row, value),
+                        })),
+                    },
+                ]}
+            >
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconEllipsis />}
+                    aria-label={`More options for ${row.name}`}
+                    data-attr="tracing-operation-row-menu"
+                    disabledReason={disabledReason}
+                />
+            </LemonMenu>
+        </div>
+    )
+}
+
+function buildColumns(
+    windowMs: number,
+    showImpact: boolean,
+    groupedByEndpoint: boolean,
+    linkServices: boolean,
+    onCreateAlert: ((row: AggregatedSpanRow, preset: TracesAlertPreset) => void) | undefined,
+    createAlertDisabledReason: string | undefined
+): VirtualizedTableColumn<AggregatedSpanRow>[] {
+    const menuColumns: VirtualizedTableColumn<AggregatedSpanRow>[] = onCreateAlert
+        ? [
+              {
+                  key: 'actions',
+                  title: '',
+                  width: 48,
+                  render: (row) => (
+                      <RowMenu row={row} onCreateAlert={onCreateAlert} disabledReason={createAlertDisabledReason} />
+                  ),
+              },
+          ]
+        : []
+
     const impactColumns: VirtualizedTableColumn<AggregatedSpanRow>[] = showImpact
         ? [
               {
@@ -86,17 +171,57 @@ function buildColumns(windowMs: number, showImpact: boolean): VirtualizedTableCo
           ]
         : []
 
+    const healthColumns: VirtualizedTableColumn<AggregatedSpanRow>[] = groupedByEndpoint
+        ? [
+              {
+                  key: 'health',
+                  title: 'Health',
+                  width: 110,
+                  tooltip: 'Compared with the previous period of the same length.',
+                  sorter: (a, b) => healthRank(b) - healthRank(a),
+                  render: (row) => {
+                      if (!row.health_status) {
+                          return null
+                      }
+                      const { label, tagType } = HEALTH_META[row.health_status]
+                      return (
+                          <Tooltip title={row.health_reason || undefined}>
+                              <LemonTag type={tagType} size="small">
+                                  {label}
+                              </LemonTag>
+                          </Tooltip>
+                      )
+                  },
+              },
+          ]
+        : []
+
     return [
+        ...healthColumns,
         {
             key: 'service_name',
             title: 'Service',
             width: 200,
             sorter: (a, b) => a.service_name.localeCompare(b.service_name),
-            render: (row) => <span className="font-mono">{row.service_name}</span>,
+            render: (row) =>
+                linkServices ? (
+                    <Link
+                        to={urls.applicationObservabilityService(row.service_name)}
+                        className="font-mono"
+                        // The row's own click opens the operation; this link opens the whole service.
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
+                        data-attr="tracing-operations-service-link"
+                    >
+                        {row.service_name}
+                    </Link>
+                ) : (
+                    <span className="font-mono">{row.service_name}</span>
+                ),
         },
         {
             key: 'name',
-            title: 'Operation',
+            title: groupedByEndpoint ? 'Endpoint' : 'Operation',
             width: 320,
             grow: true,
             sorter: (a, b) => a.name.localeCompare(b.name),
@@ -181,6 +306,7 @@ function buildColumns(windowMs: number, showImpact: boolean): VirtualizedTableCo
             sorter: (a, b) => a.total_duration_nano - b.total_duration_nano,
             render: durationCell((row) => row.total_duration_nano),
         },
+        ...menuColumns,
     ]
 }
 
@@ -195,7 +321,12 @@ export interface OperationsTableProps {
     windowMs: number
     /** Show the Sessions and Users columns. Must match the `includeImpact` the rows were fetched with. */
     showImpact?: boolean
+    /** Rows are `METHOD route` endpoints. Must match the `groupByEndpoint` the rows were fetched with. */
+    groupedByEndpoint?: boolean
     onRowClick?: (row: AggregatedSpanRow) => void
+    onCreateAlert?: (row: AggregatedSpanRow, preset: TracesAlertPreset) => void
+    /** Keeps the alert menu in place but disabled, such as while the rows are loading. */
+    createAlertDisabledReason?: string
 }
 
 export function OperationsTable({
@@ -203,11 +334,30 @@ export function OperationsTable({
     loading,
     windowMs,
     showImpact = false,
+    groupedByEndpoint = false,
     onRowClick,
+    onCreateAlert,
+    createAlertDisabledReason,
 }: OperationsTableProps): JSX.Element {
-    const columns = useMemo(() => buildColumns(windowMs, showImpact), [windowMs, showImpact])
+    const { featureFlags } = useValues(featureFlagLogic)
+    // The service page lives in application observability, so link to it only where that is on.
+    const linkServices = !!featureFlags[FEATURE_FLAGS.APPLICATION_OBSERVABILITY]
+    const columns = useMemo(
+        () =>
+            buildColumns(
+                windowMs,
+                showImpact,
+                groupedByEndpoint,
+                linkServices,
+                onCreateAlert,
+                createAlertDisabledReason
+            ),
+        [windowMs, showImpact, groupedByEndpoint, linkServices, onCreateAlert, createAlertDisabledReason]
+    )
     return (
         <VirtualizedTable<AggregatedSpanRow>
+            // Remounts on a mode switch, so each mode starts from its own default sort.
+            key={groupedByEndpoint ? 'endpoints' : 'operations'}
             // pinned: identifies stored column widths — renaming resets everyone's widths
             tableKey="operations"
             columns={columns}
@@ -215,8 +365,12 @@ export function OperationsTable({
             loading={loading}
             rowKey={operationRowKey}
             onRowClick={onRowClick}
-            defaultSort={{ columnKey: 'total_time', order: -1 }}
-            emptyLabel="No operations found for these filters"
+            defaultSort={{ columnKey: groupedByEndpoint ? 'health' : 'total_time', order: -1 }}
+            emptyLabel={
+                groupedByEndpoint
+                    ? 'No HTTP server spans found for these filters'
+                    : 'No operations found for these filters'
+            }
             data-attr="tracing-operations-table"
         />
     )

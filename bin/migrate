@@ -44,8 +44,6 @@ report_outcome() {
     fi
 }
 trap report_outcome EXIT
-# Clear the prior pod's result before a retry can stop without running the exit handler.
-publish_outcome unknown
 
 # NOTE when running in docker, rust might not exist so we need to check for it
 if [ -d "$SCRIPT_DIR/../rust/bin" ] && [ "${DEPLOYMENT:-}" != "hobby" ]; then

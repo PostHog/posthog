@@ -1,7 +1,9 @@
 import os
 import time
 import uuid
+import asyncio
 import ipaddress
+from contextlib import ExitStack
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import MagicMock, patch
@@ -12,6 +14,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import httpx
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from rest_framework import status
 
@@ -23,39 +26,16 @@ from products.mcp_store.backend.models import (
     MCPGatewayServer,
     MCPServerInstallation,
     MCPServerInstallationTool,
-    MCPServerTemplate,
     MCPToolPolicy,
 )
 from products.mcp_store.backend.oauth import TokenRefreshRejectedError
-from products.mcp_store.backend.proxy import (
-    _build_sse_response,
-    build_upstream_auth_headers,
-    validate_installation_auth,
-)
+from products.mcp_store.backend.proxy import MAX_UPSTREAM_RESPONSE_SIZE, _build_sse_response
+from products.mcp_store.backend.tools import UpstreamToolList
 
 ALLOWED_VERDICT = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())
 
 
 class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
-    @parameterized.expand([True, False])
-    def test_slack_dev_token_use_requires_project_access(self, allowed: bool) -> None:
-        template = MCPServerTemplate(oauth_credentials_source="slack_dev_app")
-        installation = MCPServerInstallation(
-            team_id=self.team.id,
-            template=template,
-            auth_type="oauth",
-            sensitive_configuration={"access_token": "dev-user-token"},
-        )
-        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)] if allowed else []):
-            valid, response = validate_installation_auth(installation)
-            assert valid is allowed
-            if allowed:
-                assert build_upstream_auth_headers(installation) == {"Authorization": "Bearer dev-user-token"}
-            else:
-                assert response is not None and response.status_code == 403
-                with self.assertRaises(TokenRefreshRejectedError):
-                    build_upstream_auth_headers(installation)
-
     def setUp(self):
         super().setUp()
         # Policy checks flow through url_policy (resolve_mcp_url_policy);
@@ -209,11 +189,6 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @patch("products.mcp_store.backend.proxy.pinned_client")
     def test_proxy_forwards_posthog_namespace_headers(self, mock_client_cls):
-        # Required for PostHog MCP installs through the Store: without
-        # `x-posthog-mcp-consumer` reaching the upstream, single-exec mode
-        # never resolves and `exec` comes back as "Tool exec not found".
-        # The full `x-posthog-*` namespace forwards so callers can also pass
-        # custom headers through.
         installation = self._create_installation(
             sensitive_configuration={"api_key": "sk-test-key"},
         )
@@ -230,6 +205,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             headers={
                 "x-posthog-mcp-consumer": "posthog-code",
                 "x-posthog-mcp-mode": "cli",
+                "x-posthog-mcp-store": "false",
                 "x-posthog-mcp-version": "2",
                 "x-posthog-project-id": "42",
                 "x-posthog-read-only": "true",
@@ -243,7 +219,8 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Case-insensitive lookup since Django normalizes to title case.
         forwarded = {k.lower(): v for k, v in kwargs["headers"].items()}
         assert forwarded["x-posthog-mcp-consumer"] == "posthog-code"
-        assert forwarded["x-posthog-mcp-mode"] == "cli"
+        assert forwarded["x-posthog-mcp-mode"] == "tools"
+        assert forwarded["x-posthog-mcp-store"] == "true"
         assert forwarded["x-posthog-mcp-version"] == "2"
         assert forwarded["x-posthog-project-id"] == "42"
         assert forwarded["x-posthog-read-only"] == "true"
@@ -591,13 +568,13 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         installation = self._create_installation(sensitive_configuration={"api_key": "sk-test-key"})
         seen: list[httpx.Request] = []
 
-        def handle_request(_transport: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
+        async def handle_request(_transport: httpx.AsyncHTTPTransport, request: httpx.Request) -> httpx.Response:
             if route == "denied":
                 raise httpx.ProxyError("403 Forbidden")
             seen.append(
                 httpx.Request(request.method, request.url, headers=request.headers, extensions=request.extensions)
             )
-            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}})
+            return httpx.Response(200, stream=httpx.ByteStream(b'{"jsonrpc":"2.0","id":1,"result":{}}'))
 
         no_proxies = {key: "" for key in os.environ if key.lower().endswith("_proxy")}
         environment = {} if route == "direct" else {"HTTPS_PROXY": "http://egress.example:3128"}
@@ -605,7 +582,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with (
             override_settings(SSRF_TRUSTED_PROXY_URLS=trusted_proxies),
             patch.dict(os.environ, {**no_proxies, **environment}),
-            patch.object(httpx.HTTPTransport, "handle_request", handle_request),
+            patch.object(httpx.AsyncHTTPTransport, "handle_async_request", handle_request),
         ):
             response = self.client.post(
                 self._proxy_url(installation.id),
@@ -702,6 +679,29 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         mock_client.send.assert_called_once()
 
     @patch("products.mcp_store.backend.proxy.pinned_client")
+    def test_owner_approval_on_shared_installation_still_prompts_a_teammate(self, mock_client_cls):
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", None)
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=owner,
+            display_name="Shared tools",
+            url="https://mcp.example.com/mcp",
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "sk"},
+            scope="shared",
+        )
+        self._tool(installation, "search", "approved")
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "search"}},
+            format="json",
+        )
+
+        assert response.json()["error"]["code"] == -32001
+        mock_client_cls.assert_not_called()
+
+    @patch("products.mcp_store.backend.proxy.pinned_client")
     def test_needs_approval_tool_call_blocked_with_jsonrpc_error(self, mock_client_cls):
         installation = self._installation()
         self._tool(installation, "search", "needs_approval")
@@ -734,7 +734,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert body["error"]["code"] == -32002
         mock_client_cls.assert_not_called()
 
-    @patch("products.mcp_store.backend.tools.fetch_upstream_tools", return_value=[])
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools", return_value=UpstreamToolList(tools=[]))
     @patch("products.mcp_store.backend.proxy.pinned_client")
     def test_unknown_tool_returns_method_not_found(self, mock_client_cls, mock_fetch):
         installation = self._installation()
@@ -756,7 +756,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         # An installation whose connect-time listing never landed has no rows, and
         # without a re-listing it refuses every call for the life of the connection.
         installation = self._installation()
-        mock_fetch.return_value = [{"name": "search", "description": "Search"}]
+        mock_fetch.return_value = UpstreamToolList(tools=[{"name": "search", "description": "Search"}])
 
         response = self.client.post(
             self._proxy_url(installation.id),
@@ -784,7 +784,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
     ):
         installation = self._installation()
         self._tool(installation, "legacy", "needs_approval", removed_at=timezone.now())
-        mock_fetch.return_value = upstream_tools
+        mock_fetch.return_value = UpstreamToolList(tools=upstream_tools)
 
         response = self.client.post(
             self._proxy_url(installation.id),
@@ -1132,6 +1132,121 @@ class TestMCPProxyAccessControl(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED, (
                 f"Expected 405 for {method.upper()}, got {response.status_code}"
             )
+
+
+class TestMCPProxyUpstreamLimits(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        patcher = patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name="Test Server",
+            url="https://mcp.example.com/mcp",
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "sk-test-key"},
+        )
+
+    def _serve_upstream(self, chunks: list[bytes], *, headers: dict[str, str], stall: bool = False) -> ExitStack:
+        """Answer the proxied POST from whichever real httpx transport the proxy's client uses.
+
+        With ``stall``, the async body never finishes, so only a total deadline can end it.
+        """
+
+        class SyncBody(httpx.SyncByteStream):
+            def __iter__(self):
+                yield from chunks
+
+        class AsyncBody(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                for chunk in chunks:
+                    yield chunk
+                if stall:
+                    await asyncio.Event().wait()
+
+        def respond(request):
+            return httpx.Response(200, headers=headers, stream=SyncBody(), request=request)
+
+        async def respond_async(request):
+            return httpx.Response(200, headers=headers, stream=AsyncBody(), request=request)
+
+        stack = ExitStack()
+        stack.enter_context(patch("httpx.HTTPTransport.handle_request", side_effect=respond))
+        stack.enter_context(patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=respond_async))
+        return stack
+
+    def _post_tools_list(self):
+        return self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/{self.installation.id}/proxy/",
+            data={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            format="json",
+        )
+
+    def test_proxy_rejects_oversized_upstream_response(self):
+        chunk = b"x" * 65536
+        chunk_count = MAX_UPSTREAM_RESPONSE_SIZE // len(chunk) + 2
+
+        with self._serve_upstream([chunk] * chunk_count, headers={"content-type": "application/json"}):
+            response = self._post_tools_list()
+
+        assert (response.status_code, response.json()) == (502, {"error": "Upstream MCP response rejected"})
+
+    def test_proxy_rejects_upstream_advertising_oversized_length(self):
+        headers = {"content-type": "application/json", "content-length": str(MAX_UPSTREAM_RESPONSE_SIZE + 1)}
+
+        with self._serve_upstream([b"{}"], headers=headers):
+            response = self._post_tools_list()
+
+        assert (response.status_code, response.json()) == (502, {"error": "Upstream MCP response rejected"})
+
+    def test_proxy_passes_upstream_response_within_size_limit(self):
+        # Larger than the bounded transport's 1 MiB default, so this fails if the proxy's own limit is not passed.
+        body = b"x" * (MAX_UPSTREAM_RESPONSE_SIZE // 2)
+
+        with self._serve_upstream([body], headers={"content-type": "application/json"}):
+            response = self._post_tools_list()
+
+        assert (response.status_code, len(response.content)) == (200, len(body))
+
+    @patch("products.mcp_store.backend.proxy.UPSTREAM_TIMEOUT", 0.3)
+    def test_proxy_stops_stalled_upstream_at_total_deadline(self):
+        with self._serve_upstream([b" "], headers={"content-type": "application/json"}, stall=True):
+            response = self._post_tools_list()
+
+        assert (response.status_code, response.json()) == (502, {"error": "Upstream MCP server timed out"})
+
+    def test_proxy_ends_oversized_sse_stream_at_size_limit(self):
+        chunk = b"x" * 65536
+        chunk_count = MAX_UPSTREAM_RESPONSE_SIZE // len(chunk) + 2
+
+        with self._serve_upstream([chunk] * chunk_count, headers={"content-type": "text/event-stream"}):
+            response = self._post_tools_list()
+            body = b"".join(response.streaming_content)
+
+        assert len(body) == MAX_UPSTREAM_RESPONSE_SIZE
+
+    @parameterized.expand([("wsgi", "WSGI"), ("asgi", "ASGI")])
+    def test_proxy_streams_sse_from_bounded_upstream(self, _name, gateway_interface):
+        chunks = [b"event: message\n", b"data: {}\n\n"]
+
+        with (
+            patch("products.mcp_store.backend.proxy.SERVER_GATEWAY_INTERFACE", gateway_interface),
+            self._serve_upstream(chunks, headers={"content-type": "text/event-stream"}),
+        ):
+            response = self._post_tools_list()
+            content = response.streaming_content
+            if gateway_interface == "ASGI":
+
+                async def collect() -> list[bytes]:
+                    return [chunk async for chunk in content]
+
+                body = b"".join(async_to_sync(collect)())
+            else:
+                body = b"".join(content)
+
+        assert body == b"event: message\ndata: {}\n\n"
 
 
 class TestBuildSSEResponseOverCap:

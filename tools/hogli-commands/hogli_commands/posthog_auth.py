@@ -43,7 +43,7 @@ import secrets
 import threading
 import webbrowser
 import http.server
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -328,7 +328,8 @@ def token(
             command = "`hogli posthog:login`"
         raise AuthError(
             f"{headline}\n"
-            f"  Run {command} once. It opens a browser and asks for no API key.\n"
+            f"  Run {command} once on this machine. It opens a browser, asks for no API key,\n"
+            "  and every checkout and worktree on the machine then shares the sign-in.\n"
             f"  Or set {KEY_ENV_VARS[0]} for an unattended caller."
         )
     return login(scopes=scopes, host=host).access_token
@@ -399,6 +400,15 @@ def login(*, scopes: Sequence[str], host: str = DEFAULT_HOST) -> Credential:
         missing = " ".join(scope for scope in wanted if scope not in credential.granted)
         raise AuthError(f"{host} granted a token without {missing}.")
     return credential
+
+
+def approve_in_browser(url_for_port: Callable[[int], str], *, state: str) -> str:
+    """Open the page `url_for_port` builds and return the code it redirects back to the loopback `/callback`.
+
+    For PostHog flows other than this OAuth login that hand a code back the same way.
+    """
+    with _CallbackServer() as server:
+        return server.collect(url_for_port(server.port), state=state)
 
 
 def _client() -> ClientMetadata:
@@ -612,7 +622,8 @@ class _CallbackServer:
 
     def __init__(self) -> None:
         self._server = _RedirectServer(("127.0.0.1", 0), _Handler)
-        self.redirect_uri = f"http://127.0.0.1:{self._server.server_port}{_REDIRECT_PATH}"
+        self.port = self._server.server_port
+        self.redirect_uri = f"http://127.0.0.1:{self.port}{_REDIRECT_PATH}"
 
     def __enter__(self) -> _CallbackServer:
         return self

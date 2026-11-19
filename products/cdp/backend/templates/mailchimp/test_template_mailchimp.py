@@ -1,5 +1,4 @@
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.cdp.backend.templates.mailchimp.template_mailchimp import template as template_mailchimp
 
 

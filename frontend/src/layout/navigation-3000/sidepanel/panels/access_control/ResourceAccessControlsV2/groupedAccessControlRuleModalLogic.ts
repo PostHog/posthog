@@ -15,6 +15,7 @@ export interface groupedAccessControlRuleModalLogicValues {
     availableResourceLevels: AccessControlLevel[] // accessControlsLogic
     canEdit: boolean // accessControlsLogic
     loading: boolean // accessControlsLogic
+    terraformDisabledReason: string | undefined // accessControlsLogic
     entry: AccessControlSettingsEntry
     entryId: string
     formProjectLevel: FormAccessLevel
@@ -23,12 +24,8 @@ export interface groupedAccessControlRuleModalLogicValues {
     isProjectLevelShowingInherited: boolean
     isResourceLevelShowingInherited: (resource: ScopeObjectEnumApi) => boolean
     modalTitle: 'Update default access' | 'Update member access' | 'Update role access'
-    productsDisabledReason:
-        | 'Cannot edit'
-        | 'Loading...'
-        | 'User is an organization admin and has access to all products'
-        | undefined
-    projectDisabledReason: 'Cannot edit' | 'Loading...' | 'User is an organization admin' | undefined
+    productsDisabledReason: string | undefined
+    projectDisabledReason: string | undefined
     projectInheritedReasonTooltip: string | undefined
     projectLevelOptions: {
         disabledReason?: string | undefined
@@ -107,8 +104,9 @@ export interface groupedAccessControlRuleModalLogicMeta {
         productsDisabledReason: (
             loading: boolean,
             canEdit: boolean,
+            terraformDisabledReason: string | undefined,
             isOrgAdmin: boolean
-        ) => 'Cannot edit' | 'Loading...' | 'User is an organization admin and has access to all products' | undefined
+        ) => string | undefined
         isProjectLevelShowingInherited: (
             formProjectLevel: FormAccessLevel,
             entry: AccessControlSettingsEntry
@@ -128,8 +126,9 @@ export interface groupedAccessControlRuleModalLogicMeta {
         projectDisabledReason: (
             loading: boolean,
             canEdit: boolean,
+            terraformDisabledReason: string | undefined,
             isOrgAdmin: boolean
-        ) => 'Cannot edit' | 'Loading...' | 'User is an organization admin' | undefined
+        ) => string | undefined
         isResourceLevelShowingInherited: (
             formResourceLevels: Record<ScopeObjectEnumApi, FormAccessLevel>,
             entry: AccessControlSettingsEntry
@@ -179,7 +178,7 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
         actions: [accessControlsLogic({ projectId: props.projectId }), ['saveGroupedRules', 'closeRuleModal']],
         values: [
             accessControlsLogic({ projectId: props.projectId }),
-            ['loading', 'canEdit', 'availableProjectLevels', 'availableResourceLevels'],
+            ['loading', 'canEdit', 'terraformDisabledReason', 'availableProjectLevels', 'availableResourceLevels'],
         ],
     })),
 
@@ -237,13 +236,13 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
                 inheritedReasonOf(entry.project.inherited_access) === 'organization_admin',
         ],
         productsDisabledReason: [
-            (s) => [s.loading, s.canEdit, s.isOrgAdmin],
-            (loading: boolean, canEdit: boolean, isOrgAdmin: boolean) => {
+            (s) => [s.loading, s.canEdit, s.terraformDisabledReason, s.isOrgAdmin],
+            (loading: boolean, canEdit: boolean, terraformDisabledReason: string | undefined, isOrgAdmin: boolean) => {
                 if (loading) {
                     return 'Loading...'
                 }
                 if (!canEdit) {
-                    return 'Cannot edit'
+                    return terraformDisabledReason ?? 'Cannot edit'
                 }
                 if (isOrgAdmin) {
                     return 'User is an organization admin and has access to all products'
@@ -280,13 +279,13 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
             },
         ],
         projectDisabledReason: [
-            (s) => [s.loading, s.canEdit, s.isOrgAdmin],
-            (loading: boolean, canEdit: boolean, isOrgAdmin: boolean) => {
+            (s) => [s.loading, s.canEdit, s.terraformDisabledReason, s.isOrgAdmin],
+            (loading: boolean, canEdit: boolean, terraformDisabledReason: string | undefined, isOrgAdmin: boolean) => {
                 if (loading) {
                     return 'Loading...'
                 }
                 if (!canEdit) {
-                    return 'Cannot edit'
+                    return terraformDisabledReason ?? 'Cannot edit'
                 }
                 if (isOrgAdmin) {
                     return 'User is an organization admin'

@@ -17,7 +17,7 @@ Do NOT:
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from posthog.schema import (
     CachedTraceSpansAttributeBreakdownQueryResponse,
@@ -58,7 +58,18 @@ from products.tracing.backend.latency_heatmap_query_runner import (
     run_latency_heatmap_query as _run_latency_heatmap_query,
 )
 from products.tracing.backend.self_time import annotate_self_time as _annotate_self_time
+from products.tracing.backend.service_health_query_runner import (
+    run_service_health_query as _run_service_health_query,
+    service_health_byte_cap_message as _service_health_byte_cap_message,
+)
 from products.tracing.backend.symbol_stats_query_runner import run_symbol_stats_query as _run_symbol_stats_query
+from products.tracing.backend.trace_summary import (
+    DEFAULT_SUMMARY_LIMIT as _DEFAULT_SUMMARY_LIMIT,
+    MAX_SUMMARY_LIMIT as _MAX_SUMMARY_LIMIT,
+    summarize_trace as _summarize_trace,
+)
+
+from .contracts import ServiceHealthParams
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -74,6 +85,11 @@ MAX_IDS_PER_LOOKUP = _MAX_IDS_PER_LOOKUP
 
 # Cap on the AI events one trace lookup returns. Re-exported so the response can state it.
 MAX_AI_EVENTS_PER_TRACE = _MAX_AI_EVENTS_PER_TRACE
+
+# Default and cap on the entries per list of a trace summary. Re-exported so the request
+# serializer can bound `summaryLimit`.
+DEFAULT_SUMMARY_LIMIT = _DEFAULT_SUMMARY_LIMIT
+MAX_SUMMARY_LIMIT = _MAX_SUMMARY_LIMIT
 
 
 # --- Converters (model -> frozen dataclass) ---
@@ -216,6 +232,11 @@ def annotate_self_time(spans: list[dict]) -> None:
     _annotate_self_time(spans)
 
 
+def summarize_trace(spans: list[dict], *, limit: int = DEFAULT_SUMMARY_LIMIT, truncated: bool = False) -> dict:
+    """Digest a self-time-annotated trace into a compact summary (see `trace_summary`)."""
+    return _summarize_trace(spans, limit=limit, truncated=truncated)
+
+
 def count_trace_exceptions(
     *, team: "Team", trace_ids: list[str], date_from: datetime, date_to: datetime
 ) -> dict[str, int]:
@@ -258,3 +279,11 @@ def fetch_trace_ai_events(*, team: "Team", user: "User | None", trace_id: str) -
     the returned columns.
     """
     return _fetch_trace_ai_events(team=team, user=user, trace_id=trace_id)
+
+
+def run_service_health_query(*, team: "Team", params: ServiceHealthParams) -> dict[str, Any]:
+    return _run_service_health_query(team=team, params=params)
+
+
+def service_health_byte_cap_message(*, team: "Team", params: ServiceHealthParams) -> str:
+    return _service_health_byte_cap_message(team=team, params=params)

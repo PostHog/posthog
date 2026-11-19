@@ -170,6 +170,9 @@ function run(github, { history = [], now = minutes(0), env = {}, fetch: fetchImp
         ACTIVITY_WINDOW_MINUTES: '120',
         COMMIT_FAILURE_STREAK_THRESHOLD: '10',
         DIAGNOSIS_WEBHOOK_URL: '',
+        DEPOT_WORKFLOWS: '',
+        DEPOT_RUNS_DIR: '',
+        SCHEDULED_FULL_MATRIX_WORKFLOWS: '',
         ...env,
     })
     return ciAlertsDevex(
@@ -860,25 +863,100 @@ describe('ci-alerts-devex', () => {
         it(`scheduled lane read from Depot CI: ${scenario}`, async (t) => {
             const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'depot-runs-'))
             t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
-            const runsFile = path.join(dir, 'runs.json')
             if (depotRuns) {
-                fs.writeFileSync(runsFile, JSON.stringify(depotRuns))
+                fs.writeFileSync(path.join(dir, 'ci-backend.yml-schedule.json'), JSON.stringify(depotRuns))
             }
             const github = laneGithub(
-                { 'ci-backend.yml:push': runs('Backend CI', ['success']) },
+                { 'ci-frontend.yml:push': runs('Frontend CI', ['success']) },
                 pushAt(minutes(-3).toISOString())
             )
             const { slack, outputs } = await run(github, {
                 env: {
-                    GATING_WORKFLOWS: 'ci-backend.yml',
-                    DEPOT_SCHEDULED_GATING_WORKFLOW: 'ci-backend.yml',
-                    DEPOT_SCHEDULED_RUNS_FILE: runsFile,
+                    GATING_WORKFLOWS: 'ci-frontend.yml',
+                    SCHEDULED_GATING_WORKFLOWS: 'ci-backend.yml',
+                    DEPOT_WORKFLOWS: 'ci-backend.yml',
+                    DEPOT_RUNS_DIR: dir,
                 },
                 history: expected.action === 'hold' ? [activeAnchor({ workflows: ['Backend CI (scheduled)'] })] : [],
             })
             assert.equal(outputs.action, expected.action)
             assert.equal(outputs.blocking_count, expected.blocking)
             assert.equal(slack.update.calls.length, 0)
+        })
+    }
+
+    // (Core-only conclusions, full-matrix conclusions) → the lanes on the anchor.
+    for (const [scenario, { coreOnly, full, nowMins = 0 }, expected] of [
+        [
+            'a red full matrix pages while the Core-only runs between stay green',
+            { coreOnly: ['success', 'success'], full: ['failure', 'failure'] },
+            { action: 'create', blocking: ['Backend CI (scheduled, full matrix)'] },
+        ],
+        [
+            'a red Core-only lane pages under the scheduled name',
+            { coreOnly: ['failure', 'failure'], full: ['success'] },
+            { action: 'create', blocking: ['Backend CI (scheduled)'] },
+        ],
+        [
+            'one red full run held until the next full run does not page',
+            { coreOnly: ['success'], full: ['failure', 'success'], nowMins: 200 },
+            { action: 'none', blocking: [] },
+        ],
+    ]) {
+        it(`split scheduled lanes read from Depot CI: ${scenario}`, async (t) => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'depot-runs-'))
+            t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+            for (const [file, conclusions] of [
+                ['ci-backend.yml-schedule-core-only.json', coreOnly],
+                ['ci-backend.yml-schedule-full.json', full],
+            ]) {
+                fs.writeFileSync(path.join(dir, file), JSON.stringify(runs('Backend CI', conclusions)))
+            }
+            const github = laneGithub(
+                { 'ci-frontend.yml:push': runs('Frontend CI', ['success']) },
+                pushAt(minutes(nowMins - 3).toISOString())
+            )
+            const { slack, outputs } = await run(github, {
+                now: minutes(nowMins),
+                env: {
+                    GATING_WORKFLOWS: 'ci-frontend.yml',
+                    SCHEDULED_GATING_WORKFLOWS: 'ci-backend.yml',
+                    SCHEDULED_FULL_MATRIX_WORKFLOWS: 'ci-backend.yml',
+                    DEPOT_WORKFLOWS: 'ci-backend.yml',
+                    DEPOT_RUNS_DIR: dir,
+                },
+            })
+            assert.equal(outputs.action, expected.action)
+            const anchored = slack.postMessage.calls[0]?.[0]?.metadata?.event_payload?.workflows || []
+            assert.deepEqual(anchored.map((w) => w.name), expected.blocking)
+        })
+    }
+
+    for (const [scenario, depotRuns, expected] of [
+        ['pages on a failure streak', runs('Backend CI', Array(5).fill('failure')), { action: 'create', blocking: '1' }],
+        ['stays quiet while green', runs('Backend CI', ['success']), { action: 'none', blocking: '0' }],
+        ['holds an open incident when the file is missing', null, { action: 'hold', blocking: '0' }],
+    ]) {
+        it(`push lane read from Depot CI: ${scenario}`, async (t) => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'depot-runs-'))
+            t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+            if (depotRuns) {
+                fs.writeFileSync(path.join(dir, 'ci-backend.yml-push.json'), JSON.stringify(depotRuns))
+            }
+            const github = laneGithub(
+                { 'ci-frontend.yml:push': runs('Frontend CI', ['success']) },
+                pushAt(minutes(-3).toISOString())
+            )
+            const { outputs } = await run(github, {
+                env: {
+                    GATING_WORKFLOWS: 'ci-frontend.yml,ci-backend.yml',
+                    DEPOT_WORKFLOWS: 'ci-backend.yml',
+                    DEPOT_RUNS_DIR: dir,
+                },
+                history: expected.action === 'hold' ? [activeAnchor({ workflows: ['Backend CI'] })] : [],
+            })
+            assert.equal(outputs.action, expected.action)
+            assert.equal(outputs.blocking_count, expected.blocking)
         })
     }
 

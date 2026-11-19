@@ -73,6 +73,10 @@ Moves bucket boundaries; users may be reassigned between variants. Reassigned us
 get excluded (default) or attributed to first-seen. Either way, introduces bias.
 The product allows the edit on a running experiment, with a warning only.
 
+Only people whose hash lies in a part of a variant's range that the new split gives to another variant can be reassigned.
+Zeroing a middle variant moves only that variant's people; a rebalance from 50/50 to 30/70 moves only the control people in the 0.3 to 0.5 range.
+The `split_changed_mid_run` finding is info, with reason `few_could_switch`, when the people who can be reassigned are at most 5% of the people in the results; its evidence holds both counts.
+
 After a split change the sample ratio test compares the whole run against the new split, and can report a mismatch that the assignment never had (A2 in `bias-and-skew.md`), depending on how far the counts of the run sit from the new split.
 
 **Recommend:** reset the experiment if early; end and start a new one if significant data exists.
@@ -335,8 +339,7 @@ _Fix:_ update the SDK.
 ## E13 — Editability locks (legacy experiments, ended experiments) [HIGH]
 
 - **Legacy experiments** (`is_legacy: true` in `experiment-get`) — only the name, the description and the end date can be edited.
-  A "This is a legacy experiment. Metrics can no longer be edited." notice appears in the UI.
-  Where it is rolled out, a second notice says that legacy results will stop being available.
+  Results are no longer calculated. The UI shows a warning banner with a "Migrate experiment" button.
 - **Launched experiments** — the variant keys can't be edited (E4). If
   edits are needed, duplicate (E15), or reset (E8) and re-launch.
 
@@ -396,6 +399,8 @@ The clean approach is:
    The duplicate is a new draft with the metrics and settings of the original, without its holdout and its excluded variants.
 3. **Give it a new feature flag key.**
    A duplicate without a new key shares the original's flag, so a ship or a pause on one affects both.
+   The `flag_shared` health finding reports a shared flag: a warning on a running experiment when another running experiment uses its flag, and on a draft whose flag a running experiment uses, and info on a running experiment whose flag a draft uses.
+   It doesn't count ended experiments, because each experiment reads exposures only between its own start and end.
 4. Launch the new experiment under the new flag.
 
 Why a new key and not a reset on the old flag:

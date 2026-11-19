@@ -5,7 +5,7 @@ import { TaskComposer, TaskComposerProps } from './TaskComposer'
 
 export type EmbeddedTaskComposerImplProps = Required<Pick<TaskTrackerSceneLogicProps, 'panelId'>> &
     Pick<TaskTrackerSceneLogicProps, 'channelId' | 'initialRepositoryConfig' | 'composerOverride' | 'onTaskCreated'> &
-    Pick<TaskComposerProps, 'focusRequest' | 'autoFocus'>
+    Pick<TaskComposerProps, 'focusRequest' | 'autoFocus' | 'prefillRequest'>
 
 /**
  * The new-task composer alone, for a host page that lists tasks itself. It binds an embedded
@@ -15,11 +15,17 @@ export type EmbeddedTaskComposerImplProps = Required<Pick<TaskTrackerSceneLogicP
 export function EmbeddedTaskComposerImpl({
     focusRequest,
     autoFocus,
+    prefillRequest,
     ...props
 }: EmbeddedTaskComposerImplProps): JSX.Element {
     return (
         <BindLogic logic={taskTrackerSceneLogic} props={props}>
-            <TaskComposer variant="inline" focusRequest={focusRequest} autoFocus={autoFocus} />
+            <TaskComposer
+                variant="inline"
+                focusRequest={focusRequest}
+                autoFocus={autoFocus}
+                prefillRequest={prefillRequest}
+            />
         </BindLogic>
     )
 }

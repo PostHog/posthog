@@ -12,17 +12,27 @@ behavior change, not a contract improvement.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from posthog.dataclasses import frozen
 
 __all__ = [
     "CPUnavailableError",
+    "DuckLakeBackfillCatalog",
+    "DuckLakeDayReplacement",
+    "DuckLakeTableLayoutError",
+    "DuckLakeTableReplacement",
+    "HoglakeBackfillCatalog",
+    "TrinoBackend",
+    "DuckgresConnectionRefused",
+    "DuckgresOrganizationUnavailable",
     "DuckgresQueryServerConfig",
+    "DuckgresServerSummary",
     "DuckgresStoredBucketConfig",
     "DuckgresStoredServerConfig",
     "DuckLakeCatalogConnectionConfig",
@@ -35,6 +45,7 @@ __all__ = [
     "ManagedWarehousePostgresConnection",
     "ManagedWarehouseTrinoConnection",
     "ManagedWarehouseTrinoConnectionUnavailable",
+    "ProvisionedWarehouseLogin",
     "ManagedWarehouseProvisionStatus",
     "ManagedWarehouseSourceAuth",
     "ManagedWarehouseSourceJobRecord",
@@ -47,6 +58,8 @@ __all__ = [
     "ServiceCredentialConnect",
     "ServiceCredentialTrinoConnect",
     "ServiceCredentialUnavailable",
+    "StaffActionOutcome",
+    "StaffProvisionPreview",
     "TrinoCompiledQuery",
     "TrinoExpansionMode",
 ]
@@ -54,6 +67,14 @@ __all__ = [
 
 class CPUnavailableError(RuntimeError):
     pass
+
+
+class DuckgresConnectionRefused(Exception):
+    """duckgres refused the connection because of its hostname, so no retry can succeed."""
+
+
+class DuckgresOrganizationUnavailable(DuckgresConnectionRefused):
+    """duckgres has no organization for the managed warehouse hostname of the connection."""
 
 
 @frozen
@@ -193,6 +214,15 @@ class DuckgresStoredBucketConfig:
 
 
 @dataclass(frozen=True, kw_only=True)
+class ControlPlaneStorage:
+    """The bucket and data path of a managed warehouse, both from one control-plane status."""
+
+    bucket: str
+    # `s3://<bucket>/`, or `s3://<bucket>/<prefix>/` for a warehouse under a prefix of a shared bucket.
+    data_path: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class DuckgresStoredServerConfig:
     """The persisted managed-warehouse configuration available outside the product."""
 
@@ -217,6 +247,7 @@ class ManagedWarehouseTableNames:
     events_table: str
     persons_table: str
     data_imports_schema: str
+    groups_table: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -251,6 +282,63 @@ class ManagedWarehouseSourceJobStatus(StrEnum):
     FAILED = "failed"
     SKIPPED = "skipped"
     STALE = "stale"
+
+
+@frozen(kw_only=True)
+class ManagedWarehouseTarget:
+    """The endpoint an organization's managed warehouse answers on, for the host guard.
+
+    `host` is the control plane's own host string, so a comparison against it is a comparison
+    against the value the ingress was provisioned for rather than anything derived locally.
+    `ports` is the listener set this organization's sources may reach, which keeps a Postgres
+    source off the gateway listener and a Trino source off the pgwire one.
+
+    The guard compares a source's host, port and resolved addresses against this to decide
+    whether the private-address check applies. It is not a connection; it is an authorization
+    decision.
+    """
+
+    host: str
+    ports: frozenset[int]
+
+    def accepts(self, host: str, port: int | None, addresses: list[str] | None, ingress_ips: tuple[str, ...]) -> bool:
+        """Whether this target authorizes a dial to `host` on `port` at `addresses`.
+
+        Every condition is required, and a missing one denies. `addresses` must be non-empty
+        because an empty set is a failed lookup, not an approved destination, and it must be a
+        subset of `ingress_ips` so a record that points elsewhere is refused. The caller supplies
+        the ingress set because a contract cannot read settings without importing Django.
+
+        Both hostnames are compared in their normalized form, so a control-plane host that comes
+        back with a capital letter or a root-zone trailing dot still matches the name the guard
+        normalized.
+        """
+        if _normalize_host(host) != _normalize_host(self.host):
+            return False
+        if port is None or port not in self.ports:
+            return False
+        if not addresses or not ingress_ips:
+            return False
+        allowed = {_canonical_ip(ip) for ip in ingress_ips}
+        return all(_canonical_ip(address) in allowed for address in addresses)
+
+
+def _normalize_host(host: str) -> str:
+    """Lowercase a hostname and drop one root-zone trailing dot, as the guard does."""
+    return host.lower().strip().rstrip(".")
+
+
+def _canonical_ip(value: str) -> str:
+    """Compare addresses as numbers, so an IPv4-mapped IPv6 form matches its IPv4 spelling."""
+    import ipaddress  # noqa: PLC0415
+
+    try:
+        parsed = ipaddress.ip_address(value.strip().strip("[]"))
+    except ValueError:
+        return value
+    if isinstance(parsed, ipaddress.IPv6Address) and parsed.ipv4_mapped is not None:
+        return str(parsed.ipv4_mapped)
+    return str(parsed)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -322,6 +410,11 @@ class TrinoCompiledQuery:
     sql: str
     values: dict[str, Any]
     hogql: str | None = None
+    needs_row_type_probe: bool = True
+    """Whether the build must read the output types: an output column may hold a ROW with anonymous fields or a boolean.
+
+    False only when every output column resolved to a type without a tuple, a boolean or an unknown part.
+    """
 
 
 @frozen
@@ -336,6 +429,18 @@ class TrinoIncrementalWrite:
     incremental_key: str
     unique_key: tuple[str, ...]
     since: Any = None
+
+
+@frozen
+class StoredColumnType:
+    """The ClickHouse type stored for one output column of a saved query.
+
+    A Trino build matches these types, so models that read the table see the same column types
+    on both engines.
+    """
+
+    name: str
+    clickhouse_type: str
 
 
 class TrinoExpansionMode(StrEnum):
@@ -365,3 +470,123 @@ class DuckLakeTableResult:
     # Highest incremental key written, for builds that track one. None when no rows were written.
     watermark: Any = None
     merged: bool = False
+
+
+@frozen
+class DuckLakeDayReplacement:
+    """The rows of one UTC day of `column`, which a backfill export of that day replaces."""
+
+    column: str
+    day: date
+
+
+@frozen
+class DuckLakeTableReplacement:
+    """All rows of the table, which a full backfill export replaces."""
+
+
+class DuckLakeTableLayoutError(ValueError):
+    """The table's column types differ from the backfill export, so add_files refuses the export's files."""
+
+
+# The connector behind an organization's managed Trino catalog. The backend is fixed when the warehouse is created.
+TrinoBackend = Literal["ducklake", "hoglake"]
+
+
+class DuckLakeBackfillCatalog(Protocol):
+    """The DuckLake statements a backfill runs in the organization's Trino catalog."""
+
+    def ensure_table(
+        self, table: str, columns: Mapping[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
+    ) -> None: ...
+
+    def replace_table(self, table: str, columns: Mapping[str, str]) -> None: ...
+
+    def validate_file_count(self, files: Sequence[str]) -> None: ...
+
+    def register_files(
+        self,
+        table: str,
+        files: Sequence[str],
+        *,
+        import_id: str,
+        replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None,
+    ) -> int: ...
+
+    def delete_rows(self, table: str, replacement: DuckLakeDayReplacement | DuckLakeTableReplacement) -> None: ...
+
+
+@frozen
+class DuckgresServerSummary:
+    """An organization's warehouse server as staff see it in PostHog Admin. No credentials."""
+
+    server_id: UUID
+    host: str
+    bucket: str | None
+    internal_testing: bool
+    deprovisioned: bool
+
+
+@frozen
+class ProvisionedWarehouseLogin:
+    """The root login of a newly provisioned warehouse. The control plane returns the password only once."""
+
+    host: str
+    port: int
+    database: str
+    username: str
+    # Empty when the control plane returned no password.
+    password: str = field(repr=False)
+
+
+@frozen
+class StaffActionOutcome:
+    ok: bool
+    status_code: int
+    message: str
+    login: ProvisionedWarehouseLogin | None = None
+
+
+@frozen
+class StaffProvisionPreview:
+    """What provisioning would set up, for staff to confirm. `problem` says why it cannot run."""
+
+    team_name: str
+    host: str
+    problem: str | None = None
+
+
+@frozen
+class ViewTranslationSummary:
+    """An organization's view translation jobs as staff see them in PostHog Admin."""
+
+    latest_status: str
+    total_count: int
+    compiled_count: int
+    failed_count: int
+    stale_count: int
+    # True while a job is pending or running. An organization runs one job at a time.
+    active: bool
+    # The latest job, when it has failed or stale views to retry. None otherwise.
+    retry_job_id: UUID | None
+
+
+class HoglakeBackfillCatalog(Protocol):
+    """The hoglake statements of one team's backfill, run in the organization's Trino catalog."""
+
+    def ensure_table(
+        self, table: str, columns: Mapping[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
+    ) -> None: ...
+
+    def replace_table(self, table: str, columns: Mapping[str, str]) -> None: ...
+
+    def register_export(
+        self,
+        table: str,
+        *,
+        location: str,
+        file_prefix: str,
+        import_id: str,
+        expected_rows: int,
+        replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None,
+    ) -> int: ...

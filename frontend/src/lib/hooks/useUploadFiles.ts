@@ -107,10 +107,13 @@ export function useUploadFiles({
     onUpload,
     onError,
     uploadFileOptions,
+    uploadFn,
 }: {
     onUpload?: (url: string, fileName: string, uploadedMediaId: string) => void
     onError: (detail: string) => void
     uploadFileOptions?: UploadFileOptions
+    /** Replaces the default image upload, e.g. to store files that are not images. */
+    uploadFn?: (file: File) => Promise<MediaUploadResponse>
 }): {
     setFilesToUpload: Dispatch<SetStateAction<File[]>>
     filesToUpload: File[]
@@ -142,7 +145,7 @@ export function useUploadFiles({
             try {
                 uploadInProgressRef.current = true
                 setUploading(true)
-                const media = await uploadFile(file, uploadFileOptions)
+                const media = uploadFn ? await uploadFn(file) : await uploadFile(file, uploadFileOptions)
                 if (isMountedRef.current) {
                     onUpload?.(media.image_location, media.name, media.id)
                 }

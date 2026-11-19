@@ -7,11 +7,11 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantTool
 
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
-from products.skills.backend.api.archive_guards import SkillArchiveRefused
+from products.skills.backend.api.archive_guards import SkillArchiveRefused, SkillPublishRefused
 from products.skills.backend.api.skill_serializers import RESERVED_SKILL_NAMES, SPEC_DESCRIPTION_MAX_LENGTH
 from products.skills.backend.api.skill_services import (
     LLMSkillDescriptionTooLongError,
@@ -32,7 +32,7 @@ from products.skills.backend.api.skill_services import (
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 from ee.hogai.tool import MaxTool
-from ee.hogai.tool_errors import MaxToolFatalError
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 
 MAX_LIST_RESULTS = 50
 
@@ -92,7 +92,8 @@ CREATE_SKILL_DESCRIPTION = """Create a new agent skill (a reusable workflow stor
 # Optional input
 - `license`, `compatibility`, `allowed_tools`, `metadata`: spec fields (see agentskills.io).
 - `files`: bundled files (`path`, `content`, `content_type`). Use `scripts/` for executable code, `references/` for
-  docs, `assets/` for templates."""
+  docs, `assets/` for templates.
+- `version_description`: a short note on where the skill came from — it is shown in the skill's version history."""
 
 
 UPDATE_SKILL_DESCRIPTION = """Publish a new version of an existing skill. Any field not provided is carried forward from the current latest.
@@ -176,6 +177,11 @@ class CreateSkillArgs(BaseModel):
             "Optional bundled files. Each item: {path, content, content_type?}. "
             "Use scripts/, references/, or assets/ subdirs by convention."
         ),
+    )
+    version_description: str | None = Field(
+        default=None,
+        max_length=400,
+        description="Optional note (max 400 chars) on where the skill came from. Shown in the skill's version history.",
     )
 
 
@@ -406,6 +412,7 @@ class CreateLLMSkillTool(MaxTool):
         allowed_tools: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         files: list[dict[str, str]] | None = None,
+        version_description: str | None = None,
     ) -> tuple[str, None]:
         # The tool calls create_skill directly, which skips the serializer's name validation, so a
         # reserved name would persist a skill whose /skills/<name> page is taken by a tab route,
@@ -427,6 +434,7 @@ class CreateLLMSkillTool(MaxTool):
                 allowed_tools=allowed_tools,
                 metadata=metadata,
                 files=files,
+                version_description=(version_description or "").strip() or None,
             )
         except LLMSkillDuplicateNameConflictError:
             raise MaxToolFatalError(f"A skill named '{name}' already exists.")
@@ -485,15 +493,12 @@ class UpdateLLMSkillTool(MaxTool):
                 base_version=base_version,
                 version_description=(version_description or "").strip() or None,
             )
-        except (
-            LLMSkillNotFoundError,
-            LLMSkillVersionConflictError,
-            LLMSkillVersionLimitError,
-            LLMSkillFileLimitError,
-            LLMSkillDescriptionTooLongError,
-            LLMSkillEditError,
-        ) as err:
+        except (LLMSkillVersionConflictError, LLMSkillEditError, LLMSkillDescriptionTooLongError) as err:
+            raise MaxToolRetryableError(_publish_error_message(err, skill_name))
+        except (LLMSkillNotFoundError, LLMSkillVersionLimitError, LLMSkillFileLimitError) as err:
             raise MaxToolFatalError(_publish_error_message(err, skill_name))
+        except SkillPublishRefused as err:
+            raise MaxToolFatalError(str(err))
 
         return f"Updated skill '{skill.name}' — new version v{skill.version}.", None
 

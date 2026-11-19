@@ -1,4 +1,8 @@
+from datetime import date
+
 import pytest
+import time_machine
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
@@ -11,10 +15,12 @@ from posthog.models import Organization
 from products.managed_warehouse.backend.common import (
     default_bucket_region,
     duckgres_data_imports_table_name,
+    duckgres_data_modeling_table_name,
     get_trino_password_for_org,
     initialize_ducklake,
     is_version_mismatch,
     reset_ducklake_catalog,
+    resolve_team_earliest_event_date,
     upsert_duckgres_server_for_org,
 )
 from products.managed_warehouse.backend.models import DuckgresServer
@@ -52,6 +58,23 @@ class TestUpsertDuckgresServerForOrg:
             server.trino_password = "trino-secret"
             server.save(update_fields=["trino_password"])
             assert get_trino_password_for_org(str(org.id)) == "trino-secret"
+
+
+class TestResolveTeamEarliestEventDate(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(
+        [
+            ("no_events", None, date(2026, 10, 19)),
+            ("has_events", "2026-10-16T12:00:00Z", date(2026, 10, 16)),
+        ]
+    )
+    @time_machine.travel("2026-10-19T12:00:00Z", tick=False)
+    def test_resolves_from_the_teams_events(self, _name: str, event_timestamp: str | None, expected: date) -> None:
+        if event_timestamp is not None:
+            _create_event(team=self.team, event="$pageview", distinct_id="user-1", timestamp=event_timestamp)
+            # The cluster client reads ClickHouse directly, so nothing flushes the batched test events for it.
+            flush_persons_and_events()
+
+        assert resolve_team_earliest_event_date(self.team.pk) == expected
 
 
 class TestDefaultBucketRegion:
@@ -96,6 +119,29 @@ class TestDuckgresDataImportsTableName:
             return_value=naming_version,
         ):
             assert duckgres_data_imports_table_name(schema) == expected
+
+
+class TestDuckgresDataModelingTableName:
+    @parameterized.expand(
+        [
+            ("plain", "vitally_org", "vitally_org"),
+            ("digit_start_gets_prefix", "_2024_revenue", "model_2024_revenue"),
+            ("exactly_max_length", "m" * 63, "m" * 63),
+        ]
+    )
+    def test_names_that_fit_are_not_hashed(self, _name: str, normalized_name: str, expected: str) -> None:
+        assert duckgres_data_modeling_table_name(normalized_name) == expected
+
+    def test_long_names_sharing_a_start_stay_distinct_and_stable(self) -> None:
+        shared_start = "customer_subscription_revenue_by_region_plan_tier_and_cohort_week_"
+        assert len(shared_start) >= 63
+        daily = duckgres_data_modeling_table_name(f"{shared_start}daily_rollup")
+        hourly = duckgres_data_modeling_table_name(f"{shared_start}hourly_rollup")
+
+        assert len(daily) <= 63
+        assert len(hourly) <= 63
+        assert daily != hourly
+        assert daily == duckgres_data_modeling_table_name(f"{shared_start}daily_rollup")
 
 
 TEST_CONFIG = {

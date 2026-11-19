@@ -1,4 +1,6 @@
 import time
+import asyncio
+from collections.abc import AsyncGenerator
 from typing import cast
 from uuid import uuid4
 
@@ -6,7 +8,10 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.conf import settings
+from django.test import SimpleTestCase
 
+import fakeredis
+from parameterized import parameterized
 from temporalio.client import WorkflowExecutionStatus
 
 from posthog.schema import AssistantEventType, AssistantMessage, HumanMessage
@@ -17,6 +22,7 @@ from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.stream.redis_stream import (
+    ApprovalEvent,
     ConversationEvent,
     MessageEvent,
     StatusPayload,
@@ -25,7 +31,70 @@ from ee.hogai.stream.redis_stream import (
     StreamStatusEvent,
     get_conversation_stream_key,
 )
-from ee.hogai.utils.types.base import AssistantOutput
+from ee.hogai.utils.sse import AssistantSSESerializer
+from ee.hogai.utils.types.base import ApprovalPayload, AssistantOutput
+
+
+class TestAgentExecutorReconnect(SimpleTestCase):
+    async def test_activity_retry_can_stream_after_terminal_error(self) -> None:
+        redis = fakeredis.FakeAsyncRedis()
+        with patch("ee.hogai.stream.redis_stream.get_async_client", return_value=redis):
+            executor = AgentExecutor(Conversation(id=uuid4(), team_id=1, user_id=1))
+        message = AssistantMessage(id=str(uuid4()), content="Retry complete")
+
+        async def failed_output() -> AsyncGenerator[AssistantOutput]:
+            yield (AssistantEventType.MESSAGE, AssistantMessage(content="Starting"))
+            raise ValueError("Activity failed")
+
+        async def retried_output() -> AsyncGenerator[AssistantOutput]:
+            yield (AssistantEventType.MESSAGE, message)
+
+        try:
+            with self.assertRaises(StreamError):
+                await executor._redis_stream.write_to_stream(failed_output())
+            reader = executor.stream_conversation()
+            await anext(reader)
+            failure = await anext(reader)
+            self.assertEqual(cast(AssistantMessage, failure[1]).type, "ai/failure")
+            await reader.aclose()
+            await executor._redis_stream.write_to_stream(retried_output())
+            self.assertEqual(
+                [event async for event in executor.stream_conversation()],
+                [(AssistantEventType.MESSAGE, message)],
+            )
+        finally:
+            await redis.close()
+
+    @parameterized.expand(["close", "cancel"])
+    async def test_reader_disconnect_preserves_replay(self, disconnect: str) -> None:
+        redis = fakeredis.FakeAsyncRedis()
+        conversation = Conversation(id=uuid4(), team_id=1, user_id=1)
+        with patch("ee.hogai.stream.redis_stream.get_async_client", return_value=redis):
+            executor = AgentExecutor(conversation)
+            reconnect = AgentExecutor(conversation)
+
+        first = AssistantMessage(id=str(uuid4()), content="Starting the query")
+        last = AssistantMessage(id=str(uuid4()), content="Query complete")
+
+        async def output(message: AssistantMessage) -> AsyncGenerator[AssistantOutput]:
+            yield (AssistantEventType.MESSAGE, message)
+
+        try:
+            await executor._redis_stream.write_to_stream(output(first), emit_completion=False)
+            reader = executor.stream_conversation()
+            self.assertEqual(await anext(reader), (AssistantEventType.MESSAGE, first))
+            if disconnect == "close":
+                await reader.aclose()
+            else:
+                with self.assertRaises(asyncio.CancelledError):
+                    await reader.athrow(asyncio.CancelledError())
+            await executor._redis_stream.write_to_stream(output(last))
+            self.assertEqual(
+                [message async for message in reconnect.stream_conversation()],
+                [(AssistantEventType.MESSAGE, first), (AssistantEventType.MESSAGE, last)],
+            )
+        finally:
+            await redis.close()
 
 
 class TestAgentExecutor(BaseTest):
@@ -256,6 +325,26 @@ class TestAgentExecutor(BaseTest):
             event = StreamEvent(event=conversation_data)
 
             await self.manager._redis_stream_to_assistant_output(event)
+
+    async def test_redis_stream_approval_event_reaches_client_as_sse(self):
+        approval = ApprovalPayload(
+            proposal_id="proposal-1",
+            decision_status="pending",
+            tool_name="upsert_dashboard",
+            preview="Remove 2 tiles",
+            payload={"dashboard_id": 1},
+            original_tool_call_id="call-1",
+            message_id="message-1",
+        )
+        event = StreamEvent(event=ApprovalEvent(type=AssistantEventType.APPROVAL, payload=approval))
+
+        result = await self.manager._redis_stream_to_assistant_output(event)
+        assert result is not None
+        sse = await AssistantSSESerializer().dumps(result)
+
+        event_line, data_line, *_ = sse.split("\n")
+        self.assertEqual(event_line, f"event: {AssistantEventType.APPROVAL}")
+        self.assertEqual(ApprovalPayload.model_validate_json(data_line.removeprefix("data: ")), approval)
 
     async def test_redis_stream_to_assistant_output_unknown_event(self):
         """Test conversion with unknown event type."""

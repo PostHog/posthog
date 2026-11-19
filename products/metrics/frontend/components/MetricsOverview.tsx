@@ -8,6 +8,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { _MetricsOverviewServiceApi } from '../generated/api.schemas'
 import { STALE_AFTER_MS, metricsOverviewLogic } from './metricsOverviewLogic'
+import { MetricsSummaryTable } from './MetricsSummaryTable'
 
 const isStale = (lastSeen: string): boolean => dayjs().diff(dayjs(lastSeen)) > STALE_AFTER_MS
 
@@ -66,6 +67,9 @@ const MetricsOverviewSkeleton = (): JSX.Element => (
     </div>
 )
 
+// TZLabel sets align-middle, which drops the relative time below the baseline of the sentence around it.
+const InlineTime = ({ time }: { time: string }): JSX.Element => <TZLabel time={time} className="align-baseline" />
+
 const IngestionStatus = ({ lastSeen }: { lastSeen: string | null }): JSX.Element => {
     if (lastSeen === null) {
         return (
@@ -88,7 +92,7 @@ const IngestionStatus = ({ lastSeen }: { lastSeen: string | null }): JSX.Element
                     children: 'Troubleshoot setup',
                 }}
             >
-                No metrics received in the last 15 minutes. The last datapoint arrived <TZLabel time={lastSeen} />.
+                No metrics received in the last 15 minutes. The last datapoint arrived <InlineTime time={lastSeen} />.
                 Check that your exporters and agents are still running.
             </LemonBanner>
         )
@@ -101,15 +105,33 @@ const IngestionStatus = ({ lastSeen }: { lastSeen: string | null }): JSX.Element
                 <div className="w-2 h-2 bg-accent rounded-full" />
             </div>
             <span className="text-sm">
-                Receiving metrics. Last datapoint <TZLabel time={lastSeen} />.
+                Receiving metrics. Last datapoint <InlineTime time={lastSeen} />.
             </span>
         </div>
     )
 }
 
 export const MetricsOverview = (): JSX.Element => {
-    const { overview, overviewLoading } = useValues(metricsOverviewLogic)
-    const { viewService } = useActions(metricsOverviewLogic)
+    const { overview, overviewLoading, overviewLoadFailed } = useValues(metricsOverviewLogic)
+    const { viewService, loadOverview } = useActions(metricsOverviewLogic)
+
+    // A failed poll after a good load keeps the last data on screen, so the banner only
+    // replaces the skeleton when nothing has loaded yet.
+    if (!overview && overviewLoadFailed) {
+        return (
+            <LemonBanner
+                type="error"
+                action={{
+                    children: 'Try again',
+                    onClick: () => loadOverview(),
+                    loading: overviewLoading,
+                    'data-attr': 'metrics-overview-retry',
+                }}
+            >
+                Couldn't load the metrics overview. Try again in a moment.
+            </LemonBanner>
+        )
+    }
 
     if (!overview) {
         return <MetricsOverviewSkeleton />
@@ -172,6 +194,7 @@ export const MetricsOverview = (): JSX.Element => {
                     },
                 ]}
             />
+            <MetricsSummaryTable />
         </div>
     )
 }

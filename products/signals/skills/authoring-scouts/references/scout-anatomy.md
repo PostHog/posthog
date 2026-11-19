@@ -74,8 +74,9 @@ The fleet's specialists all share this shape:
    Examples: `count` vs `distinct_users` ratio (error tracking); reach over raw count (CSP); negative+mixed share vs baseline (MCP feedback).
    Without this, the scout wastes every run re-deciding what "normal" means.
 
-2. **Quick close-out.** A cheap early-exit so a quiet run costs almost nothing: if the watched event is absent from the profile's `top_events` or sitting at baseline (no fresh 24h activity), write one scratchpad entry and stop.
+2. **Quick close-out.** A cheap early-exit so a quiet run costs almost nothing: if the surface is not in use, or the watched event sits at baseline (no fresh 24h activity), write one scratchpad entry and stop.
    This keeps idle scouts cheap.
+   Decide "not in use" from the profile's `surfaces` entry for the scout, never from absence in `top_events`: `top_events` keeps only the top events by volume, so a quiet surface that is in use falls off it. A canonical scout gets a `surfaces` entry when it ships a `scout-precheck-query`. A scout with no entry, or an entry that reads `in_use: null`, checks with one bounded `execute-sql` count.
    `top_events` counts are windowed (each row carries `window_days`), not lifetime — a project whose ingestion recently went dark reads identically to one that never had traffic. Before closing out a busy-looking project as empty on `top_events` thinness alone, rule out a capture gap with a direct `execute-sql` over a longer window (e.g. 30d); only close out when the low volume holds there.
 
    ```text
@@ -157,8 +158,8 @@ signal-vs-noise discriminator. Internalize that shape.
 
 ## Quick close-out: is <surface> even loud?
 
-If <event> is absent from `top_events` or at baseline (no fresh 24h activity), <surface>
-isn't where the signal is today. Cheap scratchpad entry + close out empty.
+If `surfaces["<skill-name>"]` reads `in_use: false`, or <event> is at baseline (no fresh 24h activity), <surface>
+isn't where the signal is today. Absence from `top_events` alone proves nothing. Cheap scratchpad entry + close out empty.
 
 ## How a run works
 

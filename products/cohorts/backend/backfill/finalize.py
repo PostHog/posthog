@@ -30,10 +30,11 @@ import structlog
 from celery import current_app
 from prometheus_client import Counter, Gauge
 
-from posthog.tasks.utils import CeleryQueue
+from posthog.celery_queues import CeleryQueue
 
 from products.cohorts.backend.backfill.allowlist import parse_run_allowlist
 from products.cohorts.backend.backfill.readiness import stamp_events_readiness, stamp_person_properties_readiness
+from products.cohorts.backend.facade.ready_signals import realtime_cohort_ready
 from products.cohorts.backend.models.backfill import (
     READINESS_CHUNKS,
     CohortBackfillChunk,
@@ -44,6 +45,7 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillRunStatus,
     CohortBackfillScope,
 )
+from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.dependencies import invalidate_team_behavioral_cohort_cache
 
 logger = structlog.get_logger(__name__)
@@ -52,7 +54,7 @@ logger = structlog.get_logger(__name__)
 # would close a forbidden product-dependency cycle; dispatch by registered task name instead. The
 # task pins the same string via ``name=`` so moving its module can't silently rename it out from
 # under us; test_finalize.py asserts the two still agree.
-FLAGS_CACHE_TASK = "products.feature_flags.backend.tasks.update_team_service_flags_cache"
+FLAGS_CACHE_TASK = "products.feature_flags.backend.tasks.invalidate_team_flags_cache_for_cohorts"
 
 READINESS_STAMPS_COUNTER = Counter(
     "posthog_cohort_backfill_readiness_stamps_total",
@@ -129,7 +131,8 @@ def _finalizable_kinds() -> tuple[str, ...]:
     return (CohortBackfillKind.BEHAVIORAL,)
 
 
-def _dispatch_flags_cache_update(team_id: int) -> None:
+def refresh_readiness_caches(team_id: int) -> None:
+    invalidate_team_behavioral_cohort_cache(team_id)
     # send_task bypasses the task decorator's options, so the queue must be routed explicitly.
     current_app.send_task(FLAGS_CACHE_TASK, args=(team_id,), queue=CeleryQueue.FEATURE_FLAGS.value)
 
@@ -192,15 +195,19 @@ def finalize_backfill_runs() -> FinalizerPass:
         observed.extend(discovered.order_by("reconcile_observed_at").values_list("id", "team_id")[:per_kind])
 
     teams_to_invalidate: set[int] = set()
+    stamped_cohorts: list[tuple[int, int]] = []
     for run_id, team_id in observed:
+        run_stamped: list[int] = []
         try:
-            invalidate_team = _finalize_one_run(run_id, team_id, result)
+            invalidate_team = _finalize_one_run(run_id, team_id, result, run_stamped)
         except Exception:
             # The transaction rolled back, so the run is still reconciling — count it so the pager
             # gauge reflects a stuck run rather than reading clean.
             logger.exception("cohort_backfill_finalizer_run_error", run_id=str(run_id), team_id=team_id)
             result.errored += 1
             continue
+        # Reached only when the run's transaction committed, so a rolled-back stamp never signals.
+        stamped_cohorts.extend((team_id, cohort_id) for cohort_id in run_stamped)
         if invalidate_team:
             teams_to_invalidate.add(team_id)
 
@@ -208,12 +215,23 @@ def finalize_backfill_runs() -> FinalizerPass:
     # after the per-run transactions have committed.
     for team_id in teams_to_invalidate:
         try:
-            invalidate_team_behavioral_cohort_cache(team_id)
-            _dispatch_flags_cache_update(team_id)
+            refresh_readiness_caches(team_id)
         except Exception:
             logger.exception("cohort_backfill_finalizer_cache_invalidation_failed", team_id=team_id)
             continue
         result.invalidated_teams += 1
+
+    for team_id, cohort_id in stamped_cohorts:
+        for _receiver, response in realtime_cohort_ready.send_robust(
+            sender=Cohort, team_id=team_id, cohort_id=cohort_id
+        ):
+            if isinstance(response, Exception):
+                logger.error(
+                    "cohort_backfill_finalizer_ready_receiver_failed",
+                    team_id=team_id,
+                    cohort_id=cohort_id,
+                    error=str(response),
+                )
 
     _publish_held_runs(result)
     return result
@@ -226,8 +244,9 @@ def _publish_held_runs(result: FinalizerPass) -> None:
     HELD_RUNS_GAUGE.labels(reason="not_allowlisted").set(result.not_allowlisted)
 
 
-def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool:
-    """Terminalize one observed run. Returns whether the team's caches need invalidating."""
+def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass, stamped_cohort_ids: list[int]) -> bool:
+    """Terminalize one observed run. Returns whether the team's caches need invalidating, and adds
+    each cohort it stamps to ``stamped_cohort_ids``."""
     stamped = 0
     superseded = 0
     held = 0
@@ -273,6 +292,7 @@ def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool
                 if stamp_readiness(run, participation.cohort_id):
                     stamped += 1
                     invalidate_team = True
+                    stamped_cohort_ids.append(participation.cohort_id)
                     result.stamped_participations += 1
                     READINESS_STAMPS_COUNTER.labels(result="stamped", kind=run.backfill_kind).inc()
                 else:

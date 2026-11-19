@@ -11,30 +11,49 @@ const METRIC_LABELS: Record<string, string> = {
     email_delivered: 'Delivered',
     email_opened: 'Opened',
     email_link_clicked: 'Link clicked',
+    push_sent: 'Sent',
+    push_opened: 'Opened',
 }
 
 const SERIES_COLORS = Object.fromEntries(
     Object.entries(METRIC_LABELS).map(([metricName, label]) => [metricName, METRIC_COLORS[label]])
 )
 
-export function BroadcastSendActivity({ runId, runStartedAt }: BroadcastPerformanceLogicProps): JSX.Element {
+export function BroadcastSendActivity({
+    runId,
+    runStartedAt,
+    channel,
+    hideSingleBucket = false,
+}: BroadcastPerformanceLogicProps & {
+    hideSingleBucket?: boolean
+}): JSX.Element | null {
     const { appMetricsTrends, appMetricsTrendsLoading } = useValues(
         appMetricsLogic({
             logicKey: `broadcast-send-activity-${runId}`,
             loadOnMount: true,
             loadOnChanges: true,
             loadPreviousPeriod: false,
-            forceParams: sendActivityParams(runId, runStartedAt),
+            forceParams: sendActivityParams(runId, runStartedAt, undefined, channel),
         })
     )
 
     const hasActivity = !!appMetricsTrends?.series.some((series) => series.values.some((value) => value > 0))
+    const activeBuckets = new Set(
+        appMetricsTrends?.series.flatMap((series) =>
+            series.values.flatMap((value, index) => (value > 0 ? [index] : []))
+        )
+    )
+    if (hideSingleBucket && !appMetricsTrendsLoading && activeBuckets.size <= 1) {
+        return null
+    }
 
     return (
         <div className="flex flex-col gap-2">
             <h3 className="m-0 text-sm font-semibold">Activity over time</h3>
             {!appMetricsTrendsLoading && appMetricsTrends && !hasActivity ? (
-                <span className="text-muted">No email activity recorded for this send yet.</span>
+                <span className="text-muted">
+                    No {channel === 'push' ? 'push' : 'email'} activity recorded for this send yet.
+                </span>
             ) : (
                 <AppMetricsTrends
                     appMetricsTrends={appMetricsTrends}

@@ -1,18 +1,20 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGraph } from '@posthog/icons'
-import { LemonBanner, LemonCollapse, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
+import { isLiftAtCeiling, liftCeilingNote } from '../modelQuality'
 import { accuracyStats, accuracySummary, percent } from '../onlinePerformance'
 import { eventName } from '../pipelineQuestion'
+import { AccuracyTrendCard } from './AccuracyTrendCard'
 import { ConfusionMatrixCard } from './ConfusionMatrixCard'
 import { EmptyTab } from './EmptyTab'
+import { LiveModelDrivers } from './LiveModelDrivers'
 import { MetricCard } from './MetricCard'
-import { RealizedAucChart } from './RealizedAucChart'
 import { ScoreNowButton } from './ScoreNowButton'
 import { SectionCard } from './SectionCard'
 import { SegmentCalibrationBars } from './SegmentCalibrationBars'
@@ -25,6 +27,17 @@ const MODEL_ROLE: Record<string, { type: 'success' | 'default' | 'highlight'; la
 
 function fmt(value: number | null, decimals = 3): string {
     return value != null ? value.toFixed(decimals) : '—'
+}
+
+function LiftCell({ lift, share, baseRate }: { lift: number | null; share: number; baseRate: number }): JSX.Element {
+    if (lift == null || !isLiftAtCeiling(lift, share, baseRate)) {
+        return <>{`${fmt(lift, 2)}×`}</>
+    }
+    return (
+        <Tooltip title={liftCeilingNote(share, baseRate)}>
+            <span className="whitespace-nowrap">{`${fmt(lift, 2)}× (near max)`}</span>
+        </Tooltip>
+    )
 }
 
 function fmtPercent(value: number | null | undefined): string {
@@ -49,12 +62,10 @@ function NotCheckedYet(): JSX.Element {
 export function OnlinePerformanceTab(): JSX.Element {
     const {
         pipeline,
-        champion,
         onlinePerformance,
         onlinePerformanceLoading,
         onlinePerformanceError,
         latestChampionPerformance,
-        realizedAucPoints,
         segmentCalibration,
         accuracyCutoff,
         championConfusion,
@@ -81,7 +92,12 @@ export function OnlinePerformanceTab(): JSX.Element {
     }
 
     if (!latestChampionPerformance || !pipeline) {
-        return <NotCheckedYet />
+        return (
+            <div className="space-y-6">
+                <NotCheckedYet />
+                <LiveModelDrivers />
+            </div>
+        )
     }
 
     const target = eventName(pipeline.target_event)
@@ -109,20 +125,9 @@ export function OnlinePerformanceTab(): JSX.Element {
                 </SectionCard>
             )}
 
-            {realizedAucPoints.length > 0 && (
-                <SectionCard
-                    title="Realized AUC over time"
-                    description={
-                        <>
-                            Realized AUC measures how well the model ranked people who did {target} above people who did
-                            not. 0.5 is a coin flip and 1 is a perfect ranking. The holdout line is the score the model
-                            got in training.
-                        </>
-                    }
-                >
-                    <RealizedAucChart points={realizedAucPoints} holdoutAuc={champion?.holdout_score ?? null} />
-                </SectionCard>
-            )}
+            <AccuracyTrendCard />
+
+            <LiveModelDrivers />
 
             <LemonCollapse
                 className="bg-surface-primary"
@@ -160,8 +165,18 @@ export function OnlinePerformanceTab(): JSX.Element {
                                         },
                                         { title: 'Brier score', render: (_, row) => fmt(row.brier_score) },
                                         { title: 'Calibration error', render: (_, row) => fmt(row.calibration_error) },
-                                        { title: 'Lift at 10%', render: (_, row) => `${fmt(row.lift_at_10, 2)}×` },
-                                        { title: 'Lift at 20%', render: (_, row) => `${fmt(row.lift_at_20, 2)}×` },
+                                        {
+                                            title: 'Lift at 10%',
+                                            render: (_, row) => (
+                                                <LiftCell lift={row.lift_at_10} share={0.1} baseRate={row.base_rate} />
+                                            ),
+                                        },
+                                        {
+                                            title: 'Lift at 20%',
+                                            render: (_, row) => (
+                                                <LiftCell lift={row.lift_at_20} share={0.2} baseRate={row.base_rate} />
+                                            ),
+                                        },
                                         {
                                             title: 'Precision at 10%',
                                             render: (_, row) => fmtPercent(row.confusion?.top_10.precision),

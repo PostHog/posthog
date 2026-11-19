@@ -162,7 +162,7 @@ function AddTeamsChannelRow({ adminRestrictionReason }: AddTeamsChannelRowProps)
                     type="secondary"
                     size="small"
                     onClick={loadTeamsTeamsWithToken}
-                    disabledReason={teamsTeamsLoading ? 'Loading...' : undefined}
+                    disabledReason={adminRestrictionReason || (teamsTeamsLoading ? 'Loading...' : undefined)}
                 >
                     Refresh
                 </LemonButton>

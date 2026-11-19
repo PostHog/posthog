@@ -65,8 +65,13 @@ from ..models import (
     MCPToolPolicy,
     TeamMCPGatewayConfig,
 )
-from ..policy import GatewayCaller, PolicyContext, is_destructive_tool, is_policy_state_allowed
-from .visibility import slack_dev_mcp_ui_enabled
+from ..policy import (
+    GatewayCaller,
+    PolicyContext,
+    is_destructive_tool,
+    is_policy_state_allowed,
+    is_read_only_connector_tool,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -232,7 +237,7 @@ class GatewayAgentAccessSerializer(serializers.Serializer):
 def _installation_pending_oauth(installation: MCPServerInstallation) -> bool:
     if installation.auth_type != "oauth":
         return False
-    return not (installation.sensitive_configuration or {}).get("access_token")
+    return not installation.upstream_access_token()
 
 
 def _installation_needs_reauth(installation: MCPServerInstallation) -> bool:
@@ -352,8 +357,6 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_team_enabled(self, obj: MCPGatewayServer) -> bool:
-        if obj.template is not None and not obj.template.oauth_credentials_source_is_allowed_for_team(obj.team_id):
-            return False
         return obj.is_team_enabled
 
     @extend_schema_field(serializers.IntegerField())
@@ -492,6 +495,9 @@ class ResolvedToolPolicySerializer(serializers.Serializer):
     input_schema = MCPToolInputSchemaField(help_text="JSON Schema describing the tool's input arguments.")
     is_destructive = serializers.BooleanField(
         help_text="Whether the canonical gateway heuristic treats this tool as destructive."
+    )
+    is_read_only = serializers.BooleanField(
+        help_text="Whether the tool only reads data: the server marks it readOnlyHint and its name starts with a read verb and has no write or destructive verb."
     )
     policy_state = serializers.ChoiceField(choices=APPROVAL_STATES, help_text="Effective state for the scope.")
     team_state = serializers.ChoiceField(
@@ -724,16 +730,9 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
                     "icon_key": server.template.icon_key if server.template else "",
                     "icon_domain": server.template.icon_domain if server.template else "",
                     "connection_state": connection_state,
-                    # Mirrors the run path's grant, server, and credential-source checks so
+                    # Mirrors the run path's grant and server checks so
                     # pickers can hide grants a run cannot mount.
-                    "reachable": (
-                        server.is_team_enabled
-                        and (
-                            server.template is None
-                            or server.template.oauth_credentials_source_is_allowed_for_team(server.team_id)
-                        )
-                        and not getattr(access, "grant_owner_revoked", False)
-                    ),
+                    "reachable": (server.is_team_enabled and not getattr(access, "grant_owner_revoked", False)),
                 }
             )
         return servers
@@ -954,10 +953,6 @@ class MCPGatewayServerViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet[MCPGatewayServer]) -> QuerySet[MCPGatewayServer]:
         servers = MCPGatewayServer.objects.for_team(self.team_id)
-        if servers.filter(template__oauth_credentials_source="slack_dev_app").exists() and not slack_dev_mcp_ui_enabled(
-            user=cast(User, self.request.user), team=self.team
-        ):
-            servers = servers.exclude(template__oauth_credentials_source="slack_dev_app")
         if not self._is_project_admin():
             user_id = cast(int, self.request.user.id)
             servers = servers.filter(is_team_enabled=True).exclude(member_revocations__user_id=user_id)
@@ -966,7 +961,10 @@ class MCPGatewayServerViewSet(
             .prefetch_related(
                 Prefetch(
                     "installations",
-                    queryset=MCPServerInstallation.objects.select_related("user").order_by("created_at"),
+                    # The token resolver reads the template of a link-backed installation.
+                    queryset=MCPServerInstallation.objects.select_related(
+                        "user", "template", "linked_user_integration"
+                    ).order_by("created_at"),
                 ),
                 Prefetch(
                     "agent_access",
@@ -1063,18 +1061,47 @@ class MCPGatewayServerViewSet(
             return "agent", None, account
         return "team", None, None
 
-    def _require_scope_permission(self, scope_type: str, scope_user: User | None, write: bool = False) -> None:
+    def _require_scope_permission(
+        self,
+        server: MCPGatewayServer,
+        scope_type: str,
+        scope_user: User | None,
+        scope_account: MCPServiceAccount | None,
+        write: bool = False,
+    ) -> None:
         """Members may view team defaults and manage their own member scope;
-        agent scopes follow the team's agent-access setting."""
+        agent scopes follow the team's agent-access setting. Agent policy covers
+        every member's share of the server, so a member may change it only
+        while holding a live share of their own."""
         if self._is_project_admin():
             return
         if scope_type == "member" and scope_user is not None and scope_user.id == self.request.user.id:
             return
         if scope_type == "agent" and self._can_manage_agent_access():
-            return
+            if not write or self._holds_live_agent_share(server, scope_account):
+                return
+            raise PermissionDenied(
+                "Share your connection to this server with the agent before changing its tool access."
+            )
         if scope_type == "team" and not write:
             return
         raise PermissionDenied("Only project admins can manage this scope.")
+
+    def _holds_live_agent_share(self, server: MCPGatewayServer, account: MCPServiceAccount | None) -> bool:
+        """The share must still carry the member's own credential. Revoked members
+        never get here, because `safely_get_queryset` hides the server from them."""
+        user_id = cast(User, self.request.user).id
+        return (
+            MCPServiceAccountServerAccess.objects.for_team(self.team_id)
+            .filter(
+                service_account=account,
+                gateway_server=server,
+                user_id=user_id,
+                installation__isnull=False,
+                installation__user_id=user_id,
+            )
+            .exists()
+        )
 
     def _member_installation(self, server: MCPGatewayServer, scope_user: User) -> MCPServerInstallation | None:
         """The credential this member calls the server through.
@@ -1136,6 +1163,7 @@ class MCPGatewayServerViewSet(
                     "description": description,
                     "input_schema": input_schema,
                     "is_destructive": is_destructive_tool(tool_name, annotations),
+                    "is_read_only": is_read_only_connector_tool(tool_name, annotations),
                     "policy_state": resolved.state,
                     "team_state": resolved.team_state,
                     "locked": resolved.locked or (scope_type != "team" and resolved.team_state == "do_not_use"),
@@ -1203,7 +1231,7 @@ class MCPGatewayServerViewSet(
         """Tool catalog with the resolved policy for a scope."""
         server = self.get_object()
         scope_type, scope_user, scope_account = self._resolve_scope(request.validated_query_data)
-        self._require_scope_permission(scope_type, scope_user)
+        self._require_scope_permission(server, scope_type, scope_user, scope_account)
         rows = self._resolve_policies_for_scope(server, scope_type, scope_user, scope_account)
         return Response({"count": len(rows), "next": None, "previous": None, "results": rows})
 
@@ -1217,7 +1245,7 @@ class MCPGatewayServerViewSet(
         server = self.get_object()
         data = request.validated_data
         scope_type, scope_user, scope_account = self._resolve_scope(data)
-        self._require_scope_permission(scope_type, scope_user, write=True)
+        self._require_scope_permission(server, scope_type, scope_user, scope_account, write=True)
 
         if scope_type != "team":
             if scope_type == "agent" and scope_account is not None:
@@ -1721,7 +1749,7 @@ class MCPGatewayMemberViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewset
             rows.append(
                 {
                     "user": UserBasicSerializer(membership.user).data,
-                    "is_org_admin": membership.level >= OrganizationMembership.Level.ADMIN,
+                    "is_org_admin": membership.effective_level >= OrganizationMembership.Level.ADMIN,
                     "connected_server_ids": connected.get(membership.user_id, []),
                     "revoked_server_ids": revoked.get(membership.user_id, []),
                 }

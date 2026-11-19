@@ -1,12 +1,19 @@
-// These tests check the workflows under .github/workflows, not the planner. A failure here means a
+// These tests check the CI workflows, not the planner. A failure here means a
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
+import { load } from 'js-yaml'
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
-import os from 'node:os'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { evaluateValue, planFunctions } from '../src/expressions.ts'
+import {
+    type JsonValue,
+    evaluateCondition,
+    evaluateTemplate,
+    evaluateValue,
+    planFunctions,
+} from '../src/expressions.ts'
 import {
     type Outcome,
     type Scenario,
@@ -32,13 +39,15 @@ import {
 
 const WORKFLOWS_DIR = path.join(REPO_ROOT, '.github/workflows')
 const workflowFiles = readdirSync(WORKFLOWS_DIR).filter((file) => file.endsWith('.yml') || file.endsWith('.yaml'))
+// A bare file name lives under .github/workflows; a repo-relative path names a Depot CI workflow.
+const workflowKey = (file: string): string => (file.includes('/') ? file : `.github/workflows/${file}`)
 const cache = new Map<string, Workflow>()
 const workflow = (file: string): Workflow => {
     const cached = cache.get(file)
     if (cached) {
         return cached
     }
-    const loaded = loadWorkflow(path.join(WORKFLOWS_DIR, file))
+    const loaded = loadWorkflow(path.join(REPO_ROOT, workflowKey(file)))
     cache.set(file, loaded)
     return loaded
 }
@@ -73,7 +82,7 @@ type ExpectationBuilder = (
 
 const suite = (file: string, selectors: Stubs = {}): ExpectationBuilder => {
     const filters = allFiltersChanged(workflow(file))
-    const scripted = SCRIPT_STUBS[`.github/workflows/${file}`]
+    const scripted = SCRIPT_STUBS[workflowKey(file)]
     return (overrides, rest) => ({
         file,
         scenario: {
@@ -85,10 +94,12 @@ const suite = (file: string, selectors: Stubs = {}): ExpectationBuilder => {
         ...rest,
     })
 }
-const backend = suite('ci-backend.yml', backendSelectors)
+const DEPOT_BACKEND = '.depot/workflows/ci-backend.yml'
+const depotBackend = suite(DEPOT_BACKEND, backendSelectors)
 const frontend = suite('ci-frontend.yml', frontendSelectors)
 const deltalite = suite('build-deltalite.yml')
-const PINNED_WORKFLOWS = ['ci-backend.yml', 'ci-frontend.yml']
+const agentEgress = suite('ci-agent-egress.yml')
+const PINNED_WORKFLOWS = [DEPOT_BACKEND, 'ci-frontend.yml']
 
 interface ReleaseWorkflow {
     file: string
@@ -155,8 +166,42 @@ const frontendOnlyFilters: Stubs = {
     },
 }
 
+const allJobsExcept = (file: string, kept: string[]): string[] =>
+    Object.keys(workflow(file).jobs).filter((id) => !kept.includes(id))
+
 const EXPECTATIONS: Expectation[] = [
-    backend(
+    // The master push runs on Depot CI: the per-commit checks and the schema dump, no matrices.
+    depotBackend(
+        { name: 'master push', github: push() },
+        {
+            runs: [
+                'changes',
+                'repo-checks',
+                'sdk-major-guard',
+                'check-migrations',
+                'check-openapi-types',
+                'django_tests',
+            ],
+            skipped: [
+                'cancel-superseded-runs',
+                'detect-snapshot-mode',
+                'turbo-discover',
+                'prime-schema-cache',
+                'turbo-tests',
+                'django',
+                'get_clickhouse_versions',
+                'build-product-test-matrix',
+                'build_django_matrix',
+                'build-hogql-parser-rs',
+                'test-selection-verdict',
+            ],
+        }
+    ),
+    depotBackend(
+        { name: 'ready PR, superseded and cancelled', cancelled: true },
+        { results: { django_tests: 'cancelled', 'backend-coverage-report': 'cancelled' } }
+    ),
+    depotBackend(
         { name: 'draft PR', github: pullRequest({ draft: true }) },
         {
             runs: [
@@ -172,7 +217,7 @@ const EXPECTATIONS: Expectation[] = [
             skipped: ['turbo-tests', 'backend-coverage-report'],
         }
     ),
-    backend(
+    depotBackend(
         {
             name: 'draft PR labeled run-ci-backend',
             github: pullRequest({ draft: true, labels: ['run-ci-backend'] }),
@@ -181,11 +226,11 @@ const EXPECTATIONS: Expectation[] = [
             runs: ['turbo-tests', 'django'],
         }
     ),
-    backend(
+    depotBackend(
         { name: 'ready PR' },
         {
             runs: [
-                'dynamic-ci-filter',
+                'cancel-superseded-runs',
                 'turbo-tests',
                 'django',
                 'backend-coverage-report',
@@ -193,74 +238,33 @@ const EXPECTATIONS: Expectation[] = [
                 'get_clickhouse_versions',
                 'build-product-test-matrix',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
+                'prime-schema-cache',
                 'test-selection-verdict',
                 'capture-test-selection',
             ],
-            skipped: ['handle-snapshots', 'cancel-backend-on-openapi-check-failure', 'hand-off-to-depot'],
+            skipped: ['handle-snapshots', 'cancel-backend-on-openapi-check-failure'],
         }
     ),
-    // Handed off to Depot: it runs the tests and the side effects, GitHub Actions relays the
-    // verdict. Every heavy job and every side effect here stands down, and the required gate
-    // keeps reporting.
-    backend(
-        {
-            name: 'ready PR handed off to Depot',
-            steps: { changes: { route: { outputs: { engine: 'depot' } } } },
-        },
-        {
-            runs: ['changes', 'hand-off-to-depot', 'django_tests'],
-            skipped: [
-                'detect-snapshot-mode',
-                'turbo-discover',
-                'repo-checks',
-                'sdk-major-guard',
-                'validate-product-yamls',
-                'check-migrations',
-                'check-openapi-types',
-                'get_clickhouse_versions',
-                'build_django_matrix',
-                'build-product-test-matrix',
-                'django',
-                'turbo-tests',
-                'handle-snapshots',
-                'test-selection-verdict',
-                'capture-test-selection',
-                'report-test-timings',
-                'calculate-running-time',
-                'backend-coverage-report',
-                'cancel-backend-on-repo-check-failure',
-                'cancel-backend-on-openapi-check-failure',
-            ],
-        }
+    depotBackend(
+        { name: 'ready PR with Trunk uploads', vars: { TRUNK_UPLOAD_ENABLED: 'true' } },
+        { runs: ['trunk-ownership-map', 'turbo-tests', 'django'] }
     ),
-    backend(
-        { name: 'routing record unreadable', steps: { changes: { route: { outcome: 'failure' } } } },
-        {
-            runs: ['django_tests'],
-            results: { changes: 'failure' },
-            skipped: [
-                'hand-off-to-depot',
-                'django',
-                'turbo-tests',
-                'check-migrations',
-                'handle-snapshots',
-                'report-test-timings',
-                'calculate-running-time',
-                'backend-coverage-report',
-            ],
-        }
+    depotBackend(
+        { name: 'master push with Trunk uploads', github: push(), vars: { TRUNK_UPLOAD_ENABLED: 'true' } },
+        { skipped: ['trunk-ownership-map'] }
     ),
-    backend(
+    depotBackend(
         { name: 'merge queue', github: mergeQueue() },
         {
             runs: ['turbo-tests', 'django', 'django_tests'],
-            skipped: ['backend-coverage-report', 'dynamic-ci-filter'],
+            skipped: ['backend-coverage-report'],
         }
     ),
     // A product change that reaches no legacy code skips the Django suite, but the events_json
     // rows still run the changed products' listed paths, because product jobs read the legacy
     // events table only.
-    backend(
+    depotBackend(
         {
             name: 'product-only PR whose products have events_json paths',
             steps: {
@@ -279,42 +283,38 @@ const EXPECTATIONS: Expectation[] = [
         },
         { runs: ['turbo-tests', 'django', 'django_tests'] }
     ),
-    backend(
+    depotBackend(
         {
             name: 'product-only PR without events_json paths',
             steps: {
                 changes: { filter: pathsFilter({ backend: true, legacy: false }) },
                 'turbo-discover': {
                     discover: {
-                        outputs: { run_legacy: 'false', matrix: '[{"group":"a"}]', mode: '', selection: '{"json_targets_files":""}' },
+                        outputs: {
+                            run_legacy: 'false',
+                            matrix: '[{"group":"a"}]',
+                            mode: '',
+                            selection: '{"json_targets_files":""}',
+                        },
                     },
                 },
             },
         },
-        { runs: ['turbo-tests', 'django_tests'], skipped: ['django'] }
+        { runs: ['turbo-tests', 'django_tests', 'backend-coverage-report'], skipped: ['django'] }
     ),
-    backend(
+    depotBackend(
         { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
         {
-            runs: ['django_tests'],
-            skipped: ['changes', 'django', 'turbo-tests', 'repo-checks', 'sdk-major-guard', 'check-migrations', 'dynamic-ci-filter'],
+            runs: ['cancel-superseded-runs', 'django_tests'],
+            skipped: ['changes', 'django', 'turbo-tests', 'repo-checks', 'sdk-major-guard', 'check-migrations'],
         }
     ),
-    backend(
+    // Depot CI never runs a fork's code. Only the gate runs, and it fails closed.
+    depotBackend(
         { name: 'fork PR', github: pullRequest({ fork: true }) },
-        {
-            runs: ['changes', 'django', 'django_tests'],
-            skipped: [
-                'dynamic-ci-filter',
-                'validate-product-yamls',
-                'calculate-running-time',
-                'report-test-timings',
-                'capture-test-selection',
-                'handle-snapshots',
-            ],
-        }
+        { runs: ['django_tests'], skipped: allJobsExcept(DEPOT_BACKEND, ['django_tests']) }
     ),
-    backend(
+    depotBackend(
         { name: 'frontend-only PR', steps: frontendOnlyFilters },
         {
             runs: ['changes', 'django_tests'],
@@ -324,33 +324,13 @@ const EXPECTATIONS: Expectation[] = [
                 'django',
                 'get_clickhouse_versions',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'sdk-major-guard',
+                'backend-coverage-report',
             ],
         }
     ),
-    backend(
-        { name: 'master push', github: push() },
-        {
-            runs: ['changes', 'repo-checks', 'sdk-major-guard', 'check-migrations', 'mirror-schema-cache', 'django_tests'],
-            skipped: [
-                'dynamic-ci-filter',
-                'detect-snapshot-mode',
-                'turbo-tests',
-                'django',
-                'get_clickhouse_versions',
-                'build-product-test-matrix',
-                'build_django_matrix',
-                'test-selection-verdict',
-            ],
-        }
-    ),
-    backend(
-        { name: 'ready PR, superseded and cancelled', cancelled: true },
-        {
-            results: { django_tests: 'cancelled' },
-        }
-    ),
-    backend(
+    depotBackend(
         {
             name: 'ready PR, self-cancelled after a deterministic repo-checks failure',
             cancelled: true,
@@ -367,7 +347,7 @@ const EXPECTATIONS: Expectation[] = [
             results: { 'repo-checks': 'failure' },
         }
     ),
-    backend(
+    depotBackend(
         {
             name: 'ready PR, cancelled after repo-checks failed during setup',
             cancelled: true,
@@ -443,6 +423,51 @@ const EXPECTATIONS: Expectation[] = [
         }
     ),
     ...RELEASE_WORKFLOWS.flatMap(releaseExpectations),
+    ...[pullRequest(), pullRequest({ fork: true })].map((github, index) =>
+        agentEgress(
+            { name: index ? 'fork PR' : 'ready PR', github, vars: { CD_DEPLOY_ENABLED: 'true' } },
+            { runs: ['test', 'images'], skipped: ['publish'] }
+        )
+    ),
+    ...[push(), workflowDispatch()].map((github, index) =>
+        agentEgress(
+            { name: index ? 'master dispatch' : 'master push', github, vars: { CD_DEPLOY_ENABLED: 'true' } },
+            { runs: ['test', 'images', 'publish'] }
+        )
+    ),
+    agentEgress(
+        { name: 'branch dispatch', github: workflowDispatch('feat/example'), vars: { CD_DEPLOY_ENABLED: 'true' } },
+        { runs: ['test', 'images'], skipped: ['publish'] }
+    ),
+    agentEgress(
+        { name: 'publishing disabled', github: push(), vars: { CD_DEPLOY_ENABLED: 'false' } },
+        { skipped: ['publish'] }
+    ),
+    agentEgress(
+        {
+            name: 'publication paused',
+            github: push(),
+            vars: { CD_DEPLOY_ENABLED: 'true', ORDERED_IMAGE_ALIAS_PAUSED: 'true' },
+        },
+        { runs: ['test', 'images'], skipped: ['publish'] }
+    ),
+    agentEgress(
+        {
+            name: 'foreign repository',
+            github: { ...push(), repository_owner: 'octocat' },
+            vars: { CD_DEPLOY_ENABLED: 'true' },
+        },
+        { skipped: ['publish'] }
+    ),
+    agentEgress(
+        {
+            name: 'failed image smoke check',
+            github: push(),
+            vars: { CD_DEPLOY_ENABLED: 'true' },
+            steps: { images: { 'Check runtime startup, relay transport and enrollment': { outcome: 'failure' } } },
+        },
+        { results: { images: 'failure', publish: 'skipped' } }
+    ),
     deltalite({ name: 'ready PR' }, { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }),
     deltalite(
         { name: 'fork PR', github: pullRequest({ fork: true }) },
@@ -477,7 +502,115 @@ const E2E_DISPATCH: Scenario = {
     },
 }
 
+const mirrorPullRequest = (): Scenario['github'] =>
+    JSON.parse(JSON.stringify(pullRequest()).replaceAll('PostHog/posthog', 'PostHog/example'))
+
+const pathsFilterJobs = workflowFiles.flatMap((file) =>
+    Object.entries(workflow(file).jobs).flatMap(([job, definition]) =>
+        definition.steps?.some(
+            (step) =>
+                step.id === 'app-token' &&
+                String(step.with?.['client-id']).includes('GH_APP_POSTHOG_PATHS_FILTER_APP_ID')
+        )
+            ? [{ file, job }]
+            : []
+    )
+)
+
 const STEP_EXPECTATIONS: StepExpectation[] = [
+    ...[
+        { name: 'plan-only PR', mode: 'plan', matrix: [{}], fork: false, failed: false, runs: false },
+        { name: 'upload-mode PR', mode: 'upload', matrix: [{}], fork: false, failed: false, runs: true },
+        { name: 'upload-mode fork PR', mode: 'upload', matrix: [{}], fork: true, failed: false, runs: false },
+        { name: 'upload-mode empty matrix', mode: 'upload', matrix: [], fork: false, failed: false, runs: false },
+        { name: 'failed plan', mode: 'upload', matrix: [{}], fork: false, failed: true, runs: false },
+    ].map(({ name, mode, matrix, fork, failed, runs }) => ({
+        file: 'release.yml',
+        job: 'plan',
+        step: 'cache-dist',
+        scenario: {
+            name,
+            github: pullRequest({ fork }),
+            steps: {
+                plan: {
+                    plan: {
+                        outcome: failed ? ('failure' as const) : ('success' as const),
+                        outputs: {
+                            manifest: JSON.stringify({
+                                ci: { github: { pr_run_mode: mode, artifacts_matrix: { include: matrix } } },
+                            }),
+                        },
+                    },
+                },
+            },
+        },
+        runs,
+    })),
+    ...[
+        { name: 'exact schema hit', matched: 'posthog-schema-mig-v2-exact', runs: false },
+        { name: 'schema cache miss', matched: '', runs: false },
+        { name: 'master snapshot fallback', matched: `posthog-schema-master-${'a'.repeat(40)}`, runs: true },
+    ].map(({ name, matched, runs }) => ({
+        file: DEPOT_BACKEND,
+        job: 'check-migrations',
+        step: 'validate-master-schema',
+        scenario: {
+            name,
+            github: mergeQueue(),
+            steps: {
+                ...allFiltersChanged(workflow(DEPOT_BACKEND)),
+                'check-migrations': {
+                    'master-schema-key': { outputs: { key: 'posthog-schema-mig-v2-exact' } },
+                    'master-schema-cache': { outputs: { 'cache-matched-key': matched } },
+                },
+            },
+        },
+        runs,
+    })),
+    ...pathsFilterJobs.flatMap(({ file, job }) => [
+        {
+            file,
+            job,
+            step: 'app-token',
+            scenario: { name: 'canonical PR token', github: pullRequest() },
+            runs: true,
+        },
+        {
+            file,
+            job,
+            step: 'app-token',
+            scenario: { name: 'mirror PR token', github: mirrorPullRequest() },
+            runs: false,
+        },
+        {
+            file,
+            job,
+            step: 'app-token',
+            scenario: { name: 'fork PR token', github: pullRequest({ fork: true }) },
+            runs: false,
+        },
+    ]),
+    ...[
+        { name: 'known fallback', needsDependencies: 'false', fork: false },
+        { name: 'empty source selection', needsDependencies: 'false', fork: false },
+        { name: 'selective PR', needsDependencies: 'true', fork: false },
+        { name: 'selective fork PR', needsDependencies: 'true', fork: true },
+    ].flatMap(({ name, needsDependencies, fork }) =>
+        ['setup-gh-token', 'selector-install'].map((step) => ({
+            file: 'ci-frontend.yml',
+            job: 'select-jest-tests',
+            step,
+            scenario: {
+                name,
+                github: pullRequest({ fork }),
+                steps: {
+                    ...allFiltersChanged(workflow('ci-frontend.yml')),
+                    'select-jest-tests': { prepare: { outputs: { needs_dependencies: needsDependencies } } },
+                },
+            },
+            runs: needsDependencies === 'true' && (step === 'selector-install' || !fork),
+        }))
+    ),
     {
         file: 'ci-frontend.yml',
         job: 'changes',
@@ -486,9 +619,21 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
         runs: false,
     },
     ...PINNED_WORKFLOWS.flatMap((file) => [
-        { file, job: 'changes', step: 'filter', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
+        {
+            file,
+            job: 'changes',
+            step: 'filter',
+            scenario: { name: 'ready PR', github: pullRequest() },
+            runs: true,
+        },
         { file, job: 'changes', step: 'filter', scenario: { name: 'master push', github: push() }, runs: false },
-        { file, job: 'changes', step: 'app-token', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
+        {
+            file,
+            job: 'changes',
+            step: 'app-token',
+            scenario: { name: 'ready PR', github: pullRequest() },
+            runs: true,
+        },
         {
             file,
             job: 'changes',
@@ -499,6 +644,28 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
     ]),
     { file: 'ci-e2e-playwright.yml', job: 'changes', step: 'schema-key', scenario: E2E_DISPATCH, runs: true },
     { file: 'ci-e2e-playwright.yml', job: 'playwright', step: 'schema-cache', scenario: E2E_DISPATCH, runs: true },
+    ...[
+        { name: 'ready PR labeled run-ci-backend', github: pullRequest({ labels: ['run-ci-backend'] }), runs: true },
+        {
+            name: 'draft PR labeled run-ci-backend',
+            github: pullRequest({ draft: true, labels: ['run-ci-backend'] }),
+            runs: true,
+        },
+        { name: 'unlabeled ready PR', github: pullRequest(), runs: false },
+        { name: 'merge queue labeled run-ci-backend', github: mergeQueue({ labels: ['run-ci-backend'] }), runs: false },
+        { name: 'master push', github: push(), runs: false },
+        { name: 'hourly schedule', github: schedule(), runs: false },
+    ].map(({ name, github, runs }) => ({
+        file: DEPOT_BACKEND,
+        job: 'django_tests',
+        step: 'full-run-label-token',
+        scenario: {
+            name,
+            github,
+            steps: { ...allFiltersChanged(workflow(DEPOT_BACKEND)), ...backendSelectors },
+        },
+        runs,
+    })),
 ]
 
 const namedJobs = (file: string): Set<string> =>
@@ -510,7 +677,576 @@ const namedJobs = (file: string): Set<string> =>
         ])
     )
 
-describe('.github/workflows run plans', () => {
+describe('CI workflow run plans', () => {
+    it.each([
+        ['ready PR', pullRequest(), false, '["frontend/src/example.stories.tsx"]', true],
+        ['fork PR', pullRequest({ fork: true }), false, '["frontend/src/example.stories.tsx"]', true],
+        ['empty selection', pullRequest(), false, '[]', true],
+        ['forced full PR', pullRequest({ labels: ['run-ci-frontend'] }), false, '[]', true],
+        ['merge queue', mergeQueue(), false, '[]', false],
+        ['master push', push(), false, '[]', false],
+        ['nightly', schedule(), false, '[]', false],
+        ['cancelled PR', pullRequest(), true, '["frontend/src/example.stories.tsx"]', false],
+    ] as const)('Storybook changed-story verification (%s)', (name, github, cancelled, affected, blocking) => {
+        const file = workflow('ci-storybook.yml')
+        const plan = planWorkflow(file, {
+            name,
+            github,
+            cancelled,
+            steps: {
+                ...allFiltersChanged(file),
+                changes: {
+                    ...allFiltersChanged(file).changes,
+                    filter: { outputs: { frontend: 'true', frontend_count: '2', frontend_generated_count: '0' } },
+                    exclude: { outputs: { outside_node_product_workspaces: 'true' } },
+                },
+                'select-stories': {
+                    classify: {
+                        outputs: {
+                            affected_files_json: affected,
+                            mode: 'selective',
+                            should_run: 'true',
+                            matrix: '{"include":[{"browser":"chromium","shard":1,"shard_count":1}]}',
+                        },
+                    },
+                },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(runningJobs(plan).includes('flake-verification')).toBe(blocking)
+        expect(file.jobs['flake-verification']?.needs).not.toContain('select-stories')
+        expect(file.jobs.visual_regression_tests?.needs).toContain('flake-verification')
+    })
+
+    it.each([
+        ['MCP-only PR', pullRequest(), 'true', 'false', 'false', '2', 2, 'success', false, true],
+        ['MCP-only fork PR', pullRequest({ fork: true }), 'true', 'false', 'false', '2', 2, 'success', false, true],
+        ['Rust CLI change', pullRequest(), 'true', 'true', 'false', '2', 2, 'success', true, true],
+        ['Rust-only PR', pullRequest(), 'false', 'true', 'false', '2', 2, 'success', true, false],
+        ['Rust-only fork PR', pullRequest({ fork: true }), 'false', 'true', 'false', '2', 2, 'success', true, false],
+        ['missing filter output', pullRequest(), 'false', '', '', '', 2, 'success', true, true],
+        ['missing unmatched output', pullRequest(), 'false', 'false', '', '2', 2, 'success', true, true],
+        ['newline input with rename', pullRequest(), 'false', 'false', 'true', '3', 3, 'success', true, true],
+        ['newline rename source', pullRequest(), 'false', 'false', 'true', '2', 2, 'success', true, true],
+        ['newline rename destination', pullRequest(), 'false', 'false', 'true', '2', 2, 'success', true, true],
+        ['incomplete file list', pullRequest(), 'false', 'false', 'false', '1', 2, 'success', true, true],
+        ['API file cap', pullRequest(), 'false', 'false', 'false', '3000', 3000, 'success', true, true],
+        ['failed detector', pullRequest(), 'false', '', '', '', 2, 'failure', true, true],
+        ['merge queue', mergeQueue(), 'true', 'true', 'false', '2', 2, 'success', false, false],
+    ] as const)(
+        'CLI checks retain coverage (%s)',
+        (name, github, apiBundle, rust, unmatched, count, changedFiles, outcome, runs, bundleRuns) => {
+            const event = github.event as Record<string, JsonValue>
+            const plan = planWorkflow(workflow('ci-cli.yml'), {
+                name,
+                github: {
+                    ...github,
+                    event: {
+                        ...event,
+                        pull_request: { ...(event.pull_request as object), changed_files: changedFiles },
+                    },
+                },
+                steps: {
+                    changes: {
+                        filter: {
+                            outcome,
+                            outputs: { rust, api_bundle: apiBundle, unmatched_paths: unmatched, all_count: count },
+                        },
+                    },
+                },
+            })
+            expect(plan.errors).toEqual([])
+            for (const job of ['tests', 'clippy', 'format']) {
+                expect(runningJobs(plan).includes(job)).toBe(runs)
+            }
+            expect(runningJobs(plan).includes('api-cli-release-bundle')).toBe(bundleRuns)
+        }
+    )
+
+    it.each([
+        ['success', 'true', 'success', 0],
+        ['success', 'true', 'skipped', 1],
+        ['success', 'true', 'failure', 1],
+        ['success', 'true', 'cancelled', 1],
+        ['success', 'false', 'skipped', 0],
+        ['success', '', 'skipped', 1],
+        ['success', '', 'success', 1],
+        ['success', 'unknown', 'success', 1],
+        ['failure', 'false', 'skipped', 1],
+        ['cancelled', '', 'skipped', 1],
+        ['skipped', '', 'skipped', 0],
+    ])('OAuth proxy gate handles detector=%s output=%s build=%s', (detector, changed, build, exitCode) => {
+        const script = evaluateValue(
+            workflow('ci-oauth-proxy.yml').jobs.oauth_proxy_tests?.steps?.[0]?.run,
+            {
+                needs: {
+                    changes: { result: detector, outputs: { 'oauth-proxy': changed } },
+                    'build-and-test': { result: build },
+                },
+            },
+            planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        )
+        const gate = spawnSync('bash', ['-eu', '-c', String(script)], { encoding: 'utf8' })
+        expect(gate.error).toBeUndefined()
+        expect(gate.status, gate.stderr || gate.stdout).toBe(exitCode)
+    })
+
+    it.each([
+        ['unrelated master push', push(), 'false', false],
+        ['changed master push', push(), 'true', true],
+        ['missing filter output', push(), '', true],
+        ['unrelated PR', pullRequest(), 'false', false],
+        ['changed fork PR', pullRequest({ fork: true }), 'true', true],
+        ['unrelated merge queue', mergeQueue(), 'false', false],
+    ])('OAuth proxy build follows the input filter (%s)', (name, github, changed, runs) => {
+        const plan = planWorkflow(workflow('ci-oauth-proxy.yml'), {
+            name,
+            github,
+            steps: { changes: { filter: { outputs: { 'oauth-proxy': changed } } } },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes?.steps.find((step) => step.id === 'filter')?.runs).toBe(true)
+        expect(plan.jobs['build-and-test']?.result).toBe(runs ? 'success' : 'skipped')
+        expect(plan.jobs.oauth_proxy_tests?.result).toBe('success')
+    })
+
+    it.each(['', '0000000000000000000000000000000000000000'])(
+        'OAuth proxy runs the full build without a push base (%s)',
+        (before) => {
+            const github = push()
+            const plan = planWorkflow(workflow('ci-oauth-proxy.yml'), {
+                name: 'missing push base',
+                github: { ...github, event: { ...(github.event as object), before } },
+            })
+            expect(plan.errors).toEqual([])
+            expect(plan.jobs.changes?.steps.find((step) => step.id === 'filter')?.runs).toBe(false)
+            expect(plan.jobs['build-and-test']?.result).toBe('success')
+            expect(plan.jobs.oauth_proxy_tests?.result).toBe('success')
+        }
+    )
+
+    it.each([
+        ['unrelated PR', pullRequest(), 'false', '2', 2, false],
+        ['unrelated fork PR', pullRequest({ fork: true }), 'false', '2', 2, false],
+        ['Markdown inputs changed', pullRequest(), 'true', '2', 2, true],
+        ['missing filter output', pullRequest(), '', '', 2, true],
+        ['missing file count', pullRequest(), 'false', '', 2, true],
+        ['missing event count', pullRequest(), 'false', '0', null, true],
+        ['incomplete list', pullRequest(), 'false', '2', 3, true],
+        ['rename expands the list', pullRequest(), 'false', '3', 2, true],
+        ['API file cap', pullRequest(), 'false', '3000', 3000, true],
+        ['API truncated list', pullRequest(), 'false', '3000', 3001, true],
+        ['merge queue', mergeQueue(), 'false', '2', 2, true],
+        ['master push', push(), 'false', '2', 2, true],
+        ['manual run', workflowDispatch(), 'false', '2', 2, true],
+    ])('frontend Markdown lint keeps full coverage (%s)', (name, github, markdown, count, changedFiles, runs) => {
+        const wf = workflow('ci-frontend.yml')
+        const event = github.event as Record<string, JsonValue>
+        const scenarioGithub = {
+            ...github,
+            event: { ...event, pull_request: { ...(event.pull_request as object), changed_files: changedFiles } },
+        }
+        const plan = planWorkflow(wf, {
+            name,
+            github: scenarioGithub,
+            steps: {
+                ...allFiltersChanged(wf),
+                changes: { filter: { outputs: { frontend: 'true', markdown, all_files_count: count } } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        const steps = plan.jobs['frontend-format']?.steps ?? []
+        expect(steps.find((step) => step.name === 'Lint markdown files')?.runs).toBe(runs)
+        expect(steps.find((step) => step.name === 'Check markdown formatting with oxfmt')?.runs).toBe(true)
+    })
+
+    it.each([
+        ['ready PR', pullRequest(), true, true],
+        ['merge queue', mergeQueue(), true, false],
+        ['master push', push(), true, false],
+        ['hourly schedule', schedule(), false, false],
+    ])('frontend size comparison runs only when consumed (%s)', (name, github, headBuild, baseBuild) => {
+        const wf = workflow('ci-frontend.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: { ...allFiltersChanged(wf), ...frontendSelectors },
+        })
+        expect(plan.errors).toEqual([])
+        const steps = plan.jobs['frontend-bundle-size']?.steps ?? []
+        expect(steps.find((step) => step.name === 'Build base branch for size comparison')?.runs ?? false).toBe(
+            baseBuild
+        )
+        for (const step of [
+            'Build frontend (bundle-size + eager-graph report)',
+            'Measure PR dist size',
+            'Check toolbar bundle stays under the CloudFront gzip limit',
+            'Check toolbar graph stays inside its module boundary',
+            'Check toolbar for CSP eval violations',
+            'Calculate dist folder size',
+        ]) {
+            expect(steps.find((candidate) => candidate.name === step)?.runs ?? false, step).toBe(headBuild)
+        }
+        expect(
+            steps.find((step) => step.name === 'Check eager graph budgets and forbidden imports')?.runs ?? false
+        ).toBe(headBuild && github.event_name === 'pull_request')
+        expect(steps.find((step) => step.name === 'Post CI report — bundle size')?.runs ?? false).toBe(baseBuild)
+        expect(plan.jobs.frontend_tests?.result).toBe('success')
+    })
+
+    it.each([
+        ['master push', push(), false, true, false],
+        ['ready PR', pullRequest(), true, true, false],
+        ['fork PR', pullRequest({ fork: true }), true, true, false],
+        ['merge group', { ...push(), event_name: 'merge_group' }, false, false, false],
+        ['cancelled master push', push(), false, false, true],
+    ] as const)(
+        'Desktop checks keep coverage without an empty detector (%s)',
+        (name, github, changes, checkRuns, cancelled) => {
+            for (const check of ['typecheck', 'quality']) {
+                const wf = workflow(`desktop-${check}.yml`)
+                const plan = planWorkflow(wf, { name, github, cancelled, steps: allFiltersChanged(wf) })
+                expect(plan.errors).toEqual([])
+                expect(plan.jobs.changes?.result === 'success', check).toBe(changes)
+                expect(plan.jobs[check]?.result === 'success', check).toBe(checkRuns)
+                expect(plan.jobs[`desktop-${check}-pass`]?.result === 'success', check).toBe(!cancelled)
+            }
+        }
+    )
+
+    it.each(['build', 'quality', 'typecheck', 'test'])('Desktop %s shares the fallback detector filters', (name) => {
+        const filters = (file: string): Record<string, string[]> =>
+            load(
+                String(workflow(file).jobs.changes?.steps?.find((step) => step.id === 'filter')?.with?.filters)
+            ) as Record<string, string[]>
+        const shared = filters('desktop-ci.yml')
+        const fallback = filters(`desktop-${name}.yml`)
+        expect(shared[name === 'quality' ? 'quality_code' : 'code']).toEqual(fallback.code)
+        expect(shared.agent).toEqual(fallback.agent)
+        expect(shared[name]).toEqual(fallback.workflow)
+        if (name === 'test') {
+            expect(shared.packages).toEqual(fallback.packages)
+        }
+    })
+
+    it.each(['success', 'failure', 'cancelled', 'skipped'] as const)(
+        'Desktop callers pass shared decisions only after a successful detector (%s)',
+        (result) => {
+            const functions = planFunctions({
+                dependenciesSucceeded: result === 'success' || result === 'skipped',
+                dependenciesFailed: result === 'failure',
+                cancelled: false,
+            })
+            for (const selected of ['true', 'false']) {
+                const needs = {
+                    changes: {
+                        result,
+                        outputs: Object.fromEntries(
+                            ['build', 'quality', 'typecheck', 'test', 'test_e2e'].map((name) => [name, selected])
+                        ),
+                    },
+                }
+                for (const name of ['build', 'quality', 'typecheck', 'test']) {
+                    const caller = workflow('desktop-ci.yml').jobs[name] as { with: Record<string, string> }
+                    for (const input of Object.values(caller.with)) {
+                        expect(evaluateValue(input, { needs }, functions)).toBe(result === 'success' ? selected : '')
+                    }
+                }
+            }
+        }
+    )
+
+    it.each([
+        {
+            name: 'mobile PR',
+            github: pullRequest(),
+            mobile: true,
+            apiTypes: false,
+            checks: 'full',
+            install: true,
+            appToken: true,
+        },
+        {
+            name: 'fork PR',
+            github: pullRequest({ fork: true }),
+            mobile: true,
+            apiTypes: false,
+            checks: 'full',
+            install: true,
+            appToken: false,
+        },
+        {
+            name: 'Dependabot PR',
+            github: { ...pullRequest(), actor: 'dependabot[bot]' },
+            mobile: true,
+            apiTypes: false,
+            checks: 'full',
+            install: true,
+            appToken: false,
+        },
+        {
+            name: 'API types only',
+            github: pullRequest(),
+            mobile: false,
+            apiTypes: true,
+            checks: 'typecheck',
+            install: true,
+            appToken: true,
+        },
+        {
+            name: 'mobile and API types',
+            github: pullRequest(),
+            mobile: true,
+            apiTypes: true,
+            checks: 'full',
+            install: true,
+            appToken: true,
+        },
+        {
+            name: 'unrelated PR',
+            github: pullRequest(),
+            mobile: false,
+            apiTypes: false,
+            checks: 'none',
+            install: false,
+            appToken: true,
+        },
+        {
+            name: 'master cache warmer',
+            github: { ...push(), workflow: workflow('mobile-ci.yml').name! },
+            mobile: true,
+            apiTypes: false,
+            checks: 'none',
+            install: true,
+            appToken: false,
+        },
+        {
+            name: 'release checks',
+            github: { ...push(), workflow: 'Mobile Release' },
+            mobile: true,
+            apiTypes: false,
+            checks: 'full',
+            install: true,
+            appToken: false,
+        },
+    ])('mobile CI on $name', ({ name, github, mobile, apiTypes, checks, install, appToken }) => {
+        const plan = planWorkflow(workflow('mobile-ci.yml'), {
+            name,
+            github,
+            steps: { changes: { filter: pathsFilter({ mobile, api_types: apiTypes }) } },
+        })
+        const validationSteps = [
+            'Typecheck',
+            'Lint',
+            'Test',
+            'Fetch release validation base',
+            'Validate release requests',
+            'Test release policy',
+        ]
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes?.steps.find((step) => step.id === 'app-token')?.runs).toBe(appToken)
+        expect(plan.jobs.check?.steps.find((step) => step.name === 'Install dependencies')?.runs ?? false).toBe(install)
+        expect(
+            plan.jobs.check?.steps
+                .filter((step) => step.runs && validationSteps.includes(step.name ?? ''))
+                .map((step) => step.name)
+        ).toEqual(checks === 'full' ? validationSteps : checks === 'typecheck' ? ['Typecheck'] : [])
+    })
+
+    it.each([
+        ['both skipped', 'skipped', 'skipped', 'full', false],
+        ['core only', 'success', 'skipped', 'full', true],
+        ['products only', 'skipped', 'success', 'full', true],
+        ['failed core shards', 'failure', 'skipped', 'full', true],
+        ['failed product shards', 'skipped', 'failure', 'full', true],
+        ['selected tests', 'success', 'success', 'selected', false],
+    ])('backend coverage reporting with %s', (_name, django, products, mode, runs) => {
+        expect(
+            evaluateCondition(
+                workflow(DEPOT_BACKEND).jobs['backend-coverage-report']!.if,
+                {
+                    github: pullRequest(),
+                    needs: {
+                        django: { result: django },
+                        'turbo-tests': { result: products },
+                        django_tests: { result: 'success' },
+                        'turbo-discover': { outputs: { mode } },
+                    },
+                },
+                planFunctions({
+                    dependenciesSucceeded: django === 'success' && products === 'success',
+                    dependenciesFailed: django === 'failure' || products === 'failure',
+                    cancelled: false,
+                })
+            )
+        ).toBe(runs)
+    })
+
+    it.each([
+        {
+            name: 'frontend-only ready PR',
+            backend: 'false',
+            django: 'skipped',
+            products: 'skipped',
+            gate: 'success',
+            runs: true,
+        },
+        {
+            name: 'backend changes',
+            backend: 'true',
+            django: 'skipped',
+            products: 'skipped',
+            gate: 'success',
+            runs: false,
+        },
+        {
+            name: 'core matrix ran',
+            backend: 'false',
+            django: 'success',
+            products: 'skipped',
+            gate: 'success',
+            runs: false,
+        },
+        {
+            name: 'product matrix ran',
+            backend: 'false',
+            django: 'skipped',
+            products: 'success',
+            gate: 'success',
+            runs: false,
+        },
+        {
+            name: 'upstream failure',
+            backend: 'false',
+            django: 'skipped',
+            products: 'skipped',
+            gate: 'failure',
+            runs: false,
+        },
+        {
+            name: 'unknown change result',
+            backend: '',
+            django: 'skipped',
+            products: 'skipped',
+            gate: 'success',
+            runs: false,
+        },
+    ])('stale backend coverage cleanup on $name', ({ backend, django, products, gate, runs }) => {
+        const step = workflow(DEPOT_BACKEND).jobs['calculate-running-time']!.steps!.find(
+            (step) => step.id === 'coverage-cleanup'
+        )!
+        expect(
+            evaluateCondition(
+                step.if,
+                {
+                    github: pullRequest(),
+                    needs: {
+                        changes: { outputs: { backend } },
+                        django: { result: django },
+                        'turbo-tests': { result: products },
+                        django_tests: { result: gate },
+                    },
+                },
+                planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+            )
+        ).toBe(runs)
+    })
+
+    it.each([
+        { name: 'ready PR', github: pullRequest(), cancelled: false, runs: true },
+        { name: 'draft PR', github: pullRequest({ draft: true }), cancelled: false, runs: false },
+        {
+            name: 'draft PR labeled no-ci',
+            github: pullRequest({ draft: true, labels: ['no-ci'] }),
+            cancelled: false,
+            runs: false,
+        },
+        { name: 'fork PR', github: pullRequest({ fork: true }), cancelled: false, runs: false },
+        { name: 'cancelled PR', github: pullRequest(), cancelled: true, runs: false },
+        { name: 'master push', github: push(), cancelled: false, runs: false },
+    ])('stale backend coverage cleanup policy on $name', ({ name, github, cancelled, runs }) => {
+        const plan = planWorkflow(workflow(DEPOT_BACKEND), {
+            name,
+            github,
+            cancelled,
+            steps: {
+                ...allFiltersChanged(workflow(DEPOT_BACKEND)),
+                ...backendSelectors,
+                ...frontendOnlyFilters,
+                'calculate-running-time': { 'coverage-cleanup': { outputs: { needed: 'true' } } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(
+            plan.jobs['calculate-running-time']?.steps.find((step) => step.id === 'coverage-cleanup')?.runs ?? false
+        ).toBe(runs)
+        const cleanup = plan.jobs['calculate-running-time']?.steps.find(
+            (step) => step.name === 'Clear stale backend coverage warning'
+        )
+        expect(cleanup?.runs ?? false).toBe(runs)
+    })
+
+    describe.each([
+        { name: 'API-only typecheck', output: 'api_types', job: 'check' },
+        { name: 'replay bundle verification', output: 'replay_bundle', job: 'replay_bundle' },
+    ])('mobile gate for $name', ({ output, job }) => {
+        it.each([
+            { result: 'success', exitCode: 0 },
+            { result: 'failure', exitCode: 1 },
+            { result: 'cancelled', exitCode: 1 },
+        ])('reports $result', ({ result, exitCode }) => {
+            const script = evaluateValue(
+                workflow('mobile-ci.yml').jobs.mobile_checks?.steps?.[0]?.run,
+                {
+                    needs: {
+                        changes: {
+                            result: 'success',
+                            outputs: { mobile: 'false', api_types: 'false', replay_bundle: 'false', [output]: 'true' },
+                        },
+                        check: { result: 'skipped' },
+                        replay_bundle: { result: 'skipped' },
+                        [job]: { result },
+                    },
+                },
+                planFunctions({
+                    dependenciesSucceeded: result === 'success',
+                    dependenciesFailed: result === 'failure',
+                    cancelled: false,
+                })
+            )
+            const gate = spawnSync('bash', ['-eu', '-c', String(script)], { encoding: 'utf8' })
+            expect(gate.error).toBeUndefined()
+            expect(gate.status, gate.stderr || gate.stdout).toBe(exitCode)
+        })
+    })
+
+    it.each([
+        { name: 'canonical PR', github: pullRequest(), runs: true },
+        { name: 'mirror PR', github: mirrorPullRequest(), runs: false },
+        { name: 'fork PR', github: pullRequest({ fork: true }), runs: false },
+    ])('bot comment resolver on $name runs=$runs', ({ name, github, runs }) => {
+        const plan = planWorkflow(workflow('pr-resolve-outdated-bot-comments.yml'), { name, github })
+        expect(runningJobs(plan).includes('resolve-outdated')).toBe(runs)
+    })
+
+    it.each(pathsFilterJobs)('$file $job can read changed files without the App token', ({ file, job }) => {
+        const wf = workflow(file)
+        const definition = wf.jobs[job]!
+        const tokens = definition
+            .steps!.map((step) => step.with?.token ?? step.with?.['github-token'] ?? step.env?.GH_TOKEN)
+            .filter((token) => String(token).includes('steps.app-token.outputs.token'))
+        expect(tokens.length).toBeGreaterThan(0)
+        for (const token of tokens) {
+            expect(
+                evaluateValue(
+                    token,
+                    { github: mirrorPullRequest(), steps: { 'app-token': { outputs: { token: '' } } } },
+                    planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+                )
+            ).toBe('stub-token')
+        }
+    })
+
     it.each([
         ['new bump', workflowDispatch(), 'bump', 'success', 'pass', true, false],
         ['missing image', workflowDispatch(), 'bump', 'failure', 'pass', false, false],
@@ -543,7 +1279,7 @@ describe('.github/workflows run plans', () => {
         expect(testStep?.run).toMatch(/\bgo test\s+-count=1\b/)
     })
 
-    it('Backend CI runs once every hour, on Depot CI only', () => {
+    it('Backend CI runs once every hour', () => {
         const crons = (file: string): string[] =>
             ((loadWorkflow(path.join(REPO_ROOT, file)).on as { schedule?: { cron: string }[] }).schedule ?? []).map(
                 (entry) => entry.cron
@@ -553,18 +1289,16 @@ describe('.github/workflows run plans', () => {
             '23 */3 * * *',
             '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *',
         ])
-        expect(crons('.github/workflows/ci-backend.yml')).toEqual([])
     })
 
     it.each(['refs/heads/master', ''])('the hourly Depot run keeps master coverage with ref %j', (ref) => {
-        const depot = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend.yml'))
+        const depot = workflow(DEPOT_BACKEND)
         const plan = planWorkflow(depot, {
             name: 'hourly schedule',
             github: { ...schedule(), ref },
             steps: {
                 ...allFiltersChanged(depot),
                 ...backendSelectors,
-                'wait-for-handoff': { handoff: { outputs: { handed_off: 'true' } } },
             },
         })
         expect(plan.errors).toEqual([])
@@ -580,33 +1314,138 @@ describe('.github/workflows run plans', () => {
         }).toEqual({ didNotRun: [], didNotSkip: [], filterRuns: false, productTimings: true })
     })
 
-    it('the scheduled Depot hand-off succeeds without a GitHub receipt', () => {
-        const depot = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend.yml'))
-        const script = depot.jobs['wait-for-handoff']?.steps?.find((step) => step.id === 'handoff')?.run
-        expect(script).toBeTypeOf('string')
-        const directory = mkdtempSync(path.join(os.tmpdir(), 'depot-handoff-'))
-        const output = path.join(directory, 'output')
-        try {
-            const result = spawnSync('/bin/bash', ['-c', String(script)], {
-                env: { EVENT: 'schedule', IS_FORK: 'false', GITHUB_OUTPUT: output },
-                encoding: 'utf8',
-            })
-            expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' })
-            expect(readFileSync(output, 'utf8')).toContain('handed_off=true')
-        } finally {
-            rmSync(directory, { recursive: true, force: true })
+    const fullDjangoLegs = ['Core', 'Core poe', 'Temporal', 'compat', 'json-targets']
+    it.each([
+        ['3-hourly schedule', { ...schedule(), event: { schedule: '23 */3 * * *' } }, fullDjangoLegs, 1],
+        [
+            'off-hour schedule',
+            { ...schedule(), event: { schedule: '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *' } },
+            ['Core'],
+            0,
+        ],
+        ['schedule without a cron string', { ...schedule(), event: {} }, fullDjangoLegs, 1],
+        ['manual dispatch', workflowDispatch(), fullDjangoLegs, 1],
+        ['merge queue', mergeQueue(), ['Core', 'Temporal', 'compat', 'json-targets'], 1],
+    ] as const)('the core-only scheduled scope on %s', (_name, github, djangoLegs, productJobs) => {
+        const depot = workflow(DEPOT_BACKEND)
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        const context = {
+            github,
+            needs: {
+                changes: { outputs: { legacy: 'true' } },
+                get_clickhouse_versions: {
+                    outputs: {
+                        oldest_supported_image: 'clickhouse/clickhouse-server:old',
+                        compat_matrix: '[{"clickhouse-server-image":"clickhouse/clickhouse-server:compat"}]',
+                    },
+                },
+                'turbo-discover': { outputs: { mode: 'full', run_legacy: 'true', matrix: '[{"group":"a"}]' } },
+            },
         }
+        const buildInclude = (job: string): Record<string, JsonValue>[] => {
+            const step = depot.jobs[job]?.steps?.find((candidate) => candidate.id === 'build')
+            const env = Object.fromEntries(
+                Object.entries({ CORE_ONLY_RUN: depot.env?.CORE_ONLY_RUN, ...step?.env }).map(([name, value]) => [
+                    name,
+                    evaluateTemplate(value, context, functions),
+                ])
+            )
+            const dir = mkdtempSync(path.join(tmpdir(), 'matrix-'))
+            try {
+                const output = path.join(dir, 'output')
+                const result = spawnSync(
+                    'bash',
+                    ['--noprofile', '--norc', '-eo', 'pipefail', '-c', String(step?.run)],
+                    {
+                        env: { PATH: process.env.PATH, ...env, GITHUB_OUTPUT: output },
+                        encoding: 'utf8',
+                    }
+                )
+                expect(result.status, result.stderr || result.stdout).toBe(0)
+                return JSON.parse(/^include=(.*)$/m.exec(readFileSync(output, 'utf8'))![1]!)
+            } finally {
+                rmSync(dir, { recursive: true, force: true })
+            }
+        }
+        const legName = (entry: Record<string, JsonValue>): string =>
+            entry.compat
+                ? 'compat'
+                : entry['json-targets']
+                  ? 'json-targets'
+                  : `${entry.segment}${entry['person-on-events'] ? ' poe' : ''}`
+        expect({
+            djangoLegs: [...new Set(buildInclude('build_django_matrix').map(legName))],
+            productJobs: buildInclude('build-product-test-matrix').length,
+        }).toEqual({ djangoLegs, productJobs })
     })
 
     it.each([
-        ['23 */3 * * *', true],
-        ['23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *', false],
-    ])('the events_json leg follows the scheduled trigger %s', (cron, runs) => {
-        const depot = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend.yml'))
+        ['ready PR', pullRequest(), false],
+        ['merge queue', mergeQueue(), false],
+        ['hourly schedule', schedule(), true],
+        ['manual dispatch', workflowDispatch(), true],
+    ] as const)('the persons-on-events legacy-mode leg on %s', (_name, github, runs) => {
+        const depot = workflow(DEPOT_BACKEND)
         const step = depot.jobs.build_django_matrix?.steps?.find((step) => step.id === 'build')
-        const github = { ...schedule(), event: { schedule: cron } }
         const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
-        expect(evaluateValue(step?.env?.RUN_JSON_TARGETS, { github }, functions)).toBe(runs)
+        expect(evaluateValue(step?.env?.RUN_LEGACY_MODE_LEG, { github }, functions)).toBe(runs)
+    })
+
+    it.each([
+        ['unrelated PR', pullRequest(), 'false', false],
+        ['schema PR', pullRequest(), 'true', true],
+        ['missing filter output', pullRequest(), '', true],
+        ['unrelated fork PR', pullRequest({ fork: true }), 'false', false],
+        ['schema fork PR', pullRequest({ fork: true }), 'true', true],
+        ['merge queue', mergeQueue(), 'false', true],
+        ['hourly schedule', schedule(), 'false', true],
+    ] as const)('Python schema generation on %s', (name, github, schema, runs) => {
+        const wf = workflow('ci-python.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: { changes: { filter: { outputs: { python: 'true', schema_python: schema } } } },
+        })
+        expect(plan.errors).toEqual([])
+        expect(
+            plan.jobs['code-quality']?.steps.find((step) => step.name === 'Check if "schema.py" is up to date')?.runs
+        ).toBe(runs)
+    })
+
+    it.each([
+        ['PR without baseline changes', pullRequest(), 'false', true, false],
+        ['PR with baseline changes', pullRequest(), 'true', true, true],
+        ['draft PR with baseline changes', pullRequest({ draft: true }), 'true', true, true],
+        ['fork PR with baseline changes', pullRequest({ fork: true }), 'true', true, true],
+        ['forced full PR', pullRequest({ labels: ['run-ci-frontend'] }), 'true', true, true],
+        ['merge queue', mergeQueue(), 'true', true, true],
+        ['master push', push(), 'true', false, false],
+        ['nightly', schedule(), 'true', false, false],
+    ] as const)('Storybook selection artifacts on %s', (name, github, snapshotsBaseline, graphUpload, indexUpload) => {
+        const plan = planWorkflow(workflow('ci-storybook.yml'), {
+            name,
+            github,
+            jobOutputs: {
+                changes: {
+                    frontend: 'true',
+                    snapshots_baseline: snapshotsBaseline,
+                    merge_queue: name === 'merge queue' ? 'true' : 'false',
+                },
+            },
+            steps: { 'select-stories': { classify: { outputs: { mode: 'selective' } } } },
+        })
+        expect(plan.errors).toEqual([])
+        const steps = plan.jobs['build-storybook']?.steps
+        const uploadsGraph = steps?.find((step) => step.name === 'Upload module-graph artifact')?.runs
+        const uploadsIndex = steps?.find((step) => step.name === 'Upload story index artifact')?.runs
+        expect(uploadsGraph).toBe(graphUpload)
+        expect(uploadsIndex).toBe(indexUpload)
+        if (plan.jobs['select-stories']?.result === 'success') {
+            expect(uploadsGraph).toBe(true)
+        }
+        if (plan.jobs['check-baseline-removals']?.result === 'success') {
+            expect(uploadsIndex).toBe(true)
+        }
     })
 
     it.each([
@@ -626,6 +1465,256 @@ describe('.github/workflows run plans', () => {
         })
         expect(plan.errors).toEqual([])
         expect(plan.jobs['code-quality']?.steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
+    })
+
+    it.each([
+        ['PR', pullRequest(), false, true],
+        ['merge queue', mergeQueue(), false, true],
+        ['manual full rebuild', workflowDispatch(), false, false],
+        ['hourly full rebuild', schedule(), false, false],
+        ['all-crate change', pullRequest(), true, false],
+    ] as const)('Rust change resolver on %s', (name, github, allCrates, runs) => {
+        const wf = workflow('ci-rust.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: {
+                changes: { filter: pathsFilter({ rust: true, all_crates: allCrates }) },
+                affected: { shards: { outputs: { matrix: '{"include":[{"packages":"common-types"}]}' } } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.affected?.steps.find((step) => step.name === 'Resolve the changed files')?.runs).toBe(runs)
+    })
+
+    it.each([
+        ['PR', pullRequest(), 'success'],
+        ['merge queue', mergeQueue(), 'success'],
+        ['master push', push(), 'skipped'],
+        ['hourly schedule', schedule(), 'success'],
+    ] as const)('Rust suite on %s', (name, github, result) => {
+        const wf = workflow('ci-rust.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: {
+                ...allFiltersChanged(wf),
+                affected: { shards: { outputs: { matrix: '{"include":[{"packages":"common-types"}]}' } } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        for (const job of ['affected', 'build', 'test', 'linting']) {
+            expect(plan.jobs[job]?.result).toBe(result)
+        }
+        expect(plan.jobs.rust_tests?.result).toBe('success')
+    })
+
+    it('a PR branch named scheduled does not share the hourly Rust concurrency group', () => {
+        const group = workflow('ci-rust.yml').concurrency?.group
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        const groupFor = (github: Scenario['github']): unknown => evaluateValue(group, { github }, functions)
+        expect(groupFor(pullRequest({ headRef: 'scheduled' }))).not.toBe(groupFor(schedule()))
+    })
+
+    it('agent egress serializes publication by commit and cancels only superseded PR runs', () => {
+        const concurrency = workflow('ci-agent-egress.yml').concurrency
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        const groupFor = (github: Scenario['github']): unknown =>
+            evaluateValue(concurrency?.group, { github }, functions)
+        const otherCommit = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+
+        expect(groupFor(push())).toBe(groupFor(workflowDispatch()))
+        expect(groupFor(push())).not.toBe(groupFor({ ...push(), sha: otherCommit }))
+        expect(groupFor(pullRequest())).toBe(groupFor({ ...pullRequest(), sha: otherCommit }))
+        expect(groupFor(pullRequest())).not.toBe(groupFor(pullRequest({ headRef: 'feat/other' })))
+        expect(groupFor(pullRequest({ fork: true, headRef: String(push().sha) }))).not.toBe(groupFor(push()))
+        for (const github of [push(), workflowDispatch(), pullRequest()]) {
+            expect(evaluateValue(concurrency?.['cancel-in-progress'], { github }, functions)).toBe(
+                github.event_name === 'pull_request'
+            )
+        }
+    })
+
+    it.each([
+        ['PR', pullRequest(), 'false', 'success', false],
+        ['fork', pullRequest({ fork: true }), 'false', 'success', false],
+        ['merge queue', mergeQueue(), 'false', 'success', false],
+        ['master push', push(), 'false', 'success', false],
+        ['manual dispatch', workflowDispatch(), 'false', 'success', false],
+        ['schedule cache miss', schedule(), 'false', 'success', true],
+        ['schedule cache hit', schedule(), 'true', 'success', false],
+        ['schedule outside master', Object.assign(schedule(), { ref: 'refs/heads/test' }), 'false', 'success', false],
+        ['schedule formatting failure', schedule(), 'false', 'failure', false],
+    ] as const)('Node Prettier cache write on %s', (name, github, cacheHit, outcome, runs) => {
+        const plan = planWorkflow(workflow('ci-nodejs.yml'), {
+            name,
+            github,
+            steps: {
+                changes: { filter: pathsFilter({ nodejs: true }) },
+                build: {
+                    'prettier-cache': { outputs: { 'cache-hit': cacheHit } },
+                    'Check formatting with prettier': { outcome },
+                },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.build?.steps.find((step) => step.name === 'Save Prettier cache')?.runs).toBe(runs)
+        for (const step of ['Restore Prettier cache', 'Check formatting with prettier']) {
+            expect(plan.jobs.build?.steps.find((candidate) => candidate.name === step)?.runs).toBe(
+                github.event_name === 'schedule'
+            )
+        }
+    })
+
+    it.each([
+        ['draft PR', pullRequest({ draft: true }), true],
+        ['ready PR', pullRequest(), true],
+        ['fork PR', pullRequest({ fork: true }), true],
+        ['merge queue', mergeQueue(), true],
+        ['master push', push(), false],
+        ['hourly schedule', schedule(), false],
+    ] as const)('Node quality checks on %s', (name, github, runs) => {
+        const wf = workflow('ci-nodejs.yml')
+        const plan = planWorkflow(wf, { name, github, steps: allFiltersChanged(wf) })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.lint?.result).toBe(runs ? 'success' : 'skipped')
+        if (github.event_name === 'schedule') {
+            expect(plan.jobs.build?.result).toBe('success')
+            expect(plan.jobs.tests?.result).toBe('success')
+        }
+    })
+
+    it.each([
+        ['Rust-only PR', pullRequest(), 'true', 'false', true, true],
+        ['missing Node filter', pullRequest(), 'true', '', true, true],
+        ['fork', pullRequest({ fork: true }), 'true', 'false', true, true],
+        ['Rust-only merge queue', mergeQueue(), 'true', 'false', true, true],
+        ['mixed Node/Rust PR', pullRequest(), 'true', 'true', false, true],
+        ['mixed Node/Rust fork', pullRequest({ fork: true }), 'true', 'true', false, true],
+        ['mixed Node/Rust merge queue', mergeQueue(), 'true', 'true', false, true],
+        ['Node-only PR', pullRequest(), 'false', 'true', false, true],
+        ['unrelated PR', pullRequest(), 'false', 'false', false, true],
+        ['push', push(), 'true', 'false', false, false],
+        ['schedule', schedule(), 'true', 'false', false, false],
+    ] as const)('Node coordinator preparation on %s', (name, github, rust, nodejs, runs, checkoutRuns) => {
+        const plan = planWorkflow(workflow('ci-nodejs.yml'), {
+            name,
+            github,
+            steps: { changes: { filter: { outputs: { rust, nodejs } } } },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes?.steps.find((step) => step.uses?.startsWith('actions/checkout@'))?.runs).toBe(
+            checkoutRuns
+        )
+        for (const name of [
+            'Check out the Rust tree for affected-crate detection',
+            'Resolve the Rust changed files',
+            'Install rust for affected-crate detection',
+            'Compute affected Rust crates',
+        ]) {
+            expect(plan.jobs.changes?.steps.find((step) => step.name === name)?.runs, name).toBe(runs)
+        }
+    })
+
+    it.each([
+        ['Node-only', pullRequest(), 'true', 'false', '[]', 'false', 'nodejs=true'],
+        ['native addon', pullRequest(), 'true', 'true', '["replay-anonymizer"]', 'false', 'nodejs=true'],
+        ['mixed Node/ingestion', pullRequest(), 'true', 'true', '["ingestion-consumer"]', 'false', 'nodejs=true'],
+        ['mixed Node/personhog', pullRequest(), 'true', 'true', '["personhog-identity"]', 'false', 'nodejs=true'],
+        ['Rust ingestion', pullRequest(), 'false', 'true', '["ingestion-consumer"]', 'false', 'nodejs=true'],
+        [
+            'Rust personhog',
+            pullRequest(),
+            'false',
+            'true',
+            '["personhog-identity"]',
+            'false',
+            'personhog_e2e=true\nnodejs=false',
+        ],
+        ['proto full rebuild', pullRequest(), 'false', 'true', '[]', 'true', 'nodejs=true'],
+        ['unrelated Rust', pullRequest(), 'false', 'true', '["common-types"]', 'false', 'nodejs=false'],
+        ['lockfile', pullRequest(), 'true', 'false', '[]', 'false', 'nodejs=true'],
+        ['unrelated', pullRequest(), 'false', 'false', '[]', 'false', 'nodejs=false'],
+        ['push', push(), '', '', '[]', 'false', 'nodejs=true'],
+        ['schedule', schedule(), '', '', '[]', 'false', 'nodejs=true'],
+    ] as const)(
+        'Node decision preserves coverage for %s',
+        (_name, github, nodejs, rust, crates, rebuildAll, expected) => {
+            const wf = workflow('ci-nodejs.yml')
+            const functions = planFunctions({
+                dependenciesSucceeded: true,
+                dependenciesFailed: false,
+                cancelled: false,
+            })
+            const step = wf.jobs.changes?.steps?.find((step) => step.id === 'nodejs-changes')
+            const context = {
+                github,
+                steps: {
+                    filter: { outputs: { nodejs, rust } },
+                    'rust-affected': { outputs: { crates: String(crates), 'rebuild-all': String(rebuildAll) } },
+                },
+            }
+            const runDecision = (): string => {
+                const env = Object.fromEntries(
+                    Object.entries(step!.env!).map(([key, value]) => [
+                        key,
+                        String(evaluateValue(value, context, functions)),
+                    ])
+                )
+                const script = evaluateValue(step!.run, context, functions)
+                const result = spawnSync(
+                    'bash',
+                    [
+                        '-eu',
+                        '-o',
+                        'pipefail',
+                        '-c',
+                        `
+                export GITHUB_OUTPUT=$(mktemp)
+                trap 'rm -f "$GITHUB_OUTPUT"' EXIT
+                (
+${script}
+)
+                cat "$GITHUB_OUTPUT"
+            `,
+                    ],
+                    {
+                        encoding: 'utf8',
+                        env: { ...process.env, ...env },
+                    }
+                )
+                expect(result.error).toBeUndefined()
+                expect(result.status, result.stderr).toBe(0)
+                return result.stdout.trim()
+            }
+            expect(runDecision()).toBe(expected)
+            const plan = planWorkflow(wf, {
+                name: _name,
+                github,
+                steps: { changes: { filter: { outputs: { nodejs, rust } } } },
+            })
+            if (!plan.jobs.changes?.steps.find((step) => step.id === 'rust-affected')?.runs) {
+                context.steps['rust-affected'].outputs = { crates: '', 'rebuild-all': '' }
+                expect(runDecision()).toBe(expected)
+            }
+        }
+    )
+
+    it.each([
+        ['success', 'true', 'false'],
+        ['success', 'false', 'true'],
+        ['success', '', 'true'],
+        ['failure', 'true', 'true'],
+    ])('Node Rust fallback for resolver %s, resolved=%j', (outcome, resolved, rebuildAll) => {
+        const step = workflow('ci-nodejs.yml').jobs.changes?.steps?.find((step) => step.id === 'rust-affected')
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        expect(
+            evaluateValue(
+                step?.with?.['rebuild-all'],
+                { steps: { 'rust-changed-files': { outcome, outputs: { resolved } } } },
+                functions
+            )
+        ).toBe(rebuildAll)
     })
 
     it.each(['success', 'failure'] as const)(
@@ -650,6 +1739,37 @@ describe('.github/workflows run plans', () => {
         }
     )
 
+    it.each([
+        ['frontend PR', pullRequest(), false, true, 'false', 'skipped', false],
+        ['frontend merge queue', mergeQueue(), false, true, 'true', 'success', false],
+        ['hobby PR', pullRequest(), true, false, 'true', 'success', true],
+        ['hobby merge queue', mergeQueue(), true, false, 'true', 'success', false],
+        ['unrelated merge queue', mergeQueue(), false, false, 'false', 'skipped', false],
+    ] as const)('Docker image build on %s', (name, github, hobby, buildInputs, shouldBuild, result, publish) => {
+        const wf = workflow('container-images-ci.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: { changes: { filter: pathsFilter({ hobby, build_inputs: buildInputs }) } },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes?.outputs.should_build).toBe(shouldBuild)
+        expect(plan.jobs.posthog_build?.result).toBe(result)
+        const build = wf.jobs.posthog_build?.steps?.find((step) => step.id === 'build')
+        if (result === 'success') {
+            const functions = planFunctions({
+                dependenciesSucceeded: true,
+                dependenciesFailed: false,
+                cancelled: false,
+            })
+            expect(evaluateValue(build?.with?.['push-image'], { github }, functions)).toBe(publish)
+            expect(evaluateValue(build?.with?.['pr-number'], { github }, functions)).toBe(publish ? 1 : '')
+        }
+        expect(plan.jobs.posthog_build?.steps.find((step) => step.name === 'Container image digest')?.runs).toBe(
+            result === 'success' && publish
+        )
+    })
+
     it.each(PINNED_WORKFLOWS)('%s names every conditional job in an expectation row', (file) => {
         const unnamed = Object.entries(workflow(file).jobs)
             .filter(([id, job]) => job.if !== undefined && !namedJobs(file).has(id))
@@ -657,13 +1777,16 @@ describe('.github/workflows run plans', () => {
         expect(unnamed).toEqual([])
     })
 
-    it.each(workflowFiles)('%s evaluates every job and step condition under the built-in scenarios', (file) => {
-        const wf = workflow(file)
-        const errors = defaultScenarios(wf, path.join(WORKFLOWS_DIR, file)).flatMap((scenario) =>
-            planWorkflow(wf, scenario).errors.map((error) => formatPlanError(scenario.name, error))
-        )
-        expect(errors).toEqual([])
-    })
+    it.each([...workflowFiles, DEPOT_BACKEND])(
+        '%s evaluates every job and step condition under the built-in scenarios',
+        (file) => {
+            const wf = workflow(file)
+            const errors = defaultScenarios(wf, path.join(REPO_ROOT, workflowKey(file))).flatMap((scenario) =>
+                planWorkflow(wf, scenario).errors.map((error) => formatPlanError(scenario.name, error))
+            )
+            expect(errors).toEqual([])
+        }
+    )
 
     it.each(EXPECTATIONS)(
         '$file on $scenario.name runs the intended jobs',

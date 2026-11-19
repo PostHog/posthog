@@ -2,8 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -31,14 +33,26 @@ function NewTourButton(): JSX.Element {
     const { productTours } = useValues(productToursLogic)
     const { createAnnouncement, createBanner, createTour } = useActions(productToursLogic)
     const [isModalOpen, setIsModalOpen] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const existingTourNames = new Set(productTours.map((tour) => tour.name).filter(Boolean))
 
     return (
         <>
-            <LemonButton size="small" type="primary" onClick={() => setIsModalOpen(true)} data-attr="new-product-tour">
-                New
-            </LemonButton>
+            {todayRailNav ? (
+                <Button variant="primary" onClick={() => setIsModalOpen(true)} data-attr="new-product-tour">
+                    New
+                </Button>
+            ) : (
+                <LemonButton
+                    size="small"
+                    type="primary"
+                    onClick={() => setIsModalOpen(true)}
+                    data-attr="new-product-tour"
+                >
+                    New
+                </LemonButton>
+            )}
             <NewProductTourModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}

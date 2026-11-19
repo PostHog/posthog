@@ -1,3 +1,5 @@
+import type { GatewayBlockedStatus } from "@posthog/shared";
+
 export interface AuthProxyAuth {
   authenticatedFetch(url: string, init?: RequestInit): Promise<Response>;
 }
@@ -5,8 +7,12 @@ export interface AuthProxyAuth {
 export const AUTH_PROXY_PLACEHOLDER_CREDENTIAL = "posthog-code-auth-proxy";
 
 export type GatewayCredential =
-  | { mode: "legacy"; reason: string }
-  | { mode: "blocked"; reason: "credit_bucket_exhausted"; detail: string }
+  | {
+      mode: "blocked";
+      reason: string;
+      detail: string;
+      status: GatewayBlockedStatus;
+    }
   | {
       mode: "go";
       gatewayUrl: string;

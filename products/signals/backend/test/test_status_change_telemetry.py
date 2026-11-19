@@ -9,8 +9,13 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models import User
+
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.artefact_schemas import WorkClaim
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
+from products.signals.backend.pull_requests import apply_report_completion
+from products.tasks.backend.models import Task
 
 
 class TestCaptureStatusChangeAnalytics(BaseTest):
@@ -31,7 +36,7 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
     @parameterized.expand(
         [
             ("dismiss", SignalReport.Status.READY, SignalReport.Status.SUPPRESSED, {}),
-            ("resolve_on_pr_merge", SignalReport.Status.READY, SignalReport.Status.RESOLVED, {}),
+            ("resolve_without_feedback", SignalReport.Status.READY, SignalReport.Status.RESOLVED, {}),
             ("snooze", SignalReport.Status.READY, SignalReport.Status.POTENTIAL, {"snooze_for": 5}),
         ]
     )
@@ -52,6 +57,21 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
         assert kwargs["properties"]["status"] == new_status
         assert kwargs["properties"]["signal_count"] == 3
         assert kwargs["properties"]["total_weight"] == 2.5
+        assert kwargs["properties"].get("resolution_reason") is None
+        assert kwargs["properties"].get("dismissal_cause") is None
+
+    @parameterized.expand([("earliest_visible", 0, True), ("later_visible", 1, False), ("never_visible", 2, False)])
+    def test_label_marks_the_projects_first_visible_report(self, _name, index, expected):
+        now = timezone.now()
+        reports = [self._create_report() for _ in range(3)]
+        SignalReport.objects.filter(id=reports[0].id).update(first_visible_at=now - timedelta(hours=2))
+        SignalReport.objects.filter(id=reports[1].id).update(first_visible_at=now - timedelta(hours=1))
+        SignalReport.objects.filter(id=reports[2].id).update(first_visible_at=None)
+        report = SignalReport.objects.get(id=reports[index].id)
+        with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
+            with self.captureOnCommitCallbacks(execute=True):
+                report.save(update_fields=report.transition_to(SignalReport.Status.RESOLVED))
+        assert mock_capture.call_args.kwargs["properties"]["is_first_report"] is expected
 
     @parameterized.expand(
         [
@@ -86,6 +106,72 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
             "actor_agent": expected_agent,
             "actor_task_id": expected_task_id,
         }
+
+    @parameterized.expand(
+        [
+            ("merge_credits_claim_holder", "merged", "claimer", "attacher", None, "claimer"),
+            ("merge_credits_pr_attacher_without_claim", "merged", None, "attacher", None, "attacher"),
+            ("merge_credits_task_creator_without_claim", "merged", None, None, "attacher", "attacher"),
+            ("merge_without_owner_names_nobody", "merged", None, None, None, None),
+            ("close_credits_claim_holder", "closed", "claimer", None, None, "claimer"),
+        ]
+    )
+    def test_pr_state_transition_credits_work_owner_as_system_actor(
+        self, _name, pr_state, claimer, attacher, task_creator, expected
+    ):
+        users = {
+            "claimer": User.objects.create_and_join(self.organization, "claimer@example.com", None),
+            "attacher": self.user,
+            None: None,
+        }
+        report = self._create_report()
+        if claimer:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type="work_claim",
+                content=WorkClaim(display_name="Claimer").model_dump_json(),
+                actor_kind="user",
+                created_by=users[claimer],
+            )
+        task = (
+            Task.objects.create(
+                team=self.team, title="Fix", description="", origin_product="signals", created_by=users[task_creator]
+            )
+            if task_creator
+            else None
+        )
+        pr = SignalReportPullRequest.objects.create(
+            team=self.team,
+            repository="example/app",
+            number=1,
+            url="https://github.com/example/app/pull/1",
+            state=pr_state,
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+            pull_request=pr,
+            created_by=users[attacher],
+            task_id=task.id if task else None,
+        )
+        with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
+            with self.captureOnCommitCallbacks(execute=True):
+                apply_report_completion(report)
+        [properties] = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs["event"] == "signal_report_status_changed"
+        ]
+        credited = users[expected]
+        assert properties["actor_kind"] == "system"
+        assert properties["actor_user_uuid"] == (str(credited.uuid) if credited else None)
+        assert properties["actor_distinct_id"] == (credited.distinct_id if credited else None)
+        if pr_state == "merged":
+            assert properties["resolution_reason"] == "pr_merged"
+        else:
+            assert properties["dismissal_cause"] == "pr_closed_without_merge"
 
     @parameterized.expand(
         [

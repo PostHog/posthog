@@ -42,7 +42,7 @@ from products.review_hog.backend.temporal.resolution import (
     _verification_section,
     resolve_threads_activity,
 )
-from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task
 

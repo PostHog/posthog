@@ -58,9 +58,18 @@ export function KnowledgeSourceScene(): JSX.Element {
         sourceDocuments,
         sourceDocumentsLoaded,
         sourceDocumentsFailed,
+        libraries,
+        savingLibraries,
     } = useValues(knowledgeSourceLogic)
-    const { loadSource, loadSourceDocuments, submitEditSource, submitEditUrlSource, refreshSource, deleteSource } =
-        useActions(knowledgeSourceLogic)
+    const {
+        loadSource,
+        loadSourceDocuments,
+        submitEditSource,
+        submitEditUrlSource,
+        refreshSource,
+        deleteSource,
+        saveSourceLibraries,
+    } = useActions(knowledgeSourceLogic)
 
     if (!isEnabled) {
         return <NotFound object="Business knowledge" caption="This feature is not enabled for your project." />
@@ -85,7 +94,7 @@ export function KnowledgeSourceScene(): JSX.Element {
     if (!source) {
         return (
             <SceneContent>
-                <LemonBanner type="error" action={{ children: 'Try again', onClick: loadSource }}>
+                <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadSource() }}>
                     Couldn't load this knowledge source. Try again.
                 </LemonBanner>
             </SceneContent>
@@ -153,6 +162,8 @@ export function KnowledgeSourceScene(): JSX.Element {
                                     loading={!sourceDocumentsLoaded}
                                     rowKey={(row) => row.id}
                                     tableLayout="fixed"
+                                    // Keep columns readable when the side panel narrows the scene; scroll horizontally instead
+                                    tableStyle={{ minWidth: '44rem' }}
                                     nouns={['page', 'pages']}
                                     pagination={{ pageSize: 20 }}
                                     emptyState={
@@ -164,7 +175,6 @@ export function KnowledgeSourceScene(): JSX.Element {
                                         {
                                             title: 'URL',
                                             key: 'url',
-                                            width: '55%',
                                             render: (_, row) =>
                                                 row.url ? (
                                                     <Link
@@ -182,7 +192,7 @@ export function KnowledgeSourceScene(): JSX.Element {
                                         {
                                             title: 'Title',
                                             key: 'title',
-                                            width: '30%',
+                                            width: '35%',
                                             render: (_, row) => (
                                                 <span
                                                     className="block max-w-full truncate"
@@ -195,7 +205,8 @@ export function KnowledgeSourceScene(): JSX.Element {
                                         {
                                             title: 'Content check',
                                             key: 'safety_verdict',
-                                            width: '15%',
+                                            // Fixed so the header never truncates; URL takes the remaining space
+                                            width: '9rem',
                                             render: (_, row) => safetyTag(row.safety_verdict),
                                         },
                                     ]}
@@ -207,10 +218,13 @@ export function KnowledgeSourceScene(): JSX.Element {
                 <div className="min-w-0 @min-[48rem]/main-content:w-80 @min-[48rem]/main-content:shrink-0">
                     <KnowledgeSourceDetails
                         source={source}
+                        libraries={libraries}
                         isRefreshing={isRefreshing}
                         isDeleting={isDeleting}
+                        isSavingLibraries={savingLibraries}
                         onRefresh={() => refreshSource()}
                         onDelete={() => deleteSource()}
+                        onLibrariesChange={saveSourceLibraries}
                     />
                 </div>
             </div>

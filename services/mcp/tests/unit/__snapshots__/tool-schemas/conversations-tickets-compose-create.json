@@ -1,0 +1,51 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "email_config_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID of the support email channel to send from. Omit it to send from the team's default support channel."
+        },
+        "email_subject": {
+            "description": "Email subject line.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "message": {
+            "description": "Message content in markdown.",
+            "maxLength": 5000,
+            "type": "string"
+        },
+        "recipient_distinct_id": {
+            "description": "PostHog distinct_id to link the ticket to a person. Falls back to recipient_email.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "recipient_email": {
+            "description": "Recipient email address.",
+            "format": "email",
+            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+            "type": "string"
+        },
+        "rich_content": {
+            "description": "TipTap rich content JSON for formatted messages."
+        },
+        "tags": {
+            "description": "Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+        }
+    },
+    "required": ["recipient_email", "message"],
+    "type": "object"
+}

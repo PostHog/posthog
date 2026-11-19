@@ -3,6 +3,7 @@ from typing import Any, Optional
 
 import time_machine
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -797,6 +798,64 @@ class TestFilters(BaseTest):
             f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def _print_flag_evaluations_filters(self, filters: HogQLFilters) -> str:
+        # The org gate reads false under the test runner. A false gate prunes posthog.flag_evaluations
+        # from the database. replace_filters and the printer each build their own database. The patch
+        # must cover both builds.
+        with patch(
+            "products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled",
+            return_value=True,
+        ):
+            select = replace_filters(
+                self._parse_select("SELECT flag_key FROM posthog.flag_evaluations WHERE {filters}"),
+                filters,
+                self.team,
+            )
+            return self._print_ast(select)
+
+    @parameterized.expand(
+        [
+            ("no_filters", HogQLFilters(), "true"),
+            (
+                "date_range",
+                HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03 23:59:59")),
+                "and(less(timestamp, toDateTime('2020-02-03 23:59:59.000000')), "
+                "greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000')))",
+            ),
+            (
+                "event_property",
+                HogQLFilters(
+                    properties=[
+                        EventPropertyFilter(key="$feature_flag_response", operator="exact", value="test", type="event")
+                    ]
+                ),
+                "equals(properties.$feature_flag_response, 'test')",
+            ),
+        ]
+    )
+    def test_replace_filters_flag_evaluations(self, _name: str, filters: HogQLFilters, expected_where: str) -> None:
+        self.assertEqual(
+            self._print_flag_evaluations_filters(filters),
+            f"SELECT flag_key FROM flag_evaluations WHERE {expected_where} LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_replace_filters_flag_evaluations_cohort(self) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "email", "value": "posthog.com", "type": "person"}]}],
+        )
+
+        printed = self._print_flag_evaluations_filters(
+            HogQLFilters(properties=[CohortPropertyFilter(key="id", value=cohort.pk, type="cohort")])
+        )
+
+        self.assertEqual(
+            printed,
+            "SELECT flag_key FROM flag_evaluations WHERE in(person_id, (SELECT person_id FROM raw_cohort_people "
+            f"WHERE equals(cohort_id, {cohort.pk}) GROUP BY person_id, cohort_id, version "
+            f"HAVING greater(sum(sign), 0))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
     def test_raises_for_unsupported_filters_placeholder(self):
         select = self._parse_select("SELECT dateTrunc({filters.granularity}, timestamp) FROM events WHERE {filters}")
 
@@ -880,6 +939,11 @@ class TestFilters(BaseTest):
                 "multi_value_is_not",
                 EventPropertyFilter(key="plan", operator="is_not", value=["hobby", "scale"], type="event"),
                 "notIn(properties.plan, tuple('hobby', 'scale'))",
+            ),
+            (
+                "multi_value_not_icontains_multi",
+                EventPropertyFilter(key="plan", operator="not_icontains_multi", value=["hobby", "scale"], type="event"),
+                "not(greater(multiSearchAnyCaseInsensitive(toString(properties.plan), ['hobby', 'scale']), 0))",
             ),
             (
                 "person_property_binds_by_key",

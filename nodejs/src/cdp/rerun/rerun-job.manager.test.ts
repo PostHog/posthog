@@ -15,7 +15,7 @@ describe('RerunJobManager', () => {
 
     beforeAll(async () => {
         assertPool = new Pool({ connectionString: DB_URL })
-        manager = new RerunJobManager({ dbUrl: DB_URL, maxCount: TEST_MAX_COUNT })
+        manager = new RerunJobManager({ dbUrl: DB_URL, maxCount: TEST_MAX_COUNT, runStartPagingTeams: '7' })
         await manager.connect()
     })
 
@@ -76,13 +76,16 @@ describe('RerunJobManager', () => {
 
         const jobId = await manager.enqueue(7, 'hog_function', functionId, {
             filter: { ...baseFilter, invocation_ids: ids },
+            replay_code_sends: true,
         })
 
         const state = fetchState(await queryJob(jobId))
+        expect(state.request.replay_code_sends).toBe(true)
         expect(state.function_kind).toBe('hog_function')
         expect(state.function_id).toBe(functionId)
         expect(state.request.filter.invocation_ids).toEqual(ids)
         expect(state.request.filter.window_start).toBe(baseFilter.window_start)
+        expect(state.paging).toBe('run_start')
         expect(state.progress).toEqual({
             queued: 0,
             skipped: 0,
@@ -118,6 +121,8 @@ describe('RerunJobManager', () => {
         expect(state.function_kind).toBe('hog_flow')
         expect(state.request.filter).toMatchObject(filter)
         expect(state.request.filter.invocation_ids).toBeUndefined()
+        expect(state.request.replay_code_sends).toBe(false)
+        expect(state.paging).toBe('last_row')
         expect(state.progress.cursor).toBeUndefined()
         expect(state.progress.done).toBe(false)
     })

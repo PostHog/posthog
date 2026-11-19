@@ -6,7 +6,12 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+
+import { PageReportDetail } from 'products/web_analytics/frontend/pageReports/PageReportDetail'
+import { PageReportsDirectory } from 'products/web_analytics/frontend/pageReports/PageReportsDirectory'
+import { pageReportsTeaserLogic } from 'products/web_analytics/frontend/pageReports/pageReportsTeaserLogic'
 
 import { webAnalyticsDateMapping } from './constants'
 import { pageReportsLogic } from './pageReportsLogic'
@@ -34,8 +39,16 @@ function NoUrlSelectedMessage(): JSX.Element {
 }
 
 export function PageReportsFilters({ tabs }: { tabs: JSX.Element }): JSX.Element {
-    const { pageUrlOptions, pageUrl, isLoading, dateFilter, pageUrlSearchTerm, featureFlags, isPathCleaningEnabled } =
-        useValues(pageReportsLogic)
+    const {
+        pageUrlOptions,
+        pageUrl,
+        isLoading,
+        dateFilter,
+        pageUrlSearchTerm,
+        featureFlags,
+        isPathCleaningEnabled,
+        isDirectoryEnabled,
+    } = useValues(pageReportsLogic)
     const { setPageUrl, setPageUrlSearchTerm, loadPages, setDates, setIsPathCleaningEnabled } =
         useActions(pageReportsLogic)
 
@@ -61,22 +74,26 @@ export function PageReportsFilters({ tabs }: { tabs: JSX.Element }): JSX.Element
                         dateOptions={webAnalyticsDateMapping}
                     />
                     <WebAnalyticsCompareFilter />
-                    <LemonInputSelect
-                        className="flex-1 min-w-0 basis-64"
-                        allowCustomValues={true}
-                        fullWidth={true}
-                        placeholder="Click or type to see top pages, or paste a URL"
-                        loading={isLoading}
-                        size="small"
-                        mode="single"
-                        value={pageUrl ? [pageUrl] : null}
-                        onChange={(val: string[]) => setPageUrl(val.length > 0 ? val[0] : null)}
-                        options={pageUrlOptions}
-                        onInputChange={(val: string) => setPageUrlSearchTerm(val)}
-                        data-attr="page-reports-url-search"
-                        onFocus={() => loadPages('')}
-                        emptyStateComponent={emptyStateComponent}
-                    />
+                    {isDirectoryEnabled ? (
+                        <div className="flex-1" />
+                    ) : (
+                        <LemonInputSelect
+                            className="flex-1 min-w-0 basis-64"
+                            allowCustomValues={true}
+                            fullWidth={true}
+                            placeholder="Click or type to see top pages, or paste a URL"
+                            loading={isLoading}
+                            size="small"
+                            mode="single"
+                            value={pageUrl ? [pageUrl] : null}
+                            onChange={(val: string[]) => setPageUrl(val.length > 0 ? val[0] : null)}
+                            options={pageUrlOptions}
+                            onInputChange={(val: string) => setPageUrlSearchTerm(val)}
+                            data-attr="page-reports-url-search"
+                            onFocus={() => loadPages('')}
+                            emptyStateComponent={emptyStateComponent}
+                        />
+                    )}
                     <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
                     <WebAnalyticsDomainSelector />
                 </div>
@@ -86,7 +103,18 @@ export function PageReportsFilters({ tabs }: { tabs: JSX.Element }): JSX.Element
 }
 
 export function PageReports(): JSX.Element {
-    const { hasPageUrl, tiles } = useValues(pageReportsLogic)
+    const { hasPageUrl, tiles, isDirectoryEnabled, pageUrl } = useValues(pageReportsLogic)
+    const { recordPageReportsVisit } = useActions(pageReportsTeaserLogic)
+
+    useOnMountEffect(() => {
+        if (isDirectoryEnabled) {
+            recordPageReportsVisit()
+        }
+    })
+
+    if (isDirectoryEnabled) {
+        return pageUrl ? <PageReportDetail pageUrl={pageUrl} /> : <PageReportsDirectory />
+    }
 
     if (!hasPageUrl) {
         return (

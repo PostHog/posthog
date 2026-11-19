@@ -4,6 +4,9 @@ import threading
 import pytest
 from unittest.mock import MagicMock, patch
 
+from structlog.testing import capture_logs
+from trino.exceptions import HttpError, TrinoQueryError, TrinoUserError
+
 from products.managed_warehouse.backend import trino_execution as execution
 
 
@@ -57,5 +60,117 @@ async def test_cancellation_reaches_cursor_and_waits_for_cleanup(deadline_expire
 
 
 @pytest.mark.asyncio
+async def test_logs_each_query_id_while_the_model_is_still_running() -> None:
+    first_query_id = "20261118_000000_00001_first"
+    second_query_id = "20261118_000000_00002_second"
+    cursor = MagicMock(query_id=first_query_id)
+    release = threading.Event()
+
+    def execute(control: execution.TrinoQueryControl) -> int:
+        control.attach(cursor)
+        assert release.wait(10)
+        return 42
+
+    def logged_query_ids() -> list[str]:
+        return [log["trino_query_id"] for log in logs if "trino_query_id" in log]
+
+    async def until_logged(count: int) -> None:
+        async with asyncio.timeout(10):
+            while len(logged_query_ids()) < count:
+                await asyncio.sleep(0)
+
+    with patch.object(execution, "TRINO_QUERY_ID_LOG_SECONDS", 0), capture_logs() as logs:
+        task = asyncio.create_task(execution.run_trino_model(execute, query_seconds=60))
+        try:
+            await until_logged(1)
+            for _ in range(3):
+                await asyncio.sleep(0)
+            cursor.query_id = second_query_id
+            await until_logged(2)
+        finally:
+            release.set()
+        assert await task == 42
+
+    assert logged_query_ids() == [first_query_id, second_query_id]
+
+
+@pytest.mark.asyncio
 async def test_success_preserves_result() -> None:
     assert await execution.run_trino_model(lambda control: 42, query_seconds=60) == 42
+
+
+@pytest.mark.asyncio
+async def test_reports_cpu_time() -> None:
+    cpu_milliseconds: list[int] = []
+
+    def execute(control: execution.TrinoQueryControl) -> int:
+        control.record_cpu_milliseconds(25)
+        return 42
+
+    assert await execution.run_trino_model(execute, query_seconds=60, on_cpu_milliseconds=cpu_milliseconds.append) == 42
+    assert cpu_milliseconds == [25]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error,expected_attempts",
+    [
+        (TrinoQueryError({"errorName": "CLUSTER_OUT_OF_MEMORY", "message": "Query killed"}), 2),
+        (TrinoQueryError({"errorName": "TOO_MANY_REQUESTS_FAILED", "message": "Query killed"}), 2),
+        (TrinoQueryError({"errorName": "PAGE_TRANSPORT_TIMEOUT", "message": "Query killed"}), 2),
+        (HttpError("error 403: b'This tenant is not admitted to the pool yet; the request was not dispatched'"), 2),
+        (HttpError("error 403: b'Forbidden'"), 1),
+        (
+            TrinoUserError(
+                {
+                    "errorName": "COLUMN_NOT_FOUND",
+                    "message": "line 1:8: Column 'This tenant is not admitted to the pool yet' cannot be resolved",
+                }
+            ),
+            1,
+        ),
+        (TrinoQueryError({"errorName": "EXCEEDED_LOCAL_MEMORY_LIMIT", "message": "Query killed"}), 1),
+    ],
+)
+async def test_retries_only_transient_trino_errors(error: Exception, expected_attempts: int) -> None:
+    attempts = 0
+    processed: list[int] = []
+
+    def execute(control: execution.TrinoQueryControl) -> int:
+        nonlocal attempts
+        attempts += 1
+        control.record_processed_bytes(10)
+        if attempts == 1:
+            raise error
+        return 42
+
+    if expected_attempts == 1:
+        with pytest.raises(type(error)):
+            await execution.run_trino_model_with_retries(
+                execute, query_seconds=60, retry_delays=(0,), on_processed_bytes=processed.append
+            )
+    else:
+        assert (
+            await execution.run_trino_model_with_retries(
+                execute, query_seconds=60, retry_delays=(0,), on_processed_bytes=processed.append
+            )
+            == 42
+        )
+    assert attempts == expected_attempts
+    assert processed == [10] * expected_attempts
+
+
+@pytest.mark.asyncio
+async def test_deadline_after_a_retry_reports_the_whole_budget() -> None:
+    attempts = 0
+
+    def execute(control: execution.TrinoQueryControl) -> int:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise TrinoQueryError({"errorName": "CLUSTER_OUT_OF_MEMORY", "message": "Query killed"})
+        assert control.cancelled.wait(10)
+        return 42
+
+    with pytest.raises(TimeoutError, match=r"exceeded its 0\.01-minute deadline after 2 attempts"):
+        await execution.run_trino_model_with_retries(execute, query_seconds=0.6, retry_delays=(0,))

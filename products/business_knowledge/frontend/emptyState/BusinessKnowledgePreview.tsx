@@ -2,13 +2,14 @@ import './BusinessKnowledgePreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 interface PreviewSource {
     id: string
     name: string
     kind: string
     chunks: number
+    agent: string
     question: string
     answer: string
 }
@@ -21,37 +22,40 @@ const SOURCES: PreviewSource[] = [
         name: 'Pricing page',
         kind: 'URL · refreshes daily',
         chunks: 14,
-        question: 'Which customers are on a plan with usage limits?',
-        answer: 'Your Free plan caps events at 1M a month, so I filtered to organizations on that plan. 212 match.',
+        agent: 'Your support agent',
+        question: 'Do I lose my data if I go over the free limit?',
+        answer: 'No. The Free plan stops taking new events at 1M a month and keeps what you already sent. You can raise the limit in billing.',
     },
     {
         id: 'refunds',
         name: 'Refund policy',
         kind: 'Text · manual',
         chunks: 6,
-        question: 'Draft a reply to a refund request from last week',
-        answer: 'Your policy allows a prorated refund within 14 days of cancelling, so this one qualifies. Here is a draft.',
+        agent: 'Your help desk',
+        question: 'I cancelled last week. Can I get a refund?',
+        answer: 'Yes. The policy gives a prorated refund within 14 days of cancelling, so you qualify. Here is how to request it.',
     },
     {
-        id: 'brand',
-        name: 'Brand guidelines',
-        kind: 'PDF · manual',
-        chunks: 9,
-        question: 'Write the survey intro for the new onboarding flow',
-        answer: 'Kept it in sentence case and dropped the exclamation marks, per your voice guide. Two options below.',
+        id: 'docs',
+        name: 'API docs',
+        kind: 'URL · refreshes daily',
+        chunks: 42,
+        agent: 'Your coding agent',
+        question: 'How do I page through the orders endpoint?',
+        answer: 'Send the cursor from the last response as the "after" parameter. Each page holds up to 100 orders.',
     },
 ]
 
 /**
  * Example-data preview for the business knowledge empty state: the source list
- * wired to a mini PostHog AI thread, so picking a source shows an answer that
- * cites it. Three hidden radios drive `:checked ~` styles - no timers or state,
+ * wired to a mini thread of an agent the customer built, so picking a source shows
+ * that agent answer from it. Three hidden radios drive `:checked ~` styles - no timers or state,
  * per the preview rules in the `building-product-empty-states` skill. Per-source
  * messages are stacked in `__swap` grids and crossfaded, so switching never
  * changes the layout's size.
  */
 export function BusinessKnowledgePreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('BusinessKnowledgePreview', isStatic && 'BusinessKnowledgePreview--static')}>
@@ -93,10 +97,20 @@ export function BusinessKnowledgePreview(): JSX.Element {
                         </label>
                     ))}
                 </div>
-                <div className="BusinessKnowledgePreview__hint">Select a source to see PostHog AI use it.</div>
+                <div className="BusinessKnowledgePreview__hint">Select a source to see an agent answer from it.</div>
             </div>
 
             <div className="BusinessKnowledgePreview__thread">
+                <div className="BusinessKnowledgePreview__agent">
+                    <span className="BusinessKnowledgePreview__swap BusinessKnowledgePreview__title">
+                        {SOURCES.map((source) => (
+                            <span key={source.id} className={`BusinessKnowledgePreview__when-${source.id}`}>
+                                {source.agent}
+                            </span>
+                        ))}
+                    </span>
+                    <LemonTag size="small">connected through MCP</LemonTag>
+                </div>
                 <div className="BusinessKnowledgePreview__bubble BusinessKnowledgePreview__bubble--user">
                     <span className="BusinessKnowledgePreview__swap">
                         {SOURCES.map((source) => (

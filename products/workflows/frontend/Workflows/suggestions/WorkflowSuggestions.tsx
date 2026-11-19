@@ -42,6 +42,23 @@ function SuggestionsPausedNotice({ byUser }: { byUser: boolean }): JSX.Element {
     )
 }
 
+function SuggestionsDryRunNotice(): JSX.Element {
+    return (
+        <LemonBanner
+            type="warning"
+            action={{
+                children: 'Open scout settings',
+                to: urls.inboxScout('signals-scout-workflows'),
+                // pinned: data-attr - autocapture dashboards read it
+                'data-attr': 'workflow-suggestions-scout-dry-run-open',
+            }}
+        >
+            The workflows scout is in dry run, so it can't file new suggestions. Turn on "Write signals to the inbox" in
+            its settings to get them.
+        </LemonBanner>
+    )
+}
+
 function SuggestionsUnreadableList({ onRetry }: { onRetry: () => void }): JSX.Element {
     return (
         <div className="flex flex-col items-start gap-2">
@@ -121,13 +138,15 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         optimizationEnabled && (scoutStatus === 'paused_by_user' || scoutStatus === 'paused_by_system') ? (
             <SuggestionsPausedNotice byUser={scoutStatus === 'paused_by_user'} />
         ) : null
+    const scoutNotice =
+        pausedNotice ?? (optimizationEnabled && scoutStatus === 'dry_run' ? <SuggestionsDryRunNotice /> : null)
     // A failed read leaves the setting unknown, so it cannot stand in for "off".
     const notice = optimizationUnreadable ? (
         <SuggestionsUnreadableNotice />
     ) : !optimizationEnabled ? (
         <SuggestionsOffNotice />
     ) : (
-        pausedNotice
+        scoutNotice
     )
 
     if (nothingFiled) {
@@ -137,7 +156,7 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
             return optimizationUnreadable ? (
                 <SuggestionsUnreadableNotice />
             ) : (
-                <WorkflowSuggestionsIntroduction id={id} enabled={false} />
+                <WorkflowSuggestionsIntroduction id={id} enabled={false} sample={optimization?.sample} />
             )
         }
 
@@ -145,7 +164,12 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
             return (
                 <div className="flex flex-col gap-4">
                     {pausedNotice}
-                    <WorkflowSuggestionsIntroduction id={id} enabled />
+                    <WorkflowSuggestionsIntroduction
+                        id={id}
+                        enabled
+                        scoutStatus={scoutStatus}
+                        sample={optimization?.sample}
+                    />
                 </div>
             )
         }

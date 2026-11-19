@@ -10,6 +10,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { ExternalDataSource, IntegrationType } from '~/types'
 
 import { captureSignalSourceFiltersChanged } from '../inboxAnalytics'
+import { syncedLinearIntegration } from '../linearSyncedIntegration'
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import {
     SOURCE_LINEAR_TEAM_IDS_KEY,
@@ -174,7 +175,7 @@ export const linearTeamsModalLogic: LogicWrapper<linearTeamsModalLogicType> = ke
         ],
         actions: [signalSourcesLogic, ['toggleSignalSource', 'toggleSignalSourceSuccess', 'toggleSignalSourceFailure']],
     })),
-    forms(({ props: logicProps, actions, values }) => ({
+    forms(({ props: logicProps, actions }) => ({
         linearTeams: {
             defaults: formDefaults(logicProps.config),
             // The message hangs off `scope` (a string field) because kea-forms types an array
@@ -186,43 +187,23 @@ export const linearTeamsModalLogic: LogicWrapper<linearTeamsModalLogicType> = ke
                         : undefined,
             }),
             submit: ({ scope, teamIds }: LinearTeamsFormValues) => {
-                // The endpoint replaces the config object wholesale, so the whole blob goes back with
-                // the team list merged in; a partial object would clobber the steering text. The merge
-                // base is the freshest cached row rather than the open-time prop snapshot.
-                const baseConfig =
-                    (logicProps.config &&
-                        values.sourceConfigs?.find((c: SignalSourceConfig) => c.id === logicProps.config?.id)
-                            ?.config) ??
-                    logicProps.config?.config ??
-                    {}
                 actions.toggleSignalSource({
                     sourceProduct: SignalSourceProduct.Linear,
                     sourceType: SignalSourceType.Issue,
                     enabled: logicProps.enableOnSave ? true : (logicProps.config?.enabled ?? true),
-                    config: { ...baseConfig, [SOURCE_LINEAR_TEAM_IDS_KEY]: scope === 'all' ? [] : teamIds },
+                    configSet: { [SOURCE_LINEAR_TEAM_IDS_KEY]: scope === 'all' ? [] : teamIds },
                     viaSetupWizard: logicProps.viaSetupWizard,
                 })
             },
         },
     })),
     selectors({
-        // The warehouse source records the workspace it syncs, so the teams come from that connection
-        // and match the synced issues. Before a source exists, any Linear connection will do.
         linearIntegration: [
             (s) => [s.linearIntegrations, s.dataWarehouseSources],
             (
                 linearIntegrations: IntegrationType[],
                 dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
-            ): IntegrationType | null => {
-                const syncedIntegrationId = dataWarehouseSources?.results.find(
-                    (source: ExternalDataSource) => source.source_type === 'Linear'
-                )?.job_inputs?.linear_integration_id
-                return (
-                    linearIntegrations.find((integration) => String(integration.id) === String(syncedIntegrationId)) ??
-                    linearIntegrations[0] ??
-                    null
-                )
-            },
+            ): IntegrationType | null => syncedLinearIntegration(linearIntegrations, dataWarehouseSources),
         ],
         // A null list means the first load has not landed, which is not the same as no connection.
         // Reading the list rather than the loading flag keeps a later reload from blanking the picker.
@@ -237,7 +218,7 @@ export const linearTeamsModalLogic: LogicWrapper<linearTeamsModalLogicType> = ke
                 return
             }
             actions.saveSettled()
-            const teamCount = linearTeamIdsFromConfig(params.config).length
+            const teamCount = linearTeamIdsFromConfig(params.configSet).length
             captureSignalSourceFiltersChanged({
                 sourceProduct: params.sourceProduct,
                 sourceType: params.sourceType,
@@ -262,7 +243,7 @@ export const linearTeamsModalLogic: LogicWrapper<linearTeamsModalLogicType> = ke
                 sourceProduct: params.sourceProduct,
                 sourceType: params.sourceType,
                 filter: SOURCE_LINEAR_TEAM_IDS_KEY,
-                selectedCount: linearTeamIdsFromConfig(params.config).length,
+                selectedCount: linearTeamIdsFromConfig(params.configSet).length,
                 success: false,
             })
         },

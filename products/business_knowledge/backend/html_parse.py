@@ -99,27 +99,41 @@ def parse_html(body: bytes, url: str, content_type: str | None = None) -> tuple[
     # Deferred import: trafilatura (and its dateparser/htmldate deps) is slow to import
     # and only needed when actually parsing a page, not at API/module load.
     import trafilatura
+    from trafilatura.metadata import examine_meta, extract_meta_json, extract_title
+    from trafilatura.utils import load_html
 
-    # trafilatura.extract returns the main-content text only. We pass raw
+    # trafilatura.extract returns the main-content text only. load_html gets raw
     # bytes so its internal encoding detection runs (meta charset, BOM, ...)
     # instead of forcing utf-8. Markdown output keeps blank lines between
     # blocks — the chunker's paragraph boundary — and preserves headings.
-    extracted = trafilatura.extract(
-        body,
-        url=url,
-        include_comments=False,
-        include_tables=True,
-        favor_precision=True,
-        output_format="markdown",
-    )
+    tree = load_html(body)
 
     title = ""
-    try:
-        metadata = trafilatura.extract_metadata(body)
-        if metadata and metadata.title:
-            title = metadata.title.strip()[:512]
-    except Exception:  # noqa: BLE001 — trafilatura metadata parsing can crash on malformed HTML
-        logger.info("business_knowledge.html_parse.metadata_failed", url=url)
+    if tree is not None:
+        try:
+            metadata = examine_meta(tree)
+            try:
+                metadata = extract_meta_json(tree, metadata)
+            except Exception:
+                logger.info("business_knowledge.html_parse.json_ld_failed", url=url)
+            metadata.title = metadata.title or extract_title(tree)
+            metadata.clean_and_trim()
+            title = (metadata.title or "").strip()[:512]
+        except Exception:  # noqa: BLE001 — trafilatura metadata parsing can crash on malformed HTML
+            logger.info("business_knowledge.html_parse.metadata_failed", url=url)
+
+    extracted = (
+        trafilatura.extract(
+            tree,
+            url=url,
+            include_comments=False,
+            include_tables=True,
+            favor_precision=True,
+            output_format="markdown",
+        )
+        if tree is not None
+        else None
+    )
 
     html: str | None = None
     text = (extracted or "").strip()
@@ -143,4 +157,5 @@ def parse_html(body: bytes, url: str, content_type: str | None = None) -> tuple[
         except Exception:  # noqa: BLE001
             pass
 
-    return title, text
+    # Postgres text fields reject NUL, and the bs4 fallback keeps them from bodies that are not HTML.
+    return title.replace("\x00", ""), text.replace("\x00", "")

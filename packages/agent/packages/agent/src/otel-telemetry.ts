@@ -338,6 +338,7 @@ export class OtelRunTelemetry implements SessionLogSink {
         {
           url: config.tracesUrl,
           token: config.token,
+          runId: resource.runId,
           flushIntervalMs: config.flushIntervalMs,
         },
         otelResource,

@@ -1,4 +1,5 @@
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { cn } from 'lib/utils/css-classes'
 
 import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
@@ -12,6 +13,7 @@ export interface JobDestinationsProps {
     destinationsById?: Record<string, ExternalDataDestinationApi>
     /** True while `destinationsById` is still being fetched, so an id is not yet unknown. */
     loading?: boolean
+    failedDestinationId?: string
 }
 
 interface Logo {
@@ -26,7 +28,12 @@ function tooltipFor(destination: ExternalDataDestinationApi): string {
 }
 
 /** Where one run delivered, as a logo each. */
-export function JobDestinations({ destinationIds, destinationsById = {}, loading }: JobDestinationsProps): JSX.Element {
+export function JobDestinations({
+    destinationIds,
+    destinationsById = {},
+    loading,
+    failedDestinationId,
+}: JobDestinationsProps): JSX.Element {
     const known = destinationIds.map((id) => destinationsById[id]).filter(Boolean)
 
     if (destinationIds.length > 0 && known.length === 0) {
@@ -58,8 +65,15 @@ export function JobDestinations({ destinationIds, destinationsById = {}, loading
     return (
         <div className="flex items-center gap-1">
             {logos.map(({ key, type, title }) => (
-                <Tooltip key={key} title={title}>
-                    <span className="flex items-center justify-center size-5">
+                <Tooltip
+                    key={key}
+                    title={key === failedDestinationId ? `${title}. Could not deliver this run.` : title}
+                >
+                    <span
+                        className={cn('flex items-center justify-center size-5', {
+                            'rounded ring-2 ring-danger': key === failedDestinationId,
+                        })}
+                    >
                         <img
                             src={DESTINATION_ICON_MAP[type]}
                             alt={destinationTypeLabel(type)}

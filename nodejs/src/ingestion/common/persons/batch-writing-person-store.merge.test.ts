@@ -10,6 +10,7 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
 import { InternalPerson } from '~/types'
 
 import { BatchWritingPersonsStore } from './batch-writing-person-store'
+import { mergeIdentifiedSourceNewTargetCounter } from './person-merge-postgres'
 import { createDefaultSyncMergeMode } from './person-merge-types'
 import { EventOps } from './person-update'
 import { MergePersonsRequest } from './persons-store'
@@ -37,8 +38,6 @@ class FakeRepository {
             uuid,
             team_id: 1,
             properties: { ...properties },
-            properties_last_updated_at: {},
-            properties_last_operation: {},
             created_at: DateTime.fromISO('2026-01-01T00:00:00Z', { zone: 'utc' }),
             version: 1,
             is_identified: false,
@@ -328,6 +327,55 @@ describe('BatchWritingPersonsStore merging through PostgresPersonMerge', () => {
         await store.flush()
 
         expect(fake.rows.get('T')!.properties).toEqual({ [filtered]: 'v' })
+    })
+
+    it.each([
+        ['an identified source', 'skipped_already_identified', 's', true],
+        ['an unidentified source', 'attached', 's', false],
+        ['an identified target', 'attached', 't', true],
+    ])('an identify where only %s has a person settles as %s', async (_case, outcome, existingId, identified) => {
+        fake.tx.createPerson.mockImplementation(
+            (
+                _createdAt: DateTime,
+                properties: Record<string, unknown>,
+                _teamId: number,
+                _isUserId: number | null,
+                isIdentified: boolean,
+                uuid: string,
+                primaryDistinctId: { distinctId: string },
+                extraDistinctIds: { distinctId: string }[] = []
+            ) => {
+                fake.addPerson(
+                    uuid,
+                    [primaryDistinctId.distinctId, ...extraDistinctIds.map((id) => id.distinctId)],
+                    properties
+                )
+                fake.rows.get(uuid)!.is_identified = isIdentified
+                return Promise.resolve({
+                    success: true,
+                    person: { ...fake.rows.get(uuid)! },
+                    created: true,
+                    messages: [],
+                })
+            }
+        )
+        fake.addPerson('E', [existingId], {})
+        fake.rows.get('E')!.is_identified = identified
+        const countedBefore = (await mergeIdentifiedSourceNewTargetCounter.get()).values[0]?.value ?? 0
+
+        const result = await store.mergePersons({ ...mergeRequest('t', 's'), allowIdentifiedSources: false }, 0)
+
+        expect(result.results[0].outcome).toBe(outcome)
+        const countedAfter = (await mergeIdentifiedSourceNewTargetCounter.get()).values[0]?.value ?? 0
+        expect(countedAfter - countedBefore).toBe(outcome === 'skipped_already_identified' ? 1 : 0)
+        if (outcome === 'skipped_already_identified') {
+            expect(result.survivor!.uuid).not.toBe('E')
+            expect(fake.distinctToUuid.get('1:t')).toBe(result.survivor!.uuid)
+            expect(fake.rows.get(result.survivor!.uuid)!.is_identified).toBe(true)
+            expect(fake.distinctToUuid.get('1:s')).toBe('E')
+        } else {
+            expect(result.survivor!.uuid).toBe('E')
+        }
     })
 
     it('an explicit $set on a moved id during the merge reaches the survivor although it holds the key', async () => {

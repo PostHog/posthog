@@ -270,6 +270,7 @@ class CanvasCapabilityWidening:
     network_origins_added: list[str]
     state_scopes_added: list[str]
     actions_added: list[str]
+    tools_added: list[str]
     connectors_added: list[dict[str, Any]]
 
 
@@ -364,6 +365,23 @@ class CanvasVersionConflict(Exception):
     def __init__(self, current_version_id: str | None) -> None:
         super().__init__("The canvas changed since it was read.")
         self.current_version_id = current_version_id
+
+
+class CanvasCapabilityWideningDenied(Exception):
+    """The change adds capabilities and the caller is not the canvas creator."""
+
+    def __init__(self, widening: CanvasCapabilityWidening) -> None:
+        super().__init__("Only the canvas creator can add capabilities.")
+        self.widening = widening
+
+
+class CanvasPinnedVersionDenied(Exception):
+    """The layout pins a component version that is not that component's live version, and the
+    caller did not create that component."""
+
+    def __init__(self, component_ids: list[str]) -> None:
+        super().__init__("Only a component's creator can pin a version other than its live version.")
+        self.component_ids = component_ids
 
 
 class CanvasRequestRejected(Exception):

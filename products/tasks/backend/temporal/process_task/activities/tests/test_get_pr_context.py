@@ -9,6 +9,8 @@ from django.core.exceptions import ObjectDoesNotExist
 from parameterized import parameterized
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.integrations import IntegrationNotFound
+from posthog.models.team.team import Team
 
 from products.tasks.backend.exceptions import GitHubRateLimitedError, ProcessTaskTransientError
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
@@ -369,7 +371,7 @@ class TestGetGithubIntegration:
             wrapped.access_token_expired.return_value = True
             MockGitHubIntegration.return_value = wrapped
 
-            result = get_github_integration(github_integration.id)
+            result = get_github_integration(github_integration.team_id, github_integration.id)
 
         assert result is wrapped
         wrapped.access_token_expired.assert_called_once()
@@ -382,14 +384,19 @@ class TestGetGithubIntegration:
             wrapped.access_token_expired.return_value = False
             MockGitHubIntegration.return_value = wrapped
 
-            result = get_github_integration(github_integration.id)
+            result = get_github_integration(github_integration.team_id, github_integration.id)
 
         assert result is wrapped
         wrapped.refresh_access_token.assert_not_called()
 
     @pytest.mark.django_db
-    def test_raises_when_integration_not_found(self):
-        from posthog.models import Integration
+    @pytest.mark.parametrize("case", ["missing_id", "other_team"])
+    def test_raises_when_integration_not_found(self, github_integration, case):
+        if case == "missing_id":
+            team_id, integration_id = github_integration.team_id, 999999999
+        else:
+            other_team = Team.objects.create(organization=github_integration.team.organization, name="Other team")
+            team_id, integration_id = other_team.id, github_integration.id
 
-        with pytest.raises(Integration.DoesNotExist):
-            get_github_integration(999999999)
+        with pytest.raises(IntegrationNotFound):
+            get_github_integration(team_id, integration_id)

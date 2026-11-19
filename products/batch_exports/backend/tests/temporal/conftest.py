@@ -2,6 +2,7 @@ import uuid
 import random
 import asyncio
 import datetime as dt
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -26,11 +27,13 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
+from posthog.temporal.tests.utils.logger import restored_structlog_config
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.batch_exports.backend.facade.api import delete_batch_exports_for_teams
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
-from products.batch_exports.backend.tests.temporal.utils.clickhouse import truncate_all
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import drop_clickhouse_kafka_tables, truncate_all
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     PersonDistinctId2Values,
     PersonValues,
@@ -121,7 +124,7 @@ async def aorganization(db):
 
     yield org
 
-    await sync_to_async(org.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(org)
 
 
 @pytest_asyncio.fixture
@@ -130,7 +133,7 @@ async def ateam(aorganization):
 
     yield team
     await sync_to_async(delete_batch_exports_for_teams)([team.pk])
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 @pytest_asyncio.fixture
@@ -139,7 +142,7 @@ async def another_ateam(aorganization):
 
     yield team
     await sync_to_async(delete_batch_exports_for_teams)([team.pk])
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 @pytest_asyncio.fixture
@@ -161,6 +164,12 @@ async def s3_compatible_integration(ateam):
 def activity_environment():
     """Return a testing temporal ActivityEnvironment."""
     return ActivityEnvironment()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def drop_kafka_tables_after_the_session():
+    yield
+    drop_clickhouse_kafka_tables()
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
@@ -194,9 +203,11 @@ async def temporal_client():
 
 
 @pytest_asyncio.fixture(autouse=True, scope="module", loop_scope="module")
-async def configure_logger_auto() -> None:
+async def configure_logger_auto() -> AsyncIterator[None]:
     """Configure logger when running in a Temporal activity environment."""
-    configure_logger(cache_logger_on_first_use=False)
+    with restored_structlog_config():
+        configure_logger(cache_logger_on_first_use=False)
+        yield
 
 
 @pytest.fixture
@@ -222,19 +233,6 @@ def exclude_events(request) -> list[str] | None:
     By decorating a test function with @pytest.mark.parametrize("exclude_events", ..., indirect=True)
     it's possible to set the exclude_events that will be used to create a BatchExport.
     Any list of event names can be used, or None (the default).
-    """
-    try:
-        return request.param
-    except AttributeError:
-        return None
-
-
-@pytest.fixture
-def batch_export_schema(request) -> dict | None:
-    """A parametrizable fixture to configure a batch export schema.
-
-    By decorating a test function with @pytest.mark.parametrize("batch_export_schema", ..., indirect=True)
-    it's possible to set the batch_export_schema that will be used to create a BatchExport.
     """
     try:
         return request.param

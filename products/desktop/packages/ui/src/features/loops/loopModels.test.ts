@@ -2,9 +2,9 @@ import type {
   SessionConfigOption,
   SessionConfigSelectOptions,
 } from "@agentclientprotocol/sdk";
-import type { LoopSchemas } from "@posthog/api-client/loops";
 import { restrictedModelMeta } from "@posthog/shared";
 import { MODELS } from "@posthog/shared/model-catalog";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { describe, expect, it } from "vitest";
 import type { ModelRolloutFlags } from "../sessions/modelOptionFilters";
 import {
@@ -138,9 +138,10 @@ describe("loopModelOptions", () => {
         "claude-sonnet-5-5",
         "claude-fable-5",
         "claude-fable-5-1",
+        "claude-fable-5-2",
         "zai-org/glm-5.3",
         "zai-org/glm-5.3-flash",
-        "moonshotai/kimi-k3",
+        "moonshotai/kimi-k3.1-pro",
       ],
     },
     {

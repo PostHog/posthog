@@ -7,6 +7,7 @@ import {
     ModelChoiceApi,
     ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
+    TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { ComposerModelEffortPickers } from './ComposerModelEffortPickers'
@@ -135,6 +136,26 @@ describe('ComposerModelEffortPickers', () => {
             expect(onChange).toHaveBeenCalledWith(ModelAccessEnumApi.OwnSubscription)
             expect(screen.queryByText('Connect your ChatGPT account')).not.toBeInTheDocument()
         })
+    })
+
+    it('lists every model with no harness choice for a Pi task', async () => {
+        renderPickers({
+            taskRuntime: TaskRuntimeEnumApi.Pi,
+            models: [
+                ...CATALOGUE,
+                {
+                    runtime_adapter: RuntimeAdapterEnumApi.Codex,
+                    model: 'gpt-6-sol',
+                    display_name: 'GPT-6 Sol',
+                    supported_efforts: [ReasoningEffortEnumApi.High],
+                },
+            ],
+        })
+
+        expect(screen.queryByText('Harness')).not.toBeInTheDocument()
+        fireEvent.click(screen.getByText('Model'))
+        expect(await screen.findByText('GPT-6 Sol')).toBeInTheDocument()
+        expect(screen.getByText('Claude Sonnet 5.5')).toBeInTheDocument()
     })
 
     it('offers no way to change the default on a surface that has none to change', () => {

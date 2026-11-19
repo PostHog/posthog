@@ -40,7 +40,7 @@ export const ContentAutopilotValidationSummary = ({ report }: ContentAutopilotVa
     return (
         <div className="flex flex-col gap-2">
             {blocked.length > 0 ? (
-                <LemonBanner type="error">
+                <LemonBanner type="warning">
                     Fix {pluralize(blocked.length, 'check')} before you can download this draft. Edit it, or regenerate
                     it.
                     <CheckList checks={blocked} />
@@ -55,7 +55,7 @@ export const ContentAutopilotValidationSummary = ({ report }: ContentAutopilotVa
                 </LemonBanner>
             )}
             {toReview.length > 0 ? (
-                <LemonBanner type="warning">
+                <LemonBanner type="info">
                     Worth a look before you publish:
                     <CheckList checks={toReview} />
                 </LemonBanner>

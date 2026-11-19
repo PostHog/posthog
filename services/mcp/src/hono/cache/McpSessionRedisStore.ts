@@ -9,6 +9,8 @@ const SESSION_CONTEXT_KEYS = [
     'mcpClientName',
     'mcpClientVersion',
     'mcpProtocolVersion',
+    'mcpElicitationUrlSupported',
+    'mcpUiSupported',
     'mcpConsumer',
     'mcpVendorClient',
 ] as const

@@ -149,6 +149,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -224,6 +225,10 @@ export interface SessionPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -1318,6 +1323,101 @@ export interface ConversionGoalWriteApi {
     goal: ConversionGoalApi
 }
 
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type ZendeskImportJobStatusEnumApi =
+    (typeof ZendeskImportJobStatusEnumApi)[keyof typeof ZendeskImportJobStatusEnumApi]
+
+export const ZendeskImportJobStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface ConversionRecommendationRunApi {
+    readonly id: string
+    readonly status: ZendeskImportJobStatusEnumApi
+    readonly lookback_days: number
+    readonly date_from: string
+    readonly date_to: string
+    readonly created_at: string
+    /** @nullable */
+    readonly completed_at: string | null
+    readonly error: string
+}
+
+export type IntentEnumApi = (typeof IntentEnumApi)[keyof typeof IntentEnumApi]
+
+export const IntentEnumApi = {
+    Conversion: 'conversion',
+    Customer: 'customer',
+    Revenue: 'revenue',
+} as const
+
+export type ConversionCandidateKindEnumApi =
+    (typeof ConversionCandidateKindEnumApi)[keyof typeof ConversionCandidateKindEnumApi]
+
+export const ConversionCandidateKindEnumApi = {
+    EventsNode: 'EventsNode',
+    ActionsNode: 'ActionsNode',
+} as const
+
+export interface ConversionCandidateApi {
+    source_ref: string
+    kind: ConversionCandidateKindEnumApi
+    event?: string | null
+    action_id?: number | null
+    name: string
+    description?: string
+    count?: number | null
+    distinct_users?: number | null
+    numeric_properties?: string[]
+    property_names?: string[]
+    already_configured?: boolean
+}
+
+export interface ConversionRecommendationApi {
+    source_ref: string
+    name: string
+    reason: string
+    intent: IntentEnumApi
+    questions: string[]
+    candidate: ConversionCandidateApi
+    /** Observed numeric property proposed for revenue. Confirm its units and currency. */
+    amount_property?: string | null
+}
+
+export interface ConversionRecommendationResultsApi {
+    recommendations?: ConversionRecommendationApi[]
+    limitations?: string[]
+}
+
+export interface ConversionRecommendationStateApi {
+    /**
+     * Why this user cannot start an analysis, or null when generation is available.
+     * @nullable
+     */
+    generation_disabled_reason: string | null
+    /** Latest analysis, including its actual state and observation period. */
+    latest_run: ConversionRecommendationRunApi | null
+    /** Completed analysis that supplied the visible recommendations. Previous results remain available during an update or failure. */
+    result_run: ConversionRecommendationRunApi | null
+    /** Suggested event or action goals with source evidence and business questions. Configure reviewed goals with the existing editor. */
+    results: ConversionRecommendationResultsApi
+    /** Whether this user can request or initialize project recommendations. */
+    can_generate: boolean
+}
+
+export interface ConversionRecommendationStartApi {
+    /** False starts the first 30-day analysis once. True requests a new 14-day analysis; use only after an explicit user request. */
+    refresh?: boolean
+}
+
 export interface CompareFilterApi {
     /** Whether to compare the current date range to a previous date range. */
     compare?: boolean | null
@@ -1619,14 +1719,18 @@ export interface HogQLQueryModifiersApi {
     inCohortVia?: InCohortViaApi | null
     inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null
+    /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
+    materializeRepeatedCTEs?: boolean | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
     mergeFederatedAggregateJoins?: boolean | null
+    /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
+    negatedPersonFiltersNotIn?: boolean | null
     optimizeJoinedFilters?: boolean | null
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
     parserMode?: ParserModeApi | null
-    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join. */
     personIdPushdown?: boolean | null
     personsArgMaxVersion?: PersonsArgMaxVersionApi | null
     personsJoinMode?: PersonsJoinModeApi | null
@@ -1639,12 +1743,14 @@ export interface HogQLQueryModifiersApi {
     /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
     sessionPropertyPreAggregation?: boolean | null
     sessionTableVersion?: SessionTableVersionApi | null
+    /** Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range. */
+    sessionTimestampBufferMinutes?: number | null
     sessionsV2JoinMode?: SessionsV2JoinModeApi | null
     timings?: boolean | null
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean | null
     useMaterializedViews?: boolean | null
-    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored. */
     useNewEventsSchema?: boolean | null
     usePreaggregatedIntermediateResults?: boolean | null
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
@@ -1742,7 +1848,7 @@ export interface QueryStatusApi {
     end_time?: string | null
     /** If the query failed, this will be set to true. More information can be found in the error_message field. */
     error?: boolean | null
-    /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
+    /** Stable machine-readable code for the error, when known: the DRF exception code, the ClickHouse error name, the HogQL error code, or `unhandled_<exception class>` for a failure that no handler classified. */
     error_code?: string | null
     error_message?: string | null
     expiration_time?: string | null
@@ -1765,6 +1871,8 @@ export interface QueryStatusApi {
 export interface ResolvedDateRangeResponseApi {
     date_from: string
     date_to: string
+    /** The earliest timestamp the query reads, when only its first interval depends on rows from before date_from. Lifecycle sets it to the start of the interval before the range. */
+    read_from?: string | null
 }
 
 export type WebAnalyticsItemKindApi = (typeof WebAnalyticsItemKindApi)[keyof typeof WebAnalyticsItemKindApi]
@@ -1805,9 +1913,36 @@ export interface DataWarehouseSourceUsageApi {
     source_type?: string | null
     /** Warehouse table name that was referenced */
     table_name: string
+    /** Whether the query read a history table of this source */
+    uses_history_table?: boolean | null
+}
+
+export type WarehouseSuggestionNoteKindApi =
+    (typeof WarehouseSuggestionNoteKindApi)[keyof typeof WarehouseSuggestionNoteKindApi]
+
+export const WarehouseSuggestionNoteKindApi = {
+    Materialize: 'materialize',
+    Unmaterialize: 'unmaterialize',
+} as const
+
+export interface WarehouseSuggestionNoteApi {
+    /** Whether this user can edit the view, which accepting the suggestion needs. */
+    can_act: boolean
+    /** The suggestion id to pass to `warehouse-suggestions-get`, `-accept-prepare` or `-dismiss`. */
+    id: string
+    /** What the suggestion proposes. */
+    kind: WarehouseSuggestionNoteKindApi
+    /** Plain-language note for the person, with the next step. */
+    message: string
+    /** Absolute link to the view's page in Models. */
+    url: string
+    /** The view's current name. */
+    view_name: string
 }
 
 export interface DataWarehouseSyncWarningApi {
+    /** True when the last sync is still within the table's sync interval, so the data is current and the warning only says it will stop updating (a sync paused recently). False or absent when the data is out of date. */
+    data_is_current?: boolean | null
     /** Human-readable warning shown to the user */
     message: string
     /** Name of the ExternalDataSchema responsible for syncing the table */
@@ -1833,15 +1968,24 @@ export interface AccessControlFilterWarningApi {
     type?: 'access_control'
 }
 
+export interface BreakdownNotAppliedWarningApi {
+    /** Human-readable warning shown to the user */
+    message: string
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type?: 'breakdown_not_applied'
+}
+
 export interface MarketingAnalyticsTableQueryResponseApi {
     columns?: unknown[] | null
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string | null
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -1861,8 +2005,10 @@ export interface MarketingAnalyticsTableQueryResponseApi {
     types?: unknown[] | null
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+    warehouse_suggestions?: WarehouseSuggestionNoteApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | BreakdownNotAppliedWarningApi)[] | null
 }
 
 export interface WebAnalyticsSamplingApi {
@@ -1879,6 +2025,11 @@ export interface QueryLogTagsApi {
     productKey?: string | null
     /** Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene * */
     scene?: string | null
+}
+
+export interface WebAnalyticsQueryModifiersApi {
+    /** Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise. */
+    useDimensionalTables?: boolean | null
 }
 
 export interface MarketingAnalyticsTableQueryApi {
@@ -1927,6 +2078,8 @@ export interface MarketingAnalyticsTableQueryApi {
     useSessionsTable?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export interface ConversionRecordingsRequestApi {
@@ -2284,6 +2437,11 @@ export interface CapabilityReadinessApi {
 }
 
 export interface SetupPlanResponseApi {
+    /**
+     * Time of the latest seven-day source scan, including cached scans. Null if no scan time is available.
+     * @nullable
+     */
+    readonly source_scanned_at: string | null
     /** Ranked suggestions, most important first */
     suggestions: SuggestionApi[]
     /** Per-capability readiness, with the suggestions blocking each */
@@ -2591,6 +2749,141 @@ export interface UtmAuditResponseApi {
     results: CampaignAuditResultApi[]
     /** All UTM events with match status */
     all_utm_events: UtmEventApi[]
+}
+
+/**
+ * * `budget_constrained` - Budget Constrained
+ * * `brand_leak` - Brand Leak
+ * * `scale_campaign` - Scale Campaign
+ * * `review_campaign` - Review Campaign
+ * * `policy_limited` - Policy Limited
+ * * `brand_overlap` - Brand Overlap
+ * * `content_gap` - Content Gap
+ * * `keyword_gap` - Keyword Gap
+ * * `spend_without_conversions` - Spend Without Conversions
+ * * `striking_distance` - Striking Distance
+ * * `keyword_tracking` - Keyword Tracking
+ */
+export type RecommendationRuleEnumApi = (typeof RecommendationRuleEnumApi)[keyof typeof RecommendationRuleEnumApi]
+
+export const RecommendationRuleEnumApi = {
+    BudgetConstrained: 'budget_constrained',
+    BrandLeak: 'brand_leak',
+    ScaleCampaign: 'scale_campaign',
+    ReviewCampaign: 'review_campaign',
+    PolicyLimited: 'policy_limited',
+    BrandOverlap: 'brand_overlap',
+    ContentGap: 'content_gap',
+    KeywordGap: 'keyword_gap',
+    SpendWithoutConversions: 'spend_without_conversions',
+    StrikingDistance: 'striking_distance',
+    KeywordTracking: 'keyword_tracking',
+} as const
+
+/**
+ * * `google_ads` - Google Ads
+ */
+export type RecommendationSourceTypeEnumApi =
+    (typeof RecommendationSourceTypeEnumApi)[keyof typeof RecommendationSourceTypeEnumApi]
+
+export const RecommendationSourceTypeEnumApi = {
+    GoogleAds: 'google_ads',
+} as const
+
+export interface RecommendationIdentityApi {
+    /** The rule that produced the recommendation.
+     *
+     * * `budget_constrained` - Budget Constrained
+     * * `brand_leak` - Brand Leak
+     * * `scale_campaign` - Scale Campaign
+     * * `review_campaign` - Review Campaign
+     * * `policy_limited` - Policy Limited
+     * * `brand_overlap` - Brand Overlap
+     * * `content_gap` - Content Gap
+     * * `keyword_gap` - Keyword Gap
+     * * `spend_without_conversions` - Spend Without Conversions
+     * * `striking_distance` - Striking Distance
+     * * `keyword_tracking` - Keyword Tracking */
+    rule: RecommendationRuleEnumApi
+    /** The ad platform the ids belong to.
+     *
+     * * `google_ads` - Google Ads */
+    source_type: RecommendationSourceTypeEnumApi
+    /**
+     * The Google Ads account id. Empty when the recommendation is not tied to one account.
+     * @maxLength 64
+     */
+    customer_id: string
+    /**
+     * The Google Ads campaign id. Empty when the recommendation is not about one campaign.
+     * @maxLength 64
+     */
+    campaign_id: string
+    /**
+     * The search term, or the budget id for a budget recommendation. Empty when the campaign id names the subject.
+     * @maxLength 10000
+     */
+    subject: string
+}
+
+/**
+ * * `dismissed` - Dismissed
+ * * `applied` - Applied
+ */
+export type RecommendationResolutionStateEnumApi =
+    (typeof RecommendationResolutionStateEnumApi)[keyof typeof RecommendationResolutionStateEnumApi]
+
+export const RecommendationResolutionStateEnumApi = {
+    Dismissed: 'dismissed',
+    Applied: 'applied',
+} as const
+
+export interface RecommendationResolutionRequestApi {
+    /** The recommendation's `identity` from the recommendations query, sent as is. */
+    identity: RecommendationIdentityApi
+    /** Dismissed hides the recommendation. Applied marks that someone made the change it suggests.
+     *
+     * * `dismissed` - Dismissed
+     * * `applied` - Applied */
+    resolution: RecommendationResolutionStateEnumApi
+}
+
+export interface RecommendationResolverApi {
+    /** The user's id. */
+    id: number
+    /** The user's UUID. */
+    uuid: string
+    /**
+     * The user's distinct id.
+     * @nullable
+     */
+    distinct_id: string | null
+    /** The user's first name. */
+    first_name: string
+    /** The user's last name. */
+    last_name: string
+    /** The user's email address. */
+    email: string
+}
+
+export interface RecommendationResolutionApi {
+    /** The resolution id. Delete it to show the recommendation again. */
+    id: string
+    /** The identity of the resolved recommendation. */
+    identity: RecommendationIdentityApi
+    /** Opaque id of `identity`, the same as the `key` of the recommendation in the recommendations query. */
+    key: string
+    /** Dismissed hides the recommendation. Applied marks that someone made the change it suggests.
+     *
+     * * `dismissed` - Dismissed
+     * * `applied` - Applied */
+    resolution: RecommendationResolutionStateEnumApi
+    /** The user who last resolved the recommendation. Null when that user was deleted. */
+    resolved_by: RecommendationResolverApi | null
+    /** When the recommendation was last resolved. */
+    resolved_at: string
+    /** When the recommendation was first resolved. */
+    created_at: string
 }
 
 export type MarketingAnalyticsDataSourcesRetrieveParams = {

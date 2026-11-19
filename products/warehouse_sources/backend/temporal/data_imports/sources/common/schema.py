@@ -20,8 +20,22 @@ _INCREMENTAL_FIELD_PREFERENCE = [
     "created",
 ]
 
+_TEMPORAL_FIELD_TYPES = {IncrementalFieldType.Timestamp, IncrementalFieldType.DateTime, IncrementalFieldType.Date}
+_TYPE_RANK = {
+    IncrementalFieldType.Timestamp: 2,
+    IncrementalFieldType.DateTime: 2,
+    IncrementalFieldType.Integer: 1,
+    IncrementalFieldType.Numeric: 1,
+    IncrementalFieldType.ObjectID: 1,
+}
 
-@dataclass
+_TRACKS_UPDATES_NOTE = "Changes when a row is updated, so edited rows sync again."
+_TRACKS_INSERTS_ONLY_NOTE = "Only marks new rows. Edits to existing rows don't sync."
+_NOT_INDEXED_NOTE = "Not indexed, so each sync scans the whole table."
+_NULLABLE_NOTE = "Can be empty. Rows where it's empty never sync."
+
+
+@dataclass(frozen=False)
 class SourceSchema:
     name: str
     supports_incremental: bool
@@ -60,24 +74,93 @@ class SourceSchema:
     # The SQL sources' location keys above (source_catalog/source_schema/source_table_name)
     # stay separate: their persistence is gated on column-selection/direct-query paths.
     schema_metadata: dict[str, Any] | None = None
+    # Keeps full refresh as the default sync type for a table that also supports incremental or
+    # append. Sources set it when only a full refresh keeps the table equal to the origin, for
+    # example file imports, where the other sync types keep the rows of files deleted upstream.
+    prefers_full_refresh: bool = False
+    # True when the source reads each table's key from the table's definition, such as a REST manifest,
+    # so a table defined without a key gets none from the source. Discovery reads no columns for such a
+    # table, so nothing else shows that it has no key.
+    declares_primary_keys: bool = False
+
+
+def _change_tracking_tier(field: IncrementalField) -> int:
+    """2 when the field advances on updates, 1 when only on inserts, 0 when the name tells nothing."""
+    name = field.get("field") or ""
+    field_type = field.get("field_type") or field.get("type")
+    # A numeric column counts only by an exact name, so an epoch `updated_at` matches and
+    # `modified_by` (a user id) does not.
+    if field_type in _TEMPORAL_FIELD_TYPES or name.lower() in _INCREMENTAL_FIELD_PREFERENCE:
+        compact = "".join(ch for ch in name.lower() if ch.isalnum())
+        if "updat" in compact or "modif" in compact:
+            return 2
+        if "creat" in compact or "insert" in compact:
+            return 1
+        return 0
+    # A Mongo ObjectID and an integer `id` grow with each insert and never change on update.
+    if field_type == IncrementalFieldType.ObjectID or name.lower() == "id":
+        return 1
+    return 0
+
+
+def tracks_updates(field: IncrementalField) -> bool:
+    return _change_tracking_tier(field) == 2
+
+
+def name_is_silent(field: IncrementalField) -> bool:
+    """True when the column name says neither "updated" nor "created", so only reading it can tell."""
+    return _change_tracking_tier(field) == 0
+
+
+def _rank_score(field: IncrementalField) -> int:
+    """Higher is better. Each criterion outweighs all the criteria after it."""
+    return (
+        _change_tracking_tier(field) * 1000
+        + (100 if field.get("is_indexed", True) else 0)
+        + (0 if field.get("nullable", False) else 10)
+        + _TYPE_RANK.get(field.get("field_type") or field["type"], 0)
+    )
+
+
+def _exact_name_preference(field: IncrementalField) -> int:
+    name = (field.get("field") or "").lower()
+    if name in _INCREMENTAL_FIELD_PREFERENCE:
+        return _INCREMENTAL_FIELD_PREFERENCE.index(name)
+    return len(_INCREMENTAL_FIELD_PREFERENCE)
 
 
 def rank_incremental_fields(incremental_fields: list[IncrementalField]) -> list[IncrementalField]:
-    """Stable-sort candidate cursor fields so update-tracking columns come first.
+    """Sort candidate cursor fields best first, and mark the first one as recommended.
 
-    Several surfaces default to the first candidate (the schema picker response, the sync
-    settings modal), so for sources with arbitrary user columns the leading candidate must
-    be one that advances on writes rather than whichever column comes first in the table
-    definition. Fields not in the preference list keep their original relative order.
+    For sources with arbitrary user columns. Several surfaces default to the first candidate
+    (the schema picker response, the sync settings modal, the MCP), so it must be the field a
+    data engineer would pick, not whichever column comes first in the table definition.
+
+    The order of precedence: whether the field advances on updates, whether it is indexed,
+    whether it is non-nullable, then its type. The name check goes first because a field that
+    misses updates loses data without any error, while a full scan is only slow. Each field
+    gets `notes` that explain the trade-offs to the user or to an agent.
     """
 
-    def preference(field: IncrementalField) -> int:
-        name = (field.get("field") or "").lower()
-        if name in _INCREMENTAL_FIELD_PREFERENCE:
-            return _INCREMENTAL_FIELD_PREFERENCE.index(name)
-        return len(_INCREMENTAL_FIELD_PREFERENCE)
+    # The synthetic Postgres xmin cursor only works as its own sync method, so it never leads.
+    synthetic = [f for f in incremental_fields if (f.get("field_type") or f["type"]) == IncrementalFieldType.XID]
+    real = [f for f in incremental_fields if (f.get("field_type") or f["type"]) != IncrementalFieldType.XID]
 
-    return sorted(incremental_fields, key=preference)
+    ranked: list[IncrementalField] = []
+    by_preferred_name = sorted(real, key=_exact_name_preference)
+    for position, candidate in enumerate(sorted(by_preferred_name, key=_rank_score, reverse=True)):
+        notes = []
+        tier = _change_tracking_tier(candidate)
+        if tier == 2:
+            notes.append(_TRACKS_UPDATES_NOTE)
+        elif tier == 1:
+            notes.append(_TRACKS_INSERTS_ONLY_NOTE)
+        if candidate.get("is_indexed") is False:
+            notes.append(_NOT_INDEXED_NOTE)
+        if candidate.get("nullable"):
+            notes.append(_NULLABLE_NOTE)
+        ranked.append({**candidate, "recommended": position == 0, "notes": notes})
+    return ranked + synthetic
 
 
 def _select_incremental_field(incremental_fields: list[IncrementalField]) -> IncrementalField | None:
@@ -85,6 +168,9 @@ def _select_incremental_field(incremental_fields: list[IncrementalField]) -> Inc
     candidates = [f for f in incremental_fields if f.get("field")]
     if not candidates:
         return None
+    recommended = next((f for f in candidates if f.get("recommended")), None)
+    if recommended is not None:
+        return recommended
     by_name = {f["field"].lower(): f for f in candidates}
     for name in _INCREMENTAL_FIELD_PREFERENCE:
         if name in by_name:
@@ -92,16 +178,36 @@ def _select_incremental_field(incremental_fields: list[IncrementalField]) -> Inc
     return candidates[0]
 
 
+def lacks_merge_key(source_schema: SourceSchema) -> bool:
+    """True when discovery shows that an incremental sync of the table would have no key to merge rows on.
+
+    Without a key the first sync writes the table and every later sync fails. A table whose columns
+    discovery read needs a detected key or an `id` column, because the sync falls back to `id`. A table
+    without columns resolves its key at sync time, unless the source declares its keys at discovery.
+    """
+    if source_schema.detected_primary_keys:
+        return False
+    if source_schema.columns:
+        return not any(str(column[0]).lower() == "id" for column in source_schema.columns)
+    return source_schema.declares_primary_keys
+
+
 def build_default_sync_settings(source_schema: SourceSchema) -> dict[str, Any]:
     """Default sync settings for one discovered table.
 
     Picks ``incremental`` when the source supports it and a tracking column exists (cheapest
-    ongoing sync), else ``append`` when supported, else ``full_refresh``. Never picks ``cdc``
+    ongoing sync), else ``append`` when supported, else ``full_refresh``. A table that sets
+    ``prefers_full_refresh``, or that supports incremental but has no key to merge on, always
+    gets ``full_refresh``, the same default the source wizard picks. Never picks ``cdc``
     or ``webhook`` — both need prerequisites (Postgres setup, webhook registration) and
     explicit opt-in.
     """
     chosen = _select_incremental_field(source_schema.incremental_fields)
-    if source_schema.supports_incremental and chosen is not None:
+    if source_schema.prefers_full_refresh:
+        sync_type = "full_refresh"
+    elif source_schema.supports_incremental and lacks_merge_key(source_schema):
+        sync_type = "full_refresh"
+    elif source_schema.supports_incremental and chosen is not None:
         sync_type = "incremental"
     elif source_schema.supports_append and chosen is not None:
         sync_type = "append"

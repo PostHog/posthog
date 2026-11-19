@@ -53,10 +53,10 @@ class TestCallbacksFireOnAnthropicRequest:
 
     def test_prometheus_callback_records_tokens(self, anthropic_client: Anthropic) -> None:
         initial_input = TOKENS_INPUT.labels(
-            provider="anthropic", model=ANTHROPIC_TEST_MODEL, product="llm_gateway"
+            provider="anthropic", model=ANTHROPIC_TEST_MODEL, product="django"
         )._value.get()
         initial_output = TOKENS_OUTPUT.labels(
-            provider="anthropic", model=ANTHROPIC_TEST_MODEL, product="llm_gateway"
+            provider="anthropic", model=ANTHROPIC_TEST_MODEL, product="django"
         )._value.get()
 
         anthropic_client.messages.create(
@@ -66,11 +66,11 @@ class TestCallbacksFireOnAnthropicRequest:
         )
 
         assert (
-            TOKENS_INPUT.labels(provider="anthropic", model=ANTHROPIC_TEST_MODEL, product="llm_gateway")._value.get()
+            TOKENS_INPUT.labels(provider="anthropic", model=ANTHROPIC_TEST_MODEL, product="django")._value.get()
             > initial_input
         )
         assert (
-            TOKENS_OUTPUT.labels(provider="anthropic", model=ANTHROPIC_TEST_MODEL, product="llm_gateway")._value.get()
+            TOKENS_OUTPUT.labels(provider="anthropic", model=ANTHROPIC_TEST_MODEL, product="django")._value.get()
             > initial_output
         )
 

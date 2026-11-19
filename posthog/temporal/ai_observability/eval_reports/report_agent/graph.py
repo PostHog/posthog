@@ -11,7 +11,6 @@ from langgraph.prebuilt import create_react_agent
 from openai import APIStatusError
 
 from posthog.llm.gateway_client import team_distinct_id
-from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
 from posthog.temporal.ai_observability.eval_reports.report_agent.prompts import build_eval_report_system_prompt
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
@@ -43,6 +42,8 @@ from posthog.temporal.ai_observability.eval_reports.targets import (
 )
 from posthog.temporal.ai_observability.eval_reports.types import RunEvalReportAgentInput
 from posthog.temporal.ai_observability.llm_endpoint import build_flex_first_chat_client, build_langchain_callbacks
+
+from products.ai_observability.backend.models.evaluation_outcomes import get_outcome_definition
 
 logger = structlog.get_logger(__name__)
 
@@ -130,7 +131,7 @@ def _fallback_content(
             f"No evaluation runs recorded for **{evaluation_name}** in this period. "
             f"Check that the evaluation is enabled and that {ingestion_hint}."
         )
-    elif metrics.output_type in ("numeric", "categorical") and metrics.pass_rate is None:
+    elif metrics.output_type in ("boolean", "numeric", "categorical") and metrics.pass_rate is None:
         summary = (
             f"No applicable results were produced across {metrics.total_runs} runs. All results were not applicable."
         )
@@ -337,6 +338,8 @@ def run_eval_report_agent(
         session_id=resolved_session_id,
         properties=observability_properties,
         distinct_id=resolved_distinct_id,
+        # The gpt-6 models reject function tools with reasoning on /v1/chat/completions.
+        use_responses_api=True,
     )
 
     system_prompt = build_eval_report_system_prompt(

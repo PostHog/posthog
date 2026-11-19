@@ -202,6 +202,13 @@ export function sanitizeString(value: string) {
     return value.replace(/\u0000/g, '\uFFFD')
 }
 
+// The pg driver sends an object parameter as JSON text and everything else via
+// String(), so this is the text Postgres receives. String() alone throws on an
+// object whose toString is not callable, which a sender controls.
+export function asPostgresParameterText(value: unknown): string {
+    return typeof value === 'object' ? JSON.stringify(value) : String(value)
+}
+
 export const surrogatesSubstitutedCounter = new Counter({
     name: 'surrogates_substituted_total',
     help: 'Stray UTF16 surrogates detected and removed from user input.',

@@ -10,7 +10,8 @@ import * as zod from 'zod'
 
 /**
  * Observed values for one metric attribute key, most frequent first.
- * Backs the filter bar's value autocomplete.
+ * Backs the filter bar's value autocomplete. `metricName` limits choices
+ * to one metric.
  */
 export const MetricsAttributeValuesRetrieveParams = () => zod.object({
     project_id: zod
@@ -24,6 +25,9 @@ export const metricsAttributeValuesRetrieveQueryKeyMax = 255
 
 export const metricsAttributeValuesRetrieveQueryLimitDefault = 100
 export const metricsAttributeValuesRetrieveQueryLimitMax = 1000
+
+export const metricsAttributeValuesRetrieveQueryMetricNameDefault = ``
+export const metricsAttributeValuesRetrieveQueryMetricNameMax = 255
 
 export const metricsAttributeValuesRetrieveQueryValueDefault = ``
 export const metricsAttributeValuesRetrieveQueryValueMax = 1024
@@ -50,6 +54,11 @@ export const MetricsAttributeValuesRetrieveQueryParams = () => zod.object({
         .max(metricsAttributeValuesRetrieveQueryLimitMax)
         .default(metricsAttributeValuesRetrieveQueryLimitDefault)
         .describe('Max number of values to return. Defaults to 100; maximum 1000.'),
+    metricName: zod
+        .string()
+        .max(metricsAttributeValuesRetrieveQueryMetricNameMax)
+        .default(metricsAttributeValuesRetrieveQueryMetricNameDefault)
+        .describe('Exact metric name to limit values to. Omit to list values across all metrics.'),
     value: zod
         .string()
         .max(metricsAttributeValuesRetrieveQueryValueMax)
@@ -163,15 +172,27 @@ export const MetricsCharacterizeCreateBody = () => zod.object({
             aggregation: zod
                 .union([
                     zod
-                        .enum(['sum', 'avg', 'count', 'min', 'max', 'p95', 'rate', 'increase', 'histogram_quantile'])
+                        .enum([
+                            'sum',
+                            'avg',
+                            'count',
+                            'min',
+                            'max',
+                            'p95',
+                            'rate',
+                            'increase',
+                            'histogram_quantile',
+                            'count_rate',
+                            'count_increase',
+                        ])
                         .describe(
-                            '\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
+                            '\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile\n\* `count_rate` - count_rate\n\* `count_increase` - count_increase'
                         ),
                     zod.null(),
                 ])
                 .optional()
                 .describe(
-                    "Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
+                    "Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile\n\* `count_rate` - count_rate\n\* `count_increase` - count_increase"
                 ),
             quantile: zod
                 .number()
@@ -403,9 +424,10 @@ export const MetricsQueryCreateParams = () => zod.object({
 
 export const metricsQueryCreateBodyQueryOneMetricNameMax = 255
 
-export const metricsQueryCreateBodyQueryOneAggregationDefault = `sum`
 export const metricsQueryCreateBodyQueryOneQuantileMin = 0
 export const metricsQueryCreateBodyQueryOneQuantileMax = 1
+
+export const metricsQueryCreateBodyQueryOneApdexThresholdMsMin = 0.001
 
 export const metricsQueryCreateBodyQueryOneFiltersItemKeyMax = 255
 
@@ -424,6 +446,8 @@ export const metricsQueryCreateBodyQueryOneClausesItemAggregationDefault = `sum`
 export const metricsQueryCreateBodyQueryOneClausesItemQuantileMin = 0
 export const metricsQueryCreateBodyQueryOneClausesItemQuantileMax = 1
 
+export const metricsQueryCreateBodyQueryOneClausesItemApdexThresholdMsMin = 0.001
+
 export const metricsQueryCreateBodyQueryOneClausesItemFiltersItemKeyMax = 255
 
 export const metricsQueryCreateBodyQueryOneClausesItemFiltersItemOpDefault = `eq`
@@ -434,6 +458,10 @@ export const metricsQueryCreateBodyQueryOneClausesItemGroupByItemKeyMax = 255
 
 export const metricsQueryCreateBodyQueryOneClausesItemGroupByItemScopeDefault = `auto`
 export const metricsQueryCreateBodyQueryOneFormulaMax = 512
+
+export const metricsQueryCreateBodyQueryOnePromqlMax = 8192
+
+export const metricsQueryCreateBodyQueryOneLimitMax = 100
 
 export const MetricsQueryCreateBody = () => zod.object({
     query: zod
@@ -459,13 +487,26 @@ export const MetricsQueryCreateBody = () => zod.object({
                     "Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.\n\n\* `gauge` - gauge\n\* `sum` - sum\n\* `histogram` - histogram\n\* `exponential_histogram` - exponential_histogram\n\* `summary` - summary"
                 ),
             aggregation: zod
-                .enum(['none', 'sum', 'avg', 'count', 'min', 'max', 'p95', 'rate', 'increase', 'histogram_quantile'])
+                .enum([
+                    'none',
+                    'sum',
+                    'avg',
+                    'count',
+                    'min',
+                    'max',
+                    'p95',
+                    'rate',
+                    'increase',
+                    'histogram_quantile',
+                    'count_rate',
+                    'count_increase',
+                ])
                 .describe(
-                    '\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
+                    '\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile\n\* `count_rate` - count_rate\n\* `count_increase` - count_increase'
                 )
-                .default(metricsQueryCreateBodyQueryOneAggregationDefault)
+                .optional()
                 .describe(
-                    "Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.\n\n\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
+                    "Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'count_rate' (per-second) and 'count_increase' are 'rate' and 'increase' over a histogram's or summary's observation count instead of its running sum, so they chart requests per second from a latency histogram; they take no 'rangeFunction'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.\n\n\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile\n\* `count_rate` - count_rate\n\* `count_increase` - count_increase"
                 ),
             rangeFunction: zod
                 .union([
@@ -482,6 +523,13 @@ export const MetricsQueryCreateBody = () => zod.object({
                 .max(metricsQueryCreateBodyQueryOneQuantileMax)
                 .nullish()
                 .describe("Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations."),
+            apdexThresholdMs: zod
+                .number()
+                .min(metricsQueryCreateBodyQueryOneApdexThresholdMsMin)
+                .nullish()
+                .describe(
+                    "Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics."
+                ),
             filters: zod
                 .array(
                     zod.object({
@@ -593,13 +641,15 @@ export const MetricsQueryCreateBody = () => zod.object({
                                 'rate',
                                 'increase',
                                 'histogram_quantile',
+                                'count_rate',
+                                'count_increase',
                             ])
                             .describe(
-                                '\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
+                                '\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile\n\* `count_rate` - count_rate\n\* `count_increase` - count_increase'
                             )
                             .default(metricsQueryCreateBodyQueryOneClausesItemAggregationDefault)
                             .describe(
-                                'Aggregation applied per time bucket; same semantics as the top-level aggregation.\n\n\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
+                                'Aggregation applied per time bucket; same semantics as the top-level aggregation.\n\n\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile\n\* `count_rate` - count_rate\n\* `count_increase` - count_increase'
                             ),
                         rangeFunction: zod
                             .union([
@@ -616,6 +666,13 @@ export const MetricsQueryCreateBody = () => zod.object({
                             .max(metricsQueryCreateBodyQueryOneClausesItemQuantileMax)
                             .nullish()
                             .describe("Quantile in (0, 1) for 'histogram_quantile'."),
+                        apdexThresholdMs: zod
+                            .number()
+                            .min(metricsQueryCreateBodyQueryOneClausesItemApdexThresholdMsMin)
+                            .nullish()
+                            .describe(
+                                "Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics."
+                            ),
                         filters: zod
                             .array(
                                 zod.object({
@@ -684,13 +741,58 @@ export const MetricsQueryCreateBody = () => zod.object({
                 .describe(
                     "Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) \/ a'. Supports + - \* \/ and parentheses; division by zero yields 0. When set, only the formula result series are returned."
                 ),
-            dateFrom: zod.iso
-                .datetime({ offset: true })
-                .describe('Lower bound (inclusive) for the query range. ISO 8601.'),
-            dateTo: zod.iso
-                .datetime({ offset: true })
+            promql: zod
+                .string()
+                .max(metricsQueryCreateBodyQueryOnePromqlMax)
+                .nullish()
+                .describe(
+                    "PromQL expression, run as a range query over the request's time grid, e.g. 'sum by (job) (rate(http_requests_total[5m]))'. Use it to run an alert or runbook expression as written. Mutually exclusive with 'metricName' and 'clauses'; put label selectors and grouping in the expression instead of 'filters' and 'groupBy'. In PromQL, service.name is service_name and other label names with dots need quotes. A bucket that a series did not report is null, not zero."
+                ),
+            dateFrom: zod
+                .string()
                 .optional()
-                .describe('Upper bound (exclusive) for the query range. Defaults to now if omitted.'),
+                .describe(
+                    "Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-30M' (minutes), '-1h', '-7d', '-2w' or '-1m' (months; lowercase m is months, capital M is minutes). Defaults to 24 hours before dateTo."
+                ),
+            dateTo: zod
+                .string()
+                .optional()
+                .describe(
+                    'Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted.'
+                ),
+            dropEmptySeries: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    "Leave out series whose every point is zero or null, and count them in 'omitted_empty_series'. Defaults to true for MCP clients and false otherwise."
+                ),
+            limit: zod
+                .number()
+                .min(1)
+                .max(metricsQueryCreateBodyQueryOneLimitMax)
+                .nullish()
+                .describe(
+                    "Return at most this many series, the ones with the largest summed absolute value, and count the rest in 'omitted_by_limit'. Applies after dropEmptySeries."
+                ),
+            instant: zod
+                .boolean()
+                .optional()
+                .describe(
+                    "Return one value per series instead of a time series. PromQL runs as an instant query at 'time'. The builder returns the last complete bucket before 'time', 5 minutes wide unless 'interval' says otherwise. Each series then has 'value' and 'time' instead of 'points'. Cannot be combined with 'dateFrom', 'dateTo' or 'output'."
+                ),
+            time: zod
+                .string()
+                .optional()
+                .describe(
+                    'Evaluation time of an instant query: ISO 8601 or a relative offset like dateFrom. Defaults to now. Setting it makes the query instant.'
+                ),
+            output: zod
+                .enum(['points', 'summary'])
+                .describe('\* `points` - points\n\* `summary` - summary')
+                .optional()
+                .describe(
+                    "'points' (default) returns every point. 'summary' runs the same range query but returns per series only 'last' (the last non-null value), its 'time', and 'min', 'max' and 'avg' over the non-null points.\n\n\* `points` - points\n\* `summary` - summary"
+                ),
         })
         .describe('The metric query to execute.'),
 })
@@ -706,21 +808,46 @@ export const MetricsValuesRetrieveParams = () => zod.object({
         ),
 })
 
+export const metricsValuesRetrieveQueryFirstSeenDefault = false
+export const metricsValuesRetrieveQueryFoldHistogramsDefault = false
 export const metricsValuesRetrieveQueryLimitDefault = 100
 export const metricsValuesRetrieveQueryLimitMax = 1000
 
+export const metricsValuesRetrieveQueryMatchDefault = `substring`
+export const metricsValuesRetrieveQuerySeriesStatsDefault = false
 export const metricsValuesRetrieveQueryServiceMax = 1024
 
+export const metricsValuesRetrieveQuerySparklinesDefault = true
 export const metricsValuesRetrieveQueryValueDefault = ``
 export const metricsValuesRetrieveQueryValueMax = 255
 
 export const MetricsValuesRetrieveQueryParams = () => zod.object({
+    first_seen: zod
+        .boolean()
+        .default(metricsValuesRetrieveQueryFirstSeenDefault)
+        .describe('Add `first_seen`: the earliest hour each name arrived in, within retention.'),
+    fold_histograms: zod
+        .boolean()
+        .default(metricsValuesRetrieveQueryFoldHistogramsDefault)
+        .describe(
+            "Fold a Prometheus classic histogram's `<name>_bucket`, `<name>_sum` and `<name>_count` into one `<name>_bucket` entry with `classic_histogram` set. Only folds when all three are in the page."
+        ),
     limit: zod
         .number()
         .min(1)
         .max(metricsValuesRetrieveQueryLimitMax)
         .default(metricsValuesRetrieveQueryLimitDefault)
         .describe('Max number of names to return. Defaults to 100; maximum 1000.'),
+    match: zod
+        .enum(['substring', 'prefix', 'regex'])
+        .default(metricsValuesRetrieveQueryMatchDefault)
+        .describe(
+            'How `value` matches a name. `substring` (default) and `prefix` are case-insensitive. `regex` is an RE2 pattern run with ClickHouse match(): case-sensitive and unanchored, so use `^` and `$` to anchor and `(?i)` to ignore case.\n\n\* `substring` - substring\n\* `prefix` - prefix\n\* `regex` - regex'
+        ),
+    series_stats: zod
+        .boolean()
+        .default(metricsValuesRetrieveQuerySeriesStatsDefault)
+        .describe('Add `series_count` and `tag_key_count` for each name, over the last 24 hours.'),
     service: zod
         .string()
         .max(metricsValuesRetrieveQueryServiceMax)
@@ -728,9 +855,17 @@ export const MetricsValuesRetrieveQueryParams = () => zod.object({
         .describe(
             'Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.'
         ),
+    sparklines: zod
+        .boolean()
+        .default(metricsValuesRetrieveQuerySparklinesDefault)
+        .describe(
+            'Attach a 24-point sparkline of the last 6 hours to each name. Turn off for a smaller, faster response.'
+        ),
     value: zod
         .string()
         .max(metricsValuesRetrieveQueryValueMax)
         .default(metricsValuesRetrieveQueryValueDefault)
-        .describe('Substring filter (case-insensitive) applied to metric names.'),
+        .describe(
+            'Filter applied to metric names; `match` decides how. Empty lists every name, ordered by how many services report it.'
+        ),
 })

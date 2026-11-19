@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 import pyarrow as pa
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
 # CDC metadata column names — database-agnostic
 CDC_OP_COLUMN = "_ph_cdc_op"
@@ -20,21 +23,64 @@ DELETED_AT_COLUMN = "_ph_deleted_at"
 # and (in Phase B) drives the merge's monotonicity guard.
 CDC_SEQ_COLUMN = "_ph_cdc_seq"
 # Marks CDC_SEQ_COLUMN as engine-produced, so readers can tell it from a source column of the same
-# name (see the collision skip in _events_to_table).
+# name.
 CDC_SEQ_PROVENANCE = {b"posthog_cdc": b"engine_position"}
 
-# Suffix of the SCD2 companion table's resource name ({schema.name}_cdc).
-CDC_COMPANION_SUFFIX = "_cdc"
+
+@frozen
+class HistoryNaming:
+    """The table name suffix, the validity column names and the partition column of one history table.
+
+    A history table keeps the naming it was created with, so code reads it from the table and never
+    from a constant.
+    """
+
+    suffix: str
+    valid_from: str
+    valid_to: str
+    # The SCD2 writer files open rows under `CURRENT_HISTORY_PARTITION` and closed rows under the month their
+    # version ended. A close then rewrites only files of the current partition, which grows with the live
+    # table, not with history.
+    partition_column: str | None = None
+
+    @property
+    def validity_columns(self) -> frozenset[str]:
+        return frozenset({self.valid_from, self.valid_to})
+
+    @property
+    def stamped_columns(self) -> frozenset[str]:
+        """Every column a history table carries next to the source's own columns."""
+        return self.validity_columns | ({self.partition_column} if self.partition_column else set())
 
 
-def companion_resource_name(schema_name: str) -> str:
-    """Storage name for a schema's `_cdc` companion table.
+LEGACY_HISTORY_NAMING = HistoryNaming(suffix="_cdc", valid_from="valid_from", valid_to="valid_to")
+# The `_ph_` names leave a source's own `valid_from` and `valid_to` free to sync.
+HISTORY_PARTITION_COLUMN = "_ph_history_partition"
+HISTORY_NAMING = HistoryNaming(
+    suffix="_history",
+    valid_from="_ph_valid_from",
+    valid_to="_ph_valid_to",
+    partition_column=HISTORY_PARTITION_COLUMN,
+)
+CURRENT_HISTORY_PARTITION = "current"
+
+
+def history_naming_of(column_names: Iterable[str]) -> HistoryNaming:
+    """The naming a stamped history batch or table was written with.
+
+    `_ph_valid_from` is reserved on every history table, so only the stamp can put it there.
+    """
+    return HISTORY_NAMING if HISTORY_NAMING.valid_from in set(column_names) else LEGACY_HISTORY_NAMING
+
+
+def companion_resource_name(schema_name: str, naming: HistoryNaming) -> str:
+    """Storage name for a schema's history table.
 
     Keyed on the schema's `name`, never its resolved folder: the companion is CDC-only and stays
     self-consistent with its `name`-keyed snapshot seed. Capture, the snapshot seed and the
     buffered consumer all write the same table, so they all resolve the name here.
     """
-    return f"{schema_name}{CDC_COMPANION_SUFFIX}"
+    return f"{schema_name}{naming.suffix}"
 
 
 # Per-row list of source columns the change stream omitted because they are
@@ -43,30 +89,76 @@ def companion_resource_name(schema_name: str) -> str:
 # writing to DeltaLake.
 TOAST_OMITTED_COLUMN = "_ph_toast_omitted"
 
-# SCD Type 2 columns added to the _cdc history table
-SCD2_VALID_FROM_COLUMN = "valid_from"
-SCD2_VALID_TO_COLUMN = "valid_to"
+# Values of `cdc_table_mode` that write the history table.
+CDC_HISTORY_TABLE_MODES: frozenset[str] = frozenset({"cdc_only", "both"})
 
-# Columns that are CDC/SCD2 metadata — always filled from the event itself,
-# never overwritten when enriching DELETE rows with last-known source data.
-_CDC_METADATA_COLUMNS: frozenset[str] = frozenset(
-    {
-        CDC_OP_COLUMN,
-        CDC_TIMESTAMP_COLUMN,
-        CDC_SEQ_COLUMN,
-        DELETED_COLUMN,
-        DELETED_AT_COLUMN,
-        TOAST_OMITTED_COLUMN,
-        SCD2_VALID_FROM_COLUMN,
-        SCD2_VALID_TO_COLUMN,
-    }
+
+def is_history_table_mode(cdc_table_mode: object) -> bool:
+    # The create payload is free-form, so a malformed mode can be stored, and a list or dict is unhashable.
+    return isinstance(cdc_table_mode, str) and cdc_table_mode in CDC_HISTORY_TABLE_MODES
+
+
+# Every column capture stamps onto a change row. The consolidated table and the history table both store them.
+CAPTURE_COLUMNS: frozenset[str] = frozenset(
+    {CDC_OP_COLUMN, CDC_TIMESTAMP_COLUMN, CDC_SEQ_COLUMN, DELETED_COLUMN, DELETED_AT_COLUMN, TOAST_OMITTED_COLUMN}
 )
+
+
+# The metadata the history writer stamps on its staging table (`STAGED_*_COLUMN` in `history_upsert.py`).
+# Named here because the capture path does not import the writer.
+HISTORY_STAGING_COLUMNS: frozenset[str] = frozenset({"_ph_staged_batch", "_ph_staged_row"})
+
+
+def history_columns(naming: HistoryNaming) -> frozenset[str]:
+    """The columns a history table adds to the capture columns, and the ones its staging table adds.
+
+    `_ph_valid_*` stays reserved on a legacy history table too, because `history_naming_of` reads the
+    naming from it.
+    """
+    return HISTORY_NAMING.stamped_columns | naming.stamped_columns | HISTORY_STAGING_COLUMNS
+
+
+def reserved_column_names(history: HistoryNaming | None) -> frozenset[str]:
+    """Every name a CDC sync writes next to the source's own columns, `history` when it keeps a history table."""
+    return CAPTURE_COLUMNS if history is None else CAPTURE_COLUMNS | history_columns(history)
+
+
+def reserved_column_collisions(
+    column_names: Iterable[str],
+    reserved: frozenset[str],
+    *,
+    enabled_columns: list[str] | None = None,
+    primary_keys: list[str] | None = None,
+    incremental_field: str | None = None,
+) -> list[str]:
+    """Source columns that would load under a name in `reserved`."""
+    synced = set(column_names)
+    # The same projection capture applies (`filter_columns_by_enabled_columns`), kept inline because
+    # that module's package imports Django models and this one sits on the capture path.
+    if enabled_columns is not None:
+        synced &= {*enabled_columns, *(primary_keys or []), *([incremental_field] if incremental_field else [])}
+    # The load renames columns to snake_case, so `validFrom` and `_PH_CDC_SEQ` collide too. The source
+    # names are returned, because those are what a user renames.
+    return sorted(name for name in synced if NamingConvention.normalize_identifier(name) in reserved)
+
+
+def metadata_columns(history: HistoryNaming | None) -> frozenset[str]:
+    """Columns always filled from the change event itself, never from the last known row.
+
+    `history` names the columns a history table carries next to the source's. A source column that only
+    shares a validity name with another naming is data.
+    """
+    return CAPTURE_COLUMNS if history is None else CAPTURE_COLUMNS | history.stamped_columns
 
 
 # Micro-batch thresholds for CDC WAL processing.  Flushing periodically
 # prevents unbounded memory growth when the WAL backlog is very large.
 CDC_FLUSH_MAX_EVENTS = 5_000
 CDC_FLUSH_MAX_BYTES = 128 * 1024 * 1024  # 128 MiB (estimated, pre-Arrow)
+# The byte estimate cannot see unchanged-TOAST values: the change stream omits them and the
+# loader fills each one from the Delta table, so a small batch can grow by orders of magnitude
+# at load and run the loader out of memory. Capping these rows bounds that growth.
+CDC_FLUSH_MAX_TOAST_OMITTED_EVENTS = 1_000
 
 
 class ChangeEventBatcher:
@@ -86,27 +178,42 @@ class ChangeEventBatcher:
         self,
         max_events: int = CDC_FLUSH_MAX_EVENTS,
         max_bytes: int = CDC_FLUSH_MAX_BYTES,
+        max_toast_omitted_events: int = CDC_FLUSH_MAX_TOAST_OMITTED_EVENTS,
         position_to_seq: Callable[[str], int] | None = None,
     ) -> None:
         self._events: defaultdict[str, list[ChangeEvent]] = defaultdict(list)
         self._table_bytes: defaultdict[str, int] = defaultdict(int)
         self._estimated_bytes: int = 0
+        self._table_toast_omitted: defaultdict[str, int] = defaultdict(int)
+        self._toast_omitted_events: int = 0
         self._max_events = max_events
         self._max_bytes = max_bytes
+        self._max_toast_omitted_events = max_toast_omitted_events
         # Engine adapter's position_serialized → int converter. When set, flushed
         # tables carry CDC_SEQ_COLUMN; when None the column is absent entirely.
         self._position_to_seq = position_to_seq
+        # Tables the last flush could not build, because a source column collides with a capture column.
+        # The caller raises for them only once it knows the table is not waiting for a reset, because a
+        # reset discards the table's changes.
+        self.reserved_collisions: dict[str, CDCReservedColumnError] = {}
 
     def add(self, event: ChangeEvent) -> None:
         size = self._estimate_event_bytes(event)
         self._events[event.table_name].append(event)
         self._table_bytes[event.table_name] += size
         self._estimated_bytes += size
+        if event.omitted_columns:
+            self._table_toast_omitted[event.table_name] += 1
+            self._toast_omitted_events += 1
 
     @property
     def should_flush(self) -> bool:
         """Whether buffered events exceed the configured thresholds."""
-        return self.event_count >= self._max_events or self._estimated_bytes >= self._max_bytes
+        return (
+            self.event_count >= self._max_events
+            or self._estimated_bytes >= self._max_bytes
+            or self._toast_omitted_events >= self._max_toast_omitted_events
+        )
 
     def flush(self) -> dict[str, pa.Table]:
         """Convert buffered events into PyArrow tables, one per table name.
@@ -114,21 +221,28 @@ class ChangeEventBatcher:
         Returns empty dict if no events buffered.
         """
         result: dict[str, pa.Table] = {}
+        self.reserved_collisions = {}
 
         for table_name, events in self._events.items():
             if not events:
                 continue
-            result[table_name] = _events_to_table(events, position_to_seq=self._position_to_seq)
+            try:
+                result[table_name] = _events_to_table(events, position_to_seq=self._position_to_seq)
+            except CDCReservedColumnError as error:
+                self.reserved_collisions[table_name] = error
 
         self._events.clear()
         self._table_bytes.clear()
         self._estimated_bytes = 0
+        self._table_toast_omitted.clear()
+        self._toast_omitted_events = 0
         return result
 
     def discard(self, table_name: str) -> None:
         """Drop a table's pending events so no later flush writes them."""
         self._events.pop(table_name, None)
         self._estimated_bytes -= self._table_bytes.pop(table_name, 0)
+        self._toast_omitted_events -= self._table_toast_omitted.pop(table_name, 0)
 
     @property
     def event_count(self) -> int:
@@ -180,6 +294,7 @@ def enrich_delete_rows(
     table: pa.Table,
     pk_columns: list[str],
     existing_rows: pa.Table | None = None,
+    history: HistoryNaming | None = None,
 ) -> pa.Table:
     """Fill data columns on DELETE rows from the last known state.
 
@@ -196,8 +311,10 @@ def enrich_delete_rows(
     The processor pre-filters `existing_rows` to only the PKs present in DELETE
     events before calling this, so the materialization is bounded by the batch size.
 
-    Metadata columns (op, timestamp, deleted flags, valid_from/to) are always
-    kept from the DELETE event itself and are never overwritten.
+    Metadata columns (op, timestamp, deleted flags, and the validity columns of
+    `history` when the table is a stamped history batch) are always kept from the
+    DELETE event itself and are never overwritten. A source column that only shares
+    a validity name with another naming is data.
     """
     if not pk_columns or table.num_rows == 0:
         return table
@@ -212,7 +329,8 @@ def enrich_delete_rows(
         return table
 
     pk_set = set(present_pks)
-    table_data_cols = [col for col in table.column_names if col not in _CDC_METADATA_COLUMNS and col not in pk_set]
+    metadata = metadata_columns(history)
+    table_data_cols = [col for col in table.column_names if col not in metadata and col not in pk_set]
 
     # Determine extra columns that exist in existing_rows but not in the current table.
     # A standalone DELETE event may only carry PK columns — we add the missing data
@@ -222,7 +340,7 @@ def enrich_delete_rows(
         extra_cols_from_existing = [
             col
             for col in existing_rows.column_names
-            if col not in _CDC_METADATA_COLUMNS and col not in pk_set and col not in table.column_names
+            if col not in metadata and col not in pk_set and col not in table.column_names
         ]
 
     all_data_cols = table_data_cols + extra_cols_from_existing
@@ -411,8 +529,8 @@ def enrich_toast_omitted_rows(
     return pa.table(new_columns, schema=pa.schema(new_fields))
 
 
-def build_scd2_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
-    """Add SCD Type 2 columns (valid_from, valid_to) to a raw CDC event table.
+def build_scd2_table(pa_table: pa.Table, pk_columns: list[str], naming: HistoryNaming) -> pa.Table:
+    """Add the SCD Type 2 columns of `naming` (valid_from, valid_to) to a raw CDC event table.
 
     valid_from  = _ph_cdc_timestamp (the commit timestamp of this event)
     valid_to    = _ph_cdc_timestamp of the next event for the same PK, or null
@@ -425,13 +543,11 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
     A two-step merge + append in the load processor closes previous "current"
     rows (sets valid_to) when a new batch is written for the same PK.
     """
-    taken = {SCD2_VALID_FROM_COLUMN, SCD2_VALID_TO_COLUMN} & set(pa_table.column_names)
+    taken = reserved_column_collisions(pa_table.column_names, history_columns(naming))
     if taken:
         # Delta refuses a duplicate column name at write time; failing here names the column and
         # keeps a half-built batch out of the writer.
-        raise CDCReservedColumnError(
-            f"Source column(s) {sorted(taken)} collide with the history table's validity columns"
-        )
+        raise CDCReservedColumnError(f"Source column(s) {taken} collide with the history table's validity columns")
     # Taken from the batch rather than assumed: `valid_from` is the timestamp column's own values,
     # and declaring a type it does not have makes pyarrow reject the append outright.
     ts_type = (
@@ -441,9 +557,9 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
     )
 
     if pa_table.num_rows == 0:
-        return pa_table.append_column(
-            pa.field(SCD2_VALID_FROM_COLUMN, ts_type), pa.array([], type=ts_type)
-        ).append_column(pa.field(SCD2_VALID_TO_COLUMN, ts_type), pa.array([], type=ts_type))
+        return pa_table.append_column(pa.field(naming.valid_from, ts_type), pa.array([], type=ts_type)).append_column(
+            pa.field(naming.valid_to, ts_type), pa.array([], type=ts_type)
+        )
 
     ts_col = pa_table.column(CDC_TIMESTAMP_COLUMN).to_pylist()
 
@@ -467,12 +583,42 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
                 valid_to[idx] = ts_col[next_idx]
 
     return pa_table.append_column(
-        pa.field(SCD2_VALID_FROM_COLUMN, ts_type),
+        pa.field(naming.valid_from, ts_type),
         pa_table.column(CDC_TIMESTAMP_COLUMN),
     ).append_column(
-        pa.field(SCD2_VALID_TO_COLUMN, ts_type),
+        pa.field(naming.valid_to, ts_type),
         pa.array(valid_to, type=ts_type),
     )
+
+
+def _dedupe_case_colliding_field_names(column_names: list[str]) -> dict[str, str]:
+    """Map every column name to itself, except within a group of names that fold to the same
+    value case-insensitively — the check Delta's own column-name validation applies.
+
+    Postgres lets quoted identifiers differ only by case (e.g. "clickid" and "ClickID" as
+    distinct columns), which such a group reflects. Delta rejects the batch outright once two
+    of its field names collide that way, so one member of the group must be renamed before the
+    write. Every other column is returned unchanged: the rest of the CDC pipeline (TOAST
+    omission markers, primary-key enrichment, delete resolution) matches columns by their exact
+    source name, and renaming a column that was never involved in a collision would silently
+    break that matching for perfectly ordinary mixed-case columns that synced fine before.
+
+    The group is resolved by sorted order, not by which event mentions a name first, so the same
+    set of colliding source names always resolves to the same target names regardless of which
+    column a given micro-batch happens to see first.
+    """
+    groups: dict[str, list[str]] = defaultdict(list)
+    for name in column_names:
+        groups[name.casefold()].append(name)
+
+    renamed: dict[str, str] = {}
+    for names in groups.values():
+        if len(names) == 1:
+            renamed[names[0]] = names[0]
+            continue
+        for index, name in enumerate(sorted(names)):
+            renamed[name] = name if index == 0 else f"{name}_dup{index}"
+    return renamed
 
 
 def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str], int] | None = None) -> pa.Table:
@@ -489,6 +635,12 @@ def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str],
         for col_name in event.omitted_columns:
             all_columns[col_name] = None
     column_names = list(all_columns.keys())
+    taken = reserved_column_collisions(column_names, CAPTURE_COLUMNS)
+    if taken:
+        raise CDCReservedColumnError(
+            f"Table {events[0].table_name} has source column(s) {taken} that collide with the columns change data "
+            "capture writes"
+        )
 
     # Authoritative Arrow type per column from the source schema (same for every event
     # of a relation). Lets all-null micro-batches keep the column's real type.
@@ -519,6 +671,7 @@ def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str],
     # fall back to storing the column as strings.
     # Also upgrade pa.null() → pa.string() since DeltaLake rejects the Null type
     # (happens when a DELETE-only batch has all-None values for non-PK columns).
+    field_names = _dedupe_case_colliding_field_names(column_names)
     arrays: list[pa.Array] = []
     fields: list[pa.Field] = []
     for col_name in column_names:
@@ -535,7 +688,7 @@ def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str],
             if arr.type == pa.null():
                 arr = arr.cast(pa.string())
         arrays.append(arr)
-        fields.append(pa.field(col_name, arr.type))
+        fields.append(pa.field(field_names[col_name], arr.type))
 
     # Add CDC metadata columns
     arrays.append(pa.array(cdc_ops, type=pa.string()))
@@ -555,9 +708,7 @@ def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str],
         arrays.append(pa.array(omitted_lists, type=pa.list_(pa.string())))
         fields.append(pa.field(TOAST_OMITTED_COLUMN, pa.list_(pa.string())))
 
-    # Skip on collision: a source column literally named _ph_cdc_seq is never overwritten. The batch
-    # then carries no engine seq, and capture refuses to write it to the buffer.
-    if position_to_seq is not None and CDC_SEQ_COLUMN not in column_names:
+    if position_to_seq is not None:
         seq_values = [position_to_seq(event.position_serialized) for event in events]
         arrays.append(pa.array(seq_values, type=pa.int64()))
         fields.append(pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE))

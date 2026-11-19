@@ -1,6 +1,5 @@
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
 from products.cdp.backend.templates.activecampaign.template_activecampaign import template as template_activecampaign
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 
 
 def create_inputs(**kwargs):

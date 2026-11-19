@@ -13,7 +13,9 @@ from products.alerts_platform.backend.facade.contracts import (
     EvaluationAnnouncement,
     IncidentAction,
     MessageDetail,
+    MessageImage,
     MessageLink,
+    RuleMetadata,
     SourceDescription,
     SourceKind,
 )
@@ -23,6 +25,11 @@ def _described_by(describer: Any) -> Any:
     return patch.dict(describers._describers, {SourceKind.LOGS: describer})
 
 
+def _resolver_that_raises(**_: Any) -> MessageImage:
+    raise RuntimeError("asset gone")
+
+
+CHART = MessageImage(url="https://app.example.com/chart.png", alt_text="Chart")
 LOGS_DESCRIPTION = SourceDescription(
     details=(MessageDetail(label="Threshold breached", value="300 logs in 5m (threshold: above 100)"),),
     context=("Services: checkout",),
@@ -48,13 +55,16 @@ def _transition(kind: AlertEventKind, **overrides: Any) -> AnnouncedTransition:
     return AnnouncedTransition(**fields)
 
 
-def _announcement(consecutive_failures: int = 0, source: SourceKind = SourceKind.LOGS) -> EvaluationAnnouncement:
+def _announcement(
+    consecutive_failures: int = 0, source: SourceKind = SourceKind.LOGS, rule: RuleMetadata | None = None
+) -> EvaluationAnnouncement:
     return EvaluationAnnouncement(
         configuration_id="cfg-1",
         source=source,
         alert_name="API errors",
         consecutive_failures=consecutive_failures,
         transitions=(),
+        rule=rule or RuleMetadata(),
     )
 
 
@@ -63,8 +73,11 @@ def _build(
     transition: AnnouncedTransition,
     *,
     incident_action: IncidentAction | None = None,
+    source_alert_url: str | None = None,
 ) -> AlertMessage:
-    return build_message(announcement, transition, team_id=7, incident_action=incident_action)
+    return build_message(
+        announcement, transition, team_id=7, incident_action=incident_action, source_alert_url=source_alert_url
+    )
 
 
 class TestAlertMessage:
@@ -89,6 +102,13 @@ class TestAlertMessage:
 
         assert message.headline == expected_headline
         assert message.alert_url.endswith("/project/7/platform-alerts/cfg-1")
+
+    def test_a_message_links_to_the_alert_page_its_source_names(self) -> None:
+        url = "https://app.example.com/project/7/logs/alerts/legacy-1"
+
+        message = _build(_announcement(), _transition(AlertEventKind.FIRING), source_alert_url=url)
+
+        assert message.alert_url == url
 
     @pytest.mark.parametrize("source", list(SourceKind))
     def test_every_source_kind_has_a_headline(self, source: SourceKind) -> None:
@@ -174,6 +194,25 @@ class TestAlertMessage:
 
         assert (message.context, message.data_link) == (("Services: checkout",), None)
 
+    @pytest.mark.parametrize(
+        "resolver,expected",
+        [
+            pytest.param(lambda **_: CHART, CHART, id="shown"),
+            # A URL Slack would refuse costs the whole message, so the picture is left out instead.
+            pytest.param(
+                lambda **_: MessageImage(url="https://app.example.com/chart?" + "q" * 3000, alt_text="Chart"),
+                None,
+                id="url_too_long",
+            ),
+            pytest.param(_resolver_that_raises, None, id="resolver_raises"),
+        ],
+    )
+    def test_a_source_picture_is_resolved_as_the_message_goes_out(self, resolver: Any, expected: Any) -> None:
+        with patch.dict(describers._image_resolvers, {SourceKind.LOGS: resolver}):
+            message = _build(_announcement(), _transition(AlertEventKind.FIRING))
+
+        assert message.image == expected
+
     @pytest.mark.parametrize("answer", ["raises", "returns_none"])
     def test_a_broken_describer_still_delivers_the_platform_wording(self, answer: str) -> None:
         def broken(**_: Any) -> Any:
@@ -191,3 +230,22 @@ class TestAlertMessage:
         message = _build(_announcement(), _transition(AlertEventKind.FIRING, condition={}))
 
         assert message.details == (MessageDetail(label="Value", value="300"),)
+
+    def test_a_rule_adds_its_labels_and_annotations_as_a_list_and_leaves_the_platform_text_alone(self) -> None:
+        rule = RuleMetadata(
+            labels={"team": "payments", "service": "checkout"},
+            annotations={"summary": "{{ $labels.service }} errors over limit", "runbook_url": "https://r.example.com"},
+        )
+        transition = _transition(AlertEventKind.FIRING, labels={"service": "web", "env": "prod"})
+
+        message = _build(_announcement(rule=rule), transition)
+        plain = _build(_announcement(), transition)
+
+        assert message.rule_details == (
+            MessageDetail(label="service", value="checkout"),
+            MessageDetail(label="team", value="payments"),
+            MessageDetail(label="runbook_url", value="https://r.example.com"),
+            MessageDetail(label="summary", value="checkout errors over limit"),
+        )
+        assert message.labels == {"service": "checkout", "env": "prod", "team": "payments"}
+        assert (message.headline, message.details, message.links) == (plain.headline, plain.details, plain.links)

@@ -1,10 +1,13 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import {
+    getSurveyTranslationDraftPayload,
     mergeResponsesByQuestion,
     processOpenEndedResults,
     processResultsForSurveyQuestions,
@@ -248,6 +251,116 @@ describe('translation validation', () => {
                 },
             ],
         })
+    })
+
+    it.each(['introScreenHeader', 'introScreenDescription', 'introScreenButtonText'] as const)(
+        'validates the %s translation like the confirmation message',
+        async (field) => {
+            const survey = {
+                ...createPersistedSurvey(),
+                appearance: { displayIntroScreen: true, [field]: 'Welcome' },
+                translations: { fr: { [field]: '[Translation needed]' } },
+            } as Survey
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(survey)
+            }).toMatchValues({
+                translationValidationErrors: [
+                    {
+                        language: 'fr',
+                        questionIndex: -1,
+                        field,
+                        error: 'Contains placeholder "[Translation needed]"',
+                    },
+                ],
+            })
+        }
+    )
+
+    it.each([
+        [
+            'on',
+            true,
+            [
+                {
+                    language: 'fr',
+                    questionIndex: -1,
+                    field: 'backButtonText',
+                    error: 'Contains placeholder "[Translation needed]"',
+                },
+            ],
+        ],
+        ['off', false, []],
+    ] as const)('validates the back button translation with going back %s', async (_name, allowGoBack, expected) => {
+        const survey = {
+            ...createPersistedSurvey(),
+            appearance: { allowGoBack },
+            translations: { fr: { backButtonText: '[Translation needed]' } },
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({ translationValidationErrors: expected })
+    })
+
+    it.each([
+        ['an empty button text', 'introScreenButtonText', '', []],
+        ['an unset button text', 'introScreenButtonText', undefined, []],
+        [
+            'an empty header',
+            'introScreenHeader',
+            '',
+            [
+                {
+                    language: 'default',
+                    questionIndex: -1,
+                    field: 'introScreenHeader',
+                    error: 'Cannot be empty (has translation)',
+                },
+            ],
+        ],
+    ] as const)('checks a translated intro field against %s', async (_name, field, base, expected) => {
+        const survey = {
+            ...createPersistedSurvey(),
+            appearance: { displayIntroScreen: true, [field]: base },
+            translations: { fr: { [field]: 'Commencer' } },
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({ translationValidationErrors: expected })
+    })
+
+    it('skips intro translation checks while the intro is off', async () => {
+        const survey = {
+            ...createPersistedSurvey(),
+            appearance: { displayIntroScreen: false, introScreenHeader: 'Welcome' },
+            translations: { fr: { introScreenHeader: '[Translation needed]' } },
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({ translationValidationErrors: [] })
+    })
+
+    it.each([
+        ['an enabled intro with no button text', { displayIntroScreen: true }, 'Get started'],
+        ['an enabled intro with button text', { displayIntroScreen: true, introScreenButtonText: 'Go' }, 'Go'],
+        ['a disabled intro', { displayIntroScreen: false }, undefined],
+    ] as const)('sends the effective intro button text to AI translation for %s', (_name, appearance, expected) => {
+        const payload = getSurveyTranslationDraftPayload({ ...createPersistedSurvey(), appearance } as Survey)
+
+        expect(payload.appearance?.introScreenButtonText).toBe(expected)
+    })
+
+    it.each([
+        ['back enabled with no button text', { allowGoBack: true }, 'Back'],
+        ['back enabled with button text', { allowGoBack: true, backButtonText: 'Go back' }, 'Go back'],
+        ['back disabled', { allowGoBack: false, backButtonText: 'Go back' }, undefined],
+    ] as const)('sends the effective back button text to AI translation for %s', (_name, appearance, expected) => {
+        const payload = getSurveyTranslationDraftPayload({ ...createPersistedSurvey(), appearance } as Survey)
+
+        expect(payload.appearance?.backButtonText).toBe(expected)
     })
 
     it('does not validate survey root description translations', async () => {
@@ -2387,6 +2500,42 @@ describe('surveyLogic archived response refresh', () => {
         ])
 
         expect(api.surveys.archiveResponse).toHaveBeenCalledWith('test-survey', 'response-1')
+    })
+})
+
+describe('surveyLogic update that needs approval', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    beforeEach(async () => {
+        initKeaTests()
+
+        useMocks({
+            get: {
+                '/api/projects/:team/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
+                '/api/projects/:team/surveys/test-survey/': () => [200, createPersistedSurvey()],
+                '/api/projects/:team/surveys/test-survey/archived-response-uuids/': () => [200, []],
+            },
+        })
+        jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+
+        logic = surveyLogic({ id: 'test-survey' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    it('tells the user the change waits for approval and reloads the saved survey', async () => {
+        const info = jest.spyOn(lemonToast, 'info')
+        jest.spyOn(api.surveys, 'update').mockRejectedValue({
+            status: 409,
+            detail: 'This change needs approval.',
+            data: { change_request_id: 'cr-1', resource_type: 'feature_flag', resource_id: '7' },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.updateSurvey({ name: 'Renamed' })
+        }).toDispatchActions(['updateSurveyFailure', 'loadSurvey'])
+
+        expect(info).toHaveBeenCalled()
     })
 })
 

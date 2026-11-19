@@ -8,7 +8,6 @@ from posthog.schema import EventsQuery
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import PropertyDefinition
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.taxonomy.property_access import restricted_property_names
@@ -19,6 +18,7 @@ from products.dashboards.backend.widget_specs.registry import validate_widget_co
 from products.dashboards.backend.widgets.config import resolve_filter_test_accounts
 from products.dashboards.backend.widgets.list_widget import ListWidgetPage, run_list_widget
 from products.dashboards.backend.widgets.widget_filters import build_event_property_filters_from_widget_filters
+from products.event_definitions.backend.models import PropertyDefinition
 
 ValidatedActivityEventsListWidgetConfig = dict[str, Any]
 

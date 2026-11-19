@@ -13,6 +13,8 @@ import type { Resource } from "@opentelemetry/resources";
 import {
   BasicTracerProvider,
   BatchSpanProcessor,
+  type IdGenerator,
+  RandomIdGenerator,
 } from "@opentelemetry/sdk-trace-base";
 import { POSTHOG_NOTIFICATIONS } from "./acp-extensions";
 import {
@@ -28,11 +30,25 @@ import {
 } from "./otel-attributes";
 import type { StoredNotification } from "./types";
 
+const TRACE_ID_PATTERN = /^[0-9a-f]{32}$/;
+
+function runIdGenerator(runId: string): IdGenerator {
+  const random = new RandomIdGenerator();
+  // run_trace.py and run_log_mirror.py derive the same trace id. Change all three together.
+  const traceId = runId.replaceAll("-", "").toLowerCase();
+  if (!TRACE_ID_PATTERN.test(traceId)) return random;
+  return {
+    generateTraceId: () => traceId,
+    generateSpanId: () => random.generateSpanId(),
+  };
+}
+
 export interface RunTraceBuilderConfig {
   /** Full OTLP traces endpoint URL, e.g. "https://us.i.posthog.com/i/v1/traces" */
   url: string;
   /** Project API key sent as a Bearer token */
   token: string;
+  runId: string;
   /** Batch flush interval in ms (default: 2000) */
   flushIntervalMs?: number;
 }
@@ -76,6 +92,7 @@ export class RunTraceBuilder {
 
     this.provider = new BasicTracerProvider({
       resource,
+      idGenerator: runIdGenerator(config.runId),
       spanProcessors: [
         new BatchSpanProcessor(exporter, {
           scheduledDelayMillis:

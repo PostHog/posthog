@@ -18,5 +18,10 @@ export interface ActivityProps {
     details?: ReactNode
     children?: ReactNode
     autoExpand?: boolean
+    /**
+     * Opens the details by this rule instead of the status: they open while it is true and close when it turns
+     * false. A reader's toggle holds until it changes.
+     */
+    defaultOpen?: boolean
     onToggleDetails?: (expanded: boolean) => void
 }

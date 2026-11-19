@@ -13,8 +13,7 @@ permissions:
 jobs:
     cancel:
         name: Cancel the closed batch's Backend CI runs
-        # Source pull requests are left alone: GitHub Actions does not cancel their relay on close,
-        # and the relay reports a cancelled Depot run as a failure. Trunk cancels a batch's relay itself.
+        # Canceling a source PR's gate would block it if reopened until another push starts CI.
         if: startsWith(github.head_ref, 'trunk-merge/')
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5

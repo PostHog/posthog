@@ -15,13 +15,7 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_schedule_exists
 
 from products.data_modeling.backend.logic.cohort_scheduling import Tier, tier_schedule_id
-from products.data_modeling.backend.logic.node_frequency import schedulable_nodes
-from products.data_modeling.backend.logic.schedule_reconcile import (
-    convert_dag_to_tiers,
-    delete_v1_saved_query_schedules,
-    null_saved_query_intervals,
-    preview_dag_schedules,
-)
+from products.data_modeling.backend.logic.schedule_reconcile import convert_dag_to_tiers, preview_dag_schedules
 from products.data_modeling.backend.models.dag import DAG
 
 logger = structlog.get_logger(__name__)
@@ -187,21 +181,8 @@ class Command(BaseCommand):
         if not apply:
             return
 
-        # Seed every DAG before sweeping any intervals: a query in two DAGs seeds from the shared
-        # interval, so sweeping/nulling mid-loop would corrupt the other DAG's seed.
-        for dag, _preview, dag_record in plans:
-            dag_record["seeded"] = convert_dag_to_tiers(dag)
-        for dag, _preview, dag_record in plans:
-            nodes = list(schedulable_nodes(dag).select_related("saved_query"))
-            sq_ids = [str(node.saved_query_id) for node in nodes if node.saved_query_id is not None]
-            failed = delete_v1_saved_query_schedules(nodes, team_id=dag.team_id, dag_id=str(dag.id))
-            swept = [sq_id for sq_id in sq_ids if sq_id not in failed]
-            dag_record["v1_swept"] = len(swept)
-            dag_record["intervals_cleared"] = null_saved_query_intervals(dag, only_saved_query_ids=swept)
-            if failed:
-                raise Anomaly(f"DAG {dag.name}: {len(failed)} v1 schedule(s) failed to delete")
-
         for dag, preview, dag_record in plans:
+            dag_record["seeded"] = convert_dag_to_tiers(dag)
             expected = sorted(
                 tier_schedule_id(str(dag.id), tier.interval, tier.anchor_minutes) for tier in preview.desired_tiers
             )

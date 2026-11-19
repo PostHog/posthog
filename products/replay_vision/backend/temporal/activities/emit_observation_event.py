@@ -26,6 +26,10 @@ _EVENT_SOURCE = "replay_vision"
 @activity.defn
 @track_activity(side_effect="event")
 async def emit_observation_event_activity(inputs: EmitObservationEventInputs) -> None:
+    return await emit_observation_event(inputs)
+
+
+async def emit_observation_event(inputs: EmitObservationEventInputs) -> None:
     """Capture the `$recording_observed` event into the customer's events table; dedup-keyed by observation_id."""
     await database_sync_to_async(_emit_event, thread_sensitive=False)(inputs)
 
@@ -101,10 +105,10 @@ def _experiment_properties(observation: ReplayObservation, snapshot: ScannerSnap
     """The watched experiment and this session's attributed variant, so HogQL readouts over
     `$recording_observed` need no exposure join. Empty for scans that watch no experiment; the
     variant is absent on rows scanned before attribution shipped."""
-    scope = snapshot.experiment_scope()
-    if not scope or scope.get("experiment_id") is None:
+    experiment_scope = snapshot.experiment_scope()
+    if not experiment_scope or experiment_scope.get("experiment_id") is None:
         return {}
-    properties: dict = {"experiment_id": scope["experiment_id"]}
+    properties: dict = {"experiment_id": experiment_scope["experiment_id"]}
     result = observation.scanner_result if isinstance(observation.scanner_result, dict) else {}
     variant = result.get("experiment_variant")
     if variant is not None:

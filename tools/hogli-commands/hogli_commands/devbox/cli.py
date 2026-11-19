@@ -6,7 +6,10 @@ Provides hogli devbox:* commands for managing Coder-based remote dev environment
 from __future__ import annotations
 
 import os
+import re
 import sys
+import json
+import zlib
 import errno
 import shlex
 import shutil
@@ -24,22 +27,31 @@ import click
 from hogli import telemetry
 from hogli.manifest import get_manifest
 
-from . import mutagen
+from ..git_signing import (
+    DEVBOX_FEEDBACK_HINT,
+    DEVBOX_SIGNING_NOTE,
+    gh_env_without_app_tokens,
+    public_key_identity,
+    signs_with_secure_enclave_key,
+)
+from ..worktrees import _gitdir_for
+from . import (
+    herdr as herdr_app,
+    mutagen,
+)
 from .coder import (
     CLAUDE_CODE_OAUTH_ENV,
     DEFAULT_PRESET,
     DEFAULT_REGION,
     DEFAULT_TEMPLATE,
-    DOTFILES_URI_PARAMETER,
     EXPECTED_TAILNET,
-    GIT_EMAIL_PARAMETER,
-    GIT_NAME_PARAMETER,
     GIT_SIGNING_KEY_SECRET,
     REGIONS,
+    REMOTE_REPO_PATH,
     _diagnose_unreachable_coder,
     _fail,
     _ssh_host_alias,
-    _start_app_param,
+    app_url,
     clone_workspace,
     coder_authenticated,
     coder_installed,
@@ -50,10 +62,12 @@ from .coder import (
     delete_workspace,
     ensure_coder_authenticated,
     ensure_coder_installed,
+    ensure_coder_on_path,
     ensure_coder_reachable,
     ensure_runtime_ready,
     exec_replace,
     extract_workspace_label,
+    fetch_user_workspaces,
     get_coder_url,
     get_coder_user_info,
     get_default_git_identity,
@@ -82,6 +96,8 @@ from .coder import (
     print_setup_summary,
     region_from_workspace_name,
     restart_workspace,
+    run_in_workspace,
+    run_with_capacity_fallback,
     server_supports_user_secrets,
     share_workspace,
     ssh_replace,
@@ -90,16 +106,22 @@ from .coder import (
     tailscale_state,
     unshare_workspace,
     update_workspace,
-    update_workspace_parameters,
     upsert_user_secret,
     user_secret_exists,
+    wait_for_agent_ready,
 )
 from .config import (
     DevboxConfig,
+    WorktreeBoxRecord,
     clear_dotfiles_uri,
     clear_git_identity,
     clear_region,
+    clear_worktree_auto_sources,
+    clear_worktree_box_cleanup,
+    clear_worktree_provider,
     load_config,
+    load_worktree_boxes,
+    read_worktree_id,
     save_dotfiles_uri,
     save_git_identity,
     save_region,
@@ -130,10 +152,9 @@ WORKSPACE_STATUS_COLORS = {
 }
 PENDING_WORKSPACE_STATES = {"starting", "stopping", "deleting"}
 
-# Printed whenever --start-app/--no-start-app is passed but cannot be applied:
-# the parameter is only pushed on the pre-start sync of a stopped workspace,
-# so the flag is dropped (not queued) on running/transitioning boxes.
-_START_APP_NOT_APPLIED_NOTE = "Note: --start-app/--no-start-app was not applied; re-run it once the devbox is stopped."
+# The Coder CLI resolves a mutable parameter to its last-build value even when
+# `--parameter` passes a new one, so hogli can only set parameters at creation.
+_CHANGE_PARAMETER_HINT = "To change it on an existing devbox, edit the devbox's parameters in the Coder dashboard."
 
 
 def resolve_workspace_name(
@@ -142,8 +163,9 @@ def resolve_workspace_name(
     """Resolve a workspace target into a full workspace name.
 
     Supports:
-    - ``None`` -> user's default workspace (auto-selects when only one exists)
-    - ``"@user"`` -> another user's default workspace
+    - ``None`` inside a worktree that ``devbox:worktree`` set up -> that worktree's box, while it exists
+    - ``None`` elsewhere -> user's default workspace (auto-selects when only one exists)
+    - ``"@user"`` -> another user's default workspace, or your own default when it is your username
     - ``"@user/label"`` -> another user's labeled workspace
     - ``"label"`` -> current user's labeled workspace
 
@@ -162,6 +184,10 @@ def resolve_workspace_name(
     """
     effective_region = region if region is not None else _preferred_region()
     if workspace is not None:
+        if is_own_default_target(workspace):
+            own_workspaces = list_user_workspaces()
+            default_name = _existing_default_name(own_workspaces, effective_region)
+            return default_name or get_workspace_name(region=effective_region), own_workspaces
         target_name = parse_workspace_target(workspace, region=effective_region)
         # Shared workspace targets (`@user[/label]`) are looked up against the
         # remote owner, so cross-region label fallback is the owner's
@@ -170,6 +196,58 @@ def resolve_workspace_name(
             return target_name, None
         return _resolve_own_label(target_name)
 
+    record = current_worktree_box()
+    if record is None:
+        return resolve_default_workspace_name(region=effective_region)
+    workspaces = fetch_user_workspaces()
+    if workspaces is None:
+        _fail(
+            f"Couldn't list your devboxes in Coder, so this worktree's devbox '{record.workspace}' can't be checked. "
+            "Try again in a moment."
+        )
+    live = get_workspace(record.workspace, workspaces)
+    if live is None:
+        _fail(
+            f"This worktree's devbox '{record.workspace}' no longer exists. "
+            f"Run `hogli devbox:worktree` to create it again, pass `-n <label>` to choose a box, "
+            f"or `-n @{get_username()}` for your default box."
+        )
+    if not record.may_adopt(live):
+        _fail(
+            f"This worktree's devbox '{record.workspace}' was replaced by another box with the same name. "
+            "Pass `-n <label>` to choose a box."
+        )
+    click.echo(
+        f"Using this worktree's devbox '{record.workspace}'. Pass `-n @{get_username()}` for your default box.",
+        err=True,
+    )
+    return record.workspace, workspaces
+
+
+def current_worktree_box() -> WorktreeBoxRecord | None:
+    """The Coder box record that `devbox:worktree` saved for the checkout containing the current directory.
+
+    Only the nearest checkout counts, so a worktree nested inside another one
+    never gets the outer worktree's box.
+    """
+    cwd = Path.cwd().resolve()
+    root = next((candidate for candidate in (cwd, *cwd.parents) if (candidate / ".git").exists()), None)
+    if root is None:
+        return None
+    boxes = load_worktree_boxes()
+    admin_dir = _gitdir_for(root)
+    worktree_id = read_worktree_id(admin_dir) if admin_dir is not None else None
+    record = boxes.get(str(root))
+    if record is not None and record.worktree_id is not None and record.worktree_id != worktree_id:
+        record = None
+    if record is None:
+        record = next((box for box in boxes.values() if worktree_id and box.worktree_id == worktree_id), None)
+    return record if record is not None and record.provider == "coder" else None
+
+
+def resolve_default_workspace_name(*, region: str | None = None) -> tuple[str, list[dict[str, Any]]]:
+    """Resolve the user's default workspace, ignoring the worktree the command runs in."""
+    effective_region = region if region is not None else _preferred_region()
     workspaces = list_user_workspaces()
 
     if len(workspaces) == 0:
@@ -181,16 +259,32 @@ def resolve_workspace_name(
     # Multiple workspaces -- prefer the effective region's default, then
     # defaults in other regions (a region pref should not mask the box the
     # user actually has -- same philosophy as the label fallback above).
-    existing_names = {ws.get("name") for ws in workspaces}
-    for candidate_region in (effective_region, *(r for r in REGIONS if r != effective_region)):
-        default_name = get_workspace_name(region=candidate_region)
-        if default_name in existing_names:
-            return default_name, workspaces
+    default_name = _existing_default_name(workspaces, effective_region)
+    if default_name is not None:
+        return default_name, workspaces
 
     # No default among multiple -- require explicit workspace argument
     labels = [extract_workspace_label(ws["name"]) or "(default)" for ws in workspaces]
     _fail("Multiple workspaces found. Specify which one:\n" + "".join(f"  {lbl}\n" for lbl in labels))
     raise SystemExit(1)  # unreachable; helps ty see the function doesn't fall through
+
+
+def _existing_default_name(workspaces: list[dict[str, Any]], region: str) -> str | None:
+    existing_names = {ws.get("name") for ws in workspaces}
+    for candidate_region in (region, *(r for r in REGIONS if r != region)):
+        default_name = get_workspace_name(region=candidate_region)
+        if default_name in existing_names:
+            return default_name
+    return None
+
+
+def is_own_default_target(workspace: str) -> bool:
+    """Whether *workspace* is ``@<your username>``, which names your own default box."""
+    return workspace.startswith("@") and "/" not in workspace and workspace[1:].lower() == get_username()
+
+
+def _targets_own_box(workspace: str | None) -> bool:
+    return workspace is None or not workspace.startswith("@") or is_own_default_target(workspace)
 
 
 def _resolve_own_label(target_name: str) -> tuple[str, list[dict[str, Any]] | None]:
@@ -271,9 +365,48 @@ def _print_connection_info(name: str) -> None:
 
 
 def _workspace_arg_suffix(name: str) -> str:
-    """Return the optional CLI suffix for a named workspace."""
+    """Return the CLI suffix that targets *name*, which a bare command inside a registered worktree would not."""
+    record = current_worktree_box()
+    if record is not None and record.workspace == name:
+        return ""
     label = extract_workspace_label(name)
-    return f" {label}" if label else ""
+    if label:
+        return f" {label}"
+    return f" @{get_username()}" if record is not None else ""
+
+
+def _create_box_hint(name: str) -> str:
+    record = current_worktree_box()
+    if record is not None and record.workspace == name:
+        return "Run `hogli devbox:worktree` to create it again."
+    return f"Run 'hogli devbox:start{_workspace_arg_suffix(name)}' to create one."
+
+
+_NOT_READY_REASONS = {
+    "start_error": "A startup script failed, so some setup may be missing.",
+    "start_timeout": "A startup script ran past its time limit, so some setup may be missing.",
+    "wait_timeout": "Its startup scripts are still running.",
+    "build_failed": "Its latest build failed.",
+    "stopped": "It stopped before its startup scripts finished.",
+    "agent_timeout": "Its agent did not connect to Coder.",
+    "unavailable": "hogli could not read its status from Coder.",
+}
+
+
+def _wait_until_ready(name: str) -> None:
+    """Hold the command until startup scripts finish, warning if they did not."""
+    click.echo("Waiting for startup scripts...")
+    state = wait_for_agent_ready(name)
+    telemetry.add_command_properties(devbox_agent_lifecycle=state)
+    if state == "ready":
+        return
+    click.echo(
+        click.style(
+            f"Devbox '{name}' may not be ready. {_NOT_READY_REASONS[state]} "
+            f"Check `hogli devbox:logs{_workspace_arg_suffix(name)}`.",
+            fg="yellow",
+        )
+    )
 
 
 def _get_workspace_or_fail(name: str, workspaces: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -281,7 +414,7 @@ def _get_workspace_or_fail(name: str, workspaces: list[dict[str, Any]] | None = 
     workspace = get_workspace(name, workspaces)
     if workspace is not None:
         return workspace
-    _fail("No devbox found. Run 'hogli devbox:start' to create one.")
+    _fail(f"No devbox found. {_create_box_hint(name)}")
     raise SystemExit(1)  # unreachable; helps ty see the function doesn't fall through
 
 
@@ -324,67 +457,88 @@ def _render_sync_status(workspace_name: str) -> str:
     return click.style(f"● {status}", fg="green")
 
 
-def _sync_workspace_parameters(name: str, extra: dict[str, str] | None = None) -> None:
-    """Push local config (git identity, dotfiles) to workspace parameters before start.
+def _pause_sync(name: str) -> bool:
+    """Pause the devbox's running sync session while the box is stopped, and return whether it did.
 
-    `workspace_region` is intentionally not forwarded: it is immutable, so Coder
-    carries it forward on its own and rejects any explicit value on `coder
-    update` (see the comment on `WORKSPACE_REGION_PARAMETER`).
+    mutagen redials a lost box forever. Paused, it leaves the box and Coder
+    alone until `devbox:start` resumes it. A failed pause only warns: stopping
+    the box matters more, and the SSH shim already stops the sync from
+    starting it again.
     """
-    config = load_config()
-    params: dict[str, str] = {}
+    selector = mutagen.workspace_label_selector(name)
+    if all(session.get("paused") for session in mutagen.sync_list(label_selector=selector)):
+        return False
+    try:
+        mutagen.sync_pause(selector)
+    except SystemExit:
+        click.echo(click.style(f"Could not pause the sync to '{name}'. Stopping the box anyway.", fg="yellow"))
+        return False
+    click.echo(f"Paused the sync to '{name}'. `hogli devbox:start{_workspace_arg_suffix(name)}` resumes it.")
+    return True
 
-    git_name = config.get("git_name")
-    git_email = config.get("git_email")
-    if git_name and git_email:
-        params[GIT_NAME_PARAMETER] = git_name
-        params[GIT_EMAIL_PARAMETER] = git_email
 
-    dotfiles_uri = config.get("dotfiles_uri")
-    if dotfiles_uri:
-        params[DOTFILES_URI_PARAMETER] = dotfiles_uri
+def _resume_sync(name: str) -> None:
+    """Resume the devbox's sync session if `devbox:stop` paused it."""
+    selector = mutagen.workspace_label_selector(name)
+    if any(session.get("paused") for session in mutagen.sync_list(label_selector=selector)):
+        mutagen.sync_resume(selector)
+        click.echo(f"Resumed the sync to '{name}'.")
 
-    if extra:
-        params.update(extra)
 
-    if params:
-        update_workspace_parameters(name, params)
+def _report_box_setup(name: str) -> None:
+    # box_checks builds its probes from the command builders in this module, so importing it at the top
+    # of the module would be circular.
+    from .box_checks import report_box_setup
+
+    report_box_setup(name)
 
 
 def _start_existing_workspace(
-    name: str, workspace: dict[str, Any], *, start_app: bool | None = None, verbose: bool
+    name: str, workspace: dict[str, Any], *, start_app: bool | None = None, verbose: bool, check_setup: bool = False
 ) -> None:
     """Handle `devbox:start` when the workspace already exists."""
+    if start_app is not None:
+        _fail(
+            f"--start-app and --no-start-app only apply when a devbox is created. {_CHANGE_PARAMETER_HINT}",
+            cause="start_app_on_existing",
+        )
+
     status = get_workspace_status(workspace)
     if status == "running":
         click.echo(f"Devbox '{name}' is already running.")
-        if start_app is not None:
-            # Pushing the parameter needs `coder update`, which rebuilds a
-            # running workspace -- only safe on the pre-start sync below.
-            click.echo(_START_APP_NOT_APPLIED_NOTE)
         _print_connection_info(name)
+        if check_setup:
+            _report_box_setup(name)
         return
 
     if status in PENDING_WORKSPACE_STATES:
         click.echo(f"Devbox '{name}' is in state: {status}")
         click.echo("Wait for the current operation to complete.")
-        if start_app is not None:
-            click.echo(_START_APP_NOT_APPLIED_NOTE)
         return
 
-    _sync_workspace_parameters(name, extra=_start_app_param(start_app))
-
     if status == "stopped":
-        click.echo(f"Starting devbox '{name}'...")
-        start_workspace(name, verbose=verbose)
+        if workspace.get("outdated"):
+            click.echo(f"Starting devbox '{name}' on the latest template...")
+            run_with_capacity_fallback(name, lambda: update_workspace(name, verbose=verbose))
+        else:
+            click.echo(f"Starting devbox '{name}'...")
+            run_with_capacity_fallback(name, lambda: start_workspace(name, verbose=verbose))
+        _wait_until_ready(name)
         click.echo("Started.")
+        _resume_sync(name)
         _print_connection_info(name)
+        if check_setup:
+            _report_box_setup(name)
         return
 
     click.echo(f"Devbox '{name}' is in state: {status}")
     click.echo("Attempting to start...")
-    start_workspace(name, verbose=verbose)
+    run_with_capacity_fallback(name, lambda: start_workspace(name, verbose=verbose))
+    _wait_until_ready(name)
+    _resume_sync(name)
     _print_connection_info(name)
+    if check_setup:
+        _report_box_setup(name)
 
 
 def _read_legacy_keychain_token() -> str | None:
@@ -543,7 +697,7 @@ def _resolve_local_signing_key() -> str | None:
 
     Git accepts three formats: a literal ``ssh-... / ecdsa-... / sk-...``
     string, the same with a ``key::`` prefix (used by tools like Secretive),
-    or a path to a public-key file. All are normalized here. Returns ``None``
+    or a path to a key file. All are normalized here. Returns ``None``
     when the value is unset or the referenced file can't be read.
     """
     result = subprocess.run(
@@ -560,10 +714,17 @@ def _resolve_local_signing_key() -> str | None:
         value = value.removeprefix("key::")
     if value.startswith(("ssh-", "ecdsa-", "sk-")):
         return value
-    try:
-        return Path(os.path.expanduser(value)).read_text().strip() or None
-    except OSError:
-        return None
+    key_path = Path(os.path.expanduser(value))
+    # git also accepts a private key path. The returned value goes into a Coder secret, so
+    # only public key content is returned, and a private key path falls back to its .pub file.
+    for candidate in (key_path, key_path.with_name(f"{key_path.name}.pub")):
+        try:
+            content = candidate.read_text().strip()
+        except OSError:
+            continue
+        if content.startswith(("ssh-", "ecdsa-", "sk-")):
+            return content
+    return None
 
 
 def _read_identity_agent(host: str, *, config_path: str | None = None) -> str | None:
@@ -661,6 +822,96 @@ def _diagnose_signing_agent() -> SigningAgentStatus:
     return SigningAgentStatus(True, f"{fingerprint} via {socket_path}")
 
 
+@dataclass(frozen=True)
+class AgentSigningKey:
+    """A key in the agent forwarded to devboxes that GitHub also lists as a signing key."""
+
+    public_key: str
+    title: str
+    github_login: str
+
+
+def _agent_public_keys(socket_path: str) -> set[str]:
+    listed = subprocess.run(
+        ["ssh-add", "-L"],
+        env={**os.environ, "SSH_AUTH_SOCK": socket_path},
+        capture_output=True,
+        text=True,
+    )
+    if listed.returncode != 0:
+        return set()
+    return {public_key_identity(line) for line in listed.stdout.splitlines() if line.strip()}
+
+
+_GH_TIMEOUT = 15
+
+
+def _gh(*args: str) -> subprocess.CompletedProcess[str] | None:
+    """Run `gh` as the engineer's stored login, or return ``None`` when `gh` is missing or hangs."""
+    try:
+        return subprocess.run(
+            ["gh", *args], capture_output=True, text=True, env=gh_env_without_app_tokens(), timeout=_GH_TIMEOUT
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _github_login() -> str | None:
+    """Return the GitHub login of the authenticated `gh`, which the signing-key lookup needs."""
+    result = _gh("api", "user", "--jq", ".login")
+    if result is None or result.returncode != 0 or not result.stdout.strip():
+        click.echo("  Couldn't look up your GitHub signing keys. Log in with `gh auth login` and run setup again.")
+        return None
+    return result.stdout.strip()
+
+
+def _github_signing_keys(login: str) -> list[dict[str, Any]]:
+    # A user's signing keys are public, so any gh login can read them.
+    result = _gh("api", f"users/{urllib.parse.quote(login)}/ssh_signing_keys")
+    if result is None or result.returncode != 0:
+        return []
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [key for key in payload if isinstance(key, dict)]
+
+
+def _find_agent_github_signing_key() -> AgentSigningKey | None:
+    """Find a key that devboxes can sign with: held by the forwarded agent and registered on GitHub for signing."""
+    socket_path = _forwarded_agent_socket()
+    if not socket_path:
+        return None
+    agent_keys = {key for key in _agent_public_keys(socket_path) if not key.startswith("ssh-rsa ")}
+    if not agent_keys:
+        return None
+    login = _github_login()
+    if not login:
+        return None
+    for key in _github_signing_keys(login):
+        identity = public_key_identity(str(key.get("key", "")))
+        if identity in agent_keys:
+            return AgentSigningKey(public_key=identity, title=str(key.get("title") or "untitled"), github_login=login)
+    return None
+
+
+def _offer_agent_signing_key(key: AgentSigningKey) -> bool:
+    """Offer to sign devbox commits with a key from the agent. Returns True when the key was saved."""
+    key_type = key.public_key.split()[0]
+    click.echo(f"  Your SSH agent holds a key that GitHub lists as a signing key for {key.github_login}:")
+    click.echo(f"    {key.title} ({key_type})")
+    click.echo("  This key isn't in the Secure Enclave, and the security team wants Secure Enclave keys for signing.")
+    click.echo("  Use it only until devboxes support Secure Enclave signing.")
+    if not click.confirm("Sign devbox commits with this key?", default=False):
+        return False
+    upsert_user_secret(GIT_SIGNING_KEY_SECRET, key.public_key, env_name=GIT_SIGNING_KEY_SECRET)
+    click.echo(f"  Saved the key as Coder user secret '{GIT_SIGNING_KEY_SECRET}'.")
+    click.echo("  Restart any running devbox (`hogli devbox:restart`) to pick up the new gitconfig.")
+    return True
+
+
 def maybe_configure_git_signing(
     configure_git_signing: bool | None, *, known_secret_names: set[str] | None = None
 ) -> None:
@@ -686,6 +937,23 @@ def maybe_configure_git_signing(
         return
 
     if configure_git_signing is None and already_set:
+        return
+
+    # Pushing this public key would make the devbox ask the forwarded agent for a key it can't hold.
+    if signs_with_secure_enclave_key():
+        click.echo()
+        click.echo(click.style("Git commit signing (Secure Enclave keys not supported yet)", bold=True))
+        if already_set:
+            lines = DEVBOX_SIGNING_NOTE
+        else:
+            agent_key = _find_agent_github_signing_key()
+            if agent_key is not None and _offer_agent_signing_key(agent_key):
+                return
+            lines = (
+                "Devbox commits won't be signed, because the forwarded SSH agent can't hold a Secure Enclave key.",
+            )
+        for line in (*lines, DEVBOX_FEEDBACK_HINT):
+            click.echo(f"  {line}")
         return
 
     public_key = _resolve_local_signing_key()
@@ -914,71 +1182,202 @@ def devbox_help() -> None:
     click.echo("Run `hogli <command> --help` for command-specific options.")
 
 
-def maybe_configure_claude_secret(configure_claude: bool | None, *, known_secret_names: set[str] | None = None) -> None:
-    """Manage the ``CLAUDE_CODE_OAUTH_TOKEN`` Coder user secret for this user.
+_CLAUDE_AUTH_TIMEOUT = 60
 
-    Resolution order:
 
-    1. Server unsupported (< 2.33) -- skip with a one-line note.
-    2. Secret already exists and the user did not pass --configure-claude -- skip.
-    3. Legacy macOS Keychain entry exists -- offer to migrate, then delete it.
-    4. Otherwise -- prompt for a fresh token and create the secret.
+@dataclass(frozen=True)
+class ClaudeLogin:
+    """The non-secret fields of ``claude auth status --json`` on a devbox."""
+
+    logged_in: bool
+    auth_method: str
+    email: str | None
+    organization: str | None
+    plan: str | None
+
+
+def _remote_claude_auth(*args: str, ignore_token: bool = False) -> list[str]:
+    # The template installs Claude Code to ~/.local/bin, which only a login shell puts on PATH.
+    command = ["claude", "auth", *args]
+    if ignore_token:
+        # The token env var hides a stored login from `claude auth status`.
+        command = ["env", "-u", CLAUDE_CODE_OAUTH_ENV, *command]
+    return ["bash", "-lc", shlex.join(command)]
+
+
+def _skip_startup_wait() -> None:
+    # Coder's ssh proxy otherwise waits for blocking startup scripts and replays the whole startup log
+    # when one failed. Claude commands only need a running box.
+    os.environ.setdefault("CODER_SSH_WAIT", "no")
+
+
+def _optional_text(payload: dict[str, Any], key: str) -> str | None:
+    value = payload.get(key)
+    return value if isinstance(value, str) and value else None
+
+
+def _read_claude_login(name: str, *, stored_only: bool = False) -> ClaudeLogin | None:
+    """Return the Claude Code login on the box, or ``None`` when the box does not answer with a status.
+
+    ``stored_only`` reports the login saved on the box even when the token env var overrides it.
     """
-    if not server_supports_user_secrets():
-        click.echo("Claude token: skipping (Coder server is older than 2.33; user secrets unavailable).")
-        return
-
-    if configure_claude is False:
-        click.echo("Skipping Claude token setup.")
-        return
-
-    secret_exists = (
-        CLAUDE_CODE_OAUTH_ENV in known_secret_names if known_secret_names is not None else has_claude_oauth_secret()
+    _skip_startup_wait()
+    command = _remote_claude_auth("status", "--json", ignore_token=stored_only)
+    try:
+        result = run_in_workspace(name, command, timeout=_CLAUDE_AUTH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return None
+    # `claude auth status` exits 1 when nobody is logged in, so the JSON on stdout decides, not the exit code.
+    # The login shell's profile can print before it, so parse from the first brace.
+    start = result.stdout.find("{")
+    if start == -1:
+        return None
+    try:
+        payload = json.loads(result.stdout[start:])
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return ClaudeLogin(
+        logged_in=payload.get("loggedIn") is True,
+        auth_method=_optional_text(payload, "authMethod") or "none",
+        email=_optional_text(payload, "email"),
+        organization=_optional_text(payload, "orgName"),
+        plan=_optional_text(payload, "subscriptionType") or _optional_text(payload, "planTier"),
     )
 
-    if secret_exists and configure_claude is not True:
+
+def _logout_claude(name: str) -> bool:
+    _skip_startup_wait()
+    try:
+        result = run_in_workspace(name, _remote_claude_auth("logout"), timeout=_CLAUDE_AUTH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return False
+    return result.returncode == 0
+
+
+def _offer_to_delete_claude_token_secret() -> None:
+    """Offer to delete the setup-token secret, which outranks any login on the box."""
+    click.echo(click.style(f"Your {CLAUDE_CODE_OAUTH_ENV} Coder user secret is set.", fg="yellow"))
+    click.echo("  Claude Code on your devboxes uses that token instead of a login on the box.")
+    if not click.confirm("Delete the secret so your devboxes use the login?", default=True):
+        click.echo("Kept the secret. Claude Code on your devboxes keeps using the token.")
         return
-
-    legacy_token = _read_legacy_keychain_token()
-
-    if legacy_token and not secret_exists and configure_claude is not True:
-        click.echo()
-        click.echo(click.style("Claude Code: migrating Keychain token to a Coder user secret", bold=True))
-        click.echo("  hogli now stores the Claude OAuth token as a Coder user secret so that")
-        click.echo("  workspaces pick it up automatically.")
-        if click.confirm("Migrate the existing Keychain entry now?", default=True):
-            upsert_user_secret(
-                CLAUDE_CODE_OAUTH_ENV,
-                legacy_token,
-                env_name=CLAUDE_CODE_OAUTH_ENV,
-                description="Claude Code OAuth token (managed by hogli)",
+    if delete_user_secret(CLAUDE_CODE_OAUTH_ENV).returncode != 0:
+        click.echo(
+            click.style(
+                f"Couldn't delete the secret. Run `hogli devbox:secret:rm {CLAUDE_CODE_OAUTH_ENV}` to try again.",
+                fg="yellow",
             )
-            if _delete_legacy_keychain_token():
-                click.echo("Migrated to Coder user secret. Removed the legacy Keychain entry.")
-            else:
-                click.echo("Migrated to Coder user secret. (Could not remove the legacy Keychain entry.)")
-            return
-
-    click.echo()
-    click.echo(click.style("Claude Code (optional)", bold=True))
-    click.echo("  Workspaces can use Claude Code if you provide an OAuth token.")
-    click.echo("  The token will be stored as a Coder user secret and injected as")
-    click.echo(f"  ${CLAUDE_CODE_OAUTH_ENV} into every workspace you start.")
-    click.echo("  To generate one, run `claude setup-token` in another terminal.")
-    click.echo()
-
-    token = _prompt_for_claude_token()
-    if not token:
-        click.echo("No token provided. Skipping.")
+        )
         return
+    click.echo(
+        f"Deleted the {CLAUDE_CODE_OAUTH_ENV} secret. Restart each running devbox (`hogli devbox:restart`) "
+        "so it drops the token."
+    )
 
+
+def _claude_token_secret_is_set() -> bool:
+    return server_supports_user_secrets() and has_claude_oauth_secret()
+
+
+def _print_claude_token_caveats() -> None:
+    click.echo("  A setup token can only make model requests. Remote Control and usage checks don't work with it.")
+    click.echo("  It overrides any Claude Code login on the box.")
+    click.echo("  hogli stores it as a Coder user secret, so every devbox you own gets it.")
+
+
+def _store_claude_token(token: str) -> None:
     upsert_user_secret(
         CLAUDE_CODE_OAUTH_ENV,
         token,
         env_name=CLAUDE_CODE_OAUTH_ENV,
         description="Claude Code OAuth token (managed by hogli)",
     )
-    click.echo(f"Saved Claude token as Coder user secret '{CLAUDE_CODE_OAUTH_ENV}'.")
+
+
+def _maybe_migrate_legacy_keychain_token() -> bool:
+    """Offer to move a Keychain token from older hogli versions into a user secret. Returns True when it moved."""
+    legacy_token = _read_legacy_keychain_token()
+    if not legacy_token:
+        return False
+    click.echo()
+    click.echo(click.style("Claude Code: token found in the macOS Keychain", bold=True))
+    click.echo(
+        "  An older hogli version saved a Claude token in the Keychain. hogli can move it to a Coder user secret."
+    )
+    click.echo("  Logging in on the box is the default now, so most people answer no.")
+    _print_claude_token_caveats()
+    if not click.confirm("Move the Keychain token to a Coder user secret?", default=False):
+        return False
+    _store_claude_token(legacy_token)
+    if _delete_legacy_keychain_token():
+        click.echo("Moved the token to a Coder user secret and removed the Keychain entry.")
+    else:
+        click.echo("Moved the token to a Coder user secret. Couldn't remove the Keychain entry.")
+    return True
+
+
+def _prompt_for_claude_auth_choice(*, secrets_supported: bool, secret_exists: bool) -> str:
+    click.echo()
+    click.echo(click.style("Claude Code (optional)", bold=True))
+    if secret_exists:
+        click.echo(f"  Your {CLAUDE_CODE_OAUTH_ENV} Coder user secret is set.")
+    click.echo("  login: log in on each box with `hogli devbox:claude:login` after it starts. hogli stores nothing.")
+    choices = ["login"]
+    if secrets_supported:
+        click.echo("  token: store a `claude setup-token` token for unattended use.")
+        choices.append("token")
+    click.echo("  skip:  set up Claude Code later.")
+    choices.append("skip")
+    return click.prompt("How should your devboxes use Claude Code?", type=click.Choice(choices), default="login")
+
+
+def maybe_configure_claude(configure_claude: bool | None, *, known_secret_names: set[str] | None = None) -> None:
+    """Choose how devboxes authenticate Claude Code.
+
+    Logging in on the box is the default, because only a full login supports
+    Remote Control and subscription features. The ``CLAUDE_CODE_OAUTH_TOKEN``
+    user secret stays available for unattended use.
+
+    An existing secret is left alone unless the user passed --configure-claude.
+    """
+    if configure_claude is False:
+        click.echo("Skipping Claude Code setup.")
+        return
+
+    secrets_supported = server_supports_user_secrets()
+    if not secrets_supported:
+        secret_exists = False
+    elif known_secret_names is not None:
+        secret_exists = CLAUDE_CODE_OAUTH_ENV in known_secret_names
+    else:
+        secret_exists = has_claude_oauth_secret()
+
+    if secret_exists and configure_claude is None:
+        return
+
+    if secrets_supported and not secret_exists and configure_claude is None and _maybe_migrate_legacy_keychain_token():
+        return
+
+    choice = _prompt_for_claude_auth_choice(secrets_supported=secrets_supported, secret_exists=secret_exists)
+    if choice == "skip":
+        click.echo("Skipped. Run `hogli devbox:setup --configure-claude` to choose later.")
+        return
+    if choice == "login":
+        if secret_exists:
+            _offer_to_delete_claude_token_secret()
+        click.echo("After your devbox starts, run `hogli devbox:claude:login` to log in on it.")
+        return
+
+    click.echo()
+    _print_claude_token_caveats()
+    token = _prompt_for_claude_token()
+    if not token:
+        click.echo("No token provided. Skipping.")
+        return
+    _store_claude_token(token)
+    click.echo(f"Saved the Claude token as Coder user secret '{CLAUDE_CODE_OAUTH_ENV}'.")
 
 
 def _reset_user_secret(secret_name: str) -> bool:
@@ -1013,24 +1412,43 @@ def _reset_region() -> bool:
 
 
 def _reset_dotfiles() -> bool:
-    """Drop the saved dotfiles URI and push an empty parameter to existing workspaces.
-
-    Clearing the local config alone only affects future workspaces -- existing
-    workspaces keep cloning the old URL until the template parameter is overridden.
-
-    Returns True iff something was cleared.
-    """
+    """Drop the saved dotfiles URI. Returns True iff something was cleared."""
     config = load_config()
     if not config.get("dotfiles_uri"):
         click.echo("Nothing to clear: dotfiles was not set.")
         return False
     clear_dotfiles_uri(config)
-    click.echo("Cleared saved dotfiles repo. Pushing empty parameter to existing workspaces...")
-    for ws in list_user_workspaces():
-        ws_name = ws.get("name")
-        if isinstance(ws_name, str) and ws_name:
-            update_workspace_parameters(ws_name, {DOTFILES_URI_PARAMETER: ""})
-            click.echo(f"  reset on '{ws_name}'")
+    click.echo(f"Cleared saved dotfiles repo. New devboxes won't clone it. {_CHANGE_PARAMETER_HINT}")
+    return True
+
+
+def _reset_worktree_box_cleanup() -> bool:
+    config = load_config()
+    if not config.get("worktree_box_cleanup"):
+        click.echo("Nothing to clear: worktree box cleanup was not set.")
+        return False
+    clear_worktree_box_cleanup(config)
+    click.echo("Cleared worktree box cleanup. `hogli worktrees:clean` now leaves devboxes alone by default.")
+    return True
+
+
+def _reset_worktree_auto_sources() -> bool:
+    config = load_config()
+    if not config.get("worktree_auto_box"):
+        click.echo("Nothing to clear: automatic worktree boxes were off.")
+        return False
+    clear_worktree_auto_sources(config)
+    click.echo("Turned off automatic worktree boxes. New worktrees no longer get a devbox.")
+    return True
+
+
+def _reset_worktree_provider() -> bool:
+    config = load_config()
+    if not config.get("worktree_provider"):
+        click.echo("Nothing to clear: worktree boxes already run on coder.")
+        return False
+    clear_worktree_provider(config)
+    click.echo("Worktree boxes run on coder again.")
     return True
 
 
@@ -1067,6 +1485,7 @@ class _ConfigItem:
     needs_secrets: bool
     status: Callable[[DevboxConfig, set[str]], str | None]
     reset: Callable[[], bool]
+    unset_text: str = "not set"
 
 
 _CONFIG_ITEMS: tuple[_ConfigItem, ...] = (
@@ -1104,6 +1523,28 @@ _CONFIG_ITEMS: tuple[_ConfigItem, ...] = (
         needs_secrets=True,
         status=_secret_status(CLAUDE_CODE_OAUTH_ENV),
         reset=lambda: _reset_user_secret(CLAUDE_CODE_OAUTH_ENV),
+    ),
+    _ConfigItem(
+        cli_key="worktree-boxes",
+        label="Worktree box cleanup",
+        needs_secrets=False,
+        status=_field_status("worktree_box_cleanup"),
+        reset=_reset_worktree_box_cleanup,
+    ),
+    _ConfigItem(
+        cli_key="worktree-auto",
+        label="Automatic worktree boxes",
+        needs_secrets=False,
+        status=_field_status("worktree_auto_box"),
+        reset=_reset_worktree_auto_sources,
+        unset_text="off",
+    ),
+    _ConfigItem(
+        cli_key="worktree-provider",
+        label="Worktree box provider",
+        needs_secrets=False,
+        status=_field_status("worktree_provider"),
+        reset=_reset_worktree_provider,
     ),
 )
 
@@ -1146,10 +1587,11 @@ def _print_setup_status(status: list[tuple[str, str | None]]) -> bool:
     if not any(value for _, value in status):
         return False
     width = max(len(label) for label, _ in status) + 1
+    unset_texts = {item.label: item.unset_text for item in _CONFIG_ITEMS}
     click.echo()
     click.echo("Currently configured:")
     for label, value in status:
-        rendered = value if value else click.style("not set", fg="yellow")
+        rendered = value if value else click.style(unset_texts.get(label, "not set"), fg="yellow")
         click.echo(f"  {label:<{width}} {rendered}")
     return True
 
@@ -1175,7 +1617,7 @@ def _confirm_run_setup() -> bool:
     click.echo("  - Git commit signing key propagation")
     click.echo("  - Preferred region for new workspaces (optional)")
     click.echo("  - Dotfiles repo for new workspaces (optional)")
-    click.echo("  - Claude OAuth token as a Coder user secret (optional)")
+    click.echo("  - How devboxes use Claude Code: a login on the box or a stored token (optional)")
     click.echo()
     return click.confirm("Proceed?", default=True)
 
@@ -1210,7 +1652,7 @@ def _confirm_run_setup() -> bool:
     "--configure-claude/--skip-configure-claude",
     "configure_claude_setup",
     default=None,
-    help="Manage the CLAUDE_CODE_OAUTH_TOKEN Coder user secret for this user",
+    help="Choose how devboxes use Claude Code: a login on the box (default) or a CLAUDE_CODE_OAUTH_TOKEN user secret",
 )
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_setup(
@@ -1237,6 +1679,7 @@ def devbox_setup(
     click.echo(click.style("Configuring devbox CLI access...", bold=True))
     ensure_coder_reachable("rerun `hogli devbox:setup`.")
     ensure_coder_installed(verbose=verbose)
+    ensure_coder_on_path()
     ensure_coder_authenticated()
 
     # One `coder secret list` round trip fuels the status block and both
@@ -1268,7 +1711,7 @@ def devbox_setup(
     maybe_configure_git_signing(configure_git_signing, known_secret_names=secret_names)
     maybe_configure_region(configure_region)
     maybe_configure_dotfiles(configure_dotfiles)
-    maybe_configure_claude_secret(configure_claude_setup, known_secret_names=secret_names)
+    maybe_configure_claude(configure_claude_setup, known_secret_names=secret_names)
     print_setup_summary()
 
 
@@ -1360,23 +1803,306 @@ def _hint_if_positional_looks_like_username(
         )
 
 
+def _can_prompt() -> bool:
+    return sys.stdin.isatty()
+
+
+_KEEP_LOGIN_HINT = "Start the box and run the command again, or pass --keep-claude-login to share anyway."
+
+
+def _warn_about_claude_login_before_sharing(name: str, workspace: dict[str, Any], *, keep_login: bool) -> None:
+    """Warn that a shared box exposes the owner's Claude Code login, and log out first unless told to keep it.
+
+    Fails when the login can't be ruled out and ``keep_login`` is not set, so a box is never shared
+    with a login the owner didn't decide about.
+    """
+    click.echo(
+        click.style(
+            "People you share with get a shell on the box as you, so they can use your Claude Code login there.",
+            fg="yellow",
+        )
+    )
+    if keep_login:
+        return
+    if get_workspace_status(workspace) != "running":
+        _fail(f"Couldn't check the box's Claude Code login, because the devbox isn't running. {_KEEP_LOGIN_HINT}")
+    if _claude_token_secret_is_set():
+        click.echo(f"  The box gets your {CLAUDE_CODE_OAUTH_ENV} user secret as an environment variable.")
+        click.echo("  To remove it, run `hogli devbox:config:rm claude` and restart the box.")
+    login = _read_claude_login(name, stored_only=True)
+    if login is None:
+        _fail(f"Couldn't check the box's Claude Code login, because the devbox didn't answer. {_KEEP_LOGIN_HINT}")
+    if login.auth_method != "claude.ai":
+        return
+    click.echo(f"  The box is logged in to Claude Code as {login.email or 'your account'}.")
+    if not _can_prompt():
+        _fail(
+            "The box is logged in to Claude Code. Run `hogli devbox:claude:logout` first, "
+            "or pass --keep-claude-login to share anyway."
+        )
+    if not click.confirm("Log out of Claude Code on the box before sharing?", default=True):
+        return
+    if not _logout_claude(name):
+        _fail("Couldn't log out of Claude Code on the box, so the devbox wasn't shared. Run the command again.")
+    click.echo("Logged out of Claude Code on the box.")
+
+
+# Looks at the store and the process table itself, so a deleted devbox-secrets script can't hide a lend.
+# A process that `devbox-secrets run` started keeps the values in its environment after the store goes.
+_LENT_SECRETS_PROBE = (
+    'test -e "/dev/shm/devbox-secrets-$(id -u)/env" && echo stored; '
+    "grep -qxz DEVBOX_SECRETS_LENT=1 /proc/[0-9]*/environ 2>/dev/null && echo running; "
+    "echo checked"
+)
+
+
+def _refuse_to_share_lent_secrets(name: str) -> None:
+    """Fail while the box holds secrets from `devbox:secrets:push`, which a sharee could read."""
+    _skip_startup_wait()
+    try:
+        result = run_in_workspace(name, ["bash", "-c", _LENT_SECRETS_PROBE], timeout=_CLAUDE_AUTH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        _fail("Couldn't check the devbox for lent secrets, because it didn't answer. Run the command again.")
+    answer = result.stdout.split()
+    if "checked" not in answer:
+        _fail("Couldn't check the devbox for lent secrets. Run the command again.")
+    if "stored" in answer:
+        _fail("The devbox holds secrets lent with `hogli devbox:secrets:push`. Run `hogli devbox:secrets:clear` first.")
+    if "running" in answer:
+        _fail(
+            "A command started with `devbox-secrets run` still runs on the devbox with lent secrets. "
+            "Stop it, or restart the box, then share."
+        )
+
+
+_GH_AUTH_TIMEOUT = 60
+_KEEP_GH_LOGIN_HINT = "Run `hogli devbox:gh:status` to see why, or pass --keep-gh-login to share anyway."
+
+
+def remote_gh_auth(*args: str) -> list[str]:
+    # A GH_TOKEN or GITHUB_TOKEN env var, such as a Coder user secret, hides the login stored on the box
+    # from `gh auth status`, and `gh auth login` refuses to run while one is set.
+    return ["env", "-u", "GH_TOKEN", "-u", "GITHUB_TOKEN", "gh", "auth", *args, "--hostname", "github.com"]
+
+
+def read_gh_logins(name: str) -> list[str] | None:
+    """Return the GitHub accounts stored on the box, or ``None`` when the box doesn't say.
+
+    An account whose token GitHub rejects still counts, because the token is still on the box's disk.
+    """
+    _skip_startup_wait()
+    try:
+        result = run_in_workspace(name, remote_gh_auth("status", "--json", "hosts"), timeout=_GH_AUTH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return None
+    start = result.stdout.find("{")
+    if start == -1:
+        return None
+    try:
+        hosts = json.loads(result.stdout[start:]).get("hosts", {})
+    except (json.JSONDecodeError, AttributeError):
+        return None
+    return [account["login"] for account in hosts.get("github.com", []) if account.get("login")]
+
+
+def logout_gh(name: str, logins: list[str]) -> bool:
+    # Without a terminal, `gh auth logout` refuses to pick one of several accounts, so name each one.
+    _skip_startup_wait()
+    for login in logins:
+        try:
+            result = run_in_workspace(name, remote_gh_auth("logout", "--user", login), timeout=_GH_AUTH_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            return False
+        if result.returncode != 0:
+            return False
+    return True
+
+
+def _warn_about_gh_login_before_sharing(name: str, workspace: dict[str, Any], *, keep_login: bool) -> None:
+    """Log out of the GitHub CLI on the box before sharing it, unless told to keep the login.
+
+    gh keeps its token in a file on the box, and people the box is shared with get a shell as the owner.
+    """
+    if keep_login:
+        return
+    if get_workspace_status(workspace) != "running":
+        _fail(
+            "Couldn't check the box's GitHub CLI login, because the devbox isn't running. "
+            "Start the box and run the command again, or pass --keep-gh-login to share anyway."
+        )
+    logins = read_gh_logins(name)
+    if logins is None:
+        _fail(f"Couldn't check the box's GitHub CLI login. {_KEEP_GH_LOGIN_HINT}")
+    if not logins:
+        return
+    click.echo(
+        click.style("The box is logged in to the GitHub CLI. People you share with could use that login.", fg="yellow")
+    )
+    if not _can_prompt():
+        _fail(
+            "The box is logged in to the GitHub CLI. Run `hogli devbox:gh:logout` first, "
+            "or pass --keep-gh-login to share anyway."
+        )
+    if not click.confirm("Log out of the GitHub CLI on the box before sharing?", default=True):
+        return
+    if not logout_gh(name, logins):
+        _fail("Couldn't log out of the GitHub CLI on the box, so the devbox wasn't shared. Run the command again.")
+    click.echo("Logged out of the GitHub CLI on the box.")
+
+
+# Coder clones dotfiles at first boot, when git on the box has only Coder's GitHub app token. That token
+# can't read a private dotfiles repo, so the clone fails and Coder logs the error to ~/.dotfiles.log.
+DOTFILES_FAILED_ON_BOX = (
+    "grep -qs 'Encountered an error running \"coder dotfiles\"' ~/.dotfiles.log "
+    "&& [ ! -d ~/.config/coderv2/dotfiles/.git ]"
+)
+
+
+def remote_apply_dotfiles(uri: str) -> list[str]:
+    return ["coder", "dotfiles", "-y", uri]
+
+
+_TRUNK_AUTH_TIMEOUT = 60
+TRUNK_MISSING_EXIT = 3
+TRUNK_LOGIN_WITHOUT_CLI_EXIT = 4
+_KEEP_TRUNK_LOGIN_HINT = "Run `hogli devbox:trunk:status` to see why, or pass --keep-trunk-login to share anyway."
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def remote_trunk(*args: str) -> list[str]:
+    # trunk is on PATH only inside PostHog's flox environment. flox puts the binary under .flox/run
+    # the first time it activates the environment, so the box can call it there without activating.
+    # Without the binary, a login that trunk stored before still sits in its user file, so that case
+    # gets its own exit code and a caller can't take it for "logged out".
+    script = (
+        f"cd {REMOTE_REPO_PATH} && "
+        f'for trunk in .flox/run/*/bin/trunk; do if [ -x "$trunk" ]; then exec "$trunk" {shlex.join(args)}; fi; done; '
+        f"grep -qs '^trunk_user:' ~/.cache/trunk/user.yaml && exit {TRUNK_LOGIN_WITHOUT_CLI_EXIT}; "
+        f"exit {TRUNK_MISSING_EXIT}"
+    )
+    return ["bash", "-c", script]
+
+
+def read_trunk_login(name: str) -> str | None:
+    """Return the `trunk whoami` line for the box's login, "" when there is none, or ``None`` when the box doesn't say.
+
+    A box without a trunk binary counts as logged out, unless trunk's user file still holds a login.
+    """
+    _skip_startup_wait()
+    try:
+        result = run_in_workspace(name, remote_trunk("whoami", "--no-progress"), timeout=_TRUNK_AUTH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return None
+    if result.returncode == TRUNK_MISSING_EXIT:
+        return ""
+    if result.returncode == TRUNK_LOGIN_WITHOUT_CLI_EXIT:
+        return None
+    output = _ANSI_ESCAPE.sub("", result.stdout + result.stderr)
+    for line in output.splitlines():
+        if "Logged in as" in line:
+            return line.strip(" ✔")
+    if "Not logged in" in output:
+        return ""
+    return None
+
+
+def logout_trunk(name: str) -> bool:
+    _skip_startup_wait()
+    try:
+        result = run_in_workspace(name, remote_trunk("logout", "--no-progress"), timeout=_TRUNK_AUTH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return False
+    return result.returncode == 0
+
+
+def _warn_about_trunk_login_before_sharing(name: str, workspace: dict[str, Any], *, keep_login: bool) -> None:
+    """Log out of the Trunk CLI on the box before sharing it, unless told to keep the login.
+
+    trunk keeps its token in a file on the box, and people the box is shared with get a shell as the owner,
+    so they could use the merge queue in the owner's name.
+    """
+    if keep_login:
+        return
+    if get_workspace_status(workspace) != "running":
+        _fail(
+            "Couldn't check the box's Trunk CLI login, because the devbox isn't running. "
+            "Start the box and run the command again, or pass --keep-trunk-login to share anyway."
+        )
+    login = read_trunk_login(name)
+    if login is None:
+        _fail(f"Couldn't check the box's Trunk CLI login. {_KEEP_TRUNK_LOGIN_HINT}")
+    if not login:
+        return
+    click.echo(
+        click.style("The box is logged in to the Trunk CLI. People you share with could use that login.", fg="yellow")
+    )
+    if not _can_prompt():
+        _fail(
+            "The box is logged in to the Trunk CLI. Run `hogli devbox:trunk:logout` first, "
+            "or pass --keep-trunk-login to share anyway."
+        )
+    if not click.confirm("Log out of the Trunk CLI on the box before sharing?", default=True):
+        return
+    if not logout_trunk(name):
+        _fail("Couldn't log out of the Trunk CLI on the box, so the devbox wasn't shared. Run the command again.")
+    click.echo("Logged out of the Trunk CLI on the box.")
+
+
+def _logout_claude_before_destroy(name: str) -> None:
+    """Run `claude auth logout` before destroy deletes the disk.
+
+    Deleting the disk deletes the stored login too. Logging out first also
+    gets any server-side cleanup that `claude auth logout` does.
+    """
+    login = _read_claude_login(name, stored_only=True)
+    if login is None or login.auth_method != "claude.ai":
+        return
+    if _logout_claude(name):
+        click.echo("Logged out of Claude Code on the box.")
+        return
+    click.echo(
+        click.style("Couldn't log out of Claude Code on the box. Destroying it deletes the login anyway.", fg="yellow")
+    )
+
+
 @click.command(name="devbox:share", help="Share your devbox with other users")
 @workspace_argument
 @click.option("--user", "users", multiple=True, help="Coder username(s) to share with")
 @click.option("--role", type=click.Choice(["use", "admin"]), default="use", help="Access role to grant")
 @click.option("--list", "list_sharing", is_flag=True, help="Show who has access")
+@click.option(
+    "--keep-claude-login",
+    "keep_claude_login",
+    is_flag=True,
+    help="Share without checking for or logging out a Claude Code login on the box",
+)
+@click.option(
+    "--keep-gh-login",
+    "keep_gh_login",
+    is_flag=True,
+    help="Share without checking for or logging out a GitHub CLI login on the box",
+)
+@click.option(
+    "--keep-trunk-login",
+    "keep_trunk_login",
+    is_flag=True,
+    help="Share without checking for or logging out a Trunk CLI login on the box",
+)
 def devbox_share(
     workspace: str | None,
     users: tuple[str, ...],
     role: str,
     list_sharing: bool,
+    keep_claude_login: bool,
+    keep_gh_login: bool,
+    keep_trunk_login: bool,
 ) -> None:
     """Share your devbox with other Coder users."""
     ensure_runtime_ready()
     _hint_if_positional_looks_like_username("devbox:share", workspace, users, list_sharing)
 
     name, workspaces = resolve_workspace_name(workspace)
-    _get_workspace_or_fail(name, workspaces)
+    ws = _get_workspace_or_fail(name, workspaces)
 
     if list_sharing:
         result = get_sharing_status(name)
@@ -1388,6 +2114,14 @@ def devbox_share(
     if not users:
         raise click.UsageError("Specify at least one --user. Run 'hogli devbox:users' to find usernames.")
 
+    _warn_about_claude_login_before_sharing(name, ws, keep_login=keep_claude_login)
+    _warn_about_gh_login_before_sharing(name, ws, keep_login=keep_gh_login)
+    _warn_about_trunk_login_before_sharing(name, ws, keep_login=keep_trunk_login)
+    # Last, right before the share: secrets can be lent while a logout prompt above waits for an answer.
+    # Lent secrets live in memory, so only a box that has stopped or is coming up fresh can't hold any.
+    # A pending or deleting box can still run with secrets until its queued job runs.
+    if get_workspace_status(ws) not in ("stopped", "starting", "deleted"):
+        _refuse_to_share_lent_secrets(name)
     share_workspace(name, list(users), role)
     click.echo(f"Shared '{name}' with {', '.join(users)} (role: {role}).")
 
@@ -1465,10 +2199,7 @@ def _maybe_hint_region_mismatch(name: str) -> None:
     "--start-app/--no-start-app",
     "start_app",
     default=None,
-    help=(
-        "Bring the PostHog app up in the background on every workspace start. "
-        "Sticky on the workspace until flipped with --no-start-app."
-    ),
+    help=("Bring the PostHog app up in the background on every workspace start. Applies when the devbox is created."),
 )
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_start(
@@ -1497,26 +2228,34 @@ def devbox_start(
     if ws is not None:
         if workspace is None and region is None:
             _maybe_hint_region_mismatch(name)
-        _start_existing_workspace(name, ws, start_app=start_app, verbose=verbose)
+        _start_existing_workspace(
+            name, ws, start_app=start_app, verbose=verbose, check_setup=_targets_own_box(workspace)
+        )
         return
 
     config = load_config()
 
     click.echo(f"Creating devbox '{name}' (template={template}, preset={preset}, region={effective_region})...")
-    create_workspace(
+    run_with_capacity_fallback(
         name,
-        disk,
-        git_name=config.get("git_name"),
-        git_email=config.get("git_email"),
-        dotfiles_uri=config.get("dotfiles_uri"),
-        region=effective_region,
-        template=template,
-        preset=preset,
-        start_app=start_app,
-        verbose=verbose,
+        lambda: create_workspace(
+            name,
+            disk,
+            git_name=config.get("git_name"),
+            git_email=config.get("git_email"),
+            dotfiles_uri=config.get("dotfiles_uri"),
+            region=effective_region,
+            template=template,
+            preset=preset,
+            start_app=start_app,
+            verbose=verbose,
+        ),
     )
+    _wait_until_ready(name)
     click.echo("Created.")
     _print_connection_info(name)
+    if _targets_own_box(workspace):
+        _report_box_setup(name)
 
 
 @click.command(
@@ -1544,7 +2283,9 @@ def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool
     copy. The capture image is private to you and auto-expires.
     """
     ensure_runtime_ready()
-    source_name, workspaces = resolve_workspace_name(workspace)
+    source_name, workspaces = (
+        resolve_default_workspace_name() if workspace is None else resolve_workspace_name(workspace)
+    )
     ws = _get_workspace_or_fail(source_name, workspaces)
 
     owner = get_username()
@@ -1597,6 +2338,7 @@ def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool
         template=template,
         verbose=verbose,
     )
+    _wait_until_ready(target_name)
     click.echo("Cloned.")
     _print_connection_info(target_name)
 
@@ -1610,14 +2352,25 @@ def devbox_stop(workspace: str | None, verbose: bool) -> None:
     name, workspaces = resolve_workspace_name(workspace)
     ws = _get_workspace_or_fail(name, workspaces)
 
+    # Also for a box that Coder stopped on its schedule, whose sync still redials it.
+    paused = _pause_sync(name)
+
     status = get_workspace_status(ws)
     if status == "stopped":
         click.echo(f"Devbox '{name}' is already stopped.")
         return
 
     click.echo(f"Stopping '{name}'...")
-    stop_workspace(name, verbose=verbose)
-    click.echo("Stopped. Disk preserved. Run 'hogli devbox:start' to resume.")
+    try:
+        stop_workspace(name, verbose=verbose)
+    except (Exception, SystemExit):
+        if paused:
+            mutagen.sync_resume(mutagen.workspace_label_selector(name))
+            click.echo(f"The box still runs, so the sync to '{name}' is resumed.")
+        raise
+    start_command = f"hogli devbox:start {workspace}" if workspace else "hogli devbox:start"
+    click.echo("Stopped. Billing for the box stops now.")
+    click.echo(f"The disk and your files stay until you destroy the box. Run '{start_command}' to resume it.")
 
 
 @click.command(name="devbox:restart", help="Restart your devbox")
@@ -1629,7 +2382,8 @@ def devbox_restart(workspace: str | None, verbose: bool) -> None:
     name, workspaces = resolve_workspace_name(workspace)
     _get_workspace_or_fail(name, workspaces)
     click.echo(f"Restarting '{name}'...")
-    restart_workspace(name, verbose=verbose)
+    run_with_capacity_fallback(name, lambda: restart_workspace(name, verbose=verbose))
+    _wait_until_ready(name)
     click.echo("Restarted.")
     _print_connection_info(name)
 
@@ -1645,18 +2399,23 @@ def devbox_update(workspace: str | None, verbose: bool) -> None:
     if not ws.get("outdated"):
         click.echo(f"Devbox '{name}' is already up to date.")
         return
-    config = load_config()
-    params: dict[str, str] = {}
-    if dotfiles_uri := config.get("dotfiles_uri"):
-        params[DOTFILES_URI_PARAMETER] = dotfiles_uri
     click.echo(f"Updating '{name}' to the latest template...")
-    update_workspace(name, parameters=params, verbose=verbose)
+    run_with_capacity_fallback(name, lambda: update_workspace(name, verbose=verbose))
+    _wait_until_ready(name)
     click.echo("Updated.")
     click.echo(
         "Note: if your local lockfiles differ from the new AMI's baked versions, "
         "expect a one-time dep re-install on next workspace start (2-5 min)."
     )
     _print_connection_info(name)
+
+
+def _ensure_ssh_alias(name: str) -> None:
+    if coder_ssh_alias_configured(name):
+        return
+    _fail(
+        "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
+    )
 
 
 @click.command(name="devbox:ssh", help="SSH into your devbox")
@@ -1674,51 +2433,150 @@ def devbox_ssh(workspace: str | None) -> None:
     context_settings={"ignore_unknown_options": True},
 )
 @click.option("--name", "-n", "workspace_name", default=None, help="Workspace label or @user[/label] target")
+@click.option(
+    "--flox",
+    is_flag=True,
+    help="Run COMMAND in ~/posthog inside PostHog's flox environment, where pnpm, pytest and the venv are on PATH",
+)
 @click.argument("command", nargs=-1, type=click.UNPROCESSED, required=True)
-def devbox_remote_exec(workspace_name: str | None, command: tuple[str, ...]) -> None:
-    """Run COMMAND in the devbox over `coder ssh` and propagate its exit code.
+def devbox_remote_exec(workspace_name: str | None, flox: bool, command: tuple[str, ...]) -> None:
+    """Run COMMAND in the devbox over SSH and propagate its exit code.
 
     Unlike `devbox:ssh`, this runs a single command instead of opening an
     interactive shell, so agents and scripts can drive a devbox remotely:
 
         hogli devbox:exec -- gh auth status
-        hogli devbox:exec -n api -- bash -lc 'cd ~/posthog && git status'
+        hogli devbox:exec --flox -- pnpm --filter=@posthog/frontend typescript:check
+        hogli devbox:exec -n api --flox -- bash -c 'git status && pytest posthog/api/test/test_user.py'
 
     Use `--` to separate hogli's flags from the command's own flags.
     """
     ensure_runtime_ready()
     name, _ = resolve_workspace_name(workspace_name)
+    _ensure_ssh_alias(name)
+    exec_replace(name, list(command), in_flox=flox)
+
+
+@click.command(name="devbox:claude:login", help="Log in to Claude Code on your devbox")
+@workspace_argument
+def devbox_claude_login(workspace: str | None) -> None:
+    """Run `claude auth login` on the box in an interactive session.
+
+    The login stays on the box's disk until `devbox:claude:logout` or `devbox:destroy`.
+    Run it again to switch to another account.
+    """
+    if not _targets_own_box(workspace):
+        _fail("Log in to Claude Code only on your own devbox.")
+    ensure_runtime_ready()
+    name, _ = resolve_workspace_name(workspace)
+    _ensure_ssh_alias(name)
+    if _claude_token_secret_is_set():
+        _offer_to_delete_claude_token_secret()
+    click.echo(f"Starting `claude auth login` on '{name}'. Run this command again to switch accounts.")
+    _skip_startup_wait()
+    exec_replace(name, _remote_claude_auth("login"), tty=True)
+
+
+@click.command(name="devbox:claude:status", help="Show which Claude Code account your devbox uses")
+@workspace_argument
+def devbox_claude_status(workspace: str | None) -> None:
+    """Print the login fields of `claude auth status` on the box, without any credential."""
+    ensure_runtime_ready()
+    name, _ = resolve_workspace_name(workspace)
+    _ensure_ssh_alias(name)
+    login = _read_claude_login(name)
+    if login is None:
+        _fail(
+            f"Couldn't read the Claude Code login on '{name}'. Check that the devbox runs with `hogli devbox:status`."
+        )
+
+    rows = [
+        ("Devbox", name),
+        ("Logged in", "yes" if login.logged_in else "no"),
+        ("Auth method", login.auth_method),
+        ("Email", login.email),
+        ("Organization", login.organization),
+        ("Plan", login.plan),
+    ]
+    for label, value in rows:
+        if value:
+            click.echo(f"{label + ':':<14}{value}")
+    if login.auth_method == "oauth_token":
+        click.echo(
+            f"The {CLAUDE_CODE_OAUTH_ENV} user secret supplies this login. "
+            "Remote Control and usage checks don't work with it."
+        )
+    if not login.logged_in:
+        click.echo("Run `hogli devbox:claude:login` to log in.")
+
+
+@click.command(name="devbox:claude:logout", help="Log out of Claude Code on your devbox")
+@workspace_argument
+def devbox_claude_logout(workspace: str | None) -> None:
+    """Run `claude auth logout` on the box, which deletes the login stored there."""
+    ensure_runtime_ready()
+    name, _ = resolve_workspace_name(workspace)
+    _ensure_ssh_alias(name)
+    if not _logout_claude(name):
+        _fail(f"Couldn't log out of Claude Code on '{name}'. Check that the devbox runs with `hogli devbox:status`.")
+    click.echo(f"Logged out of Claude Code on '{name}'.")
+    if _claude_token_secret_is_set():
+        click.echo(
+            f"Your {CLAUDE_CODE_OAUTH_ENV} user secret still gives the box a token. "
+            "Run `hogli devbox:config:rm claude` and restart the box to remove it."
+        )
+
+
+def _sync_warning(name: str, editor: str) -> str:
+    worktree = next((path for path, record in load_worktree_boxes().items() if record.workspace == name), None)
+    if worktree is None:
+        return f"⚠ Sync is active for '{name}'. Editing in {editor} can conflict with the local source of truth."
+    return (
+        f"⚠ '{name}' mirrors the worktree at {worktree}. Edit files in that worktree, "
+        f"and use {editor} to run the stack and tests. Files edited on the devbox conflict with the mirror."
+    )
+
+
+def _open_in_herdr(name: str, workspaces: list[dict[str, Any]] | None) -> None:
+    ws = _get_workspace_or_fail(name, workspaces)
+    status = get_workspace_status(ws)
+    if status != "running":
+        _fail(
+            f"Devbox '{name}' is {status}. Start it with `hogli devbox:start{_workspace_arg_suffix(name)}`, then retry.",
+            cause="herdr_workspace_not_running",
+        )
     if not coder_ssh_alias_configured(name):
         _fail(
-            "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
+            "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry.",
+            cause="herdr_ssh_not_configured",
         )
-    exec_replace(name, list(command))
+    herdr_app.open_in_herdr(name, folder=REMOTE_REPO_PATH)
 
 
-@click.command(name="devbox:open", help="Open devbox in browser, VS Code, or Cursor")
+@click.command(name="devbox:open", help="Open devbox in browser, VS Code, Cursor, or Herdr")
 @workspace_argument
 @click.option("--vscode", is_flag=True, help="Open in VS Code Desktop via SSH")
 @click.option("--cursor", is_flag=True, help="Open in Cursor via SSH")
 @click.option("--web", is_flag=True, help="Open code-server (VS Code in browser)")
-def devbox_open(workspace: str | None, vscode: bool, cursor: bool, web: bool) -> None:
+@click.option("--herdr", is_flag=True, help="Add the devbox to Herdr as a machine and open a space on it")
+def devbox_open(workspace: str | None, vscode: bool, cursor: bool, web: bool, herdr: bool) -> None:
     """Open the devbox in a browser or editor."""
-    chosen = sum([vscode, cursor, web])
+    chosen = sum([vscode, cursor, web, herdr])
     if chosen > 1:
-        raise click.UsageError("Choose one of `--vscode`, `--cursor`, or `--web`.")
+        raise click.UsageError("Choose one of `--vscode`, `--cursor`, `--web`, or `--herdr`.")
 
     ensure_runtime_ready()
-    name, _ = resolve_workspace_name(workspace)
+    name, workspaces = resolve_workspace_name(workspace)
 
-    if (vscode or cursor) and mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name)):
-        ide = "VS Code" if vscode else "Cursor"
-        click.echo(
-            click.style(
-                f"⚠ Sync is active for '{name}'. Editing in {ide} Remote can conflict with the local source of truth.",
-                fg="yellow",
-            )
-        )
+    if (vscode or cursor or herdr) and mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name)):
+        editor = "VS Code Remote" if vscode else "Cursor Remote" if cursor else "Herdr terminals on the devbox"
+        click.echo(click.style(_sync_warning(name, editor), fg="yellow"))
 
-    if vscode:
+    target = "vscode" if vscode else "cursor" if cursor else "web" if web else "herdr" if herdr else "browser"
+    telemetry.add_command_properties(devbox_open_target=target)
+    if herdr:
+        _open_in_herdr(name, workspaces)
+    elif vscode:
         click.echo(f"Opening '{name}' in VS Code...")
         open_vscode(name)
     elif cursor:
@@ -1834,7 +2692,8 @@ def devbox_config_rm(keys: tuple[str, ...], reset_all: bool) -> None:
     """Remove one or more saved devbox configuration items.
 
     Valid keys mirror the matching ``--configure-*`` flags on ``devbox:setup``:
-    ``git-identity``, ``git-signing``, ``region``, ``dotfiles``, ``claude``.
+    ``git-identity``, ``git-signing``, ``region``, ``dotfiles``, ``claude``, ``worktree-boxes``,
+    ``worktree-auto``, ``worktree-provider``.
     """
     by_key = _config_items_by_key()
     valid_keys = tuple(by_key)
@@ -1878,6 +2737,9 @@ def devbox_destroy(workspace: str | None, verbose: bool) -> None:
         click.echo("Cancelled.")
         return
 
+    if get_workspace_status(ws) == "running":
+        _logout_claude_before_destroy(name)
+
     label = mutagen.workspace_label_selector(name)
     if mutagen.sync_list(label_selector=label):
         try:
@@ -1889,6 +2751,7 @@ def devbox_destroy(workspace: str | None, verbose: bool) -> None:
             click.echo(click.style("Warning: failed to terminate sync session; continuing.", fg="yellow"))
 
     delete_workspace(name, verbose=verbose)
+    herdr_app.forget_machine(name)
     click.echo("Destroyed.")
 
 
@@ -1901,7 +2764,7 @@ def devbox_status(workspace: str | None) -> None:
 
     ws = get_workspace(name, workspaces)
     if ws is None:
-        click.echo("No devbox found. Run 'hogli devbox:start' to create one.")
+        click.echo(f"No devbox found. {_create_box_hint(name)}")
         return
 
     status = get_workspace_status(ws)
@@ -1913,7 +2776,7 @@ def devbox_status(workspace: str | None) -> None:
 
     if ws.get("outdated"):
         click.echo(click.style("  Update:  template update available", fg="yellow"))
-        click.echo("           Run `hogli devbox:update` to apply it.")
+        click.echo(f"           Run `hogli devbox:update{_workspace_arg_suffix(name)}` to apply it.")
 
     # Show agent status if available
     resources = ws.get("latest_build", {}).get("resources", [])
@@ -1922,28 +2785,65 @@ def devbox_status(workspace: str | None) -> None:
             agent_status = agent.get("status", "unknown")
             click.echo(f"  Agent:   {agent_status}")
 
+    owner = str(ws.get("owner_name") or "").lower()
+    if owner and owner == get_username():
+        app_health = _app_health(resources)
+        click.echo(f"  App:     {app_url(name)}" + (f" ({app_health})" if app_health else ""))
+
     if status == "running":
         _print_connection_info(name)
 
 
+def _app_health(resources: list[dict[str, Any]]) -> str | None:
+    for resource in resources:
+        for agent in resource.get("agents", []):
+            for app in agent.get("apps", []):
+                if app.get("slug") == "app":
+                    return app.get("health")
+    return None
+
+
+_BOX_APP_PORT = 8010
+_FORWARD_PORT_RANGE = range(18000, 19000)
+
+
+def _forward_port_candidates(name: str) -> list[int]:
+    start = zlib.crc32(name.encode()) % len(_FORWARD_PORT_RANGE)
+    derived = [
+        _FORWARD_PORT_RANGE[(start + offset) % len(_FORWARD_PORT_RANGE)] for offset in range(len(_FORWARD_PORT_RANGE))
+    ]
+    return derived if extract_workspace_label(name) else [_BOX_APP_PORT, *derived]
+
+
 @click.command(name="devbox:forward", help="Forward PostHog UI to localhost")
 @workspace_argument
-@click.option("--port", default=8010, type=int, help="Local port to forward to")
-def devbox_forward(workspace: str | None, port: int) -> None:
+@click.option("--port", default=None, type=int, help="Local port to forward to. Defaults to a free port kept per box.")
+def devbox_forward(workspace: str | None, port: int | None) -> None:
     """Forward the PostHog UI port to localhost."""
     ensure_runtime_ready()
     name, _ = resolve_workspace_name(workspace)
-    if not _local_port_is_available(port):
+    if port is None:
+        port = next(
+            (candidate for candidate in _forward_port_candidates(name) if _local_port_is_available(candidate)), None
+        )
+        if port is None:
+            _fail(
+                f"No free local port in {_FORWARD_PORT_RANGE.start}-{_FORWARD_PORT_RANGE.stop - 1}. "
+                f"Rerun with `hogli devbox:forward{_workspace_arg_suffix(name)} --port <port>`."
+            )
+    elif not _local_port_is_available(port):
         _fail(
             f"Local port {port} is already in use.\n"
-            f"Stop the process using that port or rerun with `hogli devbox:forward --port {port + 1}`."
+            f"Stop the process using that port, or rerun without --port to pick a free one."
         )
 
-    click.echo(f"Forwarding {name}:8010 -> localhost:{port}")
+    click.echo(f"Forwarding {name}:{_BOX_APP_PORT} -> localhost:{port}")
     click.echo(f"PostHog UI at http://localhost:{port}")
+    if _targets_own_box(workspace):
+        click.echo(f"Without forwarding, open {app_url(name)}")
     click.echo("Ctrl+C to stop")
     click.echo()
-    port_forward_replace(name, port, 8010)
+    port_forward_replace(name, port, _BOX_APP_PORT)
 
 
 def _gib(nbytes: int) -> str:
@@ -2017,7 +2917,7 @@ def devbox_cleanup_disk(workspace: str | None, prune_docker: bool, prune_cargo: 
         ensure_runtime_ready()
         # Cleanup is destructive (removes caches and build artifacts), so refuse
         # to run it against someone else's shared `@user[/label]` devbox.
-        if workspace.startswith("@"):
+        if workspace.startswith("@") and not is_own_default_target(workspace):
             _fail("devbox:cleanup:disk only runs against your own devboxes, not a shared '@user' workspace.")
         name, workspaces = resolve_workspace_name(workspace)
         _get_workspace_or_fail(name, workspaces)

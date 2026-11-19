@@ -1,11 +1,11 @@
 import { redactSecretHogFunctionInputs } from 'scenes/hog-functions/hog-function-utils'
 import type { AiFirstSuggestion } from 'scenes/max/aiFirstCreate/AiFirstCreateScene'
 
+import { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTemplateType } from '~/types'
 
-import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
-
-import { isEmailAction, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
+import { isEmailStep } from './hogflows/steps/email/emailStepVariants'
+import { isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import type { HogFlow } from './hogflows/types'
 
 // Each visible chip and the hidden payload items it stands for share a dismiss group, so closing
@@ -66,7 +66,7 @@ export const EMAIL_EDITOR_AGENT_HEADLINES: string[] = ['How should this email lo
 
 export const NEW_WORKFLOW_AGENT_HEADLINES: string[] = ['What workflow would you like to build today?']
 
-// The first is the data-driven ask; the rest follow the templates users pick most often.
+// The first is the data-driven ask. The rest mirror the global templates: common flows, marketing, then AI.
 export const NEW_WORKFLOW_SUGGESTIONS: AiFirstSuggestion[] = [
     {
         title: 'Improve my conversion',
@@ -84,9 +84,9 @@ export const NEW_WORKFLOW_SUGGESTIONS: AiFirstSuggestion[] = [
         prompt: 'Notify the team in Slack when a new support ticket comes in',
     },
     {
-        title: 'Finish onboarding',
-        description: 'Nudge people who started but never completed it',
-        prompt: 'Remind users who started onboarding but never finished it',
+        title: 'Recover abandoned checkouts',
+        description: 'Email people who start checkout but never finish',
+        prompt: 'Email people who start checkout but do not complete a purchase, and stop once they buy',
     },
     {
         title: 'Win back inactive users',
@@ -94,19 +94,19 @@ export const NEW_WORKFLOW_SUGGESTIONS: AiFirstSuggestion[] = [
         prompt: 'Re-engage users who have been inactive for 30 days',
     },
     {
-        title: 'Webhook on upgrade',
-        description: 'Call my endpoint when a customer upgrades',
-        prompt: 'Send a webhook when a user upgrades their plan',
+        title: 'Triage support tickets with AI',
+        description: 'Investigate each new ticket and save the findings to it',
+        prompt: 'When a support ticket comes in, have an AI agent investigate the customer in PostHog, tag the ticket with a category, set a priority, and save its findings and a suggested reply as a private note on the ticket',
+    },
+    {
+        title: 'Send a weekly AI report',
+        description: 'Summarize my key metrics in Slack every week',
+        prompt: 'Every Monday morning, have an AI agent summarize my key metrics and errors from the past week and post the report to Slack',
     },
     {
         title: 'Triage alerts from Slack',
         description: 'Investigate each new alert and reply with findings in the thread',
         prompt: 'When an alert is posted in my Slack alerts channel, start an AI investigation and reply with the findings in the thread',
-    },
-    {
-        title: 'Celebrate a milestone',
-        description: 'Congratulate people when they hit one, and point at the next',
-        prompt: 'Send a congratulations email when a user reaches a milestone and point them at the next one',
     },
 ]
 
@@ -116,11 +116,16 @@ const DRAFT_FIRST_CONTEXT_ITEM: AttachedContextItem = {
     hidden: true,
     dismissGroup: NEW_WORKFLOW_DISMISS_GROUP,
     value:
-        'The user is starting a new workflow from a description. Make workflows-create your first tool call and ' +
-        'keep it minimal: the trigger plus the steps as placeholders, with placeholder email subjects and bodies. ' +
-        'Do not ask clarifying questions first. The editor opens the draft the moment it exists, so fill in ' +
-        'content and details afterwards with workflows-patch-graph and workflows-patch-action-email, then test. ' +
-        'Never enable it.',
+        'The user is starting a new workflow from a description. Work draft-first:\n' +
+        `1. Load the ${DESIGNING_EMAIL_TEMPLATES_SKILL} skill.\n` +
+        '2. Make workflows-create your first workflows tool call; questions wait until the draft exists. Keep it ' +
+        'minimal: the trigger plus each step as a placeholder. Each email step gets a placeholder subject, a ' +
+        "plain-text text, and a design copied from the skill reference's minimal example. Leave html out: step 4 " +
+        'renders it from the design. Done when the draft exists; the editor opens it at once.\n' +
+        '3. Fill in the details with workflows-patch-graph.\n' +
+        '4. Fill each email with one workflows-patch-action-email call: block operations for the content, plus an ' +
+        'email_patch with the real subject and a matching text. Done when no email holds placeholder copy.\n' +
+        '5. Test the workflow and leave it disabled.',
 }
 
 /** Skill pointer plus the draft-first instruction, no editor state. Not dismissible: the page only advances once the draft exists. */
@@ -144,7 +149,7 @@ function findEmailAction(workflow: HogFlow | null, actionId: string | null): Hog
         return null
     }
     const action = workflow?.actions?.find((a) => a.id === actionId)
-    return action && isEmailAction(action) ? action : null
+    return action && isEmailStep(action) ? action : null
 }
 
 /**
@@ -175,8 +180,10 @@ function buildEmailEditingContextItems(): AttachedContextItem[] {
                 `anything earlier in the conversation. Requests about "this email" mean that action's ` +
                 `config.inputs.email.value. For content and layout changes prefer ` +
                 `workflows-patch-action-email with design operations targeting that action; use ` +
-                `workflows-patch-graph with update_action on it for other fields. The open editor reloads ` +
-                `external edits live, so the user sees applied changes immediately.`,
+                `workflows-patch-graph with update_action on it for other fields. An email_sandbox step sends ` +
+                `from the PostHog test sender to verified members of the organization only, so it takes no ` +
+                `from, replyTo, cc or bcc; switch a step's sender with workflows-patch-action-email's sender ` +
+                `field. The open editor reloads external edits live, so the user sees applied changes immediately.`,
         },
         {
             type: 'skill',
@@ -267,7 +274,7 @@ export function redactWorkflowSecretInputs(
 }
 
 function emailValueOf(action: HogFlow['actions'][number]): Record<string, unknown> | null {
-    if (!isEmailAction(action)) {
+    if (!isEmailStep(action)) {
         return null
     }
     const value = (action.config as { inputs?: Record<string, CyclotronJobInputType> | null })?.inputs?.email?.value

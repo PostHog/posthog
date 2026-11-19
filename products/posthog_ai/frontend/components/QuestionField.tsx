@@ -20,6 +20,9 @@ interface QuestionFieldProps {
     onSkip?: () => void
     submitLabel?: string
     disabled?: boolean
+    customPlaceholder?: string
+    initialCustomValue?: string
+    multiline?: boolean
 }
 
 export function QuestionField({
@@ -31,6 +34,9 @@ export function QuestionField({
     onSkip,
     submitLabel = 'Next',
     disabled = false,
+    customPlaceholder,
+    initialCustomValue,
+    multiline,
 }: QuestionFieldProps): JSX.Element {
     const fieldType = question.type ?? 'select'
 
@@ -56,6 +62,9 @@ export function QuestionField({
                     onAnswer={onAnswer}
                     onSkip={onSkip}
                     submitLabel={submitLabel}
+                    customPlaceholder={customPlaceholder}
+                    initialCustomValue={initialCustomValue}
+                    multiline={multiline}
                 />
             )
     }
@@ -68,6 +77,9 @@ function SelectField({
     onAnswer,
     onSkip,
     submitLabel,
+    customPlaceholder,
+    initialCustomValue,
+    multiline,
 }: {
     disabled: boolean
     question: MultiQuestionFormQuestion
@@ -75,6 +87,9 @@ function SelectField({
     onAnswer: (value: string | null) => void
     onSkip?: () => void
     submitLabel: string
+    customPlaceholder?: string
+    initialCustomValue?: string
+    multiline?: boolean
 }): JSX.Element {
     const options: Option[] = (question.options ?? []).map((option) => ({
         label: option.value,
@@ -90,7 +105,9 @@ function SelectField({
             options={options}
             onSelect={onAnswer}
             allowCustom={allowCustomAnswer}
-            customPlaceholder="Type your answer..."
+            customPlaceholder={customPlaceholder ?? 'Type your answer...'}
+            initialCustomValue={initialCustomValue}
+            multiline={multiline}
             onCustomSubmit={onAnswer}
             selectedValue={value}
             submitLabel={submitLabel}

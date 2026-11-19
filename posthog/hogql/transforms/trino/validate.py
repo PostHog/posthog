@@ -134,6 +134,7 @@ _SPECIAL_CALLS = frozenset(
         "jsonlength",
         "match",
         "md5",
+        "sha1",
         "notempty",
         "notin",
         "parsedatetime",
@@ -197,7 +198,7 @@ _SUPPORTED_CALLS = frozenset(
 def validate_trino_context(context: HogQLContext) -> None:
     mode = context.modifiers.personsOnEventsMode
     if mode != PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
-        mode_name = mode.value if mode is not None else "unset"
+        mode_name = str(mode) if mode is not None else "unset"
         raise TrinoLoweringError(
             "TRINO_PERSONS_ON_EVENTS_MODE_UNSUPPORTED",
             f"personsOnEventsMode={mode_name}",
@@ -276,11 +277,7 @@ class TrinoReadyValidator(TraversingVisitor):
             self._fail("TRINO_GLOBAL_JOIN_UNSUPPORTED", join_type, node)
         if node.table_final:
             self._fail("TRINO_FINAL_UNSUPPORTED", "FINAL", node)
-        if node.sample is not None and not (
-            node.sample.sample_value.left.value == 1
-            and node.sample.sample_value.right is None
-            and node.sample.offset_value is None
-        ):
+        if node.sample is not None and not node.sample.samples_all_rows():
             self._fail("TRINO_SAMPLE_UNSUPPORTED", "SAMPLE", node)
         super().visit_join_expr(node)
 

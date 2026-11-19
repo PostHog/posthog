@@ -19,7 +19,7 @@ use uuid::Uuid;
 use crate::authorizer::Signal;
 use crate::log_record::override_timestamp;
 use crate::metric_record::{compute_series_fingerprint, KafkaMetricRow};
-use crate::service::Service;
+use crate::service::{Service, ATTRIBUTE_OVERHEAD_BYTES};
 
 const METRIC_NAME_LABEL: &str = "__name__";
 const JOB_LABEL: &str = "job";
@@ -38,6 +38,19 @@ const ROW_OVERHEAD_BYTES: u64 = 256;
 /// defaults to 2k samples per send, vmagent to 10k rows per block) stay far
 /// below this; only expansion-bomb payloads exceed it.
 const MAX_EXPANSION_FACTOR: u64 = 16;
+
+/// `StaleNaN` in prometheus/model/value.
+pub const STALE_NAN_BITS: u64 = 0x7ff0_0000_0000_0002;
+
+/// Only the bits tell, because NaN never equals itself.
+pub fn is_stale_marker(value: f64) -> bool {
+    value.to_bits() == STALE_NAN_BITS
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RemoteWriteOptions {
+    pub keep_stale_markers: bool,
+}
 
 /// Body compression of a remote-write request. Both protocols carry the same
 /// `WriteRequest` protobuf; only the compression differs.
@@ -134,6 +147,14 @@ pub fn write_timeseries_to_kafka_rows(
     timeseries: Vec<TimeSeries>,
     metadata: &[MetricMetadata],
 ) -> (Vec<KafkaMetricRow>, u64) {
+    write_timeseries_to_kafka_rows_with_options(timeseries, metadata, RemoteWriteOptions::default())
+}
+
+pub fn write_timeseries_to_kafka_rows_with_options(
+    timeseries: Vec<TimeSeries>,
+    metadata: &[MetricMetadata],
+    options: RemoteWriteOptions,
+) -> (Vec<KafkaMetricRow>, u64) {
     // Metric-family name -> declared (type, unit). Only populated when the
     // sender includes the optional metadata block (vmagent and many agents
     // omit it, so the name-suffix heuristic in `classify` is the primary path).
@@ -143,6 +164,7 @@ pub fn write_timeseries_to_kafka_rows(
     let mut timestamps_overridden = 0u64;
     let mut dropped_series = 0u64;
     let mut dropped_samples = 0u64;
+    let mut kept_stale_markers = 0u64;
 
     for series in timeseries {
         let mut metric_name = String::new();
@@ -205,13 +227,17 @@ pub fn write_timeseries_to_kafka_rows(
         for sample in series.samples {
             // Prometheus marks a series stale with a NaN payload and remote-write
             // forwards it (vmagent emits these by default on scrape failure or
-            // series churn). The metrics pipeline has no stale-marker concept, and
-            // a non-finite value survives the storage/query path uncaught —
-            // `ifNull` never fires on NaN, and it corrupts rate/aggregate results.
-            // Drop it here, as staleness-unaware receivers do.
+            // series churn). With `keep_stale_markers` the marker is stored, and
+            // the readers leave it out of every aggregate by its bits. Any other
+            // non-finite value would corrupt rate/aggregate results, because
+            // `ifNull` never fires on NaN, so it is dropped.
             if !sample.value.is_finite() {
-                dropped_samples += 1;
-                continue;
+                if options.keep_stale_markers && is_stale_marker(sample.value) {
+                    kept_stale_markers += 1;
+                } else {
+                    dropped_samples += 1;
+                    continue;
+                }
             }
 
             // Remote-write sample timestamps are milliseconds since the epoch.
@@ -224,7 +250,10 @@ pub fn write_timeseries_to_kafka_rows(
             let mut sample_attributes = attributes.clone();
             if let Some(original) = original_timestamp {
                 timestamps_overridden += 1;
-                sample_attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
+                sample_attributes.insert(
+                    crate::log_record::ORIGINAL_TIMESTAMP_ATTRIBUTE.to_string(),
+                    original.to_rfc3339(),
+                );
             }
 
             rows.push(KafkaMetricRow {
@@ -250,6 +279,7 @@ pub fn write_timeseries_to_kafka_rows(
                 series_fingerprint,
                 has_labels: true,
                 retention_days: None,
+                start_timestamp: None,
             });
         }
     }
@@ -265,6 +295,9 @@ pub fn write_timeseries_to_kafka_rows(
     // not warned about, unlike the dropped-series case above.
     if dropped_samples > 0 {
         counter!("capture_metrics_remote_write_dropped_samples").increment(dropped_samples);
+    }
+    if kept_stale_markers > 0 {
+        counter!("capture_metrics_remote_write_stale_markers_kept").increment(kept_stale_markers);
     }
 
     (rows, timestamps_overridden)
@@ -317,10 +350,14 @@ pub fn estimate_expanded_bytes(req: &WriteRequest) -> u64 {
     req.timeseries
         .iter()
         .map(|series| {
+            // Rows store each label value JSON-encoded, so a control character takes six bytes.
             let label_bytes: u64 = series
                 .labels
                 .iter()
-                .map(|l| (l.name.len() + l.value.len()) as u64)
+                .map(|l| {
+                    (l.name.len() + json!(l.value).to_string().len() + ATTRIBUTE_OVERHEAD_BYTES)
+                        as u64
+                })
                 .sum();
             // The declared unit is cloned into every row (see `write_request_to_
             // kafka_rows`), so it must be part of the per-row cost — otherwise a
@@ -492,7 +529,13 @@ pub async fn export_prometheus_remote_write_http(
 
     if let Err(e) = service
         .sink
-        .write_metrics(&token, rows, uncompressed_bytes, timestamps_overridden)
+        .write_metrics(
+            &token,
+            rows,
+            uncompressed_bytes,
+            None,
+            timestamps_overridden,
+        )
         .await
     {
         error!("Failed to send remote-write metrics to Kafka: {e}");
@@ -502,6 +545,8 @@ pub async fn export_prometheus_remote_write_http(
         ));
     }
 
+    counter!("capture_metrics_records_produced", "source" => "remote_write")
+        .increment(row_count as u64);
     debug!("Sent {row_count} remote-write data points to Kafka");
     Ok(StatusCode::NO_CONTENT)
 }

@@ -1,9 +1,9 @@
 //! App layer, Kafka produce sequencing: the two-phase enqueue/await split. Depends on `domain`,
 //! `kafka`, `store`, and `app::settings`; never imported by a lower layer.
 //!
-//! The sequence `enqueue_tiles → store.mark_produced → await_deliveries` (composed by `execute`) is
-//! byte-equivalent to the former monolithic produce: enqueue every tile honoring the in-flight bound
-//! and draining overflow acks before the mark, then drain the remaining acks after it, folding all
+//! The sequence `enqueue_tiles → store.mark_produced → await_deliveries` (composed by
+//! `execute`) enqueues every tile its run has no newer day for, honoring the in-flight bound and
+//! draining overflow acks before the mark, then drains the remaining acks after it, folding all
 //! delivery high-water marks into one accumulator carried across the mark by [`InFlight`].
 
 use std::collections::VecDeque;
@@ -14,7 +14,9 @@ use rdkafka::error::KafkaError;
 use rdkafka::producer::DeliveryFuture;
 use tokio_util::sync::CancellationToken;
 
-use crate::domain::{CancelCause, EnqueuedChunk, Halted, ProduceHwms, ProducedChunk, ScannedChunk};
+use crate::domain::{
+    CancelCause, EnqueuedChunk, Halted, ProduceHwms, ProducedChunk, ScannedChunk, StreamedChunk,
+};
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::{EnqueueError, SeedTileProducer};
 use crate::observability::metrics::{
@@ -22,6 +24,7 @@ use crate::observability::metrics::{
 };
 use crate::store::chunks::ChunkStoreError;
 
+use super::newest_day::NewestDayIndex;
 use super::settings::ProducerSettings;
 
 /// The ceiling the queue-full backoff doubles up to; also clamps [`ProducerSettings`] at construction.
@@ -96,19 +99,29 @@ pub(super) async fn enqueue_one(
     Ok(())
 }
 
-/// Phase one (pre-mark): pace and enqueue every tile honoring the in-flight bound, draining overflow
-/// acks into the HWMs. Returns the still-`scanning` chunk (for the store's mark) plus the in-flight
-/// deliveries. Every error hands the [`ScannedChunk`] back so the caller can release or fail it.
+/// Phase one (pre-mark): pace and enqueue every tile `newest_day` has no newer day for, honoring the
+/// in-flight bound and draining overflow acks into the HWMs. Returns the still-`scanning` chunk (for
+/// the store's mark) with the count sent, plus the in-flight deliveries. Every error hands the
+/// [`ScannedChunk`] back so the caller can release or fail it.
 pub(super) async fn enqueue_tiles(
     producer: &SeedTileProducer,
     chunk: ScannedChunk,
+    newest_day: &NewestDayIndex,
     pacer: &TilePacer,
     settings: ProducerSettings,
     lease_cancel: &CancellationToken,
     shutdown: &CancellationToken,
-) -> Result<(ScannedChunk, InFlight), Halted<ScannedChunk, ProduceError>> {
+) -> Result<(StreamedChunk, InFlight), Halted<ScannedChunk, ProduceError>> {
     let mut inflight = InFlight::new(settings.max_inflight.get());
+    let mut sent = 0;
     for tile in chunk.tiles() {
+        // Checked before the pacer, so a newer day another chunk records while this one waits
+        // still skips this chunk's remaining tiles for that person. A skipped tile takes no pacer
+        // token, so the task budget makes it yield.
+        if newest_day.has_newer_day(tile) {
+            tokio::task::coop::consume_budget().await;
+            continue;
+        }
         if let Err(stop) = enqueue_one(
             || producer.enqueue(tile),
             &mut inflight,
@@ -121,8 +134,9 @@ pub(super) async fn enqueue_tiles(
         {
             return Err(stop.into_halted(chunk));
         }
+        sent += 1;
     }
-    Ok((chunk, inflight))
+    Ok((chunk.into_streamed(sent), inflight))
 }
 
 /// Phase two (post-mark): drain the remaining acks into the HWMs and fold them onto the marked

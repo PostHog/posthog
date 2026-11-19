@@ -8,6 +8,7 @@
 //! step handlers.
 
 pub mod delete;
+pub mod detach;
 pub mod engine;
 pub(crate) mod leader_calls;
 pub mod merge;
@@ -17,11 +18,13 @@ use std::sync::Arc;
 
 use tonic::{Request, Response, Status};
 
+use personhog_coordination::changelog::LiveChangelog;
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycle;
 use personhog_proto::personhog::lifecycle::v1::{
     DeletePersonOutcome, DeletePersonResult, DeletePersonsRequest, DeletePersonsResponse,
 };
 
+use crate::config::OutboxWrites;
 use crate::leader::LifecycleLeader;
 use crate::lifecycle::delete::{
     DeleteDriver, DeleteOutcome, OUTCOME_DELETED, OUTCOME_NOT_FOUND, OUTCOME_SKIPPED_CONFLICT,
@@ -40,7 +43,8 @@ impl PersonHogLifecycleService {
         leader: Arc<dyn LifecycleLeader>,
         tables: crate::config::IdentityTables,
         leader_call_concurrency: usize,
-        num_partitions: u32,
+        changelog: LiveChangelog,
+        outbox_writes: OutboxWrites,
     ) -> Self {
         Self {
             engine,
@@ -48,7 +52,8 @@ impl PersonHogLifecycleService {
                 leader,
                 tables,
                 leader_call_concurrency,
-                num_partitions,
+                changelog,
+                outbox_writes,
             ),
         }
     }
@@ -85,6 +90,7 @@ fn delete_response(row: &OpRow) -> Result<DeletePersonsResponse, Status> {
             DeletePersonResult {
                 person_id: record.person_id,
                 outcome: outcome.into(),
+                person_version: record.person_version,
             }
         })
         .collect();

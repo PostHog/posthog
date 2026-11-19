@@ -208,6 +208,9 @@ The background task uses `tokio::select!` over two sources:
 ```
 
 The channel is not read while a tick runs, so updates wait in it until the tick ends.
+The loop takes updates in batches of up to `UPDATE_DRAIN_BATCH` (256) per receive. Tokio's cooperative budget allows a task 128 budgeted operations per poll, and each receive is one, so one update per receive lets a CPU-starved pod drain slower than events arrive.
+Each tick first takes every update already queued. A tick that runs longer than `tick_interval` leaves the next tick ready at once, and without this drain the random `select!` could pick the tick again before the channel.
+A full channel drops the update and increments `global_rate_limiter_error_total` with `cause=channel_full`. It writes no log line.
 
 Each tick, per Redis instance:
 
@@ -334,7 +337,7 @@ Where the two read different env vars, both are listed.
 | `max_concurrent_commands` | 4 | `GLOBAL_RATE_LIMIT_MAX_CONCURRENT_COMMANDS` | Commands in flight at once per instance |
 | `max_write_batch_entries` | 200,000 | `GLOBAL_RATE_LIMIT_MAX_WRITE_BATCH_ENTRIES` | Buffered `(key, epoch)` entries. At the cap, updates for new keys drop and are counted |
 | `max_pending_sync_entries` | 200,000 | `GLOBAL_RATE_LIMIT_MAX_PENDING_SYNC_ENTRIES` | Queued syncs. At the cap, new sync requests drop and re-queue on the key's next request |
-| `channel_capacity` | 1,000,000 | — | mpsc channel buffer for async update requests |
+| `channel_capacity` | 1,000,000 | — | mpsc channel buffer for async update requests. A full channel drops the update |
 
 #### Local cache (Moka)
 
@@ -355,6 +358,9 @@ Where the two read different env vars, both are listed.
 
 Capture connects each limiter to `GLOBAL_RATE_LIMIT_REDIS_URL`, with reads going to `GLOBAL_RATE_LIMIT_REDIS_READER_URL` when that is set.
 Without `GLOBAL_RATE_LIMIT_REDIS_URL`, both limiters share capture's main Redis client, and the `GLOBAL_RATE_LIMIT_REDIS_*_TIMEOUT_MS` settings do nothing.
+The per-(token, distinct_id) limiter can shard its keys across two clusters. `GLOBAL_RATE_LIMIT_REDIS_SHARDS=2` adds `GLOBAL_RATE_LIMIT_REDIS_SHARD_1_URL` and its optional `GLOBAL_RATE_LIMIT_REDIS_SHARD_1_READER_URL` as the second instance.
+Capture connects to the second cluster only when the shard count is 2, so the URLs can ship before the switch. A shard count of 2 without both writer URLs fails startup.
+The AI byte limiter always uses the first cluster.
 
 #### Clamps and tuning
 
@@ -368,7 +374,7 @@ Without `GLOBAL_RATE_LIMIT_REDIS_URL`, both limiters share capture's main Redis 
 
 - An entry idles out only when no request touches it for `local_cache_idle_timeout`, so a key's sync cadence never evicts an active key.
 - Under high key cardinality with cold-skewed traffic, a shorter idle timeout reclaims slots faster.
-- **`min_sync_floor` gates reads only.** It never drops a count; it only suppresses the `MGET` for keys too far under their threshold to be limited. Counts can still be lost to a full channel, the write-batch cap, or a failed write.
+- **`min_sync_floor` gates reads only.** It never drops a count; it only suppresses the `MGET` for keys too far under their threshold to be limited. Counts can still be lost to a full channel, the write-batch cap, a failed write, or the stale-epoch purge.
 - Writes are bounded separately. `absorb_update` merges updates by `(key, epoch)` between ticks, so write volume scales with distinct active keys, not event rate.
 
 ## Request Flow
@@ -460,6 +466,11 @@ hashes. Two things to know before that changes.
    agrees and the current epoch keys expire. Modulo sharding moves N/(N+1) of
    the keys when the count goes from N to N+1; a consistent-hashing scheme would
    move about 1/(N+1) of them and shrink this window, but it cannot remove it.
+3. **In capture, change only `GLOBAL_RATE_LIMIT_REDIS_SHARDS`, and in one
+   rollout.** Every pod must list the clusters in the same order, which the
+   numbered URL variables fix. Ship the shard 1 URLs first with the count at 1,
+   then change the count. Changing it back moves the keys back with the same
+   transient.
 
 ## Redis load
 
@@ -483,6 +494,7 @@ hashes. Two things to know before that changes.
 | `global_rate_limiter_pending_sync_size` | Gauge | Keys read this tick, capped at `max_sync_keys_per_tick`. For the backlog, use `sync_deferred_size` |
 | `global_rate_limiter_sync_deferred_size` | Gauge | Keys still queued for sync after a tick took its slice |
 | `global_rate_limiter_write_deferred_size` | Gauge | `(key, epoch)` entries still batched after a tick took its slice |
+| `global_rate_limiter_update_channel_depth` | Gauge | Updates waiting in the channel when a tick starts. Near zero while the loop keeps up |
 | `global_rate_limiter_sync_skipped_total` | Counter | Syncs not queued because the key is below the floor |
 | `global_rate_limiter_sync_tier_gauge` | Gauge | Entity distribution across tiers (scanned every `TIER_SCAN_INTERVAL_TICKS`) |
 | `global_rate_limiter_tier_transitions_total` | Counter | Tier changes, counted when a read lands |

@@ -255,7 +255,41 @@ const dataQualityCheckUpdate = (): ToolBase<
     },
 })
 
-const DataQualitySubjectsSchema = () => z.object({})
+const DataQualityRunSchema = () => {
+    const DataQualityRunsCreateBody = orvalSchemas.DataQualityRunsCreateBody()
+    return DataQualityRunsCreateBody
+}
+
+const dataQualityRun = (): ToolBase<ReturnType<typeof DataQualityRunSchema>, Schemas.DataQualitySuiteRun> => ({
+    name: 'data-quality-run',
+    schema: DataQualityRunSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityRunSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.check_ids !== undefined) {
+            body['check_ids'] = params.check_ids
+        }
+        if (params.subject_type !== undefined) {
+            body['subject_type'] = params.subject_type
+        }
+        if (params.subject_uuid !== undefined) {
+            body['subject_uuid'] = params.subject_uuid
+        }
+        const result = await context.api.request<Schemas.DataQualitySuiteRun>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_quality_runs/`,
+            body,
+        })
+        return result
+    },
+})
+
+const DataQualitySubjectsSchema = () => {
+    const DataQualityChecksSubjectsListQueryParams = orvalSchemas.DataQualityChecksSubjectsListQueryParams()
+    return DataQualityChecksSubjectsListQueryParams.extend({
+        limit: DataQualityChecksSubjectsListQueryParams.shape['limit'].default(20).optional(),
+    })
+}
 
 const dataQualitySubjects = (): ToolBase<
     ReturnType<typeof DataQualitySubjectsSchema>,
@@ -263,11 +297,18 @@ const dataQualitySubjects = (): ToolBase<
 > => ({
     name: 'data-quality-subjects',
     schema: DataQualitySubjectsSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof DataQualitySubjectsSchema>>) => {
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualitySubjectsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataQualitySubject[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_quality_checks/subjects/`,
+            query: {
+                include_columns: params.include_columns,
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+                subject_type: params.subject_type,
+            },
         })
         return result
     },
@@ -281,5 +322,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-quality-check-schedule': dataQualityCheckSchedule,
     'data-quality-check-types': dataQualityCheckTypes,
     'data-quality-check-update': dataQualityCheckUpdate,
+    'data-quality-run': dataQualityRun,
     'data-quality-subjects': dataQualitySubjects,
 }

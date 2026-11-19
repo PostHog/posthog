@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
 import { CdpOutputs } from '../../cdp-services'
-import { CDP_EVENTS_DLQ_OUTPUT } from '../../outputs/outputs'
-import { HogFunctionInvocationGlobals, InvocationBuildFailure } from '../../types'
-import { CdpDeadLetterService } from './cdp-dead-letter.service'
+import { CDP_EVENTS_DLQ_OUTPUT, CDP_INTAKE_DLQ_OUTPUT } from '../../outputs/outputs'
+import { DeadLetterStep, HogFunctionInvocationGlobals, InvocationBuildFailure } from '../../types'
+import { CdpDeadLetterService, CdpDeadLetterServiceOptions } from './cdp-dead-letter.service'
 
 describe('CdpDeadLetterService', () => {
     let produce: jest.Mock
@@ -34,6 +34,23 @@ describe('CdpDeadLetterService', () => {
         ...overrides,
     })
 
+    const batchOf = (size: number): Message[] =>
+        Array.from({ length: size }, (_, offset) => message(`event-${offset}`, offset))
+
+    const recordFailure = (service: CdpDeadLetterService, step: DeadLetterStep, source: Message): void => {
+        if (step === 'parse' || step === 'lookup') {
+            service.recordMessageFailure(source, { step, error: 'boom' })
+            return
+        }
+        const globals = globalsFor(2, `event-${source.offset}`)
+        messagesByGlobals.set(globals, source)
+        if (step === 'process') {
+            service.recordProcessFailure(globals, new Error('boom'), 'hog_function')
+        } else {
+            service.recordBuildFailures(globals, [failure({ step })])
+        }
+    }
+
     const createService = (enabled = true): CdpDeadLetterService =>
         new CdpDeadLetterService(
             { CDP_DLQ_ENABLED: enabled, CDP_DLQ_BATCH_FAIL_RATIO: 0.1 },
@@ -44,6 +61,13 @@ describe('CdpDeadLetterService', () => {
                 resolveMessage: (globals) => messagesByGlobals.get(globals),
             }
         )
+
+    const intakeOptions = (): CdpDeadLetterServiceOptions => ({
+        outputs,
+        output: CDP_INTAKE_DLQ_OUTPUT,
+        consumerGroup: 'cdp-intake-transactional-email-consumer',
+        parseFailuresStallBatch: true,
+    })
 
     beforeEach(() => {
         produce = jest.fn().mockResolvedValue(undefined)
@@ -148,6 +172,44 @@ describe('CdpDeadLetterService', () => {
         })
     })
 
+    it('parks an intake message on its own topic with a fixed reason code, without an event lookup', async () => {
+        const service = new CdpDeadLetterService(
+            { CDP_DLQ_ENABLED: true, CDP_DLQ_BATCH_FAIL_RATIO: 0.1 },
+            intakeOptions()
+        )
+        service.recordMessageFailure(message('run-1'), { step: 'parse', error: 'schema_invalid' })
+
+        await service.produceForBatch(batchOf(40))
+
+        expect(produce).toHaveBeenCalledWith(CDP_INTAKE_DLQ_OUTPUT, {
+            value: Buffer.from(JSON.stringify({ uuid: 'run-1' })),
+            key: Buffer.from('run-1'),
+            headers: expect.objectContaining({
+                token: 'phc_abc',
+                dlq_step: 'parse',
+                dlq_reason: 'schema_invalid',
+                dlq_topic: 'clickhouse_events_json',
+                dlq_partition: '3',
+                dlq_offset: '10',
+                dlq_consumer_group: 'cdp-intake-transactional-email-consumer',
+            }),
+        })
+    })
+
+    it('fails the batch instead of parking it when most of an intake batch cannot parse', async () => {
+        const service = new CdpDeadLetterService(
+            { CDP_DLQ_ENABLED: true, CDP_DLQ_BATCH_FAIL_RATIO: 0.1 },
+            intakeOptions()
+        )
+        const messages = batchOf(4)
+        messages.slice(0, 3).forEach((source) => recordFailure(service, 'parse', source))
+
+        await expect(service.produceForBatch(messages)).rejects.toThrow(
+            'Refusing to dead-letter 3 of 4 messages (0 process, 0 lookup, 3 parse)'
+        )
+        expect(produce).not.toHaveBeenCalled()
+    })
+
     it('parks an event that threw outside the handled failures', async () => {
         const service = createService()
         service.recordProcessFailure(defaultGlobals, new Error('Cannot read properties of undefined'), 'hog_function')
@@ -161,28 +223,35 @@ describe('CdpDeadLetterService', () => {
         })
     })
 
-    it('fails the batch instead of parking it when most of it throws unexpectedly', async () => {
+    it.each<{ name: string; steps: DeadLetterStep[]; counts: string }>([
+        { name: 'throws unexpectedly', steps: ['process', 'process', 'process'], counts: '3 process, 0 lookup' },
+        { name: 'fails its lookups', steps: ['lookup', 'lookup', 'lookup'], counts: '0 process, 3 lookup' },
+        { name: 'throws or fails its lookups', steps: ['process', 'lookup', 'lookup'], counts: '1 process, 2 lookup' },
+    ])('fails the batch instead of parking it when most of it $name', async ({ steps, counts }) => {
         const service = createService()
-        const messages = [10, 11, 12, 13].map((offset) => message(`event-${offset}`, offset))
-        for (const [index, uuid] of ['event-10', 'event-11', 'event-12'].entries()) {
-            const globals = globalsFor(2, uuid)
-            messagesByGlobals.set(globals, messages[index])
-            service.recordProcessFailure(globals, new Error('boom'), 'hog_function')
-        }
+        const messages = batchOf(4)
+        steps.forEach((step, index) => recordFailure(service, step, messages[index]))
 
-        await expect(service.produceForBatch(messages)).rejects.toThrow('Refusing to dead-letter 3 of 4')
+        await expect(service.produceForBatch(messages)).rejects.toThrow(
+            `Refusing to dead-letter 3 of 4 messages (${counts})`
+        )
         expect(produce).not.toHaveBeenCalled()
     })
 
-    it('parks a lone unexpected failure rather than breaking on a small batch', async () => {
+    it.each<{ name: string; step: DeadLetterStep; failing: number; batchSize: number }>([
         // A ratio says nothing about one message. Breaking here would stall the partition on the
         // very event this path exists to park.
+        { name: 'a lone unexpected failure in a batch of one', step: 'process', failing: 1, batchSize: 1 },
+        // Three meets the floor, but three of forty is under the ratio.
+        { name: 'three lookup failures in a batch of forty', step: 'lookup', failing: 3, batchSize: 40 },
+    ])('parks $name rather than breaking', async ({ step, failing, batchSize }) => {
         const service = createService()
-        service.recordProcessFailure(defaultGlobals, new Error('boom'), 'hog_function')
+        const messages = batchOf(batchSize)
+        messages.slice(0, failing).forEach((source) => recordFailure(service, step, source))
 
-        await service.produceForBatch([message('event-1')])
+        await service.produceForBatch(messages)
 
-        expect(produce).toHaveBeenCalledTimes(1)
+        expect(produce).toHaveBeenCalledTimes(failing)
     })
 
     it('counts events, not failures, when two pipelines both throw on the same event', async () => {
@@ -202,25 +271,34 @@ describe('CdpDeadLetterService', () => {
         expect(produce).toHaveBeenCalledTimes(2)
     })
 
+    it('fails the batch when most of it throws on messages that never became events', async () => {
+        const service = createService()
+        const messages = batchOf(4)
+        messages
+            .slice(0, 3)
+            .forEach((source) => service.recordMessageFailure(source, { step: 'process', error: 'boom' }))
+
+        await expect(service.produceForBatch(messages)).rejects.toThrow('Refusing to dead-letter 3 of 4 messages')
+        expect(produce).not.toHaveBeenCalled()
+    })
+
     it('reports that a disabled queue retained nothing, so a caller can let the error through', () => {
         const service = createService(false)
 
         expect(service.recordProcessFailure(defaultGlobals, new Error('boom'), 'hog_function')).toBe(false)
     })
 
-    it('still parks a whole batch of filter and input failures', async () => {
+    it.each<{ name: string; steps: DeadLetterStep[] }>([
         // One broken builtin legitimately breaks every function in a batch. Those records are
         // exactly what the replay needs, so the ratio must not apply to them.
-        //
+        { name: 'filter and input failures', steps: ['filter', 'inputs', 'inputs'] },
+        { name: 'parse failures', steps: ['parse', 'parse', 'parse'] },
+    ])('still parks a whole batch of $name', async ({ steps }) => {
         // Sized to clear the breaker on every axis: three events is the floor, and three of four
         // messages is past the ratio. Counting these would fail the batch here.
         const service = createService()
-        const messages = [10, 11, 12, 13].map((offset) => message(`event-${offset}`, offset))
-        for (const [index, uuid] of ['event-10', 'event-11', 'event-12'].entries()) {
-            const globals = globalsFor(2, uuid)
-            messagesByGlobals.set(globals, messages[index])
-            service.recordBuildFailures(globals, [failure({ step: index === 0 ? 'filter' : 'inputs' })])
-        }
+        const messages = batchOf(4)
+        steps.forEach((step, index) => recordFailure(service, step, messages[index]))
 
         await service.produceForBatch(messages)
 

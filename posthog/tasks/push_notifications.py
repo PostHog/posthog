@@ -15,7 +15,7 @@ from celery import shared_task
 from prometheus_client import Counter
 
 from posthog.models.user import User
-from posthog.push_notifications import send_push_to_user
+from posthog.push_notifications import mobile_push_delivery_allowed, send_push_to_user
 from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
@@ -56,6 +56,9 @@ def send_user_push(
         return
 
     try:
+        if not mobile_push_delivery_allowed(user, data):
+            PUSH_DELIVERY_OUTCOMES_TOTAL.labels(kind=notification_kind, outcome="ineligible").inc()
+            return
         accepted = send_push_to_user(
             user,
             title=title,

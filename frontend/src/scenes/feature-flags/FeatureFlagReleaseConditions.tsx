@@ -12,7 +12,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { IconArrowDown, IconArrowUp, IconErrorOutline, IconSubArrowRight } from 'lib/lemon-ui/icons'
@@ -43,6 +42,8 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { CohortFlagTargetingNotice } from 'products/cohorts/frontend/realtime/CohortFlagTargetingNotice'
+import { useRealtimeCohortsServing } from 'products/cohorts/frontend/realtime/useRealtimeCohortsServing'
 import { CohortConditionLink } from 'products/feature_flags/frontend/CohortConditionLink'
 import { ConditionSetSummary } from 'products/feature_flags/frontend/ConditionSetSummary'
 import { FractionalRolloutWarning } from 'products/feature_flags/frontend/FractionalRolloutWarning'
@@ -50,7 +51,11 @@ import { FractionalRolloutWarning } from 'products/feature_flags/frontend/Fracti
 import { resolveAggregationGroupTypeIndex } from './aggregation'
 import { BlastRadiusErrorMessage } from './BlastRadiusErrorMessage'
 import { BlastRadiusSkeleton } from './BlastRadiusSkeleton'
-import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON, MATCHING_ESTIMATE_TOOLTIP } from './constants'
+import {
+    CONDITION_SET_LOGICAL_OPERATOR_TOOLTIP,
+    EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON,
+    MATCHING_ESTIMATE_TOOLTIP,
+} from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -161,7 +166,7 @@ export function FeatureFlagReleaseConditions({
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
-    const realtimeCohortFlagTargeting = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
+    const realtimeCohortFlagTargeting = useRealtimeCohortsServing()
 
     const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
 
@@ -358,6 +363,7 @@ export function FeatureFlagReleaseConditions({
                                 }`}
                                 propertyFilters={withResolvedFlagLabels(group?.properties, getFlagKey)}
                                 logicalRowDivider
+                                logicalRowDividerTooltip={CONDITION_SET_LOGICAL_OPERATOR_TOOLTIP}
                                 addText="Add condition"
                                 onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                 taxonomicGroupTypes={taxonomicGroupTypes}
@@ -376,6 +382,7 @@ export function FeatureFlagReleaseConditions({
                                 hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                 showCohortFlagTargeting
                             />
+                            <CohortFlagTargetingNotice properties={group.properties ?? []} className="mt-2" />
                         </div>
                     )}
                     {(!readOnly || (readOnly && (group.properties?.length || 0) > 0)) && (

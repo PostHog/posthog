@@ -10,6 +10,8 @@ import {
   formatRankingProbability,
   rankingLiftBarPercent,
 } from "@posthog/core/inbox/rankingFormat";
+import { Badge } from "@posthog/quill";
+import { dismissalReasonLabel } from "@posthog/shared/dismissalReasons";
 import type {
   ActionabilityJudgmentContent,
   AnySignalReportArtefact,
@@ -39,7 +41,6 @@ import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { cachedImageUrl } from "@posthog/ui/shell/cachedImageUrl";
-import { Badge, Box, Flex, Text } from "@radix-ui/themes";
 import { Fragment, useState } from "react";
 
 // A chronological log of every artefact on a report. Each known type renders a
@@ -61,7 +62,7 @@ const TYPE_LABELS: Record<string, string> = {
   signal_finding: "Signal investigated",
   suggested_reviewers: "Reviewers suggested",
   repo_selection: "Repo selected",
-  dismissal: "Report dismissed",
+  dismissal: "Report feedback added",
   video_segment: "Video segment",
   ranking_score: "Ranking scored",
   work_claim: "Work claimed",
@@ -74,8 +75,18 @@ const WORK_RELEASE_REASON_LABELS: Record<WorkReleaseContent["reason"], string> =
     taken_over: "Taken over",
   };
 
-function typeLabel(type: string): string {
-  return TYPE_LABELS[type] ?? type;
+function typeLabel(artefact: AnySignalReportArtefact): string {
+  if (artefact.type === "dismissal") {
+    const state = (artefact.content as DismissalContent).state;
+    return state === "resolved"
+      ? "Report resolved"
+      : state === "suppressed"
+        ? "Report dismissed"
+        : state === "potential"
+          ? "Report snoozed"
+          : "Report feedback added";
+  }
+  return TYPE_LABELS[artefact.type] ?? artefact.type;
 }
 
 function prettify(value: string): string {
@@ -115,17 +126,17 @@ function locationLabel(artefact: AnySignalReportArtefact): string | null {
 
 function CodeRefBlock({ code, language }: { code: string; language: string }) {
   return (
-    <Box className="mt-1.5">
+    <div className="mt-1.5">
       <CodeBlock size="1">
         <HighlightedCode code={code} language={language} />
       </CodeBlock>
-    </Box>
+    </div>
   );
 }
 
 function RelevanceNote({ note }: { note: string }) {
   if (!note.trim()) return null;
-  return <Text className="block text-(--gray-11) text-[13px]">{note}</Text>;
+  return <span className="block text-(--gray-11) text-[13px]">{note}</span>;
 }
 
 /** Judgment explanations are often paragraphs — collapsed by default behind a toggle. */
@@ -133,7 +144,7 @@ function CollapsibleReasoning({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   if (!text.trim()) return null;
   return (
-    <Box>
+    <div>
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -148,9 +159,9 @@ function CollapsibleReasoning({ text }: { text: string }) {
         {expanded ? "Hide reasoning" : "Show reasoning"}
       </button>
       {expanded ? (
-        <Text className="block text-(--gray-11) text-[13px]">{text}</Text>
+        <span className="block text-(--gray-11) text-[13px]">{text}</span>
       ) : null}
-    </Box>
+    </div>
   );
 }
 
@@ -171,7 +182,7 @@ function CollapsibleNote({
     .map((line) => line.trim())
     .find((line) => line.length > 0);
   return (
-    <Box>
+    <div>
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -186,41 +197,39 @@ function CollapsibleNote({
         {expanded ? (
           "Hide note"
         ) : (
-          <Text className="min-w-0 flex-1 truncate">{preview ?? "Note"}</Text>
+          <span className="min-w-0 flex-1 truncate">{preview ?? "Note"}</span>
         )}
       </button>
       {expanded ? (
-        <Box className="text-[13px]">
+        <div className="text-[13px]">
           <MarkdownRenderer content={note} />
           {author ? (
-            <Text className="block text-(--gray-10) text-[12px]">
+            <span className="block text-(--gray-10) text-[12px]">
               — {author}
-            </Text>
+            </span>
           ) : null}
-        </Box>
+        </div>
       ) : null}
-    </Box>
+    </div>
   );
 }
 
 function ReviewersBody({ reviewers }: { reviewers: SuggestedReviewer[] }) {
   if (reviewers.length === 0) {
     return (
-      <Text className="block text-(--gray-10) text-[13px]">
+      <span className="block text-(--gray-10) text-[13px]">
         No reviewers assigned.
-      </Text>
+      </span>
     );
   }
   return (
-    <Flex direction="column" gap="1">
+    <div className="flex flex-col gap-1">
       {reviewers.map((reviewer) => (
-        <Flex
+        <div
           key={
             reviewer.user?.uuid ?? reviewer.user_uuid ?? reviewer.github_login
           }
-          align="center"
-          gap="2"
-          wrap="wrap"
+          className="flex flex-wrap items-center gap-2"
         >
           {reviewer.github_login ? (
             <img
@@ -232,13 +241,13 @@ function ReviewersBody({ reviewers }: { reviewers: SuggestedReviewer[] }) {
               onLoad={(e) => e.currentTarget.classList.add("loaded")}
             />
           ) : null}
-          <Text className="text-[13px]">
+          <span className="text-[13px]">
             {reviewer.user?.first_name ||
               reviewer.github_name ||
               reviewer.github_login ||
               reviewer.user?.email ||
               "Unknown reviewer"}
-          </Text>
+          </span>
           {reviewer.github_login ? (
             <a
               href={`https://github.com/${reviewer.github_login}`}
@@ -250,9 +259,9 @@ function ReviewersBody({ reviewers }: { reviewers: SuggestedReviewer[] }) {
               <ArrowSquareOutIcon size={10} />
             </a>
           ) : null}
-        </Flex>
+        </div>
       ))}
-    </Flex>
+    </div>
   );
 }
 
@@ -310,9 +319,9 @@ function RankingHeadRows({ heads }: { heads: RankingHead[] }) {
 function RankingModelBody({ model }: { model: RankingModelResult }) {
   if (model.status === "skipped" || model.heads.length === 0) {
     return (
-      <Text className="block text-(--gray-10) text-[12px]">
+      <span className="block text-(--gray-10) text-[12px]">
         Skipped{model.skip_reason ? `: ${model.skip_reason}` : ""}
-      </Text>
+      </span>
     );
   }
   return <RankingHeadRows heads={model.heads} />;
@@ -322,27 +331,22 @@ function RankingScoreBody({ content }: { content: RankingScoreContent }) {
   const [showOthers, setShowOthers] = useState(false);
   const { served, challengers } = content;
   return (
-    <Flex direction="column" gap="2" className="min-w-0">
+    <div className="flex min-w-0 flex-col gap-2">
       <RankingModelBody model={served} />
-      <Flex
-        align="center"
-        gap="1"
-        wrap="wrap"
-        className="text-(--gray-10) text-[12px]"
-      >
-        <Text className="break-all font-mono">{served.key}</Text>
+      <div className="flex flex-wrap items-center gap-1 text-(--gray-10) text-[12px]">
+        <span className="break-all font-mono">{served.key}</span>
         {content.manifest_version ? (
-          <Text>· manifest {content.manifest_version}</Text>
+          <span>· manifest {content.manifest_version}</span>
         ) : null}
         {content.scored_at ? (
           <>
-            <Text>·</Text>
+            <span>·</span>
             <RelativeTimestamp timestamp={content.scored_at} />
           </>
         ) : null}
-      </Flex>
+      </div>
       {challengers.length > 0 ? (
-        <Box>
+        <div>
           <button
             type="button"
             onClick={() => setShowOthers((v) => !v)}
@@ -357,35 +361,28 @@ function RankingScoreBody({ content }: { content: RankingScoreContent }) {
             Other models ({challengers.length})
           </button>
           {showOthers ? (
-            <Flex direction="column" gap="3" className="mt-2 pl-3">
+            <div className="mt-2 flex flex-col gap-3 pl-3">
               {challengers.map((model) => {
                 const role = model.roles.find((r) => r !== "served");
                 return (
-                  <Flex
-                    key={model.key}
-                    direction="column"
-                    gap="1"
-                    className="min-w-0"
-                  >
-                    <Flex align="center" gap="2" wrap="wrap">
-                      <Text className="break-all font-mono text-(--gray-11) text-[12px]">
+                  <div key={model.key} className="flex min-w-0 flex-col gap-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="break-all font-mono text-(--gray-11) text-[12px]">
                         {model.key}
-                      </Text>
+                      </span>
                       {role ? (
-                        <Badge color="gray" variant="soft">
-                          {prettify(role)}
-                        </Badge>
+                        <Badge variant="default">{prettify(role)}</Badge>
                       ) : null}
-                    </Flex>
+                    </div>
                     <RankingModelBody model={model} />
-                  </Flex>
+                  </div>
                 );
               })}
-            </Flex>
+            </div>
           ) : null}
-        </Box>
+        </div>
       ) : null}
-    </Flex>
+    </div>
   );
 }
 
@@ -406,28 +403,28 @@ function ArtefactBody({
     const text = (artefact.content as SignalReportArtefactContent | null)
       ?.content;
     return (
-      <Text className="block text-(--gray-10) text-[13px]">
+      <span className="block text-(--gray-10) text-[13px]">
         {text || "No preview available."}
-      </Text>
+      </span>
     );
   }
   switch (artefact.type) {
     case "code_reference": {
       const c = artefact.content as CodeReferenceContent;
       return (
-        <Box>
+        <div>
           <RelevanceNote note={c.relevance_note} />
           <CodeRefBlock
             code={c.contents}
             language={languageFromPath(c.file_path)}
           />
-        </Box>
+        </div>
       );
     }
     case "line_reference": {
       const c = artefact.content as LineReferenceContent;
       return (
-        <Box>
+        <div>
           <RelevanceNote note={c.note} />
           {c.contents ? (
             <CodeRefBlock
@@ -435,7 +432,7 @@ function ArtefactBody({
               language={languageFromPath(c.file_path)}
             />
           ) : null}
-        </Box>
+        </div>
       );
     }
     case "commit":
@@ -458,64 +455,62 @@ function ArtefactBody({
     case "priority_judgment": {
       const c = artefact.content as PriorityJudgmentContent;
       return (
-        <Flex direction="column" gap="1">
+        <div className="flex flex-col gap-1">
           <SignalReportPriorityBadge priority={c.priority} />
           {c.explanation ? <CollapsibleReasoning text={c.explanation} /> : null}
-        </Flex>
+        </div>
       );
     }
     case "actionability_judgment": {
       const c = artefact.content as ActionabilityJudgmentContent;
       return (
-        <Flex direction="column" gap="1">
-          <Flex align="center" gap="2" wrap="wrap">
+        <div className="flex flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-2">
             <SignalReportActionabilityBadge actionability={c.actionability} />
             {c.already_addressed ? (
-              <Badge color="amber" variant="soft">
-                Already addressed
-              </Badge>
+              <Badge variant="warning">Already addressed</Badge>
             ) : null}
-          </Flex>
+          </div>
           {c.explanation ? <CollapsibleReasoning text={c.explanation} /> : null}
-        </Flex>
+        </div>
       );
     }
     case "safety_judgment": {
       const c = artefact.content as SafetyJudgmentContent;
       return (
-        <Flex direction="column" gap="1">
-          <Badge color={c.choice ? "green" : "red"} variant="soft">
+        <div className="flex flex-col gap-1">
+          <Badge variant={c.choice ? "success" : "destructive"}>
             {c.choice ? "Safe to act on" : "Unsafe"}
           </Badge>
           {c.explanation ? <CollapsibleReasoning text={c.explanation} /> : null}
-        </Flex>
+        </div>
       );
     }
     case "signal_finding": {
       const c = artefact.content as SignalFindingContent;
       return (
-        <Flex direction="column" gap="1">
-          <Flex align="center" gap="2" wrap="wrap">
-            <Text className="font-mono text-(--gray-10) text-[12px]">
+        <div className="flex flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-(--gray-10) text-[12px]">
               {c.signal_id}
-            </Text>
-            <Badge color={c.verified ? "green" : "gray"} variant="soft">
+            </span>
+            <Badge variant={c.verified ? "success" : "default"}>
               {c.verified ? "Verified" : "Unverified"}
             </Badge>
-          </Flex>
+          </div>
           {c.relevant_code_paths.length > 0 ? (
-            <Flex direction="column">
+            <div className="flex flex-col">
               {c.relevant_code_paths.map((path) => (
-                <Text
+                <span
                   key={path}
                   className="truncate font-mono text-(--gray-11) text-[12px]"
                 >
                   {path}
-                </Text>
+                </span>
               ))}
-            </Flex>
+            </div>
           ) : null}
-        </Flex>
+        </div>
       );
     }
     case "suggested_reviewers":
@@ -525,12 +520,10 @@ function ArtefactBody({
     case "dismissal": {
       const c = artefact.content as DismissalContent;
       return (
-        <Flex direction="column" gap="1">
-          <Badge color="gray" variant="soft">
-            {prettify(c.reason)}
-          </Badge>
+        <div className="flex flex-col gap-1">
+          <Badge variant="default">{dismissalReasonLabel(c.reason)}</Badge>
           {c.note ? <RelevanceNote note={c.note} /> : null}
-        </Flex>
+        </div>
       );
     }
     case "ranking_score":
@@ -540,24 +533,22 @@ function ArtefactBody({
     case "work_claim": {
       const name = (artefact.content as WorkClaimContent).display_name;
       return name ? (
-        <Text className="block text-(--gray-11) text-[13px]">{name}</Text>
+        <span className="block text-(--gray-11) text-[13px]">{name}</span>
       ) : null;
     }
     case "work_release": {
       const c = artefact.content as WorkReleaseContent;
       return (
-        <Badge color="gray" variant="soft">
-          {WORK_RELEASE_REASON_LABELS[c.reason]}
-        </Badge>
+        <Badge variant="default">{WORK_RELEASE_REASON_LABELS[c.reason]}</Badge>
       );
     }
     default: {
       const c = artefact.content as SignalReportArtefactContent | null;
       const text = typeof c?.content === "string" ? c.content : "";
       return (
-        <Text className="block text-(--gray-10) text-[13px]">
+        <span className="block text-(--gray-10) text-[13px]">
           {text || "No preview available."}
-        </Text>
+        </span>
       );
     }
   }
@@ -577,23 +568,23 @@ function ArtefactRow({
   const attribution = attributionLabel(artefact);
 
   return (
-    <Box className="rounded-lg border border-gray-6 bg-gray-1 p-3">
-      <Flex align="center" justify="between" gap="2" className="mb-1.5">
-        <Flex align="center" gap="2" className="min-w-0">
-          <Text className="shrink-0 font-medium text-[13px]">
-            {typeLabel(artefact.type)}
-          </Text>
+    <div className="rounded-lg border border-gray-6 bg-gray-1 p-3">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0 font-medium text-[13px]">
+            {typeLabel(artefact)}
+          </span>
           {location ? (
-            <Text className="truncate font-mono text-(--gray-10) text-[12px]">
+            <span className="truncate font-mono text-(--gray-10) text-[12px]">
               {location}
-            </Text>
+            </span>
           ) : null}
-        </Flex>
-        <Flex align="center" gap="2" className="shrink-0">
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
           {attribution ? (
-            <Text className="text-(--gray-10) text-[12px]">
+            <span className="text-(--gray-10) text-[12px]">
               by {attribution}
-            </Text>
+            </span>
           ) : null}
           {/* Dev-only escape hatch for inspecting the raw artefact payload. */}
           {import.meta.env.DEV ? (
@@ -610,8 +601,8 @@ function ArtefactRow({
             </button>
           ) : null}
           <RelativeTimestamp timestamp={artefact.created_at} />
-        </Flex>
-      </Flex>
+        </div>
+      </div>
       <ArtefactBody
         reportId={reportId}
         artefact={artefact}
@@ -622,7 +613,7 @@ function ArtefactRow({
           {JSON.stringify(artefact, null, 2)}
         </pre>
       ) : null}
-    </Box>
+    </div>
   );
 }
 
@@ -646,7 +637,7 @@ export function ArtefactLogList({
   );
 
   return (
-    <Flex direction="column" gap="2">
+    <div className="flex flex-col gap-2">
       {sorted.map((artefact) => (
         <ArtefactRow
           key={artefact.id}
@@ -655,6 +646,6 @@ export function ArtefactLogList({
           hideCommitDiffs={hideCommitDiffs}
         />
       ))}
-    </Flex>
+    </div>
   );
 }

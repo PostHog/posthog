@@ -34,7 +34,6 @@ class TeamInline(TabularInlinePaginated):
         "path_cleaning_filters",
         "timezone",
         "data_attributes",
-        "correlation_config",
         "modifiers",
         "plugins_opt_in",
         "opt_out_capture",
@@ -60,6 +59,7 @@ class TeamInline(TabularInlinePaginated):
             "email_sending_tier_state",
             "email_sending_tier_actions",
             "events_retention_display",
+            "organization_members",
         )
     ] + ["displayed_name"]
 

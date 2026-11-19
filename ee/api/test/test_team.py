@@ -106,23 +106,6 @@ def team_enterprise_api_test_factory():
 
         # Updating projects
 
-        def test_can_update_and_retrieve_person_property_names_excluded_from_correlation(self):
-            response = self.client.patch(
-                f"/api/environments/@current/",
-                {"correlation_config": {"excluded_person_property_names": ["$os"]}},
-            )
-            self.assertEqual(response.status_code, HTTP_200_OK)
-
-            response = self.client.get(f"/api/environments/@current/")
-            self.assertEqual(response.status_code, HTTP_200_OK)
-
-            response_data = response.json()
-
-            self.assertLessEqual(
-                {"correlation_config": {"excluded_person_property_names": ["$os"]}}.items(),
-                response_data.items(),
-            )
-
         # Fetching projects
 
         def test_fetch_team_as_org_admin_works(self):

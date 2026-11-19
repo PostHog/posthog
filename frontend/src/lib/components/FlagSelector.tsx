@@ -5,9 +5,11 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { productHasEffectiveNoneAccess } from 'lib/utils/accessControlUtils'
 
-import { FeatureFlagBasicType } from '~/types'
+import { AccessControlResourceType, FeatureFlagBasicType } from '~/types'
+
+import { flagSelectorLogic } from './flagSelectorLogic'
 
 interface FlagSelectorProps {
     value: number | undefined
@@ -55,7 +57,7 @@ export function FlagSelector({
     // whatever the picker handed us to cover that gap.
     const [selectedFlag, setSelectedFlag] = useState<PickedFlag | undefined>(undefined)
 
-    const { featureFlag } = useValues(featureFlagLogic({ id: value || 'link' }))
+    const { flagKey } = useValues(flagSelectorLogic({ id: value }))
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         groupType: TaxonomicFilterGroupType.FeatureFlags,
@@ -76,8 +78,13 @@ export function FlagSelector({
         selectingKeyOnly: true,
     }
 
+    // The flag list returns 403 without view access, so opening the picker can only show an error.
+    const noFlagAccessReason = productHasEffectiveNoneAccess(AccessControlResourceType.FeatureFlag)
+        ? "You don't have access to feature flags in this project"
+        : undefined
+
     const buttonLabel = flagSelectorButtonLabel({
-        flagKey: featureFlag.key,
+        flagKey,
         value,
         pickedFlag: selectedFlag,
         initialButtonLabel,
@@ -94,7 +101,7 @@ export function FlagSelector({
             <LemonButton
                 type="secondary"
                 onClick={() => setVisible(!visible)}
-                disabledReason={readOnly && (disabledReason || "I'm read-only")}
+                disabledReason={(readOnly && (disabledReason || "I'm read-only")) || noFlagAccessReason}
             >
                 {buttonLabel}
             </LemonButton>

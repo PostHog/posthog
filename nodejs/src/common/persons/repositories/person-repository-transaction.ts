@@ -5,14 +5,12 @@ import { PersonUpdate } from '~/common/persons/person-update-batch'
 import { LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { Properties } from '~/plugin-scaffold'
-import { InternalPerson, PersonUpdateFields, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
+import { InternalPerson, PersonUpdateFields, Team } from '~/types'
 
 export interface PersonRepositoryTransaction {
     createPerson(
         createdAt: DateTime,
         properties: Properties,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
         teamId: Team['id'],
         isUserId: number | null,
         isIdentified: boolean,
@@ -43,6 +41,9 @@ export interface PersonRepositoryTransaction {
 
     /** The target and sources are row-locked, in ascending id order, until the transaction ends. */
     readMergeRows(teamId: number, targetId: string, sourceIds: string[]): Promise<InternalPerson[]>
+
+    /** The live person that owns the distinct id, read on this transaction without a row lock. */
+    readPerson(teamId: Team['id'], distinctId: string): Promise<InternalPerson | undefined>
 
     /** See PersonRepository.updatePersonsBatch; the rows are written under this transaction. */
     updatePersonsBatch(personUpdates: PersonUpdate[]): Promise<

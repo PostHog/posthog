@@ -5,6 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -20,6 +21,7 @@ import { SubscriptionResourceTypeEnumApi } from 'products/subscriptions/frontend
 import { SubscriptionDeliveryHistory } from './components/SubscriptionDeliveryHistory'
 import { isSubscriptionEnabled, subscriptionEditHref, subscriptionName } from './components/SubscriptionsTable'
 import { SubscriptionSummary } from './components/SubscriptionSummary'
+import { QuillSubscriptionDetailActions } from './QuillSubscriptionDetailActions'
 import { subscriptionSceneLogic } from './subscriptionSceneLogic'
 import { subscriptionsSceneLogic } from './subscriptionsSceneLogic'
 
@@ -27,6 +29,10 @@ function SubscriptionDetailActions({ sub }: { sub: SubscriptionApi }): JSX.Eleme
     const { push } = useActions(router)
     const { setEnabled, deliverSubscription } = useActions(subscriptionSceneLogic)
     const { subscriptionLoading, deliveringSubscriptionId } = useValues(subscriptionSceneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav) {
+        return <QuillSubscriptionDetailActions sub={sub} />
+    }
     const editHref = subscriptionEditHref(sub)
     const enabled = isSubscriptionEnabled(sub)
     const isDelivering = deliveringSubscriptionId === sub.id

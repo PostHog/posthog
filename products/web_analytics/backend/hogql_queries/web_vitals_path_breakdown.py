@@ -74,7 +74,9 @@ HAVING value >= 0
 
     def _event_properties(self) -> ast.Expr:
         properties = [
-            p for p in self.query.properties + self._test_account_filters if get_property_type(p) in ["event", "person"]
+            p
+            for p in self.query.properties + self._test_account_filters
+            if get_property_type(p) in ["event", "person", "cohort"]
         ]
         return property_to_expr(properties, team=self.team, scope="event")
 

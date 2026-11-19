@@ -7,8 +7,8 @@ import { Badge } from '@posthog/quill-primitives'
 export function EntropyBadge({ entropy }: { entropy: number }): JSX.Element {
     if (entropy < 0.3) {
         return (
-            <Tooltip title={`Routing entropy ${entropy.toFixed(2)} — one tool dominates this cluster's calls.`}>
-                <span>
+            <Tooltip title={`Routing entropy ${entropy.toFixed(2)}. One tool dominates this cluster's calls.`}>
+                <span tabIndex={0}>
                     <Badge variant="success">Concentrated · {entropy.toFixed(2)}</Badge>
                 </span>
             </Tooltip>
@@ -16,8 +16,8 @@ export function EntropyBadge({ entropy }: { entropy: number }): JSX.Element {
     }
     if (entropy < 0.6) {
         return (
-            <Tooltip title={`Routing entropy ${entropy.toFixed(2)} — calls split between a few tools.`}>
-                <span>
+            <Tooltip title={`Routing entropy ${entropy.toFixed(2)}. Calls split between a few tools.`}>
+                <span tabIndex={0}>
                     <Badge variant="warning">Mixed · {entropy.toFixed(2)}</Badge>
                 </span>
             </Tooltip>
@@ -25,9 +25,9 @@ export function EntropyBadge({ entropy }: { entropy: number }): JSX.Element {
     }
     return (
         <Tooltip
-            title={`Routing entropy ${entropy.toFixed(2)} — calls spread across many tools. Either a real multi-step workflow or the agent is improvising; the aggregate alone can't tell.`}
+            title={`Routing entropy ${entropy.toFixed(2)}. Calls spread across many tools. Either a real multi-step workflow or the agent is improvising; the aggregate alone can't tell.`}
         >
-            <span>
+            <span tabIndex={0}>
                 <Badge variant="destructive">Spread · {entropy.toFixed(2)}</Badge>
             </span>
         </Tooltip>
@@ -43,7 +43,7 @@ export function ContestedBadge({ score }: { score: number | null }): JSX.Element
     if (score < 0.3) {
         return (
             <Tooltip title={`Contested score ${score.toFixed(2)}. This tool is the clear choice for its intents.`}>
-                <span>
+                <span tabIndex={0}>
                     <Badge variant="success">Clear · {score.toFixed(2)}</Badge>
                 </span>
             </Tooltip>
@@ -54,7 +54,7 @@ export function ContestedBadge({ score }: { score: number | null }): JSX.Element
             <Tooltip
                 title={`Contested score ${score.toFixed(2)}. Some of this tool's intents also route to other tools.`}
             >
-                <span>
+                <span tabIndex={0}>
                     <Badge variant="warning">Shared · {score.toFixed(2)}</Badge>
                 </span>
             </Tooltip>
@@ -64,7 +64,7 @@ export function ContestedBadge({ score }: { score: number | null }): JSX.Element
         <Tooltip
             title={`Contested score ${score.toFixed(2)}. The intents this tool serves are regularly split across several tools.`}
         >
-            <span>
+            <span tabIndex={0}>
                 <Badge variant="destructive">Contested · {score.toFixed(2)}</Badge>
             </span>
         </Tooltip>

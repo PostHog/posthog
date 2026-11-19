@@ -201,19 +201,22 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(ActorsQuery(filterTestAccounts=filter_test_accounts))
         self.assertEqual(len(runner.calculate().results), expected_count)
 
-    def test_persons_query_search_email(self):
+    @parameterized.expand([("email_defined", True, 1), ("email_not_defined", False, 0)])
+    def test_persons_query_search_email(self, _name: str, title_cased_email_defined: bool, capitalized_matches: int):
         self.random_uuid = self._create_random_persons()
         self._create_random_persons()
         capitalized_email = f"capitalized-{self.random_uuid}@example.com"
         _create_person(team=self.team, distinct_ids=["capitalized"], properties={"Email": capitalized_email})
         flush_persons_and_events()
+        if title_cased_email_defined:
+            PropertyDefinition.objects.create(team=self.team, name="Email", type=PropertyDefinition.Type.PERSON)
 
         runner = self._create_runner(ActorsQuery(search=f"jacob4@{self.random_uuid}.posthog"))
         self.assertEqual(len(runner.calculate().results), 1)
         runner = self._create_runner(ActorsQuery(search=f"JACOB4@{self.random_uuid}.posthog"))
         self.assertEqual(len(runner.calculate().results), 1)
         runner = self._create_runner(ActorsQuery(search=f"capitalized-{self.random_uuid}@example"))
-        self.assertEqual(len(runner.calculate().results), 1)
+        self.assertEqual(len(runner.calculate().results), capitalized_matches)
 
     def test_persons_query_search_name(self):
         self.random_uuid = self._create_random_persons()
@@ -238,6 +241,11 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_persons_query_search_snapshot(self):
+        runner = self._create_runner(ActorsQuery(search="SEARCHSTRING"))
+        assert pretty_print_in_tests(runner.to_hogql(), self.team.pk) == self.snapshot
+
+    def test_persons_query_search_snapshot_with_title_cased_email(self):
+        PropertyDefinition.objects.create(team=self.team, name="Email", type=PropertyDefinition.Type.PERSON)
         runner = self._create_runner(ActorsQuery(search="SEARCHSTRING"))
         assert pretty_print_in_tests(runner.to_hogql(), self.team.pk) == self.snapshot
 

@@ -19,6 +19,12 @@ A request walks down this ladder and stops at the first tier whose conditions it
 | 3. Live fast paths                       | Session-id-set (filtered) and no-join (unfiltered) shapes that avoid the full events↔sessions join                                                 | ~1–20s          |
 | 4. Full join                             | The original events↔sessions join; always works, slowest                                                                                           | ~5–60s          |
 
+The preaggregated all-time range includes the hourly bucket containing the first event.
+Explicit date ranges keep their requested lower bounds.
+
+Result cache reads ignore unknown response fields so workers can read cache entries from newer deployments.
+Missing required fields or invalid known fields still cause a cache miss.
+
 ## Request flow
 
 ```text
@@ -34,7 +40,7 @@ request
   │     only an explicit useWebAnalyticsPrecompute: false rejects
   │   shape: family dispatch (see per-runner tables), no conversion goal,
   │     no sampling, integer timezone, `sessionsV2JoinMode` ≠ uuid,
-  │     range ≤ 90d, filters events-evaluable
+  │     range ≤ MAX_PRECOMPUTE_DAYS, filters events-evaluable
   │     (restricted teams: single exact $host only)
   │   freshness: all day-buckets fresh per TTL band ──▶ serve *_lazy_query (~80–200ms)
   │     expired within the SWR grace (default 4h) ──▶ serve stale + enqueue revalidation
@@ -65,6 +71,10 @@ request
 **The one-way rule (#72959):** user-facing reads never build precompute buckets inline — `run_inserts` is true only for background-warming requests.
 A miss costs one live-path serve; the background warm makes the next identical request a bucket hit.
 The dashboard "enqueues precompute" as a side effect; it never waits on it.
+
+Requests that select native JSON events keep that table choice in precompute job identities and queued revalidation payloads.
+Native and legacy revalidations use separate debounce keys, so a trial cannot suppress the project's normal rebuild.
+Builders inherit the running query's table choice; an explicit query modifier takes precedence over the staff cookie.
 
 ## Marketing search performance
 
@@ -117,6 +127,7 @@ The `warehouse source connect completed` event records this label after the crea
 | #   | Strategy                   | Conditions                                                                                                                            | Tag                                                    |
 | --- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
 | 0   | Conversion-goal split      | Conversion goal + sessions v2/v3 + events-evaluable filters; visitors from the goal-less dispatch below, conversions from goal events | `web_overview_conversion_goal_query` (+ visitors' tag) |
+| 0b  | Dimensional                | `webQueryModifiers.useDimensionalTables` + tier-2 shape + no property access rules + READY dimensional jobs cover the range           | `web_overview_dimensional_query`                       |
 | 1   | Lazy precompute            | Shared gate only — overview has no extra shape restrictions                                                                           | `web_overview_lazy_query`                              |
 | 2   | Preaggregated (deprecated) | Modifier on + no conversion goal                                                                                                      | `web_overview_preaggregated_query`                     |
 | 3   | Session-id-set             | Filtered + allowlisted + preflight passes (sets `sessionIdPushdown`)                                                                  | `web_overview_session_id_set_query`                    |
@@ -127,6 +138,7 @@ The `warehouse source connect completed` event records this label after the crea
 
 | #   | Strategy                   | Conditions                                                                                                                                                                                                                     | Tag                                                                                                                  |
 | --- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| 0   | Dimensional                | `webQueryModifiers.useDimensionalTables` + tier-4 shape + no property access rules + READY dimensional jobs cover the range                                                                                                    | `stats_table_dimensional*`                                                                                           |
 | 1   | Paths lazy                 | `breakdownBy` ∈ {Page, InitialPage} + `includeBounceRate`; rejects avg-time-on-page, scroll depth, unsupported orderBy; top-K 10,000 paths/day cap for high-cardinality teams                                                  | `web_stats_paths_lazy_query`                                                                                         |
 | 2   | Frustration lazy           | `breakdownBy` = FrustrationMetrics; rejects unsupported orderBy                                                                                                                                                                | `web_stats_frustration_lazy_query`                                                                                   |
 | 3   | Simple-breakdown lazy      | ~18 supported breakdowns (DeviceType, Browser, OS, Country, Region, City, Viewport, Timezone, Language, ExitPage, InitialChannelType, InitialReferringDomain/URL, InitialUTM\_\*); rejects bounce rate, avg time, scroll depth | `web_stats_lazy_query`                                                                                               |
@@ -134,6 +146,19 @@ The `warehouse source connect completed` event records this label after the crea
 | 5   | Session-id-set             | Page breakdown ± avg time, filtered + allowlisted + preflight                                                                                                                                                                  | `stats_table_session_id_set_path_bounce[_and_avg_time]`                                                              |
 | 6   | No-join                    | Unfiltered path-bounce and path-bounce+avg-time; any simple or first-pageview breakdown without bounce rate or session fields (filters and conversion goals ride the single events scan)                                       | `stats_table_no_join_*`                                                                                              |
 | 7   | Full join                  | Fallback per shape                                                                                                                                                                                                             | `stats_table_path_bounce`, `stats_table_entry_bounce`, `stats_table_channel_type`, `stats_table_simple_breakdown`, … |
+
+Both runners skip the dimensional tables when the rows cannot match the live result:
+
+- The team has property access rules or the query filters out test accounts.
+- The current or compare period does not start on a UTC hour boundary, or ends inside an hour before now.
+- Either period starts at or before the events retention floor.
+- The team reads sessions v3 and either period starts before the region's v3 backfill start (`SESSIONS_V3_COVERAGE_START_BY_REGION`). The writer does not build those days either, and the coverage check skips them.
+- The request overrides a bounce or session modifier (`DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS`) with a value the team's builds do not use.
+- A stats table query asks for bounce rate on a breakdown other than Page or Initial page and filters on `$pathname`. Bounce rate for those breakdowns comes from the bounces table grouped by the same breakdown, and that table holds sessions without the pages they viewed.
+
+The writer stores each session's channel type with the team's custom channel rules applied, so channel breakdowns and `$channel_type` filters read that column. The rules are one of those modifiers. The jobs' identity includes the team's values of those modifiers. A change to the team's bounce, session or channel rule settings gives new jobs, so reads fall back until the writer rebuilds the window.
+
+The dimensional tables subclass `EventsRetentionTable`, as `events` does. The printer floors every read of them at the events retention floor on `period_bucket`, so a direct HogQL query cannot read rows past retention either. A new table that stores aggregates of events should subclass it too.
 
 ### Traffic metrics alongside conversion goals
 
@@ -161,12 +186,13 @@ Full details in [PRECOMPUTATION.md](../../products/web_analytics/PRECOMPUTATION.
 | 8–14d          | 7d     |
 | 15–21d         | 10d    |
 | 22–35d         | 12–14d |
-| 36d+           | 21d    |
+| 36d+           | 90d    |
 
 - Stale-while-revalidate: 4h grace by default, set by `WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS` (read per call, so a new env value applies once the process restarts; must stay under the framework's 48h ClickHouse expiry buffer, which the executor enforces). User reads inside the grace get the stale row instantly (tagged `precompute_stale=true`) with a Celery revalidation enqueued (10-min debounce). Background warmers and forced refreshes are never served stale — they are the refresh.
 - Session settling: 24h forward pad on event scans, matching the SDK session length cap.
 - OOM protection: a team that OOMs during a build gets Redis-pinned for 14 days to 1-day insert windows.
-- Max range: 90 days; wider requests are permanently live.
+- Max range: `MAX_PRECOMPUTE_DAYS`; wider requests are permanently live.
+- Framework rationale (freshness, stale grace, settling, OOM pin): see [design decisions](../../products/analytics_platform/backend/lazy_computation/README.md#design-decisions).
 
 ## Session-grain precompute schema
 
@@ -208,24 +234,25 @@ The eager and demand jobs can still overlap if either pass runs long.
 | `WEB_ANALYTICS_NO_JOIN_TEAM_IDS` + rollout %          | Env + percentage  | Unfiltered fast path — 100% on Cloud                                                                            |
 | `useWebAnalyticsPrecompute`                           | Per-query field   | User opt-out switch (WebAnalyticsMenu toggle); explicit `false` always wins                                     |
 | `useWebAnalyticsPreAggregatedTables`                  | Query modifier    | Preaggregated-tables tier (deprecated — largest existing customers only, no new enrollments)                    |
+| `webQueryModifiers.useDimensionalTables`              | Per-query field   | Tries the dimensional tables first; a gap or a failure falls back to the normal dispatch                        |
 
 ## query_type tag reference
 
 Suffix conventions: `*_lazy_query` = bucket read (served from precompute), `*_lazy_insert` = bucket build (background only), `*_preflight` = selectivity probe.
 
-| Family          | Precompute                                                                                                 | Live tags                                                                                                                                                                                                                                                                                                                                       |
-| --------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Overview        | `web_overview_lazy_query/insert`, `web_overview_preaggregated_query`                                       | `web_overview_conversion_goal_query`, `web_overview_no_join_query`, `web_overview_session_id_set_query` (+`_preflight`), `web_overview_query`                                                                                                                                                                                                   |
-| Stats table     | `web_stats_paths_lazy_*`, `web_stats_frustration_lazy_*`, `web_stats_lazy_*`, `stats_table_preaggregated*` | `stats_table_no_join_*` (incl. `stats_table_no_join_first_pageview_attribution`), `stats_table_session_id_set_*` (+`_preflight`), `stats_table_path_bounce[_and_avg_time]`, `stats_table_entry_bounce`, `stats_table_channel_type`, `stats_table_first_pageview_attribution`, `stats_table_frustration_metrics`, `stats_table_simple_breakdown` |
-| Goals           | `web_goals_lazy_query/insert`                                                                              | `web_goals_query`                                                                                                                                                                                                                                                                                                                               |
-| Vitals          | `web_vitals_paths_lazy_query/insert`                                                                       | `web_vitals_path_breakdown_query`                                                                                                                                                                                                                                                                                                               |
-| External clicks | —                                                                                                          | `external_clicks_query`                                                                                                                                                                                                                                                                                                                         |
+| Family          | Precompute                                                                                                                             | Live tags                                                                                                                                                                                                                                                                                                                                       |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Overview        | `web_overview_lazy_query/insert`, `web_overview_preaggregated_query`, `web_overview_dimensional_query`                                 | `web_overview_conversion_goal_query`, `web_overview_no_join_query`, `web_overview_session_id_set_query` (+`_preflight`), `web_overview_query`                                                                                                                                                                                                   |
+| Stats table     | `web_stats_paths_lazy_*`, `web_stats_frustration_lazy_*`, `web_stats_lazy_*`, `stats_table_preaggregated*`, `stats_table_dimensional*` | `stats_table_no_join_*` (incl. `stats_table_no_join_first_pageview_attribution`), `stats_table_session_id_set_*` (+`_preflight`), `stats_table_path_bounce[_and_avg_time]`, `stats_table_entry_bounce`, `stats_table_channel_type`, `stats_table_first_pageview_attribution`, `stats_table_frustration_metrics`, `stats_table_simple_breakdown` |
+| Goals           | `web_goals_lazy_query/insert`                                                                                                          | `web_goals_query`                                                                                                                                                                                                                                                                                                                               |
+| Vitals          | `web_vitals_paths_lazy_query/insert`                                                                                                   | `web_vitals_path_breakdown_query`                                                                                                                                                                                                                                                                                                               |
+| External clicks | —                                                                                                                                      | `external_clicks_query`                                                                                                                                                                                                                                                                                                                         |
 
 ## Reading a slow tile
 
 Find the request in query_log and check `query_type`.
 A `*_lazy_query` taking seconds is a bucket-read problem (rare).
-A fast-path or full-join tag on an enrolled team means the lazy gate rejected the query (filters, avg-time-on-page, >90d range, opt-out) or the buckets weren't fresh — in which case a background warm is already in flight and the next identical request should hit.
+A fast-path or full-join tag on an enrolled team means the lazy gate rejected the query (filters, avg-time-on-page, range over `MAX_PRECOMPUTE_DAYS`, opt-out) or the buckets weren't fresh — in which case a background warm is already in flight and the next identical request should hit.
 
 Conversion goal property filters accept event, person, session and cohort filters. Unsupported filter types fail query validation. `includeTrafficMetrics` also retains session counts for page breakdowns with bounce rate or average time on page, including the join-free strategies.
 
@@ -279,9 +306,33 @@ The destination keeps the date range; Web analytics property filters are not for
 An explicit open end date clears any end date saved during a previous Marketing analytics visit.
 Dismissal persists per project in the browser.
 
+### Paid traffic experiment
+
+`web-analytics-marketing-cross-sell-v2` splits teams with paid traffic into `control` and `test`.
+The flag is read only after the Channels response shows paid traffic, so teams without paid traffic are never exposed.
+`control` keeps the suggestion above.
+`test` changes three surfaces:
+
+| Surface                                                                                             | Shows when                                                                               | Leads to                                                                          |
+| --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Quantified card under the Sources table                                                             | Paid traffic meets the threshold, no ad source is connected, and the card is not snoozed | The wizard for the top detected ad platform, or source setup                      |
+| "See ad spend" link next to the row label, shown on row hover, in the Channel and UTM source tables | A paid channel row, or a UTM source that maps to an enabled ad platform                  | Marketing analytics when connected, otherwise the platform wizard or source setup |
+| Banner above the dashboard                                                                          | A session filter on a paid `$channel_type` or a mapped `$entry_utm_source`               | The same destination as the row action                                            |
+
+The threshold is at least 50 paid visitors and a 3% share of the top channel rows.
+The flag payload can override it with `min_visitors` and `min_share`.
+Platform detection loads the UTM source table node only for teams that see the quantified card.
+It maps each `utm_source` through the default and custom source mappings that Marketing analytics uses.
+The platform wizard finishes with "Return to Marketing analytics", which opens Marketing analytics with the Web analytics date range.
+"Not now" on the card or the banner snoozes both for 30 days per project. A second dismissal hides them for good.
+
 ### Cross-sell attribution
 
 `web analytics marketing cross sell clicked` records `cross_sell_id`, `cross_sell_clicked_at` (Unix milliseconds), `team_id`, the table breakdown, and whether ad sources were already connected.
+It also records the surface: `cross_sell_placement` (`sources_table`, `table_row` or `filter_hint`), `cross_sell_variant`, and the targeted `platform`.
+`web analytics marketing cross sell shown` fires once per session for each project, placement and variant, with the paid visitor count, paid share and detected platforms where known.
+Row actions do not report `shown`.
+`web analytics marketing cross sell dismissed` records the surface and the dismissal count.
 `web analytics marketing cross sell source created` records the same attribution plus `source_id` and `source_type`, only after the source creation API succeeds.
 The model is the first Advertising source created after the latest click within 24 hours, in the same browser tab, project and identified user.
 Session storage preserves the click across a same-tab OAuth redirect and reload; a successful connection consumes it.

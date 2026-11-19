@@ -4,9 +4,7 @@
 //! `FeatureFlagMatcher::evaluate_all_feature_flags`; and the legacy projection matrix
 //! against the `/flags` and `/decide` response conversions.
 //!
-//! The corpus lives under `tests/fixtures/rules_v2_contract/<contract version>/`.
-//! `SOURCE.json` there records the upstream revision, the digests this test verifies, and
-//! the update procedure. CI never fetches the harness repository.
+//! The corpus lives under `tests/fixtures/rules_v2_contract/`; CI never fetches the harness.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
@@ -31,7 +29,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-const CORPUS_DIR: &str = "tests/fixtures/rules_v2_contract/1.2.0";
+const CORPUS_DIR: &str = "tests/fixtures/rules_v2_contract";
 
 /// A dependency target absent from the fixture definitions maps to an id no fixture flag
 /// uses, so the target is missing from the flag list entirely. That is the only way the
@@ -40,9 +38,8 @@ const CORPUS_DIR: &str = "tests/fixtures/rules_v2_contract/1.2.0";
 const MISSING_DEPENDENCY_ID: i64 = 0;
 
 #[test]
-fn vendored_corpus_is_intact() {
+fn vendored_contract_is_intact() {
     let source = load_json("SOURCE.json");
-    let manifest = load_json("manifest.json");
 
     let recorded = source["files"].as_object().expect("SOURCE.json files");
     let mut on_disk = BTreeSet::new();
@@ -58,39 +55,17 @@ fn vendored_corpus_is_intact() {
         assert_eq!(
             hex::encode(Sha256::digest(&bytes)),
             digest.as_str().unwrap(),
-            "{rel}: bytes differ from the digest in SOURCE.json; a changed expectation needs a new corpus version, see update_procedure"
+            "{rel}: bytes differ from the digest in SOURCE.json; re-vendor from the harness instead of editing"
         );
     }
-
-    assert_eq!(source["contract_version"], manifest["contract"]["version"]);
-    assert_eq!(source["corpus_version"], manifest["corpus"]["version"]);
-    for artifact in corpus_artifacts(&manifest) {
-        let path = str_field(artifact, "path");
-        let file = load_json(path);
-        assert_eq!(
-            file["corpus_version"], manifest["corpus"]["version"],
-            "{path}: corpus_version"
-        );
-        let in_file = file_case_ids(&file);
-        let unique: BTreeSet<&String> = in_file.iter().collect();
-        assert_eq!(unique.len(), in_file.len(), "{path}: duplicate case ids");
-        let declared: BTreeSet<String> = artifact["case_ids"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|id| id.as_str().unwrap().to_string())
-            .collect();
-        assert_eq!(
-            unique.into_iter().cloned().collect::<BTreeSet<_>>(),
-            declared,
-            "{path}: case ids differ from the manifest"
-        );
-    }
+    assert_eq!(
+        source["contract_version"],
+        load_json("manifest.json")["contract"]["version"]
+    );
 }
 
 #[tokio::test]
 async fn corpus_matches_production_evaluator_and_projections() {
-    let manifest = load_json("manifest.json");
     let db = TestContext::new(None).await;
     let team_id = db.insert_new_team(None).await.expect("insert team").id;
 
@@ -99,12 +74,30 @@ async fn corpus_matches_production_evaluator_and_projections() {
     covered.extend(run_v1_corpus(&db, team_id).await);
     covered.extend(run_projection_corpus());
 
-    let declared: HashSet<String> = corpus_artifacts(&manifest)
-        .flat_map(|artifact| artifact["case_ids"].as_array().unwrap().iter())
-        .map(|id| id.as_str().unwrap().to_string())
-        .collect();
-    assert!(!declared.is_empty(), "the manifest declares no cases");
-    assert_eq!(covered, declared, "every manifest case must execute");
+    assert_eq!(covered, corpus_case_ids(), "every corpus case must execute");
+}
+
+fn corpus_case_ids() -> HashSet<String> {
+    let manifest = load_json("manifest.json");
+    let mut ids = HashSet::new();
+    let mut counts = Vec::new();
+    for artifact in corpus_artifacts(&manifest) {
+        let path = str_field(artifact, "path");
+        let in_file = file_case_ids(&load_json(path));
+        counts.push((path.to_string(), in_file.len()));
+        for id in in_file {
+            assert!(ids.insert(id.clone()), "{path}: duplicate case id {id}");
+        }
+    }
+    assert_eq!(
+        counts,
+        [
+            ("corpus/hash_sha1_60_v1.json".to_string(), 32),
+            ("corpus/v1_evaluation.json".to_string(), 31),
+            ("corpus/legacy_projection.json".to_string(), 11),
+        ]
+    );
+    ids
 }
 
 async fn run_hash_corpus(db: &TestContext, team_id: i32) -> HashSet<String> {

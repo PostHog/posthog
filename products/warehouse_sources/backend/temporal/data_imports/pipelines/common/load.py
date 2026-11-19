@@ -1,4 +1,7 @@
+import sys
 import asyncio
+import decimal
+import functools
 from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol
 
 from django.db.models import F
@@ -37,7 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import QueryFolderPointerHistory
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -99,17 +102,34 @@ def get_incremental_field_value(
     if normalized_field_name not in table.column_names:
         raise IncrementalFieldMissingFromDataError(incremental_field_name, table)
 
+    if aggregate not in ("max", "min"):
+        raise Exception(f"Unsupported aggregate function for get_incremental_field_value: {aggregate}")
+
     column = table[normalized_field_name]
-    processed_column = pa.array(
-        [process_incremental_value(val, schema.incremental_field_type) for val in column.to_pylist()]
-    )
+    values = [process_incremental_value(val, schema.incremental_field_type) for val in column.to_pylist()]
+    # A decimal too wide for decimal128 (e.g. BigQuery BIGNUMERIC) reaches here as text. Parse it so
+    # the aggregate orders numbers, not strings, and the watermark serializes as a number.
+    if schema.incremental_field_type in (IncrementalFieldType.Integer, IncrementalFieldType.Numeric) and (
+        pa.types.is_string(column.type) or pa.types.is_large_string(column.type)
+    ):
+        # Python aggregation also accepts values wider than Arrow's decimal256 limit.
+        numeric_values = (decimal.Decimal(val) for val in values if val is not None)
+        numeric_value = max(numeric_values, default=None) if aggregate == "max" else min(numeric_values, default=None)
+        # Decimal-to-int bypasses Python's integer text limit; bound expansion before watermark serialization.
+        max_digits = sys.get_int_max_str_digits() or sys.int_info.default_max_str_digits
+        if numeric_value is not None and numeric_value.adjusted() >= max_digits:
+            raise ValueError(
+                "Incremental numeric cursor exceeds the supported integer digit limit. "
+                "Choose a different incremental field."
+            )
+        return numeric_value
+
+    processed_column = pa.array(values)
 
     if aggregate == "max":
         last_value = pc.max(processed_column)
-    elif aggregate == "min":
-        last_value = pc.min(processed_column)
     else:
-        raise Exception(f"Unsupported aggregate function for get_incremental_field_value: {aggregate}")
+        last_value = pc.min(processed_column)
 
     return last_value.as_py()
 
@@ -145,7 +165,7 @@ async def notify_revenue_analytics_that_sync_has_completed(
                         posthoganalytics.capture(
                             distinct_id=user.distinct_id,
                             event="revenue_analytics_ready",
-                            properties={"source_type": source.source_type},
+                            properties={"source_type": source.source_type, "$update_person_last_seen_at": False},
                         )
 
                 # Mark the team as notified, avoiding spamming emails
@@ -181,12 +201,13 @@ async def _seed_cdc_companion_from_snapshot(
     from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
         CDC_OP_COLUMN,
         CDC_TIMESTAMP_COLUMN,
+        CURRENT_HISTORY_PARTITION,
         DELETED_AT_COLUMN,
         DELETED_COLUMN,
-        SCD2_VALID_FROM_COLUMN,
-        SCD2_VALID_TO_COLUMN,
         companion_resource_name as build_companion_resource_name,
     )
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import history_naming
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
@@ -194,6 +215,7 @@ async def _seed_cdc_companion_from_snapshot(
     snapshot_dt = await snapshot_delta_table_ref.get_delta_table()
     if snapshot_dt is None:
         return
+    history = await database_sync_to_async_pool(history_naming)(schema)
 
     dataset = await asyncio.to_thread(snapshot_dt.to_pyarrow_dataset)
 
@@ -203,12 +225,11 @@ async def _seed_cdc_companion_from_snapshot(
         CDC_TIMESTAMP_COLUMN,
         DELETED_COLUMN,
         DELETED_AT_COLUMN,
-        SCD2_VALID_FROM_COLUMN,
-        SCD2_VALID_TO_COLUMN,
+        *history.stamped_columns,
     }
     read_columns = [c for c in dataset.schema.names if c not in cdc_meta_cols]
 
-    companion_resource_name = build_companion_resource_name(schema.name)
+    companion_resource_name = build_companion_resource_name(schema.name, history)
     companion_ref = DeltaTableRef(
         resource_name=companion_resource_name,
         job=job,
@@ -254,18 +275,28 @@ async def _seed_cdc_companion_from_snapshot(
             .append_column(pa.field(CDC_TIMESTAMP_COLUMN, ts_type), pa.array([epoch_us] * n, type=ts_type))
             .append_column(pa.field(DELETED_COLUMN, pa.bool_()), pa.array([False] * n, type=pa.bool_()))
             .append_column(pa.field(DELETED_AT_COLUMN, ts_type), pa.array([None] * n, type=ts_type))
-            .append_column(pa.field(SCD2_VALID_FROM_COLUMN, ts_type), pa.array([epoch_us] * n, type=ts_type))
-            .append_column(pa.field(SCD2_VALID_TO_COLUMN, ts_type), pa.array([None] * n, type=ts_type))
+            .append_column(pa.field(history.valid_from, ts_type), pa.array([epoch_us] * n, type=ts_type))
+            .append_column(pa.field(history.valid_to, ts_type), pa.array([None] * n, type=ts_type))
         )
 
         # Plain append — the companion table is freshly reset so there are no existing
         # rows to close, making SCD2 merge unnecessary.
-        await DeltaWriter(companion_ref).write(
-            data=batch_table,
-            write_type="append",
-            should_overwrite_table=False,
-            primary_keys=None,
-        )
+        if history.partition_column is None:
+            await DeltaWriter(companion_ref).write(
+                data=batch_table,
+                write_type="append",
+                should_overwrite_table=False,
+                primary_keys=None,
+            )
+        else:
+            # The SCD2 writer creates the table partitioned and files each row. Without keys it closes nothing.
+            await Scd2DeltaWriter(
+                companion_ref,
+                valid_from_column=history.valid_from,
+                valid_to_column=history.valid_to,
+                partition_column=history.partition_column,
+                current_partition=CURRENT_HISTORY_PARTITION,
+            ).write(data=batch_table, primary_keys=[])
         hogql_schema.add_pyarrow_table(batch_table)
         total_rows += n
 
@@ -292,6 +323,7 @@ async def _run_delta_maintenance(
     is_cdc_companion: bool,
     logger: FilteringBoundLogger,
 ) -> None:
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import HISTORY_PARTITION_COLUMN
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
         DeltaMaintenance,
     )
@@ -308,6 +340,8 @@ async def _run_delta_maintenance(
             is_cdc_companion=is_cdc_companion,
             compact_small_files=not schema.is_cdc,
         )
+        if is_cdc_companion:
+            await DeltaMaintenance(delta_table_ref).compact_history_partitions(HISTORY_PARTITION_COLUMN)
 
 
 def _stored_sync_type_config(schema_id: Any, team_id: int) -> Any:
@@ -456,11 +490,10 @@ async def _register_table(
     # snapshot rather than from another log read.
     delta_table = await delta_table_ref.get_delta_table()
     delta_schema_json = delta_table.schema().to_json() if delta_table is not None else None
-    # Only a table whose run count is not its size reads the count. The handle is the one the publish
-    # step listed, so the count matches the files the query folder now holds.
-    live_row_count = (
-        await delta_table_ref.get_live_row_count() if schema.table_row_count_is_cumulative or row_count == 0 else None
-    )
+    # The run count is not the table size, even for a full refresh: a run that resumes counts only
+    # the rows of its last attempt. The handle is the one the publish step listed, so the count
+    # matches the files the query folder now holds.
+    live_row_count = await delta_table_ref.get_live_row_count()
     # Same handle, so the size is the size of the files the query folder now holds. Maintenance ran
     # before the publish step, so a compaction in this run is already in the number.
     live_size_mib = await delta_table_ref.get_live_size_mib()
@@ -499,6 +532,7 @@ async def _run_cdc_post_load(
     is_initial_load: bool,
     logger: FilteringBoundLogger,
 ) -> None:
+    from products.warehouse_sources.backend.temporal.data_imports.incremental_history import registered_history_columns
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
         register_cdc_companion_table,
     )
@@ -518,6 +552,17 @@ async def _run_cdc_post_load(
                 set_as_schema_table=schema.cdc_table_mode == "cdc_only",
                 live_row_count=await delta_table_ref.get_live_row_count(),
                 live_size_mib=await delta_table_ref.get_live_size_mib(),
+                # An incremental history table keeps the past values of a column the user stopped syncing.
+                project_columns=(
+                    functools.partial(
+                        registered_history_columns,
+                        enabled_columns=schema.enabled_columns,
+                        primary_keys=schema.primary_key_columns,
+                        incremental_field=schema.incremental_field,
+                    )
+                    if schema.is_incremental and schema.keeps_history
+                    else None
+                ),
             )
         logger.debug("Finished registering CDC companion table")
         return

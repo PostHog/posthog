@@ -1,4 +1,8 @@
+use std::time::Duration;
+
 use envconfig::Envconfig;
+
+use crate::label_cardinality::{Mode, Settings};
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
@@ -10,6 +14,23 @@ pub struct Config {
     /// means the series label gate runs with its local cache only.
     #[envconfig(from = "REDIS_URL")]
     pub redis_url: Option<String>,
+
+    /// Largest estimated row set one remote-write request may expand to. It is
+    /// separate from MAX_REQUEST_BODY_SIZE_BYTES, so the body limit can grow for
+    /// large vmagent blocks without raising the memory one request can hold.
+    #[envconfig(from = "REMOTE_WRITE_MAX_EXPANDED_BYTES", default = "167772160")] // 160 MiB
+    pub remote_write_max_expanded_bytes: u64,
+
+    /// Comma-separated project tokens whose remote-write series get the OTel
+    /// `k8s.*` resource attributes copied from their `namespace`, `pod`, `node`,
+    /// `container`, `deployment` and `daemonset` labels. Empty turns it off.
+    /// The copy changes series fingerprints, so it is opt-in per project.
+    #[envconfig(from = "REMOTE_WRITE_K8S_RESOURCE_ATTRIBUTE_TOKENS", default = "")]
+    pub remote_write_k8s_resource_attribute_tokens: String,
+
+    /// Turn on only after every metrics reader skips stale markers.
+    #[envconfig(from = "PROMETHEUS_KEEP_STALE_MARKERS", default = "false")]
+    pub prometheus_keep_stale_markers: bool,
 
     /// When false the gate still tracks series and reports metrics but leaves
     /// every row labelled, so the switch can flip once the metrics2 read path
@@ -47,9 +68,77 @@ pub struct Config {
         default = "2000000"
     )]
     pub metrics_series_cache_max_entries_per_token: usize,
+
+    #[envconfig(from = "METRICS_LABEL_CARDINALITY_MODE", default = "shadow")]
+    pub metrics_label_cardinality_mode: Mode,
+
+    #[envconfig(from = "METRICS_LABEL_CARDINALITY_VALUE_LIMIT", default = "10000")]
+    pub metrics_label_cardinality_value_limit: u64,
+
+    #[envconfig(from = "METRICS_LABEL_CARDINALITY_MIN_SHARE", default = "0.5")]
+    pub metrics_label_cardinality_min_share: f64,
+
+    #[envconfig(
+        from = "METRICS_LABEL_CARDINALITY_CANDIDATE_MIN_NEW_SERIES",
+        default = "500"
+    )]
+    pub metrics_label_cardinality_candidate_min_new_series: u32,
+
+    #[envconfig(from = "METRICS_LABEL_CARDINALITY_MAX_CANDIDATES", default = "2000")]
+    pub metrics_label_cardinality_max_candidates: usize,
+
+    #[envconfig(
+        from = "METRICS_LABEL_CARDINALITY_MAX_CANDIDATES_PER_TOKEN",
+        default = "200"
+    )]
+    pub metrics_label_cardinality_max_candidates_per_token: usize,
+
+    #[envconfig(from = "METRICS_LABEL_CARDINALITY_MAX_KEYS_PER_METRIC", default = "32")]
+    pub metrics_label_cardinality_max_keys_per_metric: usize,
+
+    #[envconfig(
+        from = "METRICS_LABEL_CARDINALITY_MAX_TRACKED_METRICS",
+        default = "500000"
+    )]
+    pub metrics_label_cardinality_max_tracked_metrics: usize,
+
+    #[envconfig(
+        from = "METRICS_LABEL_CARDINALITY_MAX_TRACKED_METRICS_PER_TOKEN",
+        default = "50000"
+    )]
+    pub metrics_label_cardinality_max_tracked_metrics_per_token: usize,
+
+    #[envconfig(
+        from = "METRICS_LABEL_CARDINALITY_PROTECTED_KEYS",
+        default = "le,quantile"
+    )]
+    pub metrics_label_cardinality_protected_keys: String,
 }
 
 impl Config {
+    pub fn label_cardinality_settings(&self) -> Settings {
+        Settings {
+            mode: self.metrics_label_cardinality_mode,
+            window: Duration::from_secs(self.metrics_series_label_interval_secs),
+            value_limit: self.metrics_label_cardinality_value_limit,
+            min_share: self.metrics_label_cardinality_min_share,
+            candidate_min_new_series: self.metrics_label_cardinality_candidate_min_new_series,
+            max_candidates: self.metrics_label_cardinality_max_candidates,
+            max_candidates_per_token: self.metrics_label_cardinality_max_candidates_per_token,
+            max_keys_per_candidate: self.metrics_label_cardinality_max_keys_per_metric,
+            max_tracked_metrics: self.metrics_label_cardinality_max_tracked_metrics,
+            max_tracked_metrics_per_token: self
+                .metrics_label_cardinality_max_tracked_metrics_per_token,
+            protected_keys: self
+                .metrics_label_cardinality_protected_keys
+                .split(',')
+                .map(str::trim)
+                .filter(|key| !key.is_empty())
+                .map(str::to_string)
+                .collect(),
+        }
+    }
+
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
         let config = Self::init_from_env()?;
         // A zero pull interval panics the puller task, which would stop
@@ -57,6 +146,11 @@ impl Config {
         if config.metrics_series_redis_pull_interval_secs == 0 {
             return Err(envconfig::Error::ParseError {
                 name: "METRICS_SERIES_REDIS_PULL_INTERVAL_SECS",
+            });
+        }
+        if !(0.0..=1.0).contains(&config.metrics_label_cardinality_min_share) {
+            return Err(envconfig::Error::ParseError {
+                name: "METRICS_LABEL_CARDINALITY_MIN_SHARE",
             });
         }
         Ok(config)

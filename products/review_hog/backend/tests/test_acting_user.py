@@ -1,5 +1,7 @@
 from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
 
+import requests
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
@@ -14,7 +16,9 @@ from products.review_hog.backend.models import (
 )
 from products.review_hog.backend.reviewer.progress import run_outcome_markers
 from products.review_hog.backend.temporal.activities import ResolveActingUserInput, _resolve_acting_user
-from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_LABEL, TRIGGER_MANUAL
+from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_MANUAL, TRIGGER_STAMPHOG
+
+ACTIVITIES = "products.review_hog.backend.temporal.activities"
 
 _SELF = "SELF"
 
@@ -48,7 +52,6 @@ class TestResolveActingUser(BaseTest):
         result = _resolve_acting_user(
             ResolveActingUserInput(team_id=self.team.id, author_login="octocat", override_user_id=None)
         )
-        assert result.review_labeled_prs is True
         assert result.review_inbox_prs is False
         assert result.urgency_threshold == "consider"
         assert result.resolve_comments is False
@@ -67,7 +70,7 @@ class TestResolveActingUser(BaseTest):
                 team_id=self.team.id,
                 author_login="ghost",
                 override_user_id=None,
-                trigger_source=TRIGGER_LABEL,
+                trigger_source=TRIGGER_STAMPHOG,
                 default_user_id=self.user.id,
             )
         )
@@ -84,6 +87,11 @@ class TestResolveActingUser(BaseTest):
             # No Flash after Full: a Full review published while the push waited stops it.
             ("full_review_published", True, True, True, True, True, "PostHog", None),
             ("placeholder_account_name", True, True, True, True, False, "installation-1234", "1234"),
+            # Draft reviews are off in the repository, so a queued draft run stops when it starts.
+            ("draft_in_a_repository_without_drafts", True, True, True, True, False, "PostHog", None, "draft"),
+            # Marked ready after the fetch: the queue dropped the ready request, so GitHub's state decides.
+            ("draft_marked_ready_after_the_fetch", True, True, True, True, False, "PostHog", None, "ready"),
+            ("draft_state_unreadable", True, True, True, True, False, "PostHog", None, "unreadable"),
         ]
     )
     def test_automatic_trigger_rechecks_eligible_author(
@@ -96,7 +104,9 @@ class TestResolveActingUser(BaseTest):
         full_published: bool,
         account_name: str,
         installation_id: str | None,
+        github_state: str | None = None,
     ) -> None:
+        draft = github_state is not None
         Integration.objects.create(
             team=self.team, kind="github", integration_id="1234", config={"account": {"name": account_name}}
         )
@@ -125,18 +135,34 @@ class TestResolveActingUser(BaseTest):
         self.user.save(update_fields=["is_active"])
         if not member:
             self.user.organization_memberships.filter(organization=self.organization).delete()
-        result = _resolve_acting_user(
-            ResolveActingUserInput(
-                team_id=self.team.id,
-                author_login="octocat",
-                override_user_id=self.user.id,
-                trigger_source=TRIGGER_AUTOMATIC,
-                report_id=str(report.id),
-                repository="posthog/PostHog",
-                installation_id=installation_id,
+        github_pull = MagicMock()
+        github_pull.json.return_value = {"draft": github_state == "draft"}
+        read_error = requests.ConnectionError() if github_state == "unreadable" else None
+        with (
+            patch(f"{ACTIVITIES}._installation_auth", return_value=("token", "1234")),
+            patch(f"{ACTIVITIES}.github_api_request", return_value=github_pull, side_effect=read_error),
+        ):
+            result = _resolve_acting_user(
+                ResolveActingUserInput(
+                    team_id=self.team.id,
+                    author_login="octocat",
+                    override_user_id=self.user.id,
+                    trigger_source=TRIGGER_AUTOMATIC,
+                    report_id=str(report.id),
+                    repository="posthog/PostHog",
+                    installation_id=installation_id,
+                    draft=draft,
+                    pr_number=7,
+                )
             )
+        eligible = (
+            opted_in
+            and active
+            and member
+            and repository_added
+            and not full_published
+            and github_state in (None, "ready")
         )
-        eligible = opted_in and active and member and repository_added and not full_published
         assert result.acting_user_id == (self.user.id if eligible else None)
         # The workflow gates the automatic run on this flag after the resolve.
         assert result.review_authored_prs is eligible
@@ -201,21 +227,21 @@ class TestResolveActingUser(BaseTest):
         assert result.resolve_comments is True
         assert result.celebrate_clean_reviews is False
 
-    def test_label_trigger_falls_back_to_the_run_user(self) -> None:
-        # Unmapped author on a labeled PR → the run user the trigger already resolved, passed
-        # through as default_user_id so acting and sandbox identity can never drift.
+    def test_stamphog_handoff_falls_back_to_the_run_user(self) -> None:
+        # Unmapped author → the run user the trigger already resolved, passed through as
+        # default_user_id so acting and sandbox identity can never drift.
         result = _resolve_acting_user(
             ResolveActingUserInput(
                 team_id=self.team.id,
                 author_login="ghost",
                 override_user_id=None,
-                trigger_source=TRIGGER_LABEL,
+                trigger_source=TRIGGER_STAMPHOG,
                 default_user_id=self.user.id,
             )
         )
         assert (result.acting_user_id, result.resolved_from) == (self.user.id, "default")
 
-    def test_non_label_triggers_keep_the_author_only_contract(self) -> None:
+    def test_other_triggers_keep_the_author_only_contract(self) -> None:
         result = _resolve_acting_user(
             ResolveActingUserInput(
                 team_id=self.team.id,
@@ -236,7 +262,7 @@ class TestResolveActingUser(BaseTest):
         )
         as_author = _resolve_acting_user(
             ResolveActingUserInput(
-                team_id=self.team.id, author_login="octocat", override_user_id=None, trigger_source=TRIGGER_LABEL
+                team_id=self.team.id, author_login="octocat", override_user_id=None, trigger_source=TRIGGER_STAMPHOG
             )
         )
         assert as_author.resolved_from == "author"
@@ -248,12 +274,11 @@ class TestResolveActingUser(BaseTest):
                 team_id=self.team.id,
                 author_login="ghost",
                 override_user_id=None,
-                trigger_source=TRIGGER_LABEL,
+                trigger_source=TRIGGER_STAMPHOG,
                 default_user_id=self.user.id,
             )
         )
         assert (as_default.acting_user_id, as_default.resolved_from) == (self.user.id, "default")
-        assert as_default.review_labeled_prs is True
         assert as_default.resolve_comments is False
         # Same borrowed-user protection: the run user's own media preference never shapes
         # someone else's PR.
@@ -271,7 +296,7 @@ class TestResolveActingUser(BaseTest):
         )
         as_author = _resolve_acting_user(
             ResolveActingUserInput(
-                team_id=self.team.id, author_login="octocat", override_user_id=None, trigger_source=TRIGGER_LABEL
+                team_id=self.team.id, author_login="octocat", override_user_id=None, trigger_source=TRIGGER_STAMPHOG
             )
         )
         assert (as_author.resolved_from, as_author.urgency_threshold) == ("author", "must_fix")
@@ -282,14 +307,17 @@ class TestResolveActingUser(BaseTest):
                 team_id=self.team.id,
                 author_login="octocat",
                 override_user_id=self.user.id,
-                trigger_source=TRIGGER_LABEL,
+                trigger_source=TRIGGER_STAMPHOG,
             )
         )
         assert as_author_override.celebrate_clean_reviews is False
         # ...while an override by someone else (a UI requester on a teammate's PR) does not.
         as_override = _resolve_acting_user(
             ResolveActingUserInput(
-                team_id=self.team.id, author_login="ghost", override_user_id=self.user.id, trigger_source=TRIGGER_LABEL
+                team_id=self.team.id,
+                author_login="ghost",
+                override_user_id=self.user.id,
+                trigger_source=TRIGGER_STAMPHOG,
             )
         )
         assert (as_override.resolved_from, as_override.urgency_threshold) == ("override", "must_fix")
@@ -299,7 +327,7 @@ class TestResolveActingUser(BaseTest):
                 team_id=self.team.id,
                 author_login="ghost",
                 override_user_id=None,
-                trigger_source=TRIGGER_LABEL,
+                trigger_source=TRIGGER_STAMPHOG,
                 default_user_id=self.user.id,
             )
         )

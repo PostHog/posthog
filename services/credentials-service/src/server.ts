@@ -1,0 +1,389 @@
+// Wires the service together and owns its lifecycle.
+//
+// Shutdown order is fixed: mark draining, wait out the prestop delay so Kubernetes has
+// stopped routing here, drain the HTTP server, exit. unhandledRejection and
+// uncaughtException take the same path rather than dropping in-flight requests.
+
+import { serve } from '@hono/node-server'
+import type { Hono } from 'hono'
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import type { Pool } from 'pg'
+
+import { AuditExporter, captureSender } from './audit/exporter'
+import { measureAuditExportLag } from './audit/lag'
+import { IntegrationKeyLoader } from './auth/integration-keys'
+import { IntegrationVerifier } from './auth/integrations'
+import { JwtVerifier } from './auth/jwt'
+import { SigningKeyLoader } from './auth/registry'
+import { PostgresReplayStore } from './auth/replay-postgres'
+import { Envelope } from './crypto/envelope'
+import { createKms } from './crypto/kms'
+import { deleteExpiredIdempotencyKeys } from './db/idempotency'
+import { createPool, pingDatabase } from './db/pool'
+import { isProductionEnv, runtimeRoleRefusal } from './db/role-guard'
+import { type AppOptions, type IntegrationDeps, createApp } from './http/app'
+import { AuditQueue } from './integrations/audit'
+import { IntegrationsService } from './integrations/service'
+import type { Config, DatabaseConfig } from './lib/config'
+import { logger } from './lib/logging'
+import { register, shuttingDown } from './metrics'
+import { SecretMount } from './mount'
+import { createSecretSource, type SecretSnapshot, type SecretSource } from './source'
+import type { Lifecycle } from './types'
+
+/** How long a drain may take once the prestop window has passed. */
+const DRAIN_TIMEOUT_MS = 10_000
+// Rows still queued when this runs out fail against the ended pool and count as dropped.
+const AUDIT_DRAIN_TIMEOUT_MS = 5_000
+
+/** How often to try the database again when it was unreachable at boot. */
+const DATABASE_RETRY_MS = 5_000
+
+/** How often to delete idempotency keys that passed their 24 hour window. */
+const IDEMPOTENCY_CLEANUP_MS = 10 * 60 * 1000
+const AUDIT_LAG_INTERVAL_MS = 30_000
+
+interface DrainableServer {
+    close(cb: () => void): void
+}
+
+type ServeFn = (
+    options: { fetch: Hono['fetch']; port: number; hostname: string },
+    listeningListener: (info: { port: number }) => void
+) => DrainableServer
+
+/** Test seams. Production construction passes none of these. */
+export interface CredentialsServerOverrides {
+    serve?: ServeFn
+    exit?: (code: number) => void
+    source?: SecretSource
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** Run `task` every `intervalMs`. The timer is unref'd; the return value cancels it. */
+export function every(intervalMs: number, task: () => Promise<void>): () => void {
+    // A rejecting task would otherwise reach the unhandledRejection handler and exit the
+    // process, so a blip in whatever the task talks to would take the pod down.
+    const timer = setInterval(() => {
+        task().catch((err: unknown) => {
+            logger.error('timer:task_failed', { error: err instanceof Error ? err.message : String(err) })
+        })
+    }, intervalMs)
+    timer.unref()
+    return () => clearInterval(timer)
+}
+
+export class CredentialsServer {
+    private readonly lifecycle: Lifecycle = { shuttingDown: false, ready: false }
+    private server: DrainableServer | undefined
+    private metricsServer: Server | undefined
+    private source: SecretSource | undefined
+    private mount: SecretMount | undefined
+    private signingKeys: SigningKeyLoader | undefined
+    private pool: Pool | undefined
+    private audit: AuditQueue | undefined
+    private integrations: IntegrationDeps | undefined
+    private secretsReady = false
+    private databaseReady = false
+    private databaseRefused = false
+    // Set once enableIntegrations has run to the end, so a database that answers late does not
+    // turn the pod ready while the integration routes are still missing.
+    private integrationsSettled = false
+    private cancelTimers: (() => void)[] = []
+    private processListeners = new Map<string, (...args: unknown[]) => void>()
+    private stopping = false
+
+    constructor(
+        private readonly config: Config,
+        private readonly overrides: CredentialsServerOverrides = {}
+    ) {}
+
+    /** For probes and tests. The object is live; do not mutate it. */
+    lifecycleState(): Lifecycle {
+        return this.lifecycle
+    }
+
+    /** The port the metrics listener bound, once start() has run. */
+    metricsPort(): number | undefined {
+        const address = this.metricsServer?.address()
+        return address && typeof address === 'object' ? (address as AddressInfo).port : undefined
+    }
+
+    /** Re-read the secret now, without waiting for the timer. */
+    async reload(): Promise<void> {
+        const source = this.source
+        if (source) {
+            this.apply(source, await source.read())
+        }
+    }
+
+    /** Apply one snapshot of the secret to the signing keys and the secrets together. */
+    private apply(source: SecretSource, snapshot: SecretSnapshot | null): void {
+        // Keys before secrets: a revocation and a rotation can land in one secret
+        // edit, and the revoked caller must not see the new values in the gap between.
+        this.signingKeys?.reloadFrom(snapshot?.values ?? null)
+        this.applySecrets(source, snapshot)
+    }
+
+    private applySecrets(source: SecretSource, snapshot: SecretSnapshot | null): void {
+        const mount = this.mount
+        if (!mount) {
+            return
+        }
+        const before = mount.current()?.versionId
+        mount.apply(snapshot?.values ?? null)
+        const after = mount.current()
+        if (after && after.versionId !== before) {
+            logger.info('secrets:applied', {
+                source: source.kind,
+                versionId: after.versionId,
+                revision: snapshot?.revision ?? null,
+            })
+        }
+        this.secretsReady = after != null && this.signingKeys?.isLoaded === true
+        this.updateReadiness()
+    }
+
+    // The database gates readiness only until it first answers. After that, an outage must not
+    // take the platform secrets down with it: those do not need the database.
+    private updateReadiness(): void {
+        this.lifecycle.ready =
+            this.secretsReady &&
+            (!this.config.database || (this.databaseReady && this.integrationsSettled) || this.databaseRefused)
+    }
+
+    /** The pool, once the database answered and the runtime role passed the production check. */
+    integrationsPool(): Pool | undefined {
+        return this.databaseReady ? this.pool : undefined
+    }
+
+    // True when the database answered. A refused role counts as settled: the integration
+    // features stay off, and the platform secrets keep serving.
+    private async admitDatabase(pool: Pool, config: DatabaseConfig): Promise<boolean> {
+        if (!(await pingDatabase(pool))) {
+            return false
+        }
+        if (isProductionEnv(this.config.env)) {
+            let refusal: string | null
+            try {
+                refusal = await runtimeRoleRefusal(pool, config)
+            } catch (err) {
+                logger.error('startup:database_role_check_failed', {
+                    error: err instanceof Error ? err.message : String(err),
+                })
+                return false
+            }
+            if (refusal) {
+                logger.error('startup:database_role_refused', { reason: refusal, env: this.config.env })
+                this.databaseRefused = true
+                this.pool = undefined
+                await pool.end().catch(() => undefined)
+                this.updateReadiness()
+                return true
+            }
+        }
+        this.databaseReady = true
+        logger.info('db:connected', {})
+        this.updateReadiness()
+        return true
+    }
+
+    private async connectDatabase(pool: Pool, config: DatabaseConfig): Promise<void> {
+        if (await this.admitDatabase(pool, config)) {
+            return
+        }
+        logger.error('startup:database_unreachable', {})
+        const cancel = every(DATABASE_RETRY_MS, async () => {
+            if (!this.databaseReady && !this.databaseRefused && !(await this.admitDatabase(pool, config))) {
+                return
+            }
+            // A throw here retries on the next tick, because the database is now admitted.
+            await this.enableIntegrations()
+            cancel()
+        })
+        this.cancelTimers.push(cancel)
+    }
+
+    /**
+     * Turns on the integration routes once the pool is admitted. In production the pool serves
+     * integrations only after the runtime role check passed. A database that answers late
+     * enables them from the retry loop, so a pod never turns ready with the routes missing.
+     */
+    private async enableIntegrations(): Promise<void> {
+        const config = this.config
+        if (this.integrations) {
+            return
+        }
+        const pool = this.pool
+        const poolAdmitted = pool !== undefined && (this.databaseReady || !isProductionEnv(config.env))
+        if (pool && poolAdmitted && config.kms && config.integrationCallerPublicKeysDir) {
+            const integrationKeys = new IntegrationKeyLoader(config.integrationCallerPublicKeysDir)
+            await integrationKeys.load()
+            this.cancelTimers.push(every(config.reloadSeconds * 1000, () => integrationKeys.reload()))
+            this.cancelTimers.push(
+                every(IDEMPOTENCY_CLEANUP_MS, () => deleteExpiredIdempotencyKeys(pool).then(() => undefined))
+            )
+            this.audit = new AuditQueue(pool)
+            this.audit.start()
+            this.integrations = {
+                verifier: new IntegrationVerifier(integrationKeys, { replay: new PostgresReplayStore(pool) }),
+                service: new IntegrationsService({
+                    pool,
+                    envelope: new Envelope(createKms(config.kms)),
+                    audit: this.audit,
+                }),
+            }
+        } else if (pool || config.kms) {
+            logger.warn('integrations:disabled', {
+                database: poolAdmitted,
+                kms: Boolean(config.kms),
+                keys: Boolean(config.integrationCallerPublicKeysDir),
+            })
+        }
+        if (poolAdmitted || !pool) {
+            this.integrationsSettled = true
+            this.updateReadiness()
+        }
+    }
+
+    async start(): Promise<void> {
+        const config = this.config
+
+        const source = this.overrides.source ?? createSecretSource(config)
+        this.source = source
+        const signingKeys = new SigningKeyLoader(source.description)
+        this.signingKeys = signingKeys
+        const mount = new SecretMount({})
+        this.mount = mount
+
+        const first = await source.read()
+        // Boot fails closed when the secret carries no usable signing keys. A Kubernetes API
+        // that cannot be read at boot is different: the pod stays not-ready, and the watch
+        // retries until the first read succeeds, the same as an empty mount.
+        if (first || source.kind === 'directory') {
+            signingKeys.loadFrom(first?.values ?? {})
+        }
+        this.applySecrets(source, first)
+
+        if (config.database) {
+            this.pool = createPool(config.database)
+            await this.connectDatabase(this.pool, config.database)
+        }
+
+        await this.enableIntegrations()
+        const appOptions: AppOptions = {
+            verifier: new JwtVerifier(signingKeys),
+            lifecycle: this.lifecycle,
+            secrets: () => mount.current(),
+            integrations: () => this.integrations,
+        }
+        const pool = this.pool
+        if (pool) {
+            this.cancelTimers.push(every(AUDIT_LAG_INTERVAL_MS, () => measureAuditExportLag(pool)))
+            this.startAuditExport(pool)
+        }
+        const app = createApp(appOptions)
+
+        if (!this.secretsReady) {
+            logger.error('startup:no_secrets_on_mount', { source: source.description })
+        }
+
+        source.watch((snapshot) => this.apply(source, snapshot))
+        this.cancelTimers.push(() => source.stop())
+
+        const serveFn = this.overrides.serve ?? serve
+        this.server = serveFn({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
+            logger.info('server:started', { host: config.host, port: info.port, env: config.env })
+        })
+
+        // Its own listener, never the serving port: the chart exposes only `port`, so the
+        // scrape stays in-cluster the same way every other service's does.
+        this.metricsServer = createServer((req, res) => {
+            if (req.url !== '/metrics') {
+                res.statusCode = 404
+                res.end()
+                return
+            }
+            shuttingDown.set(this.lifecycle.shuttingDown ? 1 : 0)
+            register.metrics().then(
+                (body) => {
+                    res.setHeader('Content-Type', register.contentType)
+                    res.end(body)
+                },
+                () => {
+                    res.statusCode = 500
+                    res.end()
+                }
+            )
+        })
+        this.metricsServer.listen(config.metricsPort, config.host)
+
+        this.cancelTimers.push(every(config.reloadSeconds * 1000, () => this.reload()))
+
+        this.setupProcessListeners()
+    }
+
+    private startAuditExport(pool: Pool): void {
+        const { auditExport } = this.config
+        if (auditExport) {
+            const exporter = new AuditExporter(pool, captureSender(auditExport), auditExport.batchSize, this.config.env)
+            this.cancelTimers.push(every(auditExport.intervalSeconds * 1000, async () => void (await exporter.tick())))
+            this.cancelTimers.push(() => exporter.stop())
+        }
+    }
+
+    async stop(signal: string, error?: Error): Promise<void> {
+        if (this.stopping) {
+            return
+        }
+        this.stopping = true
+
+        for (const [event, handler] of this.processListeners) {
+            process.removeListener(event, handler)
+        }
+        this.processListeners.clear()
+
+        logger.info('shutdown:start', { signal })
+        this.lifecycle.shuttingDown = true
+        for (const cancel of this.cancelTimers) {
+            cancel()
+        }
+
+        await sleep(this.config.shutdownPrestopDelayMs)
+        const server = this.server
+        if (server) {
+            await Promise.race([new Promise<void>((resolve) => server.close(() => resolve())), sleep(DRAIN_TIMEOUT_MS)])
+        }
+        this.metricsServer?.close()
+        if (this.audit) {
+            await Promise.race([this.audit.stop(), sleep(AUDIT_DRAIN_TIMEOUT_MS)])
+        }
+        await this.pool?.end().catch((err: unknown) => {
+            logger.warn('shutdown:pool_end_failed', { error: err instanceof Error ? err.message : String(err) })
+        })
+
+        logger.info('shutdown:complete', {})
+        const exit = this.overrides.exit ?? process.exit
+        exit(error ? 1 : 0)
+    }
+
+    private setupProcessListeners(): void {
+        const on = (event: string, handler: (...args: unknown[]) => void): void => {
+            this.processListeners.set(event, handler)
+            process.on(event, handler)
+        }
+        on('SIGTERM', () => void this.stop('SIGTERM'))
+        on('SIGINT', () => void this.stop('SIGINT'))
+        on('unhandledRejection', (reason) => {
+            logger.error('fatal:unhandled_rejection', { error: String(reason) })
+            void this.stop('unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)))
+        })
+        on('uncaughtException', (err) => {
+            const error = err instanceof Error ? err : new Error(String(err))
+            logger.error('fatal:uncaught_exception', { error: error.message })
+            void this.stop('uncaughtException', error)
+        })
+    }
+}

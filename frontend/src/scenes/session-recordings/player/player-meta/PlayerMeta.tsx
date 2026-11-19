@@ -17,7 +17,6 @@ import {
     InsertInNotebookPlaylistButton,
     MenuActions,
     PinToPlaylistButton,
-    PlayerMetaLinks,
 } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
 import {
     SessionRecordingPlayerMode,
@@ -100,7 +99,7 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
 
 export type PlayerMetaBreakpoints = 'small' | 'normal'
 
-function PlayerMetaConsolidatedControls({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
+function PlayerMetaControls({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
     const {
         sessionRecordingId,
         logicProps: { withSidebar, mode },
@@ -126,7 +125,7 @@ function PlayerMetaConsolidatedControls({ size }: { size: PlayerMetaBreakpoints 
     )
 }
 
-export function PlayerMeta({ consolidated = false }: { consolidated?: boolean }): JSX.Element {
+export function PlayerMeta(): JSX.Element {
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
     const { windowIds, trackedWindow, lastPageviewEvent, currentURL, currentWindowIndex, loading } = useValues(
@@ -217,14 +216,7 @@ export function PlayerMeta({ consolidated = false }: { consolidated?: boolean })
                     )}
                     <PlayerMetaExperimentTags />
                     <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
-                    {consolidated ? (
-                        <PlayerMetaConsolidatedControls size={size} />
-                    ) : (
-                        <>
-                            <PlayerMetaLinks size={size} />
-                            <PlayerPersonMeta />
-                        </>
-                    )}
+                    <PlayerMetaControls size={size} />
                 </div>
             </div>
         </DraggableToNotebook>

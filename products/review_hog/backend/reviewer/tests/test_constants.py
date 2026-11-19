@@ -20,7 +20,6 @@ from products.review_hog.backend.reviewer.constants import (
     RESOLUTION_REASONING_EFFORT,
     RESOLUTION_RUNTIME_ADAPTER,
     REVIEW_ARMS_BY_TIER,
-    REVIEW_MCP_SCOPES,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     REVIEW_MODEL,
@@ -37,8 +36,9 @@ from products.review_hog.backend.reviewer.constants import (
     select_review_tier,
     validation_arm_for_mode,
 )
+from products.review_hog.backend.task_profiles import REVIEW_MCP_SCOPES
 from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_INBOX
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.facade.taxonomy import ReportPriority
 from products.tasks.backend.facade.run_config import (
     LLMProvider,
     ReasoningEffort,

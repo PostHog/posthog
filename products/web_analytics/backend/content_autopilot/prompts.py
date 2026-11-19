@@ -1,3 +1,4 @@
+import re
 from html import escape
 from typing import Any
 
@@ -32,7 +33,7 @@ Work from the evidence you are given:
 - Competitor pages show what the engines found useful: coverage, structure, depth. Use them to find gaps, never as a source of facts about this site.
 - Engine answers show what the engines currently say. Note what they get wrong or leave out about this site.
 
-Decide whether the site needs a new page or whether an existing page should be improved. When you are told which page to improve, keep it. Otherwise, if one of the listed site pages already targets the question, recommend improving it and set target_page to its URL. Leave target_page empty for a new page.
+Decide whether the site needs a new page or whether an existing page should be improved. When you are told which page to improve, keep it. Otherwise, if one of the listed site pages is mainly about this question, recommend improving it and set target_page to its URL. A page that only mentions the topic in passing, or that is about a different feature, is not a match: plan a new page instead. Leave target_page empty for a new page.
 
 Plan within the word budget you are given. When you improve a page, plan the smallest set of changes that closes the gap, not a rewrite.
 
@@ -119,6 +120,7 @@ Length
 Structure for answer engines
 - Start with one H1. The first paragraph after it answers the question directly in 40 to 70 words, so an engine can quote it on its own.
 - If the brief gives a disambiguation, name the product in full with its category in that first paragraph, for example "Plausible Analytics, the privacy-focused web analytics tool".
+- Otherwise name the site's own product plainly. Don't describe it with its category, such as "Acme, the analytics platform,", because readers of the site already know what it is.
 - Use H2 headings phrased as the questions people ask. Keep each section self-contained.
 - Prefer concrete steps, numbers, and short tables over long prose. Use a comparison table when the question compares options.
 - End with a "## Frequently asked questions" section of 3 to 5 questions, each with a short, direct answer. Repeat those pairs in the faq field.
@@ -238,7 +240,7 @@ JUDGE_SYSTEM_PROMPT = f"""You review a draft web page before a person publishes 
 
 Check three things and report them honestly. Do not rewrite the draft.
 
-1. Grounding: check only the text in <draft>. Every factual claim about the company, its product, pricing, features, or limits must be supported by a <site_page>. Every specific factual claim about another company's product (prices, plan limits, features it has or lacks, integrations, hosting, compliance, company news) must be supported by a <competitor_page> from that company or by a <site_page>. Naming a product or saying what kind of product it is (for example "Sentry is an error monitoring tool") does not need a source, and neither does general industry knowledge. List each unsupported claim.
+1. Grounding: check only the text in <draft>. Every factual claim about the company, its product, pricing, features, or limits must be supported by a <site_page>. Every specific factual claim about another company's product (prices, plan limits, features it has or lacks, integrations, hosting, compliance, company news) must be supported by a <competitor_page> from that company or by a <site_page>. Naming a product or saying what kind of product it is (for example "Sentry is an error monitoring tool") does not need a source, and neither does general industry knowledge. List each unsupported claim as the sentence from <draft> that makes it, copied word for word, with no commentary.
 2. Answers the prompt: the page directly answers the question in <prompt> early on. When a <page_opening> is given, judge the opening of the finished page from it.
 3. Brand rules: the draft follows every brand rule given. List each violation. If no brand rules are given, report that they were followed.
 
@@ -257,9 +259,13 @@ JUDGE_SCHEMA: dict[str, Any] = {
 }
 
 
+_ENVELOPE_TAGS = ("site_page", "competitor_page", "engine_answer", "prompt", "draft", "page_opening")
+_ENVELOPE_TAG_RE = re.compile(rf"</?\s*(?:{'|'.join(_ENVELOPE_TAGS)})(?:_none)?\b[^>\n]*>?", re.IGNORECASE)
+
+
 def tagged(tag: str, body: str, **attributes: str) -> str:
     attrs = "".join(f' {key}="{escape(value, quote=True)}"' for key, value in attributes.items())
-    return f"<{tag}{attrs}>\n{body}\n</{tag}>"
+    return f"<{tag}{attrs}>\n{_ENVELOPE_TAG_RE.sub('', body)}\n</{tag}>"
 
 
 def bullet_list(items: list[str]) -> str:

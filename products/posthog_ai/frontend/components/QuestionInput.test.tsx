@@ -164,6 +164,40 @@ describe('QuestionInput', () => {
         })
     })
 
+    it.each([
+        {
+            caseName: 'an input prompt',
+            extra: { placeholder: 'Button label' },
+            findField: () => screen.getByPlaceholderText('Button label'),
+            typed: 'Download CSV',
+            sent: 'Download CSV',
+        },
+        {
+            caseName: 'an editor prompt',
+            extra: { defaultAnswer: 'Line one\nLine two', multiline: true },
+            findField: () => screen.getByDisplayValue(/Line one/),
+            typed: undefined,
+            sent: 'Line one\nLine two',
+        },
+    ])('answers $caseName through a field that is open from the start', ({ extra, findField, typed, sent }) => {
+        const question: AgentQuestion = { question: 'What should it say?', multiSelect: false, options: [], ...extra }
+        render(<QuestionInput streamKey="conv-1" request={makeRequest([question])} />)
+
+        expect(screen.queryByText("Explain what you'd like instead.")).not.toBeInTheDocument()
+        if (typed !== undefined) {
+            fireEvent.change(findField(), { target: { value: typed } })
+        }
+        expect(findField()).toHaveValue(sent)
+        fireEvent.click(screen.getByText('Submit'))
+
+        expect(respondToPermission).toHaveBeenCalledWith({
+            requestId: 'req-1',
+            optionId: 'option_0',
+            answers: { 'What should it say?': sent },
+            customInput: sent,
+        })
+    })
+
     it('preserves custom answers and disables hidden shortcuts during delivery', () => {
         const request = makeRequest([goalQuestion])
         const { rerender } = render(<QuestionInput streamKey="conv-1" request={request} />)

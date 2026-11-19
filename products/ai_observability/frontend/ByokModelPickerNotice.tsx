@@ -32,12 +32,22 @@ export function ByokModelPickerNotice({ forEvaluation = false }: { forEvaluation
                 </LemonBanner>
             )
         }
-        case 'no-keys':
+        case 'deployments-unlisted': {
+            const [firstKey] = byokModelNotice.keys
             return (
                 <p className="text-xs text-secondary mt-1">
-                    No models available. <Link to={PROVIDER_SETTINGS_URL}>Add your own API keys</Link> to choose one.
+                    {byokModelNotice.keys.length === 1 ? (
+                        <>
+                            Azure OpenAI didn't list any deployments for API key{' '}
+                            <span className="font-semibold">{firstKey.name}</span>.
+                        </>
+                    ) : (
+                        `Azure OpenAI didn't list any deployments for ${byokModelNotice.keys.length} of your API keys.`
+                    )}{' '}
+                    Type your deployment name in the model search to use it.
                 </p>
             )
+        }
         case 'no-usable-keys':
             return (
                 <p className="text-xs text-secondary mt-1">

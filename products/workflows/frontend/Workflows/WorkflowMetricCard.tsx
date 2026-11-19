@@ -1,42 +1,29 @@
 import posthog from 'posthog-js'
-import { type ErrorInfo, type ReactNode, useCallback, useMemo } from 'react'
+import { type ErrorInfo, type ReactNode, useMemo } from 'react'
 
 import { IconArrowRight, IconInfo } from '@posthog/icons'
-import {
-    DefaultTooltip,
-    createTooltipDateFormatter,
-    useChartTheme,
-    type ChangeColor,
-    type MetricChange,
-    type Series,
-    type TooltipContext,
-} from '@posthog/quill-charts'
+import { createTooltipDateFormatter, useChartTheme, type MetricChange, type Series } from '@posthog/quill-charts'
 import {
     Metric,
     MetricDelta,
     MetricHeader,
     MetricSparkline,
+    MetricSubtitle,
     MetricTitle,
     MetricValue,
 } from '@posthog/quill-components/metric'
 import { cn, Skeleton, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@posthog/quill-primitives'
 
-import { getColorVar } from 'lib/colors'
 import { AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
 import { formatPercentageDiff, humanFriendlyNumber } from 'lib/utils/numbers'
+
+import { METRICS_BAD_WHEN_RISING } from './workflowMetricsSummaryLogic'
 
 const SPARKLINE_HEIGHT = 160
 
 // `Metric` is content, not a surface, so the tile keeps the surrounding scene's chrome rather than
 // quill's Card — the step tables and trends chart below it are still Lemon surfaces.
 const CARD_CHROME = 'flex min-w-[16rem] flex-1 flex-col rounded border bg-surface-primary py-3'
-
-// The period-over-period pill stays neutral (grey), matching how these tiles reported change before —
-// several workflow metrics (Failed, Bounced, Rate Limited) are "bad when rising", so green/red good/bad
-// coloring would mislead. The chevron still shows direction.
-function neutralChange(): ChangeColor {
-    return { background: 'transparent', foreground: getColorVar('muted') }
-}
 
 // `Metric` contains a render throw to this tile instead of letting it take the scene down, which also
 // keeps it out of error tracking — report it so a silently broken tile is still visible.
@@ -66,6 +53,9 @@ export interface WorkflowMetricCardProps {
     description?: ReactNode
     timeSeries: AppMetricsTimeSeriesResponse | null
     previousPeriodTimeSeries?: AppMetricsTimeSeriesResponse | null
+    /** Names the previous value, e.g. "Previous run (Oct 12)". The card then shows that value in words
+     *  under its own, instead of a bare change pill. */
+    previousLabel?: string
     color?: string
     /** Per-series sparkline colors keyed by series name. When the response has more than one series,
      *  the tile draws one line per series (colored from here) instead of a single summed line. */
@@ -78,6 +68,7 @@ export interface WorkflowMetricCardProps {
     footer?: ReactNode
     /** Shorter card, so a page with tables below it does not push them off screen. */
     compact?: boolean
+    className?: string
 }
 
 // Collapse a response into the numbers the tile reads (per-index sums plus the grand total). A
@@ -100,6 +91,7 @@ export function WorkflowMetricCard({
     description,
     timeSeries,
     previousPeriodTimeSeries,
+    previousLabel,
     color,
     seriesColors,
     colorIfZero,
@@ -108,6 +100,7 @@ export function WorkflowMetricCard({
     onClickTooltip,
     footer,
     compact,
+    className,
 }: WorkflowMetricCardProps): JSX.Element {
     const theme = useChartTheme()
 
@@ -130,14 +123,13 @@ export function WorkflowMetricCard({
         }))
     }, [timeSeries, seriesColors, colorIfZero, total])
 
-    // Only surface a comparison when there's a non-zero baseline — formatPercentageDiff returns null on
-    // a zero/absent previous period, so the pill is hidden rather than showing a bogus ∞%.
-    const change = useMemo<MetricChange | null>(() => {
-        const label = formatPercentageDiff(total, totalPreviousPeriod)
-        return label == null ? null : { value: total - totalPreviousPeriod, label }
-    }, [total, totalPreviousPeriod])
+    // Hide the pill on a zero/absent previous period rather than showing a bogus ∞%.
+    const change = useMemo<MetricChange | null>(
+        () =>
+            totalPreviousPeriod === 0 ? null : { value: ((total - totalPreviousPeriod) / totalPreviousPeriod) * 100 },
+        [total, totalPreviousPeriod]
+    )
 
-    const neutral = neutralChange()
     const labelFormatter = useMemo(
         () =>
             timeSeries
@@ -149,28 +141,25 @@ export function WorkflowMetricCard({
                 : undefined,
         [timeSeries?.interval, timeSeries?.labels, timeSeries?.timezone]
     )
-    const renderTooltip = useCallback(
-        (ctx: TooltipContext) => (
-            <DefaultTooltip
-                {...ctx}
-                sortedByValue
-                showTotal
-                labelFormatter={labelFormatter}
-                valueFormatter={(value: number) => humanFriendlyNumber(value)}
-            />
-        ),
-        [labelFormatter]
-    )
+
+    const previousDiff =
+        total === totalPreviousPeriod ? '(no change)' : formatPercentageDiff(total, totalPreviousPeriod)
+    const restingSubtitle = !previousPeriodTimeSeries
+        ? 'Total'
+        : previousLabel
+          ? `${previousLabel}: ${humanFriendlyNumber(totalPreviousPeriod)}${previousDiff ? ` ${previousDiff}` : ''}`
+          : `vs. ${humanFriendlyNumber(totalPreviousPeriod)} prior`
 
     const cardClassName = cn(
         CARD_CHROME,
+        className,
         onClick &&
             'cursor-pointer transition-colors hover:bg-surface-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
     )
 
     if (loading) {
         return (
-            <div className={CARD_CHROME}>
+            <div className={cn(CARD_CHROME, className)}>
                 <div className="flex flex-col px-3">
                     <Skeleton className="h-4 w-24" />
                     <Skeleton className="mt-3 h-9 w-32" />
@@ -202,14 +191,14 @@ export function WorkflowMetricCard({
                     data={data}
                     series={sparklineSeries}
                     labels={timeSeries?.labels}
+                    formatLabel={labelFormatter}
+                    restingSubtitle={restingSubtitle}
                     theme={theme}
                     color={total === 0 ? colorIfZero : color}
-                    change={change}
-                    positiveColor={neutral}
-                    negativeColor={neutral}
+                    change={previousLabel ? null : change}
+                    goodDirection={METRICS_BAD_WHEN_RISING.has(name) ? 'down' : 'up'}
                     formatValue={(v) => humanFriendlyNumber(v)}
                     sparklineHeight={SPARKLINE_HEIGHT}
-                    sparklineTooltip={renderTooltip}
                 >
                     <MetricHeader>
                         <MetricTitle className="min-w-0">
@@ -234,6 +223,7 @@ export function WorkflowMetricCard({
                         <MetricDelta />
                     </MetricHeader>
                     <MetricValue className={compact ? 'mt-1' : 'mt-2'} />
+                    <MetricSubtitle className="mt-1" />
                     <MetricSparkline className={compact ? '-mx-3 mt-2 h-16' : '-mx-3 mt-4'} />
                 </Metric>
                 {footer && (

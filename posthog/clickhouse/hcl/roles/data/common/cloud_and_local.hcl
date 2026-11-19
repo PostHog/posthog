@@ -437,6 +437,13 @@ SQL
     column "entity_id" {
       type = "String"
     }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "person_id" {
+      type    = "UUID"
+      default = "toUUIDOrZero(entity_id)"
+    }
     column "variant" {
       type = "String"
     }
@@ -462,6 +469,18 @@ SQL
     column "expires_at" {
       type    = "Date"
       default = "today() + toIntervalDay(7)"
+    }
+    column "timestamp" {
+      type  = "DateTime64(6, 'UTC')"
+      alias = "first_exposure_time"
+    }
+    column "uuid" {
+      type  = "UUID"
+      alias = "exposure_event_uuid"
+    }
+    column "inserted_at" {
+      type  = "Nullable(DateTime64(6, 'UTC'))"
+      alias = "NULL"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -1050,6 +1069,13 @@ SQL
     column "entity_id" {
       type = "String"
     }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "person_id" {
+      type    = "UUID"
+      default = "toUUIDOrZero(entity_id)"
+    }
     column "variant" {
       type = "String"
     }
@@ -1075,6 +1101,18 @@ SQL
     column "expires_at" {
       type    = "Date"
       default = "today() + toIntervalDay(7)"
+    }
+    column "timestamp" {
+      type  = "DateTime64(6, 'UTC')"
+      alias = "first_exposure_time"
+    }
+    column "uuid" {
+      type  = "UUID"
+      alias = "exposure_event_uuid"
+    }
+    column "inserted_at" {
+      type  = "Nullable(DateTime64(6, 'UTC'))"
+      alias = "NULL"
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.experiment_exposures_preaggregated"

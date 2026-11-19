@@ -121,6 +121,8 @@ def build_reviewer_invocation(
     context_path: str,
     self_driving_review: bool = False,
     review_trigger: str = "",
+    admitted_bot: str = "",
+    review_evidence: list[dict] | None = None,
 ) -> ReviewerInvocation:
     """Assemble the context payload + command that reviews this PR in the sandbox.
 
@@ -135,6 +137,9 @@ def build_reviewer_invocation(
     ``author_team_slugs`` are every GitHub team the author belongs to, which the
     engine intersects with the teams owning the changed paths to tell the reviewer
     whether the author owns the code (another `gh` call the sandbox can't make).
+    ``review_evidence`` holds each registered external reviewer's status for this head
+    (``facade/review_evidence.py``). The engine waits on a pending one and counts a completed one
+    as assurance.
     ``familiarity_facts`` are the blame and author-history facts the server read from GitHub
     (``logic/familiarity_facts.py``), or None when that failed. The key is always set, because
     its presence tells the engine to take familiarity from the facts and never from git history.
@@ -152,6 +157,9 @@ def build_reviewer_invocation(
     It stays separate from ``self_driving_review`` on purpose. That flag relaxes two security gates,
     this string only describes, and folding them together would put the carve-out back in play for
     a change to descriptive text. Empty for a local run, where there is no trigger to report.
+    ``admitted_bot`` is the login of a bot author the repo policy admits (``logic/bot_admission.py``).
+    The engine checks it against the policy again, keeps every gate, and also requires an
+    attestation to vouch for every file in the PR.
     """
     context = {
         "repo": repo,
@@ -165,12 +173,14 @@ def build_reviewer_invocation(
         "review_threads": review_threads,
         "check_runs": check_runs,
         "pr_reactions": pr_reactions,
+        "review_evidence": list(review_evidence or []),
         "author_pr_numbers": list(author_pr_numbers),
         "author_team_slugs": list(author_team_slugs),
         "familiarity_facts": familiarity_facts,
         "commit_messages": commit_messages,
         "self_driving_review": self_driving_review,
         "review_trigger": review_trigger,
+        "admitted_bot": admitted_bot,
     }
     command = ["uv", "run", f"{engine_dir}/review_local.py", "--context", context_path]
     return ReviewerInvocation(

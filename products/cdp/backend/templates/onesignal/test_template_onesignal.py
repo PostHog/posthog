@@ -1,8 +1,7 @@
 import pytest
 import time_machine
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.cdp.backend.templates.onesignal.template_onesignal import template as template_onesignal
 
 from common.hogvm.python.utils import UncaughtHogVMException

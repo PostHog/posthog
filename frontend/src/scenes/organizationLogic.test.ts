@@ -1,7 +1,11 @@
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
+import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -10,6 +14,24 @@ import { organizationLogic } from './organizationLogic'
 
 describe('organizationLogic', () => {
     let logic: ReturnType<typeof organizationLogic.build>
+
+    it('shows the IP lockout warning returned by a successful save', async () => {
+        initKeaTests()
+        logic = organizationLogic()
+        logic.mount()
+        const warning = 'Your current IP address is not in this allowlist.'
+        const warningToast = jest.spyOn(lemonToast, 'warning')
+
+        await expectLogic(logic, () => {
+            logic.actions.updateOrganizationSuccess(
+                { ...MOCK_DEFAULT_ORGANIZATION, ip_restrictions_warning: warning },
+                { ip_restrictions_enabled: true }
+            )
+        }).toFinishAllListeners()
+
+        expect(warningToast).toHaveBeenCalledWith(warning)
+        warningToast.mockRestore()
+    })
 
     describe('if POSTHOG_APP_CONTEXT available', () => {
         beforeEach(() => {
@@ -152,6 +174,7 @@ describe('organizationLogic', () => {
             ['deactivated keeps an invite link', { is_active: false }, '/signup/abc', true],
             ['deactivated keeps billing', { is_active: false }, '/organization/billing', true],
             ['deactivated keeps the Stripe return route', { is_active: false }, '/billing/authorization_status', true],
+            ['deactivated keeps partner consent', { is_active: false }, '/agentic/authorize', true],
             [
                 'deactivated keeps its own page under a project prefix',
                 { is_active: false },
@@ -160,6 +183,7 @@ describe('organizationLogic', () => {
             ],
             ['deactivated drops the app', { is_active: false }, '/dashboard', false],
             ['pending deletion keeps an invite link', { is_pending_deletion: true }, '/signup/abc', true],
+            ['pending deletion keeps partner consent', { is_pending_deletion: true }, '/agentic/authorize', true],
             ['pending deletion drops billing', { is_pending_deletion: true }, '/organization/billing', false],
         ])('%s', async (_name, organization, pathname, open) => {
             mountWith(organization as unknown as Partial<OrganizationType>)
@@ -178,5 +202,22 @@ describe('organizationLogic', () => {
 
             expect(logic.values.isPathInAnotherOrganization('/project/424242/dashboard')).toBe(leaves)
         })
+    })
+
+    it('removes the create organization dialog from the URL before redirecting to onboarding', async () => {
+        initKeaTests()
+        logic = organizationLogic()
+        logic.mount()
+        const modalLogic = globalModalsLogic()
+        modalLogic.mount()
+        router.actions.push('/project/1/replay/home', { modal: 'create-organization' })
+        expect(modalLogic.values.isCreateOrganizationModalShown).toBe(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.createOrganizationSuccess(MOCK_DEFAULT_ORGANIZATION)
+        }).toFinishAllListeners()
+
+        expect(router.values.searchParams.modal).toBeUndefined()
+        expect(modalLogic.values.isCreateOrganizationModalShown).toBe(false)
     })
 })

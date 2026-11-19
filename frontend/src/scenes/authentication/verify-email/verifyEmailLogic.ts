@@ -16,7 +16,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '../../../types'
 
-// Must stay in sync with the `VerifyEmail__Progress` animation duration in VerifyEmail.scss.
+// The success screen's `AuthScene__progress` bar (AuthScene.scss) runs a little longer, so the redirect lands before it fills.
 export const VERIFY_EMAIL_REDIRECT_DELAY_MS = 2000
 
 type PostVerifyResponse = {
@@ -37,6 +37,12 @@ const resolvePostVerifyDefault = (values: {
     return hasCompletedSomething ? urls.default() : urls.onboarding()
 }
 
+const redirectToLogin = (message: string): void => {
+    const nextUrl = getRelativeNextPath(router.values.searchParams.next, location)
+    lemonToast.success(message)
+    router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
+}
+
 // A verify success without a session (2FA, blocked member, SSO-enforced domain) routes to
 // login with a matching toast. Otherwise the user goes straight into the app.
 const redirectAfterVerification = (
@@ -52,8 +58,7 @@ const redirectAfterVerification = (
             ? 'Email verified! Log in with SSO to continue.'
             : null
     if (loginMessage) {
-        lemonToast.success(loginMessage)
-        router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
+        redirectToLogin(loginMessage)
         return
     }
     // this url is validated in getRelativeNextPath as either being relative or on the same origin
@@ -219,6 +224,12 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         actions.setView('pending')
                         return true
                     } catch (e: any) {
+                        // Old link emails reach this page for accounts that are already verified, and
+                        // the backend won't send them a code, so login is the only way forward.
+                        if (e.code === 'already_verified') {
+                            redirectToLogin('Your email is already verified. Log in to continue.')
+                            return false
+                        }
                         if (e.code === 'throttled') {
                             lemonToast.error('You have requested a new code too many times. Please try again later.')
                             return false
@@ -281,6 +292,10 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                     searchParams.email_sent !== 'false'
                 )
                 actions.setView('pending')
+                // Lazy: authStepViewed reads the OAuth cookie through `he`, which every logged-in page would otherwise load.
+                void import('scenes/authentication/shared/authStepViewed')
+                    .then(({ captureAuthStepViewed }) => captureAuthStepViewed('verify_email', null))
+                    .catch(() => {})
             }
         }
         return {

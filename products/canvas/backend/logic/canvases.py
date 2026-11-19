@@ -1,5 +1,6 @@
 """Canvas records: list, read, create, update, delete, and the home canvas."""
 
+from collections.abc import Collection
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -11,6 +12,8 @@ from django.utils import timezone
 import structlog
 
 from posthog.models.user import User
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.canvas.backend.facade.contracts import (
     CanvasFieldChange,
@@ -49,6 +52,7 @@ def _listing(
     channel_id: str | None,
     kind: str | None,
     search: str | None,
+    created_by: str | None,
     user_access_control: "UserAccessControl | None",
     include_all_if_admin: bool,
 ) -> QuerySet[Canvas]:
@@ -69,26 +73,23 @@ def _listing(
         queryset = queryset.filter(kind=kind)
     if search:
         queryset = queryset.filter(Q(name__icontains=search) | Q(description__icontains=search))
+    if created_by:
+        try:
+            created_by = str(UUID(created_by))
+        except ValueError:
+            return queryset.none()
+        queryset = queryset.filter(created_by__uuid=created_by)
     return queryset
 
 
-def count_canvases(
-    viewer: CanvasViewer,
-    *,
-    channel_id: str | None,
-    kind: str | None,
-    search: str | None,
-    user_access_control: "UserAccessControl | None",
-    include_all_if_admin: bool,
-) -> int:
-    return _listing(
-        viewer,
-        channel_id=channel_id,
-        kind=kind,
-        search=search,
-        user_access_control=user_access_control,
-        include_all_if_admin=include_all_if_admin,
-    ).count()
+def editable_canvas_ids(viewer: CanvasViewer, canvas_ids: Collection[str]) -> set[str]:
+    """The ids among `canvas_ids` the viewer may edit."""
+    if not canvas_ids:
+        return set()
+    return {
+        str(pk)
+        for pk in authorized_canvases(viewer, CanvasAccess.EDIT).filter(id__in=canvas_ids).values_list("id", flat=True)
+    }
 
 
 def list_canvases(
@@ -97,24 +98,25 @@ def list_canvases(
     channel_id: str | None,
     kind: str | None,
     search: str | None,
+    created_by: str | None = None,
     user_access_control: "UserAccessControl | None",
     include_all_if_admin: bool,
-    offset: int,
-    limit: int,
+    page: PageRequest,
     ordering: str | None = None,
-) -> list[CanvasRecord]:
+) -> Page[CanvasRecord]:
     """`ordering` is a field to sort by, newest first by default. The caller validates it."""
     rows = _listing(
         viewer,
         channel_id=channel_id,
         kind=kind,
         search=search,
+        created_by=created_by,
         user_access_control=user_access_control,
         include_all_if_admin=include_all_if_admin,
     ).select_related(*_RECORD_RELATIONS)
     if ordering is not None:
         rows = rows.order_by(ordering, "-id")
-    return [canvas_record(canvas) for canvas in rows[offset : offset + limit]]
+    return select_page(rows, page).map(canvas_record)
 
 
 def get_canvas(viewer: CanvasViewer, access: CanvasAccess, canvas_id: UUID | str) -> CanvasRecord:

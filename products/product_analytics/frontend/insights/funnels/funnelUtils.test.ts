@@ -2,16 +2,8 @@ import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils/datetime'
 
-import { EventsNode, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
-import {
-    FunnelConversionWindowTimeUnit,
-    FunnelCorrelation,
-    FunnelCorrelationResultsType,
-    FunnelCorrelationType,
-    FunnelStep,
-    FunnelStepReference,
-    FunnelStepWithNestedBreakdown,
-} from '~/types'
+import { EventsNode } from '~/queries/schema/schema-general'
+import { FunnelConversionWindowTimeUnit, FunnelStep, FunnelStepReference, FunnelStepWithNestedBreakdown } from '~/types'
 
 import {
     aggregateBreakdownCompareResult,
@@ -33,9 +25,6 @@ import {
     getStepBreakdownSeries,
     getVisibilityKey,
     hasBreakdown,
-    isFunnelWithEnoughSteps,
-    isFunnelWithIncompleteDataWarehouseStep,
-    parseDisplayNameForCorrelation,
     stepsWithConversionMetrics,
 } from './funnelUtils'
 
@@ -231,100 +220,9 @@ describe('getClampedFunnelStepRange', () => {
     })
 })
 
-describe('parseEventAndProperty', () => {
-    const basicFunnelRecord: FunnelCorrelation = {
-        event: { event: '$pageview::bzzz', properties: {}, elements: [] },
-        odds_ratio: 1,
-        correlation_type: FunnelCorrelationType.Success,
-        success_count: 1,
-        failure_count: 1,
-        success_people_url: '/some/people/url',
-        failure_people_url: '/some/people/url',
-        result_type: FunnelCorrelationResultsType.Events,
-    }
-    it('chooses the correct name based on Event type', async () => {
-        const result = parseDisplayNameForCorrelation(basicFunnelRecord)
-        expect(result).toEqual({
-            first_value: '$pageview::bzzz',
-            second_value: undefined,
-        })
-    })
-
-    it('chooses the correct name based on Property type', async () => {
-        const result = parseDisplayNameForCorrelation({
-            ...basicFunnelRecord,
-            result_type: FunnelCorrelationResultsType.Properties,
-        })
-        expect(result).toEqual({
-            first_value: '$pageview',
-            second_value: 'bzzz',
-        })
-    })
-
-    it('chooses the correct name based on EventWithProperty type', async () => {
-        const result = parseDisplayNameForCorrelation({
-            ...basicFunnelRecord,
-            result_type: FunnelCorrelationResultsType.EventWithProperties,
-            event: {
-                event: '$pageview::library::1.2',
-                properties: { random: 'x' },
-                elements: [],
-            },
-        })
-        expect(result).toEqual({
-            first_value: 'library',
-            second_value: '1.2',
-        })
-    })
-
-    it('handles autocapture events on EventWithProperty type', async () => {
-        const result = parseDisplayNameForCorrelation({
-            ...basicFunnelRecord,
-            result_type: FunnelCorrelationResultsType.EventWithProperties,
-            event: {
-                event: '$autocapture::elements_chain::xyz_elements_a.link*',
-                properties: { $event_type: 'click' },
-                elements: [
-                    {
-                        tag_name: 'a',
-                        href: '#',
-                        attributes: { blah: 'https://example.com' },
-                        nth_child: 0,
-                        nth_of_type: 0,
-                        order: 0,
-                        text: 'bazinga',
-                    },
-                ],
-            },
-        })
-        expect(result).toEqual({
-            first_value: 'clicked link with text "bazinga"',
-            second_value: undefined,
-        })
-    })
-
-    it('handles autocapture events without elements_chain on EventWithProperty type', async () => {
-        const result = parseDisplayNameForCorrelation({
-            ...basicFunnelRecord,
-            result_type: FunnelCorrelationResultsType.EventWithProperties,
-            event: {
-                event: '$autocapture::library::1.2',
-                properties: { random: 'x' },
-                elements: [],
-            },
-        })
-        expect(result).toEqual({
-            first_value: 'library',
-            second_value: '1.2',
-        })
-    })
-})
-
 // Helpers for building minimal FunnelStep fixtures
 const makeStep = (overrides: Partial<FunnelStep> & { count: number; order: number }): FunnelStep => ({
-    action_id: 'step',
     name: `Step ${overrides.order}`,
-    type: 'events',
     average_conversion_time: null,
     median_conversion_time: null,
     people: [],
@@ -1100,86 +998,6 @@ describe('getStepBreakdownSeries', () => {
         },
     ])('$scenario', ({ step, breakdownFilter, expected }) => {
         expect(getStepBreakdownSeries(step as any, breakdownFilter as any)).toBe(expected)
-    })
-})
-
-describe('isFunnelWithEnoughSteps', () => {
-    it.each([
-        { scenario: 'no steps', series: [], expected: false },
-        { scenario: 'one step', series: [{ kind: NodeKind.EventsNode }], expected: false },
-        {
-            scenario: 'two steps',
-            series: [{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }],
-            expected: true,
-        },
-    ])('returns $expected for $scenario', ({ series, expected }) => {
-        expect(isFunnelWithEnoughSteps(series as FunnelsQuery['series'])).toBe(expected)
-    })
-})
-
-describe('isFunnelWithIncompleteDataWarehouseStep', () => {
-    it.each([
-        {
-            scenario: 'no steps',
-            series: [],
-            expected: false,
-        },
-        {
-            scenario: 'non-funnel data warehouse step',
-            series: [
-                {
-                    kind: NodeKind.DataWarehouseNode,
-                    id: 'warehouse_orders',
-                    name: 'Orders',
-                    table_name: 'warehouse_orders',
-                    timestamp_field: 'created_at',
-                    id_field: 'order_id',
-                    distinct_id_field: 'customer_id',
-                },
-            ],
-            expected: false,
-        },
-        {
-            scenario: 'complete funnel data warehouse step',
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    name: '$pageview',
-                    event: '$pageview',
-                },
-                {
-                    kind: NodeKind.FunnelsDataWarehouseNode,
-                    id: 'warehouse_orders',
-                    name: 'Orders',
-                    table_name: 'warehouse_orders',
-                    timestamp_field: 'created_at',
-                    id_field: 'order_id',
-                    aggregation_target_field: 'customer_id',
-                },
-            ],
-            expected: false,
-        },
-        {
-            scenario: 'missing aggregation target field',
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    name: '$pageview',
-                    event: '$pageview',
-                },
-                {
-                    kind: NodeKind.FunnelsDataWarehouseNode,
-                    id: 'warehouse_orders',
-                    name: 'Orders',
-                    table_name: 'warehouse_orders',
-                    timestamp_field: 'created_at',
-                    id_field: 'order_id',
-                },
-            ],
-            expected: true,
-        },
-    ])('returns $expected for $scenario', ({ series, expected }) => {
-        expect(isFunnelWithIncompleteDataWarehouseStep(series as FunnelsQuery['series'])).toBe(expected)
     })
 })
 

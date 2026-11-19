@@ -14,6 +14,7 @@ from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.replay_vision.backend.temporal.constants import (
+    COMPLETE_OBSERVATION_REQUESTS_TIMEOUT,
     LIST_ENABLED_SCANNERS_TIMEOUT,
     LIST_SCANNER_SCHEDULES_TIMEOUT,
     REAP_BACKFILL_SCHEDULES_HEARTBEAT_TIMEOUT,
@@ -23,6 +24,7 @@ from products.replay_vision.backend.temporal.constants import (
     REAPER_MAX_ATTEMPTS,
     REAPER_OP_SCHEDULE_TO_CLOSE,
     REAPER_OP_TIMEOUT,
+    RECONCILE_MAX_SCHEDULE_OPS_PER_TICK,
     RECONCILE_SCHEDULE_OP_TIMEOUT,
     RECONCILER_ACTIVITY_PRIORITY,
     RECONCILER_EXECUTION_TIMEOUT,
@@ -54,6 +56,10 @@ with workflow.unsafe.imports_passed_through():
         start_launched_scanners_activity,
         upsert_scanner_schedule_activity,
     )
+
+
+# Caps and reorders the schedule operations, which changes the activities a tick schedules.
+RECONCILE_CAPPED_OPS_PATCH = "replay-vision-reconcile-capped-ops-2026-11"
 
 
 @workflow.defn(name=RECONCILER_WORKFLOW_NAME)
@@ -108,7 +114,9 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
             workflow.logger.exception("replay_vision.start_launched_scanners_failed")
 
         try:
-            await self._run_reaper(complete_observation_requests_activity)
+            await self._run_reaper(
+                complete_observation_requests_activity, start_to_close_timeout=COMPLETE_OBSERVATION_REQUESTS_TIMEOUT
+            )
         except Exception:
             workflow.logger.exception("replay_vision.complete_observation_requests_failed")
 
@@ -134,8 +142,15 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
         # Legacy untagged schedules surface as None and naturally drift on first tick.
         existing = {entry.scanner_id: entry.fingerprint for entry in existing_entries}
         drifted = {sid for sid in enabled.keys() & existing.keys() if existing[sid] != enabled[sid].fingerprint}
-        to_upsert = sorted((enabled.keys() - existing.keys()) | drifted)
-        to_delete = sorted(existing.keys() - enabled.keys())
+        if workflow.patched(RECONCILE_CAPPED_OPS_PATCH):
+            # Missing schedules first, because a scanner without one does not sweep at all.
+            to_upsert = [*sorted(enabled.keys() - existing.keys()), *sorted(drifted)][
+                :RECONCILE_MAX_SCHEDULE_OPS_PER_TICK
+            ]
+            to_delete = sorted(existing.keys() - enabled.keys())[:RECONCILE_MAX_SCHEDULE_OPS_PER_TICK]
+        else:
+            to_upsert = sorted((enabled.keys() - existing.keys()) | drifted)
+            to_delete = sorted(existing.keys() - enabled.keys())
 
         upsert_results, delete_results = await asyncio.gather(
             self._fan_out(

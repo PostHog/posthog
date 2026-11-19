@@ -3,7 +3,7 @@ import { logger } from '~/common/utils/logger'
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { InterleavingChunkPipeline, PullOutcome } from './interleaving-chunk-pipeline'
 import { PipelineContext, PipelineResultWithContext } from './pipeline.interface'
-import { PipelineResultType, dlq, isDlqResult, isDropResult, isOkResult, ok } from './results'
+import { PipelineResultType, dlq, isDlqResult, isDropResult, isOkResult, isTimeoutResult, ok, timeout } from './results'
 
 /**
  * Splits one element into its sub-elements. Must be synchronous and cheap —
@@ -63,6 +63,8 @@ interface PendingParent<TElement, TSubOut, C> {
     dlqFailures: { reason: string; error: unknown }[]
     /** lastStep of the most recent DLQ sub-result, for error attribution on the parent. */
     dlqLastStep: string | undefined
+    /** First timed-out sub-result seen; when set the parent times out instead of fanning in. */
+    timedOut: { reason: string; lastStep: string | undefined } | null
 }
 
 /**
@@ -85,6 +87,7 @@ interface PendingParent<TElement, TSubOut, C> {
  *      error via AggregateError) once all of its siblings have drained.
  *      Fanning in anyway could emit an element built for work that never
  *      happened — e.g. a pointer to a blob that was never stored.
+ *    - TIMEOUT times the parent out, because its message is redelivered whole.
  *    - REDIRECT contributes nothing but logs a warning: it is almost
  *      certainly misuse, since sub-elements are not Kafka messages — route
  *      the parent before fanning out instead.
@@ -208,6 +211,7 @@ export class FanOutFanInChunkPipeline<
                 collected: [],
                 dlqFailures: [],
                 dlqLastStep: undefined,
+                timedOut: null,
             }
             const ref = new FanOutParentRef()
             this.pendingParents.set(ref, parent)
@@ -217,6 +221,7 @@ export class FanOutFanInChunkPipeline<
                     // identify the message the sub-element came from.
                     debugContext: element.context.debugContext,
                     traceContext: element.context.traceContext,
+                    budget: element.context.budget,
                     sideEffects: [],
                     warnings: [],
                     [FAN_OUT_PARENT]: ref,
@@ -290,6 +295,11 @@ export class FanOutFanInChunkPipeline<
 
         if (isOkResult(subResult.result)) {
             parent.collected.push(subResult.result.value)
+        } else if (isTimeoutResult(subResult.result)) {
+            parent.timedOut ??= {
+                reason: subResult.result.reason,
+                lastStep: subResult.context.lastStep,
+            }
         } else if (isDlqResult(subResult.result)) {
             // A sub-element that must be dead-lettered fails its whole parent:
             // fanning in regardless could emit an element built for work that
@@ -315,10 +325,23 @@ export class FanOutFanInChunkPipeline<
         }
 
         this.pendingParents.delete(ref)
-        if (parent.dlqFailures.length > 0) {
+        if (parent.timedOut) {
+            this.readyResults.push(this.timeOutParent(parent, parent.timedOut))
+        } else if (parent.dlqFailures.length > 0) {
             this.readyResults.push(this.failParent(parent))
         } else {
             this.readyResults.push(this.completeParent(parent.original, parent.context, parent.collected))
+        }
+    }
+
+    private timeOutParent(
+        parent: PendingParent<TElement, TSubOut, COutput>,
+        timedOut: NonNullable<PendingParent<TElement, TSubOut, COutput>['timedOut']>
+    ): PipelineResultWithContext<TMerged, COutput, RPrev> {
+        parent.context.lastStep = timedOut.lastStep
+        return {
+            result: timeout<TMerged>(`fan-out sub-element timed out: ${timedOut.reason}`),
+            context: parent.context,
         }
     }
 

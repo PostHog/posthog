@@ -55,22 +55,51 @@ class TestNotificationsAPI(BaseTest):
         assert resp.json()["results"][0]["title"] == "Test notification"
         assert resp.json()["results"][0]["read"] is False
 
-    def test_catalog_notification_disappears_after_access_revocation(self) -> None:
+    @parameterized.expand(
+        [
+            ("data_catalog", "data_catalog"),
+            # `inbox` has no rules of its own, so revoking `task` access hides an Inbox notification.
+            ("inbox", "task"),
+        ]
+    )
+    def test_notification_disappears_after_access_revocation(self, resource_type: str, revoked_resource: str) -> None:
         self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
         self.organization.save(update_fields=["available_product_features"])
-        self.event.resource_type = "data_catalog"
+        self.event.resource_type = resource_type
         self.event.save(update_fields=["resource_type"])
         url = f"/api/environments/{self.team.id}/notifications/"
         assert [event["id"] for event in self.client.get(url).json()["results"]] == [str(self.event.id)]
         AccessControl.objects.create(
             team=self.team,
-            resource="data_catalog",
+            resource=revoked_resource,
             organization_member=OrganizationMembership.objects.get(organization=self.organization, user=self.user),
             access_level="none",
         )
         cache.clear()
         assert self.client.get(url).json()["results"] == []
         assert self.client.get(url + "unread_count/").json()["count"] == 0
+
+    def test_notification_from_a_project_the_user_cannot_open_is_hidden(self) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        private_team = Team.objects.create(organization=self.organization, name="Private")
+        private_event = NotificationEvent.objects.create(
+            organization=self.organization,
+            team=private_team,
+            notification_type="workflow_suggestion",
+            title="Secret workflow",
+            target_type="user",
+            target_id=str(self.user.id),
+            resolved_user_ids=[self.user.id],
+        )
+        url = f"/api/environments/{self.team.id}/notifications/"
+        assert {e["id"] for e in self.client.get(url).json()["results"]} == {str(self.event.id), str(private_event.id)}
+        AccessControl.objects.create(
+            team=private_team, resource="project", resource_id=str(private_team.id), access_level="none"
+        )
+        cache.clear()
+        assert [e["id"] for e in self.client.get(url).json()["results"]] == [str(self.event.id)]
+        assert self.client.get(url + "unread_count/").json()["count"] == 1
 
     def test_unread_count(self):
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/unread_count/")

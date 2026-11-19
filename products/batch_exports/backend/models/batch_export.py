@@ -1,3 +1,4 @@
+import json
 import typing
 import datetime as dt
 from datetime import timedelta
@@ -5,10 +6,9 @@ from enum import IntEnum
 from math import ceil
 from zoneinfo import ZoneInfo
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Q
-
-import pytz
 
 # This import prevents a circular import during Django app loading.
 # The import chain: apps.py -> tasks -> async_migrations/definition.py -> models.utils
@@ -21,21 +21,7 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDTModel
 
 from products.batch_exports.backend.facade import enums
-
-# this is what is used by the Team model
-# (we could use common_timezones instead; this has 433 timezones vs 596 for all_timezones)
-TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
-
-S3_FAMILY_TYPES: frozenset[str] = frozenset({"AwsS3", "S3Compatible"})
-
-# Destinations that write files to object storage, as opposed to the data warehouse destinations
-# (BigQuery, Databricks, Postgres, Redshift, Snowflake) that write rows into a table. File format,
-# compression and object key layout are questions only this half has to answer.
-#
-# Also includes "FileDownload", which writes to a PostHog bucket rather than a customer one.
-# TODO: it probably makes sense to introduce a 'DestinationKind' abstraction in the future,
-# to properly categorize object storage and data warehouse destinations.
-OBJECT_STORAGE_DESTINATIONS: frozenset[str] = frozenset({"AwsS3", "S3Compatible", "AzureBlob", "FileDownload"})
+from products.batch_exports.backend.facade.enums import timezone_choices
 
 
 class DayOfWeek(IntEnum):
@@ -74,24 +60,6 @@ class BatchExportDestination(UUIDTModel):
 
     Destination = enums.BatchExportDestinationType
 
-    # S3-family exports read their credentials from an Integration, but rows migrated off inline
-    # credentials still hold them in `config`. These entries keep those stale values out of API
-    # responses until a follow-up strips them from stored config.
-    secret_fields = {
-        "AwsS3": {"aws_access_key_id", "aws_secret_access_key"},
-        "S3Compatible": {"aws_access_key_id", "aws_secret_access_key"},
-        "Snowflake": {"user", "password", "private_key", "private_key_passphrase"},
-        "Postgres": {"user", "password"},
-        "Redshift": {"user", "password", "aws_access_key_id", "aws_secret_access_key"},
-        "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
-        "Databricks": set(),  # uses Integration model to store credentials
-        "AzureBlob": set(),  # uses Integration model to store credentials
-        "HTTP": {"token"},
-        "NoOp": set(),
-        "Workflows": set(),
-        "FileDownload": set(),
-    }
-
     type = models.CharField(
         choices=Destination.choices,
         max_length=64,
@@ -127,7 +95,7 @@ class BatchExportSource(TeamScopedRootMixin, UUIDTModel):
     This model answers the question: what data are we exporting? For now it holds a
     HogQL query whose results are exported, but it's designed to grow into the single
     place that captures how a batch export selects its data (data warehouse view
-    references, export mode, data interval field, primary and version keys) in future.
+    references, data interval field, primary and version keys) in future.
     """
 
     class Meta:
@@ -154,6 +122,24 @@ class BatchExportSource(TeamScopedRootMixin, UUIDTModel):
         blank=True,
         help_text="HogQL modifiers used to run the query. They override the team modifiers key by key.",
     )
+    primary_key = ArrayField(
+        base_field=models.TextField(
+            blank=False,
+            null=False,
+            help_text="A column name to use as part of a primary key. If set, cannot be empty or null",
+        ),
+        null=True,
+        help_text="The column or columns making up the primary key for this source.",
+    )
+    version_key = ArrayField(
+        base_field=models.TextField(
+            blank=False,
+            null=False,
+            help_text="A column name to use as part of a version key. If set, cannot be empty or null",
+        ),
+        null=True,
+        help_text="The column or columns making up the version key for this source.",
+    )
     created_at = models.DateTimeField(
         auto_now_add=True,
         help_text="The timestamp at which this BatchExportSource was created.",
@@ -175,7 +161,7 @@ class BatchExportRun(UUIDTModel):
         db_table = "posthog_batchexportrun"
         constraints = [
             models.CheckConstraint(
-                check=(
+                condition=(
                     Q(batch_export__isnull=False, batch_export_on_demand__isnull=True)
                     | Q(batch_export__isnull=True, batch_export_on_demand__isnull=False)
                 ),
@@ -297,6 +283,7 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         db_table = "posthog_batchexport"
 
     Model = enums.BatchExportModel
+    IncrementalMode = enums.IncrementalMode
 
     team = models.ForeignKey(
         "posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.", related_name="+"
@@ -371,9 +358,16 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         default=Model.EVENTS.value,
         help_text="Which model this BatchExport is exporting.",
     )
+    incremental_mode = models.CharField(
+        max_length=64,
+        default=IncrementalMode.APPEND.value,
+        db_default=IncrementalMode.APPEND.value,
+        choices=IncrementalMode.choices,
+        help_text="How this batch export handles incremental updates.",
+    )
     filters = models.JSONField(null=True, blank=True)
     # determines the timezone used for daily or weekly exports
-    timezone = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
+    timezone = models.CharField(max_length=240, choices=timezone_choices, default="UTC")
     # interval offset allows for batch exports to start at a custom time
     # (eg daily exports can be configured to run at 1am local time by setting this to 3600)
     interval_offset = models.IntegerField(
@@ -487,6 +481,44 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         """Return the HogQL modifiers of this batch export's source, if it has any."""
         return self.source.hogql_modifiers if self.source is not None else None
 
+    @property
+    def primary_key(self) -> list[str] | None:
+        """Return the primary key of this batch export's source, if it has any."""
+        return self.source.primary_key if self.source is not None else None
+
+    @property
+    def version_key(self) -> list[str] | None:
+        """Return the version key of this batch export's source, if it has any."""
+        return self.source.version_key if self.source is not None else None
+
+
+def _redshift_copy_uses_integration(config: object, integration_id: int) -> bool:
+    if not isinstance(config, dict):
+        return False
+
+    copy_inputs = config.get("copy_inputs")
+    if isinstance(copy_inputs, str):
+        try:
+            copy_inputs = json.loads(copy_inputs)
+        except json.JSONDecodeError:
+            return False
+    if not isinstance(copy_inputs, dict):
+        return False
+
+    for field_name in ("bucket_credentials", "authorization"):
+        value = copy_inputs.get(field_name)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int) and value == integration_id:
+            return True
+        if isinstance(value, str) and value.isdigit():
+            try:
+                if int(value) == integration_id:
+                    return True
+            except ValueError:
+                continue
+    return False
+
 
 def get_batch_exports_using_integration(team_id: int, integration_id: int) -> list[BatchExport]:
     """Return a list of batch exports using integration_id.
@@ -497,12 +529,21 @@ def get_batch_exports_using_integration(team_id: int, integration_id: int) -> li
     We only consider batch exports that are not deleted, as deleted batch
     exports are not relevant to users.
     """
-    return list(
-        BatchExport.objects.filter(
+    copy_export_ids = [
+        export.id
+        for export in BatchExport.objects.filter(
             team_id=team_id,
             deleted=False,
-            destination__in=BatchExportDestination.objects.filter(integration_id=integration_id),
-        ).only("id", "name")
+            destination__type=BatchExportDestination.Destination.REDSHIFT,
+        )
+        .select_related("destination")
+        .only("id", "destination_id", "destination__config")
+        if _redshift_copy_uses_integration(export.destination.config, integration_id)
+    ]
+    return list(
+        BatchExport.objects.filter(team_id=team_id, deleted=False)
+        .filter(Q(destination__integration_id=integration_id) | Q(id__in=copy_export_ids))
+        .only("id", "name")
     )
 
 
@@ -602,8 +643,10 @@ class BatchExportBackfill(UUIDTModel):
 class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
     """Represents a file made available to download by a batch export.
 
-    When creating a "file-download" batch export, the output is a row in this table
-    containing pre-signed URLs to access the data exported.
+    A file download batch export run gets one row for each file it writes to S3. The
+    workflow creates the rows after the run completes. A row stores the S3 key of the
+    file, not a URL: each download request generates a short-lived pre-signed URL from
+    the key.
     """
 
     class Meta:
@@ -668,6 +711,7 @@ class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
         db_table = "posthog_batchexportondemand"
 
     Model = enums.BatchExportModel
+    IncrementalMode = enums.IncrementalMode
 
     team = models.ForeignKey(
         "posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.", related_name="+"
@@ -710,5 +754,12 @@ class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
         choices=Model.choices,
         default=Model.EVENTS.value,
         help_text="Which model this batch export is exporting.",
+    )
+    incremental_mode = models.CharField(
+        max_length=64,
+        default=IncrementalMode.APPEND.value,
+        db_default=IncrementalMode.APPEND.value,
+        choices=IncrementalMode.choices,
+        help_text="How this batch export handles incremental updates.",
     )
     filters = models.JSONField(null=True, blank=True)

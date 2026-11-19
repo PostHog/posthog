@@ -35,6 +35,7 @@ logger = structlog.get_logger(__name__)
 # probabilities behind every decision.
 SHOW_THRESHOLD = 0.5
 ISSUE_RESOLVED_THRESHOLD = 0.5
+SCOUT_RECURRENCE_THRESHOLD = 0.5
 
 
 @frozen
@@ -51,6 +52,8 @@ def pick_offer(
     if judgment.show_probability < show_threshold or offer not in available:
         return OfferKind.NONE
     match offer:
+        case OfferKind.SCOUT if judgment.scout_recurrence_probability < SCOUT_RECURRENCE_THRESHOLD:
+            return OfferKind.NONE
         case OfferKind.ALERT if judgment.insight is None or not judgment.insight.alertable:
             return OfferKind.NONE
         case OfferKind.SUBSCRIPTION if judgment.insight is None:
@@ -157,5 +160,6 @@ def classify_turn(
         show_probability=judgment.show_probability,
         picked=picked,
         offer_probabilities=judgment.offer_probabilities,
+        scout_recurrence_probability=judgment.scout_recurrence_probability,
         draft=draft,
     )

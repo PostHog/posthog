@@ -9,12 +9,9 @@ from anthropic.types import Message, MessageParam, OutputConfigParam, TextBlockP
 
 from posthog.dataclasses import frozen
 from posthog.helpers.tiktoken_encoding import TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
-from posthog.llm.gateway_client import (
-    build_async_anthropic_client,
-    get_async_anthropic_gateway_client,
-    resolve_ai_gateway_config,
-)
+from posthog.llm.gateway_client import build_async_anthropic_client, resolve_ai_gateway_config
 
+from products.signals.backend.llm_spend import accounted_message, generate_with_spend
 from products.signals.backend.temporal import metrics
 
 logger = structlog.get_logger(__name__)
@@ -153,12 +150,20 @@ async def call_llm(
     temperature: Optional[float] = 0.2,
     retries: int = MAX_RETRIES,
     stage: Optional[str] = None,
-    ai_product: Optional[str] = None,
+    ai_product: str,
     model: Optional[str] = None,
     cache_system_prompt: bool = False,
     trace_id: str | None = None,
     properties: Mapping[str, str] | None = None,
+    signal_id: str | None = None,
 ) -> T:
+    from posthog.sync import database_sync_to_async_pool
+
+    from products.signals.backend.trial.reports import requires_trial_accounting
+
+    trial = team_id is not None and await database_sync_to_async_pool(requires_trial_accounting)(team_id, signal_id)
+    if trial:
+        ai_product = "signals"
     model = model or MATCHING_MODEL
     # Native Anthropic Messages endpoint so prefilling and extended thinking carry over unchanged.
     capabilities = get_model_capabilities(model)
@@ -166,21 +171,17 @@ async def call_llm(
     # Prefill is what keeps non-thinking responses free of markdown fences; without it we lean on
     # the fence stripper the thinking path already uses.
     prefill = capabilities.prefill and not thinking
-    # A call site opts onto the Go ai-gateway by passing ai_product, which both routes it through
-    # the gateway-capable client and tags the generation. Without it the call stays on the Python
-    # gateway, so each product is switched (and reverted) independently.
-    if ai_product is not None:
-        client = build_async_anthropic_client(
-            product="signals",
-            ai_product=ai_product,
-            ai_stage=stage,
-            team_id=team_id,
-            use_bedrock_fallback=True,
-            trace_id=trace_id,
-            properties=properties,
-        )
-    else:
-        client = get_async_anthropic_gateway_client(product="signals", team_id=team_id, use_bedrock_fallback=True)
+    client = build_async_anthropic_client(
+        product="signals",
+        ai_product=ai_product,
+        ai_stage=stage,
+        team_id=team_id,
+        use_bedrock_fallback=True,
+        trace_id=trace_id,
+        properties=properties,
+    )
+    if trial:
+        client = client.with_options(max_retries=0)
 
     messages: list[MessageParam] = [
         {"role": "user", "content": user_prompt},
@@ -215,8 +216,8 @@ async def call_llm(
     # lands there: an un-opted call site, or an opted one before the gateway env is set. Skip it
     # only when an opted call site actually reaches the Go gateway, which reads ai_stage from the
     # X-PostHog-Properties blob instead.
-    on_go_gateway = ai_product is not None and resolve_ai_gateway_config() is not None
-    if stage and not on_go_gateway:
+    gateway = resolve_ai_gateway_config() if ai_product is not None else None
+    if stage and gateway is None:
         create_kwargs["extra_headers"] = {"x-posthog-property-ai_stage": stage}
 
     # Later, we'll want to tune how many tokens we give over to thinking vs. producing output. Hard-coded for now.
@@ -235,7 +236,11 @@ async def call_llm(
         # NOTE - we explicitly don't want to retry if we fail to call the llm, or fail to extract text content,
         # only if we fail to validate the response. A transport/extraction failure is a hot-path LLM error.
         try:
-            response = await client.messages.create(**create_kwargs)
+            generation = accounted_message(client, **create_kwargs)
+            priced = await generate_with_spend(
+                generation, gateway=gateway, team_id=team_id, signal_id=signal_id, stage=stage_label
+            )
+            response = priced.response
             text_content = _extract_text_content(response)
         except Exception:
             metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_ERROR)

@@ -168,6 +168,8 @@ Optional behavior toggles:
 - `AI_GATEWAY_TOKEN_CAP_USD` — the per-run spend cap of the gateway token the cloud worker minted for the sandbox. When set on a cloud run, the Claude adapter arms the run budget guard: it prices every assistant message, snaps to the SDK's cumulative cost at turn end, steers the live turn at 50% (ship what is on disk, skip polish) and 70% (commit and stop) of the cap, and denies new `Agent`, `Task`, `Workflow`, `WebFetch` and `WebSearch` calls once critical. At 90% of the cap it denies every tool, cancels the running turn with the interrupt reason `budget_exhausted`, and refuses new and queued prompts the same way, so no model call reaches the gateway refusal. The stages sit well below the cap because the estimate trails the gateway ledger and the finishing work needs budget of its own. Unset or invalid means no guard.
 - `AI_GATEWAY_MODEL_PRICES_JSON` — optional override of the guard's per-million-token price table, a JSON object of `{ "<model id regex>": { input, output, cacheRead, cacheWrite } }` in USD. Defaults cover the Anthropic, GLM, Kimi and DeepSeek families the adapter serves.
 - `POSTHOG_BENJAMIN` — `1` or `true` appends the vendored Benjamin-Plus token-efficiency instruction (`@posthog/harness/extensions/benjamin`, source at `packages/harness/src/extensions/benjamin/instruction.ts`) to the Claude system prompt and the Codex instructions, and stamps the pinned upstream commit into run state as `benjamin_version` at session start. Any other value leaves prompts unchanged.
+- `POSTHOG_AGENT_LOG_FORMAT` — `text` (default) or `json`. When set to `json`, the logger emits one-line JSON records instead of multi-line text, making log entries easier to parse and filter in environments that tail a fixed byte window.
+- `POSTHOG_AGENT_LOG_LEVEL` — `debug` (default), `info`, `warn`, or `error`. Sets the minimum severity level; messages below this threshold are suppressed. Child loggers inherit the level from their parent.
 
 Optional run telemetry (the logs pair must both be set, otherwise telemetry stays off):
 
@@ -176,6 +178,10 @@ Optional run telemetry (the logs pair must both be set, otherwise telemetry stay
 - `POSTHOG_AGENT_OTEL_TRACES_URL` — full OTLP traces URL, e.g. `https://us.i.posthog.com/i/v1/traces`; additionally enables one APM trace per run
 
 When set, `AgentServer` ships an allowlisted metadata subset of the session log (run/turn/tool lifecycle, usage, error provenance — never message content, tool arguments, or raw error text; see `src/otel-telemetry.ts`) to PostHog Logs, tagged with `service.name=posthog-code-agent` and `run_id`/`task_id`/`team_id`/`user_id`/`distinct_id` resource attributes so cloud runs are filterable per user. With the traces URL set, each run also produces an APM trace (`task_run` root span, a `turn` span per prompt, a `tool_call:<kind>` span per tool call; see `src/otel-trace-builder.ts`), and log records carry the matching trace/span ids so Logs and APM cross-link.
+
+The trace id is the run UUID without dashes.
+The backend starts the run's `process-task` workflow under the same trace id and stamps it on mirrored run logs, so all three share one trace.
+A run id that is not a UUID gets a random trace id.
 
 The `task_run` root span is ended and exported at the run's in-process terminal point — a background run's prompt settling, a terminal failure, or session cleanup (`close`). It cannot wait for teardown: agent-server is an exec'd process inside the sandbox, so `docker stop` / Modal terminate kill it without SIGTERM ever arriving, and a span still open at that moment is lost. Interactive sessions that end via hard teardown (e.g. inactivity timeout) therefore lose the root span; turn/tool spans and logs still assemble under the same trace id.
 
@@ -282,8 +288,9 @@ ACP defines standard methods like `session/prompt`, `session/update`, and `sessi
 Releases are automatic. There is no manual version bump: `package.json` stays at `0.0.0-dev` and the release workflow sets the version from the tag.
 
 1. A merge to `master` that changes a file in this package or `packages/agent/packages/harness` runs `.github/workflows/desktop-agent-tag.yml`.
-2. It pushes the tag `agent-vX.Y.Z`. `Z` counts commits that change either package since the base tag `agent-vX.Y.0`. A commit that changes both packages counts once.
-3. The tag push runs `.github/workflows/desktop-agent-release.yml`, which builds, tests and publishes to npm with provenance, then opens a pull request that bumps the agent pin in `Dockerfile.sandbox-base`. Merging that pull request builds and ships the sandbox images.
+2. It waits until the Django backend in prod-us and prod-eu runs a build that contains the commit it releases. If the backend does not have the commit within sixty minutes, the run fails and nothing is released. Re-run it once the backend deploy is live, or let the next merge to either package release a newer commit. A manual dispatch with `ignore_backend_deploy` skips the wait, for a break-glass release. The wait does not cover Rust services.
+3. It pushes the tag `agent-vX.Y.Z`. `Z` counts commits that change either package since the base tag `agent-vX.Y.0`. A commit that changes both packages counts once.
+4. The tag push runs `.github/workflows/desktop-agent-release.yml`, which builds, tests and publishes to npm with provenance, then opens a pull request that bumps the agent pin in `Dockerfile.sandbox-base`. Merging that pull request builds and ships the sandbox images.
 
 A merge that changes neither package adds no new version.
 A change to either agent workflow file still runs the tag job, so it releases any package commits that have no tag yet.

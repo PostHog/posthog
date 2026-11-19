@@ -39,6 +39,10 @@ SHARED_NOTEBOOK_SUPPORTED_NODE_TYPES: frozenset[str] = frozenset(
 SHARED_NOTEBOOK_SUPPORTED_MARKDOWN_COMPONENT_TAGS: frozenset[str] = frozenset(
     {
         "Comment",
+        "Columns",
+        "Column",
+        "ColumnEnd",
+        "ColumnsEnd",
         "Divider",
         "Embed",
         "Image",
@@ -49,6 +53,10 @@ SHARED_NOTEBOOK_SUPPORTED_MARKDOWN_COMPONENT_TAGS: frozenset[str] = frozenset(
 
 _SHARED_NOTEBOOK_MARKDOWN_COMPONENT_PROP_TYPES: dict[str, dict[str, type | tuple[type, ...]]] = {
     "Comment": {"ref": str, "replies": list, "text": str},
+    "Columns": {},
+    "Column": {"width": (int, float)},
+    "ColumnEnd": {},
+    "ColumnsEnd": {},
     "Divider": {},
     "Embed": {"height": (int, float), "src": str, "title": str, "width": (int, float)},
     "Image": {"alt": str, "height": (int, float), "src": str, "title": str, "width": (int, float)},
@@ -211,6 +219,10 @@ def _serialize_markdown_component(tag_name: str, props: dict[str, Any]) -> str:
         for name in _SHARED_NOTEBOOK_MARKDOWN_COMPONENT_PROP_TYPES[tag_name]
         if name in props
     )
+    if tag_name in {"ColumnEnd", "ColumnsEnd"}:
+        return f"</{tag_name[:-3]}>"
+    if tag_name in {"Column", "Columns"}:
+        return f"<{tag_name}{prop_source}>"
     return f"<{tag_name}{prop_source} />"
 
 
@@ -372,12 +384,37 @@ class MarkdownBlock:
     end: int
 
 
-def iter_markdown_blocks(markdown: str, max_prose_blocks: int | None = None) -> Iterator[MarkdownBlock]:
+def _get_anchored_markdown_cell_end(lines: list[str], start: int) -> int:
+    end = start
+    while end < len(lines):
+        stripped = lines[end].strip()
+        if _MARKDOWN_NODE_ANCHOR_REGEX.match(stripped) or _opens_markdown_component_block(lines, end):
+            break
+        if not stripped:
+            if end + 1 >= len(lines) or not lines[end + 1].strip():
+                break
+            end += 1
+            continue
+        if stripped.startswith("```"):
+            end = _get_markdown_code_block_end(lines, end)
+        else:
+            end += 1
+    while end > start and not lines[end - 1].strip():
+        end -= 1
+    return end
+
+
+def iter_markdown_blocks(
+    markdown: str, max_prose_blocks: int | None = None, *, group_anchored_prose: bool = False
+) -> Iterator[MarkdownBlock]:
     """Walk every block of a markdown notebook, prose included.
 
     A block whose document carries an anchor above it takes that stored id, which survives an
     edit to the block. A block without one falls back to an id derived from its own content, so
     the id changes when the block changes and a caller must resolve it against the read it edits.
+
+    `group_anchored_prose` keeps an anchored markdown cell's paragraphs together until a card
+    boundary, another anchor, or a component, so cell edits replace all of its prose.
 
     `max_prose_blocks` bounds how many prose blocks this builds. A save accepts a body up to
     `DATA_UPLOAD_MAX_MEMORY_SIZE`, and a body of that size holds millions of one-character
@@ -451,6 +488,23 @@ def iter_markdown_blocks(markdown: str, max_prose_blocks: int | None = None) -> 
             pending_anchor_id = anchor_match.group(1)
             consume(line_index, line_index + 1)
             line_index += 1
+            continue
+
+        if (
+            group_anchored_prose
+            and pending_anchor_id is not None
+            and pending_anchor_id not in claimed_anchor_ids
+            and not _opens_markdown_component_block(lines, line_index)
+        ):
+            end_line_index = _get_anchored_markdown_cell_end(lines, line_index)
+            if prose_budget_left():
+                prose_built += 1
+                yield _build_markdown_prose_block(
+                    block_source(line_index, end_line_index), utf16, occurrences, claim_anchor_id()
+                )
+            pending_anchor_id = None
+            consume(line_index, end_line_index)
+            line_index = end_line_index
             continue
 
         if lines[line_index].strip().startswith("```"):
@@ -648,6 +702,13 @@ def _get_markdown_code_block_end(lines: list[str], line_index: int) -> int:
 
 def _read_markdown_component_block(lines: list[str], line_index: int) -> tuple[str, str, int] | None:
     first_line = lines[line_index].strip()
+    closing_column = re.fullmatch(r"</(Column|Columns)>", first_line)
+    if closing_column:
+        tag_name = f"{closing_column.group(1)}End"
+        return tag_name, f"<{tag_name} />", line_index + 1
+    if re.fullmatch(r"<(Column|Columns)(\s[^\n]*?)?>", first_line) and not first_line.endswith("/>"):
+        tag_name = "Columns" if first_line.startswith("<Columns") else "Column"
+        return tag_name, f"{first_line[:-1]} />", line_index + 1
     recover_escaped_source = bool(_MARKDOWN_ESCAPED_COMPONENT_START_REGEX.match(first_line))
     if recover_escaped_source:
         first_line = _unescape_markdown_inline_source(first_line)
@@ -655,9 +716,9 @@ def _read_markdown_component_block(lines: list[str], line_index: int) -> tuple[s
         return None
 
     tag_match = re.match(r"^<([A-Z][A-Za-z0-9]*)", first_line)
-    tag_name = tag_match.group(1) if tag_match else None
-    if not tag_name:
+    if not tag_match:
         return None
+    tag_name = tag_match.group(1)
 
     scan = _scan_markdown_component_block(lines, line_index, tag_name, recover_escaped_source)
     if recover_escaped_source and scan.next_line_index <= line_index + 1:

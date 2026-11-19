@@ -19,7 +19,7 @@ def none_safe_local_summary(evaluator: Evaluator[Any, Any], results: Sequence[An
     The stock ``build_local_summary`` guards on the accumulator rather than the
     score, so it reaches ``0 + None`` and raises ``TypeError`` on the first skipped
     score. Every ``no_send_logs`` experiment takes that path, because
-    ``no_send_logs`` is what leaves the braintrust experiment unset, so a private
+    ``no_send_logs`` is what leaves the braintrust experiment unset, so a
     suite whose scorers skip a check cannot summarize without this.
 
     Braintrust ships the same guard from 0.4.2, and this repo pins 0.2.4 in

@@ -54,4 +54,6 @@ Optionally add the pause metric name to `WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_
 - Gmail runs no feedback loop, so Gmail complaints never appear in these rates; true complaint rates are higher than measured.
 - The detector reads at most 24 hours back. Chronic slow deterioration is the tier system's job.
 - A workflow below every volume gate is never auto-paused, whatever its rates; the team's tier caps bound its blast radius, and staff can pause it by hand.
+- Workflow completion does not confirm an email send. Test responses expose the email provider outcome separately; a skipped send retains its reason, and provider acceptance does not confirm inbox delivery.
 - Skipped sends log at error level in the run and record an `email_paused` metric; the run itself continues past the email step, so downstream steps still execute.
+- Sends from the PostHog test sender (the `email_sandbox` step) never count toward a workflow's rates and are never paused by the detector. They record no ordinary email metrics, and the PostHog test sender has its own controls (see [email sending tiers](workflows-email-sending-tiers.md#posthog-test-sender)).

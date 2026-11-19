@@ -1,8 +1,7 @@
-from posthog.test.base import BaseTest
-
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
+from django.test import SimpleTestCase
 
 from products.cdp.backend.models.plugin import PluginConfig
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.cdp.backend.templates.posthog.template_posthog import (
     TemplatePostHogMigrator,
     template as template_posthog,
@@ -51,7 +50,7 @@ class TestTemplatePosthog(BaseHogFunctionTemplateTest):
         assert self.get_mock_fetch_calls()[0][1]["body"]["properties"] == {"additional": "value"}
 
 
-class TestTemplateMigration(BaseTest):
+class TestTemplateMigration(SimpleTestCase):
     def get_plugin_config(self, config: dict):
         _config = {
             "host": "us.i.example.com",

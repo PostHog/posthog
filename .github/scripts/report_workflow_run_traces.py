@@ -55,18 +55,19 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Iterator, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypedDict, cast
 
-import depot_scheduled_runs
+import depot_backend_runs
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.sdk.trace.id_generator import IdGenerator
-from opentelemetry.trace import Status, StatusCode
+from opentelemetry.trace import SpanKind, Status, StatusCode
 
 logger = logging.getLogger("report_workflow_run_traces")
 
@@ -146,6 +147,16 @@ class Job:
     @property
     def queued_seconds(self) -> float:
         return (self.start - self.created).total_seconds()
+
+    @property
+    def is_error(self) -> bool:
+        # Cancelling a run mid-step can conclude the job `failure` while its steps show only
+        # `cancelled`, as when the merge queue drops an attempt. That job did not fail.
+        if self.conclusion == "failure" and self.steps:
+            step_conclusions = {step.conclusion for step in self.steps}
+            if "cancelled" in step_conclusions and not step_conclusions & STEP_ERROR_CONCLUSIONS:
+                return False
+        return self.conclusion in JOB_ERROR_CONCLUSIONS
 
 
 @dataclass(frozen=True)
@@ -284,7 +295,7 @@ def watermark(repo: str, token: str, *, lookback_hours: float, now: datetime, op
 def scan_runs(repo: str, token: str, since: datetime, *, opener: Any = None) -> list[dict]:
     """Completed master runs whose completion lands at or after `since`, newest first.
 
-    GitHub supplies master pushes; scheduled Backend CI runs are read from Depot separately.
+    GitHub supplies master pushes; Backend CI runs are read from Depot separately.
 
     The API can only filter on `created`, so widen the window by a day and narrow
     on `updated_at` — which for a completed run is when it finished.
@@ -527,7 +538,7 @@ def parse_depot_run(shown: DepotShownWorkflow) -> WorkflowRun | None:
             "id": job["job_id"],
             "name": job.get("job_display_name") or job["job_key"],
             "status": "completed",
-            "conclusion": depot_scheduled_runs.GATE_CONCLUSIONS.get(job["status"], job["status"]),
+            "conclusion": depot_backend_runs.GATE_CONCLUSIONS.get(job["status"], job["status"]),
             "html_url": f"{url}?job={job['job_id']}",
             "created_at": job.get("started_at"),
             "started_at": job.get("started_at"),
@@ -546,7 +557,7 @@ def parse_depot_run(shown: DepotShownWorkflow) -> WorkflowRun | None:
             "workflow_id": workflow["workflow_id"],
             "event": context["trigger"],
             "status": "completed",
-            "conclusion": depot_scheduled_runs.GATE_CONCLUSIONS[workflow["status"]],
+            "conclusion": depot_backend_runs.GATE_CONCLUSIONS[workflow["status"]],
             "head_sha": context["sha"],
             "head_branch": "master",
             "repository": {"full_name": context["repo"]},
@@ -565,33 +576,77 @@ def parse_depot_run(shown: DepotShownWorkflow) -> WorkflowRun | None:
     return replace(run, provider="depot", end=max(run.end, finished))
 
 
-def collect_depot_runs(repo: str, since: datetime) -> Collection:
-    runs: list[WorkflowRun] = []
-    complete = True
-    created_floor = since - timedelta(days=1)
-    listed = depot_scheduled_runs.scheduled_workflows(sorted(depot_scheduled_runs.ENDED), 200, repo=repo)
+# How far behind `since` a listing walks. A run created before this bound is not listed, so a push
+# run created more than 3 hours before `since` that finishes after it gets no trace. Across 1,000
+# Backend CI master push runs on GitHub Actions from 2026-10-12 to 2026-10-15, the slowest went
+# from creation to completion in 2,264 seconds. The hourly listing keeps the one-day slack the
+# GitHub scan uses. The Depot CLI lists at most 200 workflows, and a master push burst can exceed
+# that inside a long window, which marks every tick incomplete, so the push bound stays short.
+DEPOT_LISTING_SLACK = {"push": timedelta(hours=3), "schedule": timedelta(days=1)}
+
+
+def _depot_workflows_since(
+    repo: str, trigger: str, created_floor: datetime
+) -> tuple[list[depot_backend_runs.ListedWorkflow], bool]:
+    """The workflows created since the floor, and whether the listing reached the floor at all."""
+    kept: list[depot_backend_runs.ListedWorkflow] = []
+    # The cap check needs the listing before branch runs are dropped from it.
+    listed = depot_backend_runs.listed_workflows(
+        sorted(depot_backend_runs.ENDED), depot_backend_runs.MAX_LISTED, repo=repo, trigger=trigger
+    )
+    reached_floor = len(listed) < depot_backend_runs.MAX_LISTED
     for workflow in listed:
         created = parse_iso_utc(workflow["created_at"])
         if created is not None and created < created_floor:
+            reached_floor = True
             break
+        kept.append(workflow)
+    # The CLI caps a listing, so a window that fills it may continue past what was listed.
+    return depot_backend_runs.master_only(kept, trigger=trigger, repo=repo), reached_floor
+
+
+def _read_depot_run(workflow: depot_backend_runs.ListedWorkflow, since: datetime) -> WorkflowRun | None:
+    shown = cast(
+        DepotShownWorkflow,
+        json.loads(depot_backend_runs.depot("workflow", "show", workflow["workflow_id"], "--output", "json")),
+    )
+    finished = parse_iso_utc(shown["workflow"]["finished_at"])
+    if finished is None:
+        raise ValueError("Completed Depot workflow has no finish timestamp")
+    if finished < since:
+        return None
+    run = parse_depot_run(shown)
+    if run is None:
+        raise ValueError("Completed Depot workflow has no start timestamp")
+    return run
+
+
+def collect_depot_runs(repo: str, since: datetime) -> Collection:
+    # Each listing is newest first, so the floor ends one trigger's walk without hiding the other's.
+    listed: list[depot_backend_runs.ListedWorkflow] = []
+    complete = True
+    for trigger, slack in DEPOT_LISTING_SLACK.items():
         try:
-            shown = cast(
-                DepotShownWorkflow,
-                json.loads(depot_scheduled_runs.depot("workflow", "show", workflow["workflow_id"], "--output", "json")),
-            )
-            finished = parse_iso_utc(shown["workflow"]["finished_at"])
-            if finished is None:
-                raise ValueError("Completed Depot workflow has no finish timestamp")
-            if finished < since:
-                continue
-            run = parse_depot_run(shown)
-            if run is None:
-                raise ValueError("Completed Depot workflow has no start timestamp")
-            runs.append(run)
+            workflows, reached_floor = _depot_workflows_since(repo, trigger, since - slack)
+        except Exception:
+            # One unreadable trigger holds the watermark; the other's runs still get their traces.
+            logger.exception("could not list Depot %s workflows", trigger)
+            complete = False
+            continue
+        listed += workflows
+        complete = complete and reached_floor
+
+    def read(workflow: depot_backend_runs.ListedWorkflow) -> tuple[WorkflowRun | None, bool]:
+        try:
+            return _read_depot_run(workflow, since), True
         except Exception:
             logger.exception("could not read Depot workflow %s", workflow["workflow_id"])
-            complete = False
-    return Collection(runs=tuple(runs), complete=complete)
+            return None, False
+
+    with ThreadPoolExecutor(max_workers=depot_backend_runs.PARALLEL_CLI_CALLS) as pool:
+        results = list(pool.map(read, listed))
+    runs = tuple(run for run, _ in results if run is not None)
+    return Collection(runs=runs, complete=complete and all(ok for _, ok in results))
 
 
 # ---------- OTLP export ----------
@@ -696,7 +751,7 @@ class _FailureRecordingExporter(SpanExporter):
         self.inner.shutdown()
 
 
-def emit_trace(run: WorkflowRun, endpoint: str, token: str, exporter: Any = None) -> int:
+def emit_trace(run: WorkflowRun, endpoint: str, token: str, exporter: Any = None, *, entry_jobs: bool = False) -> int:
     """Emit the run's whole span tree over OTLP HTTP. Returns the span count."""
     id_generator = _FixedIdGenerator()
     provider = TracerProvider(
@@ -713,7 +768,7 @@ def emit_trace(run: WorkflowRun, endpoint: str, token: str, exporter: Any = None
     id_generator.trace_id = deterministic_trace_id(run.id, run.attempt)
 
     try:
-        span_count = _emit_run_span(tracer, id_generator, run)
+        span_count = _emit_run_span(tracer, id_generator, run, entry_jobs=entry_jobs)
     finally:
         # Drains the queue, so a rejected batch is recorded by the time this returns.
         provider.shutdown()
@@ -722,10 +777,10 @@ def emit_trace(run: WorkflowRun, endpoint: str, token: str, exporter: Any = None
     return span_count
 
 
-def _emit_run_span(tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRun) -> int:
+def _emit_run_span(tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRun, *, entry_jobs: bool) -> int:
     ids.next_span_id = deterministic_span_id(run.id, run.attempt, "run")
     root = tracer.start_span(run.name or run.path, start_time=_to_ns(run.start))
-    failed = sum(1 for job in run.jobs if job.conclusion in JOB_ERROR_CONCLUSIONS)
+    failed = sum(1 for job in run.jobs if job.is_error)
     skipped = sum(1 for job in run.jobs if job.conclusion == "skipped")
     for key, value in (
         ("ci.workflow.status", run.status),
@@ -748,14 +803,18 @@ def _emit_run_span(tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRu
     span_count = 1
     with trace.use_span(root, end_on_exit=False):
         for job in run.jobs:
-            span_count += _emit_job_span(tracer, ids, run, job)
+            span_count += _emit_job_span(tracer, ids, run, job, entry_jobs=entry_jobs)
     root.end(end_time=_to_ns(run.end))
     return span_count
 
 
-def _emit_job_span(tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRun, job: Job) -> int:
+def _emit_job_span(
+    tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRun, job: Job, *, entry_jobs: bool
+) -> int:
     ids.next_span_id = deterministic_span_id(run.id, run.attempt, "job", job.id)
-    span = tracer.start_span(job.name, start_time=_to_ns(job.start))
+    # Traces alerts measure entry spans only (root, server, consumer), so an alertable job is a consumer.
+    kind = SpanKind.CONSUMER if entry_jobs else SpanKind.INTERNAL
+    span = tracer.start_span(job.name, kind=kind, start_time=_to_ns(job.start))
     for key, value in (
         ("ci.job.id", job.id),
         ("ci.job.name", job.name),
@@ -777,7 +836,7 @@ def _emit_job_span(tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRu
     if caller:
         span.set_attribute("ci.job.caller", caller)
         span.set_attribute("ci.job.callee", callee)
-    if job.conclusion in JOB_ERROR_CONCLUSIONS:
+    if job.is_error:
         span.set_status(Status(StatusCode.ERROR))
 
     span_count = 1
@@ -791,7 +850,7 @@ def _emit_job_span(tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRu
             queued.set_attribute("ci.job.id", job.id)
             queued.end(end_time=_to_ns(job.start))
             span_count += 1
-        for step in job.steps:
+        for step in () if entry_jobs else job.steps:
             ids.next_span_id = deterministic_span_id(run.id, run.attempt, "step", job.id, step.number)
             step_span = tracer.start_span(step.name, start_time=_to_ns(step.start))
             step_span.set_attribute("ci.step.number", step.number)
@@ -824,6 +883,68 @@ def format_span_tree(run: WorkflowRun) -> Iterator[str]:
 # ---------- CLI ----------
 
 
+FAILED_JOB_ENV_VARS = (
+    "FAILED_JOB_NAME",
+    "FAILED_JOB_RUN_ID",
+    "FAILED_JOB_RUN_ATTEMPT",
+    "FAILED_JOB_WORKFLOW",
+    "FAILED_JOB_WORKFLOW_PATH",
+    "FAILED_JOB_SHA",
+    "FAILED_JOB_BRANCH",
+    "FAILED_JOB_EVENT",
+)
+
+
+def failed_job_run(env: Mapping[str, str], now: datetime) -> WorkflowRun:
+    """The run in progress with one failed job, for a job that must report itself before its run ends.
+
+    The run is about to be cancelled, so its root span carries `cancelled` and stays out of error counts.
+    The job ends `now`, which keeps the span inside any alert window that is open when it is sent.
+    """
+    if missing := [var for var in FAILED_JOB_ENV_VARS if not env.get(var)]:
+        raise ValueError(f"missing {', '.join(missing)}")
+    run_id = f"depot:{env['FAILED_JOB_RUN_ID']}"
+    repository = env.get("GITHUB_REPOSITORY") or DEFAULT_REPO
+    checks_url = f"https://github.com/{repository}/commit/{env['FAILED_JOB_SHA']}/checks"
+    job = Job(
+        id=f"{run_id}:{env['FAILED_JOB_NAME']}",
+        name=env["FAILED_JOB_NAME"],
+        status="completed",
+        conclusion="failure",
+        url=checks_url,
+        runner_name="depot-ci",
+        runner_group_name="",
+        labels=(),
+        created=now,
+        start=now,
+        end=now,
+        steps=(),
+    )
+    return WorkflowRun(
+        id=run_id,
+        attempt=int(env["FAILED_JOB_RUN_ATTEMPT"]),
+        name=env["FAILED_JOB_WORKFLOW"],
+        path=env["FAILED_JOB_WORKFLOW_PATH"],
+        workflow_id="",
+        run_number=0,
+        event=env["FAILED_JOB_EVENT"],
+        status="in_progress",
+        conclusion="cancelled",
+        display_title="",
+        head_sha=env["FAILED_JOB_SHA"],
+        head_branch=env["FAILED_JOB_BRANCH"],
+        actor="",
+        triggering_actor="",
+        repository=repository,
+        html_url=checks_url,
+        created=now,
+        start=now,
+        end=now,
+        jobs=(job,),
+        provider="depot",
+    )
+
+
 def emission_tokens(env: Mapping[str, str]) -> list[str]:
     """Distinct project API tokens to emit to, in ``TOKEN_ENV_VARS`` order."""
     tokens = (env.get(var, "") for var in TOKEN_ENV_VARS)
@@ -848,6 +969,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--otlp-endpoint", default=os.environ.get("POSTHOG_OTLP_TRACES_ENDPOINT") or DEFAULT_OTLP_ENDPOINT
     )
     parser.add_argument("--dry-run", action="store_true", help="print the span tree without emitting")
+    parser.add_argument(
+        "--entry-jobs",
+        action="store_true",
+        help="emit each job as an entry span with no step children, so a traces alert counts each failed job once",
+    )
+    parser.add_argument(
+        "--failed-job",
+        action="store_true",
+        help=f"emit one failed job of the run in progress, described by {', '.join(FAILED_JOB_ENV_VARS)}",
+    )
     return parser.parse_args(argv)
 
 
@@ -907,16 +1038,23 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = parse_args(argv if argv is not None else sys.argv[1:])
 
-    github_token = os.environ.get("GITHUB_TOKEN", "")
-    if not github_token:
-        logger.error("GITHUB_TOKEN is not set; nothing was traced")
-        return EXIT_INCOMPLETE
-
-    try:
-        collection = collect_runs(args, github_token, datetime.now(UTC))
-    except Exception:
-        logger.exception("failed to collect workflow runs")
-        return EXIT_INCOMPLETE
+    if args.failed_job:
+        try:
+            collection = Collection(runs=(failed_job_run(os.environ, datetime.now(UTC)),))
+        except ValueError:
+            logger.exception("could not describe the failed job; nothing was emitted")
+            return EXIT_INCOMPLETE
+        args.entry_jobs = True
+    else:
+        github_token = os.environ.get("GITHUB_TOKEN", "")
+        if not github_token:
+            logger.error("GITHUB_TOKEN is not set; nothing was traced")
+            return EXIT_INCOMPLETE
+        try:
+            collection = collect_runs(args, github_token, datetime.now(UTC))
+        except Exception:
+            logger.exception("failed to collect workflow runs")
+            return EXIT_INCOMPLETE
 
     if not collection.runs:
         logger.info("no completed master runs to trace")
@@ -939,7 +1077,7 @@ def main(argv: list[str] | None = None) -> int:
         for run in collection.runs:
             # Per-run isolation: one malformed run must not cost the rest of the batch.
             try:
-                emitted += emit_trace(run, args.otlp_endpoint, token)
+                emitted += emit_trace(run, args.otlp_endpoint, token, entry_jobs=args.entry_jobs)
             except Exception:
                 logger.exception("failed to emit trace for run %s attempt %s", run.id, run.attempt)
                 complete = False

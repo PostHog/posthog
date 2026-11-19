@@ -2,8 +2,10 @@
 MaxTool for AI-powered survey creation and analysis.
 """
 
+import json
 from datetime import timedelta
 from textwrap import dedent
+from types import SimpleNamespace
 from typing import Any, Literal
 
 import django.utils.timezone
@@ -14,16 +16,18 @@ from rest_framework import serializers
 
 from posthog.schema import SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem
 
-from posthog.constants import DEFAULT_SURVEY_APPEARANCE
+from posthog.api.utils import ServiceRequest
+from posthog.constants import DEFAULT_SURVEY_APPEARANCE, AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly
-from products.surveys.backend.models import Survey
+from products.approvals.backend.exceptions import ApprovalRequired
+from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly, sanitize_survey_appearance
+from products.surveys.backend.models import MAX_ITERATION_COUNT, MAX_ITERATION_FREQUENCY_DAYS, Survey
 from products.surveys.backend.summarization.fetch import fetch_responses
 
 from ee.hogai.tool import MaxTool
+from ee.hogai.tool_errors import MaxToolAccessDeniedError
 
 SEMANTIC_QUESTION_TYPE = Literal[
     "open",
@@ -84,13 +88,6 @@ def get_team_survey_config(team: Team) -> dict[str, Any]:
         "appearance": survey_config.get("appearance", {}),
         "default_settings": {"type": "popover", "enable_partial_responses": True},
     }
-
-
-async def _validate_linked_flag_id(team: Team, linked_flag_id: int | None) -> None:
-    if linked_flag_id is None:
-        return
-    if not await FeatureFlag.objects.filter(pk=linked_flag_id, team_id=team.id).aexists():
-        raise serializers.ValidationError("Feature Flag with this ID does not exist")
 
 
 # SimpleSurveyQuestion attribute -> internal question dict key. Rating-only fields (scale, display)
@@ -188,9 +185,46 @@ def _resolve_edited_questions(
     return resolved
 
 
-def _validate_and_sanitize_questions(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    serializer = SurveySerializerCreateUpdateOnly()
-    return serializer.validate_questions(questions)
+def _save_through_survey_api(tool: MaxTool, data: dict[str, Any], survey: Survey | None = None) -> Survey:
+    """Save with the serializer behind the survey API, so PostHog AI gets the API's validation and side effects."""
+    team = tool._team
+    serializer = SurveySerializerCreateUpdateOnly(
+        survey,
+        data=data,
+        partial=survey is not None,
+        context={
+            "request": ServiceRequest(tool._user, method="POST" if survey is None else "PATCH"),
+            "team_id": team.id,
+            "project_id": team.project_id,
+            "get_team": lambda: team,
+            "get_organization": lambda: team.organization,
+            "view": SimpleNamespace(user_access_control=tool.user_access_control),
+        },
+    )
+    serializer.is_valid(raise_exception=True)
+    return serializer.save()
+
+
+def _approval_required_result(error: ApprovalRequired) -> tuple[str, dict[str, Any]]:
+    change_request = error.change_request
+    return (
+        f"{error.message} Change request {change_request.id} for this {change_request.resource_type} "
+        "is pending approval. Tell the user, and don't retry until it is approved.",
+        {
+            "error": "approval_required",
+            "error_message": error.message,
+            "change_request_id": str(change_request.id),
+            "resource_type": change_request.resource_type,
+        },
+    )
+
+
+def _validation_error_result(error: serializers.ValidationError) -> tuple[str, dict[str, Any]]:
+    error_message = json.dumps(error.detail, ensure_ascii=False)
+    return f"Survey validation failed: {error_message}", {
+        "error": "validation_failed",
+        "error_message": error_message,
+    }
 
 
 def _build_appearance(team: Team) -> dict[str, Any]:
@@ -199,7 +233,10 @@ def _build_appearance(team: Team) -> dict[str, Any]:
     team_appearance = get_team_survey_config(team).get("appearance", {})
     if team_appearance:
         appearance.update(team_appearance)
-    return appearance
+    if not team.organization.is_feature_available(AvailableFeature.WHITE_LABELLING):
+        # A default saved while the organization had white labelling would fail every create
+        appearance.pop("whiteLabel", None)
+    return sanitize_survey_appearance(appearance)
 
 
 URL_MATCH_ALIASES: dict[str, str] = {
@@ -227,7 +264,109 @@ def _build_targeting_conditions(
     return conditions
 
 
-SURVEY_CREATION_TOOL_DESCRIPTION = dedent("""
+SCHEDULE_OPTION = Literal["once", "recurring", "always"]
+
+# Same defaults the survey editor applies when a user picks "Repeat on a schedule"
+DEFAULT_ITERATION_COUNT = 2
+DEFAULT_ITERATION_FREQUENCY_DAYS = 90
+
+SCHEDULE_DESCRIPTION = (
+    "How often a person can see the survey. "
+    "'once' (default): show it one time per person. "
+    "'recurring': show it again on a fixed schedule, set with iteration_count and iteration_frequency_days. "
+    "'always': show it every time the display conditions are met, also after the person responds or dismisses it. "
+    "In the survey editor, 'always' is the 'Every time the display conditions are met' option "
+    "in the 'Completion conditions' section. For a widget survey it is also the "
+    "'Allow survey to be displayed every time the button is clicked' checkbox in the 'Presentation' section."
+)
+
+SCHEDULE_PROMPT = """
+    # Schedule (how often a person sees the survey)
+    Use the schedule field. The survey editor shows it in the "Completion conditions" section as
+    "How often should we show this survey to a person?". These are the only options:
+    - "once" (default) -> "Once": a person sees the survey one time
+    - "recurring" -> "Repeat on a schedule": the survey shows up to iteration_count times, once every
+      iteration_frequency_days days (defaults: 2 times, every 90 days)
+    - "always" -> "Every time the display conditions are met": the survey shows again each time the
+      display conditions match, also after the person responds or dismisses it
+    For a widget (feedback button) survey, the editor also shows "always" as the checkbox
+    "Allow survey to be displayed every time the button is clicked" in the "Presentation" section.
+    When you tell a user where to find this for a widget survey, name that checkbox first.
+    Do not invent other options or labels. When a user asks to show a survey every time or keep showing it,
+    use "always". An "always" popover with no display conditions (URL, wait period) appears again and again,
+    so suggest a URL target or wait_period_days.
+
+"""
+
+
+def _build_schedule_fields(
+    schedule: str | None,
+    iteration_count: int | None,
+    iteration_frequency_days: int | None,
+    current_iteration_count: int | None = None,
+    current_iteration_frequency_days: int | None = None,
+    current_repeat_until_stopped: bool | None = False,
+) -> dict[str, Any]:
+    # Iteration values alone configure repeats, the same as in the survey API serializer
+    if schedule is None and (iteration_count is not None or iteration_frequency_days is not None):
+        schedule = Survey.Schedule.RECURRING
+    if schedule is None:
+        return {}
+    if schedule == Survey.Schedule.RECURRING:
+        iteration_frequency_days = (
+            iteration_frequency_days or current_iteration_frequency_days or DEFAULT_ITERATION_FREQUENCY_DAYS
+        )
+        if iteration_count is None and current_repeat_until_stopped:
+            return {
+                "schedule": schedule,
+                "iteration_count": None,
+                "iteration_frequency_days": iteration_frequency_days,
+                "repeat_until_stopped": True,
+            }
+        iteration_count = iteration_count or current_iteration_count or DEFAULT_ITERATION_COUNT
+        return {
+            "schedule": schedule,
+            "iteration_count": min(iteration_count, MAX_ITERATION_COUNT),
+            "iteration_frequency_days": iteration_frequency_days,
+            "repeat_until_stopped": False,
+        }
+    # The iteration columns drive repeats on their own, so clear them for non-recurring schedules
+    return {
+        "schedule": schedule,
+        "iteration_count": None,
+        "iteration_frequency_days": None,
+        "repeat_until_stopped": False,
+    }
+
+
+def _always_schedule_warning(survey_type: str, schedule: str | None, conditions: dict[str, Any] | None) -> str:
+    if schedule != Survey.Schedule.ALWAYS or survey_type != Survey.SurveyType.POPOVER:
+        return ""
+    conditions = conditions or {}
+    wait_period_days = conditions.get("seenSurveyWaitPeriodInDays") or 0
+    if wait_period_days > 0:
+        return (
+            f" Note: this popover shows again every {wait_period_days} days, "
+            "as long as its other display conditions are met."
+        )
+    has_display_conditions = bool(
+        conditions.get("url")
+        or conditions.get("selector")
+        or (conditions.get("events") or {}).get("values")
+        or conditions.get("deviceTypes")
+    )
+    if has_display_conditions:
+        return (
+            " Note: this popover shows again every time its display conditions are met, "
+            "so people can see it very often. Add a wait period to limit this."
+        )
+    return (
+        " Warning: this popover has no display conditions, so it shows again and again. "
+        "Add a URL target or a wait period to limit this."
+    )
+
+
+SURVEY_CREATION_TOOL_DESCRIPTION = dedent(f"""
     Create and optionally launch a survey.
 
     # When to use
@@ -258,7 +397,7 @@ SURVEY_CREATION_TOOL_DESCRIPTION = dedent("""
     - "single_choice": pick one from choices
     - "multiple_choice": pick many from choices
     - "link": call-to-action link
-
+    {SCHEDULE_PROMPT}
     # After creation
     Always share the survey link with the user so they can view and configure it.
     The link is included in the tool response.
@@ -279,12 +418,25 @@ class CreateSurveyToolArgs(BaseModel):
     target_url_match: Literal["exact", "contains", "regex"] | None = Field(
         default=None, description="How to match the target URL"
     )
-    linked_flag_id: int | None = Field(default=None, description="Feature flag ID for targeting")
+    linked_flag_id: int | None = Field(default=None, ge=1, description="Feature flag ID for targeting")
     linked_flag_variant: str | None = Field(default=None, description="Feature flag variant to target")
     wait_period_days: int | None = Field(
         default=None, description="Days to wait after user has seen any survey before showing this one"
     )
     responses_limit: int | None = Field(default=None, description="Maximum number of responses to collect")
+    schedule: SCHEDULE_OPTION | None = Field(default=None, description=SCHEDULE_DESCRIPTION)
+    iteration_count: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_ITERATION_COUNT,
+        description="With schedule='recurring': how many times in total to show the survey (default 2, max 500)",
+    )
+    iteration_frequency_days: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_ITERATION_FREQUENCY_DAYS,
+        description="With schedule='recurring': days between repeats (default 90)",
+    )
 
 
 class CreateSurveyTool(MaxTool):
@@ -317,6 +469,9 @@ class CreateSurveyTool(MaxTool):
         linked_flag_variant: str | None,
         wait_period_days: int | None,
         responses_limit: int | None,
+        schedule: str | None = None,
+        iteration_count: int | None = None,
+        iteration_frequency_days: int | None = None,
     ) -> dict[str, Any]:
         survey_data: dict[str, Any] = {
             "name": name,
@@ -332,7 +487,7 @@ class CreateSurveyTool(MaxTool):
             survey_data["responses_limit"] = responses_limit
 
         # Hosted (external) surveys are standalone pages with no in-app display context, so the
-        # backend rejects flag/URL/device targeting on them. Skip targeting entirely for those.
+        # backend rejects flag/URL/device targeting and a popup delay on them. Skip those entirely.
         if survey_type != Survey.SurveyType.EXTERNAL_SURVEY:
             if linked_flag_id is not None:
                 survey_data["linked_flag_id"] = linked_flag_id
@@ -342,6 +497,10 @@ class CreateSurveyTool(MaxTool):
             )
             if conditions:
                 survey_data["conditions"] = conditions
+
+            survey_data.update(_build_schedule_fields(schedule, iteration_count, iteration_frequency_days))
+        else:
+            survey_data["appearance"].pop("surveyPopupDelaySeconds", None)
 
         if self.context.get("insight_id"):
             survey_data["linked_insight_id"] = self.context["insight_id"]
@@ -361,6 +520,9 @@ class CreateSurveyTool(MaxTool):
         linked_flag_variant: str | None = None,
         wait_period_days: int | None = None,
         responses_limit: int | None = None,
+        schedule: str | None = None,
+        iteration_count: int | None = None,
+        iteration_frequency_days: int | None = None,
     ) -> tuple[str, dict[str, Any]]:
         try:
             if not questions:
@@ -369,10 +531,7 @@ class CreateSurveyTool(MaxTool):
                     "error_message": "No questions provided in the survey configuration.",
                 }
 
-            if survey_type != Survey.SurveyType.EXTERNAL_SURVEY:
-                await _validate_linked_flag_id(self._team, linked_flag_id)
-
-            survey_data = self._build_survey_data(
+            survey_data = await sync_to_async(self._build_survey_data)(
                 name=name,
                 description=description,
                 questions=questions,
@@ -383,13 +542,14 @@ class CreateSurveyTool(MaxTool):
                 linked_flag_variant=linked_flag_variant,
                 wait_period_days=wait_period_days,
                 responses_limit=responses_limit,
+                schedule=schedule,
+                iteration_count=iteration_count,
+                iteration_frequency_days=iteration_frequency_days,
             )
-            survey_data["questions"] = _validate_and_sanitize_questions(survey_data["questions"])
-
             if should_launch:
                 survey_data["start_date"] = django.utils.timezone.now()
 
-            created_survey = await Survey.objects.acreate(team=self._team, created_by=self._user, **survey_data)
+            created_survey = await sync_to_async(_save_through_survey_api)(self, survey_data)
 
             launch_msg = " and launched" if should_launch else ""
             survey_id = str(created_survey.id)
@@ -407,6 +567,7 @@ class CreateSurveyTool(MaxTool):
                     else "Launch it to activate its public shareable link, which you'll find on the survey page."
                 )
                 message = f"{message} {share_hint}"
+            message += _always_schedule_warning(survey_type, survey_data.get("schedule"), survey_data.get("conditions"))
 
             return message, {
                 "survey_id": created_survey.id,
@@ -415,17 +576,15 @@ class CreateSurveyTool(MaxTool):
             }
 
         except serializers.ValidationError as e:
-            error_message = str(e.detail if hasattr(e, "detail") else e)
-            return f"Survey validation failed: {error_message}", {
-                "error": "validation_failed",
-                "error_message": error_message,
-            }
+            return _validation_error_result(e)
+        except ApprovalRequired as e:
+            return _approval_required_result(e)
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to create survey: {str(e)}", {"error": "creation_failed", "details": str(e)}
 
 
-SURVEY_EDIT_TOOL_DESCRIPTION = dedent("""
+SURVEY_EDIT_TOOL_DESCRIPTION = dedent(f"""
     Edit an existing survey.
 
     # When to use
@@ -446,7 +605,7 @@ SURVEY_EDIT_TOOL_DESCRIPTION = dedent("""
     - Set remove_linked_flag=true to remove linked feature flag targeting
     - Set remove_linked_flag_variant=true to remove only feature flag variant targeting
     - Set remove_wait_period=true to remove the survey wait period
-
+    {SCHEDULE_PROMPT}
     # Question identity
     - When updating questions, use read_data(kind="survey") first to see the current questions
     - Each question is shown with a number (1, 2, 3, ...) — pass that number (or the question's real UUID) as the question's `id` to preserve its identity and historical response data
@@ -471,7 +630,7 @@ class EditSurveyToolArgs(BaseModel):
     target_url_match: Literal["exact", "contains", "regex"] | None = Field(
         default=None, description="How to match the target URL"
     )
-    linked_flag_id: int | None = Field(default=None, description="Feature flag ID for targeting")
+    linked_flag_id: int | None = Field(default=None, ge=1, description="Feature flag ID for targeting")
     linked_flag_variant: str | None = Field(default=None, description="Feature flag variant to target")
     wait_period_days: int | None = Field(
         default=None, description="Minimum days before showing this survey again to a user who has seen any survey"
@@ -483,6 +642,19 @@ class EditSurveyToolArgs(BaseModel):
     )
     remove_wait_period: bool = Field(default=False, description="Remove the survey wait period")
     responses_limit: int | None = Field(default=None, description="Maximum number of responses")
+    schedule: SCHEDULE_OPTION | None = Field(default=None, description=SCHEDULE_DESCRIPTION)
+    iteration_count: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_ITERATION_COUNT,
+        description="With schedule='recurring': how many times in total to show the survey (max 500)",
+    )
+    iteration_frequency_days: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_ITERATION_FREQUENCY_DAYS,
+        description="With schedule='recurring': days between repeats",
+    )
     launch: bool | None = Field(default=None, description="Set to true to launch the survey")
     stop: bool | None = Field(default=None, description="Set to true to stop the survey")
     archive: bool | None = Field(default=None, description="Set to true to archive the survey")
@@ -575,22 +747,27 @@ class EditSurveyTool(MaxTool):
         remove_linked_flag_variant: bool = False,
         remove_wait_period: bool = False,
         responses_limit: int | None = None,
+        schedule: str | None = None,
+        iteration_count: int | None = None,
+        iteration_frequency_days: int | None = None,
         launch: bool | None = None,
         stop: bool | None = None,
         archive: bool | None = None,
     ) -> tuple[str, dict[str, Any]]:
         try:
-            team = self._team
-
             try:
-                survey = await sync_to_async(Survey.objects.get)(id=survey_id, team=team)
+                survey = await sync_to_async(Survey.objects.get)(id=survey_id, team=self._team)
             except Survey.DoesNotExist:
                 return f"Survey with ID '{survey_id}' not found", {
                     "error": "not_found",
                     "error_message": f"No survey found with ID '{survey_id}' in your team.",
                 }
+            await self.check_object_access(survey, "editor", resource="survey", action="edit")
 
-            await _validate_linked_flag_id(team, linked_flag_id)
+            if linked_flag_variant is not None and linked_flag_id is None and survey.linked_flag_id is None:
+                raise serializers.ValidationError(
+                    "linked_flag_variant needs a linked feature flag. Pass linked_flag_id as well."
+                )
 
             update_data: dict[str, Any] = {}
 
@@ -599,8 +776,7 @@ class EditSurveyTool(MaxTool):
             if description is not None:
                 update_data["description"] = description
             if questions is not None:
-                new_questions = _resolve_edited_questions(survey.questions or [], questions)
-                update_data["questions"] = _validate_and_sanitize_questions(new_questions)
+                update_data["questions"] = _resolve_edited_questions(survey.questions or [], questions)
             if linked_flag_id is not None:
                 update_data["linked_flag_id"] = linked_flag_id
             elif remove_linked_flag:
@@ -626,6 +802,17 @@ class EditSurveyTool(MaxTool):
             if updated_conditions != existing_conditions:
                 update_data["conditions"] = updated_conditions
 
+            update_data.update(
+                _build_schedule_fields(
+                    schedule,
+                    iteration_count,
+                    iteration_frequency_days,
+                    current_iteration_count=survey.iteration_count,
+                    current_iteration_frequency_days=survey.iteration_frequency_days,
+                    current_repeat_until_stopped=survey.repeat_until_stopped,
+                )
+            )
+
             # Lifecycle bools
             lifecycle_actions = []
             if launch is True:
@@ -644,10 +831,7 @@ class EditSurveyTool(MaxTool):
                     "error_message": "No fields were provided to update.",
                 }
 
-            for field, value in update_data.items():
-                setattr(survey, field, value)
-
-            await sync_to_async(survey.save)()
+            survey = await sync_to_async(_save_through_survey_api)(self, update_data, survey)
 
             if lifecycle_actions:
                 action_str = " and ".join(lifecycle_actions)
@@ -655,6 +839,8 @@ class EditSurveyTool(MaxTool):
             else:
                 fields_str = ", ".join(update_data.keys())
                 message = f"Survey '{survey.name}' updated successfully! Modified fields: {fields_str}"
+            if schedule is not None:
+                message += _always_schedule_warning(survey.type, survey.schedule, survey.conditions)
 
             return message, {
                 "survey_id": str(survey.id),
@@ -663,11 +849,11 @@ class EditSurveyTool(MaxTool):
             }
 
         except serializers.ValidationError as e:
-            error_message = str(e.detail if hasattr(e, "detail") else e)
-            return f"Survey validation failed: {error_message}", {
-                "error": "validation_failed",
-                "error_message": error_message,
-            }
+            return _validation_error_result(e)
+        except ApprovalRequired as e:
+            return _approval_required_result(e)
+        except MaxToolAccessDeniedError:
+            raise
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to edit survey: {str(e)}", {"error": "edit_failed", "details": str(e)}

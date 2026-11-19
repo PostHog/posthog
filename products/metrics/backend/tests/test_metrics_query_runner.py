@@ -1,5 +1,7 @@
 import datetime as dt
-from typing import cast
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any, cast
 
 import pytest
 import time_machine
@@ -13,15 +15,27 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     GoalLine,
+    MetricsDashboardVariable,
+    MetricsDashboardVariableSelection,
     MetricsDisplaySettings,
     MetricsQuery,
     MetricsQueryClause,
     MetricsQueryFilter,
     MetricsQueryGroupBy,
     MetricsYAxisSettings,
+    QueryStatus,
 )
 
+from posthog.hogql.errors import ExposedHogQLError
+
+from posthog.clickhouse.client.execute_async import QueryStatusManager
+from posthog.clickhouse.client.limit import (
+    ConcurrencyLimitExceeded,
+    get_app_dashboard_queries_rate_limiter,
+    get_app_org_rate_limiter,
+)
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -39,7 +53,8 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _runner(self, query: MetricsQuery) -> MetricsQueryRunner:
         return MetricsQueryRunner(query=query, team=self.team)
 
-    def test_translates_schema_node_to_facade_request(self) -> None:
+    @parameterized.expand([("fixed", "minute"), ("dashboard_variable", "$window")])
+    def test_translates_schema_node_to_facade_request(self, _name: str, interval: str) -> None:
         query = MetricsQuery(
             clauses=[
                 MetricsQueryClause(
@@ -53,11 +68,21 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
             ],
             dateRange=DateRange(date_from="2026-09-19T00:00:00Z", date_to="2026-09-19T01:00:00Z"),
-            interval="minute",
+            interval=interval,
             formula=None,
         )
 
-        request = self._runner(query)._to_request()
+        runner = self._runner(query)
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="window", source="custom", current=MetricsDashboardVariableSelection(values=["1m"])
+                    )
+                ]
+            )
+        )
+        request = runner._to_request()
 
         clause = request.clauses[0]
         assert clause.metric_name == "http_requests_total"
@@ -70,7 +95,138 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert request.interval == "minute"
         assert (request.date_to - request.date_from) == dt.timedelta(hours=1)
 
-    @time_machine.travel("2026-09-19T12:00:00Z", tick=False)
+    def test_sql_tiles_check_the_budget_and_load_all_options_before_taking_a_concurrency_slot(self) -> None:
+        events: list[str] = []
+
+        @contextmanager
+        def slot(*args: Any, **kwargs: Any) -> Iterator[None]:
+            events.append("slot")
+            yield
+
+        def fill(*args: Any, variables: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+            events.append("options")
+            return variables
+
+        runner = MetricsQueryRunner(
+            query=MetricsQuery(clauses=[], language="sql", sql="SELECT now() AS time, 1 AS value WHERE 'a' IN $job"),
+            team=self.team,
+        )
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="job",
+                        source="sql",
+                        query="SELECT 'a'",
+                        includeAll=True,
+                        current=MetricsDashboardVariableSelection(values=[], all=True),
+                    )
+                ]
+            )
+        )
+        with (
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.get_query_tag_value", return_value=True),
+            patch.object(
+                MetricsQueryRunner, "_enforce_api_queries_budget", side_effect=lambda: events.append("budget")
+            ),
+            patch("posthog.hogql_queries.query_runner.app_org_concurrency_slot", side_effect=slot),
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.fill_all_values", side_effect=fill),
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.substitute_sql") as substitute,
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.run_metrics_sql", return_value=[]),
+        ):
+            substitute.return_value.unresolved = ()
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert events.index("budget") < events.index("options") < events.index("slot")
+
+    @parameterized.expand(
+        [
+            ("flag_on_tile_skips_full_dashboard_lane", True, 1, "dashboard", False),
+            ("flag_on_tile_skips_full_org_lane", True, 1, "org", False),
+            ("flag_off_tile_rejected_by_dashboard_lane", False, 1, "dashboard", True),
+            ("flag_off_tile_rejected_by_org_lane", False, 1, "org", True),
+            ("flag_on_outside_a_dashboard_rejected_by_org_lane", True, None, "org", True),
+            (
+                "flag_on_derived_metric_tile_rejected_by_org_lane",
+                True,
+                1,
+                "org",
+                True,
+                "posthog.derived.spans.requests",
+            ),
+            ("flag_on_all_time_tile_rejected_by_org_lane", True, 1, "org", True, None, "all"),
+        ]
+    )
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_dashboard_v2_metrics_tiles_do_not_take_analytics_slots(
+        self,
+        _name: str,
+        flag_on: bool,
+        dashboard_id: int | None,
+        full_lane: str,
+        rejected: bool,
+        metric_name: str | None = None,
+        date_from: str | None = None,
+    ) -> None:
+        limiter = get_app_org_rate_limiter() if full_lane == "org" else get_app_dashboard_queries_rate_limiter()
+        for i in range(limiter.max_concurrency):
+            slot = limiter.use(org_id=self.organization.id, dashboard_id=1, team_id=self.team.pk, task_id=f"held-{i}")
+            assert slot is not None
+            self.addCleanup(limiter.release, slot)
+        clauses = [MetricsQueryClause(name="a", metricName=metric_name, aggregation="sum")] if metric_name else []
+        runner = MetricsQueryRunner(
+            query=MetricsQuery(
+                clauses=clauses,
+                language="sql",
+                sql="SELECT 1",
+                dateRange=DateRange(date_from=date_from) if date_from else None,
+            ),
+            team=self.team,
+        )
+
+        with (
+            patch(
+                "products.metrics.backend.hogql_queries.metrics_query_runner.posthog_feature_flag_enabled",
+                return_value=flag_on,
+            ),
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.run_metrics_sql", return_value=[]),
+        ):
+            if rejected:
+                with pytest.raises(ConcurrencyLimitExceeded):
+                    runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=dashboard_id)
+            else:
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=dashboard_id)
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_dashboard_v2_tile_resolves_all_range_once_and_keeps_validation_errors(self) -> None:
+        def run(date_from: str) -> None:
+            runner = MetricsQueryRunner(
+                query=MetricsQuery(
+                    clauses=[],
+                    language="sql",
+                    sql="SELECT 1",
+                    dateRange=DateRange(date_from=date_from),
+                ),
+                team=self.team,
+            )
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=1)
+
+        with (
+            patch(
+                "products.metrics.backend.hogql_queries.metrics_query_runner.posthog_feature_flag_enabled",
+                return_value=True,
+            ),
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.run_metrics_sql", return_value=[]),
+            patch(
+                "posthog.hogql_queries.utils.timestamp_utils.get_earliest_timestamp_unfiltered",
+                return_value=dt.datetime(2020, 1, 1, tzinfo=dt.UTC),
+            ) as earliest,
+        ):
+            run("all")
+            assert earliest.call_count == 1
+            with pytest.raises(ExposedHogQLError):
+                run("-10000y")
+
     def test_default_date_range_is_last_24_hours(self) -> None:
         query = MetricsQuery(
             clauses=[MetricsQueryClause(name="a", metricName="http_requests_total", aggregation="sum")]
@@ -147,23 +303,50 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 assert expected_message in response.json()["detail"]
             build_runner.assert_not_called()
 
-    def test_insight_saves_with_metrics_query(self) -> None:
+    @parameterized.expand([("web", {}), ("mcp", {"X-PostHog-Client": "mcp"})])
+    def test_insight_saves_with_metrics_query(self, _name: str, client_headers: dict[str, str]) -> None:
+        query = {
+            "kind": "MetricsQuery",
+            "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "sum"}],
+            "dateRange": {"date_from": "-24h"},
+        }
         response = self.client.post(
             f"/api/projects/{self.team.pk}/insights/",
-            {
-                "name": "queue depth",
-                "saved": True,
-                "query": {
-                    "kind": "MetricsQuery",
-                    "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "sum"}],
-                    "dateRange": {"date_from": "-24h"},
-                },
-            },
+            {"name": "queue depth", "saved": True, "query": query},
             format="json",
+            headers=client_headers,
         )
 
         assert response.status_code == 201, response.json()
         assert response.json()["query"]["kind"] == "MetricsQuery"
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.pk}/insights/{response.json()['id']}/",
+            {"query": query},
+            format="json",
+            headers=client_headers,
+        )
+
+        assert update_response.status_code == 200, update_response.json()
+        assert update_response.json()["query"] == response.json()["query"]
+
+        with_values = {**query, "variables": {"job": {"values": ["api"]}}}
+        rejected_create = self.client.post(
+            f"/api/projects/{self.team.pk}/insights/",
+            {"name": "queue depth", "saved": True, "query": with_values},
+            format="json",
+            headers=client_headers,
+        )
+        rejected_update = self.client.patch(
+            f"/api/projects/{self.team.pk}/insights/{response.json()['id']}/",
+            {"query": with_values},
+            format="json",
+            headers=client_headers,
+        )
+
+        for rejected in (rejected_create, rejected_update):
+            assert rejected.status_code == 400, rejected.json()
+            assert "can't store variable values" in str(rejected.json())
 
     def test_validate_query_runner_access_granted(self) -> None:
         query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
@@ -208,11 +391,18 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            (["query:read"], 403),
-            (["query:read", "metrics:read"], 200),
+            (["query:read"], "queue_depth", 403),
+            (["query:read", "metrics:read"], "queue_depth", 200),
+            # A derived metric reads spans or logs, so the token also needs that source's scope.
+            (["query:read", "metrics:read"], "posthog.derived.spans.requests", 403),
+            (["query:read", "metrics:read", "tracing:read"], "posthog.derived.spans.requests", 200),
+            (["query:read", "metrics:read"], "posthog.derived.logs.records", 403),
+            (["query:read", "metrics:read", "logs:read"], "posthog.derived.logs.records", 200),
         ]
     )
-    def test_query_endpoint_scope_parity_for_api_keys(self, scopes: list[str], expected_status: int) -> None:
+    def test_query_endpoint_scope_parity_for_api_keys(
+        self, scopes: list[str], metric_name: str, expected_status: int
+    ) -> None:
         value = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
 
@@ -221,13 +411,55 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             {
                 "query": {
                     "kind": "MetricsQuery",
-                    "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "sum"}],
+                    "clauses": [{"name": "a", "metricName": metric_name, "aggregation": "sum"}],
                 }
             },
             HTTP_AUTHORIZATION=f"Bearer {value}",
         )
 
         assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            ("token_without_tracing_scope", ["query:read", "metrics:read"], True, 403),
+            ("token_with_tracing_scope", ["query:read", "metrics:read", "tracing:read"], True, 200),
+            ("user_without_tracing_access", None, False, 403),
+        ]
+    )
+    def test_async_derived_results_need_access_to_the_source(
+        self, _name: str, scopes: list[str] | None, has_source_access: bool, expected_status: int
+    ) -> None:
+        query = MetricsQuery(
+            clauses=[MetricsQueryClause(name="a", metricName="posthog.derived.spans.requests", aggregation="sum")]
+        )
+        query_id = "derived-async-query"
+        QueryStatusManager(query_id, self.team.pk).store_query_status(
+            QueryStatus(
+                id=query_id,
+                team_id=self.team.pk,
+                complete=True,
+                labels=self._runner(query).query_status_labels(),
+                results=["derived result"],
+            )
+        )
+        headers = {}
+        if scopes is not None:
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes
+            )
+            headers["Authorization"] = f"Bearer {value}"
+        if not has_source_access:
+            AccessControl.objects.create(team=self.team, resource="tracing", access_level="none")
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/query/{query_id}/", headers=headers)
+
+        assert response.status_code == expected_status, response.content
+        assert ("derived result" in response.content.decode()) == (expected_status == 200)
 
     def test_dashboard_date_filters_override_query_date_range(self) -> None:
         query = MetricsQuery(
@@ -242,7 +474,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert runner.query.dateRange.date_from == "-7d"
         assert runner.query.dateRange.date_to == "-1d"
 
-    def test_dashboard_metric_filters_apply_to_every_clause(self) -> None:
+    def test_saved_dashboard_metric_filters_do_not_apply(self) -> None:
         own_filter = MetricsQueryFilter(key="namespace", op="eq", value="posthog")
         query = MetricsQuery(
             clauses=[
@@ -255,8 +487,8 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         runner.apply_dashboard_filters(DashboardFilter(metricFilters=[dashboard_filter]))
 
-        assert runner.query.clauses[0].filters == [own_filter, dashboard_filter]
-        assert runner.query.clauses[1].filters == [dashboard_filter]
+        assert runner.query.clauses[0].filters == [own_filter]
+        assert runner.query.clauses[1].filters is None
 
     def test_dashboard_property_filters_do_not_apply(self) -> None:
         query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])

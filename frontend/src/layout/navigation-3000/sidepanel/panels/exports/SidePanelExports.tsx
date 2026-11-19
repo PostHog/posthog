@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconDownload, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSkeleton, Spinner, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSkeleton, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { exportedAssetBlob } from 'lib/components/ExportButton/exporter'
@@ -10,6 +10,7 @@ import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, ExportedAssetType, ExporterFormat } from '~/types'
 
@@ -222,7 +223,10 @@ export const SidePanelExports = (): JSX.Element => {
                 }
             />
             <p className="m-4">
-                Retrieve your exports here. Exports are generated asynchronously and may take a few seconds to complete.
+                Retrieve your exports here. Exports are generated asynchronously and may take a few seconds to complete.{' '}
+                <Link to={urls.exports()} data-attr="side-panel-exports-view-all">
+                    View all exports
+                </Link>
             </p>
             <ExportsContent />
         </div>

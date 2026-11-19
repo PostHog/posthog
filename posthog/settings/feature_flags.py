@@ -12,6 +12,20 @@ from posthog.settings.utils import get_from_env, get_list, get_set, str_to_bool
 # NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
 PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", ""))
 
+# Frontend flags for the warehouse person properties feature. Non-cloud deployments do not take part in
+# Cloud rollout evaluation, so these join the persisted baseline unless the
+# WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED kill switch is off.
+WAREHOUSE_PERSON_PROPERTIES_PERSISTED_FEATURE_FLAGS = ("warehouse-person-properties",)
+
+# Self-hosted instances can't reach Cloud's staged-rollout flag service, so
+# `person_properties_flag_enabled` (products/customer_analytics/backend/logic/person_property_projection.py)
+# skips it there and enables warehouse-backed person/group properties directly. This is the
+# self-hosted equivalent of that Cloud flag: an operator kill switch, checked via env var instead
+# of a network call, in case the feature needs to be turned off on a given self-hosted instance.
+WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED: bool = get_from_env(
+    "WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED", True, type_cast=str_to_bool
+)
+
 # Encryption keys for remote-config feature flag payloads, kept separate from
 # Temporal's keys (posthog/settings/temporal.py) so the two rotate independently.
 # An ordered list: the first key encrypts new payloads, every key can decrypt. That
@@ -67,12 +81,16 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS: int = max(
     0,
     get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS", 60, type_cast=int),
 )
-# Replaces the buffer above when the source is flag_evaluations. That table stamps inserted_at with the Kafka
-# message time, before ClickHouse writes the row, so this buffer must also cover the ClickHouse consumer lag.
-# A row that ClickHouse writes later than this falls behind the checkpoint and is never read.
+# Replaces the buffer above when the source is flag_evaluations. Its MV stamps inserted_at on the ingestion node,
+# before the row reaches a shard and before the other replicas of that shard fetch it. The query reads each shard
+# from a random replica. ClickHouse skips a replica that lags more than max_replica_delay_for_distributed_queries
+# (300 seconds by default). The sync query turns off the stale-replica fallback, so the read fails when every
+# replica of a shard lags past that limit. A replica that lags up to 300 seconds can still answer, so this buffer
+# must stay above that limit. A row that becomes visible later than this falls behind the checkpoint and is never
+# read.
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_FLAG_EVALUATIONS_BUFFER_SECONDS: int = max(
     0,
-    get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_FLAG_EVALUATIONS_BUFFER_SECONDS", 900, type_cast=int),
+    get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_FLAG_EVALUATIONS_BUFFER_SECONDS", 360, type_cast=int),
 )
 # Per-chunk ClickHouse execution cap. sync_execute sets no max_execution_time of its own, so
 # without this a hung query is bounded only by the server profile, and a run can outlive the
@@ -123,15 +141,6 @@ FLAG_DEFINITIONS_CACHE_REFRESH_LIMIT: int = get_from_env(
 # a fully routed run at the volumes the sweep sees today, which peak around 2,300 teams
 # and need about 9 pauses. A larger run spends the window and routes the rest unpaced,
 # which logs a warning.
-# Per-deployment kill switch for routing the refresh sweep to the Kafka builder, read
-# before the per-team flag. The flag cannot do this job: local evaluation resolves it
-# against the single project key in posthog/apps.py, so raising it raises it in every
-# region at once, including one whose flags-cache-builder still rejects the `source`
-# field.
-FLAGS_CACHE_REFRESH_KAFKA_ENABLED: bool = get_from_env(
-    "FLAGS_CACHE_REFRESH_KAFKA_ENABLED", False, type_cast=str_to_bool
-)
-
 FLAGS_CACHE_REFRESH_KAFKA_CHUNK_SIZE: int = max(
     1, get_from_env("FLAGS_CACHE_REFRESH_KAFKA_CHUNK_SIZE", 250, type_cast=int)
 )
@@ -169,11 +178,9 @@ TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
     "TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES", 5, type_cast=int
 )
 
-# OrganizationFeatureFlagsConfig.flag_evaluations_mode for a new organization. 0 reads
-# $feature_flag_called from events. 1 reads it from flag_evaluations for the flag Usage tab, the
-# per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called.
-# 2 also stops writing it to events for teams in the ingestion allowlist. A change here never moves an
-# existing organization.
+# OrganizationFeatureFlagsConfig.flag_evaluations_mode for a new organization. FlagEvaluationsMode in
+# products/feature_flags/backend/facade/enums.py lists what each mode reads and writes. A change here never
+# moves an existing organization.
 FLAG_EVALUATIONS_NEW_ORG_MODE: int = get_from_env("FLAG_EVALUATIONS_NEW_ORG_MODE", 0, type_cast=int)
 
 # Feature flag limits to prevent memory issues during flag evaluation/caching.

@@ -50,6 +50,9 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 type IncrementalFieldValue = str | int | float | None
+# A stored cursor after process_incremental_value: the serialized form above, widened by the
+# datetime or date a DateTime, Timestamp or Date field parses to.
+type ProcessedIncrementalValue = datetime | date | str | int | float
 
 # Sync type strings that early clients wrote to the column. They name a real mode, so they map to it.
 LEGACY_SYNC_TYPE_ALIASES: dict[str, ExternalDataSchemaSyncType] = {
@@ -80,6 +83,10 @@ def resolve_sync_type(value: str | None) -> ExternalDataSchemaSyncType | None:
 # Recorded as the job's latest_error, which the syncs UI shows to the customer.
 SYNC_DISABLED_JOB_ERROR = "Sync stopped because syncing was turned off"
 SCHEMA_DELETED_JOB_ERROR = "Sync stopped because the table was deleted"
+WORKER_RESTART_ERROR_MESSAGE = (
+    "This sync run was interrupted too many times by restarts on PostHog's side, so it did not finish. "
+    "It will run again automatically. No action is needed."
+)
 AUTO_DISABLED_JOB_ERROR = "Sync stopped because of an error that retrying would not fix"
 
 # `Any_Source_Errors` rewrites the raised exception into this copy, so a blocked schema carries it
@@ -213,7 +220,7 @@ STAGED_CURSOR_PENDING_LIMIT = MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION
 # The key, inside a staged cursor, for the incremental value a later attempt of the same workflow
 # run can resume after. It differs from the staged `last_value`, which the loader promotes only
 # when the whole run completes.
-STAGED_RESUME_VALUE_KEY = "resume_value"
+STAGED_RESUME_VALUE_KEY = "ordered_resume_value"
 
 # The key, inside a staged cursor, for the run whose queue rows the resume value actually describes.
 # An attempt that only inherits the value from an earlier attempt, without queuing a batch of its
@@ -225,6 +232,11 @@ STAGED_RESUME_OWNER_KEY = "resume_owner_run_uuid"
 # owns the value (see `pipeline_v3/load/append_rollback.py`). A reset deletes the table, so it
 # drops the key too.
 APPEND_RUN_MARKER_KEY = "append_run_in_progress"
+
+# The key for the newest watermark that a loaded prefix of batches moved, with the job that loaded
+# them and the rows that job had synced through the prefix. A later attempt of the same job reads
+# only the rows above that watermark, so it keeps that row count instead of counting from zero.
+PREFIX_PROMOTION_KEY = "incremental_prefix_promotion"
 
 
 class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
@@ -279,6 +291,11 @@ FAILURE_STREAK_RUNS_KEY = "runs"
 FAILURE_STREAK_LAST_FAILED_AT_KEY = "last_failed_at"
 
 
+# Set when a user chooses history for an incremental schema. `cdc_table_mode` alone is not enough,
+# because a schema that left CDC keeps the mode it had there.
+INCREMENTAL_HISTORY_KEY = "incremental_history"
+
+
 class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-django-pk -- grandfathered UUIDT primary key
     ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields
 ):
@@ -293,6 +310,13 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     source = models.ForeignKey("warehouse_sources.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE)
     table = models.ForeignKey("warehouse_sources.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
     should_sync = models.BooleanField(default=True)
+    # db_default because pods on the previous release insert rows without this column while a deploy runs.
+    live_query_enabled = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Whether this table is queryable live on a synced source with live queries on, without syncing it. "
+        "Synced tables are always queryable live.",
+    )
     auto_disabled_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -318,7 +342,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     # See `sources/common/history_window.py`. A column rather than a `sync_type_config` key
     # because it has to outlive a reset, and clearing that blob is what a reset is for.
     history_start = models.DateTimeField(null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "verified_primary_keys": list[str] | None, "source_cursor": { "kind": str, "data": dict }, "max_partition_bytes": int, "partition_measurement": { "job_id": str, "phase": "pre_extraction" | "post_load", "budget": int, "healthy": bool }, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict }, "query_folder_state": { "<table>__query": { "active": str, "active_since": iso8601 str, "active_job_id": str, "history_since": iso8601 str, "inactive_since": { str: iso8601 str } } }, "registered_schema_fingerprint": str }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "verified_primary_keys": list[str] | None, "source_cursor": { "kind": str, "data": dict }, "max_partition_bytes": int, "partition_measurement": { "job_id": str, "phase": "pre_extraction" | "post_load", "budget": int, "split_budget": int, "healthy": bool }, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict }, "query_folder_state": { "<table>__query": { "active": str, "active_since": iso8601 str, "active_job_id": str, "history_since": iso8601 str, "inactive_since": { str: iso8601 str } } }, "registered_schema_fingerprint": str }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -363,6 +387,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     enabled_columns = models.JSONField(null=True, blank=True, default=None)
     # null (default) = sync all rows. List of {column, operator, value} predicates ANDed onto the WHERE clause.
     row_filters = models.JSONField(null=True, blank=True, default=None)
+    # null (default) = no masking. Source column names whose values the sync replaces with a one-way digest.
+    masked_columns = models.JSONField(null=True, blank=True, default=None)
 
     objects = ExternalDataSchemaQuerySet.as_manager()
 
@@ -370,6 +396,15 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
 
     class Meta:
         db_table = "posthog_externaldataschema"
+        indexes = [
+            # Serves the staff list of schemas PostHog stopped itself, newest first. Only those rows carry
+            # a stamp, so the partial index stays small.
+            models.Index(
+                fields=["-auto_disabled_at"],
+                name="idx_extschema_auto_disabled",
+                condition=models.Q(auto_disabled_at__isnull=False),
+            ),
+        ]
 
     def _sync_teardown_kind(self, update_fields: Iterable[str] | None) -> str | None:
         """Which stop-syncing transition this save performs, read from the DB before writing.
@@ -576,6 +611,12 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         return "consolidated"
 
     @property
+    def keeps_history(self) -> bool:
+        if self.cdc_table_mode not in ("cdc_only", "both"):
+            return False
+        return self.is_cdc or (self.is_incremental and bool(self.sync_type_config.get(INCREMENTAL_HISTORY_KEY)))
+
+    @property
     def should_use_incremental_field(self):
         return self.is_incremental or self.is_append or self.is_webhook
 
@@ -583,7 +624,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     def table_row_count_is_cumulative(self) -> bool:
         # These sync types append/merge into the warehouse table across runs, so its true size is the
         # full table count — not the latest run's row_count, which is only that run's delta. Full refresh
-        # replaces the whole table, so there the run's row_count already equals the table size.
+        # replaces the whole table, so there the run's row_count equals the table size unless the run
+        # resumed: a resumed run counts only the rows of its last attempt.
         return self.should_use_incremental_field or self.is_cdc or self.is_xmin
 
     @property
@@ -916,7 +958,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         in one activity converges across attempts rather than giving up terminally. Cleared once temp
         is fully built (a swap is staged) or when the controller gives up. Shape:
         {"temp_uri": str, "rows_written": int, "target": dict, "live_version": int, "held_at": str,
-        "budget_exhausted": bool}.
+        "budget_exhausted": bool, "sliced": bool}.
         """
         if self.sync_type_config:
             marker = self.sync_type_config.get("repartition_rewrite", None)
@@ -1028,7 +1070,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         )
         return self.sync_type_config.get("repartition_claim") == claim
 
-    def abandon_repartition_if_claimed(self, claim_token: str) -> bool:
+    def abandon_repartition_if_claimed(self, claim_token: str, *, stamp_cooldown: bool = True) -> bool:
         from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
 
         def _write(config: dict[str, Any]) -> None:
@@ -1039,7 +1081,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 return
             for key in ("repartition_pending", "repartition_swap", "repartition_rewrite"):
                 config.pop(key, None)
-            config["last_repartition_at"] = timezone.now().isoformat()
+            if stamp_cooldown:
+                config["last_repartition_at"] = timezone.now().isoformat()
 
         self.sync_type_config = retry_on_db_connection_drop(
             lambda: update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
@@ -1053,6 +1096,14 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 for key in ("repartition_pending", "repartition_swap", "repartition_rewrite")
             )
         )
+
+    def disable_repartition_slicing(self) -> None:
+        def _write(config: dict[str, Any]) -> None:
+            pending = config.get("repartition_pending")
+            if isinstance(pending, dict):
+                pending["slice_disabled"] = True
+
+        self.sync_type_config = update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
 
     def clear_repartition_swap(self) -> None:
         self.sync_type_config.pop("repartition_swap", None)
@@ -1206,11 +1257,18 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 return
             found = True
             field_type = config.get("incremental_field_type")
+            # A stored watermark with no earliest value means the table already holds every older row.
+            # A run from that watermark read only newer rows, so its oldest row must not become the
+            # earliest value: the next run would read every row below it again.
+            watermark_without_earliest = (
+                config.get("incremental_field_last_value") is not None
+                and config.get("incremental_field_earliest_value") is None
+            )
             if "last_value" in staged:
                 _advance_promoted_cursor(
                     config, "incremental_field_last_value", staged["last_value"], "last", field_type
                 )
-            if "earliest_value" in staged:
+            if "earliest_value" in staged and not watermark_without_earliest:
                 _advance_promoted_cursor(
                     config, "incremental_field_earliest_value", staged["earliest_value"], "earliest", field_type
                 )
@@ -1227,6 +1285,50 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
 
         self.sync_type_config = update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
         return found
+
+    def promote_loaded_prefix_value(
+        self, *, run_uuid: str, job_id: str, field: str, value: Any, job_rows_synced: int
+    ) -> bool:
+        """Move `incremental_field_last_value` up to the value that a loaded prefix of `run_uuid` covers.
+
+        Returns True when the watermark moved. It moves only forward, and only while the run still
+        has a staged cursor at or above `value` for the same incremental field. A reset drops the
+        staged cursors, so a run that loads late never moves the watermark of the table that replaced
+        its own. A pair of values that cannot be compared keeps the current watermark.
+        """
+        moved = False
+
+        def mutate(config: dict[str, Any]) -> None:
+            nonlocal moved
+            if config.get("incremental_field") != field:
+                return
+            staged = _staged_cursor_of_run(config, run_uuid)
+            if staged is None or "last_value" not in staged:
+                return
+            field_type = config.get("incremental_field_type")
+            staged_comparison = _compare_incremental_values(staged["last_value"], value, field_type)
+            if staged_comparison is None or staged_comparison < 0:
+                return
+            current = config.get("incremental_field_last_value")
+            if current is not None:
+                comparison = _compare_incremental_values(current, value, field_type)
+                if comparison is None or comparison >= 0:
+                    return
+            config["incremental_field_last_value"] = value
+            config[PREFIX_PROMOTION_KEY] = {
+                "job_id": job_id,
+                "run_uuid": run_uuid,
+                "value": value,
+                "rows_synced": job_rows_synced,
+            }
+            moved = True
+
+        self.sync_type_config = update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
+        return moved
+
+    def serialize_incremental_value(self, value: Any) -> Any:
+        """Encode a cursor value the way the staged and the promoted watermark values store it."""
+        return self._serialize_incremental_value(value)
 
     def _serialize_incremental_value(self, value: Any) -> Any:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
@@ -1308,6 +1410,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             "incremental_field_earliest_value",
             "incremental_staged",
             "incremental_staged_pending",
+            PREFIX_PROMOTION_KEY,
             APPEND_RUN_MARKER_KEY,
             "partitioning_enabled",
             "partition_size",
@@ -1423,6 +1526,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         )
 
     def soft_delete(self):
+        # Discovery revives a deleted row when the table comes back, which must not bring back live queries.
+        self.live_query_enabled = False
         self.deleted = True
         self.deleted_at = timezone.now()
         self.save()
@@ -1446,6 +1551,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 self.table.soft_delete()
 
             self.table_id = None
+            # The table's access rules go with it, so its source's rules must not take over for a live query.
+            self.live_query_enabled = False
             self.last_synced_at = None
             self.status = None
             self.save()
@@ -1501,6 +1608,55 @@ def _park_displaced_staged_cursor(config: dict[str, Any], staged: dict[str, Any]
     config["incremental_staged_pending"] = pending[-STAGED_CURSOR_PENDING_LIMIT:]
 
 
+def attempt_run_uuid(workflow_run_id: str, attempt: int) -> str:
+    """The run id that one import attempt stages its cursor and queues its batches under."""
+    return f"{workflow_run_id}-a{attempt}"
+
+
+def attempt_of(run_uuid: str) -> tuple[str, int] | None:
+    """Split a run id from `attempt_run_uuid` into its workflow run id and attempt, or None."""
+    workflow_run_id, separator, attempt = run_uuid.rpartition("-a")
+    if not separator or not workflow_run_id or not attempt.isdigit():
+        return None
+    return workflow_run_id, int(attempt)
+
+
+def _staged_attempts_of_run(config: dict[str, Any], workflow_run_id: str) -> list[tuple[dict[str, Any], int]]:
+    """Each staged cursor, live or parked, that an attempt of `workflow_run_id` wrote, with its attempt."""
+    attempts: list[tuple[dict[str, Any], int]] = []
+    for staged in (config.get("incremental_staged") or {}, *config.get("incremental_staged_pending", [])):
+        run_uuid = staged.get("run_uuid")
+        parsed = attempt_of(run_uuid) if isinstance(run_uuid, str) else None
+        if parsed is not None and parsed[0] == workflow_run_id:
+            attempts.append((staged, parsed[1]))
+    return attempts
+
+
+def _staged_cursor_of_run(config: dict[str, Any], run_uuid: str) -> dict[str, Any] | None:
+    """The staged cursor of `run_uuid`, live or parked, without removing it."""
+    for staged in (config.get("incremental_staged") or {}, *config.get("incremental_staged_pending", [])):
+        if staged.get("run_uuid") == run_uuid:
+            return staged
+    return None
+
+
+def prefix_promotion_rows_synced(config: dict[str, Any], job_id: str) -> int | None:
+    """The rows `job_id` synced through the loaded prefix that set the stored watermark, or None.
+
+    None when the stored watermark did not come from a loaded prefix of this job, so a new attempt
+    of the job reads the rows that the count would cover again.
+    """
+    promotion = config.get(PREFIX_PROMOTION_KEY)
+    if not isinstance(promotion, dict) or promotion.get("job_id") != job_id:
+        return None
+    if "value" not in promotion or promotion["value"] != config.get("incremental_field_last_value"):
+        return None
+    rows_synced = promotion.get("rows_synced")
+    if isinstance(rows_synced, bool) or not isinstance(rows_synced, int) or rows_synced < 0:
+        return None
+    return rows_synced
+
+
 def _drop_parked_staged_cursor(config: dict[str, Any], run_uuid: str) -> dict[str, Any] | None:
     """Remove the parked cursor of `run_uuid` and return it, or None when the run has none."""
     pending = config.get("incremental_staged_pending", [])
@@ -1527,16 +1683,11 @@ def staged_handoff_resume_point(config: dict[str, Any], workflow_run_id: str | N
     """
     if not workflow_run_id:
         return None
-    prefix = f"{workflow_run_id}-a"
     newest: dict[str, Any] | None = None
     newest_attempt = 0
-    for staged in (config.get("incremental_staged") or {}, *config.get("incremental_staged_pending", [])):
-        run_uuid = staged.get("run_uuid")
-        if not isinstance(run_uuid, str) or not run_uuid.startswith(prefix):
-            continue
-        attempt = run_uuid.removeprefix(prefix)
-        if attempt.isdigit() and int(attempt) > newest_attempt:
-            newest, newest_attempt = staged, int(attempt)
+    for staged, attempt in _staged_attempts_of_run(config, workflow_run_id):
+        if attempt > newest_attempt:
+            newest, newest_attempt = staged, attempt
     if newest is None:
         return None
     owner_run_uuid = newest.get(STAGED_RESUME_OWNER_KEY) or newest["run_uuid"]
@@ -1552,6 +1703,54 @@ def staged_handoff_resume_value(config: dict[str, Any], workflow_run_id: str | N
     """
     point = staged_handoff_resume_point(config, workflow_run_id)
     return None if point is None else point[1]
+
+
+def staged_run_last_value(config: dict[str, Any], workflow_run_id: str | None) -> ProcessedIncrementalValue | None:
+    """The newest `last_value` that any attempt of `workflow_run_id` staged, or None.
+
+    A resumed attempt of a descending source reads only rows older than the rows that the earlier
+    attempts read, so it must start from their newest value. Each attempt stages the newest value
+    of the whole run so far, so the value survives when the parked list drops the attempt that read
+    the newest row.
+    """
+    if not workflow_run_id:
+        return None
+    field_type = config.get("incremental_field_type")
+    newest: ProcessedIncrementalValue | None = None
+    # Newest attempt first: for a pair the comparator cannot order, the newest attempt wins, the same
+    # rule that `_advance_promoted_cursor` applies.
+    for staged, attempt in sorted(_staged_attempts_of_run(config, workflow_run_id), key=lambda item: -item[1]):
+        if staged.get("last_value") is None:
+            continue
+        try:
+            candidate = process_incremental_value(staged["last_value"], field_type)
+        except Exception:
+            # A value that does not parse must not fail the attempt at startup. The attempt then
+            # starts from an older value, which can only make the next run read rows again.
+            logger.warning(
+                "staged_run_last_value_unparseable",
+                run_uuid=staged.get("run_uuid"),
+                attempt=attempt,
+                incremental_field_type=field_type,
+                exc_info=True,
+            )
+            continue
+        if candidate is None:
+            continue
+        if newest is None:
+            newest = candidate
+            continue
+        comparison = _compare_incremental_values(newest, candidate, field_type)
+        if comparison is None:
+            logger.warning(
+                "staged_run_last_value_unordered",
+                run_uuid=staged.get("run_uuid"),
+                attempt=attempt,
+                incremental_field_type=field_type,
+            )
+        elif comparison < 0:
+            newest = candidate
+    return newest
 
 
 def _advance_promoted_cursor(
@@ -1732,17 +1931,30 @@ def update_should_sync(
         sync_external_data_job_workflow,
         unpause_external_data_schedule,
     )
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import (  # noqa: PLC0415
+        restore_missing_extraction_schedule,
+    )
 
     schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)
+    if should_sync and schema.deleted:
+        raise ValueError(f"Schema {schema_id} is deleted, so its syncing cannot be turned on")
     schema.should_sync = should_sync
     # Turning syncing back on says the source is worth trying again, so the next run starts on
     # the full retry cap and the normal cadence.
     if should_sync:
         schema.clear_failure_streak()
+    elif not disable_error_message:
+        # Only a disable with an error message is PostHog stopping the schema. Any other disable is a
+        # decision to keep it off, so an earlier stop must not leave it eligible for a staff re-enable.
+        schema.auto_disabled_at = None
     with sync_disable_context(error_message=disable_error_message, exclude_workflow_id=disable_exclude_workflow_id):
         schema.save()
 
     if not schema.source.supports_scheduled_sync:
+        # A direct query source gets no import schedule, but some older ones still carry one. A disable
+        # must pause it, or the schedule keeps running imports for a schema that is turned off.
+        if should_sync is False and external_data_workflow_exists(schema_id):
+            pause_external_data_schedule(schema_id)
         return schema
 
     schedule_exists = external_data_workflow_exists(schema_id)
@@ -1755,6 +1967,14 @@ def update_should_sync(
     else:
         if should_sync is True:
             sync_external_data_job_workflow(schema, create=True)
+
+    # A capture run that found no syncing CDC table deleted the source's extraction schedule.
+    if should_sync is True and schema.sync_type == ExternalDataSchema.SyncType.CDC:
+        try:
+            restore_missing_extraction_schedule(schema.source)
+        except Exception:
+            # The table is already enabled, and the CDC sweeper recreates a missing schedule.
+            logger.exception("cdc_extraction_schedule_sync_failed", external_data_schema_id=str(schema.id))
 
     return schema
 
@@ -1815,6 +2035,68 @@ def update_sync_type_config_keys(
             update_fields.append("next_full_refresh_at")
         schema.save(update_fields=update_fields, skip_activity_log=True)
         return config
+
+
+def persist_schema_metadata(
+    schema: "ExternalDataSchema",
+    *,
+    schema_metadata: dict[str, Any],
+    detected_primary_keys: list[str] | None = None,
+) -> list[str]:
+    """Store discovered `schema_metadata` on a schema row, plus `detected_primary_keys` when the row
+    has no primary key yet, and drop `enabled_columns` the source no longer has. Returns the dropped
+    column names and refreshes `schema` in place.
+
+    Only these keys are merged, under the row lock, because syncs write other `sync_type_config`
+    keys (CDC positions, watermarks) at the same time. Scheduled discovery calls this for every
+    table of a source, so a row whose stored values already match is not written.
+    """
+    # Function-local because the `common.sql` package pulls dlt, temporalio and pyarrow into `django.setup()`.
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (  # noqa: PLC0415
+        extract_available_column_names,
+    )
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (  # noqa: PLC0415
+        PrunedColumns,
+        compute_projected_columns,
+        prune_enabled_columns,
+    )
+
+    available_names = extract_available_column_names(schema_metadata)
+
+    def _prune(row: ExternalDataSchema) -> PrunedColumns:
+        pruned = prune_enabled_columns(row.enabled_columns, available_names)
+        # A selection pruned to nothing projects as `SELECT *` and reads the columns the user left out. The
+        # read always projects the incremental field it is given, but not a stored primary key: some sources
+        # detect keys live and can find none. Unless the incremental field keeps the projection, keep the
+        # stale selection so the next read fails on the dropped column.
+        incremental_field = row.incremental_field if row.should_use_incremental_field else None
+        if pruned.removed and compute_projected_columns(pruned.kept, None, incremental_field) is None:
+            return PrunedColumns(kept=row.enabled_columns, removed=[])
+        return pruned
+
+    stored = schema.sync_type_config if isinstance(schema.sync_type_config, dict) else {}
+    if (
+        stored.get("schema_metadata") == schema_metadata
+        and (not detected_primary_keys or stored.get("primary_key_columns"))
+        and not _prune(schema).removed
+    ):
+        return []
+
+    def _merge(config: dict[str, Any]) -> None:
+        config["schema_metadata"] = schema_metadata
+        # Never replace a stored key, such as an explicit override chosen at source creation.
+        if detected_primary_keys and not config.get("primary_key_columns"):
+            config["primary_key_columns"] = detected_primary_keys
+
+    with transaction.atomic():
+        locked = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=schema.team_id)
+        pruned = _prune(locked)
+        if pruned.removed:
+            locked.enabled_columns = pruned.kept
+            locked.save(update_fields=["enabled_columns", "updated_at"])
+        schema.sync_type_config = update_sync_type_config_keys(schema.id, schema.team_id, mutate=_merge)
+    schema.enabled_columns = locked.enabled_columns
+    return pruned.removed
 
 
 def save_repartition_checkpoint_if_claimed(
@@ -1880,6 +2162,27 @@ def release_repartition_hold_if_claimed(schema: ExternalDataSchema, *, claim_tok
             checkpoint.pop("held_at", None)
 
     schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+
+
+def mark_repartition_dropping_if_claimed(schema: ExternalDataSchema, *, claim_token: str) -> int | None:
+    """Count one failed drop of the pending target while `claim_token` still owns the schema.
+
+    Returns the drop attempts so far, or None when a newer attempt owns the schema. A target marked
+    `dropping` is never promoted by a reset (see `pending_scheme_for_table_replacement`).
+    """
+    drop_attempts: int | None = None
+
+    def _write(config: dict[str, Any]) -> None:
+        nonlocal drop_attempts
+        claim = config.get("repartition_claim")
+        pending = config.get("repartition_pending")
+        if not (claim and claim.get("token") == claim_token) or not isinstance(pending, dict):
+            return
+        drop_attempts = int(pending.get("drop_attempts", 0)) + 1
+        pending.update({"dropping": True, "drop_attempts": drop_attempts})
+
+    schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+    return drop_attempts
 
 
 def clear_repartition_checkpoint_if_claimed(schema: ExternalDataSchema, *, claim_token: str, temp_uri: str) -> bool:
@@ -2048,10 +2351,11 @@ def pending_scheme_for_table_replacement(config: dict[str, Any]) -> dict[str, An
 
     None while a swap is staged, because the temp table can then be the only intact copy and the
     swap recovery owns the scheme. None when an operator pinned a scheme, because that pin is the
-    newer decision. A marker with no keys holds bookkeeping only and describes no scheme.
+    newer decision. A marker with no keys holds bookkeeping only and describes no scheme. A target that
+    the activity is dropping (`dropping`) describes no table either.
     """
     pending = config.get("repartition_pending")
-    if not isinstance(pending, dict) or not pending.get("partition_keys"):
+    if not isinstance(pending, dict) or not pending.get("partition_keys") or pending.get("dropping"):
         return None
     if config.get("repartition_swap") is not None:
         return None
@@ -2146,6 +2450,13 @@ class DirectSchemaReconciliation:
     stale_schemas: list[ExternalDataSchema]
 
 
+def get_undeleted_schemas_with_tables(source_id: str | uuid.UUID, team_id: int) -> list[ExternalDataSchema]:
+    """A source's schemas that are not deleted, with their linked table loaded in the same query."""
+    return list(
+        ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, deleted=False).select_related("table")
+    )
+
+
 def get_schemas_for_direct_reconciliation(
     source_id: str | uuid.UUID,
     team_id: int,
@@ -2170,11 +2481,86 @@ def get_schemas_for_direct_reconciliation(
 # offering the new name as a separate one.
 SCHEMA_RESOURCE_ID_METADATA_KEY = "source_resource_id"
 
+# Set to True in a schema's `schema_metadata` when the schema reads a definition PostHog stored on it,
+# not one that discovery reports (a self-managed table moved into an object storage source reads the
+# exact files of its old URL pattern). Discovery can't report such a schema, so it must not disable it.
+SCHEMA_PINNED_METADATA_KEY = "pinned"
+# Set in a schema's `schema_metadata` to the self-managed table that the schema's first sync replaces.
+# The schema does not link to that table before the sync, so the table stays as it is until then.
+SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY = "self_managed_table"
+
+
+@frozen
+class SelfManagedTableRef:
+    """The self-managed table a schema replaces, and the files the schema was pinned to read."""
+
+    table_id: str
+    url_pattern: str
+    format: str
+    # Set when an operator abandoned the migration of the table.
+    abandon_reason: str | None = None
+
+    def to_metadata(self) -> dict[str, Any]:
+        metadata = {"table_id": self.table_id, "url_pattern": self.url_pattern, "format": self.format}
+        if self.abandon_reason is not None:
+            metadata["abandon_reason"] = self.abandon_reason
+        return metadata
+
+
+def _schema_metadata(schema: "ExternalDataSchema") -> dict[str, Any]:
+    metadata = (schema.sync_type_config or {}).get("schema_metadata")
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def is_pinned_schema(schema: "ExternalDataSchema") -> bool:
+    return _schema_metadata(schema).get(SCHEMA_PINNED_METADATA_KEY) is True
+
+
+def self_managed_table_ref(schema: "ExternalDataSchema") -> SelfManagedTableRef | None:
+    ref = _schema_metadata(schema).get(SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY)
+    if not isinstance(ref, dict):
+        return None
+    table_id, url_pattern, table_format = ref.get("table_id"), ref.get("url_pattern"), ref.get("format")
+    if not (isinstance(table_id, str) and isinstance(url_pattern, str) and isinstance(table_format, str)):
+        return None
+    reason = ref.get("abandon_reason")
+    return SelfManagedTableRef(
+        table_id=table_id,
+        url_pattern=url_pattern,
+        format=table_format,
+        abandon_reason=reason if isinstance(reason, str) else None,
+    )
+
 
 def _resource_id(metadata: object) -> str | None:
     if isinstance(metadata, dict) and metadata.get(SCHEMA_RESOURCE_ID_METADATA_KEY) is not None:
         return str(metadata[SCHEMA_RESOURCE_ID_METADATA_KEY])
     return None
+
+
+def discovered_schema_finder(
+    discovered: Iterable["SourceSchema"],
+) -> Callable[[str, object], "SourceSchema | None"]:
+    """Return a lookup that finds the discovered schema for a stored one: by its stable resource id
+    first, then by name.
+
+    A renamed resource keeps its id but not its name, so a match by name alone misses it. Build one
+    lookup per discovery, so that matching many stored schemas costs one dict read each."""
+    by_resource_id: dict[str, SourceSchema] = {}
+    by_name: dict[str, SourceSchema] = {}
+    for discovered_schema in discovered:
+        resource_id = _resource_id(discovered_schema.schema_metadata)
+        if resource_id is not None:
+            by_resource_id.setdefault(resource_id, discovered_schema)
+        by_name.setdefault(discovered_schema.name, discovered_schema)
+
+    def find(stored_name: str, stored_metadata: object) -> "SourceSchema | None":
+        stored_resource_id = _resource_id(stored_metadata)
+        if stored_resource_id is not None and stored_resource_id in by_resource_id:
+            return by_resource_id[stored_resource_id]
+        return by_name.get(stored_name)
+
+    return find
 
 
 def _renamed_schema_names(
@@ -2338,10 +2724,16 @@ def sync_old_schemas_with_new_schemas(
 
     for schema in schemas_to_create:
         seeded_metadata = (schema_metadata_by_name or {}).get(schema)
-        deleted_obj = (
-            ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, name=schema, deleted=True)
-            .order_by("-updated_at", "-created_at")
-            .first()
+        deleted_obj = next(
+            (
+                row
+                for row in ExternalDataSchema.objects.filter(
+                    team_id=team_id, source_id=source_id, name=schema, deleted=True
+                ).order_by("-updated_at", "-created_at")
+                # A deleted migration schema records that its table stays self-managed, so discovery must not revive it.
+                if SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY not in _schema_metadata(row)
+            ),
+            None,
         )
         if deleted_obj is not None:
             deleted_obj.deleted = False
@@ -2380,6 +2772,12 @@ def sync_old_schemas_with_new_schemas(
             team_id=team_id, name=schema, source_id=source_id, deleted=False
         )
         for s in schemas_to_check:
+            if is_pinned_schema(s):
+                continue
+            if s.live_query_enabled:
+                # A table recreated upstream under the same name must not become queryable live without a new choice.
+                s.live_query_enabled = False
+                s.save(update_fields=["live_query_enabled", "updated_at"])
             # Only rows nobody enabled disappear entirely. A user-enabled row survives as visibly
             # disabled, because soft-deleting it would silently discard the user's selection (e.g.
             # a scope-gated table the source stopped offering before its first successful sync).

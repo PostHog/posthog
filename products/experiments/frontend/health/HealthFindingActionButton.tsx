@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -6,6 +7,7 @@ import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { exposureCriteriaModalLogic } from 'scenes/experiments/ExperimentView/exposureCriteriaModalLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
+import { FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -13,16 +15,21 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { METRIC_CONTEXTS } from '../modals/ExperimentMetricModal/experimentMetricModalLogic'
 import { metricSourceModalLogic } from '../modals/MetricSourceModal/metricSourceModalLogic'
 import type { ExperimentHealthFindingActionKind } from './experimentHealthFindingEvents'
+import { HealthFreezeExposureButton } from './HealthFreezeExposureButton'
+import { HealthMoveStartDateButton } from './HealthMoveStartDateButton'
+import type { HealthPanelFinding } from './healthPanelFindings'
 
 export function HealthFindingActionButton({
     actionKind,
+    evidence,
     onClick,
 }: {
     actionKind: ExperimentHealthFindingActionKind
+    evidence: HealthPanelFinding['evidence']
     onClick: () => void
 }): JSX.Element | null {
     const { experiment, exposureCriteria } = useValues(experimentLogic)
-    const { openDistributionModal, openReleaseConditionsModal } = useActions(modalsLogic)
+    const { openDistributionModal, openFinishExperimentModal, openReleaseConditionsModal } = useActions(modalsLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
     const { openMetricSourceModal } = useActions(metricSourceModalLogic)
 
@@ -33,11 +40,11 @@ export function HealthFindingActionButton({
     )
     const buttonProps = {
         size: 'small',
-        type: 'secondary',
+        type: 'primary',
         // pinned: `data-attr` value, so renaming it breaks autocapture insights
         'data-attr': `experiment-health-action-${actionKind}`,
     } as const
-    // Every action except the flag link opens a form that saves the experiment.
+    // Every action except the flag links opens a form that saves the experiment.
     const editProps = {
         ...buttonProps,
         disabledReason: canEdit ? null : "You don't have permission to edit this experiment.",
@@ -53,6 +60,17 @@ export function HealthFindingActionButton({
                     onClick={onClick}
                 >
                     Open feature flag
+                </LemonButton>
+            ) : null
+        case 'open_feature_flag_history':
+            return experiment.feature_flag ? (
+                <LemonButton
+                    {...buttonProps}
+                    to={combineUrl(urls.featureFlag(experiment.feature_flag.id), { tab: FeatureFlagsTab.HISTORY }).url}
+                    targetBlank
+                    onClick={onClick}
+                >
+                    View flag history
                 </LemonButton>
             ) : null
         case 'adjust_distribution':
@@ -127,5 +145,21 @@ export function HealthFindingActionButton({
                     Add secondary metric
                 </LemonButton>
             )
+        case 'end_experiment':
+            return (
+                <LemonButton
+                    {...editProps}
+                    onClick={() => {
+                        onClick()
+                        openFinishExperimentModal()
+                    }}
+                >
+                    End experiment
+                </LemonButton>
+            )
+        case 'freeze_exposure':
+            return <HealthFreezeExposureButton buttonProps={editProps} onClick={onClick} />
+        case 'move_start_date':
+            return <HealthMoveStartDateButton evidence={evidence} buttonProps={editProps} onClick={onClick} />
     }
 }

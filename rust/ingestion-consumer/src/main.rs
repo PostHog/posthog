@@ -19,17 +19,20 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
-use ingestion_consumer::batcher::Batcher;
-use ingestion_consumer::config::Config;
+use ingestion_consumer::aperture;
+use ingestion_consumer::batcher::worker_pool::WorkerPoolSource;
+use ingestion_consumer::batcher::{Batcher, BatcherObserver};
+use ingestion_consumer::config::{Config, GRACEFUL_SHUTDOWN, LIVENESS_DEADLINE};
 use ingestion_consumer::consumer::IngestionConsumer;
-use ingestion_consumer::debug_recorder::{DebugLoad, DebugRecorder, DebugState, WorkerStatus};
+use ingestion_consumer::debug_recorder::{
+    BatcherLoad, DebugLoad, DebugRecorder, DebugState, GovernorLoad, RoutingDebug, WorkerStatus,
+};
 use ingestion_consumer::discovery::{
     DiscoveryMode, EndpointSliceDiscovery, StaticDiscovery, WorkerDiscovery,
 };
-use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
 use ingestion_consumer::routing::RoutingStrategy;
-use ingestion_consumer::scheduler::SchedulerKind;
+use ingestion_consumer::startup_gate::{wait_for_peer_list, ConsumerReadiness};
 use ingestion_consumer::worker_registry::{WorkerId, WorkerRegistry, WorkerRegistryConfig};
 
 common_alloc::used!();
@@ -45,13 +48,28 @@ fn main() -> Result<()> {
 
     let config = Config::init_from_env()
         .context("Failed to load configuration from environment variables")?;
+    config
+        .request_budget()
+        .map_err(|err| anyhow::anyhow!("invalid request budget: {err}"))?;
+    config
+        .partition_budget()
+        .map_err(|err| anyhow::anyhow!("invalid partition budget: {err}"))?;
+    config
+        .in_flight_limit()
+        .map_err(|err| anyhow::anyhow!("invalid in-flight limit: {err}"))?;
+    config
+        .revoke_drain_timeout()
+        .map_err(|err| anyhow::anyhow!("invalid revoke drain timeout: {err}"))?;
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .context("Failed to build tokio runtime")?;
 
-    runtime.block_on(async_main(config))
+    let result = runtime.block_on(async_main(config));
+    // A blocking commit that outlived its timeout must not hold the exit.
+    runtime.shutdown_timeout(Duration::from_secs(5));
+    result
 }
 
 async fn async_main(config: Config) -> Result<()> {
@@ -105,15 +123,15 @@ async fn async_main(config: Config) -> Result<()> {
     let consumer_handle = manager.register(
         "consumer",
         ComponentOptions::new()
-            .with_graceful_shutdown(Duration::from_secs(60))
-            .with_liveness_deadline(Duration::from_secs(60))
+            .with_graceful_shutdown(GRACEFUL_SHUTDOWN)
+            .with_liveness_deadline(LIVENESS_DEADLINE)
             .with_stall_threshold(3),
     );
 
     let metrics_handle =
         manager.register("metrics", ComponentOptions::new().is_observability(true));
 
-    let readiness = manager.readiness_handler();
+    let readiness = ConsumerReadiness::new(manager.readiness_handler());
     let liveness = manager.liveness_handler();
 
     // Install Prometheus recorder with custom histogram buckets matching the
@@ -248,12 +266,9 @@ async fn async_main(config: Config) -> Result<()> {
             None
         };
 
-    let mut dispatcher = Dispatcher::with_strategy(Arc::clone(&registry), config.routing_strategy);
-    if let Some(recorder) = &debug_recorder {
-        dispatcher.set_debug_recorder(Arc::clone(recorder));
-    }
+    let mut pool_source = WorkerPoolSource::new(Arc::clone(&registry), config.routing_strategy);
     match &peer_tracker {
-        Some(tracker) => dispatcher.set_aperture(Arc::clone(tracker), config.min_aperture),
+        Some(tracker) => pool_source.set_aperture(Arc::clone(tracker), config.min_aperture),
         None if config.routing_strategy == RoutingStrategy::Aperture => {
             warn!(
                 "INGESTION_ROUTING_STRATEGY=aperture without peer awareness (PEER_SERVICE_NAME); \
@@ -262,7 +277,6 @@ async fn async_main(config: Config) -> Result<()> {
         }
         None => {}
     }
-    let dispatcher = Arc::new(dispatcher);
 
     let grpc_port = if config.ingestion_worker_grpc_port_offset > 0 {
         GrpcPort::OffsetFromHttp(config.ingestion_worker_grpc_port_offset)
@@ -277,17 +291,37 @@ async fn async_main(config: Config) -> Result<()> {
 
     let mut transport = GrpcTransport::new(
         grpc_port,
-        config.ingestion_worker_concurrent_batches,
         Duration::from_millis(config.ingestion_worker_stream_ack_timeout_ms),
     );
     transport.set_max_body_bytes(config.transport_max_body_bytes);
+    transport.set_idle_close(Duration::from_millis(
+        config.ingestion_worker_stream_idle_close_ms,
+    ));
     transport.set_assignment_epoch(assignment_epoch);
     let transport = Arc::new(transport);
+
+    // The batcher owns the dispatch orchestration; the consumer loop only
+    // submits polls to it and reads group completions back.
+    let state_machine = config
+        .batcher_state_machine()
+        .map_err(|err| anyhow::anyhow!("invalid batcher configuration: {err}"))?;
+    let (batcher, batcher_outputs) = Batcher::new(
+        state_machine,
+        pool_source.clone(),
+        Arc::clone(&transport),
+        debug_recorder.clone(),
+    );
 
     // Select the worker discovery provider and start it (static applies the
     // configured list immediately; endpointslice watches and keeps in sync).
     let discovery: Box<dyn WorkerDiscovery> = match config.worker_discovery_mode {
-        DiscoveryMode::Static => Box::new(StaticDiscovery::new(config.worker_urls())),
+        DiscoveryMode::Static => {
+            let urls = config.worker_urls();
+            if urls.is_empty() {
+                anyhow::bail!("No worker addresses configured");
+            }
+            Box::new(StaticDiscovery::new(urls))
+        }
         DiscoveryMode::EndpointSlice => {
             if config.worker_service_name.is_empty() {
                 anyhow::bail!("WORKER_SERVICE_NAME is required for endpointslice discovery");
@@ -347,53 +381,77 @@ async fn async_main(config: Config) -> Result<()> {
         let group_id = config.ingestion_consumer_group_id.clone();
         {
             let registry = Arc::clone(&registry);
-            let dispatcher = Arc::clone(&dispatcher);
+            let pool_source = pool_source.clone();
+            let observer = batcher.observer();
             let peer_tracker = peer_tracker.clone();
             let group_id = group_id.clone();
             let secret = Arc::clone(&secret);
             app = app.route(
                 "/debug/load",
                 get(move |headers: axum::http::HeaderMap| {
-                    let result = if !debug_authorized(&headers, &secret) {
-                        Err(axum::http::StatusCode::UNAUTHORIZED)
-                    } else {
-                        Ok(axum::Json(build_debug_load(
+                    let registry = Arc::clone(&registry);
+                    let pool_source = pool_source.clone();
+                    let observer = observer.clone();
+                    let peer_tracker = peer_tracker.clone();
+                    let group_id = group_id.clone();
+                    let secret = Arc::clone(&secret);
+                    async move {
+                        if !debug_authorized(&headers, &secret) {
+                            return Err(axum::http::StatusCode::UNAUTHORIZED);
+                        }
+                        let load = build_debug_load(
                             &group_id,
                             &registry,
-                            &dispatcher,
+                            &pool_source,
+                            &observer,
                             &peer_tracker,
-                        )))
-                    };
-                    ready(result)
+                        )
+                        .await;
+                        Ok(axum::Json(load))
+                    }
                 }),
             );
         }
         {
             let recorder = Arc::clone(recorder);
             let registry = Arc::clone(&registry);
-            let dispatcher = Arc::clone(&dispatcher);
+            let pool_source = pool_source.clone();
+            let observer = batcher.observer();
             let peer_tracker = peer_tracker.clone();
             let group_id = group_id.clone();
             let secret = Arc::clone(&secret);
             app = app.route(
                 "/debug/state",
                 get(move |headers: axum::http::HeaderMap| {
-                    let result = if !debug_authorized(&headers, &secret) {
-                        Err(axum::http::StatusCode::UNAUTHORIZED)
-                    } else {
-                        let load =
-                            build_debug_load(&group_id, &registry, &dispatcher, &peer_tracker);
+                    let recorder = Arc::clone(&recorder);
+                    let registry = Arc::clone(&registry);
+                    let pool_source = pool_source.clone();
+                    let observer = observer.clone();
+                    let peer_tracker = peer_tracker.clone();
+                    let group_id = group_id.clone();
+                    let secret = Arc::clone(&secret);
+                    async move {
+                        if !debug_authorized(&headers, &secret) {
+                            return Err(axum::http::StatusCode::UNAUTHORIZED);
+                        }
+                        let load = build_debug_load(
+                            &group_id,
+                            &registry,
+                            &pool_source,
+                            &observer,
+                            &peer_tracker,
+                        )
+                        .await;
                         Ok(axum::Json(DebugState {
                             group_id: load.group_id,
                             workers: load.workers,
-                            dispatcher: load.dispatcher,
+                            batcher: load.batcher,
                             peer_index: load.peer_index,
                             peer_count: load.peer_count,
                             routing: load.routing,
                             events: recorder.backlog(),
                         }))
-                    };
-                    ready(result)
+                    }
                 }),
             );
         }
@@ -472,8 +530,8 @@ async fn async_main(config: Config) -> Result<()> {
     });
 
     // For dynamic discovery, wait for the first workers before consuming so the
-    // first batch has somewhere to route. Readiness stays 503 until the consumer
-    // starts; the server above keeps the probes answering during the wait.
+    // first batch has somewhere to route. Readiness stays 503 until the gate
+    // opens below; the server above keeps the probes answering during the wait.
     if config.worker_discovery_mode == DiscoveryMode::EndpointSlice {
         info!("Waiting for the first workers from EndpointSlice discovery");
         while registry.worker_count() == 0 {
@@ -487,26 +545,11 @@ async fn async_main(config: Config) -> Result<()> {
         }
     }
 
-    // The batcher owns the dispatch orchestration; the consumer loop only
-    // submits polls to it and reads group completions back.
-    let (batcher, batcher_outputs) = match config.scheduler {
-        SchedulerKind::PinStash => Batcher::new(
-            Arc::clone(&dispatcher),
-            Arc::clone(&transport),
-            consumer_handle.clone(),
-            Duration::from_millis(config.consumer_deferred_flush_timeout_ms),
-        ),
-        SchedulerKind::KeyTable => {
-            let state_machine = config
-                .batcher_state_machine()
-                .map_err(|err| anyhow::anyhow!("invalid key-table configuration: {err}"))?;
-            Batcher::with_state_machine(
-                state_machine,
-                dispatcher.worker_pool_source(),
-                Arc::clone(&transport),
-            )
+    if config.routing_strategy == RoutingStrategy::Aperture {
+        if let Some(tracker) = &peer_tracker {
+            wait_for_peer_list(tracker, &config.peer_service_name, &consumer_handle).await;
         }
-    };
+    }
 
     // Reap drained workers: once a departed worker has finished its in-flight
     // batches (or hit the drain timeout), remove it from the registry and prune
@@ -538,6 +581,7 @@ async fn async_main(config: Config) -> Result<()> {
         });
     }
 
+    readiness.open();
     let consumer = IngestionConsumer::new(
         &config,
         batcher,
@@ -592,12 +636,13 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// Merge the registry's health snapshots with the dispatcher's in-flight load
-/// into the `/debug/load` payload.
-fn build_debug_load(
+/// Merge the registry's health snapshots with the batcher's load into the
+/// `/debug/load` payload.
+async fn build_debug_load(
     group_id: &str,
-    registry: &ingestion_consumer::worker_registry::WorkerRegistry,
-    dispatcher: &Dispatcher,
+    registry: &WorkerRegistry,
+    pool_source: &WorkerPoolSource,
+    observer: &BatcherObserver,
     peer_tracker: &Option<Arc<k8s_awareness::PeerTracker>>,
 ) -> DebugLoad {
     let (peer_index, peer_count) = match peer_tracker {
@@ -607,30 +652,38 @@ fn build_debug_load(
         }
         None => (None, None),
     };
-    let dispatcher_load = dispatcher.debug_load();
+    let batcher = observer.snapshot().await;
     // One registry pass feeds the worker rows AND the routing ring/slice, so a
     // worker joining or changing health mid-request can't make the payload
     // show slice badges that contradict the worker table.
     let snapshots = registry.health_snapshots();
-    let ring_workers: Vec<WorkerId> = snapshots
-        .iter()
-        .map(|snap| WorkerId::from(snap.url.as_str()))
-        .collect();
+    let ring = aperture::sorted_ring(
+        snapshots
+            .iter()
+            .filter(|snap| !snap.draining)
+            .map(|snap| WorkerId::from(snap.url.as_str()))
+            .collect(),
+    );
     let healthy: Vec<WorkerId> = snapshots
         .iter()
         .filter(|snap| snap.routable)
         .map(|snap| WorkerId::from(snap.url.as_str()))
         .collect();
-    let routing = dispatcher.debug_routing(ring_workers, &healthy);
+    let slice = pool_source.slice(&ring, &healthy);
+    let routing = RoutingDebug {
+        strategy: pool_source.strategy().as_str().to_string(),
+        min_aperture: pool_source.min_aperture(),
+        ring: ring.iter().map(|w| w.to_string()).collect(),
+        slice: slice.map(|s| s.iter().map(|c| c.worker.to_string()).collect()),
+    };
     let workers = snapshots
         .into_iter()
         .map(|snap| {
-            let in_flight_messages = dispatcher_load
+            let (in_flight_requests, in_flight_messages) = batcher
                 .per_worker
                 .iter()
-                .find(|entry| entry.worker == snap.url)
-                .map(|entry| entry.in_flight)
-                .unwrap_or(0);
+                .find(|load| load.worker.as_ref() == snap.url)
+                .map_or((0, 0), |load| (load.requests, load.messages));
             WorkerStatus {
                 url: snap.url,
                 state: snap.state,
@@ -638,6 +691,7 @@ fn build_debug_load(
                 consecutive_probe_failures: snap.consecutive_probe_failures,
                 passive_error_rate: snap.passive_error_rate,
                 passive_samples: snap.passive_samples,
+                in_flight_requests,
                 in_flight_messages,
             }
         })
@@ -645,7 +699,23 @@ fn build_debug_load(
     DebugLoad {
         group_id: group_id.to_string(),
         workers,
-        dispatcher: dispatcher_load,
+        batcher: BatcherLoad {
+            total_in_flight: batcher.in_flight_messages,
+            pending_messages: batcher.pending_messages,
+            in_flight_requests: batcher.in_flight_requests,
+            keys: batcher.keys,
+            queued_bytes: batcher.queued_bytes,
+            waiting_keys: batcher.waiting_keys,
+            claimed_keys: batcher.claimed_keys,
+            governor: GovernorLoad {
+                adaptation: batcher.governor.adaptation.as_str(),
+                permits: batcher.governor.permits,
+                ceiling: batcher.governor.ceiling,
+                free_permits: batcher.governor.free_permits,
+                starved_messages: batcher.governor.starved_messages,
+                rtt_seconds: batcher.governor.rtt.map(|rtt| rtt.as_secs_f64()),
+            },
+        },
         peer_index,
         peer_count,
         routing,

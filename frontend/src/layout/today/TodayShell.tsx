@@ -1,39 +1,73 @@
 import './TodayShell.scss'
 
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { Suspense, useEffect, useRef } from 'react'
+import { ComponentType, Suspense, useEffect, useRef } from 'react'
 
 import { Skeleton, ToastProvider } from '@posthog/quill'
 
 import 'scenes/project-homepage/today/Today.scss'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
-import { TodayHomeSidebar } from 'scenes/project-homepage/today/TodayHomeSidebar'
 
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
+import { TodayNavSwitchDialog } from './TodayNavSwitchDialog'
+import { TodayPaneIntro } from './TodayPaneIntro'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
 import { TODAY_PANES } from './todayRailItems'
 import { todayRecentsLogic } from './todayRecentsLogic'
-import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
+import {
+    TODAY_RAIL_WIDTH,
+    TODAY_SIDEBAR_CLOSE_THRESHOLD,
+    TodayRailPane,
+    clampSidebarWidth,
+    todayShellLogic,
+} from './todayShellLogic'
 import { TodaySidebarCollapseButton } from './TodaySidebarCollapseButton'
 import { TodaySidebarFooter } from './TodaySidebarFooter'
 import { TodaySidebarPinButton } from './TodaySidebarPinButton'
 import { TodayTabBar } from './TodayTabBar'
+import { TodayTour } from './TodayTour'
 
 const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m) => ({ default: m.TodaySpacesPane })))
-const TodayViewsSidebar = lazyWithRetry(() =>
-    import('./TodayViewsSidebar').then((m) => ({ default: m.TodayViewsSidebar }))
+const TodayAnalyticsSidebar = lazyWithRetry(() =>
+    import('products/today/frontend/analytics/TodayAnalyticsSidebar').then((m) => ({
+        default: m.TodayAnalyticsSidebar,
+    }))
 )
-const TodayProductsSidebar = lazyWithRetry(() =>
-    import('./TodayProductsSidebar').then((m) => ({ default: m.TodayProductsSidebar }))
+const TodayMonitorSidebar = lazyWithRetry(() =>
+    import('products/today/frontend/monitor/TodayMonitorSidebar').then((m) => ({
+        default: m.TodayMonitorSidebar,
+    }))
 )
+const TodayPeopleSidebar = lazyWithRetry(() =>
+    import('./TodayPeopleSidebar').then((m) => ({ default: m.TodayPeopleSidebar }))
+)
+const TodayProductsPane = lazyWithRetry(() =>
+    import('./TodayProductsPane').then((m) => ({ default: m.TodayProductsPane }))
+)
+const ReleaseSidebar = lazyWithRetry(() =>
+    import('products/release/frontend/ReleaseSidebar').then((m) => ({ default: m.ReleaseSidebar }))
+)
+const TodaySettingsSidebar = lazyWithRetry(() =>
+    import('./TodaySettingsSidebar').then((m) => ({ default: m.TodaySettingsSidebar }))
+)
+const PANE_SIDEBARS: Record<Exclude<TodayRailPane, 'home'>, { Sidebar: ComponentType; previews?: boolean }> = {
+    spaces: { Sidebar: TodaySpacesPane },
+    analytics: { Sidebar: TodayAnalyticsSidebar, previews: true },
+    monitor: { Sidebar: TodayMonitorSidebar, previews: true },
+    people: { Sidebar: TodayPeopleSidebar, previews: true },
+    release: { Sidebar: ReleaseSidebar },
+    settings: { Sidebar: TodaySettingsSidebar },
+    products: { Sidebar: TodayProductsPane },
+}
+
 const NewSpaceDialog = lazyWithRetry(() =>
     import('products/tasks/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
 )
@@ -42,9 +76,9 @@ const NewSpaceDialog = lazyWithRetry(() =>
 export function TodayShell({ className }: { className?: string }): JSX.Element {
     const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
         useValues(todayShellLogic)
-    // Records the tools and sessions visited while other panes are open, so each pane's Recent group is ready.
-    useMountedLogic(todayRecentsLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
+    // Mounted with the shell rather than the shell logic, so its code loads with the lazy shell, not on every page.
+    useMountedLogic(todayRecentsLogic)
     useShortcut({
         name: 'ToggleLeftNav',
         keybind: [keyBinds.toggleLeftNav, keyBinds.toggleLeftNavFallback],
@@ -89,19 +123,17 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         }
     }, [mobileLayout, sidebarVisible])
 
+    const paneSidebar = activePane === 'home' ? null : PANE_SIDEBARS[activePane]
     const paneContent = (
         <Suspense fallback={<Skeleton className="m-4 h-24" />}>
-            {activePane === 'home' ? (
-                <TodayPreviewCardProvider>
-                    <TodayHomeSidebar />
-                </TodayPreviewCardProvider>
-            ) : activePane === 'spaces' ? (
-                <TodaySpacesPane />
-            ) : activePane === 'views' ? (
-                <TodayViewsSidebar />
-            ) : (
-                <TodayProductsSidebar />
-            )}
+            {paneSidebar &&
+                (paneSidebar.previews ? (
+                    <TodayPreviewCardProvider disabled={phoneLayout}>
+                        <paneSidebar.Sidebar />
+                    </TodayPreviewCardProvider>
+                ) : (
+                    <paneSidebar.Sidebar />
+                ))}
         </Suspense>
     )
 
@@ -114,21 +146,31 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 className="group/header border-b-transparent"
                 back={<TodaySidebarCollapseButton />}
                 title={
-                    <div className="flex min-w-0 items-center gap-1">
+                    // The header gap puts the title 2px to the right of the pane row labels. Pull it back so they line up.
+                    <div className="-ms-0.5 flex min-w-0 items-center gap-1">
                         <h2 className="m-0 min-w-0 truncate text-base font-bold text-foreground">{paneTitle}</h2>
                         <TodaySidebarPinButton />
                     </div>
                 }
                 actions={PaneAction && <PaneAction />}
             />
+            {/* Keyed by pane, so a closing animation on one pane's intro never carries over to the next pane's. */}
+            <TodayPaneIntro key={activePane} pane={activePane} />
             {paneContent}
         </div>
     )
 
-    const newSpaceDialog = activePane === 'spaces' && (
-        <Suspense fallback={null}>
-            <NewSpaceDialog />
-        </Suspense>
+    const overlays = (
+        <>
+            {/* Mounted here so the sidebar and the spaces page open the same dialog. */}
+            {activePane === 'spaces' && (
+                <Suspense fallback={null}>
+                    <NewSpaceDialog />
+                </Suspense>
+            )}
+            <TodayNavSwitchDialog />
+            <TodayTour />
+        </>
     )
 
     if (phoneLayout) {
@@ -149,7 +191,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         <TodaySidebarFooter />
                     </aside>
                     <TodayTabBar />
-                    {newSpaceDialog}
+                    {overlays}
                 </div>
             </ToastProvider>
         )
@@ -184,26 +226,24 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                             style={{ width: sidebarWidth }}
                         >
                             {pane}
-                            <TodaySidebarFooter />
                         </aside>
                     </>
                 ) : (
                     sidebarVisible && (
                         <aside
                             ref={sidebarRef}
-                            className="group/sidebar TodayShell__sidebar TodayShell__sidebar--framed relative"
+                            className="group/sidebar TodayShell__sidebar TodayShell__sidebar--framed relative bg-surface-primary"
                             aria-label={paneTitle}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ width: sidebarWidth }}
                         >
                             {pane}
-                            <TodaySidebarFooter />
-                            <Resizer {...resizerLogicProps} className="z-2" offset={0} />
+                            {/* The frame already draws the seam, so the handle's own line shows only on hover. */}
+                            <Resizer {...resizerLogicProps} visible={false} className="z-2" offset={0} />
                         </aside>
                     )
                 )}
-                {/* Mounted here so the sidebar and the spaces page open the same dialog. */}
-                {newSpaceDialog}
+                {overlays}
             </div>
         </ToastProvider>
     )

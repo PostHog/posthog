@@ -7,8 +7,8 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { EnvironmentConfigOption, preflightLogic } from 'lib/logic/preflightLogic'
 import { pluralize } from 'lib/utils/strings'
-import { EnvironmentConfigOption, preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { InstanceSetting } from '~/types'
 

@@ -148,6 +148,7 @@ export const ReplayButton = ({
         <div onClick={handleClick}>
             <ViewRecordingsPlaylistButton
                 filters={filters}
+                label={<span className="@max-[28rem]/page-report-tile:hidden">View recordings</span>}
                 type="tertiary"
                 size="xsmall"
                 tooltip="View session recordings for this segment"

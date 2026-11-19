@@ -180,9 +180,14 @@ export function ExperimentScannerEntryPoint({
     const { linkedScanners, linkedScannersLoading, variantKeys, scannerSetUpDismissed } = useValues(logic)
     const { scannerCrossSellClicked, dismissScannerSetUp, linkedScannerOpened } = useActions(logic)
 
+    // Straight into the wizard: the experiment fixes the type, so there is no template to pick.
     const setUpUrl = combineUrl(
-        urls.replayVisionScannerTemplate('new'),
-        experimentScannerParams({ experimentId: experiment.id as number, variantKey })
+        urls.replayVisionScannerDetails('new'),
+        // Pinned: the editor reports this `entry_point` on replay_vision_scanner_created.
+        {
+            ...experimentScannerParams({ experimentId: experiment.id as number, variantKey }),
+            entry_point: 'experiment_recordings_tab',
+        }
     ).url
 
     if (linkedScannersLoading) {

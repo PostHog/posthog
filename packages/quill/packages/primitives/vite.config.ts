@@ -11,6 +11,18 @@ export default defineConfig({
         dts({
             tsconfigPath: resolve(__dirname, 'tsconfig.build.json'),
             exclude: ['src/**/*.stories.tsx', 'src/**/*.stories.ts'],
+            // An inferred type that names a dependency's private module emits an import path consumers
+            // cannot resolve, and their types silently become `any`. Fail the build instead.
+            afterBuild: (emittedFiles) => {
+                const unresolvable = [...emittedFiles]
+                    .filter(([, content]) => content.includes("import('node_modules"))
+                    .map(([file]) => file)
+                if (unresolvable.length > 0) {
+                    throw new Error(
+                        `Declarations import from node_modules by path. Annotate the export with a public type:\n${unresolvable.join('\n')}`
+                    )
+                }
+            },
         }),
     ],
     build: {
@@ -20,6 +32,13 @@ export default defineConfig({
             fileName: (format) => `index.${format === 'es' ? 'js' : 'cjs'}`,
         },
         rollupOptions: {
+            // One ES file per source module. The app's bundler splits code by file, so a single-file build
+            // puts every primitive on a page that uses one. frontend/bin/quillImports.mjs relies on
+            // this layout: it reads dist/index.js to find the file that defines each export.
+            output: [
+                { format: 'es', preserveModules: true, preserveModulesRoot: 'src', entryFileNames: '[name].js' },
+                { format: 'cjs', entryFileNames: 'index.cjs' },
+            ],
             external: [
                 'react',
                 'react-dom',

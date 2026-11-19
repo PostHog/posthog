@@ -4,8 +4,9 @@ One request can run several ClickHouse queries (a trends insight runs one per se
 opens ``query_stats_scope()`` around the run, ``sync_execute`` calls ``record()`` after each query,
 and the runner reads the totals at the end. With no scope open, ``record()`` does nothing.
 
-A new thread does not see the scope its parent opened, so a runner that runs its queries in threads
-reads the totals with ``get_active()`` and installs them in each thread with ``use()``.
+A new thread does not see the scope its parent opened unless it runs in a copy of the parent's
+context, as ``run_in_parallel_threads`` does. Threads that run in such copies all record into the
+parent's ``QueryStats``.
 """
 
 from __future__ import annotations
@@ -144,20 +145,6 @@ def query_stats_scope(*, retain_ast: bool = False) -> Iterator[QueryStats]:
 def get_active() -> QueryStats | None:
     """The totals of the open scope, or None when none is open."""
     return _accumulator.get()
-
-
-@contextlib.contextmanager
-def use(stats: QueryStats | None) -> Iterator[None]:
-    """Record into ``stats`` inside this block, for a thread that does not see its parent's scope.
-    Does nothing for None."""
-    if stats is None:
-        yield
-        return
-    token = _accumulator.set(stats)
-    try:
-        yield
-    finally:
-        _accumulator.reset(token)
 
 
 def record(*, rows_read: int, duration_ms: float, lookup: bool = False, workload: str | None = None) -> None:

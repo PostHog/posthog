@@ -18,12 +18,23 @@ def _slugify(name: str) -> str:
     return slug or "unnamed"
 
 
+# Every file name that write_case_logs builds ends in one of these.
+CASE_LOG_SUFFIXES = (".jsonl", ".artifacts.json", ".summary.txt", ".toolchain.json")
+
+
+def _case_log_slug(case_name: str, trial_id: str | None) -> str:
+    trial_suffix = f".trial-{_slugify(trial_id)}" if trial_id else ""
+    case_name_limit = 255 - len(trial_suffix) - max(len(suffix) for suffix in CASE_LOG_SUFFIXES)
+    return _slugify(case_name)[:case_name_limit] + trial_suffix
+
+
 @dataclass(frozen=True)
 class CaseLogPaths:
     case_dir: Path
     raw_log: Path
     artifacts: Path
     summary: Path
+    tool_chain: Path
 
 
 def build_case_dir(experiment_name: str, experiment_id: str) -> Path:
@@ -111,29 +122,50 @@ def write_case_logs(
     duration: float,
     last_message: str,
     token_usage: dict[str, Any] | None = None,
+    *,
+    trial_id: str | None = None,
+    trace_id: str | None = None,
+    tool_chain: list[dict[str, Any]] | None = None,
 ) -> CaseLogPaths:
-    slug = _slugify(case_name)
+    slug = _case_log_slug(case_name, trial_id)
     paths = CaseLogPaths(
         case_dir=case_dir,
         raw_log=case_dir / f"{slug}.jsonl",
         artifacts=case_dir / f"{slug}.artifacts.json",
         summary=case_dir / f"{slug}.summary.txt",
+        tool_chain=case_dir / f"{slug}.toolchain.json",
     )
 
     paths.raw_log.write_text(raw_log or "")
+    paths.tool_chain.write_text(json.dumps(tool_chain or [], indent=2, default=str))
     paths.artifacts.write_text(json.dumps(artifacts, indent=2, default=str))
-    paths.summary.write_text(_format_summary(case_name, prompt, duration, last_message, token_usage))
+    summary = _format_summary(case_name, prompt, duration, last_message, token_usage)
+    if trial_id:
+        summary = f"trial_id: {trial_id}\n" + summary
+    if trace_id:
+        summary = f"trace_id: {trace_id}\n" + summary
+    paths.summary.write_text(summary)
     return paths
 
 
-def append_case_scores(case_dir: Path, case_name: str, scores: dict[str, Any]) -> None:
-    slug = _slugify(case_name)
+def append_case_scores(
+    case_dir: Path,
+    case_name: str,
+    scores: dict[str, Any],
+    *,
+    trial_id: str | None = None,
+    phase_durations: dict[str, float] | None = None,
+) -> None:
+    slug = _case_log_slug(case_name, trial_id)
     summary_path = case_dir / f"{slug}.summary.txt"
     if not summary_path.exists():
         return
 
     rendered = json.dumps(scores, indent=2, default=str)
     with summary_path.open("a") as f:
+        if phase_durations:
+            f.write("=== phase_seconds ===\n")
+            f.write(json.dumps(phase_durations, indent=2) + "\n")
         f.write("=== scores ===\n")
         f.write(rendered)
         f.write("\n")

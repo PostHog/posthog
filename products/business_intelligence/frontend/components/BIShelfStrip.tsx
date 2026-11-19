@@ -23,7 +23,7 @@ export function BIShelfStrip({
     children: ReactNode[]
 }): JSX.Element {
     const { config } = useValues(biEditorLogic)
-    const { addBlankFieldToShelf } = useActions(biEditorLogic)
+    const { editCalculatedField } = useActions(biEditorLogic)
 
     return (
         <BIShelfDropTarget shelf={shelf} className="flex min-h-9 items-stretch rounded-none border-b">
@@ -41,9 +41,11 @@ export function BIShelfStrip({
                     tooltip="Add a calculated field"
                     aria-label={`Add a calculated field to ${title.toLowerCase()}`}
                     disabledReason={!config.source ? 'Select a data source first' : undefined}
-                    onClick={() => addBlankFieldToShelf(shelf)}
+                    onClick={() => editCalculatedField(undefined, shelf)}
                     data-attr={`bi-editor-${shelf}-add-field`}
-                />
+                >
+                    Field
+                </LemonButton>
             </div>
         </BIShelfDropTarget>
     )

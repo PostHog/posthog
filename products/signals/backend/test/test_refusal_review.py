@@ -1,5 +1,7 @@
 import json
+import hashlib
 from collections.abc import Generator
+from dataclasses import asdict, replace
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -46,17 +48,33 @@ async def test_noisy_refusal_can_recover_before_review(stored_records: dict[str,
 
 
 @pytest.mark.asyncio
-async def test_three_refusals_preserve_the_signal_and_skip_batch_retries(stored_records: dict[str, str]) -> None:
+@pytest.mark.parametrize("legacy", [False, True])
+async def test_three_refusals_preserve_the_signal_and_skip_batch_retries(
+    stored_records: dict[str, str], legacy: bool
+) -> None:
     signal = make_signal()
     generate = AsyncMock(side_effect=llm.LLMRefusalError())
+
+    if legacy:
+        payload = asdict(signal)
+        del payload["signal_id"]
+        fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+        stored_records[f"signals/refusal_review/{signal.team_id}/{fingerprint}.json"] = json.dumps(
+            {"signal": payload, "attempts": 3, "status": "needs_review"}
+        )
 
     assert await generate_queries_or_preserve_refusal(signal, generate) is None
     record = json.loads(stored_records[refusal_review_key(signal)])
     assert record["status"] == "needs_review"
     assert record["attempts"] == 3
     assert EmitSignalInputs(**record["signal"]) == signal
-    assert await generate_queries_or_preserve_refusal(signal, generate) is None
-    assert generate.await_count == 3
+    assert (
+        await generate_queries_or_preserve_refusal(
+            replace(signal, signal_id="00000000-0000-0000-0000-000000000001"), generate
+        )
+        is None
+    )
+    assert generate.await_count == (0 if legacy else 3)
 
 
 @pytest.mark.asyncio

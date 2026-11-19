@@ -25,6 +25,7 @@ export default meta
 type Story = StoryObj<typeof SubscriptionDeliveryHistory>
 
 const pageWithRows: PaginatedSubscriptionDeliveryListApi = {
+    count: MOCK_SUBSCRIPTION_DELIVERIES.length,
     results: MOCK_SUBSCRIPTION_DELIVERIES,
     next: null,
     previous: null,
@@ -82,7 +83,7 @@ export const WithExpandedAiReport: Story = {
 
 export const Empty: Story = {
     args: {
-        deliveriesPage: { results: [], next: null, previous: null },
+        deliveriesPage: { count: 0, results: [], next: null, previous: null },
         deliveriesPageLoading: false,
         loadDeliveriesPage: noopLoadPage,
         onTestDelivery: noopTestDelivery,

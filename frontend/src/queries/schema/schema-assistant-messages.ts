@@ -514,9 +514,11 @@ export type AssistantTool =
     | 'marketing_audit_utm'
     | 'marketing_suggest_conversion_goals'
     | 'marketing_suggest_utm_mappings'
+    | 'compare_replay_vision_variants'
     | 'draft_replay_vision_scanner_prompt'
     | 'search_replay_vision_observations'
     | 'scan_replay_vision_sessions'
+    | 'get_replay_vision_scan_results'
     | 'retry_replay_vision_observation'
     | 'get_replay_vision_quota'
     | 'create_replay_vision_scanner'
@@ -526,7 +528,7 @@ export type AssistantTool =
     | 'estimate_replay_vision_scanner'
     | 'label_replay_vision_observation'
     | 'analyze_replay_vision_impact'
-    | 'suggest_replay_vision_tags'
+    | 'get_replay_vision_observation_stats'
     | 'upsert_account'
     | 'upsert_account_notebook'
     | 'open_account'
@@ -543,8 +545,6 @@ export enum AgentMode {
     Flags = 'flags',
     AIObservability = 'llm_analytics',
     Sandbox = 'sandbox',
-    /** Retired. Kept so stored conversations in this mode still load. */
-    UserInterview = 'user_interview',
     CustomerAnalytics = 'customer_analytics',
 }
 

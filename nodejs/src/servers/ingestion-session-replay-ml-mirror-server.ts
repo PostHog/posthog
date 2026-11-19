@@ -29,7 +29,6 @@ import { BlackholeSessionBatchFileStorage } from '~/ingestion/pipelines/sessionr
 import { S3SessionBatchFileStorage } from '~/ingestion/pipelines/sessionreplay/sessions/s3-session-batch-writer'
 import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-store'
 import { CaptureWatermark } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 import { RedisPool } from '~/types'
 
@@ -40,12 +39,13 @@ import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'
 export { type IngestionSessionReplayMlMirrorServerConfig, buildMlMirrorServerConfig } from './ml-mirror-server-config'
 
 /** Boot-time smoke test so a broken addon crashes startup instead of dropping all traffic later. */
-async function assertAnonymizerHealthy(anonymizer: typeof import('@posthog/replay-anonymizer')): Promise<void> {
+export async function assertAnonymizerHealthy(anonymizer: typeof import('@posthog/replay-anonymizer')): Promise<void> {
     const inner = JSON.stringify({
         event: '$snapshot_items',
         properties: {
             $session_id: 's',
             $window_id: 'w',
+            $snapshot_source: 'web',
             $snapshot_items: [{ type: 3, timestamp: Date.now(), data: { source: 5, id: 1, text: 'health check' } }],
         },
     })
@@ -136,12 +136,11 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
         const collaborators: SessionRecordingIngesterCollaborators = {
             fileStorage,
             metadataStore,
-            // Console logs and ML features are not mirrored.
+            // Console logs are not mirrored.
             consoleLogStore: new SessionConsoleLogStore(outputs, {
                 messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT,
                 enabled: false,
             }),
-            featureStore: new SessionFeatureStore(outputs, false),
             keyStore: keyManager,
             encryptor: keyManager,
             compression: ML_BLOCK_COMPRESSION,
@@ -162,6 +161,7 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
                     // lane follows its producer flag. The URL lane collects on its own flag,
                     // because collecting alone measures without sending anything anywhere.
                     collectImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED,
+                    maxImageBytes: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGE_BYTES,
                     collectUrls: this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED,
                 },
                 // Producing needs collection: without it the anonymizer returns no URLs, and
@@ -181,6 +181,7 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
             // would then fetch a missing key and record cleartext.
             redisKeyNamespace: 'ml-mirror',
             captureWatermark: new CaptureWatermark('ml_mirror'),
+            reportUsage: false,
         }
 
         const ingester = new SessionRecordingIngester(

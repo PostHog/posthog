@@ -16,6 +16,7 @@ export interface experimentScannerPickerLogicValues {
     experimentOptions: ExperimentBasicApi[]
     experimentOptionsLoading: boolean
     hasLoadedOptions: boolean
+    loadFailed: boolean
     search: string
 }
 
@@ -72,6 +73,10 @@ export const experimentScannerPickerLogic = kea<experimentScannerPickerLogicType
     reducers({
         search: ['', { setSearch: (_: string, { search }: { search: string }) => search }],
         hasLoadedOptions: [false, { loadOptionsSuccess: () => true }],
+        loadFailed: [
+            false,
+            { loadOptions: () => false, loadOptionsSuccess: () => false, loadOptionsFailure: () => true },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -92,7 +97,10 @@ export const experimentScannerPickerLogic = kea<experimentScannerPickerLogicType
                         search: values.search || undefined,
                     })
                     breakpoint()
-                    return response.results ?? []
+                    // A group-aggregated flag exposes groups, not persons, so the API refuses a scanner on it.
+                    return (response.results ?? []).filter(
+                        (experiment) => experiment.feature_flag?.filters?.aggregation_group_type_index == null
+                    )
                 },
             },
         ],
@@ -103,7 +111,7 @@ export const experimentScannerPickerLogic = kea<experimentScannerPickerLogicType
             actions.loadOptions({ debounce: true })
         },
         ensureOptionsLoaded: () => {
-            if (!values.hasLoadedOptions && !values.experimentOptionsLoading) {
+            if ((!values.hasLoadedOptions || values.loadFailed) && !values.experimentOptionsLoading) {
                 actions.loadOptions({ debounce: false })
             }
         },

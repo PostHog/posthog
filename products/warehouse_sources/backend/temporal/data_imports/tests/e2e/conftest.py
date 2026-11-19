@@ -209,7 +209,7 @@ async def run_external_data_job_workflow(
                     DuckLakeRegisterDataImportsWorkflow,
                     DuckLakeCopyDataImportsWorkflow,
                 ],
-                activities=ACTIVITIES,  # type: ignore
+                activities=ACTIVITIES,
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
                 max_concurrent_activities=50,
@@ -234,7 +234,9 @@ async def run_external_data_job_workflow(
 
     mock_run_scheduled.assert_called()
     mock_get_data_import_finished_metric.assert_called_with(
-        source_type=external_data_source.source_type, status=ExternalDataJob.Status.COMPLETED.lower()
+        source_type=external_data_source.source_type,
+        status=ExternalDataJob.Status.COMPLETED.lower(),
+        streak="none",
     )
 
     await external_data_schema.arefresh_from_db()

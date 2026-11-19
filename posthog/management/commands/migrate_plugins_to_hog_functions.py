@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
 
-from posthog.cdp.migrations import migrate_legacy_plugins
+from products.cdp.backend.plugin_migrations import migrate_legacy_plugins
 
 
 class Command(BaseCommand):

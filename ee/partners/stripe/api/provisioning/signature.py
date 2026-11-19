@@ -20,7 +20,6 @@ explicit with ``if error := verify_...(request): return error``.
 
 from __future__ import annotations
 
-from django.conf import settings
 from django.http.request import RawPostDataException
 
 import structlog
@@ -28,6 +27,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration.stripe import stripe_signing_secret
 
 from ee.partners.stripe.api.provisioning.analytics import capture_signature_event
 from ee.partners.stripe.api.provisioning.constants import MAX_TIMESTAMP_DRIFT_SECONDS, SUPPORTED_VERSIONS
@@ -68,7 +68,7 @@ def verify_stripe_signature(request: Request) -> Response | None:
     """
     endpoint = request.path
 
-    secret = settings.STRIPE_SIGNING_SECRET
+    secret = stripe_signing_secret()
     if not secret:
         _log_and_capture_event("server_error", 500, endpoint)
         return Response({"error": {"code": "server_error", "message": "Signing secret not configured"}}, status=500)

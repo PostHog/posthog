@@ -17,6 +17,7 @@ import {
     LogsColumnConfig,
     LogsColumnType,
     columnLabel,
+    customColumnFilterTarget,
 } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { AttributeCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/AttributeCell'
@@ -59,7 +60,7 @@ export const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = 
 // Cell components that read per-row state from kea — avoids baking
 // frequently-changing state into column closures.
 
-function ControlsCell({ log, showSessionErrors }: { log: ParsedLogMessage; showSessionErrors: boolean }): JSX.Element {
+function ControlsCell({ log }: { log: ParsedLogMessage }): JSX.Element {
     const { selectedLogIds, expandedLogIds } = useValues(logsViewerLogic)
     const { toggleSelectLog, toggleExpandLog } = useActions(logsViewerLogic)
 
@@ -96,18 +97,12 @@ function ControlsCell({ log, showSessionErrors }: { log: ParsedLogMessage; showS
                     onClick={(e) => e.stopPropagation()}
                 />
             </div>
-            {showSessionErrors && <SessionErrorsCell log={log} />}
+            <SessionErrorsCell log={log} />
         </div>
     )
 }
 
-function ControlsHeader({
-    dataSourceRef,
-    showSessionErrors,
-}: {
-    dataSourceRef: RefObject<ParsedLogMessage[]>
-    showSessionErrors: boolean
-}): JSX.Element {
+function ControlsHeader({ dataSourceRef }: { dataSourceRef: RefObject<ParsedLogMessage[]> }): JSX.Element {
     const { selectedCount } = useValues(logsViewerLogic)
     const { selectAll, clearSelection } = useActions(logsViewerLogic)
 
@@ -126,7 +121,7 @@ function ControlsHeader({
                 />
             </div>
             <div style={{ width: EXPAND_WIDTH, flexShrink: 0 }} />
-            {showSessionErrors && <div style={{ width: SESSION_ERRORS_WIDTH, flexShrink: 0 }} />}
+            <div style={{ width: SESSION_ERRORS_WIDTH, flexShrink: 0 }} />
         </div>
     )
 }
@@ -206,19 +201,15 @@ function MessageColumnCell({
 
 export function createControlsColumn(params: {
     dataSourceRef: RefObject<ParsedLogMessage[]>
-    showSessionErrors: boolean
 }): VirtualizedTableColumn<ParsedLogMessage> {
     return {
         key: 'controls',
         sizing: {
             type: 'fixed',
-            width:
-                SEVERITY_WIDTH + CHECKBOX_WIDTH + EXPAND_WIDTH + (params.showSessionErrors ? SESSION_ERRORS_WIDTH : 0),
+            width: SEVERITY_WIDTH + CHECKBOX_WIDTH + EXPAND_WIDTH + SESSION_ERRORS_WIDTH,
         },
-        render: (log) => <ControlsCell log={log} showSessionErrors={params.showSessionErrors} />,
-        renderHeader: () => (
-            <ControlsHeader dataSourceRef={params.dataSourceRef} showSessionErrors={params.showSessionErrors} />
-        ),
+        render: (log) => <ControlsCell log={log} />,
+        renderHeader: () => <ControlsHeader dataSourceRef={params.dataSourceRef} />,
     }
 }
 
@@ -398,14 +389,23 @@ export function createConfiguredColumn(params: {
               ? (log: ParsedLogMessage): JSX.Element => (
                     <IdentityCell log={log} type={identityType} width={totalWidth} />
                 )
-              : (log: ParsedLogMessage): JSX.Element => (
-                    <AttributeCell
-                        attributeKey={semanticKey}
-                        value={getBuiltInValue ? getBuiltInValue(log) : customColumnValue(log, alias)}
-                        width={totalWidth}
-                        timestamp={log.timestamp}
-                    />
-                )
+              : (log: ParsedLogMessage): JSX.Element => {
+                    // Raw map: the stringified copy drops a `__proto__` key that the server still reads
+                    const filterTarget =
+                        config.type === 'custom'
+                            ? customColumnFilterTarget(config, log.originalLog.attributes, log.resource_attributes)
+                            : undefined
+                    return (
+                        <AttributeCell
+                            attributeKey={semanticKey}
+                            value={getBuiltInValue ? getBuiltInValue(log) : customColumnValue(log, alias)}
+                            filterKey={filterTarget?.key}
+                            filterType={filterTarget?.type}
+                            width={totalWidth}
+                            timestamp={log.timestamp}
+                        />
+                    )
+                }
 
     return {
         key: `col:${config.id}`,

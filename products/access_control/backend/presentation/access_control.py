@@ -2,6 +2,7 @@ from collections.abc import Callable
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, Optional, cast
 
+from django.db import transaction
 from django.db.models import Model
 
 from rest_framework import exceptions, serializers, status
@@ -11,11 +12,14 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.documentation import extend_schema
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
+from posthog.event_usage import EventSource, get_event_source
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
-from posthog.scopes import GRANTABLE_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import APIScopeObjectOrNotSupported
+from posthog.scopes.exposure import GRANTABLE_API_SCOPE_OBJECTS
 from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade import api as access_control_api
@@ -25,11 +29,12 @@ from products.access_control.backend.facade.enums import (
     RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES,
     SCOPE_OBJECT_CHOICES,
 )
-from products.access_control.backend.facade.object_names import display_model
-from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
+from products.access_control.backend.facade.object_names import display_model, resolve_object_names
+from products.access_control.backend.facade.subject_access_control import SubjectAccessControl, seeded_member_subjects
 from products.access_control.backend.facade.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE,
+    DASHBOARD_EDIT_LIMIT_RESOURCE,
     AccessSource,
     ResolvedAccess,
     UserAccessControl,
@@ -49,14 +54,28 @@ else:
     _GenericViewSet = object
 
 
-def _inherited_source_display_name(obj: Model, access: ResolvedAccess) -> str | None:
+def _access_target(view: Any, obj: Any) -> Model | ObjectAccessRef:
+    """`obj` as object access control reads it. A view that serves facade contracts returns a
+    contract from `get_object()`, and it names the object for access control through its
+    `object_access_ref()`."""
+    return obj if isinstance(obj, Model) else view.object_access_ref(obj)
+
+
+def _inherited_source_display_name(obj: Model | ObjectAccessRef, access: ResolvedAccess) -> str | None:
     """A human name for the parent object an inherited level comes through, so the UI can say
     which one. Only object-scoped sources have one, and the parent is always the object's own
     fallback relation (that's where the walk got its id), so it is read off the object — cached
     by Django, free when already loaded — never refetched by id. The name field comes from the
-    same registry the settings UI names objects with, so a new fallback parent needs no code here."""
+    same registry the settings UI names objects with, so a new fallback parent needs no code here.
+    A reference carries only the parent's id, so its parent is named by id instead."""
     if access.source != "parent_object":
         return None
+    if isinstance(obj, ObjectAccessRef):
+        parent_id = obj.fallback_parent.id if obj.fallback_parent else None
+        if parent_id is None:
+            return None
+        parent_name = resolve_object_names(access.source_resource, [parent_id], obj.team_id).get(parent_id)
+        return parent_name.name if parent_name else None
     parent = fallback_parent_object(obj, access.source_resource)
     display = display_model(access.source_resource)
     if parent is None or display is None:
@@ -198,7 +217,7 @@ class AccessControlSerializer(serializers.ModelSerializer):
         # We assume the highest level is required for the given resource to edit access controls
         required_level = highest_access_level(resource)
         team = context["view"].team
-        the_object = context["view"].get_object()
+        the_object = _access_target(context["view"], context["view"].get_object())
 
         # Role-backed access controls require the ROLE_BASED_ACCESS feature — same gate
         # as the UI's "Roles" blocks and the runtime enforcement in UserTeamPermissions.
@@ -214,13 +233,19 @@ class AccessControlSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("The member must belong to the same organization as this project.")
 
         if resource_id:
-            if str(the_object.pk) != str(resource_id):
+            object_id = the_object.id if isinstance(the_object, ObjectAccessRef) else the_object.pk
+            if str(object_id) != str(resource_id):
                 raise exceptions.PermissionDenied(
                     "Cannot modify access controls for a resource different from the URL target."
                 )
 
             # Check that they have the right access level for this specific resource object
-            if not access_control.check_can_modify_access_levels_for_object(the_object):
+            can_modify = (
+                access_control.check_can_modify_access_levels_for_ref(the_object)
+                if isinstance(the_object, ObjectAccessRef)
+                else access_control.check_can_modify_access_levels_for_object(the_object)
+            )
+            if not can_modify:
                 raise exceptions.PermissionDenied(f"Must be {required_level} to modify {resource} permissions.")
 
             # Cap distinct objects with per-object overrides.
@@ -256,6 +281,15 @@ class AccessControlSerializer(serializers.ModelSerializer):
 TERRAFORM_MANAGED_MESSAGE = "Access control for this project is managed with Terraform."
 
 
+def is_terraform_request(request: Request) -> bool:
+    """True for a request from the Terraform provider with personal API key authentication. A session
+    request is never a Terraform request, so a browser cannot mark a project."""
+    return (
+        isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+        and get_event_source(request) == EventSource.TERRAFORM
+    )
+
+
 def apply_access_control_rule(
     *,
     team: Team,
@@ -275,30 +309,54 @@ def apply_access_control_rule(
     if not access_control_api.can_write_access_rules(team_id=team.id, user_id=user.id):
         raise exceptions.PermissionDenied(TERRAFORM_MANAGED_MESSAGE)
 
-    instance = AccessControl.objects.filter(
-        team=team,
-        resource=params["resource"],
-        resource_id=params.get("resource_id"),
-        organization_member=params.get("organization_member"),
-        role=params.get("role"),
-    ).first()
+    with transaction.atomic():
+        instance = AccessControl.objects.filter(
+            team=team,
+            resource=params["resource"],
+            resource_id=params.get("resource_id"),
+            organization_member=params.get("organization_member"),
+            role=params.get("role"),
+        ).first()
 
-    if params["access_level"] is None:
-        if instance is None:
-            return None
-        instance.delete()
-        # Drop the preloaded access-control snapshot so later reads this request are fresh.
-        user_access_control._clear_cache()
-        return None
+        if params["access_level"] is None:
+            if instance is not None:
+                instance.delete()
+            rule = None
+        else:
+            if instance:
+                serializer = build_serializer(instance)
+                serializer.is_valid(raise_exception=True)
+            serializer.validated_data["team"] = team
+            rule = serializer.save()
 
-    if instance:
-        serializer = build_serializer(instance)
-        serializer.is_valid(raise_exception=True)
-    serializer.validated_data["team"] = team
-    rule = serializer.save()
+        if params["resource"] == "dashboard" and params.get("resource_id") is not None:
+            limits = AccessControl.objects.filter(
+                team=team, resource=DASHBOARD_EDIT_LIMIT_RESOURCE, resource_id=params["resource_id"]
+            )
+            if params.get("organization_member") is None and params.get("role") is None:
+                limits_deleted, _ = limits.delete()
+                if limits_deleted:
+                    # Keep migration retries from restoring a limit the admin explicitly removed.
+                    AccessControl.objects.create(
+                        team=team,
+                        resource=DASHBOARD_EDIT_LIMIT_RESOURCE,
+                        resource_id=params["resource_id"],
+                        access_level="editor",
+                    )
+            elif limits.filter(organization_member__isnull=True, role__isnull=True, access_level="viewer").exists():
+                limits.filter(organization_member=params.get("organization_member"), role=params.get("role")).delete()
+                if params["access_level"] in ("editor", "manager"):
+                    AccessControl.objects.create(
+                        team=team,
+                        resource=DASHBOARD_EDIT_LIMIT_RESOURCE,
+                        resource_id=params["resource_id"],
+                        organization_member=params.get("organization_member"),
+                        role=params.get("role"),
+                        access_level="editor",
+                    )
+
     # Drop the preloaded access-control snapshot so later reads this request are fresh.
     user_access_control._clear_cache()
-
     return rule
 
 
@@ -421,7 +479,13 @@ class AccessControlViewSetMixin(_GenericViewSet):
             access_controls = AccessControl.objects.filter(team=team, resource=resource, resource_id=resource_id).all()
 
         serializer = self._get_access_control_serializer(instance=access_controls, many=True)
-        user_access_level = user_access_control.get_user_access_level(obj)
+        target = _access_target(self, obj)
+        if isinstance(target, ObjectAccessRef):
+            user_access_level = user_access_control.access_level_for_ref(target)
+            can_modify = user_access_control.check_can_modify_access_levels_for_ref(target)
+        else:
+            user_access_level = user_access_control.get_user_access_level(target)
+            can_modify = user_access_control.check_can_modify_access_levels_for_object(target)
 
         payload: dict[str, Any] = {
             "access_controls": serializer.data,
@@ -433,7 +497,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "minimum_access_level": minimum_access_level(resource) if not is_resource_level else "none",
             "maximum_access_level": highest_access_level(resource) if not is_resource_level else "manager",
             "user_access_level": user_access_level,
-            "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj)
+            "user_can_edit_access_levels": can_modify
             and access_control_api.can_write_access_rules(team_id=team.id, user_id=cast(User, request.user).id),
         }
 
@@ -448,10 +512,15 @@ class AccessControlViewSetMixin(_GenericViewSet):
             # a project's own default, which has nothing above it to fall back to. "No override"
             # belongs to object defaults only — project-level access is configured in its own
             # panel, which has no inherited tier to fall back to.
-            inherited = SubjectAccessControl.for_default(user_access_control, team).inherited_access_for_object(obj)
+            default_subject = SubjectAccessControl.for_default(user_access_control, team)
+            inherited = (
+                default_subject.inherited_access_for_ref(target)
+                if isinstance(target, ObjectAccessRef)
+                else default_subject.inherited_access_for_object(target)
+            )
             payload["inherited_access"] = (
                 InheritedAccessSerializer(
-                    {**asdict(inherited), "source_display_name": _inherited_source_display_name(obj, inherited)}
+                    {**asdict(inherited), "source_display_name": _inherited_source_display_name(target, inherited)}
                 ).data
                 if inherited
                 else None
@@ -469,30 +538,36 @@ class AccessControlViewSetMixin(_GenericViewSet):
         if not resource or resource == "INTERNAL":
             raise exceptions.NotFound("User access information is not available for this resource.")
 
-        obj = self.get_object()
+        target = _access_target(self, self.get_object())
 
-        org_memberships = (
-            OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
-            .select_related("user")
-            .prefetch_related("role_memberships__role")
+        memberships = list(
+            OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True).select_related(
+                "user"
+            )
         )
 
         users_with_access = []
 
-        for membership in org_memberships:
+        for membership, user_uac in zip(memberships, seeded_member_subjects(team, memberships), strict=True):
             user = membership.user
-            user_uac = UserAccessControl(user=user, team=team)
 
             # Check if user has access to the project first
             project_access = user_uac.check_access_level_for_object(team, required_level="member")
             if not project_access:
                 continue
 
-            access_level = user_uac.get_user_access_level(obj)
+            if isinstance(target, ObjectAccessRef):
+                access_level = user_uac.access_level_for_ref(target)
+            else:
+                access_level = user_uac.get_user_access_level(target)
             if access_level is None or access_level == "none":
                 continue
 
-            access_source = user_uac.get_access_source_for_object(obj, resource) or AccessSource.DEFAULT
+            access_source = (
+                user_uac.get_access_source_for_ref(target)
+                if isinstance(target, ObjectAccessRef)
+                else user_uac.get_access_source_for_object(target, resource)
+            ) or AccessSource.DEFAULT
 
             users_with_access.append(
                 {
@@ -500,7 +575,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
                     "access_level": access_level,
                     "access_source": access_source.value,
                     "organization_membership_id": membership.id,
-                    "organization_membership_level": OrganizationMembership.Level(membership.level).name.lower(),
+                    "organization_membership_level": OrganizationMembership.Level(
+                        membership.effective_level
+                    ).name.lower(),
                 }
             )
 
@@ -549,9 +626,15 @@ class AccessControlViewSetMixin(_GenericViewSet):
             data["resource"] = resource
             data["resource_id"] = resource_id
 
+        user = cast(User, request.user)
+        # Terraform writes rules only through this method. A Terraform write enables the lock and
+        # sets the Terraform account before the rule is written, so the guard lets the write through.
+        if is_terraform_request(request):
+            access_control_api.set_terraform_lock(team_id=team.id, enabled=True, terraform_user_id=user.id)
+
         return upsert_access_control(
             team=team,
-            user=cast(User, request.user),
+            user=user,
             user_access_control=self.user_access_control,  # type: ignore[attr-defined]
             build_serializer=lambda instance: self._get_access_control_serializer(instance, data=request.data),
         )
@@ -688,7 +771,14 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             # "project" access is object-level (checked against the Team instance), not resource-level.
             # For models with a team FK (e.g. Team extensions), use the team for the project check.
             if resource == "project":
+                # Without the entitlement a project rule is never consulted, and the admin-only team
+                # fields are gated on the membership level by validate_team_attrs instead.
+                if not user_access_control.access_controls_supported:
+                    continue
                 obj_for_check = getattr(self.instance, "team", self.instance)
+                if obj_for_check is None:
+                    # A global record (team=None) belongs to no project, so no project-level field rule applies.
+                    continue
                 has_access = user_access_control.check_access_level_for_object(obj_for_check, required_level)
             else:
                 has_access = user_access_control.check_access_level_for_resource(resource, required_level)

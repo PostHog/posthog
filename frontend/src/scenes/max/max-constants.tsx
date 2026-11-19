@@ -106,7 +106,7 @@ export interface ToolDefinition<N extends string = string> {
 }
 
 /** Active instance of a tool. */
-export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'description'> {
+export interface ToolRegistration extends Partial<Pick<ToolDefinition, 'name' | 'description'>> {
     /** A unique identifier for the tool */
     identifier: keyof typeof TOOL_DEFINITIONS
     /**
@@ -740,7 +740,11 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         modes: [AgentMode.ErrorTracking],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                return 'Found issues'
+                const issues = toolCall.result?.ui_payload?.search_error_tracking_issues?.issues
+                if (!Array.isArray(issues)) {
+                    return 'Searched issues'
+                }
+                return issues.length > 0 ? 'Found issues' : 'No issues found'
             }
             return 'Searching issues...'
         },
@@ -769,6 +773,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Summarized experiment results'
             }
             return 'Summarizing experiment results...'
+        },
+    },
+    compare_replay_vision_variants: {
+        name: 'Compare experiment variants',
+        description: 'Compare experiment variants: what an experiment scanner found in each variant',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Compared experiment variants'
+            }
+            return 'Comparing experiment variants...'
         },
     },
     draft_replay_vision_scanner_prompt: {
@@ -805,6 +821,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Starting scans...'
             }
             return ['Scanned recordings', replayVisionScanWidgetDef(toolCall)]
+        },
+    },
+    get_replay_vision_scan_results: {
+        name: 'Read scan results',
+        description: 'Read scan results for each recording in a Replay Vision scan, failures included',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Read the scan results'
+            }
+            return 'Reading the scan results...'
         },
     },
     retry_replay_vision_observation: {
@@ -903,6 +931,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Rate a result...'
         },
     },
+    get_replay_vision_observation_stats: {
+        name: 'Count observations',
+        description: "Count observations: a scanner's exact total and its breakdown by status and result",
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Counted observations'
+            }
+            return 'Counting observations...'
+        },
+    },
     analyze_replay_vision_impact: {
         name: 'Measure impact',
         description: "Measure impact: how many sessions and people a scanner's findings affected",
@@ -913,18 +953,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Measure impact'
             }
             return 'Measure impact...'
-        },
-    },
-    suggest_replay_vision_tags: {
-        name: 'Suggest categories',
-        description: 'Suggest categories for a classifier, grounded in what it has seen',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Suggest categories'
-            }
-            return 'Suggest categories...'
         },
     },
     create_survey: {
@@ -1460,10 +1488,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
 }
 
 export const MODE_DEFINITIONS: Record<
-    Exclude<
-        AgentMode,
-        AgentMode.Plan | AgentMode.Execution | AgentMode.Research | AgentMode.Sandbox | AgentMode.UserInterview
-    >,
+    Exclude<AgentMode, AgentMode.Plan | AgentMode.Execution | AgentMode.Research | AgentMode.Sandbox>,
     ModeDefinition
 > = {
     [AgentMode.ProductAnalytics]: {

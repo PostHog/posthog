@@ -39,6 +39,52 @@ describe('workflowActivityDescriber', () => {
         expect(text).toContain('updated actions')
     })
 
+    const ONE_TIME_OCT_20 = {
+        rrule: 'FREQ=DAILY;COUNT=1',
+        starts_at: '2026-10-20T10:00:00+00:00',
+        timezone: 'Europe/London',
+    }
+    const ONE_TIME_OCT_22 = { ...ONE_TIME_OCT_20, starts_at: '2026-10-22T10:00:00+00:00' }
+    const WEEKLY = { rrule: 'FREQ=WEEKLY;BYDAY=TU', starts_at: '2026-09-01T09:00:00+00:00', timezone: 'UTC' }
+
+    it.each([
+        [
+            'moved',
+            'changed',
+            ONE_TIME_OCT_20,
+            ONE_TIME_OCT_22,
+            'moved a schedule from Oct 20, 2026 at 11:00 AM (Europe/London) to Oct 22, 2026 at 11:00 AM (Europe/London)',
+        ],
+        ['added', 'created', null, WEEKLY, 'added a schedule: every week on Tuesday at 9:00 AM (UTC)'],
+        ['removed', 'deleted', WEEKLY, null, 'removed a schedule: every week on Tuesday at 9:00 AM (UTC)'],
+    ])('describes a schedule that was %s', (_label, action, before, after, expected) => {
+        const scheduleChange = {
+            type: ActivityScope.HOG_FLOW,
+            action,
+            field: 'schedule',
+            before,
+            after,
+        } as ActivityChange
+        const text = getTextContent(workflowActivityDescriber(workflowLogItem([scheduleChange])))
+
+        expect(text).toContain(expected)
+    })
+
+    it.each([
+        ['batch_run_started', 'started a batch run of the workflow: Welcome email'],
+        ['batch_run_stopped', 'stopped a batch run of the workflow: Welcome email'],
+    ])('describes a %s entry with its batch run', (activity, expected) => {
+        const logItem = workflowLogItem([])
+        const described = workflowActivityDescriber({
+            ...logItem,
+            activity,
+            detail: { ...logItem.detail, context: { batch_job_id: 'job-uuid', filters: {} } },
+        })
+
+        expect(getTextContent(described)).toContain(expected)
+        expect(render(<>{described.extendedDescription}</>).container.textContent).toContain('Batch run job-uuid')
+    })
+
     it('still diffs individual items when both sides really are arrays', () => {
         const text = getTextContent(
             workflowActivityDescriber(

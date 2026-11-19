@@ -64,10 +64,14 @@ const CREATED_SCOUT: SignalScoutCreateResponseApi = {
         lifecycle_locked: false,
         network_access: 'trusted',
         model: null,
+        custom_image_id: null,
         precheck_query: null,
         precheck_disabled: false,
         effective_precheck_query: null,
         precheck_query_source: 'off',
+        last_precheck_at: null,
+        last_precheck_outcome: null,
+        last_precheck_row_count: null,
         source_product: null,
         source_id: null,
         created_at: '2026-07-24T00:00:00Z',
@@ -170,7 +174,7 @@ describe('scoutCreateModalLogic', () => {
                 run_cron_schedule: null,
                 mcp_gateway_server_ids: [],
                 repositories: [],
-                write_scopes: [],
+                write_scopes: ['notebook:write'],
                 output_destinations: {
                     slack: {
                         integration_id: 42,
@@ -195,7 +199,7 @@ describe('scoutCreateModalLogic', () => {
                 run_cron_schedule: null,
                 mcp_gateway_server_ids: [],
                 repositories: [],
-                write_scopes: [],
+                write_scopes: ['notebook:write'],
                 output_destinations: {
                     slack: {
                         integration_id: 42,
@@ -240,7 +244,7 @@ describe('scoutCreateModalLogic', () => {
             mcp_gateway_server_ids: [],
             repositories: [],
             tags: [],
-            write_scopes: [],
+            write_scopes: ['notebook:write'],
         })
         expect(onEnabled).toHaveBeenCalledTimes(1)
         expect(onCreated).not.toHaveBeenCalled()
@@ -340,7 +344,7 @@ describe('scoutCreateModalLogic', () => {
                     tags: [],
                     mcp_gateway_server_ids: [],
                     repositories: [],
-                    write_scopes: [],
+                    write_scopes: ['notebook:write'],
                 },
             }),
         })
@@ -357,7 +361,7 @@ describe('scoutCreateModalLogic', () => {
                     tags: [],
                     mcp_gateway_server_ids: [],
                     repositories: [],
-                    write_scopes: [],
+                    write_scopes: ['notebook:write'],
                 },
             })
         )

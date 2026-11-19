@@ -122,6 +122,7 @@ export interface AgentToolCall {
   details?: unknown;
   parentId?: string;
   origin?: "agent" | "user_shell";
+  _meta?: Record<string, unknown> | null;
 }
 
 interface AgentConversationEventIdentity {

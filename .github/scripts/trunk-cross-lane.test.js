@@ -38,7 +38,7 @@ for (const [name, files, mixed] of [
     ['prose beside Node', ['README.md', 'nodejs/src/ingestion/ingestion-consumer.ts'], false],
     [
         'a Python workflow beside a Rust workflow',
-        ['.github/workflows/ci-backend.yml', '.github/workflows/ci-rust.yml'],
+        ['.depot/workflows/ci-backend.yml', '.github/workflows/ci-rust.yml'],
         false,
     ],
 ]) {

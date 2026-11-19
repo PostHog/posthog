@@ -6,11 +6,11 @@ import { NotFound } from 'lib/components/NotFound'
 import { Link } from 'lib/lemon-ui/Link'
 import { DashboardHeader } from 'scenes/dashboard/DashboardHeader'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { urls } from 'scenes/urls'
 
 import { DashboardLoadingState } from './components/DashboardLoadingState/DashboardLoadingState'
+import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 const DASHBOARD_STATES = [
     'Loading',

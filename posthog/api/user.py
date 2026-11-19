@@ -16,6 +16,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import Exists, OuterRef
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone as django_timezone
@@ -46,8 +47,9 @@ from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
-from posthog.schema import UserUIConfiguration
+from posthog.schema import SessionReplayListConfiguration, UserUIConfiguration
 
+from posthog.after_response import run_after_response
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.notification_settings import validate_notification_settings
 from posthog.api.oauth.toolbar_service import (
@@ -64,6 +66,7 @@ from posthog.api.oauth.toolbar_service import (
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, OrganizationNotificationLockSerializer, TeamBasicSerializer
+from posthog.api.user_settings_viewset import CurrentUserLookupMixin
 from posthog.api.utils import (
     ClassicBehaviorBooleanFieldSerializer,
     action,
@@ -82,6 +85,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS, AvailableFeature
 from posthog.email import is_email_available
 from posthog.event_usage import (
+    groups,
     report_user_deleted_account,
     report_user_email_change_requested,
     report_user_identity_change_refused,
@@ -94,6 +98,7 @@ from posthog.helpers.email_utils import (
     EmailLookupHandler,
     EmailNormalizer,
     EmailValidationHelper,
+    reject_lookalike_email_characters,
     reject_plus_addressed_email,
     validate_display_name,
 )
@@ -105,6 +110,7 @@ from posthog.helpers.two_factor_session import (
     set_two_factor_verified_in_session,
 )
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
+from posthog.ip_restrictions import get_ip_blocked_organization_ids
 from posthog.middleware import (
     IMPERSONATION_REASON_SESSION_KEY,
     get_impersonated_session_expires_at,
@@ -115,17 +121,23 @@ from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token, has_live_
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.organization_notification_lock import notification_locks_for_users
-from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.user import (
-    ROLE_CHOICES,
-    Notifications,
-    OnboardingSkippedReason,
-    ShortcutPosition,
-    preserve_starred_products_setup,
-)
+from posthog.models.organization_provisioning import OrganizationProvisioning
+from posthog.models.personal_api_key import PersonalAPIKey, max_personal_api_keys_for_user
+from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+from posthog.models.user import ROLE_CHOICES, Notifications, OnboardingSkippedReason, ShortcutPosition
 from posthog.models.webauthn_credential import WebauthnCredential
-from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
+from posthog.permissions import (
+    APIScopePermission,
+    TimeSensitiveActionPermission,
+    UserNoOrgMembershipDeletePermission,
+    credential_admits_organization,
+    credential_admits_team,
+    get_authenticator_scoped_team_ids,
+    get_request_reachable_organization_ids,
+    organization_refuses_personal_api_key,
+)
 from posthog.rate_limit import (
     OnboardingSkipThrottle,
     ToolbarOAuthRefreshThrottle,
@@ -156,10 +168,12 @@ from posthog.tasks.email import (
     send_two_factor_auth_enabled_email,
 )
 from posthog.user_permissions import UserPermissions
-from posthog.utils import render_template
+from posthog.utils import get_safe_cache, render_template, safe_cache_set
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
+from products.dashboards.backend.facade.api import find_dashboard_team_id
 from products.notifications.backend.facade.api import NotificationType
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
@@ -170,6 +184,10 @@ NUM_2FA_BACKUP_CODES = 10
 # `product_intro_seen` is exempt from the re-auth gate, so it gets a ceiling of its own. Only a new key
 # is refused at the ceiling, so an intro the user already dismissed still reopens and closes.
 MAX_PRODUCT_INTROS_SEEN = 100
+
+# Building the person properties runs several queries. The user's own edits refresh them through
+# "user updated", so the per-request refresh only catches slower drift such as project counts.
+PERSON_PROPERTIES_REFRESH_INTERVAL_SECONDS = 60 * 60
 
 
 logger = structlog.get_logger(__name__)
@@ -237,6 +255,27 @@ class OnboardingSkipRequestSerializer(serializers.Serializer):
     )
 
 
+def _reserve_person_properties_refresh_if_due(user: User) -> bool:
+    # Store the last refreshed project, not one key per project. A project switch through
+    # AutoProjectMiddleware sends no "user updated", so a switch back to an earlier project
+    # must refresh too.
+    key = f"user_person_properties_refreshed:{user.id}"
+    context = f"{user.current_organization_id}:{user.current_team_id}"
+    if get_safe_cache(key) == context:
+        return False
+    safe_cache_set(key, context, timeout=PERSON_PROPERTIES_REFRESH_INTERVAL_SECONDS)
+    return True
+
+
+@tracer.start_as_current_span("user_serializer.identify")
+def _refresh_person_properties(user: User) -> None:
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="update user properties",
+        properties={"$set": user.get_analytics_metadata()},
+    )
+
+
 class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
@@ -284,11 +323,9 @@ class UserSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar "
-            "section and item visibility, and SQL editor settings such as Vim mode and the vimrc. "
-            "Send the complete object: it replaces the stored value "
-            "wholesale. Null means no customization; absent keys mean the element is shown. Once "
-            "`sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true."
+            "Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL "
+            "editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the "
+            "stored value wholesale. Null means no customization."
         ),
     )
     anonymize_data = ClassicBehaviorBooleanFieldSerializer(
@@ -315,9 +352,10 @@ class UserSerializer(serializers.ModelSerializer):
     )
     requires_credential_review = serializers.SerializerMethodField(
         help_text=(
-            "True if the user has at least one Personal API Key or passkey, or a third-party OAuth "
-            "application that can currently act as them, and has not yet acknowledged that access. "
-            "Used to gate a one-shot review screen on first post-provisioning login. Becomes False "
+            "True if the user belongs to an organization that a partner provisioned, has not yet "
+            "acknowledged the access on their account, and has at least one Personal API Key or passkey, "
+            "or a third-party OAuth application that can currently act as them. Used to gate a one-shot "
+            "review screen on first post-provisioning login. Becomes False "
             "once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only."
         ),
     )
@@ -326,6 +364,14 @@ class UserSerializer(serializers.ModelSerializer):
             "Notification settings an organization admin enforces on this user. The matching "
             "controls are read-only, and `notification_settings` still holds the user's own "
             "choice underneath. Read-only."
+        ),
+    )
+    personal_api_keys_limit = serializers.SerializerMethodField(
+        help_text=(
+            "How many personal API keys the user may hold, from the `personal_api_keys` billing "
+            "entitlement of the user's organizations. The highest limit across their organizations "
+            "applies, and 10 when no organization grants a limit. Creating a key beyond it is "
+            "rejected with a validation error. Read-only."
         ),
     )
 
@@ -386,6 +432,7 @@ class UserSerializer(serializers.ModelSerializer):
             "pending_invites",
             "requires_credential_review",
             "notification_locks",
+            "personal_api_keys_limit",
         ]
 
         read_only_fields = [
@@ -437,6 +484,7 @@ class UserSerializer(serializers.ModelSerializer):
             # verification and so cannot rewrite the address a person signs in with.
             return self.instance.email
         reject_plus_addressed_email(value)
+        reject_lookalike_email_characters(value)
         # Excluding the editor lets a legacy '+' account holder drop their own alias.
         exclude_user_id = self.instance.pk if self.instance else None
         if EmailValidationHelper.user_exists_with_stripped_alias(
@@ -518,12 +566,36 @@ class UserSerializer(serializers.ModelSerializer):
     def get_has_social_auth(self, instance: User) -> bool:
         return instance.social_auth.exists()
 
+    @extend_schema_field(serializers.IntegerField())
+    def get_personal_api_keys_limit(self, instance: User) -> int:
+        return max_personal_api_keys_for_user(instance)
+
     @tracer.start_as_current_span("user_serializer.requires_credential_review")
     def get_requires_credential_review(self, instance: User) -> bool:
         if instance.credentials_reviewed_at is not None:
             return False
         # impersonating users shouldn't bounced into the credential review screen
         if is_impersonated(self.context.get("request")):
+            return False
+        # A self-signed-up user verifies their email before the first login, so nobody else can add
+        # credentials to the account first. TeamProvisioningConfig and a Vercel installation cover
+        # organizations provisioned before OrganizationProvisioning existed. A "connectable" Vercel
+        # integration links an organization the user already owned, so it does not count.
+        organization_id = OuterRef("organization_id")
+        if (
+            not OrganizationMembership.objects.filter(user=instance)
+            .filter(
+                Exists(OrganizationProvisioning.objects.filter(organization_id=organization_id))
+                | Exists(TeamProvisioningConfig.objects.filter(team__organization_id=organization_id))
+                | Exists(
+                    OrganizationIntegration.objects.filter(
+                        organization_id=organization_id,
+                        kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+                    ).exclude(config__contains={"type": "connectable"})
+                )
+            )
+            .exists()
+        ):
             return False
         if PersonalAPIKey.objects.filter(user=instance).exists():
             return True
@@ -618,15 +690,14 @@ class UserSerializer(serializers.ModelSerializer):
         # would otherwise ship a huge payload on every hit.
         PENDING_INVITES_MAX = 25
 
-        invites = (
-            OrganizationInvite.objects.filter(
-                target_email__iexact=normalized_email,
-                created_at__gt=django_timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
-            )
-            .exclude(organization_id__in=existing_org_ids)
-            .select_related("organization")
-            .order_by("-created_at")[:PENDING_INVITES_MAX]
-        )
+        invites = OrganizationInvite.objects.filter(
+            target_email__iexact=normalized_email,
+            created_at__gt=django_timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+        ).exclude(organization_id__in=existing_org_ids)
+        reachable_organizations = get_request_reachable_organization_ids(self.context.get("request"))
+        if reachable_organizations is not None:
+            invites = invites.filter(organization_id__in=reachable_organizations)
+        invites = invites.select_related("organization").order_by("-created_at")[:PENDING_INVITES_MAX]
 
         return [
             {
@@ -642,7 +713,11 @@ class UserSerializer(serializers.ModelSerializer):
     def validate_set_current_organization(self, value: str) -> Organization:
         try:
             organization = Organization.objects.get(id=value)
-            if organization.memberships.filter(user=self.context["request"].user).exists():
+            request = self.context["request"]
+            if (
+                credential_admits_organization(request, organization.id)
+                and organization.memberships.filter(user=request.user).exists()
+            ):
                 # A member the org no longer admits can't point their session back at it — this
                 # endpoint is on the enforcement whitelist, so it must refuse on its own.
                 if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
@@ -658,7 +733,11 @@ class UserSerializer(serializers.ModelSerializer):
     def validate_set_current_team(self, value: str) -> Team:
         try:
             team = Team.objects.get(pk=value)
-            if self.context["request"].user.teams.filter(pk=team.pk).exists():
+            request = self.context["request"]
+            if (
+                credential_admits_team(request, team.id, team.organization_id)
+                and request.user.teams.filter(pk=team.pk).exists()
+            ):
                 return team
         except Team.DoesNotExist:
             pass
@@ -669,11 +748,13 @@ class UserSerializer(serializers.ModelSerializer):
         return validate_notification_settings(cast(User, self.instance), notification_settings)
 
     def validate_ui_configuration(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
-        value = preserve_starred_products_setup(cast(Optional[User], self.instance), value)
         if value is None:
             return None
         try:
             UserUIConfiguration.model_validate(value)
+            # The check above coerces "false" to a boolean, but the raw JSON is what gets stored.
+            if value.get("session_replay") is not None:
+                SessionReplayListConfiguration.model_validate(value["session_replay"], strict=True)
         except pydantic.ValidationError as e:
             errors = "; ".join(
                 f"{'.'.join(str(part) for part in error['loc']) or 'root'}: {error['msg']}" for error in e.errors()
@@ -742,7 +823,23 @@ class UserSerializer(serializers.ModelSerializer):
                 )
 
             validated_data["current_organization"] = current_organization
-            validated_data["current_team"] = current_team if current_team else current_organization.teams.first()
+            if not current_team:
+                # Pick from the teams this user can access, as `validate_set_current_team` requires for an
+                # explicit choice: project access control can hide the organization's first team.
+                candidate_teams = instance.teams.filter(organization=current_organization)
+                request = self.context.get("request")
+                scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+                if scoped_teams:
+                    candidate_teams = candidate_teams.filter(id__in=scoped_teams)
+                current_team = candidate_teams.order_by("id").first()
+                # Saving no team would let `User.team` later pick any accessible team, outside the
+                # credential's team list, so refuse the switch instead.
+                if current_team is None and scoped_teams:
+                    raise serializers.ValidationError(
+                        {"set_current_organization": [f"Object with id={current_organization.id} does not exist."]},
+                        code="does_not_exist",
+                    )
+            validated_data["current_team"] = current_team
         elif current_team:
             validated_data["current_team"] = current_team
             validated_data["current_organization"] = current_team.organization
@@ -839,15 +936,51 @@ class UserSerializer(serializers.ModelSerializer):
         # was the whole reason for moving away from it. Server-side capture also keeps
         # working for clients running ad blockers, which a frontend-side identify would
         # silently miss.
-        with tracer.start_as_current_span("user_serializer.identify"):
-            posthoganalytics.capture(
-                distinct_id=instance.distinct_id,
-                event="update user properties",
-                properties={"$set": instance.get_analytics_metadata()},
-            )
+        if _reserve_person_properties_refresh_if_due(instance):
+            run_after_response(self.context.get("request"), lambda: _refresh_person_properties(instance))
 
         with tracer.start_as_current_span("user_serializer.default_fields"):
             data = super().to_representation(instance)
+
+        request = self.context.get("request")
+        if request is not None and data.get("team") is not None:
+            if str(data["team"]["organization"]) in get_ip_blocked_organization_ids(request):
+                data["team"] = None
+
+        # `/api/users/@me/` has no tenant target, so `APIScopePermission` leaves a credential confined to
+        # some organizations free to read the user's current project and organization in any other one.
+        current_team_outside_reach = data.get("team") is not None and not credential_admits_team(
+            request, data["team"]["id"], data["team"]["organization"]
+        )
+        if current_team_outside_reach:
+            data["team"] = None
+        if data.get("organization") is not None and not credential_admits_organization(
+            request, data["organization"]["id"]
+        ):
+            data["organization"] = None
+        # Clients such as the setup agent take `team` as the project to work in. A credential that reaches
+        # one project names that project without doubt. With several, any pick could send a client's
+        # writes to a project the user did not choose, so `team` stays null.
+        if (
+            current_team_outside_reach
+            and request is not None
+            and (sole_team := self._sole_reachable_team(instance, request)) is not None
+        ):
+            data["team"] = TeamBasicSerializer(sole_team, context=self.context).data
+            data["organization"] = OrganizationSerializer(sole_team.organization, context=self.context).data
+        scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+        if scoped_teams and (organization := data.get("organization")) is not None:
+            organization["teams"] = [team for team in organization.get("teams") or [] if team["id"] in scoped_teams]
+            scoped_projects = {team["project_id"] for team in organization["teams"]}
+            organization["projects"] = [
+                project for project in organization.get("projects") or [] if project["id"] in scoped_projects
+            ]
+        if data.get("organizations") is not None:
+            data["organizations"] = [
+                organization
+                for organization in data["organizations"]
+                if credential_admits_organization(request, organization["id"])
+            ]
 
         # Backfill shortcut_position default for frontend if null
         with tracer.start_as_current_span("user_serializer.shortcut_position_backfill"):
@@ -856,17 +989,56 @@ class UserSerializer(serializers.ModelSerializer):
 
         return data
 
+    def _sole_reachable_team(self, user: User, request: Request) -> Team | None:
+        reachable_organizations = get_request_reachable_organization_ids(request)
+        if reachable_organizations is None:
+            return None
+        candidates = Team.objects.filter(organization_id__in=reachable_organizations)
+        scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+        if scoped_teams:
+            candidates = candidates.filter(id__in=scoped_teams)
+        blocked_organizations = get_ip_blocked_organization_ids(request)
+        if blocked_organizations:
+            candidates = candidates.exclude(organization_id__in=blocked_organizations)
+
+        user_permissions = self.context.get("user_permissions")
+        if not isinstance(user_permissions, UserPermissions) or user_permissions.user != user:
+            user_permissions = UserPermissions(user)
+        # `/api/users/@me/` skips the organization gates that every route of the named project applies, so a
+        # project those gates refuse must not be named here either.
+        organization_admits: dict[str, bool] = {}
+        sole_team: Team | None = None
+        for team in candidates.select_related("organization").order_by("id"):
+            organization_id = str(team.organization_id)
+            if organization_id not in organization_admits:
+                organization_admits[organization_id] = not (
+                    OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, team.organization)
+                    or organization_refuses_personal_api_key(request, team.organization)
+                )
+            if (
+                not organization_admits[organization_id]
+                or user_permissions.team(team).effective_membership_level is None
+            ):
+                continue
+            if sole_team is not None:
+                return None
+            sole_team = team
+        return sole_team
+
 
 class ScenePersonalisationSerializer(serializers.ModelSerializer):
+    dashboard = serializers.IntegerField(help_text="ID of the dashboard to show for the scene, in the current team.")
+
     class Meta:
         model = UserScenePersonalisation
         fields = ["scene", "dashboard"]
         read_only_fields = ["user", "team"]
 
-    def validate_dashboard(self, value: Dashboard) -> Dashboard:
+    def validate_dashboard(self, value: int) -> int:
         instance = cast(User, self.instance)
 
-        if value.team != instance.current_team:
+        dashboard_team_id = find_dashboard_team_id(dashboard_id=value)
+        if dashboard_team_id is None or instance.current_team is None or dashboard_team_id != instance.current_team.id:
             raise serializers.ValidationError("Dashboard must belong to the user's current team.")
 
         return value
@@ -892,7 +1064,7 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
             user=instance,
             team=instance.current_team,
             scene=validated_data["scene"],
-            defaults={"dashboard": validated_data["dashboard"]},
+            defaults={"dashboard_id": validated_data["dashboard"]},
         )
 
 
@@ -1018,6 +1190,7 @@ def refuse_pending_email_promotion() -> NoReturn:
     ),
 )
 class UserViewSet(
+    CurrentUserLookupMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
     mixins.ListModelMixin,
@@ -1059,7 +1232,9 @@ class UserViewSet(
         "scene_personalisation",
         "product_intro_seen",
     ]
-    time_sensitive_allow_actions = ["hedgehog_config"]
+    # These actions only dismiss a screen (the credential review, the onboarding redirect). Requiring a
+    # fresh session for them sends a user with an older session back to that screen on every load.
+    time_sensitive_allow_actions = ["hedgehog_config", "credentials_review_complete", "onboarding_skip"]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True).order_by("id")
@@ -1070,31 +1245,11 @@ class UserViewSet(
             return ["user:read"] if request.method == "GET" else ["user:write"]
         return None
 
-    def get_object(self) -> User:
-        lookup_value = self.kwargs[self.lookup_field]
-        request_user = cast(User, self.request.user)  # Must be authenticated to access this endpoint
-        if lookup_value == "@me":
-            self.check_object_permissions(self.request, request_user)
-            return request_user
-
-        if not request_user.is_staff:
-            raise exceptions.PermissionDenied(
-                "As a non-staff user you're only allowed to access the `@me` user instance."
-            )
-
-        return super().get_object()
-
     def get_authenticators(self):
         if self.request and self.request.method == "DELETE":  # Do not support deleting own user account via the API
             return [SessionAuthentication()]
 
         return super().get_authenticators()
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        if not self.request.user.is_staff:
-            queryset = queryset.filter(id=self.request.user.id)
-        return queryset
 
     def get_serializer_context(self):
         return {
@@ -1231,7 +1386,7 @@ class UserViewSet(
 
         try:
             user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
-        except User.DoesNotExist:
+        except (User.DoesNotExist, ValidationError):
             user = None
 
         # A replay of a spent code (double submit) is not a failure: the address is verified.
@@ -1319,7 +1474,7 @@ class UserViewSet(
         throttle_classes=[UserEmailVerificationThrottle],
     )
     def request_email_verification(self, request, **kwargs):
-        uuid = request.data["uuid"]
+        uuid = request.data.get("uuid") if isinstance(request.data, dict) else None
         if not is_email_available():
             raise serializers.ValidationError(
                 "Cannot verify email address because email is not configured for your instance. Please contact your administrator.",
@@ -1327,7 +1482,7 @@ class UserViewSet(
             )
         try:
             user = User.objects.filter(is_active=True).get(uuid=uuid)
-        except User.DoesNotExist:
+        except (User.DoesNotExist, ValidationError):
             user = None
         if user:
             # Allow re-requests when there's a pending email change that still
@@ -1452,6 +1607,7 @@ class UserViewSet(
                 # Fire analytics only after the transaction commits, so a rolled-back
                 # request doesn't produce a skip event the DB doesn't back.
                 distinct_id = str(instance.distinct_id)
+                analytics_groups = groups(instance.organization, instance.team)
 
                 def _fire_skip_analytics() -> None:
                     try:
@@ -1460,7 +1616,11 @@ class UserViewSet(
                         posthoganalytics.capture(
                             distinct_id=distinct_id,
                             event="onboarding skipped",
-                            properties={"step_at_skip": step_at_skip or None, "reason": reason},
+                            properties={
+                                "step_at_skip": step_at_skip or None,
+                                "reason": reason,
+                            },
+                            groups=analytics_groups,
                         )
                     except Exception as exc:
                         capture_exception(exc)
@@ -1532,6 +1692,7 @@ class UserViewSet(
         detail=True,
         throttle_classes=[],
         authentication_classes=[
+            IDJagAccessTokenAuthentication,
             SessionAuthentication,
             PersonalAPIKeyAuthentication,
             OAuthAccessTokenAuthentication,
@@ -1717,7 +1878,11 @@ class UserViewSet(
 
 def _user_can_access_toolbar(user: User, team: Team) -> bool:
     """Whether the user is allowed to launch the toolbar for this team."""
-    return UserAccessControl(user, team=team).check_access_level_for_resource("toolbar", "viewer")
+    return authorization.check(
+        resource=Resource(type=ResourceType.TOOLBAR, project_id=team.pk),
+        action=Action.VIEW,
+        subject=Subject(user_id=user.pk),
+    )
 
 
 @require_http_methods(["GET"])
@@ -1861,7 +2026,12 @@ def toolbar_oauth_callback(request):
     base_url = urllib.parse.urlunparse(parsed._replace(fragment=""))
     quoted_code = urllib.parse.quote(code, safe="")
     quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
-    toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
+    # The toolbar builds every API path from these ids. The grant above is scoped to this team, so they name the only
+    # project its token can reach. Older toolbar builds read up to client_id and ignore the rest.
+    toolbar_param = (
+        f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id},"
+        f"team_id:{team.id},project_id:{team.project_id}"
+    )
     if original_fragment:
         # SPA hash routes (e.g. `#/login`) treat the entire post-`#` substring
         # as the path, so `&` would make the auth params part of the route and

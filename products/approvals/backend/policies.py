@@ -88,7 +88,7 @@ class PolicyEngine:
 
     def get_policy_for_action(self, action_class, team, organization):
         """Get the active policy for an action, falling back to its fallback action keys in order."""
-        for action_key in (action_class.key, *action_class.fallback_policy_action_keys):
+        for action_key in (action_class.key, *action_class.fallback_policy_action_keys_for(organization)):
             policy = self.get_policy(action_key, team, organization)
             if policy:
                 return policy
@@ -326,7 +326,7 @@ class PolicyEngine:
         # Check bypass_org_membership_levels
         if policy.bypass_org_membership_levels:
             membership = actor.organization_memberships.filter(organization=org).first()
-            if membership and membership.level in [int(lvl) for lvl in policy.bypass_org_membership_levels]:
+            if membership and membership.effective_level in [int(lvl) for lvl in policy.bypass_org_membership_levels]:
                 return True
 
         # Check bypass_roles (RBAC roles)

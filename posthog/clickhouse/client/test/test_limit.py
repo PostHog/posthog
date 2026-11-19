@@ -1,21 +1,44 @@
 import uuid
 import asyncio
 from collections.abc import Callable
+from dataclasses import replace
+from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.clickhouse.client.execute import KillSwitchLevel
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
-from posthog.clickhouse.query_tagging import Product, QueryTags, query_tags, reset_query_tags, tag_queries
+from posthog.clickhouse.client.limit import (
+    ConcurrencyLimitExceeded,
+    ConcurrencySlot,
+    QueueWait,
+    RateLimit,
+    get_api_team_rate_limiter,
+    get_app_telemetry_queries_rate_limiter,
+    get_materialized_endpoints_rate_limiter,
+)
+from posthog.clickhouse.query_tagging import (
+    Product,
+    QueryTags,
+    get_query_tag_value,
+    query_tags,
+    reset_query_tags,
+    tag_queries,
+)
 from posthog.constants import AvailableFeature
 
 
-class TestRateLimit(BaseTest):
+class TestRateLimit(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
+        team_bypass_patcher = patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False)
+        team_bypass_patcher.start()
+        self.addCleanup(team_bypass_patcher.stop)
         self.limit = RateLimit(
             max_concurrency=1,
             applicable=lambda *args, **kwargs: kwargs.get("is_api") if "is_api" in kwargs else args[0],
@@ -33,7 +56,8 @@ class TestRateLimit(BaseTest):
                 self.limit.release(slot)
 
     def test_rate_limit(self):
-        args, kwargs = (), {"is_api": True, "team_id": 7, "task_id": 17}
+        args: tuple = ()
+        kwargs: dict[str, Any] = {"is_api": True, "team_id": 7, "task_id": 17}
 
         self.cancels.append(self.limit.use(*args, **kwargs))
 
@@ -41,6 +65,13 @@ class TestRateLimit(BaseTest):
         self.cancels.append(self.limit.use(is_api=True, team_id=8, task_id=17))
         with self.assertRaises(ConcurrencyLimitExceeded):
             self.cancels.append(self.limit.use(True, 8, 18))
+
+    @patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=True)
+    def test_team_bypass_uses_default(self, bypass: Mock) -> None:
+        self.cancels.append(self.limit.use(is_api=True, team_id=8, task_id=17))
+
+        assert self.limit.use(is_api=True, team_id=8, task_id=18) is None
+        bypass.assert_called_once_with(8)
 
     @patch("posthog.clickhouse.client.limit.TEST", False)
     @patch("posthog.clickhouse.client.execute.get_kill_switch_level", return_value=KillSwitchLevel.FULL)
@@ -186,19 +217,18 @@ class TestRateLimit(BaseTest):
 
         assert result == 11
 
-    def test_retry_mechanism_raises_exception(self):
-        """
-        Test that the retry mechanism raises an exception if despite waiting for the retry timeout, the slot is not available.
-        """
+    @parameterized.expand([(False, 1.0, 0.5), (True, 0.0, 0.5), (True, 0.0, 15.0), (True, 1.0, 15.0)])
+    def test_retry_mechanism_raises_exception(self, jitter: bool, fraction: float, timeout: float) -> None:
         retry_limit = RateLimit(
             max_concurrency=1,
             applicable=lambda *args, **kwargs: True,
             limit_name="test_retry_mechanism_raises_exception",
             get_task_name=lambda *args, **kwargs: "test_retry_mechanism_raises_exception",
             get_task_id=lambda *args, **kwargs: f"task-{kwargs.get('task_id', 1)}",
-            ttl=10,
+            ttl=60,
             retry=0.1,  # 100ms initial retry
-            retry_timeout=0.5,  # 500ms total timeout
+            retry_timeout=timeout,
+            retry_jitter=jitter,
         )
 
         time_helper = TimeHelper()
@@ -209,25 +239,27 @@ class TestRateLimit(BaseTest):
         with retry_limit.run(task_id=1):
             pass
 
-        # Second task should retry and eventually fail due to timeout
-        retry_limit.use(task_id=2)
-        with self.assertRaises(ConcurrencyLimitExceeded):
-            with retry_limit.run(task_id=2):
-                pass
+        slot = retry_limit.use(task_id=2)
+        assert slot is not None
+        self.addCleanup(retry_limit.release, slot)
+        with patch(
+            "posthog.clickhouse.client.limit.random.uniform",
+            side_effect=lambda low, high: low + fraction * (high - low),
+        ):
+            with self.assertRaises(ConcurrencyLimitExceeded):
+                with retry_limit.run(task_id=3):
+                    pass
 
-        # Verify exponential backoff
-        assert len(time_helper.sleep_times) == 3
-        for i in range(1, len(time_helper.sleep_times)):
-            assert time_helper.sleep_times[i] > time_helper.sleep_times[i - 1]  # Each retry should wait longer
-        total_sleep_time = sum(time_helper.sleep_times[:-1])
+        assert len(time_helper.sleep_times) >= 3
+        for previous, current in zip(time_helper.sleep_times[:-2], time_helper.sleep_times[1:-1]):
+            assert previous <= current
+        factor = (1 + fraction) / 2 if jitter else 1
+        self.assertAlmostEqual(time_helper.sleep_times[0], 0.1 * factor)
+        assert max(time_helper.sleep_times) <= 1.714 * factor
+        assert timeout - 0.01 < sum(time_helper.sleep_times) <= timeout
 
-        # Verify total time is within timeout
-        assert total_sleep_time <= 0.5  # Should not exceed retry_timeout
-
-    def test_retry_mechanism_acquires_slot(self):
-        """
-        Test that the retry mechanism acquires a slot if it is available.
-        """
+    @parameterized.expand([(False,), (True,)])
+    def test_retry_mechanism_acquires_slot(self, jitter: bool) -> None:
         retry_limit = RateLimit(
             max_concurrency=1,
             applicable=lambda *args, **kwargs: True,
@@ -237,6 +269,7 @@ class TestRateLimit(BaseTest):
             ttl=10,
             retry=0.1,  # 100ms initial retry
             retry_timeout=0.5,  # 500ms total timeout
+            retry_jitter=jitter,
         )
 
         slot = retry_limit.use(task_id=1)  # consumes the slot
@@ -251,17 +284,120 @@ class TestRateLimit(BaseTest):
         retry_limit.sleep = time_helper.sleep
         retry_limit.get_time = time_helper.get_time
 
-        with retry_limit.run(task_id=2):
-            pass
+        with patch("posthog.clickhouse.client.limit.random.uniform", side_effect=lambda low, high: (low + high) / 2):
+            with retry_limit.run(task_id=2):
+                pass
 
-        # Verify exponential backoff
+        self.assertAlmostEqual(time_helper.sleep_times[0], 0.075 if jitter else 0.1)
         assert len(time_helper.sleep_times) == 2
         for i in range(1, len(time_helper.sleep_times)):
             assert time_helper.sleep_times[i] > time_helper.sleep_times[i - 1]  # Each retry should wait longer
-        total_sleep_time = sum(time_helper.sleep_times[:-1])
+        total_sleep_time = sum(time_helper.sleep_times)
 
-        # Verify total time is within timeout
         assert total_sleep_time <= 0.5  # Should not exceed retry_timeout
+
+    @parameterized.expand(
+        [
+            (get_api_team_rate_limiter, 0.1005),
+            (get_materialized_endpoints_rate_limiter, 0.134),
+            (get_app_telemetry_queries_rate_limiter, 0.075),
+        ]
+    )
+    def test_factory_retry_policy(self, factory: Callable[[], RateLimit], expected_wait: float) -> None:
+        time_helper = TimeHelper()
+        limiter = replace(factory(), get_time=time_helper.get_time, sleep=time_helper.sleep, allow_team_bypass=False)
+        limiter.redis_client = Mock()
+        limiter.redis_client.eval.side_effect = [0, 1]
+        with patch("posthog.clickhouse.client.limit.random.uniform", side_effect=lambda low, high: (low + high) / 2):
+            slot = limiter.use(task_id="waiting")
+        self.assertIsNotNone(slot)
+        self.assertAlmostEqual(sum(time_helper.sleep_times), expected_wait)
+
+    def _full_limiter(self) -> tuple[RateLimit, ConcurrencySlot, "TimeHelper"]:
+        name = f"queue-wait-test:{uuid.uuid4()}"
+        limiter = RateLimit(
+            max_concurrency=1,
+            applicable=lambda *args, **kwargs: True,
+            limit_name="queue_wait_test",
+            get_task_name=lambda *args, **kwargs: name,
+            get_task_id=lambda *args, **kwargs: f"task-{kwargs['task_id']}",
+            ttl=60,
+        )
+        time_helper = TimeHelper()
+        limiter.get_time = time_helper.get_time
+        limiter.sleep = time_helper.sleep
+        slot = limiter.use(task_id=1, team_id=5)
+        assert slot is not None
+        self.addCleanup(limiter.release, slot)
+        return limiter, slot, time_helper
+
+    def _queue_wait_count(self, result: str) -> float:
+        return (
+            REGISTRY.get_sample_value(
+                "posthog_clickhouse_query_concurrency_queue_wait_total",
+                {"limit_name": "queue_wait_test", "result": result},
+            )
+            or 0.0
+        )
+
+    def test_full_limiter_without_queue_wait_rejects_at_once(self) -> None:
+        limiter, _, time_helper = self._full_limiter()
+        waited_before = self._queue_wait_count("waited")
+
+        with self.assertRaises(ConcurrencyLimitExceeded):
+            limiter.use(task_id=2, team_id=5)
+
+        assert time_helper.sleep_times == []
+        assert self._queue_wait_count("waited") == waited_before
+
+    def test_queue_wait_admits_when_a_slot_frees(self) -> None:
+        limiter, slot, time_helper = self._full_limiter()
+
+        def free_slot_on_second_poll(_: float) -> None:
+            if len(time_helper.sleep_times) == 2:
+                limiter.release(slot)
+
+        time_helper.on_sleep = free_slot_on_second_poll
+        admitted_before = self._queue_wait_count("waited_then_admitted")
+        queue_wait = QueueWait()
+
+        reset_query_tags()
+        waiting_slot = limiter.use(task_id=2, team_id=5, queue_wait=queue_wait)
+        assert waiting_slot is not None
+        self.addCleanup(limiter.release, waiting_slot)
+
+        assert len(time_helper.sleep_times) == 2
+        assert get_query_tag_value("queue_wait_ms") == int(1000 * queue_wait.waited) > 0
+        assert self._queue_wait_count("waited_then_admitted") == admitted_before + 1
+        assert limiter.redis_client.zcard(f"{slot.running_tasks_key}:waiters:5") == 0
+
+    @parameterized.expand([("fresh_budget", 0.0), ("budget_partly_spent_on_another_limiter", 7.5)])
+    def test_queue_wait_rejects_once_the_budget_runs_out(self, _name: str, already_waited: float) -> None:
+        limiter, slot, time_helper = self._full_limiter()
+        rejected_before = self._queue_wait_count("waited_then_rejected")
+        queue_wait = QueueWait(waited=already_waited)
+
+        with self.assertRaises(ConcurrencyLimitExceeded):
+            limiter.use(task_id=2, team_id=5, queue_wait=queue_wait)
+
+        remaining = 10.0 - already_waited
+        assert remaining - 0.01 < sum(time_helper.sleep_times) <= remaining
+        assert 10.0 - 0.01 < queue_wait.waited < 10.0 + 0.01
+        assert self._queue_wait_count("waited_then_rejected") == rejected_before + 1
+        assert limiter.redis_client.zcard(f"{slot.running_tasks_key}:waiters:5") == 0
+
+    def test_queue_wait_rejects_at_once_when_the_team_has_too_many_waiters(self) -> None:
+        limiter, slot, time_helper = self._full_limiter()
+        waiters_key = f"{slot.running_tasks_key}:waiters:5"
+        limiter.redis_client.zadd(waiters_key, {"waiter-a": 1e12, "waiter-b": 1e12})
+        self.addCleanup(limiter.redis_client.delete, waiters_key)
+        capped_before = self._queue_wait_count("waiter_cap_rejected")
+
+        with self.assertRaises(ConcurrencyLimitExceeded):
+            limiter.use(task_id=2, team_id=5, queue_wait=QueueWait())
+
+        assert time_helper.sleep_times == []
+        assert self._queue_wait_count("waiter_cap_rejected") == capped_before + 1
 
 
 class TimeHelper:

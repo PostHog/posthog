@@ -2,12 +2,18 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconChevronRight } from '@posthog/icons'
+import { IconChevronRight, IconWarning } from '@posthog/icons'
 
 import { Popover } from 'lib/lemon-ui/Popover'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { getQueryTimeBreakdown } from '~/queries/nodes/DataNode/queryTimeBreakdown'
 import { QueryTiming } from '~/queries/schema/schema-general'
+
+function formatSeconds(ms: number): string {
+    return `${(ms / 1000).toFixed(ms < 1000 ? 2 : 1)}s`
+}
 
 export interface TimingsProps {
     timings: QueryTiming[]
@@ -182,7 +188,7 @@ function ElapsedTimeWithTimings({
 }
 
 export function ElapsedTime({ showTimings }: { showTimings?: boolean }): JSX.Element | null {
-    const { elapsedTime, loadingStart, responseError, isShowingCachedResults, timings, query } =
+    const { elapsedTime, loadingStart, responseError, isShowingCachedResults, timings, serverDurationMs, query } =
         useValues(dataNodeLogic)
     const [, setTick] = useState(0)
 
@@ -210,12 +216,39 @@ export function ElapsedTime({ showTimings }: { showTimings?: boolean }): JSX.Ele
         return <ElapsedTimeWithTimings elapsedTime={elapsedTime} timings={timings} hasError={!!responseError} />
     }
 
+    const breakdown = elapsedTime && !responseError ? getQueryTimeBreakdown(elapsedTime, serverDurationMs) : null
+
     // "{time}s" is two bare text nodes, so React tracks them individually. Once a page-translation
     // extension replaces one with a <font> element React's updates go to the detached node and the
     // counter freezes mid-query (react#11538). There is nothing to translate in "1.4s" anyway.
+    if (!breakdown) {
+        return (
+            <div className={responseError ? 'text-danger' : ''} translate="no">
+                {formatSeconds(time)}
+            </div>
+        )
+    }
+
     return (
-        <div className={responseError ? 'text-danger' : ''} translate="no">
-            {(time / 1000).toFixed(time < 1000 ? 2 : 1)}s
-        </div>
+        <Tooltip
+            title={
+                breakdown.isTransferSlow
+                    ? `Our servers returned results in ${formatSeconds(breakdown.serverMs)}. The other ${formatSeconds(
+                          breakdown.transferMs
+                      )} was spent sending them to your browser. Large results or a slow connection can cause this.`
+                    : `Time until results showed in your browser. Our servers took ${formatSeconds(
+                          breakdown.serverMs
+                      )} of it.`
+            }
+        >
+            <div
+                className={clsx('flex items-center gap-1 cursor-help', breakdown.isTransferSlow && 'text-warning')}
+                translate="no"
+                data-attr="query-elapsed-time"
+            >
+                {breakdown.isTransferSlow ? <IconWarning /> : null}
+                <span>Total {formatSeconds(breakdown.totalMs)}</span>
+            </div>
+        </Tooltip>
     )
 }

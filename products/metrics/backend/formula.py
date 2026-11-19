@@ -2,7 +2,7 @@
 
 A formula combines clause results by name — `(a - b) / a` — evaluated
 point-by-point on the shared time grid. Parsing is a tiny recursive-descent
-parser (numbers, clause identifiers, + - * /, unary minus, parentheses);
+parser (numbers with an optional exponent, clause identifiers, + - * /, unary minus, parentheses);
 nothing is ever eval()'d.
 """
 
@@ -12,7 +12,9 @@ import re
 import math
 from collections.abc import Mapping
 
-_TOKEN_RE = re.compile(r"\s*(?:(?P<ident>[A-Za-z_][A-Za-z0-9_]*)|(?P<number>\d+(?:\.\d+)?)|(?P<op>[()+\-*/]))")
+_TOKEN_RE = re.compile(
+    r"\s*(?:(?P<ident>[A-Za-z_][A-Za-z0-9_]*)|(?P<number>\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(?P<op>[()+\-*/]))"
+)
 
 # (kind, value) tuples; kind is "ident" | "number" | "op"
 _Token = tuple[str, str]

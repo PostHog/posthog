@@ -16,7 +16,8 @@ from django.conf import settings
 
 import pyarrow as pa
 import clickhouse_connect
-from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError, ProgrammingError
+from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError, ProgrammingError, StreamFailureError
+from clickhouse_connect.driver.httpclient import HttpClient
 from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
@@ -36,10 +37,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     _parse_mv_target,
     _project_columns,
     _quote_identifier,
+    _reads_in_incremental_order,
     filter_clickhouse_incremental_fields,
     get_primary_keys_for_schemas,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import (
+    _CLOUDFLARE_TUNNEL_DOWN,
+    _EGRESS_DENIED_PRIVATE_HOST,
     _REDIRECTED,
     _TEMPORARILY_UNAVAILABLE,
     GENERIC_CONNECTION_ERROR,
@@ -50,7 +54,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import (
+    ExternalDataSchemaSyncType,
+    ExternalDataSourceType,
+    IncrementalFieldType,
+)
 
 
 class TestQuoteIdentifier:
@@ -172,6 +180,54 @@ class TestBuildQuery:
         assert "toString(`payload`) AS `payload`" in query
         assert "toString(`value`) AS `value`" in query
 
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,page_conditions,expected_tail",
+        [
+            pytest.param(True, (), " ORDER BY `created_at` ASC", id="incremental_single_query"),
+            pytest.param(
+                True, ("(`created_at`) > (%(page_lower_0)s)",), " ORDER BY `created_at` ASC", id="incremental_paged"
+            ),
+            pytest.param(False, (), None, id="full_refresh"),
+        ],
+    )
+    def test_orders_only_an_incremental_query_and_ends_with_the_order(
+        self, should_use_incremental_field: bool, page_conditions: tuple[str, ...], expected_tail: str | None
+    ) -> None:
+        query, _ = _build_query(
+            database="default",
+            table_name="events",
+            columns=self._cols(("id", "Int64"), ("created_at", "DateTime64(6)")),
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field="created_at" if should_use_incremental_field else None,
+            incremental_field_type=IncrementalFieldType.DateTime if should_use_incremental_field else None,
+            page_conditions=page_conditions,
+        )
+        if expected_tail is None:
+            assert "ORDER BY" not in query
+        else:
+            assert query.endswith(expected_tail)
+
+    @pytest.mark.parametrize(
+        "data_type,should_use_incremental_field,incremental_field,expected",
+        [
+            ("DateTime64(6)", True, "created_at", True),
+            ("Date", True, "created_at", True),
+            ("Nullable(Int64)", True, "created_at", True),
+            ("LowCardinality(Nullable(UInt32))", True, "created_at", True),
+            # The SELECT list casts these with toString(), and the alias can make the order textual.
+            ("Int128", True, "created_at", False),
+            ("UInt256", True, "created_at", False),
+            ("Nullable(Int256)", True, "created_at", False),
+            ("DateTime64(6)", False, "created_at", False),
+            ("DateTime64(6)", True, "missing", False),
+        ],
+    )
+    def test_reads_in_incremental_order(
+        self, data_type: str, should_use_incremental_field: bool, incremental_field: str, expected: bool
+    ) -> None:
+        columns = self._cols(("id", "Int64"), ("created_at", data_type))
+        assert _reads_in_incremental_order(columns, should_use_incremental_field, incremental_field) is expected
+
 
 class TestProjectColumns:
     @staticmethod
@@ -284,6 +340,10 @@ class TestGetClickhouseRowCount:
             ]
         )
         assert counts == {"mv": 55}
+
+    def test_skips_rows_narrower_than_the_select(self):
+        counts = self._run([(None, [("short_row",), ("events", 7, "MergeTree", "u1", "CREATE ...")])])
+        assert counts == {"events": 7}
 
 
 class TestGetPrimaryKeysForSchemas:
@@ -415,12 +475,38 @@ class TestClickHouseSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         assert not any(pattern in error_msg for pattern in retryable)
 
-    def test_bare_gateway_status_is_classified_as_retryable(self, source):
-        # A bare HTTP 500 (no X-ClickHouse-Exception-Code header) means a proxy/load balancer in
-        # front of ClickHouse failed, not ClickHouse itself — the same transient shape as the
-        # already-retryable 502/503/504. Without this, a transient gateway blip would be reported
-        # as tracked exception noise on every occurrence instead of silently retried.
-        error_msg = "HTTP driver received HTTP status 500, server response: An unexpected error occurred: EOF (for url https://host:8443)"
+    @pytest.mark.parametrize(
+        ("_name", "error_msg"),
+        [
+            (
+                # A bare HTTP 500 (no X-ClickHouse-Exception-Code header) means a proxy/load
+                # balancer in front of ClickHouse failed, not ClickHouse itself — the same
+                # transient shape as the already-retryable 502/503/504.
+                "bare_500",
+                "HTTP driver received HTTP status 500, server response: An unexpected error occurred: EOF (for url https://host:8443)",
+            ),
+            (
+                # Cloudflare's own "Argo Tunnel error" diagnostic (HTTP 530, error code 1033):
+                # the Cloudflare Tunnel in front of the host lost its connection to the origin.
+                # cloudflared reconnects on its own, so this gets the same transient treatment.
+                "cloudflare_tunnel_down",
+                "HTTP driver received HTTP status 530, server response: error code: 1033 (for url https://host:8443)",
+            ),
+        ],
+    )
+    def test_bare_gateway_status_is_classified_as_retryable(self, source, _name, error_msg):
+        # Without the matching entry, a transient gateway blip would be reported as tracked
+        # exception noise on every occurrence instead of silently retried.
+        retryable = source.get_retryable_errors()
+        assert any(pattern in error_msg for pattern in retryable)
+
+    def test_arrow_stream_flatbuffer_error_is_classified_as_retryable(self, source):
+        # pyarrow raises `OSError("Invalid flatbuffers message.")` from its own IPC framing when
+        # the connection carrying `query_arrow_stream` drops before the first message's header can
+        # be verified — the same mid-transfer connection drop as "bytes for message body, got",
+        # just caught earlier in the read. Without this it would be reported as tracked exception
+        # noise on every occurrence instead of silently retried.
+        error_msg = "Invalid flatbuffers message."
         retryable = source.get_retryable_errors()
         assert any(pattern in error_msg for pattern in retryable)
 
@@ -467,11 +553,20 @@ class TestGetClientTransientRetry:
         assert mock_get_client.call_count == 1
         mock_sleep.assert_not_called()
 
-    def test_wraps_non_clickhouse_response_probe_error(self):
-        # clickhouse-connect's construction-time probe unpacks the reply into two values;
-        # a non-ClickHouse 2xx body raises a bare ValueError. We wrap it as a connection
-        # error (deterministic, no retry) instead of leaking the cryptic ValueError.
-        probe_error = ValueError("too many values to unpack (expected 2)")
+    @parameterized.expand(
+        [
+            # clickhouse-connect's construction-time probe unpacks the reply into two values;
+            # a non-ClickHouse 2xx body raises a bare ValueError.
+            ("value_error", ValueError("too many values to unpack (expected 2)")),
+            # The same probe can also run out of response bytes mid-parse (e.g. the body is
+            # some other service's JSON, not the ClickHouse native wire format), which raises
+            # a bare `StreamFailureError` instead of a `ClickHouseError`.
+            ("stream_failure_error", StreamFailureError('{"ok": true, "path": "/?wait_end_of_query=1"}')),
+        ]
+    )
+    def test_wraps_non_clickhouse_response_probe_error(self, _name, probe_error):
+        # Either error is wrapped as a connection error (deterministic, no retry) instead of
+        # leaking the cryptic probe exception.
         with (
             patch.object(ch_module.time, "sleep") as mock_sleep,
             patch.object(ch_module, "get_client", side_effect=probe_error) as mock_get_client,
@@ -479,6 +574,24 @@ class TestGetClientTransientRetry:
             with pytest.raises(ClickHouseConnectionError, match="did not return a valid ClickHouse response"):
                 self._connect()
         assert mock_get_client.call_count == 1
+        mock_sleep.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("single_integer_line", b"200\n"),
+            ("empty_body", b""),
+            ("html_page", b"<html><body>It works</body></html>\n"),
+            ("too_many_columns", b"a\tb\tc\n"),
+        ]
+    )
+    def test_wraps_non_clickhouse_probe_body(self, _name, body):
+        response = MagicMock(data=body, headers={})
+        with (
+            patch.object(ch_module.time, "sleep") as mock_sleep,
+            patch.object(HttpClient, "_raw_request", return_value=response),
+        ):
+            with pytest.raises(ClickHouseConnectionError, match="did not return a valid ClickHouse response"):
+                self._connect()
         mock_sleep.assert_not_called()
 
 
@@ -539,6 +652,58 @@ class TestTranslateError:
         # ClickHouse is briefly down, not that the connection details are wrong.
         msg = f"HTTP driver received HTTP status {code} (for url https://host:8443)"
         assert ClickHouseSource._translate_error(msg) == _TEMPORARILY_UNAVAILABLE
+
+    def test_cloudflare_tunnel_error_names_the_tunnel(self):
+        # Cloudflare's own "error code: 1033" (Argo Tunnel error), not a ClickHouse one — the
+        # generic gateway copy above would send the customer to check the wrong thing.
+        msg = "HTTP driver received HTTP status 530, server response: error code: 1033 (for url https://host:8443)"
+        assert ClickHouseSource._translate_error(msg) == _CLOUDFLARE_TUNNEL_DOWN
+
+    @pytest.mark.parametrize(
+        "msg",
+        [
+            # Host resolved to a private-range address.
+            "HTTP driver received HTTP status 407, server response: Egress proxying is denied to host "
+            "'172.20.136.220:8000': no valid IP found among resolved addresses - 172.20.136.220 denied by "
+            "rule 'Deny: Private Range'. . (for url http://example.com:8123)",
+            # Different host and deny rule — the match must not depend on either.
+            "HTTP driver received HTTP status 407, server response: Egress proxying is denied to host "
+            "'169.254.169.254:80': no valid IP found among resolved addresses - 169.254.169.254 denied by "
+            "rule 'Deny: Not Global Unicast'. . (for url http://other.example.com:8443)",
+        ],
+    )
+    def test_egress_denied_host_maps_to_private_host_error(self, msg):
+        assert ClickHouseSource._translate_error(msg) == _EGRESS_DENIED_PRIVATE_HOST
+
+
+class TestClickHouseSourceNonRetryableErrors:
+    @pytest.fixture
+    def source(self):
+        return ClickHouseSource()
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            # Host resolved to a private-range address.
+            "DatabaseError: HTTP driver received HTTP status 407, server response: Egress proxying is denied "
+            "to host '172.20.136.220:8000': no valid IP found among resolved addresses - 172.20.136.220 "
+            "denied by rule 'Deny: Private Range'. . (for url http://example.com:18123)",
+            # Different host and deny rule — the match must not rely on either volatile detail.
+            "DatabaseError: HTTP driver received HTTP status 407, server response: Egress proxying is denied "
+            "to host '169.254.169.254:80': no valid IP found among resolved addresses - 169.254.169.254 "
+            "denied by rule 'Deny: Not Global Unicast'. . (for url http://other.example.com:8443)",
+        ],
+    )
+    def test_egress_denied_host_is_non_retryable(self, source, observed_error):
+        # Our egress proxy re-resolves the configured host on every connection, independently of
+        # this source's own setup-time DNS check — so a host that now resolves to a private/
+        # internal address is denied every attempt. Without this entry, `_handle_import_error`
+        # would retry the activity to its maximum before giving up, instead of stopping after a
+        # few attempts (see `get_non_retryable_errors`'s matching entry).
+        non_retryable_errors = source.get_non_retryable_errors()
+        matching = [key for key in non_retryable_errors if key in observed_error]
+        assert matching, "Egress-denied host error should be recognised as non-retryable"
+        assert all(non_retryable_errors[key] == _EGRESS_DENIED_PRIVATE_HOST for key in matching)
 
 
 class TestGetSchemas:
@@ -703,19 +868,63 @@ class TestHasDuplicatePrimaryKeys:
 
         mock_capture.assert_called_once()
 
+    @parameterized.expand(
+        [
+            (
+                "remote_disconnected",
+                "Caused by ProxyError('Cannot connect to proxy.', "
+                "RemoteDisconnected('Remote end closed connection without response'))",
+            ),
+            ("timeout", "Caused by ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))"),
+            (
+                "new_connection_error",
+                "Caused by ProxyError('Cannot connect to proxy.', NewConnectionError('could not connect'))",
+            ),
+        ]
+    )
+    def test_egress_proxy_blip_leaves_key_unverified_without_capturing(self, _name, cause):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError(
+            f"HTTPSConnectionPool(host='ch.example.com', port=8443): Max retries exceeded with url: / ({cause})"
+        )
+
+        with patch.object(ch_module, "capture_exception") as mock_capture:
+            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is None
+
+        mock_capture.assert_not_called()
+
+    def test_access_denied_leaves_key_unverified_without_capturing(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError(
+            "Code: 497. DB::Exception: posthog: Not enough privileges. To execute this query, it's necessary "
+            "to have the grant SELECT ON db.t. (ACCESS_DENIED)"
+        )
+
+        with patch.object(ch_module, "capture_exception") as mock_capture:
+            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is None
+
+        mock_capture.assert_not_called()
+
 
 class TestDuplicateProbeTargetsMergeKey:
     _MEMORY_LIMIT = ClickHouseError("Code: 241. DB::Exception: Query memory limit exceeded. (MEMORY_LIMIT_EXCEEDED)")
+    _INCREMENTAL = ExternalDataSchemaSyncType.INCREMENTAL
 
-    def _run(self, *, stored_primary_keys, sorting_key, probe_outcome):
+    def _run(self, *, sync_type, stored_primary_keys, sorting_key, probe_outcome, last_value=None):
         probe_queries: list[str] = []
+        probe_parameters: list[dict | None] = []
 
-        def fake_query(query, **_kwargs):
+        def fake_query(query, parameters=None, **_kwargs):
             result = MagicMock()
             if "is_in_sorting_key" in query:
                 result.result_rows = [(name,) for name in sorting_key]
             elif "HAVING count() > 1" in query:
                 probe_queries.append(query)
+                probe_parameters.append(parameters)
                 if isinstance(probe_outcome, Exception):
                     raise probe_outcome
                 result.result_rows = probe_outcome
@@ -754,36 +963,70 @@ class TestDuplicateProbeTargetsMergeKey:
                 incremental_field="created_at",
                 incremental_field_type=IncrementalFieldType.Timestamp,
                 logger=MagicMock(),
-                db_incremental_field_last_value=None,
+                db_incremental_field_last_value=last_value,
                 stored_primary_keys=stored_primary_keys,
+                sync_type=sync_type,
             )
-        return response, probe_queries
+        return response, probe_queries, probe_parameters
 
     @pytest.mark.parametrize(
-        "stored_primary_keys,sorting_key,probe_outcome,expected_group_by,expected_blocked",
+        "sync_type,stored_primary_keys,sorting_key,probe_outcome,expected_group_by,expected_blocked",
         [
-            (["id"], ["created_at", "id", "region"], [], "GROUP BY `id` HAVING", False),
-            (None, ["region", "id"], [], "GROUP BY `region`, `id` HAVING", False),
-            (["id"], ["region", "id"], [(1,)], "GROUP BY `id` HAVING", True),
-            (["id"], ["region", "id"], _MEMORY_LIMIT, "GROUP BY `id` HAVING", False),
+            (_INCREMENTAL, ["id"], ["created_at", "id", "region"], [], "GROUP BY `id` HAVING", False),
+            (_INCREMENTAL, None, ["region", "id"], [], "GROUP BY `region`, `id` HAVING", False),
+            (_INCREMENTAL, ["id"], ["region", "id"], [(1,)], "GROUP BY `id` HAVING", True),
+            (_INCREMENTAL, ["id"], ["region", "id"], _MEMORY_LIMIT, "GROUP BY `id` HAVING", False),
+            (ExternalDataSchemaSyncType.APPEND, ["id"], ["region", "id"], [(1,)], None, False),
         ],
         ids=[
             "stored_key_wins",
             "sorting_key_when_nothing_stored",
             "duplicates_block",
             "exhausted_budget_does_not_block",
+            "append_does_not_probe",
         ],
     )
     def test_probe_checks_the_merge_key(
-        self, stored_primary_keys, sorting_key, probe_outcome, expected_group_by, expected_blocked
+        self, sync_type, stored_primary_keys, sorting_key, probe_outcome, expected_group_by, expected_blocked
     ):
-        response, probe_queries = self._run(
-            stored_primary_keys=stored_primary_keys, sorting_key=sorting_key, probe_outcome=probe_outcome
+        response, probe_queries, _ = self._run(
+            sync_type=sync_type,
+            stored_primary_keys=stored_primary_keys,
+            sorting_key=sorting_key,
+            probe_outcome=probe_outcome,
+        )
+
+        if expected_group_by is None:
+            assert probe_queries == []
+        else:
+            assert len(probe_queries) == 1
+            assert expected_group_by in probe_queries[0]
+        assert response.has_duplicate_primary_keys is expected_blocked
+
+    @pytest.mark.parametrize(
+        "last_value,expected_from,expected_last_value",
+        [
+            (None, "FROM `db`.`events` GROUP BY", None),
+            (
+                datetime(2026, 1, 1, tzinfo=UTC),
+                "FROM `db`.`events` WHERE `created_at` > fromUnixTimestamp64Micro(%(last_value)s) GROUP BY",
+                1_767_225_600_000_000,
+            ),
+        ],
+        ids=["first_sync_probes_the_table", "cursor_scopes_the_probe_to_new_rows"],
+    )
+    def test_probe_reads_only_the_rows_after_the_cursor(self, last_value, expected_from, expected_last_value):
+        _, probe_queries, probe_parameters = self._run(
+            sync_type=self._INCREMENTAL,
+            stored_primary_keys=["id"],
+            sorting_key=["created_at", "id"],
+            probe_outcome=[],
+            last_value=last_value,
         )
 
         assert len(probe_queries) == 1
-        assert expected_group_by in probe_queries[0]
-        assert response.has_duplicate_primary_keys is expected_blocked
+        assert expected_from in probe_queries[0]
+        assert (probe_parameters[0] or {}).get("last_value") == expected_last_value
 
     def test_source_for_pipeline_passes_the_schema_key_to_the_probe(self):
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
@@ -801,6 +1044,7 @@ class TestDuplicateProbeTargetsMergeKey:
             source.source_for_pipeline(MagicMock(), inputs)
 
         assert mock_clickhouse_source.call_args.kwargs["stored_primary_keys"] == ["id"]
+        assert mock_clickhouse_source.call_args.kwargs["sync_type"] is inputs.sync_type
 
 
 def _failing_server(*_args: object, **_kwargs: object) -> MagicMock:
@@ -845,14 +1089,30 @@ class TestGetPartitionSettings:
     def _logger(self):
         return MagicMock()
 
-    def test_unexpected_error_is_captured(self):
+    @parameterized.expand(
+        [
+            ("unexpected_error", "Code: 62. DB::Exception: Syntax error", True),
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='ch.example.com', port=8443): Read timed out. (read timeout=120)",
+                False,
+            ),
+        ]
+    )
+    def test_falls_back_and_captures_only_actionable_errors(self, _name, message, should_capture):
         client = MagicMock()
-        client.query.side_effect = ClickHouseError("Code: 62. DB::Exception: Syntax error")
+        client.query.side_effect = ClickHouseError(message)
 
         with patch.object(ch_module, "capture_exception") as mock_capture:
             assert _get_partition_settings(client, "db", "t", self._logger()) is None
 
-        mock_capture.assert_called_once()
+        assert mock_capture.called is should_capture
+
+    def test_falls_back_on_a_row_narrower_than_the_select(self):
+        client = MagicMock()
+        client.query.return_value.result_rows = [(100,)]
+
+        assert _get_partition_settings(client, "db", "t", self._logger()) is None
 
 
 class TestGetRowsBatching:
@@ -987,6 +1247,24 @@ class TestGetRowsBatching:
             "label": ["a", None, "c"],
             "location": ["(1.5, 2.5)", "(0.0, 0.0)", "(3.0, 4.0)"],
         }
+
+    def test_treats_empty_arrow_response_as_zero_rows(self):
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.side_effect = pa.ArrowInvalid(
+            "Tried reading schema message, was null or length 0"
+        )
+
+        yielded = self._run_get_rows([], stream_client=stream_client)
+
+        assert yielded == []
+        stream_client.query_column_block_stream.assert_not_called()
+
+    def test_other_arrow_invalid_errors_are_not_treated_as_zero_rows(self):
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.side_effect = pa.ArrowInvalid("Invalid IPC stream: unsupported feature")
+
+        with pytest.raises(pa.ArrowInvalid, match="unsupported feature"):
+            self._run_get_rows([], stream_client=stream_client)
 
     def test_other_query_errors_do_not_fall_back_to_native(self):
         stream_client = MagicMock()

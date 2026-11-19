@@ -6,6 +6,7 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Link } from 'lib/lemon-ui/Link'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -28,6 +29,7 @@ import type {
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 import { NodeDetailTests } from './NodeDetailTests'
 import { NodeDetailTestsTabLabel } from './NodeDetailTestsTabLabel'
+import { QuillNodeDetailScene } from './QuillNodeDetailScene'
 
 export const scene: SceneExport<NodeDetailSceneLogicProps> = {
     component: NodeDetailScene,
@@ -57,16 +59,19 @@ function tabLabel(
 export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element {
     const {
         node,
-        savedQuery,
-        savedQueryLoading,
+        savedQueryDeleted,
         nodeLoading,
         availableTabs,
         effectiveTab,
         visitedTabs,
         dataQualitySubject,
-        tableDetails,
-        tableDetailsLoading,
+        modelMetadata,
+        catalogRestructureEnabled,
     } = useValues(nodeDetailSceneLogic({ id }))
+
+    if (catalogRestructureEnabled) {
+        return <QuillNodeDetailScene id={id} />
+    }
 
     if (!userHasAccess(AccessControlResourceType.WarehouseObjects, AccessControlLevel.Viewer)) {
         return (
@@ -85,6 +90,19 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
             )
         }
         return <NotFound object="model" />
+    }
+
+    if (savedQueryDeleted) {
+        return (
+            <NotFound
+                object="model"
+                caption={
+                    <>
+                        This model was deleted. Go back to <Link to={urls.models()}>Models</Link>.
+                    </>
+                }
+            />
+        )
     }
 
     const savedQueryId = node.saved_query_id
@@ -119,38 +137,7 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
     return (
         <SceneContent>
             <NodeDetailHeader id={id} />
-            {/* A node row's timestamps describe the node, not the table: the DAG sync bumps
-                updated_at when it stamps identity onto the node. So they stand in only for a
-                node with no table of its own, and a failed table load says nothing rather than
-                the node's dates. */}
-            <NodeDetailOverview
-                id={id}
-                metadata={
-                    <ModelMetadata
-                        createdBy={
-                            node.saved_query_id
-                                ? savedQuery?.created_by
-                                : tableDetails?.source
-                                  ? undefined
-                                  : tableDetails?.table.created_by
-                        }
-                        createdByEmail={node.saved_query_id ? undefined : tableDetails?.source?.created_by}
-                        createdByLabel={node.origin === 'posthog' ? 'PostHog' : undefined}
-                        createdAt={
-                            node.saved_query_id
-                                ? savedQuery?.created_at
-                                : node.warehouse_table_id
-                                  ? (tableDetails?.source?.created_at ?? tableDetails?.table.created_at)
-                                  : node.created_at
-                        }
-                        updatedAt={node.saved_query_id || node.warehouse_table_id ? undefined : node.updated_at}
-                        loading={
-                            (!!node.saved_query_id && savedQueryLoading && !savedQuery) ||
-                            (!!node.warehouse_table_id && tableDetailsLoading && !tableDetails)
-                        }
-                    />
-                }
-            />
+            <NodeDetailOverview id={id} metadata={modelMetadata && <ModelMetadata {...modelMetadata} />} />
             {!effectiveTab ? (
                 <LemonSkeleton className="h-10 w-96" />
             ) : (

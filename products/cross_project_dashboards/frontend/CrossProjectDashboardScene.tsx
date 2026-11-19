@@ -11,6 +11,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -24,7 +25,9 @@ import { AddCrossProjectTileModal } from './AddCrossProjectTileModal'
 import { CrossProjectDashboardGrid } from './CrossProjectDashboardGrid'
 import { CrossProjectDashboardLayoutActions } from './CrossProjectDashboardLayoutActions'
 import { crossProjectDashboardLogic } from './crossProjectDashboardLogic'
+import { CrossProjectDashboardRefreshAction } from './CrossProjectDashboardRefreshAction'
 import { openCrossProjectTileOverrideDialog } from './openCrossProjectTileOverrideDialog'
+import { QuillCrossProjectDashboardActions } from './QuillCrossProjectDashboardActions'
 
 const HedgehogChart = pngHoggie(chartPng)
 
@@ -46,6 +49,8 @@ export function CrossProjectDashboardScene(): JSX.Element {
         missingPropertyKeys,
         layoutEditMode,
         gridLayouts,
+        tileResults,
+        loadingTileIds,
     } = useValues(crossProjectDashboardLogic)
     const {
         removeTile,
@@ -60,6 +65,7 @@ export function CrossProjectDashboardScene(): JSX.Element {
         deleteDashboard,
     } = useActions(crossProjectDashboardLogic)
     const { requestOpenModal } = useActions(addCrossProjectTileLogic({ dashboardId: dashboard?.id ?? '' }))
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!featureFlags[FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS]) {
         return <NotFound object="page" />
@@ -79,7 +85,9 @@ export function CrossProjectDashboardScene(): JSX.Element {
                 renameDebounceMs={0}
                 descriptionMaxLength={4000}
                 actions={
-                    dashboard ? (
+                    dashboard && todayRailNav ? (
+                        <QuillCrossProjectDashboardActions />
+                    ) : dashboard ? (
                         <div className="flex flex-wrap items-center gap-2">
                             <DateFilter
                                 dateFrom={dashboardFilters.date_from ?? null}
@@ -100,6 +108,7 @@ export function CrossProjectDashboardScene(): JSX.Element {
                                     { value: 'month', label: 'Month' },
                                 ]}
                             />
+                            <CrossProjectDashboardRefreshAction />
                             <CrossProjectDashboardLayoutActions />
                             <LemonButton
                                 type="primary"
@@ -173,7 +182,8 @@ export function CrossProjectDashboardScene(): JSX.Element {
                     tiles={tiles}
                     tileProjects={tileProjects}
                     timezonesDiverge={timezonesDiverge}
-                    dashboardFilters={dashboardFilters}
+                    tileResults={tileResults}
+                    loadingTileIds={loadingTileIds}
                     layouts={gridLayouts}
                     layoutEditMode={layoutEditMode}
                     onEnterLayoutEdit={enterLayoutEdit}

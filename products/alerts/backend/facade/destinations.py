@@ -7,10 +7,10 @@ objects stay inside the product.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict
 from datetime import datetime
-from typing import Any, Final
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from posthog.kafka_client.client import ProduceResult
@@ -21,12 +21,34 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationConfig,
     AlertDestinationData,
     AlertDestinationGroup,
+    AlertEventKind,
+    DeliveryPath,
     DestinationType,
     EventKindSpec,
     OwnedAlertDestination,
+    SourceKind,
 )
 
-from ..logic import alert_email, destination_configs, destinations, insight_alert_destinations
+from .. import activity_logging
+from ..logic import (
+    delivery_destinations,
+    delivery_path,
+    destination_bucket_report,
+    destination_configs,
+    destination_eligibility,
+    destinations,
+    insight_alert_destinations,
+    insight_alert_message,
+)
+from .contracts import (
+    AlertInternalEvent,
+    CustomizableDestination,
+    DeliveryPathChoice,
+    DestinationBucket,
+    DestinationEligibility,
+    DestinationHoldBack,
+    ResetDestination,
+)
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
 
@@ -92,11 +114,64 @@ def build_insight_alert_slack_config(
     )
 
 
+def build_insight_alert_url_config(
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
+) -> AlertDestinationConfig:
+    return insight_alert_destinations.build_insight_alert_url_config(
+        alert_id=alert_id, alert_name=alert_name, data=data
+    )
+
+
+def build_insight_alert_pagerduty_configs(
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
+) -> list[AlertDestinationConfig]:
+    return insight_alert_destinations.build_insight_alert_pagerduty_configs(
+        alert_id=alert_id, alert_name=alert_name, data=data
+    )
+
+
+def insight_alert_slack_properties(
+    *,
+    breaches: list[str],
+    metric_name: str,
+    is_anomaly: bool = False,
+    tags: list[str] | None = None,
+    breach_details: list[dict[str, str]] | None = None,
+    affected_dates: list[str] | None = None,
+    affected_interval: str | None = None,
+    project_timezone: str = "UTC",
+    metric_description: str | None = None,
+    next_step: str | None = None,
+    summary: str | None,
+    verdict: str | None,
+    investigation_status: str | None,
+    detected_at: str,
+    allowed_root: str,
+) -> dict[str, Any]:
+    return insight_alert_message.insight_alert_slack_properties(
+        breaches=breaches,
+        metric_name=metric_name,
+        is_anomaly=is_anomaly,
+        tags=tags,
+        breach_details=breach_details,
+        affected_dates=affected_dates,
+        affected_interval=affected_interval,
+        project_timezone=project_timezone,
+        metric_description=metric_description,
+        next_step=next_step,
+        summary=summary,
+        verdict=verdict,
+        investigation_status=investigation_status,
+        detected_at=detected_at,
+        allowed_root=allowed_root,
+    )
+
+
 def create_alert_destination_hog_functions(
     configs: list[AlertDestinationConfig],
     *,
     team_id: int,
-    created_by_id: int,
+    created_by_id: int | None,
     alert_id: str,
     allowed_event_ids: Collection[str],
 ) -> tuple[UUID, ...]:
@@ -106,10 +181,58 @@ def create_alert_destination_hog_functions(
     )
 
 
+def rebuild_source_destination_hog_functions(
+    *,
+    team_id: int,
+    alert_id: UUID,
+    created_by_id: int | None,
+    allowed_event_ids: Collection[str],
+    build_configs: Callable[[AlertDestinationData], Sequence[AlertDestinationConfig]],
+) -> tuple[UUID, ...]:
+    """Recreates, with `build_configs`, the HogFunctions of every `AlertDestination` row of the alert that no
+    live HogFunction stands behind, and links each row to its new ones so delivery skips it. A source calls it
+    before it takes an alert back from the platform, in the same transaction, because its stack sends only
+    through HogFunctions. Raises `AlertDestinationValidationError` when a row cannot be recreated."""
+    return destinations.rebuild_source_destination_hog_functions(
+        team_id=team_id,
+        alert_id=alert_id,
+        created_by_id=created_by_id,
+        allowed_event_ids=allowed_event_ids,
+        build_configs=build_configs,
+    )
+
+
+def build_insight_alert_destination_configs(
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
+) -> list[AlertDestinationConfig]:
+    return insight_alert_destinations.build_insight_alert_destination_configs(
+        alert_id=alert_id, alert_name=alert_name, data=data
+    )
+
+
+def log_destination_changes(
+    *,
+    team_id: int,
+    alert_id: UUID,
+    actor_id: int,
+    was_impersonated: bool,
+    action: Literal["created", "deleted"],
+    destination_types: Mapping[UUID, str | None],
+) -> None:
+    activity_logging.log_destination_changes(
+        team_id=team_id,
+        alert_id=alert_id,
+        actor_id=actor_id,
+        was_impersonated=was_impersonated,
+        action=action,
+        destination_types=destination_types,
+    )
+
+
 def soft_delete_alert_destinations(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], hog_function_ids: list[UUID]
-) -> None:
-    destinations.soft_delete_alert_destinations(
+) -> dict[UUID, str | None]:
+    return destinations.soft_delete_alert_destinations(
         team_id=team_id,
         alert_id=alert_id,
         allowed_event_ids=allowed_event_ids,
@@ -138,6 +261,24 @@ def list_alert_destination_groups(
     return destinations.list_alert_destination_groups(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
+
+
+def live_hog_function_ids(*, team_id: int, hog_function_ids: Collection[UUID]) -> frozenset[UUID]:
+    """The platform's lookup for HogFunctions that still exist, which `products.alerts` registers when Django starts."""
+    return destinations.live_hog_function_ids(team_id=team_id, hog_function_ids=hog_function_ids)
+
+
+def owned_alert_destination_ids(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], hog_function_ids: Collection[UUID]
+) -> frozenset[UUID]:
+    return destinations.owned_alert_destination_ids(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids, hog_function_ids=hog_function_ids
+    )
+
+
+def lock_alert_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> None:
+    """Locks the alert's HogFunction destinations in the caller's transaction."""
+    destinations.lock_alert_destinations(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids)
 
 
 def list_owned_alert_destinations(
@@ -211,10 +352,158 @@ def alert_internal_event_delivered(
     )
 
 
+def emit_alert_internal_events(
+    *, team_id: int, alert_id: str, events: Sequence[AlertInternalEvent], flush_timeout_seconds: float
+) -> None:
+    """Enqueue the events and wait for the broker. Raises `AlertInternalEventsNotDelivered` when it took not all of them.
+
+    Each event's `uuid` is what lets a receiver drop the copy a retry emits.
+    """
+    destinations.emit_alert_internal_events(
+        team_id=team_id, alert_id=alert_id, events=events, flush_timeout_seconds=flush_timeout_seconds
+    )
+
+
 def list_delivery_destination_groups(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> list[AlertDestinationGroup]:
-    """Everything the shared platform delivers one alert's events to, including subscriber email."""
-    return alert_email.list_delivery_destination_groups(
+    """Everything the shared platform delivers one alert's events to, including subscriber email and
+    in-app notifications."""
+    return delivery_destinations.list_delivery_destination_groups(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )
+
+
+def classify_alert_destinations(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> tuple[DestinationEligibility, ...]:
+    """Every destination function of one alert, with what native delivery cannot carry for each."""
+    return destination_eligibility.classify_alert_destinations(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )
+
+
+def customized_alert_destination_ids(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> frozenset[UUID]:
+    """The destination functions of one alert that send something other than the stock message.
+
+    A refused address is not an edit: such a function still sends the stock message.
+    """
+    return frozenset(
+        eligibility.hog_function_id
+        for eligibility in destination_eligibility.classify_alert_destinations(
+            team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+        )
+        if set(eligibility.hold_backs) - {DestinationHoldBack.REFUSED_ADDRESS}
+    )
+
+
+def unrevised_hold_backs(
+    config: AlertDestinationConfig, *, allowed_event_ids: Collection[str]
+) -> tuple[DestinationHoldBack, ...]:
+    """What a destination built from this config holds back when it has no revision to compare with.
+
+    Empty means the source lists every message the builder wrote as one of its defaults.
+    """
+    return destination_eligibility.unrevised_hold_backs(
+        config.payload["template_id"], config.payload["inputs"], allowed_event_ids
+    )
+
+
+def alert_has_enabled_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> bool:
+    """Whether an enabled function takes the alert's events, bound to it on any template or unbound."""
+    return destination_eligibility.alert_has_enabled_destinations(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )
+
+
+def unbound_alert_destinations(
+    *, team_id: int, allowed_event_ids: Collection[str], include_disabled: bool = False
+) -> tuple[UUID, ...]:
+    """Functions that take a source's alert events without being bound to one alert, enabled ones only by default."""
+    return destination_eligibility.unbound_alert_destinations(
+        team_id=team_id, allowed_event_ids=allowed_event_ids, include_disabled=include_disabled
+    )
+
+
+def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
+    """The most restrictive bucket among a destination's hold-backs. No hold-back means stock."""
+    return destination_eligibility.bucket_for(eligibility)
+
+
+def bucket_report_lines(team_alerts: Iterable[tuple[int, str]], *, allowed_event_ids: Collection[str]) -> Iterator[str]:
+    """One line per destination of the given (team id, alert id) pairs, then the count per bucket and per reason."""
+    return destination_bucket_report.bucket_report_lines(team_alerts, allowed_event_ids=allowed_event_ids)
+
+
+def team_delivery_paths(
+    *, source: SourceKind, team_id: int, alert_ids: Sequence[str], allowed_event_ids: Collection[str]
+) -> dict[str, DeliveryPathChoice]:
+    """Whether native delivery may send each alert's destinations now, and why not when it may not."""
+    return delivery_path.team_delivery_paths(
+        source=source, team_id=team_id, alert_ids=alert_ids, allowed_event_ids=allowed_event_ids
+    )
+
+
+def choose_delivery_path(
+    *, source: SourceKind, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> DeliveryPath:
+    """The platform's delivery path chooser, which `products.alerts` registers when Django starts."""
+    return delivery_path.delivery_path(
+        source=source, team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )
+
+
+def customize_source_destination(
+    *,
+    team_id: int,
+    alert_id: UUID,
+    allowed_event_ids: Collection[str],
+    allowed_destination_types: Collection[DestinationType],
+    destination_id: UUID | None,
+    hog_function_ids: Collection[UUID],
+    build_configs: Callable[[AlertDestinationData, Collection[AlertEventKind]], Sequence[AlertDestinationConfig]],
+    created_by_id: int,
+) -> CustomizableDestination:
+    """Moves a stock destination from its `AlertDestination` row to HogFunctions a person can edit.
+    `build_configs` is the source's own builder for a new destination of that type, given the event
+    kinds the row heard. A PagerDuty destination does not move while its alert fires. Raises
+    `AlertDestinationValidationError` when the destination is not the alert's or has changed."""
+    # Deferred: it reads the platform's facade, which a bare `django.setup()` must not import.
+    from ..logic import customize_destinations  # noqa: PLC0415
+
+    return customize_destinations.customize_source_destination(
+        team_id=team_id,
+        alert_id=alert_id,
+        allowed_event_ids=allowed_event_ids,
+        allowed_destination_types=allowed_destination_types,
+        destination_id=destination_id,
+        hog_function_ids=hog_function_ids,
+        build_configs=build_configs,
+        created_by_id=created_by_id,
+    )
+
+
+def reset_source_destination(
+    *,
+    team_id: int,
+    alert_id: UUID,
+    allowed_event_ids: Collection[str],
+    allowed_destination_types: Collection[DestinationType],
+    hog_function_ids: Collection[UUID],
+    row_event_kinds: Callable[[DestinationType], Collection[AlertEventKind]],
+) -> ResetDestination:
+    """Retires a destination's HogFunctions and gives it an `AlertDestination` row with the standard message.
+    Raises `AlertDestinationValidationError` when the platform does not evaluate the alert, when some of
+    the destination's events are paused, and for a PagerDuty destination while its alert fires."""
+    from ..logic import customize_destinations  # noqa: PLC0415
+
+    return customize_destinations.reset_source_destination(
+        team_id=team_id,
+        alert_id=alert_id,
+        allowed_event_ids=allowed_event_ids,
+        allowed_destination_types=allowed_destination_types,
+        hog_function_ids=hog_function_ids,
+        row_event_kinds=row_event_kinds,
     )

@@ -1,87 +1,56 @@
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 from django.db import transaction
-
-import posthoganalytics
+from django.db.models import QuerySet
 
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut, lock_user_shortcuts
+from posthog.models.user import User
 from posthog.products import Products
+from posthog.schema_enums import ProductItemCategory, ProductKey
 
 if TYPE_CHECKING:
+    from posthog.models.organization import Organization
+    from posthog.models.product_intent.product_intent import ProductIntent
     from posthog.models.team import Team
-    from posthog.models.user import User
 
-# pinned: feature flag key, must match FEATURE_FLAGS.SIMPLE_SIDEPANEL in frontend/src/lib/constants.tsx
-SIMPLE_SIDEPANEL_FLAG = "simple-sidepanel"
-
-
-def starred_products_setup_completed(user: "User") -> bool:
-    configuration = user.ui_configuration
-    sidebar = configuration.get("sidebar") if isinstance(configuration, dict) else None
-    return isinstance(sidebar, dict) and bool(sidebar.get("starred_products_setup_completed"))
-
-
-def _simple_sidebar_enabled(user: "User", team: "Team") -> bool:
-    return bool(
-        posthoganalytics.feature_enabled(
-            SIMPLE_SIDEPANEL_FLAG,
-            str(user.distinct_id),
-            person_properties={"email": user.email},
-            # Same group keys as the frontend's posthog.group() calls, so both sides get the same answer.
-            groups={"organization": str(team.organization_id), "project": str(team.uuid)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    )
+# The products every user starts with in a project. Paths must match `path` values in frontend/src/products.json.
+DEFAULT_PRODUCT_PATHS = [
+    "Product analytics",
+    "Dashboards",
+    "Web analytics",
+    "Error tracking",
+    "Session replay",
+]
 
 
-def _mark_setup_completed(user: "User") -> None:
-    # Merge into the stored value under a short row lock, so a concurrent settings change is kept.
-    # NO KEY UPDATE is the lock the UPDATE takes anyway, and it does not block inserts of child rows.
-    with transaction.atomic():
-        stored = (
-            type(user).objects.select_for_update(no_key=True).only("ui_configuration").get(pk=user.pk).ui_configuration
-        )
-        configuration: dict[str, Any] = stored if isinstance(stored, dict) else {}
-        sidebar = configuration.get("sidebar")
-        user.ui_configuration = {
-            "version": 1,
-            **configuration,
-            "sidebar": {**(sidebar if isinstance(sidebar, dict) else {}), "starred_products_setup_completed": True},
-        }
-        user.save(update_fields=["ui_configuration"])
+def _project_shortcuts(user: User, team: "Team") -> QuerySet[FileSystemShortcut]:
+    # The sidebar lists the shortcuts of every environment in the project, so checks span them all.
+    # nosemgrep: environment-model-scoped-by-project -- the shortcut API lists a user's own stars project-wide
+    return FileSystemShortcut.objects.filter(surface_q(DEFAULT_SURFACE), team__project_id=team.project_id, user=user)
 
 
-def star_custom_products(user: "User", team: "Team", product_paths: list[str], *, had_custom_products: bool) -> None:
-    """Star products that were just added to a user's custom products, for simple sidebar users.
+def _product_stars(user: User, team: "Team") -> QuerySet[FileSystemShortcut]:
+    # Product stars have no ref. Starred files and folders point at their item through one.
+    return _project_shortcuts(user, team).filter(ref__isnull=True).exclude(type="folder")
 
-    The simple sidebar shows starred products instead of custom products, so every write that adds
-    custom products calls this to keep the two in step. `had_custom_products` says whether the user
-    had any custom products, in any project, before the write:
 
-    - A user with none is brand new, so their products are starred and the setup is marked done.
-    - A user who finished the setup gets the new products starred too.
-    - A user with custom products who has not done the setup yet is left alone. The setup card
-      offers their whole list, so starring one suggestion must not complete it for them.
+def has_starred_product(user: User, team: "Team", product_paths: list[str]) -> bool:
+    """Whether the user starred any of these products anywhere in the team's project."""
+    return _product_stars(user, team).filter(path__in=product_paths).exists()
+
+
+def star_products(user: User, team: "Team", product_paths: list[str]) -> int:
+    """Star products on the user's sidebar for a team, after their existing stars. Returns how many were added.
+
+    Unknown paths and products the user already starred are skipped, so a repeated call adds nothing.
     """
-    if not product_paths:
-        return
-    completed = starred_products_setup_completed(user)
-    if not completed and had_custom_products:
-        return
-    if not _simple_sidebar_enabled(user, team):
-        return
-
     products_by_path = {product.path: product for product in Products.products()}
     with transaction.atomic():
         # Concurrent writes for the same user would otherwise both miss the star and add it twice.
         lock_user_shortcuts(team.pk, user.pk)
-        user_shortcuts = FileSystemShortcut.objects.filter(surface_q(DEFAULT_SURFACE), team=team, user=user)
-        starred_paths = set(
-            user_shortcuts.filter(ref__isnull=True).exclude(type="folder").values_list("path", flat=True)
-        )
+        user_shortcuts = _project_shortcuts(user, team)
+        starred_paths = set(_product_stars(user, team).values_list("path", flat=True))
         next_order = max(user_shortcuts.values_list("order", flat=True), default=0) + 1
 
         to_create: list[FileSystemShortcut] = []
@@ -102,6 +71,48 @@ def star_custom_products(user: "User", team: "Team", product_paths: list[str], *
                 )
             )
         FileSystemShortcut.objects.bulk_create(to_create)
+    return len(to_create)
 
-    if not completed:
-        _mark_setup_completed(user)
+
+def star_default_products(user: User, team: "Team") -> None:
+    """Star the default products for a user who just got access to a project.
+
+    A user who already has product stars in the project made their own choice, so nothing is added.
+    """
+    if _product_stars(user, team).exists():
+        return
+    star_products(user, team, DEFAULT_PRODUCT_PATHS)
+
+
+def star_default_products_for_accessible_teams(user: User, organization: "Organization") -> None:
+    """Star the default products in every project of the organization the user has access to."""
+    from products.access_control.backend.facade.user_access_control import (  # noqa: PLC0415 - avoids a circular import
+        UserAccessControl,
+    )
+
+    uac = UserAccessControl(user=user, organization_id=str(organization.id))
+    accessible_teams = uac.filter_queryset_by_access_level(organization.teams.all(), include_all_if_admin=True)
+
+    for team in accessible_teams:
+        star_default_products(user, team)
+
+
+def star_released_products(user: User, team: "Team") -> None:
+    """Star every released product. Unreleased products stay opt-in, so they are left out."""
+    star_products(
+        user,
+        team,
+        [product.path for product in Products.products() if product.category != ProductItemCategory.UNRELEASED],
+    )
+
+
+def star_products_from_intent(product_intent: "ProductIntent", user: User) -> None:
+    """Star the products behind a new product intent, unless the user turned off sidebar suggestions.
+
+    Call this only when the intent is first created. Intents are registered again every time the
+    product is used, so starring on every call would bring back products the user unstarred.
+    """
+    if user.allow_sidebar_suggestions is False:
+        return
+    products = Products.get_products_by_intent(cast(ProductKey, product_intent.product_type))
+    star_products(user, product_intent.team, [product.path for product in products])

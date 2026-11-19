@@ -3,7 +3,7 @@
 {% block section %}
     <!-- prettier-ignore -->
     <p>
-        <b>{{ assigner.first_name }}</b> has assigned you an error tracking issue in project <b>{{ team }}</b>.
+        {% if assigner %}<b>{{ assigner.first_name }}</b> has assigned{% else %}{{ assigned_by }} assigned{% endif %} you an error tracking issue in project <b>{{ team }}</b>.
     </p>
     <p>
         <b>Issue:</b> {{ assignment.issue.name }}

@@ -24,7 +24,7 @@ from products.ai_observability.backend.llm.errors import (
     ProviderConnectionError,
     ProviderRequestRejectedError,
     QuotaExceededError,
-    RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
     stream_error_chunk,
 )
@@ -32,6 +32,7 @@ from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
     CompletionResponse,
+    OutputSchema,
     StreamChunk,
     Usage,
 )
@@ -41,6 +42,16 @@ from products.ai_observability.backend.providers.formatters.gemini_formatter imp
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _retry_delay(error: APIError) -> str | None:
+    """The seconds in the error's google.rpc.RetryInfo detail, such as "27" from "27s"."""
+    body = error.details.get("error", {}) if isinstance(error.details, dict) else {}
+    for detail in body.get("details") or []:
+        if isinstance(detail, dict) and str(detail.get("@type", "")).endswith("google.rpc.RetryInfo"):
+            delay = str(detail.get("retryDelay", ""))
+            return delay.removesuffix("s") or None
+    return None
 
 
 class GeminiConfig:
@@ -166,9 +177,12 @@ class GeminiAdapter:
             if status_code == 403 or "permission denied" in error_message:
                 return ModelPermissionError(model)
             if status_code == 429 or "rate limit" in error_message or "resource exhausted" in error_message:
-                if "quota" in error_message or "billing" in error_message:
+                # Per-minute limits also say "quota". Google adds a retry delay when waiting
+                # helps, so its presence separates a rate limit from exhausted billing.
+                retry_delay = _retry_delay(error)
+                if retry_delay is None and ("quota" in error_message or "billing" in error_message):
                     return QuotaExceededError(str(error))
-                return RateLimitError(str(error))
+                return RetryableRateLimitError(str(error), retry_delay)
             # Google returns a 404-class error (often with "no longer available") when a
             # model is retired/deprecated. Map it so call_llm_judge disables the eval
             # gracefully instead of burning Temporal retries on an unhandled exception.
@@ -215,6 +229,7 @@ class GeminiAdapter:
             temperature=request.temperature,
             max_tokens=request.max_tokens,
             tools=tools,
+            output_schema=request.output_schema,
         )
 
         analytics_kwargs: dict[str, Any] = {}
@@ -315,6 +330,7 @@ class GeminiAdapter:
         temperature: float | None = None,
         max_tokens: int | None = None,
         tools: list[dict] | None = None,
+        output_schema: OutputSchema | None = None,
     ) -> dict[str, Any]:
         """Prepare Gemini config kwargs."""
         effective_temperature = temperature if temperature is not None else GeminiConfig.TEMPERATURE
@@ -327,6 +343,9 @@ class GeminiAdapter:
             config_kwargs["max_output_tokens"] = max_tokens
         if tools is not None:
             config_kwargs["tools"] = tools
+        if output_schema is not None:
+            config_kwargs["response_mime_type"] = "application/json"
+            config_kwargs["response_json_schema"] = output_schema.schema
         return config_kwargs
 
     def _build_analytics_kwargs(self, analytics: AnalyticsContext, client) -> dict:

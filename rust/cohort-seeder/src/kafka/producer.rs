@@ -305,6 +305,7 @@ mod tests {
                 crate::domain::BehavioralShapeHash::parse("shape").unwrap(),
             ),
             crate::domain::RunId(Uuid::nil()),
+            crate::domain::RunBoundaryMs(0),
         );
 
         assert_eq!(

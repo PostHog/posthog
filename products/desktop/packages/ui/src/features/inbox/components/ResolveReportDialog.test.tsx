@@ -37,7 +37,7 @@ describe("ResolveReportDialog", () => {
 
     await user.type(
       screen.getByPlaceholderText(
-        "Optional: link to the fix or explain what changed",
+        "Add context or a link to the implementation",
       ),
       "The fix is in another service.",
     );
@@ -72,7 +72,7 @@ describe("ResolveReportDialog", () => {
     ).toBeChecked();
     expect(
       screen.getByPlaceholderText(
-        "Optional: link to the fix or explain what changed",
+        "Add context or a link to the implementation",
       ),
     ).toHaveFocus();
   });

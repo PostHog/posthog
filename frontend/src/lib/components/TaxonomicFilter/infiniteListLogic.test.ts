@@ -8,7 +8,9 @@ import {
     hasRecentContext,
     recentTaxonomicFiltersLogic,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, isHiddenEventStandIn } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -105,6 +107,87 @@ describe('infiniteListLogic', () => {
         logicWithProps.mount()
         return logicWithProps
     }
+
+    it.each([
+        [TaxonomicFilterGroupType.EmailAddresses, 'sample', true, false],
+        [TaxonomicFilterGroupType.EmailAddresses, 'sample@', true, true],
+        [TaxonomicFilterGroupType.EmailAddresses, 'example.com', true, true],
+        [TaxonomicFilterGroupType.EmailAddresses, 'a@', true, false],
+        [TaxonomicFilterGroupType.PageviewUrls, 'overview', true, false],
+        [TaxonomicFilterGroupType.PageviewUrls, '/overview', true, true],
+        [TaxonomicFilterGroupType.PageviewUrls, 'example.com', true, true],
+        [TaxonomicFilterGroupType.PageviewEvents, 'overview', true, false],
+        [TaxonomicFilterGroupType.PageviewEvents, 'https://example.com', true, true],
+        [TaxonomicFilterGroupType.EmailAddresses, 'sample', false, true],
+        [TaxonomicFilterGroupType.PageviewUrls, 'overview', false, true],
+        [TaxonomicFilterGroupType.PageviewEvents, 'overview', false, true],
+    ])('gates %s search %s with flag=%s and fetch=%s', async (groupType, query, enabled, shouldFetch) => {
+        const searches: string[] = []
+        const valuesResponse = ({
+            request,
+        }: {
+            request: Request
+        }): [number, { results: { name: string }[]; count: number }] => {
+            const value = new URL(request.url).searchParams.get('value') ?? ''
+            searches.push(value)
+            return [200, { results: [{ name: value }], count: 1 }]
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team/persons/values/': valuesResponse,
+                '/api/projects/:team/events/values/': valuesResponse,
+            },
+        })
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]: enabled })
+        const list = logicWith({ listGroupType: groupType, taxonomicGroupTypes: [groupType] })
+        await expectLogic(list, () => list.actions.setSearchQuery(query)).toDispatchActions(['loadRemoteItemsSuccess'])
+        expect(searches).toEqual(shouldFetch ? [query] : [])
+        expect(list.values.remoteItems.results).toEqual(shouldFetch ? [{ name: query }] : [])
+        if (!shouldFetch) {
+            expect(posthog.capture).not.toHaveBeenCalledWith('taxonomic filter empty result', expect.anything())
+        }
+    })
+
+    it('cancels a pending value search when the next query is gated', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/persons/values/': () => new Promise(() => {}),
+            },
+        })
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]: true })
+        jest.useFakeTimers()
+        let list: ReturnType<typeof infiniteListLogic.build> | undefined
+        try {
+            list = logicWith({
+                listGroupType: TaxonomicFilterGroupType.EmailAddresses,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EmailAddresses],
+            })
+            list.actions.setSearchQuery('sample@')
+            await jest.advanceTimersByTimeAsync(600)
+            const previousController = list.cache.abortController
+            expect(previousController).not.toBeNull()
+            expect(previousController?.signal.aborted).toBe(false)
+
+            list.actions.setSearchQuery('sample')
+            await jest.advanceTimersByTimeAsync(600)
+            expect(previousController?.signal.aborted).toBe(true)
+            expect(list.cache.abortController).toBeNull()
+            expect(list.values.remoteItems).toMatchObject({ searchQuery: 'sample', results: [] })
+
+            await jest.advanceTimersByTimeAsync(31000)
+            expect(list.values.showErrorState).toBe(false)
+            expect(list.values.remoteItems).toMatchObject({ searchQuery: 'sample', results: [] })
+        } finally {
+            list?.unmount()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]: false,
+            })
+            featureFlagLogic.unmount()
+            jest.useRealTimers()
+        }
+    })
 
     it('shows loading while the dashboard list loads', async () => {
         let completeDashboardLoad!: () => void
@@ -752,6 +835,7 @@ describe('infiniteListLogic', () => {
                     // hunting for a tracking bug instead of retrying.
                     showEmptyState: false,
                     showErrorState: true,
+                    remoteFetchForbidden: false,
                 })
 
             const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
@@ -759,6 +843,43 @@ describe('infiniteListLogic', () => {
             expect(failedCalls[0][1]).toMatchObject({
                 groupType: TaxonomicFilterGroupType.Events,
                 searchQuery: 'user_signed_up',
+                forbidden: false,
+            })
+        })
+
+        it.each([
+            { code: 'permission_denied', forbidden: true },
+            { code: 'feature_flag_required', forbidden: false },
+        ])('marks a 403 with code $code as forbidden: $forbidden', async ({ code, forbidden }) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/feature_flags': () => [403, { detail: 'denied', code }],
+                },
+            })
+            initKeaTests()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const forbiddenLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'forbiddenList',
+                listGroupType: TaxonomicFilterGroupType.FeatureFlags,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.FeatureFlags],
+                showNumericalPropsOnly: false,
+            })
+            forbiddenLogic.mount()
+            await expectLogic(forbiddenLogic, () => {
+                forbiddenLogic.actions.setSearchQuery('my-flag')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    showErrorState: true,
+                    remoteFetchForbidden: forbidden,
+                })
+
+            const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
+            expect(failedCalls).toHaveLength(1)
+            expect(failedCalls[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.FeatureFlags,
+                forbidden,
             })
         })
 
@@ -1349,6 +1470,26 @@ describe('infiniteListLogic', () => {
                     results: partial([partial({ name: 'first' }), partial({ name: 'second' })]),
                 })
         })
+
+        it('prefers the caller options over the default options of a group', async () => {
+            // The internal event properties group defaults to activity log keys; a destination trigger
+            // for another internal event passes its own keys.
+            const internalLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'testInternalList',
+                listGroupType: TaxonomicFilterGroupType.InternalEventProperties,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.InternalEventProperties],
+                showNumericalPropsOnly: false,
+                optionsFromProp: {
+                    [TaxonomicFilterGroupType.InternalEventProperties]: [{ name: 'priority' }, { name: 'repo_slug' }],
+                },
+            })
+            internalLogic.mount()
+
+            await expectLogic(internalLogic).toMatchValues({
+                results: [partial({ name: 'priority' }), partial({ name: 'repo_slug' })],
+            })
+            internalLogic.unmount()
+        })
     })
 
     it('filters local data warehouse person properties to numeric ones when requested', async () => {
@@ -1647,7 +1788,7 @@ describe('infiniteListLogic', () => {
                 .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                 .toFinishAllListeners()
                 .toMatchValues({
-                    keywordShortcutItems: partial([
+                    leadingSearchItems: partial([
                         partial({
                             _type: 'quick_filter',
                             name: 'Click (autocapture)',
@@ -1683,6 +1824,50 @@ describe('infiniteListLogic', () => {
             expect(topMatches[0]).toMatchObject({ _type: 'quick_filter', filterValue: 'click' })
         })
 
+        it.each([
+            {
+                name: 'places a hidden event stand-in ahead of the remote matches',
+                excludedProperties: undefined,
+                expectStandIn: true,
+            },
+            {
+                name: 'offers no stand-in for an event the caller excludes',
+                excludedProperties: { [TaxonomicFilterGroupType.Events]: ['$feature_flag_called'] },
+                expectStandIn: false,
+            },
+        ])('$name', async ({ excludedProperties, expectStandIn }) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': [
+                        200,
+                        {
+                            results: [{ id: 'uuid-flag-enrolled', name: 'feature flag enrolled', tags: [] }],
+                            count: 1,
+                        },
+                    ],
+                },
+            })
+            keySuffix += 1
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: `hiddenEventStandInTest-${keySuffix}`,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+                offerHiddenEventStandIns: true,
+                excludedProperties,
+            })
+            listLogic.mount()
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('feature flag'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+
+            const results = listLogic.values.items.results
+            expect(results.filter(isHiddenEventStandIn)).toHaveLength(expectStandIn ? 1 : 0)
+            expect(isHiddenEventStandIn(results[0])).toBe(expectStandIn)
+            expect(results).toContainEqual(expect.objectContaining({ name: 'feature flag enrolled' }))
+        })
+
         it('returns no shortcut items when enableKeywordShortcuts is false', async () => {
             const listLogic = mountEventsLogic(false)
 
@@ -1690,7 +1875,7 @@ describe('infiniteListLogic', () => {
                 .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                 .toFinishAllListeners()
                 .toMatchValues({
-                    keywordShortcutItems: [],
+                    leadingSearchItems: [],
                 })
         })
 
@@ -1701,7 +1886,7 @@ describe('infiniteListLogic', () => {
                 .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                 .toFinishAllListeners()
                 .toMatchValues({
-                    keywordShortcutItems: [],
+                    leadingSearchItems: [],
                 })
         })
     })
@@ -1729,36 +1914,61 @@ describe('infiniteListLogic', () => {
                 listGroupType: TaxonomicFilterGroupType.Events,
                 expectFire: false,
             },
-        ])('$name', async ({ activeTab, listGroupType, expectFire }) => {
-            const captureSpy = jest.spyOn(posthog, 'capture')
+            {
+                name: 'does not fire when a hidden event stand-in answers the search',
+                activeTab: TaxonomicFilterGroupType.Events,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                expectFire: false,
+                searchQuery: 'feature flag',
+                offerHiddenEventStandIns: true,
+            },
+            {
+                name: 'fires when stand-ins are offered but none matches the search',
+                activeTab: TaxonomicFilterGroupType.Events,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                expectFire: true,
+                offerHiddenEventStandIns: true,
+            },
+        ])(
+            '$name',
+            async ({
+                activeTab,
+                listGroupType,
+                expectFire,
+                searchQuery = 'mcp tool call',
+                offerHiddenEventStandIns,
+            }) => {
+                const captureSpy = jest.spyOn(posthog, 'capture')
 
-            const parent = taxonomicFilterLogic(props)
-            parent.mount()
-            parent.actions.setActiveTab(activeTab)
+                const parent = taxonomicFilterLogic({ ...props, offerHiddenEventStandIns })
+                parent.mount()
+                parent.actions.setActiveTab(activeTab)
 
-            const listLogic = infiniteListLogic({ ...props, listGroupType })
-            listLogic.mount()
+                const listLogic = infiniteListLogic({ ...props, offerHiddenEventStandIns, listGroupType })
+                listLogic.mount()
 
-            // Tripwire: the gate reads `isActiveTab` from the parent. If anyone refactors
-            // `isActiveTab` to be self-contained, this assertion catches it before the
-            // empty-result expectations silently start passing for the wrong reason.
-            expect(listLogic.values.isActiveTab).toBe(activeTab === listGroupType)
+                // Tripwire: the gate reads `isActiveTab` from the parent. If anyone refactors
+                // `isActiveTab` to be self-contained, this assertion catches it before the
+                // empty-result expectations silently start passing for the wrong reason.
+                expect(listLogic.values.isActiveTab).toBe(activeTab === listGroupType)
 
-            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('mcp tool call'))
-                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
-                .toFinishAllListeners()
+                await expectLogic(listLogic, () => listLogic.actions.setSearchQuery(searchQuery))
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
 
-            const emptyCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter empty result')
-            if (expectFire) {
-                expect(emptyCalls).toHaveLength(1)
-                expect(emptyCalls[0][1]).toMatchObject({
-                    groupType: listGroupType,
-                    searchQuery: 'mcp tool call',
-                })
-            } else {
-                expect(emptyCalls).toHaveLength(0)
+                const emptyCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter empty result')
+                if (expectFire) {
+                    expect(emptyCalls).toHaveLength(1)
+                    expect(emptyCalls[0][1]).toMatchObject({
+                        scope: 'category',
+                        groupType: listGroupType,
+                        searchQuery,
+                    })
+                } else {
+                    expect(emptyCalls).toHaveLength(0)
+                }
             }
-        })
+        )
     })
 
     describe('suggested list dedupes pinned against recents', () => {
@@ -1837,6 +2047,37 @@ describe('infiniteListLogic', () => {
                 ).toHaveLength(1)
             }
         )
+
+        // A stand-in has no id, so its recent row keeps only its name and the Events getter can't read a value from it.
+        it('commits the recorded value when Enter selects a recent row with no id', async () => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: '$feature_flag_called',
+                item: { name: '$feature_flag_called' },
+            })
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'recent-without-id-test',
+                listGroupType: TaxonomicFilterGroupType.SuggestedFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.SuggestedFilters],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+            const index = listLogic.values.items.results.findIndex(
+                (item) => hasRecentContext(item) && item._recentContext.sourceValue === '$feature_flag_called'
+            )
+            expect(index).toBeGreaterThanOrEqual(0)
+
+            await expectLogic(listLogic, () => {
+                listLogic.actions.setIndex(index)
+                listLogic.actions.selectSelected()
+            }).toDispatchActions([
+                ({ type, payload }) =>
+                    type === listLogic.actionTypes.selectItem && payload.value === '$feature_flag_called',
+            ])
+        })
     })
 
     describe('committed selection promotion', () => {
@@ -1906,6 +2147,40 @@ describe('infiniteListLogic', () => {
             // the real row (it has an id; the synthetic doesn't) floats, the synthetic is gone
             expect(results[1]).toMatchObject({ name: 'misc-150-generated', id: 'uuid-150-foobar' })
             expect(results.filter((item) => (item as { name?: string })?.name === 'misc-150-generated')).toHaveLength(1)
+        })
+
+        it('fetches the true remote offset when a stand-in row leads a paginated search', async () => {
+            const matches = Array.from({ length: 150 }, (_, i) => ({
+                id: `uuid-feature-flag-${i}`,
+                name: `feature flag event ${i}`,
+                tags: [],
+            }))
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        const offset = Number(url.searchParams.get('offset'))
+                        const limit = Number(url.searchParams.get('limit'))
+                        return [200, { results: matches.slice(offset, offset + limit), count: matches.length }]
+                    },
+                },
+            })
+            logic = logicWith({
+                taxonomicFilterLogicKey: 'stand-in-pagination-test',
+                offerHiddenEventStandIns: true,
+            })
+            await expectLogic(logic, () => logic.actions.setSearchQuery('feature flag')).toDispatchActions([
+                'loadRemoteItemsSuccess',
+            ])
+            expect(isHiddenEventStandIn(logic.values.results[0])).toBe(true)
+
+            await expectLogic(logic, () =>
+                logic.actions.onRowsRendered({ startIndex: 90, stopIndex: 110, overscanStopIndex: 130 })
+            ).toDispatchActions([
+                (action) => action.type === logic.actionTypes.loadRemoteItems && action.payload.offset === 100,
+                'loadRemoteItemsSuccess',
+            ])
+            expect(logic.values.results.filter((item) => item == null)).toHaveLength(0)
         })
 
         it('leaves relevance ordering alone while searching', async () => {

@@ -1,0 +1,25 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "destination_ids": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The full list of destination ids for this table, at least one, at most 10. Pass null to remove the override so the table follows its source again."
+        },
+        "id": {
+            "description": "A UUID string identifying this external data schema.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

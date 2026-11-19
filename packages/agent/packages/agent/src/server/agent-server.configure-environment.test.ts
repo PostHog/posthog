@@ -24,6 +24,7 @@ interface TestableServer {
     snapshotKind?: string | null;
     prewarmed?: boolean | null;
     executionEnvironment?: "local" | "cloud";
+    sharedPromptCache?: boolean;
   }): GatewayEnv;
 }
 
@@ -614,6 +615,24 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     expect(properties).not.toHaveProperty("task_run_span_id");
   });
 
+  it("sends the task id as the Go gateway session header", () => {
+    const env = buildServer().configureEnvironment({
+      originProduct: "signal_report",
+      aiStage: "scout",
+      taskId: "task-1",
+    });
+
+    expect(env.anthropicCustomHeaders).toContain(
+      "X-PostHog-Session-Id: task-1",
+    );
+    expect(env.openaiCustomHeaders).toMatchObject({
+      "X-PostHog-Session-Id": "task-1",
+    });
+    expect(parseBlob(env.anthropicCustomHeaders ?? "")).not.toHaveProperty(
+      "$ai_session_id",
+    );
+  });
+
   // The gateway writes the tier into the OpenAI body from this header, so a
   // run that loses it silently runs on the standard queue and a flex trial
   // measures nothing. Codex-only: the Claude header lines never carry it.
@@ -664,6 +683,31 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     expect(codex.openaiCustomHeaders?.["X-PostHog-Trace-Id"]).toBe("run-1");
     expect(codex.anthropicCustomHeaders).not.toContain("X-PostHog-Trace-Id");
     expect(claude.openaiCustomHeaders?.["X-PostHog-Trace-Id"]).toBeUndefined();
+  });
+
+  // Codex sub-agents reach the gateway with the process headers only, so the
+  // shared cache scope has to ride the OpenAI record, and only when the run asks.
+  it("sends the shared prompt cache scope only when the run asks for it", () => {
+    const run = {
+      originProduct: "signal_report",
+      aiStage: "scout",
+      runtimeAdapter: "codex",
+    };
+    const shared = buildServer().configureEnvironment({
+      ...run,
+      sharedPromptCache: true,
+    });
+    const keyed = buildServer().configureEnvironment(run);
+
+    expect(shared.openaiCustomHeaders?.["X-PostHog-Prompt-Cache-Scope"]).toBe(
+      "shared",
+    );
+    expect(shared.anthropicCustomHeaders).not.toContain(
+      "X-PostHog-Prompt-Cache-Scope",
+    );
+    expect(
+      keyed.openaiCustomHeaders?.["X-PostHog-Prompt-Cache-Scope"],
+    ).toBeUndefined();
   });
 
   it("keeps non-signals products on their existing ai_product name", () => {

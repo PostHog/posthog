@@ -29,6 +29,7 @@ describe('posthog run scout template', () => {
         expect(parseJSON(params.body!)).toEqual({
             skill_name: 'signals-scout-error-tracking',
             idempotency_key: `${response.invocation.id}:action_1:0`,
+            when_busy: 'queue',
         })
 
         const token = (params.headers?.['Authorization'] ?? '').replace('Bearer ', '')
@@ -41,6 +42,38 @@ describe('posthog run scout template', () => {
         }) as jwt.JwtPayload
         expect(claims.team_id).toBe(1)
         expect(claims.hog_flow_id).toBe(workflowOptions.hogFlow.id)
+    })
+
+    it.each([
+        ['renders the note from the triggering event', 'PR #{event.properties.pr_number}', 'PR #4821'],
+        ['cuts a note over the endpoint limit', `PR #{event.properties.pr_number} ${'x'.repeat(1200)}`, null],
+    ])('%s', async (_name, note, expected) => {
+        const response = await tester.invoke(
+            { ...inputs, note },
+            { event: { properties: { pr_number: 4821 } } },
+            workflowOptions
+        )
+        expect(response.error).toBeUndefined()
+
+        const params = response.invocation.queueParameters as CyclotronInvocationQueueParametersFetchType
+        const sent = parseJSON(params.body!).note as string
+        if (expected === null) {
+            expect(sent).toHaveLength(1000)
+            expect(sent.startsWith('PR #4821 ')).toBe(true)
+        } else {
+            expect(sent).toBe(expected)
+        }
+    })
+
+    it.each([
+        ['forwards skip', 'skip', 'skip'],
+        ['leaves an unknown value to the endpoint default', 'later', undefined],
+    ])('%s for a busy scout', async (_name, whenBusy, expected) => {
+        const response = await tester.invoke({ ...inputs, when_busy: whenBusy }, undefined, workflowOptions)
+        expect(response.error).toBeUndefined()
+
+        const params = response.invocation.queueParameters as CyclotronInvocationQueueParametersFetchType
+        expect(parseJSON(params.body!).when_busy).toEqual(expected)
     })
 
     it('fails without staging a request when no scout is chosen', async () => {
@@ -69,6 +102,18 @@ describe('posthog run scout template', () => {
             workflow_id: 'wf-1',
             await: { max_wait: '35m', label: 'scout run' },
         })
+    })
+
+    it('finishes without parking when the busy scout queued the trigger', async () => {
+        let response = await tester.invoke(inputs, undefined, workflowOptions)
+        response = await tester.invokeFetchResponse(response.invocation, {
+            status: 202,
+            body: { scout: 'signals-scout-error-tracking', workflow_id: null, queued: true },
+        })
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toBe(true)
+        expect(response.execResult).toEqual({ skipped: false, queued: true, scout: 'signals-scout-error-tracking' })
     })
 
     it('skips instead of failing on a 409 response', async () => {

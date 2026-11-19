@@ -18,6 +18,18 @@ class UnsupportedModelError(LLMError):
         super().__init__(f"Unsupported model: {model}")
 
 
+class ClaudeDeploymentOnAzureOpenAIError(UnsupportedModelError):
+    """Raised when an Azure OpenAI key names a Claude deployment, which only the Anthropic API serves."""
+
+    def __init__(self, model: str):
+        self.model = model
+        LLMError.__init__(
+            self,
+            f"'{model}' looks like a Claude deployment. Azure OpenAI keys can't call Claude models. "
+            "Add an Anthropic key with your Microsoft Foundry endpoint, then pick that key for this model.",
+        )
+
+
 class UnsupportedProviderError(LLMError):
     """Raised when an unsupported provider is requested"""
 
@@ -35,8 +47,9 @@ class RateLimitError(LLMError):
 
 
 class RetryableRateLimitError(RateLimitError):
-    def __init__(self, message: str, retry_after: str | None = None) -> None:
+    def __init__(self, message: str, retry_after: str | None = None, *, status: int = 429) -> None:
         super().__init__(message)
+        self.status = status
         self.retry_after: float | None = None
         if retry_after:
             try:
@@ -169,7 +182,7 @@ class ModelPermissionError(LLMError):
         super().__init__(msg)
 
 
-def provider_error_detail(error: Exception | None) -> str | None:
+def provider_error_detail(error: BaseException | None) -> str | None:
     """The provider's own sentence, without the SDK's `Error code: NNN - {...}` wrapper.
 
     `str(e)` on an OpenAI or Anthropic error embeds the whole response dict, so read the parsed
@@ -201,6 +214,8 @@ def user_facing_error_message(error: Exception | None) -> str:
     """
     if isinstance(error, ModelNotFoundError):
         return f"Model '{error.model}' is not available. Pick a different model and try again."
+    if isinstance(error, ClaudeDeploymentOnAzureOpenAIError):
+        return str(error)
     if isinstance(error, UnsupportedModelError):
         return f"Model '{error.model}' is not supported. Pick a different model and try again."
     if isinstance(error, ModelPermissionError):

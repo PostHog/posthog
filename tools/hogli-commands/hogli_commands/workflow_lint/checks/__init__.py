@@ -4,6 +4,9 @@ To add a new rule:
 
 1. Add a new module here that defines a ``WorkflowCheck`` subclass.
 2. Import the class below and append an instance to ``CHECKS``.
+3. If the rule reads repo files outside ``.github/``, read them through
+   ``TrackedFiles``. CI lints from a sparse checkout, so a direct disk read
+   sees a left-out file as absent and the rule passes without checking it.
 
 Order matters only for output stability — rules with a lower-numbered id show
 up first.
@@ -14,9 +17,11 @@ from __future__ import annotations
 from ..check import WorkflowCheck
 from .cache_writes import CacheWriteGateCheck
 from .checkout_full_depth import CheckoutFullDepthCheck
+from .checkout_work_gate import CheckoutWorkGateCheck
 from .dorny_negation import DornyNegationCheck
 from .job_timeouts import JobTimeoutsCheck
 from .mcp_filter_coverage import McpFilterCoverageCheck
+from .paused_public_image_pulls import PausedPublicImagePullsCheck
 from .pinned_runner_images import PinnedRunnerImagesCheck
 from .pr_concurrency import PrConcurrencyCheck
 from .pr_event_fanout import PrEventFanoutCheck
@@ -24,6 +29,7 @@ from .required_gates import RequiredGateCheck
 from .reusable_secret_passthrough import ReusableSecretPassthroughCheck
 from .semgrep_services_coverage import SemgrepServicesCoverageCheck
 from .shell_split_action_args import ShellSplitActionArgsCheck
+from .storybook_static_dirs_coverage import StorybookStaticDirsCoverageCheck
 
 CHECKS: list[WorkflowCheck] = [
     JobTimeoutsCheck(),
@@ -38,6 +44,9 @@ CHECKS: list[WorkflowCheck] = [
     ReusableSecretPassthroughCheck(),
     PinnedRunnerImagesCheck(),
     ShellSplitActionArgsCheck(),
+    StorybookStaticDirsCoverageCheck(),
+    PausedPublicImagePullsCheck(),
+    CheckoutWorkGateCheck(),
 ]
 
 

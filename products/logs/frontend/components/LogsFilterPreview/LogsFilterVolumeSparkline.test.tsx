@@ -1,6 +1,6 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 
-import { getHogChart, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { getChart, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -58,7 +58,7 @@ describe('LogsFilterVolumeSparkline', () => {
     it('loads on mount for a pre-filled group and renders the chart with the total', async () => {
         const { container } = render(<LogsFilterVolumeSparkline filterGroup={NON_EMPTY_GROUP} metric="bytes" />)
 
-        await waitFor(() => expect(getHogChart(container).seriesCount).toEqual(1))
+        await waitFor(() => expect(getChart(container).seriesCount).toEqual(1))
         expect(sparklineCalls).toEqual(1)
         expect(screen.getByText('6.1 KB')).toBeTruthy()
     })

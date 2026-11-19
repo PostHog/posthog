@@ -1,4 +1,5 @@
 import json
+from contextlib import nullcontext
 
 import pytest
 from posthog.test.base import BaseTest
@@ -154,6 +155,40 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
 
         assert result is None
         assert source == "db"
+
+    @parameterized.expand(
+        [
+            ("redis_hit", ["redis"], {"key": "value", "nested": {"data": "test"}}, "redis", None),
+            ("s3_hit", ["s3"], {"key": "value", "nested": {"data": "test"}}, "s3", None),
+            ("cached_as_missing", None, None, "redis", None),
+            ("miss", [], None, None, None),
+            (
+                "redis_down_reads_s3",
+                ["s3"],
+                {"key": "value", "nested": {"data": "test"}},
+                "s3",
+                redis.exceptions.ConnectionError("redis down"),
+            ),
+        ]
+    )
+    def test_peek_from_cache_reads_the_tiers_without_loading_or_writing(
+        self, _name, filled_tiers, expected_data, expected_source, redis_error
+    ):
+        if filled_tiers is None:
+            self.hypercache.set_cache_value(self.team_id, HyperCacheStoreMissing())
+        else:
+            self.hypercache.set_cache_value(self.team_id, self.sample_data)
+            self.hypercache.clear_cache(self.team_id, kinds=[k for k in ("redis", "s3") if k not in filled_tiers])
+        load_fn = Mock(return_value={"default": "data"})
+        hypercache = HyperCache(namespace="test_namespace", value="test_value", load_fn=load_fn)
+        redis_before = cache.get(hypercache.get_cache_key(self.team_id))
+
+        with patch.object(hypercache.cache_client, "get", side_effect=redis_error) if redis_error else nullcontext():
+            result, source = hypercache.peek_from_cache_with_source(self.team_id)
+
+        assert (result, source) == (expected_data, expected_source)
+        load_fn.assert_not_called()
+        assert cache.get(hypercache.get_cache_key(self.team_id)) == redis_before
 
 
 class TestHyperCacheRedisFailureDegrades(HyperCacheTestBase):
@@ -918,6 +953,29 @@ class TestHyperCacheSecondaryCache(BaseTest):
         assert calls.mock_calls == [
             getattr(call, client).delete(key) for client in ("secondary", "primary") for key in sequence
         ]
+
+    @parameterized.expand(
+        [
+            ("primary", "cache_client", False),
+            ("strict_secondary", "secondary_cache_client", True),
+        ]
+    )
+    def test_delete_raises_a_redis_failure_after_every_tier(self, _name, failing_client, strict_mirror):
+        hc = HyperCache(namespace="test", value="value", load_fn=lambda team: self.sample_data, enable_etag=True)
+        hc.cache_client = Mock()
+        hc.secondary_cache_client = Mock()
+        redis_error = ConnectionError("redis down")
+        getattr(hc, failing_client).delete.side_effect = redis_error
+        team_id = self.team.id
+
+        with patch.object(object_storage, "delete") as mock_s3_delete:
+            with pytest.raises(ConnectionError) as raised:
+                hc.delete_cache_entry(team_id, strict_mirror=strict_mirror)
+
+        assert raised.value is redis_error
+        assert hc.cache_client.delete.call_count == 3
+        assert hc.secondary_cache_client.delete.call_count == 3
+        mock_s3_delete.assert_called_once_with(hc.get_cache_key(team_id))
 
     def test_unknown_secondary_alias_falls_back_to_no_op(self):
         """A secondary_cache_alias not in settings.CACHES is silently ignored."""

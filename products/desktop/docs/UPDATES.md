@@ -42,8 +42,9 @@ Remote announcements can drive this flow: a `required-update` announcement block
 1. A base tag like `desktop-v0.15` marks the start of a minor version.
 2. `.github/workflows/desktop-tag.yml` (monorepo root) runs on a twice-daily schedule. It computes `desktop-vX.Y.PATCH`, where PATCH is the number of commits since the base tag that touched `products/desktop/`, waits for a quiet period, then pushes the tag.
 3. Before it tags, it runs `Desktop Tests` on master and tags the commit that run tested. It refuses to tag if that run fails. If the run has not finished within twenty-five minutes, it leaves the release to the next scheduled run. A manual dispatch with `ignore_master_ci` skips the check, for a break-glass release.
-4. The tag push triggers `desktop-release.yml`, which builds and publishes the release.
-5. No manual `package.json` updates are needed.
+4. Then it waits until the Django backend in prod-us and prod-eu runs a build that contains the commit it tags. It reads the live build from the GitHub Deployments that the charts deploy writes. If the backend does not have the commit within sixty minutes, it leaves the release to the next scheduled run. A manual dispatch with `ignore_backend_deploy` skips the wait, for a break-glass release. The wait does not cover Rust services.
+5. The tag push triggers `desktop-release.yml`, which builds and publishes the release.
+6. No manual `package.json` updates are needed.
 
 ## Releasing a patch
 

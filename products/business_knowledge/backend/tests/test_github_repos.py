@@ -7,11 +7,15 @@ from django.utils import timezone
 
 from posthog.models.integration import Integration
 from posthog.models.integration_repository_cache import IntegrationRepositoryCacheEntry
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.utils import hash_key_value
 
 from products.business_knowledge.backend.github_repos import MAX_GITHUB_REPOS
-from products.business_knowledge.backend.models import TeamBusinessKnowledgeConfig
+from products.business_knowledge.backend.logic import has_sources
+from products.business_knowledge.backend.models import KnowledgeSource, SourceType, TeamBusinessKnowledgeConfig
 
 BILLING = "acme/billing"
 OTHER = "acme/other"
@@ -100,6 +104,23 @@ class TestBusinessKnowledgeGithubRepos(APIBaseTest):
         assert response.status_code == 400
         assert get_or_create_team_extension(self.team, TeamBusinessKnowledgeConfig).github_integration_id is None
 
+    def test_availability_reports_own_sources_and_selected_repos(self, _capture, _flag) -> None:
+        url = f"/api/projects/{self.team.id}/business_knowledge/sources/availability/"
+        other = self._other_team()
+        with team_scope(other.id, canonical=True):
+            KnowledgeSource.objects.create(team=other, name="other", source_type=SourceType.TEXT)
+        assert self.client.get(url).json() == {"has_sources": False, "has_repositories": False}
+
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeSource.objects.create(team=self.team, name="own", source_type=SourceType.TEXT)
+        self._connect()
+        self._select([BILLING])
+        assert self.client.get(url).json() == {"has_sources": True, "has_repositories": True}
+        child = Team.objects.create(
+            organization=self.organization, parent_team=self.team, project=self.team.project, name="Child"
+        )
+        assert has_sources(child.id)
+
     def test_select_stores_lowercased_names(self, _capture, _flag) -> None:
         self._connect()
         response = self._select(["Acme/Billing"], listed=["Acme/Billing"])
@@ -127,6 +148,34 @@ class TestBusinessKnowledgeGithubRepos(APIBaseTest):
         readme_urls = [hit["url"] for hit in response.json()["results"] if hit["kind"] == "readme"]
         assert readme_urls == ["https://github.com/acme/billing/tree/abc123#readme"]
         assert self.warm.called is False
+
+    def test_project_secret_key_searches_and_reads_selected_repositories(self, _capture, _flag) -> None:
+        self._connect()
+        assert self._select([BILLING]).status_code == 200
+        self._cache(self.team, self.integration, BILLING, tree_paths="src/billing.py")
+        token = f"phs_{'a' * 40}"
+        ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="agent",
+            mask_value="phs_...aaaa",
+            secure_value=hash_key_value(token),
+            scopes=["business_knowledge:read"],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        search = self.client.get(f"{self.base}/search/", {"query": "billing"})
+        assert search.status_code == 200, search.json()
+        assert [hit["path"] for hit in search.json()["results"]] == ["src/billing.py"]
+
+        with patch(
+            "products.business_knowledge.backend.github_repos.GitHubIntegration.get_file_contents",
+            return_value={"content": "def prorate(): ...", "sha": "abc123"},
+        ):
+            loaded = self.client.get(f"{self.base}/file/", {"repo": BILLING, "path": "src/billing.py"})
+        assert loaded.status_code == 200, loaded.json()
+
+        assert self.client.post(f"{self.base}/selection/", {"repos": []}, format="json").status_code == 403
 
     def test_repository_removed_from_installation_is_not_searchable(self, _capture, _flag) -> None:
         self._connect()
@@ -211,6 +260,118 @@ class TestBusinessKnowledgeGithubRepos(APIBaseTest):
         assert found.json()["content"].startswith("def prorate")
         assert found.json()["url"] == "https://github.com/acme/billing/blob/abc123/src/billing.py"
         read.assert_called_once_with(BILLING, "src/billing.py", ref="abc123")
+
+    def test_library_search_and_file_read_use_the_allowlist_intersection(self, _capture, _flag) -> None:
+        self._connect()
+        assert self._select([BILLING, OTHER]).status_code == 200
+        self._cache(self.team, self.integration, BILLING, tree_paths="src/billing.py", readme="Billing prorates.")
+        self._cache(self.team, self.integration, OTHER, tree_paths="src/other.py", readme="Other notes.")
+        library = self._library("Billing")
+        assert (
+            self.client.patch(f"{self._libraries_url()}{library}/", {"repos": [BILLING]}, format="json").status_code
+            == 200
+        )
+
+        search = self.client.get(f"{self.base}/search/", {"query": "billing", "library_id": library})
+        outside = self.client.get(f"{self.base}/search/", {"query": "other", "repo": OTHER, "library_id": library})
+        read = self.client.get(f"{self.base}/file/", {"repo": OTHER, "path": "src/other.py", "library_id": library})
+        empty = self._library("Empty")
+
+        assert search.status_code == 200, search.json()
+        assert {hit["repo"] for hit in search.json()["results"]} == {BILLING}
+        assert outside.status_code == 400
+        assert read.status_code == 400
+        no_hits = self.client.get(f"{self.base}/search/", {"query": "billing", "library_id": empty})
+        assert no_hits.status_code == 200, no_hits.json()
+        assert no_hits.json()["results"] == []
+
+    def test_a_library_limited_key_reads_only_the_repos_in_its_library(self, _capture, _flag) -> None:
+        from products.business_knowledge.backend.models import KnowledgeKeyLibrary
+
+        self._connect()
+        assert self._select([BILLING, OTHER]).status_code == 200
+        self._cache(self.team, self.integration, BILLING, tree_paths="src/billing.py")
+        self._cache(self.team, self.integration, OTHER, tree_paths="src/other.py")
+        library = self._library("Billing")
+        assert (
+            self.client.patch(f"{self._libraries_url()}{library}/", {"repos": [BILLING]}, format="json").status_code
+            == 200
+        )
+        token = f"phs_{'b' * 40}"
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="billing agent",
+            mask_value="phs_...bbbb",
+            secure_value=hash_key_value(token),
+            scopes=["business_knowledge:read"],
+        )
+        KnowledgeKeyLibrary.objects.unscoped().create(team=self.team, key=key, library_id=library)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        search = self.client.get(f"{self.base}/search/", {"query": "src"})
+        read = self.client.get(f"{self.base}/file/", {"repo": OTHER, "path": "src/other.py"})
+
+        assert search.status_code == 200, search.json()
+        assert {hit["repo"] for hit in search.json()["results"]} == {BILLING}
+        assert read.status_code == 400, read.json()
+
+    def test_a_repo_removed_from_every_environment_loses_its_library_link(self, _capture, _flag) -> None:
+        from products.business_knowledge.backend.models import KnowledgeLibraryRepository
+
+        self._connect()
+        assert self._select([BILLING, OTHER]).status_code == 200
+        library = self._library("Repos")
+        assert (
+            self.client.patch(
+                f"{self._libraries_url()}{library}/", {"repos": [BILLING, OTHER]}, format="json"
+            ).status_code
+            == 200
+        )
+
+        assert self._select([OTHER]).status_code == 200
+
+        assert set(
+            KnowledgeLibraryRepository.objects.unscoped().filter(library_id=library).values_list("repo", flat=True)
+        ) == {OTHER}
+
+    def test_a_repo_another_environment_still_allows_keeps_its_link(self, _capture, _flag) -> None:
+        from posthog.models.team.extensions import get_or_create_team_extension
+
+        from products.business_knowledge.backend.models import KnowledgeLibraryRepository, TeamBusinessKnowledgeConfig
+
+        self._connect()
+        assert self._select([BILLING, OTHER]).status_code == 200
+        child = Team.objects.create(
+            organization=self.organization,
+            parent_team=self.team,
+            project=self.team.project,
+            name="Child environment",
+        )
+        child_config = get_or_create_team_extension(child, TeamBusinessKnowledgeConfig)
+        child_config.github_repos = [BILLING]
+        child_config.save(update_fields=["github_repos"])
+        library = self._library("Repos")
+        assert (
+            self.client.patch(
+                f"{self._libraries_url()}{library}/", {"repos": [BILLING, OTHER]}, format="json"
+            ).status_code
+            == 200
+        )
+
+        assert self._select([OTHER]).status_code == 200
+
+        assert set(
+            KnowledgeLibraryRepository.objects.unscoped().filter(library_id=library).values_list("repo", flat=True)
+        ) == {BILLING, OTHER}
+
+    def _libraries_url(self) -> str:
+        return f"/api/projects/{self.team.id}/business_knowledge/libraries/"
+
+    def _library(self, name: str) -> str:
+        response = self.client.post(self._libraries_url(), {"name": name}, format="json")
+        assert response.status_code == 201, response.content
+        return response.json()["id"]
 
     def _other_team(self) -> Team:
         return Team.objects.create(organization=self.organization, name="Other environment")

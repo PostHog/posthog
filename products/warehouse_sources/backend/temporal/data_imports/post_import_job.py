@@ -33,6 +33,7 @@ from posthog.models.team.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 
+from products.managed_warehouse.backend.facade.access import data_imports_ducklake_copy_enabled
 from products.managed_warehouse.backend.facade.temporal import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsWorkflow,
@@ -45,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     data_quality_checks_needed_for,
     emit_signals_enabled_for,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.calculate_table_size import (
     CalculateTableSizeActivityInputs,
@@ -161,8 +163,11 @@ def _statistics_gate(gate: PostImportGateContext) -> bool:
     return bool(gate.team is not None and _statistics_stale(gate.team_id, gate.schema.table))
 
 
-def _always(gate: PostImportGateContext) -> bool:
-    return True
+def _ducklake_copy_gate(gate: PostImportGateContext) -> bool:
+    # Checked before the child starts, so a team without the flag pays for no child workflow.
+    return gate.team is not None and data_imports_ducklake_copy_enabled(
+        team_id=gate.team_id, team_uuid=gate.team.uuid, organization_id=gate.team.organization_id
+    )
 
 
 def _table_size_gate(gate: PostImportGateContext) -> bool:
@@ -179,6 +184,26 @@ def _table_size_gate(gate: PostImportGateContext) -> bool:
 
 def _data_quality_gate(gate: PostImportGateContext) -> bool:
     return data_quality_checks_needed_for(gate.team_id, gate.schema.table_id)
+
+
+def _source_cleanup_gate(gate: PostImportGateContext) -> bool:
+    try:
+        source = SourceRegistry.get_source(gate.source_type)
+    except (KeyError, ValueError):
+        return False
+    return source.has_cleanup_after_sync(gate.schema.source) is True
+
+
+@activity.defn
+@with_internal_db_retries
+def cleanup_source_after_sync_activity(inputs: PostImportWorkflowInputs) -> None:
+    """Run the source's own cleanup for a completed sync, such as deleting a replaced upload."""
+    close_old_connections()
+    job = ExternalDataJob.objects.select_related("pipeline").filter(id=inputs.job_id, team_id=inputs.team_id).first()
+    if job is None or job.pipeline.deleted:
+        return
+    source_model = job.pipeline
+    SourceRegistry.get_source(source_model.source_type).cleanup_after_sync(source_model, job)
 
 
 async def _start_emit_signals(inputs: PostImportWorkflowInputs, ctx: PostImportContext) -> None:
@@ -303,12 +328,22 @@ async def _start_data_quality_checks(inputs: PostImportWorkflowInputs, ctx: Post
         )
 
 
+async def _start_source_cleanup(inputs: PostImportWorkflowInputs, ctx: PostImportContext) -> None:
+    await workflow.execute_activity(
+        cleanup_source_after_sync_activity,
+        inputs,
+        start_to_close_timeout=dt.timedelta(minutes=5),
+        retry_policy=RetryPolicy(maximum_attempts=3),
+    )
+
+
 EMIT_SIGNALS_STEP = "emit-signals"
 SEMANTIC_ENRICHMENT_STEP = "semantic-enrichment"
 TABLE_STATISTICS_STEP = "table-statistics"
 TABLE_SIZE_STEP = "table-size"
 DUCKLAKE_COPY_STEP = "ducklake-copy"
 DATA_QUALITY_CHECKS_STEP = "data-quality-checks"
+SOURCE_CLEANUP_STEP = "source-cleanup"
 
 # Ordered registry of every post-import step. This is the future registration point for
 # product-owned steps (external_product_hooks-style), so entries stay self-contained:
@@ -318,8 +353,9 @@ POST_IMPORT_STEPS: tuple[PostImportStep, ...] = (
     PostImportStep(key=SEMANTIC_ENRICHMENT_STEP, enabled=_enrichment_gate, start=_start_semantic_enrichment),
     PostImportStep(key=TABLE_STATISTICS_STEP, enabled=_statistics_gate, start=_start_table_statistics),
     PostImportStep(key=TABLE_SIZE_STEP, enabled=_table_size_gate, start=_start_table_size),
-    PostImportStep(key=DUCKLAKE_COPY_STEP, enabled=_always, start=_start_ducklake_copy),
+    PostImportStep(key=DUCKLAKE_COPY_STEP, enabled=_ducklake_copy_gate, start=_start_ducklake_copy),
     PostImportStep(key=DATA_QUALITY_CHECKS_STEP, enabled=_data_quality_gate, start=_start_data_quality_checks),
+    PostImportStep(key=SOURCE_CLEANUP_STEP, enabled=_source_cleanup_gate, start=_start_source_cleanup),
 )
 
 _STEP_BY_KEY = {step.key: step for step in POST_IMPORT_STEPS}

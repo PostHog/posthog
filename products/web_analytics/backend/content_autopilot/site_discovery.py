@@ -5,13 +5,13 @@ from html.parser import HTMLParser
 from typing import TypedDict
 from urllib.parse import urljoin, urlparse, urlunparse
 
-import idna
 import defusedxml.ElementTree as ET
 from defusedxml.common import DefusedXmlException
 from defusedxml.ElementTree import ParseError as DefusedParseError
 
 from posthog.dataclasses import frozen
 from posthog.security.llm_prompt_sanitization import sanitize_user_text
+from posthog.security.pinned_requests import canonical_host
 from posthog.security.url_validation import has_authority_bypass_chars, strip_userinfo
 
 from products.web_analytics.backend.public_url_fetch import (
@@ -81,19 +81,7 @@ class _SiteNameParser(HTMLParser):
 
 
 def _canonical_host(hostname: str) -> str:
-    """Return the host in the ASCII form the transport connects to.
-
-    `requests` IDNA-encodes a non-ASCII host before it opens the connection, so the
-    Unicode and the punycode spelling of one site must compare equal here too. An IP
-    literal and every other ASCII host stay as they are.
-    """
-    host = hostname.lower().removesuffix(".")
-    if host.isascii():
-        return host
-    try:
-        return idna.encode(host, uts46=True).decode("ascii")
-    except idna.IDNAError:
-        return host
+    return canonical_host(hostname.lower().removesuffix("."))
 
 
 def normalize_site_origin(raw_url: str) -> str:
@@ -148,6 +136,12 @@ def _public_host(url: str) -> str:
 
 def site_host(url: str) -> str:
     return _public_host(url).removeprefix("www.")
+
+
+def is_site_link(target: str, host: str) -> bool:
+    if target.startswith("/") and not target.startswith("//"):
+        return True
+    return bool(target_host := site_host(target)) and target_host == host
 
 
 def has_same_public_site(first_url: str, second_url: str) -> bool:

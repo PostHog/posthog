@@ -24,11 +24,19 @@ export interface SqlPartOfWholeChart {
 
 /** The parts, legend, total and formatting a SQL pie, donut or proportion bar shares. */
 export function useSqlPartOfWholeChart(
-    { xData, yData, chartSettings }: Pick<SqlChartProps, 'xData' | 'yData'> & { chartSettings: ChartSettings },
+    {
+        xData,
+        yData,
+        chartSettings,
+        labelFormatter,
+    }: Pick<SqlChartProps, 'xData' | 'yData' | 'labelFormatter'> & { chartSettings: ChartSettings },
     isProportionBar: boolean
 ): SqlPartOfWholeChart {
     const theme = useChartTheme()
-    const series = useMemo(() => buildPieSeries(buildPieSlices(xData, yData)), [xData, yData])
+    const series = useMemo(() => {
+        const raw = buildPieSeries(buildPieSlices(xData, yData))
+        return labelFormatter ? raw.map((series) => ({ ...series, label: labelFormatter(series.label) })) : raw
+    }, [xData, yData, labelFormatter])
     const formattingSettings = yData[0]?.settings
 
     // Toggled-off slices aren't persisted (SQL insights have nowhere to save them), but the legend

@@ -45,6 +45,7 @@ const baseCaptureResult = {
     truncated: false,
     inactivity_periods: [],
     frame_session_ms: [],
+    navigation_samples: [],
     pre_roll_frames: 0,
     timings: { setup_s: 0, capture_s: 2.5 },
 }
@@ -53,7 +54,6 @@ const cfg = {
     siteUrl: 'http://localhost:8000',
     captureBrowserLogs: false,
     recordingApiBaseUrl: 'http://localhost:6738',
-    recordingApiSecret: 'secret',
     screenshotFormat: 'jpeg' as const,
     screenshotJpegQuality: 80,
     maxRecordingCompressedBytes: 512 * 1024 * 1024,

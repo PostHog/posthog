@@ -29,8 +29,8 @@ class TestInstagramIntegrationModel(BaseTest):
         assert config.authorize_url == "https://www.facebook.com/v25.0/dialog/oauth"
         assert config.token_url == "https://graph.facebook.com/v25.0/oauth/access_token"
         assert config.token_info_url == "https://graph.facebook.com/v25.0/me"
-        assert config.client_id == "instagram-client-id"
-        assert config.client_secret == "instagram-client-secret"
+        client = OauthIntegration.client_credentials_for_kind("instagram")
+        assert (client.client_id, client.client_secret) == ("instagram-client-id", "instagram-client-secret")
         assert config.id_path == "id"
         assert config.name_path == "name"
         # Instagram is reached through the Facebook page it is linked to, so the page scopes
@@ -46,7 +46,7 @@ class TestInstagramIntegrationModel(BaseTest):
     @override_settings(INSTAGRAM_APP_CLIENT_ID="", INSTAGRAM_APP_CLIENT_SECRET="")
     def test_oauth_config_unconfigured_raises(self):
         with pytest.raises(NotImplementedError, match="Instagram app not configured"):
-            OauthIntegration.oauth_config_for_kind("instagram")
+            OauthIntegration.client_credentials_for_kind("instagram")
 
     def test_the_instagram_grant_is_separate_from_the_meta_ads_one(self):
         # Both ride the same Meta app, but an ads grant carries none of the Instagram scopes,

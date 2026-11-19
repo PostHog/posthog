@@ -126,11 +126,12 @@ def test_kill_switch_off_never_dispatches_in_eu_either():
     connect_mock.assert_not_called()
 
 
+@pytest.mark.parametrize("email", ["someone@gmail.com", "someone@example.com"])
 @override_settings(HARMONIC_API_KEY="key")
-def test_personal_email_records_work_email_false_without_provider_dispatch():
+def test_personal_email_records_work_email_false_without_provider_dispatch(email):
     on_commit, connect, run, region, record = _dispatch_mocks()
     with on_commit, connect as connect_mock, run, region, record as record_mock:
-        start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="someone@gmail.com")
+        start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email=email)
     connect_mock.assert_not_called()
     record_mock.assert_called_once_with(organization_id="org-1", work_email=False, signup_role=None)
 

@@ -25,6 +25,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.psycopg_helpers import is_resolvable_hostname
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -44,7 +45,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.dea
     iterate_with_deadline,
     run_with_deadline,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    HostNotAllowedError,
+    bracket_host,
+    host_lookup_is_skipped,
+    open_ssh_tunnel,
+    resolve_safe_host,
+    unbracket_host,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     BracketIdentifierQuoter,
@@ -92,6 +102,20 @@ _T = TypeVar("_T")
 
 # FreeTDS applies this limit to the TCP connect and to the login.
 MSSQL_LOGIN_TIMEOUT_SECONDS = 5
+
+# The Azure SQL gateway routes a login on the name FreeTDS dials, so these hosts keep it. Microsoft
+# runs these zones, so a record cannot be rebound: https://learn.microsoft.com/azure/private-link/private-endpoint-dns
+# and https://docs.azure.cn/en-us/synapse-analytics/sql/connect-overview
+_AZURE_SQL_DNS_ZONES = (
+    "database.windows.net",
+    "database.usgovcloudapi.net",
+    "database.chinacloudapi.cn",
+    "sql.azuresynapse.net",
+    "sql.azuresynapse.usgovcloudapi.net",
+    "sql.azuresynapse.azure.cn",
+)
+
+_SERVER_UNREACHABLE_ERROR = "Adaptive Server is unavailable or does not exist"
 
 # The longest a metadata statement waits for a lock before SQL Server ends it with error 1222. The
 # catalog views wait behind a schema modification lock, so an open DDL transaction on the server
@@ -169,7 +193,42 @@ def run_metadata_with_deadline(operation: Callable[[], _T], *, action: str, time
 # idle cull, a failover, a brief network blip), leaving pymssql's dbprocess dead so the in-flight
 # fetch raises. A fresh connection recovers, so this is transient rather than a config error.
 _TRANSIENT_CONNECTION_ERROR = "DBPROCESS is dead or not enabled"
+
+# pymssql's own InterfaceError, raised by `assert_connected` in `_mssql.pyx` when a statement
+# (including the implicit transaction `Cursor.execute` starts, or its own `cancel()` clearing
+# pending results) finds the dbprocess already dead. Same DBPROCESS-death class as the 20047 case
+# above — just surfaced through a different internal code path — so a fresh connection recovers
+# here too. Stable prefix, also matched by `MSSQLSource.get_retryable_errors`.
+_DEAD_CONNECTION_ERROR = "Not connected to any MS SQL server"
 _MAX_DISCOVERY_CONNECTION_ATTEMPTS = 5
+
+# SQL Server error 9002 raised while running `sp_spaceused` for table stats. The transaction log
+# for the shared `tempdb` database filled up because another session's active transaction is
+# holding it open, so it can't be truncated — this clears once that transaction ends or is rolled
+# back and a later attempt can succeed. `fetch_table_stats` is best-effort, so this is matched like
+# `_is_transient_connection_error` below and skipped rather than captured as tracked noise.
+_TEMPDB_LOG_FULL_ERROR = "The transaction log for database 'tempdb' is full"
+
+
+def _is_tempdb_log_full_error(error: BaseException) -> bool:
+    """True for a SQL Server 9002 tempdb-log-full error that clears once the holding transaction ends."""
+    message = " ".join(str(arg) for arg in error.args) if error.args else str(error)
+    return _TEMPDB_LOG_FULL_ERROR in message
+
+
+# pymssql's own message, raised by `Cursor.fetchone`/`fetchmany` when the last `execute()` left no
+# result-set header to read. `sp_spaceused` hits this for an object type it can't report on (e.g.
+# an external table): SQL Server emits a non-fatal warning and returns without running its SELECT,
+# so `execute()` succeeds but leaves nothing to fetch. Table stats are best-effort, so this is
+# skipped like the other known pymssql quirks above rather than captured as tracked noise.
+_NO_RESULTSET_ERROR = "Statement not executed or executed statement has no resultset"
+
+
+def _is_no_resultset_error(error: BaseException) -> bool:
+    """True for pymssql's `fetchone`/`fetchmany` error when the executed statement had no result set."""
+    message = " ".join(str(arg) for arg in error.args) if error.args else str(error)
+    return _NO_RESULTSET_ERROR in message
+
 
 # SQL Server error 1205 — this session was picked as the deadlock victim and its transaction was
 # rolled back to break a lock cycle with a concurrent process. SQL Server's own guidance is to
@@ -198,9 +257,9 @@ _TABLE_NOT_FOUND_ERROR = "Table not found when reading column metadata"
 
 
 def _is_transient_connection_error(error: BaseException) -> bool:
-    """True for a mid-stream TDS connection death that a fresh connection recovers from."""
+    """True for a dbprocess-death error, mid-stream or at connect, that a fresh connection recovers from."""
     message = " ".join(str(arg) for arg in error.args) if error.args else str(error)
-    return _TRANSIENT_CONNECTION_ERROR in message
+    return _TRANSIENT_CONNECTION_ERROR in message or _DEAD_CONNECTION_ERROR in message
 
 
 def _is_deadlock_victim_error(error: BaseException) -> bool:
@@ -605,7 +664,8 @@ class MSSQLColumn(Column):
             case "smallint":
                 arrow_type = pa.int16()
             case "tinyint":
-                arrow_type = pa.int8()
+                # MSSQL's tinyint is unsigned (0 to 255), unlike every other integer type here.
+                arrow_type = pa.uint8()
             case "decimal" | "numeric" | "money":
                 if not self.numeric_precision or not self.numeric_scale:
                     raise TypeError("expected `numeric_precision` and `numeric_scale` to be `int`, got `NoneType`")
@@ -646,6 +706,49 @@ class MSSQLTableSetup:
     keyset: MSSQLKeyset
 
 
+def _is_azure_sql_host(host: str) -> bool:
+    name = host.lower().strip().rstrip(".")
+    return any(name.endswith(f".{zone}") for zone in _AZURE_SQL_DNS_ZONES)
+
+
+def _pinned_servers(host: str, port: int, team_id: int | None) -> list[str]:
+    """Return the `server` values pymssql may dial, in order, for the `(host, port)` the tunnel layer yielded.
+
+    A hostname is resolved and checked here, and only the approved addresses are dialled. Handing
+    FreeTDS the name would resolve it again, and a record with a short TTL can answer public for the
+    check and private for the connect. An address (the SSH tunnel's loopback bind) has no lookup to
+    race, and an Azure SQL host keeps its name, see `_AZURE_SQL_DNS_ZONES`; the tunnel layer has
+    checked both. A host the policy exempts comes back as its name.
+    """
+    addresses: tuple[str, ...] = (host,)
+    if is_resolvable_hostname(host) and not host_lookup_is_skipped() and not _is_azure_sql_host(host):
+        resolution = resolve_safe_host(host, team_id)
+        if resolution.connect_host is None:
+            raise HostNotAllowedError(
+                f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error or DATABASE_HOST_NOT_ALLOWED_GUIDANCE}"
+            )
+        addresses = resolution.addresses or (resolution.connect_host,)
+    return [_freetds_server(address, port) for address in addresses]
+
+
+def _freetds_server(host: str, port: int) -> str:
+    # FreeTDS reads an IPv6 address only as `[address]:port`, and pymssql appends `port` only to a
+    # server without a colon.
+    bracketed = bracket_host(unbracket_host(host))
+    return f"{bracketed}:{port}" if bracketed.startswith("[") else host
+
+
+def _connect_first_reachable(servers: list[str], **connect_kwargs: Any) -> pymssql.Connection:
+    """Connect to the first of `servers` that answers, as FreeTDS does across the addresses of a name it resolves."""
+    for server in servers[:-1]:
+        try:
+            return pymssql.connect(server=server, **connect_kwargs)
+        except pymssql.OperationalError as e:
+            if _SERVER_UNREACHABLE_ERROR not in " ".join(str(arg) for arg in e.args):
+                raise
+    return pymssql.connect(server=servers[-1], **connect_kwargs)
+
+
 class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Connection, pymssql.Cursor]):  # ty: ignore[invalid-type-arguments]
     """MSSQL driver implementation paired with `MSSQLSource`.
 
@@ -678,20 +781,19 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         The default suits metadata work. The connection that reads the rows passes
         `MSSQL_ROW_READ_LOCK_TIMEOUT_MS`.
 
-        The hostname goes to pymssql as is. `pymssql.connect` takes one `server`, which FreeTDS
-        uses both to dial and as the login server name, so there is no way to dial a pinned
-        address and log in as the configured host. The tunnel layer's host check is the control
-        on this path.
+        A direct connection dials only the addresses the host check approved, see `_pinned_servers`.
         """
         with self._ssh_tunnel_endpoint(config, team_id) as (host, port):
-            with pymssql.connect(
-                server=host,
+            with _connect_first_reachable(
+                _pinned_servers(host, port, team_id),
                 # pymssql requires port to be str
                 port=str(port),
                 database=config.database,
                 user=config.user,
                 password=config.password,
                 login_timeout=MSSQL_LOGIN_TIMEOUT_SECONDS,
+                # None keeps the FreeTDS default, which encrypts only when the server offers it.
+                encryption="require" if config.require_encryption else None,
             ) as conn:
                 with conn.cursor() as cursor:
                     cursor.execute(f"SET LOCK_TIMEOUT {int(lock_timeout_ms)}")
@@ -809,19 +911,19 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             params["names"] = tuple({_unqualified_table(table) for table in tables})
         query = base_query + f" AND {schema_clause} AND t.name IN %(names)s ORDER BY s.name, t.name, ic.key_ordinal"
 
+        pks: dict[str, list[str]] = collections.defaultdict(list)
         try:
             with conn.cursor(as_dict=False) as cursor:
                 cursor.execute(query, params)
                 rows = cursor.fetchall()
+            for schema_name, table_name, column_name in rows or []:
+                display = f"{schema_name}.{table_name}" if selected_schema is None else table_name
+                if display in result:
+                    pks[display].append(column_name)
         except Exception as e:
             structlog.get_logger().warning("Failed to detect primary keys for MSSQL schemas", exc_info=e)
             return result
 
-        pks: dict[str, list[str]] = collections.defaultdict(list)
-        for schema_name, table_name, column_name in rows or []:
-            display = f"{schema_name}.{table_name}" if selected_schema is None else table_name
-            if display in result:
-                pks[display].append(column_name)
         for display, pk_cols in pks.items():
             result[display] = pk_cols
         return result
@@ -1133,10 +1235,15 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             return TableStats(table_size_bytes=total_bytes, row_count=total_rows)
         except Exception as e:
             # A transient connection death recovers on the next sync attempt with a fresh
-            # connection (see `retry_on_transient_connection_error`); table stats are best-effort,
-            # so skip capturing this known, self-recovering error as tracked noise.
-            if isinstance(e, pymssql.Error) and _is_transient_connection_error(e):
-                logger.debug(f"fetch_table_stats: transient MSSQL connection death, returning None: {e}")
+            # connection (see `retry_on_transient_connection_error`); a tempdb-log-full error
+            # recovers once the other session's transaction ends; a no-resultset error means
+            # `sp_spaceused` can't report on this object at all and will say so again next time;
+            # table stats are best-effort, so all three are skipped rather than captured as
+            # tracked noise.
+            if isinstance(e, pymssql.Error) and (
+                _is_transient_connection_error(e) or _is_tempdb_log_full_error(e) or _is_no_resultset_error(e)
+            ):
+                logger.debug(f"fetch_table_stats: known MSSQL/pymssql quirk, returning None: {e}")
                 return None
             logger.debug(f"fetch_table_stats: Error: {e}. Returning None", exc_info=e)
             capture_exception(e)
@@ -1543,4 +1650,6 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             # `supports_resume` defaults to True. A read on the single query has no position to
             # hand to another worker, so it must say so.
             supports_resume=takes_keyset_path or resumes_incremental,
+            # The single query has `ORDER BY <incremental field>`. The keyset walk orders by its key.
+            sort_mode=("asc" if not takes_keyset_path and should_use_incremental_field and incremental_field else None),
         )

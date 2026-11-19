@@ -67,6 +67,7 @@ pub struct OrchestratorSettings {
     pub(super) plan_caps: PlanCaps,
     pub(super) producer: ProducerSettings,
     pub(super) person: Option<PersonSettings>,
+    pub(super) newest_day_index_max_entries: NonZeroUsize,
 }
 
 impl OrchestratorSettings {
@@ -84,6 +85,7 @@ impl OrchestratorSettings {
         trailing_day_grace: Duration,
         producer: ProducerSettings,
         person: Option<PersonSettings>,
+        newest_day_index_max_entries: usize,
     ) -> Result<Self, OrchestratorSettingsError> {
         if run_poll_interval.is_zero() {
             return Err(OrchestratorSettingsError::ZeroPollInterval);
@@ -106,6 +108,8 @@ impl OrchestratorSettings {
         let bands_per_day = NonZeroU16::new(bands_per_day)
             .filter(|bands| i16::try_from(bands.get()).is_ok())
             .ok_or(OrchestratorSettingsError::BandsPerDayOutOfRange)?;
+        let newest_day_index_max_entries = NonZeroUsize::new(newest_day_index_max_entries)
+            .ok_or(OrchestratorSettingsError::ZeroNewestDayIndexEntries)?;
         Ok(Self {
             run_poll_interval,
             max_concurrent_chunks,
@@ -121,6 +125,7 @@ impl OrchestratorSettings {
             },
             producer,
             person,
+            newest_day_index_max_entries,
         })
     }
 
@@ -203,6 +208,7 @@ impl TryFrom<&Config> for OrchestratorSettings {
             Duration::from_secs(config.seeder_trailing_day_grace_secs),
             producer,
             person,
+            config.seeder_newest_day_index_max_entries,
         )?)
     }
 }
@@ -235,6 +241,8 @@ pub enum OrchestratorSettingsError {
     ZeroPersonsPerChunk,
     #[error("person max concurrent chunks must be greater than zero")]
     ZeroPersonConcurrency,
+    #[error("newest-day index max entries must be greater than zero")]
+    ZeroNewestDayIndexEntries,
     #[error(
         "one person chunk needs ~{projected_secs}s at the configured rate and concurrency, over \
          the {budget_secs}s scan budget (half of SEEDER_CH_MAX_EXECUTION_TIME_SECS); shrink \
@@ -344,6 +352,7 @@ mod tests {
                     Duration::ZERO,
                     producer_settings(),
                     None,
+                    1,
                 ),
                 OrchestratorSettingsError::PollIntervalExceedsLivenessDeadline,
             ),
@@ -361,6 +370,7 @@ mod tests {
                     Duration::ZERO,
                     producer_settings(),
                     None,
+                    1,
                 ),
                 OrchestratorSettingsError::ZeroPollInterval,
             ),
@@ -378,6 +388,7 @@ mod tests {
                     Duration::ZERO,
                     producer_settings(),
                     None,
+                    1,
                 ),
                 OrchestratorSettingsError::ZeroConcurrency,
             ),
@@ -395,6 +406,7 @@ mod tests {
                     Duration::ZERO,
                     producer_settings(),
                     None,
+                    1,
                 ),
                 OrchestratorSettingsError::LeaseTooShort,
             ),
@@ -412,6 +424,7 @@ mod tests {
                     Duration::ZERO,
                     producer_settings(),
                     None,
+                    1,
                 ),
                 OrchestratorSettingsError::ZeroMaxAttempts,
             ),
@@ -429,6 +442,7 @@ mod tests {
                     Duration::ZERO,
                     producer_settings(),
                     None,
+                    1,
                 ),
                 OrchestratorSettingsError::BandsPerDayOutOfRange,
             ),
@@ -446,6 +460,7 @@ mod tests {
                     Duration::ZERO,
                     producer_settings(),
                     None,
+                    1,
                 ),
                 OrchestratorSettingsError::BandsPerDayOutOfRange,
             ),

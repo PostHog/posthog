@@ -8,6 +8,8 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickho
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.schema import GroupPropertyFilter, GroupsQuery, PropertyOperator
 
 from posthog.hogql_queries.groups.groups_query_runner import GroupsQueryRunner
@@ -74,8 +76,24 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.results[1][0], {"display_name": "org1.inc", "key": "org1"})
         self.assertEqual(result.results[2][0], {"display_name": "org2.inc", "key": "org2"})
 
+    @parameterized.expand(
+        [
+            (
+                "list",
+                None,
+                [
+                    {"display_name": "0", "key": "org0"},
+                    {"display_name": "10", "key": "org1"},
+                    {"display_name": "20", "key": "org2"},
+                ],
+            ),
+            ("search", "10", [{"display_name": "10", "key": "org1"}]),
+        ]
+    )
     @time_machine.travel("2025-01-01", tick=False)
-    def test_groups_query_runner_with_numeric_name_property(self):
+    def test_groups_query_runner_with_numeric_name_property(
+        self, _name: str, search: Optional[str], expected: list[dict[str, str]]
+    ):
         # Regression: a numeric `name` property type made coalesce(properties.name, key)
         # resolve to Variant(Float64, String), which clickhouse_driver can't deserialize.
         create_group_type_mapping_without_created_at(
@@ -97,15 +115,12 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 properties={"name": i * 10},
             )
 
-        query = GroupsQuery(group_type_index=0, limit=10, offset=0, orderBy=["key"])
+        query = GroupsQuery(group_type_index=0, limit=10, offset=0, orderBy=["key"], search=search)
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.results), 3)
         self.assertEqual(result.columns, ["group_name"])
-        self.assertEqual(result.results[0][0], {"display_name": "0", "key": "org0"})
-        self.assertEqual(result.results[1][0], {"display_name": "10", "key": "org1"})
-        self.assertEqual(result.results[2][0], {"display_name": "20", "key": "org2"})
+        self.assertEqual([row[0] for row in result.results], expected)
 
     @time_machine.travel("2025-01-01", tick=False)
     @snapshot_clickhouse_queries

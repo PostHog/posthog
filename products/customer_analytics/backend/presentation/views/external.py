@@ -27,6 +27,7 @@ import hashlib
 from typing import Any, cast
 from uuid import UUID
 
+from django.conf import settings
 from django.db.models import Q
 from django.http import HttpRequest
 
@@ -39,13 +40,19 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import SimpleRateThrottle
+from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ErrorResponseSerializer
-from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TeamSecretTokenAuthentication
+from posthog.auth import (
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+    TeamSecretTokenAuthentication,
+    TeamSecretTokenUser,
+)
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models import Team
 from posthog.permissions import get_authenticator_scopes, is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
@@ -102,6 +109,16 @@ class ExternalAccountTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
     rate = ExternalAccountSustainedThrottle.rate
 
 
+class ExternalAccountCreateBurstThrottle(_ExternalAccountThrottle):
+    scope = "external_account_create_burst"
+    rate = "240/minute"
+
+
+class ExternalAccountCreateTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "external_account_create_psak_team_burst"
+    rate = ExternalAccountCreateBurstThrottle.rate
+
+
 class ExternalAccountListBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     scope = "external_account_list_burst"
     rate = ExternalAccountBurstThrottle.rate
@@ -150,7 +167,13 @@ class ExternalAccountProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthen
 
     def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
         result = super().authenticate(request)
-        if result is None or not _customer_analytics_enabled(self.project_secret_api_key.team):
+        if result is None:
+            return None
+        team = self.project_secret_api_key.team
+        # These AllowAny views never run ActiveOrganizationPermission, so organization
+        # state must be enforced here or a key outlives its deactivated organization.
+        organization = team.organization
+        if not organization.is_active or organization.is_pending_deletion or not _customer_analytics_enabled(team):
             return None
         return result
 
@@ -183,6 +206,11 @@ class ExternalAccountPersonalKeyAccess(TeamAndOrgViewSetMixin, GenericViewSet):
 
 def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Response]:
     """Extract Bearer token from Authorization header and validate against a team."""
+    # Kill switch (#66179): with legacy tokens off, migrated tokens authenticate as PSAKs
+    # (the deferral also goes inert) and never reach here; the rest get a plain 401.
+    if not settings.ACCEPT_TEAM_SECRET_TOKENS:
+        return None, Response({"error": "Missing or invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
+
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return None, Response({"error": "Missing or invalid Authorization header"}, status=status.HTTP_401_UNAUTHORIZED)
@@ -198,11 +226,13 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
     except (Team.DoesNotExist, Team.MultipleObjectsReturned):
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
-    # Same 401 as an unknown token: a valid secret token for a team without customer
-    # analytics enabled must not be usable to read account data.
-    if not _customer_analytics_enabled(team):
+    # Same 401 as an unknown token: a valid secret token for a blocked organization or a
+    # team without customer analytics enabled must not be usable to read account data.
+    organization = team.organization
+    if not organization.is_active or organization.is_pending_deletion or not _customer_analytics_enabled(team):
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
+    enforce_ip_restrictions(request, TeamSecretTokenUser(team), TeamSecretTokenAuthentication())
     TeamSecretTokenAuthentication.record_activity_actor(None)
     return team, None
 
@@ -321,6 +351,16 @@ class ExternalAccountView(APIView):
     # Opts the route into the OpenAPI spec and generated types; the schema preprocessor drops
     # views without a scope_object. Authorization itself stays in the manual Bearer checks above.
     scope_object = "account"
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.request.method == "POST":
+            return [
+                ExternalAccountCreateBurstThrottle(),
+                ExternalAccountSustainedThrottle(),
+                ExternalAccountCreateTeamBurstThrottle(),
+                ExternalAccountTeamSustainedThrottle(),
+            ]
+        return super().get_throttles()
 
     @extend_schema(
         extensions=_INTERNAL_SCHEMA_EXTENSIONS,
@@ -638,19 +678,25 @@ class ExternalAccountCustomPropertiesView(APIView):
     PATCH /api/customer_analytics/external/account/custom_property_values — Set an account's custom
     property values, addressing each property by its definition id (UUID).
 
-    Authenticated via Bearer token (team secret_api_token) in the Authorization header.
+    Accepts the team secret_api_token or a project secret API key with the ``account:write``
+    scope as a Bearer token.
     """
 
-    authentication_classes: list = []
+    authentication_classes = [ExternalAccountProjectSecretAPIKeyAuthentication]
     permission_classes = [AllowAny]
-    throttle_classes = [ExternalAccountBurstThrottle, ExternalAccountSustainedThrottle]
+    throttle_classes = [
+        ExternalAccountBurstThrottle,
+        ExternalAccountSustainedThrottle,
+        ExternalAccountTeamBurstThrottle,
+        ExternalAccountTeamSustainedThrottle,
+    ]
 
     @extend_schema(request=ExternalAccountCustomPropertiesSerializer, responses={200: OpenApiTypes.OBJECT})
     def patch(self, request: Request) -> Response:
-        team, error = _authenticate_team(request)
+        team, error = _authenticate_team_for_update(request)
         if error:
             return error
 
         assert team is not None
-        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method="patch").inc()
+        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method=_get_auth_method_label(request), http_method="patch").inc()
         return handle_account_set_properties(request, team)

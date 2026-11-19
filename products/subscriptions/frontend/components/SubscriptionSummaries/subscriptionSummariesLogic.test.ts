@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -59,6 +60,24 @@ describe('subscriptionSummariesLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({ summaries: expectedSummaries, latestSummary: expectedLatest })
             expect(mockSummariesList.mock.calls).toEqual(expectedCalls)
+        }
+    )
+
+    it.each([
+        { status: 404, expectedSummaries: [] },
+        { status: 500, expectedSummaries: null },
+    ])(
+        'treats only a 404 from the summaries endpoint as no summaries ($status)',
+        async ({ status, expectedSummaries }) => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_SOURCE_SUMMARIES]: true })
+            mockSummariesList.mockRejectedValue(new ApiError('Request failed', status))
+            logic = subscriptionSummariesLogic({ insightId: 3 })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({ summaries: expectedSummaries, latestSummary: null })
+            expect(mockSummariesList).toHaveBeenCalledTimes(1)
         }
     )
 

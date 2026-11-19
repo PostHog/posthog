@@ -1,7 +1,6 @@
 import pytest
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.cdp.backend.templates.make.template_make import template as template_make
 
 

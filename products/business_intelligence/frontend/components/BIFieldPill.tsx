@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
@@ -20,6 +21,7 @@ import {
 import { BIExpressionPopover } from 'products/business_intelligence/frontend/components/BIExpressionPopover'
 import { BIPill } from 'products/business_intelligence/frontend/components/BIPill'
 
+import { BIFieldNameModal } from './BIFieldNameModal'
 import { BIShelfDropTarget } from './BIShelfDropTarget'
 
 type ExpressionTarget = 'field' | 'aggregation'
@@ -32,6 +34,7 @@ export function BIFieldPill({
     shelf: Exclude<BIShelf, 'filters'>
     index: number
 }): JSX.Element | null {
+    const [nameDraft, setNameDraft] = useState<string | null>(null)
     const { config, activeExpressionEditorId, activeExpressionEditorTarget, sortOptions } = useValues(biEditorLogic)
     const {
         addFieldToShelf,
@@ -45,9 +48,10 @@ export function BIFieldPill({
         setFieldDateBucket,
         setFieldDatePart,
         setFieldExpression,
+        setMeasureExpression,
         setSort,
         setValueAggregation,
-        setValueCustomExpression,
+        renameField,
     } = useActions(biEditorLogic)
 
     const value = shelf === 'values' ? config.values[index] : null
@@ -82,9 +86,10 @@ export function BIFieldPill({
                               ? 'This calculation needs a numeric field'
                               : undefined,
                       onClick: () => {
-                          setValueAggregation(index, option.value)
-                          if (option.value === 'custom' && !value.customExpression) {
+                          if (option.value === 'custom') {
                               setEditing('aggregation')
+                          } else {
+                              setValueAggregation(index, option.value)
                           }
                       },
                   })),
@@ -118,6 +123,7 @@ export function BIFieldPill({
             : null,
         {
             items: [
+                { label: 'Rename', onClick: () => setNameDraft(label) },
                 { label: 'Duplicate', onClick: () => duplicateField(shelf, index) },
                 isMeasure
                     ? {
@@ -132,7 +138,10 @@ export function BIFieldPill({
                           onClick: () => editCalculatedField({ ...field, id: field.localFieldId ?? field.id }),
                       }
                     : !isCalculatedMeasure
-                      ? { label: 'Edit field expression', onClick: () => setEditing('field') }
+                      ? {
+                            label: isMeasure ? 'Edit measure expression' : 'Edit field expression',
+                            onClick: () => setEditing('field'),
+                        }
                       : null,
                 value?.aggregation === 'custom' && field.localDefinition?.kind !== 'expression'
                     ? { label: 'Edit calculated measure', onClick: () => editCalculatedMeasure(index) }
@@ -181,35 +190,49 @@ export function BIFieldPill({
     ]
 
     return (
-        <BIExpressionPopover
-            visible={expressionTarget !== null}
-            value={expressionTarget === 'aggregation' ? (value?.customExpression ?? '') : field.expression}
-            source={field.source}
-            placeholder={expressionTarget === 'aggregation' ? 'For example: sum(amount) / count()' : undefined}
-            onChange={(nextExpression) =>
-                expressionTarget === 'aggregation'
-                    ? setValueCustomExpression(index, nextExpression)
-                    : setFieldExpression(shelf, index, nextExpression)
-            }
-            onClose={() => {
-                if (activeExpressionEditorId === editorKey) {
-                    setActiveExpressionEditorId(null)
+        <>
+            {nameDraft !== null && (
+                <BIFieldNameModal
+                    name={nameDraft}
+                    onSave={(name) => renameField(shelf, index, name)}
+                    onClose={() => setNameDraft(null)}
+                />
+            )}
+            <BIExpressionPopover
+                visible={expressionTarget !== null}
+                value={
+                    expressionTarget === 'aggregation' || value?.aggregation === 'custom'
+                        ? (value?.customExpression ?? field.expression)
+                        : field.expression
                 }
-            }}
-        >
-            <BIShelfDropTarget shelf={shelf} index={index} className="inline-flex min-w-0 max-w-[min(18rem,100%)]">
-                <LemonMenu items={items} placement="bottom-start">
-                    <BIPill
-                        kind={isMeasure ? 'measure' : 'dimension'}
-                        label={label}
-                        shelf={shelf}
-                        index={index}
-                        incomplete={incomplete}
-                        aria-label={`${label} options`}
-                        data-attr={`bi-editor-${shelf}-pill`}
-                    />
-                </LemonMenu>
-            </BIShelfDropTarget>
-        </BIExpressionPopover>
+                source={field.source}
+                aggregation={expressionTarget === 'aggregation' ? 'custom' : value?.aggregation}
+                placeholder={expressionTarget === 'aggregation' ? 'For example: sum(amount) / count()' : undefined}
+                onChange={(nextExpression, aggregation) =>
+                    aggregation
+                        ? setMeasureExpression(index, nextExpression, aggregation)
+                        : setFieldExpression(shelf, index, nextExpression)
+                }
+                onClose={() => {
+                    if (activeExpressionEditorId === editorKey) {
+                        setActiveExpressionEditorId(null)
+                    }
+                }}
+            >
+                <BIShelfDropTarget shelf={shelf} index={index} className="inline-flex min-w-0 max-w-[min(18rem,100%)]">
+                    <LemonMenu items={items} placement="bottom-start">
+                        <BIPill
+                            kind={isMeasure ? 'measure' : 'dimension'}
+                            label={label}
+                            shelf={shelf}
+                            index={index}
+                            incomplete={incomplete}
+                            aria-label={`${label} options`}
+                            data-attr={`bi-editor-${shelf}-pill`}
+                        />
+                    </LemonMenu>
+                </BIShelfDropTarget>
+            </BIExpressionPopover>
+        </>
     )
 }

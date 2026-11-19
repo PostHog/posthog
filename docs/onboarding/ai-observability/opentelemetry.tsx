@@ -1,7 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
-import { getOtelSessionIdStep } from './_snippets/otel-session-id'
+import { getOtelRequestContextStep } from './_snippets/otel-request-context'
 
 export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
@@ -36,21 +36,21 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install openai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-openai-v2
+                                    pip install openai opentelemetry-sdk "posthog[otel]~=8.0" opentelemetry-instrumentation-openai-v2
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install openai @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
+                                    npm install openai @posthog/ai@8 posthog-node@6 @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Go',
                                 code: dedent`
-                                    go get github.com/posthog/posthog-go/otel go.opentelemetry.io/otel go.opentelemetry.io/otel/sdk
+                                    go get github.com/posthog/posthog-go/otel/v2 go.opentelemetry.io/otel go.opentelemetry.io/otel/sdk
                                 `,
                             },
                         ]}
@@ -133,7 +133,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                     import (
                                         "context"
 
-                                        posthogotel "github.com/posthog/posthog-go/otel"
+                                        posthogotel "github.com/posthog/posthog-go/otel/v2"
                                         "go.opentelemetry.io/otel"
                                         "go.opentelemetry.io/otel/attribute"
                                         sdkresource "go.opentelemetry.io/otel/sdk/resource"
@@ -278,7 +278,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                     <Blockquote>
                         <Markdown>
                             {dedent`
-                            **Note:** If you want to capture LLM events anonymously, omit the \`posthog.distinct_id\` resource attribute. See our docs on [anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                            **Note:** To capture LLM events anonymously, omit the \`posthog.distinct_id\` resource attribute and don't set a distinct ID in the PostHog context. See our docs on [anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                             `}
                         </Markdown>
                     </Blockquote>
@@ -335,7 +335,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                 </>
             ),
         },
-        getOtelSessionIdStep(ctx, { languages: ['Python', 'Node', 'Go'] }),
+        getOtelRequestContextStep(ctx, { languages: ['Python', 'Node', 'Go'] }),
         {
             title: 'Other instrumentations, direct OTLP, and troubleshooting',
             badge: 'optional',

@@ -4,12 +4,14 @@ import { Counter, Gauge } from 'prom-client'
 
 import { HOG_INVOCATION_RESULTS_OUTPUT, HogInvocationResultsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { safeClickhouseString } from '~/common/utils/db/utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import type { CdpOutput } from '../../cdp-services'
+import { HIDDEN_OUTPUT_MESSAGE, hidesInvocationOutput } from '../../read-guarded-internal-events'
 import { RerunFilter, RerunFunctionKind, rerunWrapperKindFor } from '../../rerun/rerun-job.types'
 import {
     CyclotronJobInvocation,
@@ -17,6 +19,7 @@ import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
 } from '../../types'
+import { TRANSACTIONAL_EMAIL_EVENT, hasSensitiveMessageStep } from '../hogflows/hogflow-sensitivity'
 
 const counterHogInvocationResultRowsProduced = new Counter({
     name: 'cdp_hog_invocation_result_rows_produced',
@@ -35,6 +38,8 @@ const hogInvocationResultsPendingMessages = new Gauge({
 })
 
 export type HogInvocationResultsServiceOutput = HogInvocationResultsOutput | CdpOutput
+
+export type TerminalFailureRecord = 'recorded' | 'disabled' | 'unbuildable' | 'produce_failed'
 
 /**
  * Lifecycle row produced to ClickHouse via Kafka. Mirrors the columns on the
@@ -132,7 +137,7 @@ const truncate = (value: string, max: number): string => {
 // status_idx skipping index stays small. Only the message lands in
 // `error_message`, never the stack trace — app-level executors pass the whole
 // `Error` here, and its stack would otherwise leak into the Invocations tab.
-const classifyError = (error: unknown): { kind: string; message: string } => {
+export const classifyError = (error: unknown): { kind: string; message: string } => {
     if (!error) {
         return { kind: '', message: '' }
     }
@@ -164,7 +169,7 @@ const classifyError = (error: unknown): { kind: string; message: string } => {
         kind = 'http_5xx'
     } else if (http4xxRegex.test(lower)) {
         kind = 'http_4xx'
-    } else if (lower.includes('out of memory') || lower.includes('oom')) {
+    } else if (lower.includes('out of memory') || /\boom\b/.test(lower)) {
         kind = 'oom'
     }
 
@@ -203,7 +208,22 @@ const extractTriggerFields = (
 // current hog function config + integration store, so this is also a no-op
 // for rerun correctness — we'll always pick up the latest secrets, not a
 // snapshot from when the original invocation ran.
-const stripInputs = <T>(value: T): T => {
+const INPUT_KEYS: ReadonlySet<string> = new Set(['inputs'])
+// A sensitive message carries reset links, login codes or private text, so its snapshot keeps no
+// variables either, and a rerun can't rebuild the send. A step paused mid-send (e.g. for a provider
+// retry) holds the rendered message on its VM stack, and the person and group properties it read, so those go too.
+const SENSITIVE_KEYS: ReadonlySet<string> = new Set([
+    'inputs',
+    'variables',
+    'vmState',
+    'person',
+    'groups',
+    'send',
+    'idempotencyKey',
+])
+export const SENSITIVE_VARIABLES_OMITTED = 'sensitive_variables_omitted'
+
+const stripKeys = <T>(value: T, keys: ReadonlySet<string>): T => {
     if (value === null || typeof value !== 'object') {
         return value
     }
@@ -211,15 +231,15 @@ const stripInputs = <T>(value: T): T => {
         // We don't expect inputs to live inside arrays today; this branch is a
         // defensive cheap pass-through so a future schema change doesn't have
         // to come back here.
-        return value.map((item) => stripInputs(item)) as unknown as T
+        return value.map((item) => stripKeys(item, keys)) as unknown as T
     }
     const obj = value as Record<string, unknown>
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(obj)) {
-        if (k === 'inputs') {
+        if (keys.has(k)) {
             continue
         }
-        out[k] = stripInputs(v)
+        out[k] = stripKeys(v, keys)
     }
     return out as T
 }
@@ -229,16 +249,34 @@ const stripInputs = <T>(value: T): T => {
 // rehydrates `groups`/`person` (loadHogFunctions) and the executor rebuilds
 // `inputs` when an invocation arrives without them — so the rerun reconstructs
 // everything from the event against the latest config. `inputs` must be
-// dropped anyway for security (resolved secrets — see `stripInputs`).
+// dropped anyway for security (resolved secrets — see `stripKeys`).
+// Recovery paths pass a workflow stub with only an id. A run that started before its template became
+// sensitive carries no stamp, so a transactional email run without the actions is treated as sensitive.
+const sendsSensitiveMessage = (invocation: CyclotronJobInvocationHogFlow): boolean => {
+    if (invocation.state?.sensitive === true || invocation.state?.send?.sensitive === true) {
+        return true
+    }
+    if (!Array.isArray(invocation.hogFlow?.actions)) {
+        return invocation.state?.event?.event === TRANSACTIONAL_EMAIL_EVENT
+    }
+    return hasSensitiveMessageStep(invocation.hogFlow)
+}
+
 const serializeInvocationGlobals = (invocation: CyclotronJobInvocation): string => {
     if (isHogFunctionInvocation(invocation)) {
         const { groups: _groups, person: _person, ...globals } = invocation.state.globals
-        return JSON.stringify(stripInputs(globals))
+        return JSON.stringify(stripKeys(globals, INPUT_KEYS))
     }
     if (isHogFlowInvocation(invocation)) {
         // Hog flow state can carry a per-action `currentAction.hogFunctionState.globals.inputs`
-        // — `stripInputs` walks the tree and removes those too.
-        return JSON.stringify(stripInputs(invocation.state ?? {}))
+        // — `stripKeys` walks the tree and removes those too.
+        if (sendsSensitiveMessage(invocation)) {
+            return JSON.stringify({
+                ...stripKeys(invocation.state ?? {}, SENSITIVE_KEYS),
+                [SENSITIVE_VARIABLES_OMITTED]: true,
+            })
+        }
+        return JSON.stringify(stripKeys(invocation.state ?? {}, INPUT_KEYS))
     }
     return '{}'
 }
@@ -333,11 +371,30 @@ export class HogInvocationResultsService {
             finishedAt?: Date
         } = {}
     ): void {
+        this.queuePreparedRow(this.prepareLifecycleRow(invocation, status, opts))
+    }
+
+    /** Takes the row's version and 'running' stamp now, so a caller can queue it later yet keep the earlier version. */
+    prepareLifecycleRow(
+        invocation: CyclotronJobInvocation,
+        status: HogInvocationResultStatus,
+        opts: {
+            error?: unknown
+            errorKind?: string
+            startedAt?: Date
+            finishedAt?: Date
+        } = {}
+    ): HogInvocationResultRow | null {
         if (!this.config.HOG_INVOCATION_RESULTS_ENABLED) {
+            return null
+        }
+        return this.buildLifecycleRow(invocation, status, opts)
+    }
+
+    queuePreparedRow(row: HogInvocationResultRow | null): void {
+        if (!row) {
             return
         }
-
-        const row = this.buildLifecycleRow(invocation, status, opts)
         counterHogInvocationResultRowsProduced.labels(row.function_kind, row.status).inc()
         this.queuedRows.push(row)
         hogInvocationResultsPendingMessages.set(this.queuedRows.length)
@@ -415,7 +472,7 @@ export class HogInvocationResultsService {
             finished_at: finishedAt ? isoMicroseconds(finishedAt) : null,
             duration_ms: durationMs,
             error_kind: errorKind,
-            error_message: errorMessage,
+            error_message: hidesInvocationOutput(invocation) ? HIDDEN_OUTPUT_MESSAGE : errorMessage,
             event_uuid: trigger.event_uuid,
             distinct_id: trigger.distinct_id,
             person_id: trigger.person_id,
@@ -441,31 +498,56 @@ export class HogInvocationResultsService {
         invocation: CyclotronJobInvocation,
         opts: { error?: unknown; errorKind?: string } = {}
     ): Promise<boolean> {
-        if (!this.config.HOG_INVOCATION_RESULTS_ENABLED) {
-            return false
-        }
-
-        // Build inside the try too — a malformed invocation (e.g. an unparseable
-        // date) must fail this record safely so the caller keeps the job, never
-        // crash the whole janitor cycle.
-        try {
-            const row = this.buildLifecycleRow(invocation, 'failed', opts)
-            await this.produceRow(row)
-            counterHogInvocationResultRowsProduced.labels(row.function_kind, row.status).inc()
-            return true
-        } catch (error) {
-            counterHogInvocationResultProduceFailed.inc()
-            logger.error('⚠️', `failed to durably record terminal failure: ${error}`, {
-                error: String(error),
-                invocation_id: invocation.id,
-            })
-            captureException(error)
-            return false
-        }
+        return (await this.recordTerminalFailure(invocation, opts)) === 'recorded'
     }
 
-    private async produceRow(row: HogInvocationResultRow): Promise<void> {
-        const value = Buffer.from(
+    /**
+     * Same as `recordTerminalFailureDurably`, but tells a row that can never
+     * be written (`unbuildable`: it cannot be built, or is too large for
+     * Kafka) from a produce that failed (`produce_failed`), so a caller can
+     * retry the same row only when the failure was transient.
+     */
+    async recordTerminalFailure(
+        invocation: CyclotronJobInvocation,
+        opts: { error?: unknown; errorKind?: string } = {}
+    ): Promise<TerminalFailureRecord> {
+        if (!this.config.HOG_INVOCATION_RESULTS_ENABLED) {
+            return 'disabled'
+        }
+
+        // Build inside a try too — a malformed invocation (e.g. an unparseable
+        // date) must fail this record safely so the caller keeps the job, never
+        // crash the whole janitor cycle.
+        let row: HogInvocationResultRow
+        let value: Buffer
+        try {
+            row = this.buildLifecycleRow(invocation, 'failed', opts)
+            value = await this.encodeRow(row)
+        } catch (error) {
+            this.reportTerminalFailureError(invocation, error)
+            return 'unbuildable'
+        }
+        try {
+            await this.produceEncodedRow(row, value)
+        } catch (error) {
+            this.reportTerminalFailureError(invocation, error)
+            return error instanceof MessageSizeTooLarge ? 'unbuildable' : 'produce_failed'
+        }
+        counterHogInvocationResultRowsProduced.labels(row.function_kind, row.status).inc()
+        return 'recorded'
+    }
+
+    private reportTerminalFailureError(invocation: CyclotronJobInvocation, error: unknown): void {
+        counterHogInvocationResultProduceFailed.inc()
+        logger.error('⚠️', `failed to durably record terminal failure: ${error}`, {
+            error: String(error),
+            invocation_id: invocation.id,
+        })
+        captureException(error)
+    }
+
+    private async encodeRow(row: HogInvocationResultRow): Promise<Buffer> {
+        return Buffer.from(
             safeClickhouseString(
                 JSON.stringify({
                     ...row,
@@ -473,6 +555,9 @@ export class HogInvocationResultsService {
                 })
             )
         )
+    }
+
+    private async produceEncodedRow(row: HogInvocationResultRow, value: Buffer): Promise<void> {
         await this.outputs.produce(HOG_INVOCATION_RESULTS_OUTPUT, {
             // Partition by invocation_id so all rows for a single invocation
             // land on the same Kafka partition (and the same ClickHouse shard).
@@ -593,27 +678,49 @@ export class HogInvocationResultsService {
     }
 
     async flush(): Promise<void> {
+        const { produced } = await this.handOffQueuedRows()
+        await produced
+    }
+
+    // Resolves once every queued row is encoded and passed to the Kafka producer, which flushes the rows it
+    // holds on shutdown. `produced` resolves when the broker has acked them, so a caller that must not wait
+    // on the broker awaits only the hand-off. Neither promise rejects.
+    async handOffQueuedRows(): Promise<{ produced: Promise<void> }> {
         if (this.queuedRows.length === 0) {
-            return
+            return { produced: Promise.resolve() }
         }
 
         const rows = this.queuedRows
         this.queuedRows = []
         hogInvocationResultsPendingMessages.set(0)
 
-        await Promise.all(
+        const encoded = await Promise.all(
             rows.map((row) =>
-                this.produceRow(row).catch((error) => {
-                    counterHogInvocationResultProduceFailed.inc()
-                    // Best-effort — never disrupt invocation processing for a
-                    // monitoring write.
-                    logger.error('⚠️', `failed to produce hog invocation result: ${error}`, {
-                        error: String(error),
-                        invocation_id: row.invocation_id,
-                    })
-                    captureException(error)
+                this.encodeRow(row).catch((error) => {
+                    this.onRowProduceFailed(row, error)
+                    return null
                 })
             )
         )
+        const produced = Promise.all(
+            rows.flatMap((row, i) => {
+                const value = encoded[i]
+                return value
+                    ? [this.produceEncodedRow(row, value).catch((error) => this.onRowProduceFailed(row, error))]
+                    : []
+            })
+        ).then(() => undefined)
+        return { produced }
+    }
+
+    private onRowProduceFailed(row: HogInvocationResultRow, error: unknown): void {
+        counterHogInvocationResultProduceFailed.inc()
+        // Best-effort — never disrupt invocation processing for a
+        // monitoring write.
+        logger.error('⚠️', `failed to produce hog invocation result: ${error}`, {
+            error: String(error),
+            invocation_id: row.invocation_id,
+        })
+        captureException(error)
     }
 }

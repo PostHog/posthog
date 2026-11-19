@@ -29,17 +29,24 @@ const create = jest.mocked(llmAnalyticsScoreDefinitionsCreate)
 const createVersion = jest.mocked(llmAnalyticsScoreDefinitionsNewVersionCreate)
 const update = jest.mocked(llmAnalyticsScoreDefinitionsPartialUpdate)
 const definition: ScoreDefinitionApi = {
+    tags: [],
     id: 'scorer-example',
+    short_name: '',
     name: 'Answer quality',
     description: '',
     kind: 'numeric',
     config: {},
     archived: false,
     current_version: 2,
+    calculation: 'reported',
+    composition: null,
+    input_scorers: [],
+    dependent_composite_count: 0,
     current_version_id: 'version-example',
     team: MOCK_DEFAULT_TEAM.id,
     created_by: null,
     created_at: '2026-01-01T00:00:00Z',
+    updated_by: null,
     updated_at: null,
 }
 
@@ -52,23 +59,82 @@ describe('scorer editor', () => {
         }
         jest.resetAllMocks()
         retrieve.mockResolvedValue(definition)
+        router.actions.replace(urls.aiObservabilityScorer(definition.id))
     })
 
-    it.each<{ kind: ScoreDefinitionApi['kind']; config: ScoreDefinitionConfigApi; duplicateFrom?: string }>([
+    it('creates a new version when a composite input is explicitly updated', async () => {
+        const input = {
+            alias: 'quality',
+            definition_id: 'source',
+            name: 'Quality',
+            kind: 'numeric' as const,
+            scorer_version_id: 'source-v1',
+            version: 1,
+            latest_version_id: 'source-v2',
+            latest_version: 2,
+            config: { passing_rule: { operator: 'gte' as const, threshold: 0.8 } },
+        }
+        const existing: ScoreDefinitionApi = {
+            ...definition,
+            calculation: 'composite',
+            composition: {
+                expression: 'quality',
+                inputs: [{ alias: input.alias, scorer_version_id: input.scorer_version_id }],
+            },
+            input_scorers: [input],
+        }
+        retrieve.mockResolvedValue(existing)
+        createVersion.mockResolvedValue({ ...existing, current_version: 3 })
+        const logic = scorerLogic({ scorerId: definition.id })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.hasChanges).toBe(false)
+        expect(logic.values.draft.inputs[0].scorer_version_id).toBe('source-v1')
+        logic.actions.setDraftField('inputs', [{ ...input, scorer_version_id: 'source-v2', version: 2 }])
+        expect(logic.values.willCreateVersion).toBe(true)
+        await expectLogic(logic, () => logic.actions.save()).toFinishAllListeners()
+
+        expect(createVersion).toHaveBeenCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            definition.id,
+            expect.objectContaining({
+                base_version: 2,
+                composition: { expression: 'quality', inputs: [{ alias: 'quality', scorer_version_id: 'source-v2' }] },
+            })
+        )
+        expect(update).not.toHaveBeenCalled()
+        expect(existing.composition?.inputs[0].scorer_version_id).toBe('source-v1')
+        logic.unmount()
+    })
+
+    it.each<{
+        kind: ScoreDefinitionApi['kind']
+        config: ScoreDefinitionConfigApi
+        duplicateFrom?: string
+        field?: 'name' | 'shortName'
+        shortName?: string
+        newValue?: string
+    }>([
         {
             kind: 'categorical',
             config: { options: [{ key: 'good', label: 'Good' }], passing_rule: { categories: ['good'] } },
         },
         { kind: 'numeric', config: { min: 0, max: null, passing_rule: null } },
         { kind: 'numeric', config: {}, duplicateFrom: 'another-scorer' },
+        { kind: 'numeric', config: {}, field: 'shortName' },
+        { kind: 'numeric', config: {}, field: 'shortName', shortName: 'Quality', newValue: '' },
         { kind: 'boolean', config: { true_label: '', false_label: 'Needs work', true_is_failure: false } },
         { kind: 'categorical', config: { options: [{ key: 'good', label: 'Good' }], selection_mode: 'single' } },
     ])(
         'saves only metadata when an existing $kind configuration is untouched',
-        async ({ kind, config, duplicateFrom }) => {
-            const existing = { ...definition, kind, config }
+        async ({ kind, config, duplicateFrom, field = 'name', shortName = '', newValue = 'Renamed scorer' }) => {
+            const existing = { ...definition, kind, config, short_name: shortName }
             retrieve.mockResolvedValue(existing)
-            update.mockResolvedValue({ ...existing, name: 'Renamed scorer' })
+            const metadata = { name: existing.name, short_name: shortName, description: '' }
+            const originalValue = field === 'name' ? existing.name : shortName
+            metadata[field === 'name' ? 'name' : 'short_name'] = newValue
+            update.mockResolvedValue({ ...existing, ...metadata })
             const logic = scorerLogic({ scorerId: definition.id, duplicateFrom })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -78,22 +144,23 @@ describe('scorer editor', () => {
             expect(logic.values.hasChanges).toBe(false)
             expect(logic.values.hasUnsavedChanges).toBe(false)
             expect(logic.values.willCreateVersion).toBe(false)
-            logic.actions.setDraftField('name', 'Renamed scorer')
+            logic.actions.setDraftField(field, newValue)
+            expect(logic.values.hasChanges).toBe(true)
             expect(logic.values.hasUnsavedChanges).toBe(true)
             expect(logic.values.willCreateVersion).toBe(false)
-            logic.actions.setDraftField('name', existing.name)
+            logic.actions.setDraftField(field, originalValue)
             expect(logic.values.hasUnsavedChanges).toBe(false)
-            logic.actions.setDraftField('name', 'Renamed scorer')
+            logic.actions.setDraftField(field, newValue)
             await expectLogic(logic, () => logic.actions.save()).toFinishAllListeners()
 
-            expect(update).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), definition.id, {
-                name: 'Renamed scorer',
-                description: '',
-            })
+            expect(update).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), definition.id, metadata)
             expect(createVersion).not.toHaveBeenCalled()
             expect(logic.values.definition?.config).toEqual(config)
             expect(logic.values.hasChanges).toBe(false)
             expect(logic.values.hasUnsavedChanges).toBe(false)
+            expect(router.values.location.pathname).toBe(
+                `/project/${MOCK_DEFAULT_TEAM.id}${urls.aiObservabilityScorers()}`
+            )
         }
     )
 
@@ -107,6 +174,35 @@ describe('scorer editor', () => {
         expect(logic.values.draft.categoricalPassingCategories).toEqual(['accurate'])
         logic.actions.removeOption(2)
         expect(logic.values.draft.categoricalPassingCategories).toEqual([])
+    })
+
+    it('updates a default categorical formula when an output category is renamed, until the formula is edited', () => {
+        const logic = scorerLogic({ scorerId: 'new' })
+        logic.mount()
+        logic.actions.setDraftField('calculation', 'composite')
+        logic.actions.setDraftField('kind', 'categorical')
+        logic.actions.setDraftField('options', [
+            { key: '', label: 'Good' },
+            { key: '', label: 'Bad' },
+        ])
+        logic.actions.setDraftField('inputs', [
+            {
+                alias: 'safe',
+                definition_id: 'safe',
+                scorer_version_id: 'safe-v1',
+                name: 'Safety',
+                kind: 'boolean',
+                version: 1,
+                latest_version: 1,
+                latest_version_id: 'safe-v1',
+                config: {},
+            },
+        ])
+        logic.actions.updateOptionLabel(0, 'Ready')
+        expect(logic.values.draft.expression).toBe('"ready" if (safe) else "bad"')
+        logic.actions.setDraftField('expression', '"custom"')
+        logic.actions.updateOptionLabel(0, 'Approved')
+        expect(logic.values.draft.expression).toBe('"custom"')
     })
 
     it('saves metadata and passing rules together in a version guarded by the original version number', async () => {
@@ -128,6 +224,7 @@ describe('scorer editor', () => {
 
         expect(createVersion).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), definition.id, {
             name: 'Updated quality',
+            short_name: '',
             description: '',
             config: { passing_rule: { operator: 'gte', threshold: 7 } },
             base_version: 2,
@@ -170,6 +267,7 @@ describe('scorer editor', () => {
 
             expect(createVersion).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), definition.id, {
                 name: 'Renamed scorer',
+                short_name: '',
                 description: '',
                 config: saved.config,
                 base_version: 2,
@@ -207,6 +305,7 @@ describe('scorer editor', () => {
 
         expect(create).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             name: 'Answer quality copy',
+            short_name: '',
             description: '',
             kind: 'boolean',
             config: existing.config,
@@ -252,11 +351,12 @@ describe('scorer editor', () => {
             resolve(saved)
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.saving).toBe(false)
-            if (isNew) {
+            if (action === 'save') {
                 expect(router.values.location.pathname).toBe(
-                    `/project/${MOCK_DEFAULT_TEAM.id}${urls.aiObservabilityScorer(saved.id)}`
+                    `/project/${MOCK_DEFAULT_TEAM.id}${urls.aiObservabilityScorers()}`
                 )
-            } else {
+            }
+            if (!isNew) {
                 expect(logic.values.definition).toEqual(saved)
                 expect(logic.values.hasUnsavedChanges).toBe(false)
             }
@@ -273,6 +373,9 @@ describe('scorer editor', () => {
         await expectLogic(logic, () => logic.actions.save()).toFinishAllListeners()
 
         expect(createVersion).toHaveBeenCalledTimes(1)
+        expect(router.values.location.pathname).toBe(
+            `/project/${MOCK_DEFAULT_TEAM.id}${urls.aiObservabilityScorer(definition.id)}`
+        )
         expect(logic.values.error).toContain('newer version')
         expect(logic.values.draft.numericMax).toBe('10')
         expect(logic.values.definition?.current_version).toBe(2)

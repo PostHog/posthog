@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import requests
 import structlog
+import posthoganalytics
 
 from posthog.models.user import User
 from posthog.models.user_push_token import UserPushToken
@@ -29,6 +30,100 @@ logger = structlog.get_logger(__name__)
 EXPO_PUSH_API_URL = "https://exp.host/--/api/v2/push/send"
 EXPO_PUSH_API_TIMEOUT_SECONDS = 10
 EXPO_PUSH_BATCH_SIZE = 100
+
+
+MobilePushCategory = Literal["tasks", "loops", "reports", "report_updates"]
+
+
+def mobile_push_preference_enabled(user: User, category: MobilePushCategory) -> bool:
+    preferences = user.notification_settings
+    enabled = {
+        "tasks": preferences.get("mobile_push_chat_enabled", True),
+        "loops": preferences.get("mobile_push_loops_enabled", True),
+        "reports": preferences.get("mobile_push_reports_enabled", True),
+        "report_updates": preferences.get("mobile_push_report_updates_enabled", True),
+    }
+    return preferences.get("mobile_push_enabled", True) and enabled[category]
+
+
+def mobile_push_payload_enabled(user: User, data: dict[str, Any] | None) -> bool:
+    payload = data or {}
+    kind = payload.get("notificationKind")
+    category: MobilePushCategory = (
+        "reports"
+        if kind == "report_visible"
+        else "report_updates"
+        if payload.get("type") == "report"
+        else "loops"
+        if isinstance(kind, str) and kind.startswith("loop_")
+        else "tasks"
+    )
+    if not mobile_push_preference_enabled(user, category):
+        return False
+    if not isinstance(kind, str):
+        return True
+    if kind in {"cancelled", "report_cancelled"} and payload.get("cancelledByUserId") == user.id:
+        return False
+    preference = {
+        "awaiting": "mobile_push_chat_attention_enabled",
+        "failed": "mobile_push_chat_attention_enabled",
+        "cancelled": "mobile_push_chat_attention_enabled",
+        "report_awaiting": "mobile_push_report_attention_enabled",
+        "report_failed": "mobile_push_report_attention_enabled",
+        "report_cancelled": "mobile_push_report_attention_enabled",
+        "handoff": "mobile_push_chat_mentions_enabled",
+        "thread_message": "mobile_push_chat_mentions_enabled"
+        if payload.get("isMention") is True
+        else "mobile_push_chat_replies_enabled",
+        "completed": "mobile_push_chat_completions_enabled",
+        "turn_completed": "mobile_push_chat_completions_enabled",
+        "report_completed": "mobile_push_report_completions_enabled",
+        "report_turn_completed": "mobile_push_report_completions_enabled",
+        "pull_request_ready": "mobile_push_report_pr_ready_enabled",
+        "pr_merged": "mobile_push_chat_pr_outcomes_enabled",
+        "pr_closed": "mobile_push_chat_pr_outcomes_enabled",
+        "report_pr_merged": "mobile_push_report_pr_outcomes_enabled",
+        "report_pr_closed": "mobile_push_report_pr_outcomes_enabled",
+    }.get(kind)
+    return preference is None or user.notification_settings.get(preference, True) is True
+
+
+def mobile_push_delivery_allowed(user: User, data: dict[str, Any] | None) -> bool:
+    if not user.is_active or not mobile_push_payload_enabled(user, data):
+        return False
+
+    # Re-read eligibility on the worker: a queued push can outlive a preference or access change.
+    payload = data or {}
+    if payload.get("type") == "report":
+        if not posthoganalytics.feature_enabled(
+            "posthog-code-mobile-push", user.distinct_id or f"user_{user.id}", send_feature_flag_events=False
+        ):
+            return False
+        from products.signals.backend.facade.reports import (  # noqa: PLC0415 — keep signals off the startup path
+            user_may_receive_report_push,
+        )
+
+        category: MobilePushCategory = (
+            "reports" if payload.get("notificationKind") == "report_visible" else "report_updates"
+        )
+        if not mobile_push_preference_enabled(user, category):
+            return False
+        project_id = payload.get("project_id")
+        report_id = payload.get("report_id")
+        if not isinstance(project_id, (int, str)) or not isinstance(report_id, str):
+            return False
+        return user_may_receive_report_push(user=user, team_id=project_id, report_id=report_id)
+
+    if not payload.get("taskId"):
+        return False
+    project_id = payload.get("projectId")
+    if not isinstance(project_id, int) or not user.teams.filter(id=project_id).exists():
+        return False
+    from products.tasks.backend.facade.api import (
+        task_mobile_push_delivery_allowed,  # noqa: PLC0415 — keep product imports lazy
+    )
+
+    return task_mobile_push_delivery_allowed(task_id=str(payload["taskId"]), team_id=project_id, user_id=user.id)
 
 
 def send_push_to_user(
@@ -54,6 +149,9 @@ def send_push_to_user(
     ``DeviceNotRegistered`` are deleted for this user so we stop trying to
     deliver to dead devices.
     """
+    if not mobile_push_payload_enabled(user, data):
+        return 0
+
     qs = UserPushToken.objects.filter(user=user)
     if suppressed_push_token_ids:
         qs = qs.exclude(id__in=list(suppressed_push_token_ids))

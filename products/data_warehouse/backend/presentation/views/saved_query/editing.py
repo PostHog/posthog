@@ -3,15 +3,20 @@
 import copy
 import uuid
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 from drf_spectacular.utils import extend_schema_field
+from opentelemetry import trace
 from rest_framework import exceptions, serializers
 
+from posthog.schema import ExecutionTarget, HogQLQuery
+
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
     MODELS_NAMESPACE_QUERY_ERROR,
@@ -19,34 +24,40 @@ from posthog.hogql.database.database import (
     is_reserved_models_name,
     models_namespace_chain,
 )
+from posthog.hogql.database.models import SavedQuery, TableNode
+from posthog.hogql.direct_sql.trino_adapter import ensure_read_only_raw_trino_statement
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.resolver import resolve_types
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
-from posthog.rbac.query_access import assert_user_can_read_query
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.data_modeling.backend.facade import api as modeling_api
 from products.data_modeling.backend.facade.api import has_incremental_history
 from products.data_modeling.backend.facade.modeling import ResolutionCycleError, get_parents_from_model_query
 from products.data_modeling.backend.facade.models import (
-    DAG,
+    CONNECTION_SAVE_REASON,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
-    Node,
+    ViewColumnSource,
+    ViewEngine,
+    ViewEngineTarget,
     validate_saved_query_name,
 )
 from products.data_tools.backend.facade.models import DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.presentation.views.column_annotation_base import upsert_annotation
+from products.managed_warehouse.backend.facade.query_execution import validate_managed_trino_query
 from products.warehouse_sources.backend.facade.hogql import (
     get_view_or_table_by_name,
     hogql_type_name_for_clickhouse_type,
@@ -59,6 +70,58 @@ if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
+
+GENERIC_LINEAGE_SYNC_ERROR = (
+    "Could not build this view's lineage. Check the query's tables and columns, then save again."
+)
+BREAKING_COLUMN_CHANGE_CODE = "breaking_column_change"
+MAX_NAMED_AFFECTED_VIEWS = 3
+
+
+class BreakingColumnChange(TypedDict):
+    removed_columns: tuple[str, ...]
+    affected_view_names: tuple[str, ...]
+    visible_affected_view_count: int
+    total_affected_view_count: int
+    has_hidden_affected_views: bool
+
+
+class BreakingColumnChangeError(serializers.ValidationError):
+    def __init__(self, change: BreakingColumnChange) -> None:
+        super().__init__(
+            "This change removes columns that downstream views use. Save again to confirm the change.",
+            code=BREAKING_COLUMN_CHANGE_CODE,
+        )
+        self.extra = {
+            "removed_columns": change["removed_columns"],
+            "affected_views": change["affected_view_names"][:MAX_NAMED_AFFECTED_VIEWS],
+            "affected_view_count": change["visible_affected_view_count"],
+            "has_hidden_affected_views": change["has_hidden_affected_views"],
+        }
+
+
+def _lineage_sync_error_detail(error: Exception) -> str:
+    # The marker is served verbatim by the node API, so only a message written for the user may reach it.
+    return str(error) if isinstance(error, ExposedHogQLError) else GENERIC_LINEAGE_SYNC_ERROR
+
+
+def _columns_from_client_types(client_types: list[list[str]]) -> dict[str, dict[str, Any]]:
+    return {
+        str(item[0]): {
+            "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
+            "clickhouse": item[1],
+            "valid": True,
+        }
+        for item in client_types
+    }
+
+
+def _capture_unless_user_error(error: Exception) -> None:
+    # Errors in the user's own SQL are not defects. Classify by error code, not by class, because
+    # some user-safe ClickHouse codes, for example UNKNOWN_IDENTIFIER, are not ExposedCHQueryError.
+    if classify_query_error(error) != QueryErrorCategory.USER_ERROR:
+        capture_exception(error)
 
 
 def _as_uuid(value: object) -> uuid.UUID | None:
@@ -79,6 +142,28 @@ def _view_types_validation_error(e: Exception) -> serializers.ValidationError:
     if isinstance(e, ExposedHogQLError | ExposedCHQueryError):
         return serializers.ValidationError(f"Failed to retrieve types for view: {e}")
     return serializers.ValidationError(f"Failed to retrieve types for view: unexpected {type(e).__name__}")
+
+
+def _unreferenceable_view_refusal(team_id: int, sql: str) -> str | None:
+    """Why `sql` fails to resolve, when it names a saved view that HogQL on ClickHouse cannot reference.
+
+    The HogQL database leaves such views out, so without this the refusal only says the table is unknown.
+    """
+    try:
+        names = get_table_names(parse_select(sql))
+    except ExposedHogQLError:
+        return None
+    views = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, name__in=names)
+        .exclude(deleted=True)
+        .only("name", "query")
+        .order_by("name")
+    )
+    for view in views:
+        reference = view.engine.referenceable_from_clickhouse
+        if not reference.available:
+            return f"This view reads '{view.name}'. {reference.reason} Remove that reference to save this view."
+    return None
 
 
 def _apply_frequency_target(
@@ -109,14 +194,15 @@ def _apply_frequency_target(
     return target
 
 
-_MOVE_REFUSALS = {
-    "multiple_placements": "This view belongs to multiple DAGs and cannot be moved here.",
-    "blocked": "This view cannot move while its DAG is managed or other views depend on it.",
-    "materializing": (
-        "This view cannot move while it is materializing. Wait for the run to finish or cancel it, then try again."
-    ),
-    "moved": "Something else moved this view while we were moving it. Try again.",
-}
+def _cadence_asks_to_materialize(view: DataWarehouseSavedQuery, sync_frequency: str | None) -> bool:
+    # Incremental only means something for a materialized table, so a cadence on an incremental
+    # view asks for one. Without a cadence the caller materializes it, as the SQL editor does.
+    return (
+        view.engine.can_materialize.available
+        and not view.is_materialized
+        and sync_frequency not in (None, "never")
+        and bool((view.incremental_config or {}).get("enabled"))
+    )
 
 
 def _authored_model_answering_to(
@@ -132,11 +218,9 @@ def _authored_model_answering_to(
     return next((query for query in candidates if models_namespace_chain(query) == name.split(".")), None)
 
 
-def _move_to_dag(view: DataWarehouseSavedQuery, dag: DAG) -> None:
-    try:
-        modeling_api.move_saved_query_to_dag(view.team_id, view.pk, dag.id)
-    except modeling_api.NodeMoveError as e:
-        raise serializers.ValidationError({"dag_id": _MOVE_REFUSALS[e.reason]})
+INCREMENTAL_CONFIG_CHANGED_REFUSAL = (
+    "This view's incremental settings changed while you were editing it. Reload the view and try again."
+)
 
 
 class DataWarehouseSavedQuerySerializer(
@@ -211,13 +295,12 @@ class DataWarehouseSavedQuerySerializer(
         help_text="If true, skip column inference and external table discovery. On update, also skip the query "
         "revision conflict check. Query validation and revision updates still run.",
     )
-    dag_id = TeamScopedPrimaryKeyRelatedField(
-        queryset=DAG.objects.all(),
-        pk_field=serializers.UUIDField(),
+    acknowledge_breaking_changes = serializers.BooleanField(
         write_only=True,
         required=False,
-        allow_null=True,
-        help_text="DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.",
+        default=False,
+        help_text="Confirm an update that removes columns used by downstream views. The first request is refused "
+        "with code 'breaking_column_change' and names the affected views that the caller can access.",
     )
     description = view_description.ViewDescriptionField(
         required=False, allow_blank=True, allow_null=True, help_text=view_description.VIEW_DESCRIPTION_HELP_TEXT
@@ -238,6 +321,7 @@ class DataWarehouseSavedQuerySerializer(
     has_incremental_history = serializers.SerializerMethodField(
         help_text="Whether incremental settings participated in any materialization run."
     )
+    engine = view_state.ViewEngineSerializer(read_only=True, help_text=view_state.VIEW_ENGINE_HELP_TEXT)
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -265,13 +349,14 @@ class DataWarehouseSavedQuerySerializer(
             "edited_history_id",
             "latest_history_id",
             "soft_update",
-            "dag_id",
+            "acknowledge_breaking_changes",
             "is_materialized",
             "origin",
             "is_test",
             "expires_at",
             "user_access_level",
             "suspended",
+            "engine",
         ]
         read_only_fields = [
             "id",
@@ -354,39 +439,213 @@ class DataWarehouseSavedQuerySerializer(
             capture_exception(e)
             logger.exception("Failed to report view action", analytics_event=event)
 
+    def _columns_from_request_types(self) -> dict[str, dict[str, Any]]:
+        client_types = self.context["request"].data.get("types", [])
+        if not isinstance(client_types, list) or any(
+            not isinstance(item, list | tuple)
+            or len(item) != 2
+            or not isinstance(item[0], str)
+            or not isinstance(item[1], str)
+            for item in client_types
+        ):
+            raise serializers.ValidationError('"types" must be a list of [column name, column type] string pairs.')
+        if len(client_types) == 0:
+            raise serializers.ValidationError("Run the query in the SQL editor before saving it as a view.")
+        return _columns_from_client_types(client_types)
+
+    def _materialize(self, view: DataWarehouseSavedQuery, sync_frequency: str) -> None:
+        request = self.context["request"]
+        try:
+            modeling_api.enable_saved_query_materialization(
+                view.team_id,
+                view.id,
+                user=cast(User, request.user),
+                frequency_target=sync_frequency_to_sync_frequency_interval(sync_frequency),
+                visible_blocker_names=lambda bounds: sync_cadence.visible_blocker_names(
+                    bounds, self.user_access_control, team_id=view.team_id
+                ),
+                was_impersonated=is_impersonated(request),
+            )
+        except modeling_api.MaterializationForbiddenError as e:
+            raise exceptions.PermissionDenied(str(e))
+        except modeling_api.MaterializationRefusedError as e:
+            raise serializers.ValidationError(str(e))
+        except modeling_api.MaterializationFailedError as e:
+            raise exceptions.APIException(str(e))
+        view.refresh_from_db()
+
+    @tracer.start_as_current_span("saved_query.validate_dependencies")
+    def _validate_view_dependencies(self, team: Team, name: str, query: str) -> None:
+        try:
+            get_parents_from_model_query(team, name, query, database=self.context["database"])
+        except (RecursionError, ResolutionCycleError):
+            raise serializers.ValidationError("Model contains a cycle")
+        except Exception as error:
+            refusal = _unreferenceable_view_refusal(team.pk, query)
+            if refusal is not None:
+                raise serializers.ValidationError(refusal)
+            _capture_unless_user_error(error)
+            raise _view_types_validation_error(error)
+
+    @staticmethod
+    def _resolved_output_columns(view: DataWarehouseSavedQuery, database: Database) -> set[str] | None:
+        context = HogQLContext(
+            team=view.team,
+            team_id=view.team_id,
+            enable_select_queries=True,
+            database=database,
+            # This internal comparison must inspect every dependent. Names are filtered by access control below.
+            bypass_warehouse_access_control=True,
+        )
+        try:
+            resolved = resolve_types(parse_select(view.sql), context, dialect="clickhouse")
+        except Exception:
+            return None
+        if not isinstance(resolved.type, (ast.SelectQueryType, ast.SelectSetQueryType)):
+            return set()
+        return set(resolved.type.columns)
+
+    @staticmethod
+    def _saved_query_table_nodes(view: DataWarehouseSavedQuery, database: Database) -> list[TableNode]:
+        nodes: list[TableNode] = []
+        seen_node_ids: set[int] = set()
+        chains = [view.name_chain]
+        if (models_chain := models_namespace_chain(view)) is not None:
+            chains.append(models_chain)
+        for chain in chains:
+            node = database.get_table_node(chain)
+            saved_query_id = (
+                node.table.id if isinstance(node.table, SavedQuery) else getattr(node.table, "saved_query_id", None)
+            )
+            if id(node) not in seen_node_ids and saved_query_id == str(view.id):
+                nodes.append(node)
+                seen_node_ids.add(id(node))
+        return nodes
+
+    @tracer.start_as_current_span("saved_query.check_breaking_column_change")
+    def _breaking_column_change(
+        self,
+        instance: DataWarehouseSavedQuery,
+        pending_query: dict[str, Any],
+        inferred_columns: dict[str, dict[str, Any]],
+    ) -> BreakingColumnChange | None:
+        removed_columns = tuple(sorted(set(instance.columns or {}) - set(inferred_columns)))
+        if not removed_columns:
+            return None
+
+        downstream_ids = modeling_api.downstream_saved_query_ids(instance.team_id, instance.id)
+        if not downstream_ids:
+            return None
+
+        downstream_views_by_id = {
+            view.id: view
+            for view in DataWarehouseSavedQuery.objects.filter(team_id=instance.team_id, id__in=downstream_ids)
+            .exclude(deleted=True)
+            .order_by("name", "id")
+        }
+        downstream_views = [
+            downstream_views_by_id[view_id]
+            for view_id in modeling_api.saved_query_ids_upstream_first(instance.team_id, set(downstream_views_by_id))
+        ]
+
+        if not downstream_views:
+            return None
+        # Dependency validation must not depend on which downstream views the editor can open.
+        database = Database.create_for(
+            team=instance.team, bypass_warehouse_access_control=True, trigger="saved_query_breaking_change_check"
+        )
+        current_outputs = {
+            view.id: output
+            for view in downstream_views
+            if (output := self._resolved_output_columns(view, database)) is not None
+        }
+
+        pending = copy.copy(instance)
+        pending.query = pending_query
+        pending.set_columns(inferred_columns)
+        current_tables: dict[int, tuple[TableNode, Any]] = {}
+
+        def replace_view(view: DataWarehouseSavedQuery) -> None:
+            table = view.hogql_definition()
+            for node in self._saved_query_table_nodes(view, database):
+                current_tables.setdefault(id(node), (node, node.table))
+                node.table = table
+
+        replace_view(pending)
+        try:
+            affected: list[DataWarehouseSavedQuery] = []
+            for view in downstream_views:
+                pending_output = self._resolved_output_columns(view, database)
+                if pending_output is None:
+                    if view.id in current_outputs:
+                        affected.append(view)
+                    continue
+                pending_view = copy.copy(view)
+                pending_view.set_columns(
+                    {name: column for name, column in (view.columns or {}).items() if name in pending_output}
+                )
+                replace_view(pending_view)
+        finally:
+            for node, current_table in current_tables.values():
+                node.table = current_table
+
+        if not affected:
+            return None
+        affected.sort(key=lambda view: (view.name, view.id))
+
+        affected_ids = [dependent.id for dependent in affected]
+        visible_ids = (
+            modeling_api.allowed_saved_query_ids(
+                instance.team_id,
+                self.user_access_control,
+                ids=affected_ids,
+            )
+            if self.user_access_control is not None
+            else frozenset()
+        )
+        visible_names = tuple(dependent.name for dependent in affected if dependent.id in visible_ids)
+        return BreakingColumnChange(
+            removed_columns=removed_columns,
+            affected_view_names=visible_names,
+            visible_affected_view_count=len(visible_names),
+            total_affected_view_count=len(affected),
+            has_hidden_affected_views=len(visible_names) < len(affected),
+        )
+
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
         validated_data["origin"] = DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE
         soft_update = validated_data.pop("soft_update", False)
-        dag_given = "dag_id" in validated_data
-        dag_id = validated_data.pop("dag_id", None)
         has_description = "description" in validated_data
         description = validated_data.pop("description", None)
         sync_frequency = validated_data.pop("sync_frequency", None)
         validated_data.pop("edited_history_id", None)
+        validated_data.pop("acknowledge_breaking_changes", None)
         view = DataWarehouseSavedQuery(**validated_data)
+        engine = view.engine
 
-        if not soft_update:
+        if sync_frequency not in (None, "never") and not engine.can_materialize.available:
+            raise serializers.ValidationError(engine.can_materialize.reason)
+        if engine.column_source == ViewColumnSource.CLIENT_TYPES:
+            view.set_columns(self._columns_from_request_types())
+        if engine.has_lineage.available:
+            self._validate_view_dependencies(self.context["get_team"](), view.name, validated_data["query"]["query"])
+
+        if not soft_update and engine.column_source == ViewColumnSource.CLICKHOUSE_PROBE:
             try:
                 # The columns will be inferred from the query
                 client_types = self.context["request"].data.get("types", [])
                 if len(client_types) == 0:
-                    view.set_columns(view.get_columns(user=self.context["request"].user))
+                    view.set_columns(
+                        view.get_columns(user=self.context["request"].user, database=self.context["database"])
+                    )
                 else:
-                    columns = {
-                        str(item[0]): {
-                            "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
-                            "clickhouse": item[1],
-                            "valid": True,
-                        }
-                        for item in client_types
-                    }
-                    view.set_columns(columns)
+                    view.set_columns(_columns_from_client_types(client_types))
 
                 view.external_tables = view.get_s3_tables(database=self.context["database"])
             except Exception as e:
-                capture_exception(e)
+                _capture_unless_user_error(e)
                 logger.exception("Failed to retrieve types for view %s", view.name)
                 raise _view_types_validation_error(e)
 
@@ -394,14 +653,6 @@ class DataWarehouseSavedQuerySerializer(
             view.save()
             if has_description:
                 self._write_view_description(view, description)
-            try:
-                view.setup_model_paths()
-            except Exception:
-                # For now, do not fail saved query creation if we cannot model-ize it.
-                # Later, after bugs and errors have been ironed out, we may tie these two
-                # closer together.
-                logger.exception("Failed to create model path when creating view %s", view.name)
-
             team = Team.objects.get(id=view.team_id)
 
             log_activity(
@@ -425,25 +676,25 @@ class DataWarehouseSavedQuerySerializer(
                     ],
                 ),
             )
-            # Best-effort only when the caller left placement to us. A supplied dag_id is
-            # write-only, so the response cannot show that the placement was discarded.
-            try:
-                with transaction.atomic():
-                    modeling_api.sync_saved_query_to_dag(view, dag=dag_id)
-            except Exception as e:
-                capture_exception(e)
-                logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
-                if dag_given:
-                    raise serializers.ValidationError({"dag_id": "Could not place this view in the requested DAG."})
-            if sync_frequency is not None:
+            if engine.has_lineage.available:
+                try:
+                    with transaction.atomic():
+                        modeling_api.sync_saved_query_to_dag(view)
+                except Exception as e:
+                    capture_exception(e)
+                    logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
+                    modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, _lineage_sync_error_detail(e))
+            # The frequency writes through to the DAG node's freshness target, which only a view with lineage has.
+            if sync_frequency is not None and engine.has_lineage.available:
                 if sync_frequency != "never":
-                    assert_user_can_read_query(
-                        view.query,
-                        view.team_id,
-                        cast(User, self.context["request"].user),
-                        database=self.context.get("database"),
+                    modeling_api.assert_user_can_read_saved_query(
+                        view, cast(User, self.context["request"].user), database=self.context.get("database")
                     )
                 _apply_frequency_target(view, sync_frequency, self.user_access_control)
+
+        if _cadence_asks_to_materialize(view, sync_frequency):
+            # After commit, so the first run the schedule starts can read the new row.
+            self._materialize(view, sync_frequency)
 
         self._report_view_action(
             "view created",
@@ -454,8 +705,6 @@ class DataWarehouseSavedQuerySerializer(
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
-        dag_given = "dag_id" in validated_data
-        dag_id = validated_data.pop("dag_id", None)
         has_description = "description" in validated_data
         description = validated_data.pop("description", None)
 
@@ -464,20 +713,23 @@ class DataWarehouseSavedQuerySerializer(
 
         frequency_given = "sync_frequency" in validated_data
         sync_frequency = validated_data.pop("sync_frequency", None)
+        engine = ViewEngine.from_query(validated_data.get("query", instance.query))
+
+        if sync_frequency not in (None, "never") and not engine.can_materialize.available:
+            raise serializers.ValidationError(engine.can_materialize.reason)
 
         if sync_frequency and sync_frequency != "never":
             # Scheduling a view is the same grant as materializing it directly.
-            assert_user_can_read_query(
-                instance.query,
-                self.context["team_id"],
-                cast(User, self.context["request"].user),
-                database=self.context.get("database"),
+            modeling_api.assert_user_can_read_saved_query(
+                instance, cast(User, self.context["request"].user), database=self.context.get("database")
             )
 
-        # The frequency writes through to the DAG node's freshness target.
-        frequency_changed = frequency_given
+        # Setting a cadence needs the view's DAG node. Clearing one does not, because a direct-connection view
+        # saved before those views lost lineage can still hold a node target that a pause must remove.
+        frequency_changed = frequency_given and (engine.has_lineage.available or sync_frequency in (None, "never"))
 
         soft_update = validated_data.pop("soft_update", False)
+        acknowledge_breaking_changes = validated_data.pop("acknowledge_breaking_changes", False)
         edited_history_id = self.context["request"].data.get("edited_history_id", None)
         check_conflict = (
             "query" in validated_data
@@ -493,7 +745,21 @@ class DataWarehouseSavedQuerySerializer(
 
         inferred_columns: dict[str, dict[str, Any]] | None = None
         inferred_external_tables: list[str] | None = None
-        if "query" in validated_data and not soft_update:
+        # Switching would add or drop the view's DAG node, and the dependents that read it through HogQL.
+        if engine.has_lineage.available != instance.engine.has_lineage.available:
+            raise serializers.ValidationError(
+                "A view cannot switch to or from raw Trino SQL or a direct connection. Save it as a new view."
+            )
+        if engine.column_source == ViewColumnSource.CLIENT_TYPES and "query" in validated_data and not soft_update:
+            inferred_columns = self._columns_from_request_types()
+            inferred_external_tables = []
+        if engine.has_lineage.available and ("query" in validated_data or "name" in validated_data):
+            self._validate_view_dependencies(
+                instance.team,
+                validated_data.get("name", instance.name),
+                validated_data.get("query", instance.query)["query"],
+            )
+        if "query" in validated_data and not soft_update and engine.column_source == ViewColumnSource.CLICKHOUSE_PROBE:
             # Inference runs the query on ClickHouse, so it happens before the row lock, on a probe
             # carrying the pending query and name rather than the stored ones, as create() does.
             probe = DataWarehouseSavedQuery(
@@ -502,31 +768,26 @@ class DataWarehouseSavedQuerySerializer(
                 query=validated_data["query"],
             )
             try:
-                get_parents_from_model_query(
-                    instance.team,
-                    probe.name,
-                    validated_data["query"]["query"],
-                    database=self.context["database"],
-                )
                 client_types = self.context["request"].data.get("types", [])
                 if len(client_types) == 0:
-                    inferred_columns = probe.get_columns(user=self.context["request"].user)
+                    inferred_columns = probe.get_columns(
+                        user=self.context["request"].user, database=self.context["database"]
+                    )
                 else:
-                    inferred_columns = {
-                        str(item[0]): {
-                            "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
-                            "clickhouse": item[1],
-                            "valid": True,
-                        }
-                        for item in client_types
-                    }
+                    inferred_columns = _columns_from_client_types(client_types)
                 inferred_external_tables = probe.get_s3_tables(database=self.context["database"])
             except (RecursionError, ResolutionCycleError):
                 raise serializers.ValidationError("Model contains a cycle")
             except Exception as e:
-                capture_exception(e)
+                _capture_unless_user_error(e)
                 logger.exception("Failed to retrieve types for view %s", probe.name)
                 raise _view_types_validation_error(e)
+
+        breaking_column_change = None
+        if inferred_columns is not None and "query" in validated_data:
+            breaking_column_change = self._breaking_column_change(instance, validated_data["query"], inferred_columns)
+            if breaking_column_change is not None and not acknowledge_breaking_changes:
+                raise BreakingColumnChangeError(breaking_column_change)
 
         with transaction.atomic():
             try:
@@ -549,25 +810,19 @@ class DataWarehouseSavedQuerySerializer(
                 if _as_uuid(edited_history_id) != locked_instance.query_revision:
                     raise serializers.ValidationError("The query was modified by someone else.")
 
+            if (
+                query_changed
+                and "incremental_config" not in validated_data
+                and locked_instance.incremental_config != instance.incremental_config
+            ):
+                raise serializers.ValidationError(INCREMENTAL_CONFIG_CHANGED_REFUSAL)
+
             if query_changed:
                 validated_data["query_revision"] = uuid.uuid4()
-
-            if frequency_changed:
-                # The node target is the only store of frequency intent. The interval column
-                # stays NULL so a stale v1 schedule can never be revived from it.
-                locked_instance.sync_frequency_interval = None
-                validated_data["sync_frequency_interval"] = None
+                validated_data["query_updated_at"] = timezone.now()
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
-
-            if dag_given:
-                try:
-                    _move_to_dag(view, dag_id or DAG.get_or_create_default(view.team))
-                except serializers.ValidationError:
-                    raise
-                except Exception as e:
-                    capture_exception(e)
-                    raise serializers.ValidationError({"dag_id": "Could not move this view to the requested DAG."})
+            name_changed = before_update.name != view.name
 
             if frequency_changed:
                 previous_target = modeling_api.declared_targets_by_saved_query(view.team_id, [view.pk]).get(
@@ -579,16 +834,15 @@ class DataWarehouseSavedQuerySerializer(
                 self._write_view_description(view, description)
 
             if inferred_columns is not None:
+                columns_changed = not before_update.stores_columns(inferred_columns)
                 view.set_columns(inferred_columns)
                 view.external_tables = inferred_external_tables
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()
-
-            try:
-                view.setup_model_paths()
-            except Exception as e:
-                capture_exception(e)
-                logger.exception("Failed to update model path when updating view %s", view.name)
+                if columns_changed:
+                    modeling_api.schedule_downstream_view_column_refresh(
+                        view.team_id, view.id, self.context["request"].user.id
+                    )
 
             team = Team.objects.get(id=view.team_id)
 
@@ -606,15 +860,7 @@ class DataWarehouseSavedQuerySerializer(
             if frequency_changed and previous_target != target:
                 # The cadence lives on the DAG node, so changes_between() sees nothing and
                 # log_activity would discard the whole updated entry as a no-op.
-                changes.append(
-                    Change(
-                        type="DataWarehouseSavedQuery",
-                        action="changed",
-                        field="sync_frequency_interval",
-                        before=str(previous_target) if previous_target is not None else None,
-                        after=str(target) if target is not None else None,
-                    )
-                )
+                changes.extend(modeling_api.cadence_changes((previous_target, target)))
             log_activity(
                 organization_id=team.organization_id,
                 team_id=team.id,
@@ -626,19 +872,19 @@ class DataWarehouseSavedQuerySerializer(
                 detail=Detail(name=view.name, changes=changes),
             )
 
-            # Best effort sync to the data modeling DAG representation. It reads the node's
-            # placement, so it stays under the row lock a move also takes: outside it a move can
-            # land between the read and the sync, which would then create a second node in the
-            # DAG the move just left. The savepoint keeps a failed sync best effort without
-            # poisoning the update's own transaction.
-            if "query" in validated_data and not dag_given:
+            # Best effort sync to the data modeling DAG representation. The savepoint keeps a
+            # failed sync best effort without poisoning the update's own transaction.
+            if ("query" in validated_data or name_changed) and view.engine.has_lineage.available:
                 try:
                     with transaction.atomic():
-                        node = Node.objects.filter(team_id=view.team_id, saved_query=view).select_related("dag").first()
-                        modeling_api.sync_saved_query_to_dag(view, dag=node.dag if node else None)
+                        modeling_api.sync_saved_query_to_dag(view)
                 except Exception as e:
                     capture_exception(e)
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
+                    modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, _lineage_sync_error_detail(e))
+
+        if frequency_changed and _cadence_asks_to_materialize(view, sync_frequency):
+            self._materialize(view, sync_frequency)
 
         self._report_view_action(
             "view updated",
@@ -649,11 +895,21 @@ class DataWarehouseSavedQuerySerializer(
                 "description_changed": has_description,
                 "sync_frequency": sync_frequency if frequency_changed else None,
                 "soft_update": soft_update,
+                "breaking_column_change_acknowledged": bool(
+                    breaking_column_change is not None and acknowledge_breaking_changes
+                ),
+                "removed_column_count": (
+                    len(breaking_column_change["removed_columns"]) if breaking_column_change is not None else 0
+                ),
+                "affected_downstream_view_count": (
+                    breaking_column_change["total_affected_view_count"] if breaking_column_change is not None else 0
+                ),
             },
             team,
         )
         return view
 
+    @tracer.start_as_current_span("saved_query.validate_query")
     def validate_query(self, query):
         if not isinstance(query, dict):
             raise exceptions.ValidationError(
@@ -670,8 +926,27 @@ class DataWarehouseSavedQuerySerializer(
 
         team_id = self.context["team_id"]
         user = self.context["request"].user
+        engine = ViewEngine.from_query(query)
 
-        context = HogQLContext(team_id=team_id, user=user, enable_select_queries=True)
+        # Saved connection views stay as they are; this only blocks writing a connection query.
+        if engine.target == ViewEngineTarget.CONNECTION:
+            raise exceptions.ValidationError(detail=CONNECTION_SAVE_REASON)
+
+        if engine.is_raw_trino:
+            try:
+                validate_managed_trino_query(
+                    HogQLQuery(query=query["query"], executionTarget=ExecutionTarget.MANAGED_TRINO, sendRawQuery=True),
+                    self.context["get_team"](),
+                    user,
+                )
+                ensure_read_only_raw_trino_statement(query["query"])
+            except ExposedHogQLError as err:
+                raise exceptions.ValidationError(detail=f"Invalid query: {err}")
+            return query
+
+        context = HogQLContext(
+            team_id=team_id, user=user, enable_select_queries=True, database=self.context.get("database")
+        )
         try:
             select_ast = parse_select(query["query"])
 
@@ -698,13 +973,25 @@ class DataWarehouseSavedQuerySerializer(
             )
         except Exception as err:
             if isinstance(err, ExposedHogQLError):
-                error = str(err)
-                raise exceptions.ValidationError(detail=f"Invalid query: {error}")
+                refusal = _unreferenceable_view_refusal(team_id, query["query"])
+                raise exceptions.ValidationError(detail=refusal or f"Invalid query: {err}")
             elif not settings.DEBUG:
                 # We don't want to accidentally expose too much data via errors
                 raise exceptions.ValidationError(detail=f"Unexpected {err.__class__.__name__}")
 
         return query
+
+    def is_valid(self, *, raise_exception: bool = False) -> bool:
+        try:
+            return super().is_valid(raise_exception=raise_exception)
+        except serializers.ValidationError as error:
+            # DRF rebuilds the error raised in validate(), so the refused keys are attached here.
+            # drf-exceptions-hog renders `extra` into the response, and the editor reads
+            # `extra.blocked_keys` to show the error under the field it names.
+            refused_keys = getattr(self, "_refused_incremental_keys", None)
+            if refused_keys:
+                error.extra = {"blocked_keys": refused_keys}  # type: ignore[attr-defined]
+            raise
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -715,27 +1002,35 @@ class DataWarehouseSavedQuerySerializer(
         config = attrs.get("incremental_config")
         if config is None and self.instance is not None:
             config = self.instance.incremental_config
-        if not isinstance(config, dict) or not config.get("enabled"):
+        incremental = isinstance(config, dict) and bool(config.get("enabled"))
+
+        query_changed = "query" in attrs or self.instance is None
+        output_columns = self._pending_output_columns(query_changed)
+        if output_columns is not None and self._changes_what_materializes(attrs, incremental):
+            duplicates = modeling_api.duplicate_output_columns(name for name, _ in output_columns)
+            if duplicates:
+                raise serializers.ValidationError({"query": modeling_api.duplicate_output_columns_message(duplicates)})
+
+        if not incremental or not isinstance(config, dict):
             return attrs
         if not config.get("incremental_key") or not config.get("unique_key"):
             return attrs
 
-        query_changed = "query" in attrs
         query = attrs.get("query") or (self.instance.query if self.instance is not None else None)
         sql = (query or {}).get("query")
         if not isinstance(sql, str):
             raise serializers.ValidationError({"incremental": "This view has no query to make incremental."})
 
-        from products.data_modeling.backend.facade.api import IncrementalConfig, check_incremental_eligibility
-
-        # The stored column types describe the stored query, so they say nothing about a query being
-        # replaced. The runtime guard still catches a nullable key on the first incremental run.
-        column_types = None if query_changed or self.instance is None else self.instance.columns
-        # The context only carries a database when the request touches the query or name; a
-        # config-only PATCH still has to check `SELECT *` against real columns, so build one then.
-        database = self.context.get("database") or Database.create_for(
-            team_id=self.context["team_id"], user=cast(User, self.context["request"].user)
+        from products.data_modeling.backend.facade.api import (
+            IncrementalConfig,
+            check_incremental_eligibility,
+            definition_database,
         )
+
+        # Without column types the nullable key check is skipped, and the runtime guard catches a
+        # nullable key on the first incremental run instead.
+        column_types = {name: clickhouse_type for name, clickhouse_type in output_columns or [] if clickhouse_type}
+        database = definition_database(self.context["team_id"], user=cast(User, self.context["request"].user))
         result = check_incremental_eligibility(
             sql,
             IncrementalConfig(
@@ -743,22 +1038,52 @@ class DataWarehouseSavedQuerySerializer(
                 unique_key=tuple(config["unique_key"]),
                 lookback_seconds=config.get("lookback_seconds", 0),
             ),
-            column_types=incremental_config._clickhouse_types(column_types),
+            column_types=column_types or None,
             database=database,
         )
         if not result.eligible:
+            self._refused_incremental_keys = result.blocked_keys
             raise serializers.ValidationError({"incremental": result.blockers})
         return attrs
+
+    def _pending_output_columns(self, query_changed: bool) -> list[tuple[str, str | None]] | None:
+        """The saved query's output columns as (name, ClickHouse type), in output order, or None when
+        they are unknown before inference runs. A query's output can repeat a name, so this is a list.
+
+        The stored columns describe the stored query, so they say nothing about a query being
+        replaced. For a new query, only the types the editor sends from running it are known here."""
+        if not query_changed:
+            assert self.instance is not None
+            stored = self.instance.columns if isinstance(self.instance.columns, dict) else {}
+            return [(name, meta.get("clickhouse") if isinstance(meta, dict) else None) for name, meta in stored.items()]
+        client_types = self.context["request"].data.get("types")
+        if (
+            not isinstance(client_types, list)
+            or not client_types
+            or any(
+                not isinstance(item, list | tuple)
+                or len(item) != 2
+                or not isinstance(item[0], str)
+                or not isinstance(item[1], str)
+                for item in client_types
+            )
+        ):
+            return None
+        return [(name, clickhouse_type) for name, clickhouse_type in client_types]
+
+    def _changes_what_materializes(self, attrs: dict[str, Any], incremental: bool) -> bool:
+        """Whether this write sets what a materialized table is built from: the query of a materialized
+        view, or settings that make the view materialize. Pausing or renaming a view builds nothing."""
+        if not {"query", "incremental_config", "sync_frequency"} & attrs.keys():
+            return False
+        if incremental or attrs.get("sync_frequency") not in (None, "never"):
+            return True
+        return "query" in attrs and self.instance is not None and bool(self.instance.is_materialized)
 
     def validate_is_test(self, is_test):
         if is_test and not self.context["request"].user.is_staff:
             raise serializers.ValidationError("Only staff users can create test views.")
         return is_test
-
-    def validate_dag_id(self, dag: DAG | None) -> DAG | None:
-        if dag is not None and dag.is_managed:
-            raise serializers.ValidationError("Choose a DAG that is not system-managed.")
-        return dag
 
     def validate_folder(self, folder):
         if folder is not None and folder.team_id != self.context["team_id"]:

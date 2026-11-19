@@ -34,8 +34,20 @@ const SCOPED_AUTH_PATH_PATTERNS = [
     /^\/api\/projects\/[^/]+\/hog_flows\/[^/]+\/invocations\/cancel$/,
     // CdpApi.postHogFlowCancelBatchJob, verified against WORKFLOWS_CANCEL_JWT_SECRET, audience-pinned.
     /^\/api\/projects\/[^/]+\/hog_flows\/[^/]+\/batch_jobs\/[^/]+\/cancel$/,
+    // CdpApi.postHogFlowResumeBatchJob, verified against WORKFLOWS_STEP_RESUME_JWT_SECRET, audience-pinned.
+    /^\/api\/projects\/[^/]+\/hog_flows\/[^/]+\/batch_jobs\/[^/]+\/resume$/,
     // CdpApi.postWorkflowStepResume, verified against WORKFLOWS_STEP_RESUME_JWT_SECRET, audience-pinned.
     /^\/api\/projects\/[^/]+\/workflow_steps\/resume$/,
+    // CdpApi.postTransactionalEmail, verified against WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET, audience-pinned.
+    /^\/api\/projects\/[^/]+\/hog_flows\/[^/]+\/transactional_email$/,
+    /^\/api\/projects\/[^/]+\/hog_flows\/[^/]+\/transactional_email\/send$/,
+    /^\/api\/projects\/[^/]+\/transactional_email\/attachments\/uploads$/,
+    /^\/api\/projects\/[^/]+\/transactional_emails\/[^/]+\/cancel$/,
+    /^\/api\/projects\/[^/]+\/transactional_emails\/[^/]+\/reschedule$/,
+    // CdpApi.postHogFlowManualInvocation, verified against WORKFLOWS_CANCEL_JWT_SECRET, audience-pinned.
+    /^\/api\/projects\/[^/]+\/hog_flows\/[^/]+\/manual_invocations$/,
+    /^\/api\/projects\/[^/]+\/sandbox_email\/test_send$/,
+    /^\/api\/hog_flows\/scheduled_invocations$/,
 ]
 
 export interface InternalApiAuthOptions {

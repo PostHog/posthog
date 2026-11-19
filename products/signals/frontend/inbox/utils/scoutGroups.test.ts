@@ -44,6 +44,7 @@ function makeConfig(overrides: Partial<SignalScoutConfig> = {}): SignalScoutConf
 function makeRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRunSummary {
     return {
         run_id: 'run-1',
+        total_spend: null,
         skill_name: 'signals-scout-apm',
         skill_version: 1,
         status: 'completed',

@@ -7,6 +7,18 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface KnowledgeAccessApi {
+    /** ID of the project whose business knowledge the caller reads. */
+    project_id: number
+    /** True when the caller reads one library. False when it reads all business knowledge in the project. */
+    is_limited: boolean
+    /**
+     * The library a limited caller reads. Null when the caller is not limited.
+     * @nullable
+     */
+    library_id: string | null
+}
+
 /**
  * One chunk in a drill-down window over a single knowledge document.
  *
@@ -30,6 +42,21 @@ export interface KnowledgeDocumentWindowApi {
     /** Fetched page URL. Empty for text and file sources. */
     readonly url: string
 }
+
+/**
+ * * `keyword` - Keyword
+ * * `semantic` - Semantic
+ * * `both` - Keyword and semantic
+ * * `context` - Surrounding context
+ */
+export type SearchMatchEnumApi = (typeof SearchMatchEnumApi)[keyof typeof SearchMatchEnumApi]
+
+export const SearchMatchEnumApi = {
+    Keyword: 'keyword',
+    Semantic: 'semantic',
+    Both: 'both',
+    Context: 'context',
+} as const
 
 /**
  * One ranked chunk from a business knowledge search.
@@ -60,6 +87,18 @@ export interface KnowledgeSearchResultApi {
     readonly is_generated: boolean
     /** Fetched page URL. Empty for text and file sources. */
     readonly url: string
+    /** Why this chunk is in the result. `both`: the chunk matched the query words and the query meaning, the strongest evidence. `semantic`: it matched the meaning only. `keyword`: it shares words with the query, which can be a weak match for a long question. `context`: it did not match; it is a neighbour of a matching chunk, returned so the match reads in context.
+     *
+     * * `keyword` - Keyword
+     * * `semantic` - Semantic
+     * * `both` - Keyword and semantic
+     * * `context` - Surrounding context */
+    readonly matched_by: SearchMatchEnumApi
+    /**
+     * Semantic similarity between the query and this chunk, from 0 to 1, higher is closer. Null when the semantic index did not return this chunk.
+     * @nullable
+     */
+    readonly similarity: number | null
 }
 
 export interface KnowledgeGapSuggestionApi {
@@ -120,6 +159,125 @@ export interface GapTopicActionResultApi {
     readonly updated: number
 }
 
+export interface KnowledgeKeyApi {
+    /** Project secret API key id. */
+    id: string
+    /** Name of the key. Unique in this project. */
+    label: string
+    /**
+     * First and last characters of the key.
+     * @nullable
+     */
+    mask_value: string | null
+    /**
+     * The key itself. Returned once, in the response that creates the key. Null everywhere else.
+     * @nullable
+     */
+    value: string | null
+    /** When the key was created. */
+    created_at: string
+    /**
+     * When the key last made a request, to the hour. Null when it never has.
+     * @nullable
+     */
+    last_used_at: string | null
+    /** True when the key reads one library. False when it reads all business knowledge in the project. */
+    is_limited: boolean
+    /**
+     * The library a limited key reads. Null on a limited key means its library was deleted, so the key reads nothing.
+     * @nullable
+     */
+    library_id: string | null
+}
+
+export interface KnowledgeKeyCreateApi {
+    /**
+     * Name for the key. Must be unique in this project.
+     * @maxLength 40
+     */
+    label: string
+    /**
+     * The library this key reads. Send null for a key that reads all business knowledge in the project. It cannot be changed later.
+     * @nullable
+     */
+    library_id: string | null
+}
+
+/**
+ * * `running` - Reading past tickets
+ * * `completed` - Read every past ticket
+ */
+export type LearningBackfillStatusEnumApi =
+    (typeof LearningBackfillStatusEnumApi)[keyof typeof LearningBackfillStatusEnumApi]
+
+export const LearningBackfillStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+} as const
+
+export interface LearningBackfillProgressApi {
+    /** `running` while PostHog reads past tickets. `completed` once every ticket in the window is read.
+     *
+     * * `running` - Reading past tickets
+     * * `completed` - Read every past ticket */
+    status: LearningBackfillStatusEnumApi
+    /** When someone started learning from past tickets. */
+    started_at: string
+    /**
+     * When every past ticket was read. Null while the run continues.
+     * @nullable
+     */
+    finished_at: string | null
+    /** Tickets analyzed since the run started, including tickets from the regular 7-day pass. */
+    tickets_read: number
+    /** Tickets that are being analyzed now. */
+    tickets_in_progress: number
+    /** Analyzed tickets that added a learned source to business knowledge. */
+    knowledge_created: number
+}
+
+export interface BusinessKnowledgeSettingsApi {
+    /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Requires Support to be enabled for this environment. */
+    learn_from_support_enabled: boolean
+    /** Whether Support is enabled for this environment. Learning cannot be turned on while this is false. */
+    readonly support_enabled: boolean
+    /** The last run of learning from past tickets. Null when none ran since learning was turned on. */
+    readonly learning_backfill: LearningBackfillProgressApi | null
+}
+
+export interface KnowledgeLibraryApi {
+    /** Library id. */
+    id: string
+    /** Library name. Unique in this project, ignoring case. */
+    name: string
+    /** True for the library new learned sources join. There is at most one. */
+    is_default: boolean
+    /** How many sources are in this library. */
+    source_count: number
+    /** Selected repositories in this library that this environment is allowed to read. */
+    repos: string[]
+}
+
+export interface KnowledgeLibraryCreateApi {
+    /**
+     * Name for the new library.
+     * @maxLength 255
+     */
+    name: string
+}
+
+export interface PatchedKnowledgeLibraryUpdateApi {
+    /**
+     * New name. Omit to keep the current name.
+     * @maxLength 255
+     */
+    name?: string
+    /** Replaces every source in this library. Omit to leave sources unchanged. An empty list removes them all. */
+    source_ids?: string[]
+    /** Replaces this environment's repositories in the library. Omit to leave them unchanged. Repositories only another environment allows stay. */
+    repos?: string[]
+}
+
 export interface PlaygroundChatListApi {
     /** Playground chat id. */
     id: string
@@ -131,6 +289,15 @@ export interface PlaygroundChatListApi {
     updated_at: string
     /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
     has_open_turn: boolean
+}
+
+export interface PaginatedPlaygroundChatListListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: PlaygroundChatListApi[]
 }
 
 /**
@@ -360,13 +527,6 @@ export interface SandboxRunStartedApi {
     run_id: string
 }
 
-export interface BusinessKnowledgeSettingsApi {
-    /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Requires Support to be enabled for this environment. */
-    learn_from_support_enabled: boolean
-    /** Whether Support is enabled for this environment. Learning cannot be turned on while this is false. */
-    readonly support_enabled: boolean
-}
-
 export interface PatchedBusinessKnowledgeSettingsUpdateApi {
     /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Rejected when Support is off for this environment. */
     learn_from_support_enabled?: boolean
@@ -501,6 +661,15 @@ export interface KnowledgeSourceApi {
     /** @nullable */
     readonly file_size_bytes: number | null
     readonly always_include: boolean
+    /** Libraries this source belongs to. Empty when the source is in none. */
+    readonly library_ids: readonly string[]
+    /** Number of support agent runs that cited this source. */
+    readonly cited_run_count: number
+    /**
+     * When a support agent run last cited this source. Null when none has.
+     * @nullable
+     */
+    readonly last_cited_at: string | null
 }
 
 export interface PaginatedKnowledgeSourceListApi {
@@ -538,6 +707,8 @@ export interface PatchedUpdateTextSourceApi {
     text?: string
     /** When true, this source's content is injected into every support reply prompt as general context. */
     always_include?: boolean
+    /** Replaces the libraries this source belongs to. Omit to leave membership unchanged. An empty list removes it from every library. */
+    library_ids?: string[]
 }
 
 /**
@@ -577,6 +748,72 @@ export interface PaginatedKnowledgeSourceDocumentListApi {
     results: KnowledgeSourceDocumentApi[]
 }
 
+export interface KnowledgeAvailabilityApi {
+    /** True when the project has at least one business knowledge source. */
+    readonly has_sources: boolean
+    /** True when this environment has at least one GitHub repository selected. */
+    readonly has_repositories: boolean
+}
+
+export interface SurfaceUsageApi {
+    /** Where the usage came from. For chunks: text, url, file, or generated (learned from a support ticket). For searches: api (the API and MCP), support, posthog_ai, or learning. */
+    readonly surface: string
+    /** Usage from this surface in the period. */
+    readonly total: number
+}
+
+export interface DailyUsageApi {
+    /** Day, in UTC. */
+    readonly date: string
+    /** Support agent runs that cited knowledge on this day. */
+    readonly cited_run_count: number
+    /** Chunks written on this day. */
+    readonly chunks_ingested: number
+    /** Knowledge searches made on this day. */
+    readonly query_count: number
+}
+
+export interface SourceUsageApi {
+    /** ID of the knowledge source. */
+    readonly source_id: string
+    /** Name of the knowledge source. */
+    readonly name: string
+    /** True when the source was learned from a past support ticket. */
+    readonly is_generated: boolean
+    /** Support agent runs that cited this source in the period. */
+    readonly cited_run_count: number
+    /** When a run last cited this source in the period. */
+    readonly last_cited_at: string
+}
+
+/**
+ * How much the knowledge base was used in a period: ingestion, searches, and support agent citations.
+ */
+export interface KnowledgeUsageApi {
+    /** Number of days the report covers, today included. */
+    readonly days: number
+    /** Support agent runs that cited at least one knowledge source. */
+    readonly cited_run_count: number
+    /** Runs that cited at least one source learned from a past support ticket. */
+    readonly learned_cited_run_count: number
+    /** Knowledge sources in the project. */
+    readonly source_count: number
+    /** Knowledge sources that at least one run cited in the period. */
+    readonly cited_source_count: number
+    /** Chunks written in the period. Content that a refresh finds changed is chunked again and counts again. */
+    readonly chunks_ingested: number
+    /** Knowledge searches made in the period, from every surface. */
+    readonly query_count: number
+    /** Chunks written in the period by source type, largest first. */
+    readonly chunks_by_surface: readonly SurfaceUsageApi[]
+    /** Searches in the period by where they came from, largest first. */
+    readonly queries_by_surface: readonly SurfaceUsageApi[]
+    /** One entry per day, oldest first. */
+    readonly daily: readonly DailyUsageApi[]
+    /** The most cited sources in the period, most cited first. */
+    readonly top_sources: readonly SourceUsageApi[]
+}
+
 export type BusinessKnowledgeDocumentsWindowListParams = {
     /**
      * Zero-based chunk ordinal to center the window on (from a search result).
@@ -589,6 +826,10 @@ export type BusinessKnowledgeDocumentsWindowListParams = {
 }
 
 export type BusinessKnowledgeDocumentsSearchListParams = {
+    /**
+     * Limit retrieval to sources in this library. Pass the same id to repository search and file read. Omit to search every ready source.
+     */
+    library_id?: string
     /**
      * Maximum number of ranked chunks to return. Defaults to 10, capped at 20.
      */
@@ -618,7 +859,22 @@ export type BusinessKnowledgeGapSuggestionsListParams = {
     ticket_id?: string
 }
 
+export type BusinessKnowledgePlaygroundChatsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type BusinessKnowledgeRepositoriesFileRetrieveParams = {
+    /**
+     * Require the repository to be in this library. Pass the same id used for document search and repository search. Omit to read any selected repository.
+     */
+    library_id?: string
     /**
      * File path returned by the repository search.
      * @minLength 1
@@ -632,6 +888,10 @@ export type BusinessKnowledgeRepositoriesFileRetrieveParams = {
 }
 
 export type BusinessKnowledgeRepositoriesSearchParams = {
+    /**
+     * Limit the search to repositories in this library. Pass the same id to document search and file read. Omit to search every selected repository.
+     */
+    library_id?: string
     /**
      * File names, path fragments, or identifiers to match. Not a full sentence.
      * @minLength 1
@@ -649,6 +909,10 @@ export type BusinessKnowledgeSourcesListParams = {
      */
     added_by?: BusinessKnowledgeSourcesListAddedBy
     /**
+     * Return only sources in this library. Do not combine with unfiled.
+     */
+    library_id?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -664,6 +928,10 @@ export type BusinessKnowledgeSourcesListParams = {
      * Filter to a single source type (text, url, or file).
      */
     source_type?: BusinessKnowledgeSourcesListSourceType
+    /**
+     * When true, return only sources that are in no library. Do not combine with library_id.
+     */
+    unfiled?: boolean
 }
 
 export type BusinessKnowledgeSourcesListAddedBy =
@@ -686,6 +954,7 @@ export const BusinessKnowledgeSourcesListSourceType = {
 export type BusinessKnowledgeSourcesDocumentsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 5000
      */
     limit?: number
     /**
@@ -696,4 +965,13 @@ export type BusinessKnowledgeSourcesDocumentsListParams = {
 
 export type BusinessKnowledgeSourcesTextRetrieve200 = {
     text?: string
+}
+
+export type BusinessKnowledgeSourcesUsageRetrieveParams = {
+    /**
+     * Number of days to report, counting back from today. From 1 to 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number
 }

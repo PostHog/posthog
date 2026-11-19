@@ -11,6 +11,8 @@
 //	phrocs wait [--timeout N] [--json]                 # block on readiness
 //	phrocs stop [--timeout N]                          # stop detached process via IPC
 //	phrocs attach                                      # polling TUI against a detached process
+//	phrocs evals --fd N                                # live view of an eval harness run
+//	phrocs mcp                                         # MCP server over stdio for the running phrocs
 //	phrocs --version
 //
 // Flags:
@@ -56,6 +58,7 @@ type parsedArgs struct {
 	detach     bool
 	timeout    int
 	asJSON     bool
+	fd         int
 }
 
 func printUsage() {
@@ -67,6 +70,8 @@ Usage:
   phrocs wait [--timeout N] [--json]        block until ready, crashed, or timeout
   phrocs stop [--timeout N]                 stop the detached process gracefully
   phrocs attach                             polling status client against a detached process
+  phrocs evals --fd N                       live view of an eval harness run (started by hogli evals)
+  phrocs mcp                                MCP server over stdio for the phrocs running in this directory
   phrocs --version`)
 }
 
@@ -76,7 +81,7 @@ func parseArgs(args []string) (parsedArgs, error) {
 	// First pass: if the first arg is a known subcommand, consume it.
 	if len(args) > 0 {
 		switch args[0] {
-		case "wait", "stop", "attach", "detach":
+		case "wait", "stop", "attach", "detach", "evals", "mcp":
 			pa.subcommand = args[0]
 			i = 1
 		}
@@ -111,6 +116,16 @@ func parseArgs(args []string) (parsedArgs, error) {
 			i++
 		case "--json":
 			pa.asJSON = true
+		case "--fd":
+			if i+1 >= len(args) {
+				return pa, fmt.Errorf("--fd requires a value")
+			}
+			fd, err := parseFD(args[i+1])
+			if err != nil {
+				return pa, err
+			}
+			pa.fd = fd
+			i++
 		default:
 			return pa, fmt.Errorf("unknown flag: %s", args[i])
 		}
@@ -132,6 +147,14 @@ func main() {
 		os.Exit(runStop(pa.timeout))
 	case "attach":
 		os.Exit(runAttach())
+	case "mcp":
+		os.Exit(runMCP())
+	case "evals":
+		if pa.fd == 0 {
+			fmt.Fprintln(os.Stderr, "phrocs: evals requires --fd")
+			os.Exit(2)
+		}
+		os.Exit(runEvals(pa.fd))
 	case "detach":
 		// `phrocs detach` is an alias for `phrocs -d`
 		pa.detach = true

@@ -3,6 +3,7 @@ mod distinct_id;
 mod feature_flag;
 mod group;
 mod person;
+mod repair;
 
 use std::time::Instant;
 
@@ -42,10 +43,12 @@ pub struct PostgresStorage {
     pub(crate) bulk_chunk_size: usize,
     pub(crate) bulk_max_concurrent_chunks: usize,
     pub(crate) tombstoned_delete_max_rows: usize,
+    pub(crate) hash_key_override_statement_timeout_ms: u64,
 }
 
 impl PostgresStorage {
     /// Create a new PostgresStorage with separate primary, replica, and bulk pools.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         primary_pool: PgPool,
         replica_pool: PgPool,
@@ -54,6 +57,7 @@ impl PostgresStorage {
         bulk_chunk_size: usize,
         bulk_max_concurrent_chunks: usize,
         tombstoned_delete_max_rows: usize,
+        hash_key_override_statement_timeout_ms: u64,
     ) -> Self {
         Self {
             primary_pool,
@@ -63,6 +67,7 @@ impl PostgresStorage {
             bulk_chunk_size,
             bulk_max_concurrent_chunks,
             tombstoned_delete_max_rows,
+            hash_key_override_statement_timeout_ms,
         }
     }
 
@@ -137,5 +142,43 @@ impl PostgresStorage {
     #[allow(dead_code)]
     pub(crate) fn replica_pool(&self) -> &PgPool {
         &self.replica_pool
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    #[test]
+    fn every_compile_time_query_carries_its_query_tag() {
+        let prefix = format!("/* service='{}', operation='", env!("CARGO_PKG_NAME"));
+        let tagged = |query: &str| {
+            query
+                .strip_prefix(&prefix)
+                .and_then(|rest| rest.split_once("' */"))
+                .is_some_and(|(operation, _)| {
+                    !operation.is_empty()
+                        && operation
+                            .chars()
+                            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+                })
+        };
+        let cache = Path::new(env!("CARGO_MANIFEST_DIR")).join(".sqlx");
+        let mut untagged: Vec<String> = std::fs::read_dir(&cache)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+            .filter_map(|path| {
+                let entry: serde_json::Value =
+                    serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+                let query = entry["query"].as_str().unwrap();
+                (!tagged(query)).then(|| query.to_string())
+            })
+            .collect();
+        untagged.sort();
+        assert!(
+            untagged.is_empty(),
+            "queries without a `{prefix}<snake_case>' */` tag: {untagged:#?}"
+        );
     }
 }

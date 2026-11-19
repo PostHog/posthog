@@ -22,6 +22,7 @@ import type {
 } from '../../generated/api.schemas'
 import { accountSidebarConfigLogic } from './accountSidebarConfigLogic'
 import { accountSidebarPropertiesLogic } from './accountSidebarPropertiesLogic'
+import { isAccountPropertyEditable } from './components/accountPropertyTypes'
 
 jest.mock('lib/utils/accessControlUtils', () => ({ userHasAccess: jest.fn(() => true) }))
 
@@ -127,6 +128,38 @@ describe('accountSidebarPropertiesLogic', () => {
         logic?.unmount()
         resumeKeaLoadersErrors()
         jest.clearAllMocks()
+    })
+
+    it('shows pinned account fields from the account and keeps them read-only', async () => {
+        silenceKeaLoadersErrors()
+        const accountDataRequest = jest.fn(() => [500, { detail: 'Account data unavailable' }])
+        useMocks({
+            get: {
+                [VALUES_URL]: accountDataRequest,
+                [RELATIONSHIPS_URL]: accountDataRequest,
+                '/api/projects/:project_id/user_customer_analytics_config/@me/': {
+                    pinned_properties: [
+                        { kind: 'account_field', id: 'stripe_customer_id' },
+                        { kind: 'account_field', id: 'external_id' },
+                    ],
+                },
+                '/api/projects/:project_id/accounts/:id/': ({ params }) => ({
+                    id: params.id,
+                    external_id: 'org-example',
+                    properties: { stripe_customer_id: 'cus_example' },
+                }),
+            },
+        })
+
+        await mount()
+        const [stripeField, externalIdField] = logic.values.sidebarProperties
+        logic.actions.editProperty(stripeField)
+
+        expect(stripeField).toMatchObject({ key: 'field:stripe_customer_id', value: 'cus_example' })
+        expect(externalIdField).toMatchObject({ key: 'field:external_id', value: 'org-example' })
+        expect(logic.values.editingPropertyKey).toBeNull()
+        expect(logic.values.propertiesPanelState).toBe('ready')
+        expect(accountDataRequest).not.toHaveBeenCalled()
     })
 
     it('defers account data until pinning and recovers the empty state after an account-data failure', async () => {
@@ -529,7 +562,7 @@ describe('accountSidebarPropertiesLogic', () => {
         const write = jest.fn()
         useMocks({ post: { [VALUES_URL]: write, [RELATIONSHIPS_URL]: write } })
         for (const property of logic.values.sidebarProperties) {
-            expect(property.editable).toBe(false)
+            expect(isAccountPropertyEditable(property)).toBe(false)
             logic.actions.editProperty(property)
         }
         await expectLogic(logic, () => {

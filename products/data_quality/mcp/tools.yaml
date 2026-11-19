@@ -52,7 +52,6 @@ tools:
             refreshes, and a check on a metric or a PostHog table on that subject's schedule.
         inject_body:
             created_source: ai_generated
-        feature_flag: data-quality-checks
     data-quality-check-delete:
         operation: data_quality_checks_destroy
         enabled: true
@@ -66,7 +65,6 @@ tools:
         description: >
             Delete a check. The API soft-deletes it, so its run history stays queryable in
             system.information_schema.data_quality_check_runs and past failures can still be dated.
-        feature_flag: data-quality-checks
     data-quality-check-results:
         operation: data_quality_checks_runs_list
         enabled: true
@@ -80,7 +78,6 @@ tools:
         description: >
             The check's newest runs, including the failing-row count and the compiled HogQL that selects the offending
             rows — re-run that query to investigate a failure.
-        feature_flag: data-quality-checks
     data-quality-check-run:
         operation: data_quality_checks_run_create
         enabled: true
@@ -93,8 +90,9 @@ tools:
         title: Run a data quality check
         description: >
             Run one check now. Returns a suite run to poll; read the outcome from
-            system.information_schema.data_quality_check_runs once it finishes.
-        feature_flag: data-quality-checks
+            system.information_schema.data_quality_check_runs once it finishes. Each caller can send 20 run requests a
+            minute and 60 an hour, and each project 180 an hour, shared with data-quality-run. Over that, the call fails
+            with HTTP 429; wait for the time in Retry-After. To run several checks, call data-quality-run once instead.
     data-quality-check-schedule:
         operation: data_quality_checks_schedule_partial_update
         enabled: true
@@ -115,7 +113,6 @@ tools:
                 required: true
             subject_uuid:
                 required: true
-        feature_flag: data-quality-checks
     data-quality-check-types:
         operation: data_quality_checks_check_types_list
         enabled: true
@@ -129,7 +126,6 @@ tools:
         description: >
             The check types this project can author, each with the JSON schema its config is validated against. Pass
             subject_type to see only the types that kind of subject supports.
-        feature_flag: data-quality-checks
     data-quality-check-update:
         operation: data_quality_checks_partial_update
         enabled: true
@@ -146,7 +142,23 @@ tools:
             are ignored here. The check keeps its id, run history, latest status, and latest run time. A definition or
             name another active check already holds comes back as a field error, with nothing written. Deleted checks
             release their definition, so it can be authored again as a new check.
-        feature_flag: data-quality-checks
+    data-quality-run:
+        operation: data_quality_runs_create
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run data quality checks
+        description: >
+            Run several checks in one call: the checks named by check_ids, every enabled check on one subject
+            (subject_type and subject_uuid), or every enabled check in the project when neither is given. Returns a
+            suite run to poll; read the outcome from system.information_schema.data_quality_check_runs once it finishes.
+            One call is one run request, however many checks it runs. Each caller can send 20 run requests a minute and
+            60 an hour, and each project 180 an hour, shared with data-quality-check-run. Over that, the call fails with
+            HTTP 429.
     data-quality-subjects:
         operation: data_quality_checks_subjects_list
         enabled: true
@@ -158,8 +170,13 @@ tools:
             idempotent: true
         title: List what a data quality check can be authored on
         description: >
-            Every table, view, metric and PostHog table in this project you can read, with each one's columns and
-            whether you can put a check on it. Start here: a check names its subject by the subject_type and id this
-            returns, and a relationships check can point at a subject you can only read. A subject whose time_column is
-            set can take a lookback_hours window.
-        feature_flag: data-quality-checks
+            Tables, views, metrics and PostHog tables in this project you can read, with each one's columns and whether
+            you can put a check on it. Start here: a check names its subject by the subject_type and id this returns,
+            and a relationships check can point at a subject you can only read. A subject whose time_column is set can
+            take a lookback_hours window. A project can have thousands of subjects, so pass search (a name fragment,
+            such as 'events') and subject_type to find one. Results are sorted by subject_type, then name, and come back
+            limit at a time (20 by default). When a page has limit rows, call again with offset increased by limit. Set
+            include_columns to false to browse ids and names without column schemas.
+        param_overrides:
+            limit:
+                default: 20

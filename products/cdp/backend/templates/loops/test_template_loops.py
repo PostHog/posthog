@@ -1,5 +1,4 @@
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.cdp.backend.templates.loops.template_loops import (
     template as template_loops,
     template_send_event as template_loops_send_event,

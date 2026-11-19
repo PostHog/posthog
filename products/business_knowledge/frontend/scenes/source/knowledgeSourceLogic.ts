@@ -15,6 +15,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
@@ -23,9 +24,17 @@ import { urls } from 'scenes/urls'
 
 import type { Breadcrumb } from '~/types'
 
-import { deleteSource, getSource, getSourceDocuments, getSourceText, refreshSource, updateSource } from '../../api'
-import type { UpdateSourcePayload } from '../../api'
-import type { KnowledgeSourceApi, KnowledgeSourceDocumentApi } from '../../generated/api.schemas'
+import {
+    deleteSource,
+    getSource,
+    getSourceDocuments,
+    getSourceText,
+    listLibraries,
+    refreshSource,
+    updateSource,
+} from '../../api'
+import type { KnowledgeLibrary, UpdateSourcePayload } from '../../api'
+import type { KnowledgeLibraryApi, KnowledgeSourceApi, KnowledgeSourceDocumentApi } from '../../generated/api.schemas'
 import {
     DEFAULT_URL_SOURCE_FORM,
     type CrawlMode,
@@ -89,6 +98,9 @@ export interface knowledgeSourceLogicValues {
     isEditUrlSourceValid: boolean
     isRefreshing: boolean
     isSourceTextReady: boolean
+    libraries: KnowledgeLibrary[]
+    librariesLoading: boolean
+    savingLibraries: boolean
     showEditSourceErrors: boolean
     showEditUrlSourceErrors: boolean
     source: KnowledgeSource | null
@@ -114,7 +126,25 @@ export interface knowledgeSourceLogicActions {
     deleteSourceDone: () => {
         value: true
     }
-    loadSource: () => any
+    finishLibrarySave: () => {
+        value: true
+    }
+    loadLibraries: () => any
+    loadLibrariesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadLibrariesSuccess: (
+        libraries: KnowledgeLibraryApi[],
+        payload?: any
+    ) => {
+        libraries: KnowledgeLibraryApi[]
+        payload?: any
+    }
+    loadSource: (_: void) => void
     loadSourceDocuments: (_: void) => void
     loadSourceDocumentsFailure: (
         error: string,
@@ -139,10 +169,10 @@ export interface knowledgeSourceLogicActions {
     }
     loadSourceSuccess: (
         source: KnowledgeSourceApi | null,
-        payload?: any
+        payload?: void
     ) => {
         source: KnowledgeSourceApi | null
-        payload?: any
+        payload?: void
     }
     loadSourceText: () => any
     loadSourceTextFailure: (
@@ -179,6 +209,9 @@ export interface knowledgeSourceLogicActions {
     }
     resetEditUrlSource: (values?: UrlSourceFormValues) => {
         values?: UrlSourceFormValues
+    }
+    saveSourceLibraries: (libraryIds: string[]) => {
+        libraryIds: string[]
     }
     setEditSourceManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
@@ -279,6 +312,8 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
         deleteSourceDone: true,
         refreshSource: true,
         refreshSourceDone: true,
+        saveSourceLibraries: (libraryIds: string[]) => ({ libraryIds }),
+        finishLibrarySave: true,
     }),
     reducers({
         sourceNotFound: [
@@ -300,6 +335,13 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
             {
                 refreshSource: () => true,
                 refreshSourceDone: () => false,
+            },
+        ],
+        savingLibraries: [
+            false,
+            {
+                saveSourceLibraries: () => true,
+                finishLibrarySave: () => false,
             },
         ],
         sourceTextFailed: [
@@ -327,13 +369,20 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
             },
         ],
     }),
-    loaders(({ actions, props }) => ({
+    loaders(({ actions, props, values, cache }) => ({
         source: [
             null as KnowledgeSource | null,
             {
-                loadSource: async () => {
+                loadSource: async (_: void, breakpoint) => {
+                    const librarySaves = cache.librarySaves ?? 0
                     try {
-                        return await getSource(props.id)
+                        const source = await getSource(props.id)
+                        breakpoint()
+                        // A library save publishes its own response, which is newer than a read that started before it.
+                        if ((cache.librarySaves ?? 0) !== librarySaves) {
+                            return values.source
+                        }
+                        return source
                     } catch (error: unknown) {
                         // Catch 404 here so initKea does not toast. The scene renders NotFound.
                         if ((error as { status?: number } | null)?.status === 404) {
@@ -362,6 +411,12 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
                     breakpoint()
                     return documents
                 },
+            },
+        ],
+        libraries: [
+            [] as KnowledgeLibrary[],
+            {
+                loadLibraries: async () => await listLibraries(),
             },
         ],
     })),
@@ -447,6 +502,18 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
         },
     })),
     listeners(({ actions, values, props, cache }) => ({
+        saveSourceLibraries: async ({ libraryIds }) => {
+            try {
+                const source = await updateSource(props.id, { library_ids: libraryIds })
+                cache.librarySaves = (cache.librarySaves ?? 0) + 1
+                actions.loadSourceSuccess(source)
+                posthog.capture('business knowledge source libraries changed', { library_count: libraryIds.length })
+            } catch (error: any) {
+                lemonToast.error(error?.detail || error?.data?.library_ids?.[0] || 'Could not update libraries.')
+            } finally {
+                actions.finishLibrarySave()
+            }
+        },
         loadSourceSuccess: ({ source }) => {
             if (!source) {
                 cache.disposables.dispose('pollProcessing')
@@ -550,5 +617,6 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
     }),
     afterMount(({ actions }) => {
         actions.loadSource()
+        actions.loadLibraries()
     }),
 ])

@@ -64,7 +64,7 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
         },
         getMentions: () => getMentions(editor),
         deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
-        insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
+        insertContent: (content: JSONContent | string) => editor.chain().insertContent(content).focus().run(),
         insertContentAt: (position: number, content: JSONContent) => {
             editor.chain().focus().insertContentAt(position, content).run()
             editor.commands.scrollIntoView()
@@ -195,7 +195,7 @@ function getMentions(editor: TTEditor): number[] {
     const mentions: number[] = []
 
     editor.state.doc.descendants((node) => {
-        if (node.type.name === RichContentNodeType.Mention) {
+        if (node.type.name === RichContentNodeType.Mention && node.attrs.kind !== 'role') {
             mentions.push(node.attrs.id)
         }
     })

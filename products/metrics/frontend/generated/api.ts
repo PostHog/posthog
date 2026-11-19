@@ -15,11 +15,19 @@ import type {
     DashboardImportCreateApi,
     MetricsAttributeValuesRetrieveParams,
     MetricsAttributesRetrieveParams,
+    MetricsCreatedDashboardApi,
+    MetricsDashboardTemplateApi,
+    MetricsDashboardTemplatesListParams,
+    MetricsDashboardTemplatesPictureRetrieveParams,
     MetricsErrorSpikesRetrieveParams,
     MetricsNamesRetrieveParams,
+    MetricsQueryCountsRetrieveParams,
+    MetricsRecordingRuleApi,
+    MetricsSuggestedDashboardApi,
     MetricsValuesRetrieveParams,
     PanelQueryCheckRequestApi,
     PanelQueryCheckResponseApi,
+    PatchedMetricsRecordingRuleUpdateApi,
     _HasMetricsResponseApi,
     _MetricAnomalyReportApi,
     _MetricAnomalyRequestApi,
@@ -29,12 +37,32 @@ import type {
     _MetricErrorSpikesResponseApi,
     _MetricNamesResponseApi,
     _MetricPickerNamesResponseApi,
+    _MetricQueryCountsResponseApi,
     _MetricQueryRequestApi,
     _MetricQueryResponseApi,
     _MetricSamplesRequestApi,
     _MetricSamplesResponseApi,
+    _MetricVariableOptionsRequestApi,
+    _MetricVariableOptionsResponseApi,
     _MetricsOverviewResponseApi,
 } from './api.schemas'
+
+// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
+type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
+
+type WritableKeys<T> = {
+    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
+}[keyof T]
+
+type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
+type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
+
+type Writable<T> = Pick<T, WritableKeys<T>>
+type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
+    ? {
+          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
+      }
+    : DistributeReadOnlyOverUnions<T>
 
 export const getEventFilterMetricsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/event_filter/metrics/`
@@ -99,7 +127,8 @@ export const getMetricsAttributeValuesRetrieveUrl = (
 
 /**
  * Observed values for one metric attribute key, most frequent first.
- * Backs the filter bar's value autocomplete.
+ * Backs the filter bar's value autocomplete. `metricName` limits choices
+ * to one metric.
  */
 export const metricsAttributeValuesRetrieve = async (
     projectId: string,
@@ -240,6 +269,182 @@ export const metricsDashboardImportsValidateCreate = async (
     })
 }
 
+export const getMetricsDashboardTemplatesListUrl = (
+    projectId: string,
+    params?: MetricsDashboardTemplatesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/dashboard_templates/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/dashboard_templates/`
+}
+
+/**
+ * The templates of the metrics dashboard bank, newest first.
+ */
+export const metricsDashboardTemplatesList = async (
+    projectId: string,
+    params?: MetricsDashboardTemplatesListParams,
+    options?: RequestInit
+): Promise<MetricsDashboardTemplateApi[]> => {
+    return apiMutator<MetricsDashboardTemplateApi[]>(getMetricsDashboardTemplatesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsDashboardTemplatesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_templates/${id}/`
+}
+
+/**
+ * The metrics dashboard bank, for the PostHog staff review. The bank is instance-wide.
+ */
+export const metricsDashboardTemplatesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MetricsDashboardTemplateApi> => {
+    return apiMutator<MetricsDashboardTemplateApi>(getMetricsDashboardTemplatesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsDashboardTemplatesApproveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_templates/${id}/approve/`
+}
+
+/**
+ * Approve the template, so that projects whose metrics fit it see it as a suggestion.
+ */
+export const metricsDashboardTemplatesApproveCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MetricsDashboardTemplateApi> => {
+    return apiMutator<MetricsDashboardTemplateApi>(getMetricsDashboardTemplatesApproveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getMetricsDashboardTemplatesPictureRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: MetricsDashboardTemplatesPictureRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/dashboard_templates/${id}/picture/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/dashboard_templates/${id}/picture/`
+}
+
+/**
+ * The picture that a generation round rendered of the preview dashboard.
+ */
+export const metricsDashboardTemplatesPictureRetrieve = async (
+    projectId: string,
+    id: string,
+    params: MetricsDashboardTemplatesPictureRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMetricsDashboardTemplatesPictureRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsDashboardTemplatesPreviewCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_templates/${id}/preview/`
+}
+
+/**
+ * The unlisted dashboard that shows the template with this project's data. Built when it does not exist.
+ * Changes on it, by hand or with PostHog AI, become the template when it is approved.
+ */
+export const metricsDashboardTemplatesPreviewCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MetricsCreatedDashboardApi> => {
+    return apiMutator<MetricsCreatedDashboardApi>(getMetricsDashboardTemplatesPreviewCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getMetricsDashboardTemplatesRegenerateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_templates/${id}/regenerate/`
+}
+
+/**
+ * Discard the panels and the preview of a generated template, and generate it again from its metrics.
+ */
+export const metricsDashboardTemplatesRegenerateCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MetricsDashboardTemplateApi> => {
+    return apiMutator<MetricsDashboardTemplateApi>(getMetricsDashboardTemplatesRegenerateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getMetricsDashboardTemplatesRejectCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_templates/${id}/reject/`
+}
+
+/**
+ * Reject the template. Projects stop seeing it, and the same metrics do not generate it again.
+ */
+export const metricsDashboardTemplatesRejectCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MetricsDashboardTemplateApi> => {
+    return apiMutator<MetricsDashboardTemplateApi>(getMetricsDashboardTemplatesRejectCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getMetricsDashboardTemplatesAnalyzeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_templates/analyze/`
+}
+
+/**
+ * Analyze the metric names of this project now, and generate dashboards for new groups of metrics.
+ */
+export const metricsDashboardTemplatesAnalyzeCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMetricsDashboardTemplatesAnalyzeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getMetricsErrorSpikesRetrieveUrl = (projectId: string, params: MetricsErrorSpikesRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -351,6 +556,131 @@ export const metricsQueryCreate = async (
     })
 }
 
+export const getMetricsQueryCountsRetrieveUrl = (projectId: string, params?: MetricsQueryCountsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/query_counts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/query_counts/`
+}
+
+/**
+ * How often queries read each metric of the team. A metric that no query reads is not in the list.
+ */
+export const metricsQueryCountsRetrieve = async (
+    projectId: string,
+    params?: MetricsQueryCountsRetrieveParams,
+    options?: RequestInit
+): Promise<_MetricQueryCountsResponseApi> => {
+    return apiMutator<_MetricQueryCountsResponseApi>(getMetricsQueryCountsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsRecordingRulesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/recording_rules/`
+}
+
+/**
+ * The project's recording rules, by metric name.
+ */
+export const metricsRecordingRulesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MetricsRecordingRuleApi[]> => {
+    return apiMutator<MetricsRecordingRuleApi[]>(getMetricsRecordingRulesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsRecordingRulesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/recording_rules/`
+}
+
+/**
+ * Create a recording rule. It writes its first result within about a minute.
+ */
+export const metricsRecordingRulesCreate = async (
+    projectId: string,
+    metricsRecordingRuleApi: NonReadonly<MetricsRecordingRuleApi>,
+    options?: RequestInit
+): Promise<MetricsRecordingRuleApi> => {
+    return apiMutator<MetricsRecordingRuleApi>(getMetricsRecordingRulesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(metricsRecordingRuleApi),
+    })
+}
+
+export const getMetricsRecordingRulesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/recording_rules/${id}/`
+}
+
+/**
+ * Recording rules evaluate a PromQL query every minute and write its result into this project's metrics
+ * under a new metric name, so dashboards and alerts can read the stored result instead of the query.
+ */
+export const metricsRecordingRulesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MetricsRecordingRuleApi> => {
+    return apiMutator<MetricsRecordingRuleApi>(getMetricsRecordingRulesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsRecordingRulesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/recording_rules/${id}/`
+}
+
+/**
+ * Change a rule's query, description or enabled state. The metric name cannot change.
+ */
+export const metricsRecordingRulesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedMetricsRecordingRuleUpdateApi?: PatchedMetricsRecordingRuleUpdateApi,
+    options?: RequestInit
+): Promise<MetricsRecordingRuleApi> => {
+    return apiMutator<MetricsRecordingRuleApi>(getMetricsRecordingRulesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedMetricsRecordingRuleUpdateApi),
+    })
+}
+
+export const getMetricsRecordingRulesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/recording_rules/${id}/`
+}
+
+/**
+ * Delete a rule. The series it already wrote stay until the project's metrics retention removes them.
+ */
+export const metricsRecordingRulesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMetricsRecordingRulesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getMetricsSamplesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/metrics/samples/`
 }
@@ -369,6 +699,62 @@ export const metricsSamplesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_metricSamplesRequestApi),
+    })
+}
+
+export const getMetricsSuggestedDashboardsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/suggested_dashboards/`
+}
+
+/**
+ * Dashboards from the metrics dashboard bank that suit the metrics this project sends, best fit first.
+ */
+export const metricsSuggestedDashboardsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MetricsSuggestedDashboardApi[]> => {
+    return apiMutator<MetricsSuggestedDashboardApi[]>(getMetricsSuggestedDashboardsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsSuggestedDashboardsDashboardCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/suggested_dashboards/${id}/dashboard/`
+}
+
+/**
+ * Create the suggested dashboard in this project, with only the charts whose metrics the project sends.
+ * A second call returns the dashboard that the first one created.
+ */
+export const metricsSuggestedDashboardsDashboardCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MetricsCreatedDashboardApi> => {
+    return apiMutator<MetricsCreatedDashboardApi>(getMetricsSuggestedDashboardsDashboardCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getMetricsSuggestedDashboardsDismissCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/suggested_dashboards/${id}/dismiss/`
+}
+
+/**
+ * Remove the suggestion from this project's suggested dashboards, for every user of the project.
+ * The suggestion does not come back. A dashboard that was created from it stays.
+ * A second call does nothing.
+ */
+export const metricsSuggestedDashboardsDismissCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMetricsSuggestedDashboardsDismissCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -419,5 +805,25 @@ export const metricsValuesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_metricCatalogValuesParamsApi),
+    })
+}
+
+export const getMetricsVariableOptionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/variable_options/`
+}
+
+/**
+ * The options of one dashboard variable, for the variable selects on dashboards.
+ */
+export const metricsVariableOptionsCreate = async (
+    projectId: string,
+    _metricVariableOptionsRequestApi: _MetricVariableOptionsRequestApi,
+    options?: RequestInit
+): Promise<_MetricVariableOptionsResponseApi> => {
+    return apiMutator<_MetricVariableOptionsResponseApi>(getMetricsVariableOptionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_metricVariableOptionsRequestApi),
     })
 }

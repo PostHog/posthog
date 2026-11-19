@@ -2,11 +2,13 @@ import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTable, LemonTableColumn, LemonTag } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
 import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { DestinationIcon, destinationTypeLabel } from './DestinationIcon'
+import { DESTINATION_STATUS_TAGS } from './destinationStatus'
 import { destinationTarget } from './destinationTarget'
 
 export interface DestinationListProps {
@@ -62,6 +64,25 @@ export function DestinationList({
                     {destinationTypeLabel(destination.type)}
                 </LemonTag>
             ),
+        },
+        {
+            title: 'Status',
+            key: 'status',
+            render: (_, destination) => {
+                if (
+                    destination.is_posthog_warehouse ||
+                    (destination.status !== 'failing' && destination.status !== 'paused')
+                ) {
+                    return null
+                }
+                const tag = DESTINATION_STATUS_TAGS[destination.status]
+                const tagContent = <LemonTag type={tag.type}>{tag.label}</LemonTag>
+                return destination.latest_error ? (
+                    <Tooltip title={destination.latest_error}>{tagContent}</Tooltip>
+                ) : (
+                    tagContent
+                )
+            },
         },
         ...(metricsSourceId
             ? [

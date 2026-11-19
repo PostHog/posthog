@@ -105,6 +105,14 @@ async def ducklake_copy_workflow_gate_activity(inputs: DuckLakeCopyWorkflowGateI
         await logger.aerror("Team does not exist when evaluating DuckLake copy workflow gate")
         return False
 
+    from products.managed_warehouse.backend.facade.access import (  # noqa: PLC0415
+        background_loading_configured,
+        internal_loading_enabled,
+    )
+
+    if await database_sync_to_async(background_loading_configured)(team.organization_id):
+        return await database_sync_to_async(internal_loading_enabled)(team.organization_id)
+
     try:
         return feature_enabled_or_false(
             "ducklake-data-modeling-copy-workflow",

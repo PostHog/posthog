@@ -8,6 +8,9 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardBasicType } from '~/types'
 
+import * as generatedApi from 'products/dashboards/frontend/generated/api'
+import type { DashboardBulkDeleteResponseApi } from 'products/dashboards/frontend/generated/api.schemas'
+
 import { dashboardsModel, mergeTileTextUpdatesIntoDashboard, nameCompareFunction } from './dashboardsModel'
 
 const dashboards: Partial<DashboardBasicType>[] = [
@@ -110,6 +113,42 @@ describe('the dashboards model', () => {
         await expectLogic(logic, () => {
             logic.actions.loadDashboardsIfNeeded()
         }).toDispatchActions(['loadDashboardsSuccess'])
+    })
+
+    it('reloads every page after a failed bulk deletion', async () => {
+        await expectLogic(logic, () => logic.actions.loadDashboards()).toDispatchActions(['loadDashboardsSuccess'])
+        let failRequest: (error: Error) => void
+        const request = new Promise<DashboardBulkDeleteResponseApi>((_, reject) => {
+            failRequest = reject
+        })
+        const deleteSpy = jest.spyOn(generatedApi, 'dashboardsBulkDeleteCreate').mockReturnValueOnce(request)
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': ({ request }) => {
+                    const offset = new URL(request.url).searchParams.get('offset')
+                    return [
+                        200,
+                        {
+                            count: 2,
+                            results: [{ ...basicDashboard, id: offset === '0' ? 5 : 6 }],
+                            next: offset === '0' ? '/api/projects/1/dashboards/?offset=1' : null,
+                            previous: null,
+                        },
+                    ]
+                },
+            },
+        })
+        try {
+            logic.actions.bulkDeleteDashboards({ ids: [3], onStillSelected: jest.fn() })
+            await expectLogic(logic, () => failRequest!(new Error('Lost response'))).toDispatchActions([
+                'bulkDeleteDashboardsFailure',
+                'reloadDashboardsSuccess',
+            ])
+            expect(Object.keys(logic.values.rawDashboards).sort()).toEqual(['5', '6'])
+            expect(logic.values.pagingDashboardsCompleted).toBe(true)
+        } finally {
+            deleteSpy.mockRestore()
+        }
     })
 
     describe('sorting dashboards', () => {

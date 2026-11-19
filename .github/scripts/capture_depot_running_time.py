@@ -32,7 +32,6 @@ CONCLUSION_BY_STATUS = {"finished": "success", "failed": "failure"}
 # Depot posts one placeholder job per matrix that it expands from `fromJSON`. The placeholder runs nothing.
 MATRIX_PLACEHOLDER_SUFFIX = ":_dynamicMatrix"
 KNOWN_BOT_ACTORS = frozenset({"Copilot"})
-HANDOFF_JOB = "wait-for-handoff"
 
 
 def conclusion(status: str) -> str:
@@ -116,10 +115,7 @@ def build_events(
     group_key = f"{context['repositoryOwner']}/{context['repository']}/{context['runId']}"
     groups = {"workflow_run": group_key}
     jobs = shown.get("jobs") or []
-    # The workflow starts on every pull request event and idles in wait-for-handoff until GitHub
-    # routes the event here. The run starts after that wait, so the duration compares with GitHub's.
-    handoff = next((job for job in jobs if job_id(job) == HANDOFF_JOB), None)
-    started_at = (handoff and latest_attempt(handoff).get("finished_at")) or shown["workflow"]["started_at"]
+    started_at = shown["workflow"]["started_at"]
     properties: JSONObject = {
         "duration_seconds": seconds_between(started_at, now.isoformat()),
         "url": workflow_url,

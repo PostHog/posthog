@@ -16,6 +16,7 @@ from django.core.cache import cache
 
 import structlog
 
+from products.tasks.backend.constants import PERMISSION_REQUEST_ID_MAX_LENGTH
 from products.tasks.backend.logic.services.agent_command import send_agent_command
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.run_actor import get_actor_distinct_id, get_task_run_credential_user
@@ -83,7 +84,12 @@ def parse_permission_request(event_data: dict[str, Any]) -> dict[str, Any] | Non
     request_id = payload.get("requestId")
     tool_call = payload.get("toolCall")
     options = _normalize_permission_options(payload.get("options"))
-    if not isinstance(request_id, str) or not request_id or not isinstance(tool_call, dict) or not options:
+    if (
+        not isinstance(request_id, str)
+        or not 0 < len(request_id) <= PERMISSION_REQUEST_ID_MAX_LENGTH
+        or not isinstance(tool_call, dict)
+        or not options
+    ):
         return None
 
     return {

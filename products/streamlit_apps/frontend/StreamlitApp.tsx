@@ -2,9 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -50,6 +52,7 @@ function curateErrorMessage(raw?: string | null): string {
 
 export function StreamlitAppViewer(props: Record<string, any>): JSX.Element {
     const streamlitAppsFeatureFlagEnabled = useFeatureFlag('STREAMLIT_APPS')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const shortId = props.id as string
     const { streamlitApp, streamlitAppLoading, appStatus, iframeSrc, sandboxStatus, connectError } = useValues(
         streamlitAppLogic({ shortId })
@@ -86,14 +89,24 @@ export function StreamlitAppViewer(props: Record<string, any>): JSX.Element {
                 name={streamlitApp.name}
                 resourceType={{ type: 'streamlit_app' }}
                 actions={
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconPencil />}
-                        to={urls.streamlitAppEdit(streamlitApp.short_id)}
-                    >
-                        Edit
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button
+                            variant="outline"
+                            render={<LinkPrimitive to={urls.streamlitAppEdit(streamlitApp.short_id)} />}
+                        >
+                            <IconPencil />
+                            Edit
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconPencil />}
+                            to={urls.streamlitAppEdit(streamlitApp.short_id)}
+                        >
+                            Edit
+                        </LemonButton>
+                    )
                 }
             />
             {/* Nudge on version mismatch between activated and running versions. */}

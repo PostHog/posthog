@@ -116,6 +116,12 @@
       "captureProduced": false
     },
     {
+      "type": "group_type_too_long",
+      "category": "size",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
       "type": "group_upsert_message_size_too_large",
       "category": "size",
       "severity": "error",
@@ -248,6 +254,18 @@
       "captureProduced": false
     },
     {
+      "type": "message_too_many_events",
+      "category": "replay",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
+      "type": "message_window_id_too_long",
+      "category": "replay",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
       "type": "misrouted_event",
       "category": "event",
       "severity": "error",
@@ -288,6 +306,12 @@
       "category": "event",
       "severity": "warning",
       "captureProduced": true
+    },
+    {
+      "type": "person_properties_depth_violation",
+      "category": "size",
+      "severity": "error",
+      "captureProduced": false
     },
     {
       "type": "person_properties_size_violation",

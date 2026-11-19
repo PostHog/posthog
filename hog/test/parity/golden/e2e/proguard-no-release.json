@@ -1,0 +1,47 @@
+{
+    "exitCode": 0,
+    "requests": [
+        {
+            "method": "POST",
+            "path": "/api/projects/1/error_tracking/symbol_sets/bulk_check_upload",
+            "headers": {
+                "authorization": "Bearer phx_<key>",
+                "content-type": "application/json"
+            },
+            "body": "{\"symbol_sets\":[{\"chunk_id\":\"map-no-release\",\"release_id\":null,\"content_hash\":\"72e221661b7a13caab866c5782dc0c99890c67d568fea7d4f9775d7917e1be3dbccca94b7e08ef7ed4ff6485f52db9c93f4fa209e9a82330bed1981bf99b495c\",\"content_length\":222}],\"force\":false,\"skip_on_conflict\":false}",
+            "status": 200
+        },
+        {
+            "method": "POST",
+            "path": "/api/projects/1/error_tracking/symbol_sets/bulk_start_upload",
+            "headers": {
+                "authorization": "Bearer phx_<key>",
+                "content-type": "application/json"
+            },
+            "body": "{\"symbol_sets\":[{\"chunk_id\":\"map-no-release\",\"release_id\":null,\"content_hash\":\"72e221661b7a13caab866c5782dc0c99890c67d568fea7d4f9775d7917e1be3dbccca94b7e08ef7ed4ff6485f52db9c93f4fa209e9a82330bed1981bf99b495c\",\"content_length\":222}],\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\",\"force\":false,\"skip_on_conflict\":false}",
+            "status": 201
+        },
+        {
+            "method": "PUT",
+            "path": "/s3/put/symbolsets/38a0e097-11c0-517d-ba66-3d4e71fe3ad4?length=222",
+            "headers": {
+                "authorization": "<none>"
+            },
+            "upload": {
+                "sha512": "72e221661b7a13caab866c5782dc0c99890c67d568fea7d4f9775d7917e1be3dbccca94b7e08ef7ed4ff6485f52db9c93f4fa209e9a82330bed1981bf99b495c",
+                "length": 222
+            },
+            "status": 200
+        },
+        {
+            "method": "POST",
+            "path": "/api/projects/1/error_tracking/symbol_sets/bulk_finish_upload",
+            "headers": {
+                "authorization": "Bearer phx_<key>",
+                "content-type": "application/json"
+            },
+            "body": "{\"content_hashes\":{\"38a0e097-11c0-517d-ba66-3d4e71fe3ad4\":\"72e221661b7a13caab866c5782dc0c99890c67d568fea7d4f9775d7917e1be3dbccca94b7e08ef7ed4ff6485f52db9c93f4fa209e9a82330bed1981bf99b495c\"},\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\"}",
+            "status": 201
+        }
+    ]
+}

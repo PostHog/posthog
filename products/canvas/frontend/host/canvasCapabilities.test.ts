@@ -8,6 +8,7 @@ const capabilities: CanvasCapabilitiesApi = {
         captureEvents: ['canvas clicked'],
         state: ['user'],
         actions: ['annotations.create'],
+        tools: ['feature-flag-enable'],
         agentRequests: false,
     },
     network: { origins: [] },
@@ -26,6 +27,8 @@ describe('assertCanvasCapability', () => {
         ['stateList', {}, 'State scope "any" is not allowed by this canvas'],
         ['actionInvoke', { verb: 'annotations.create' }, null],
         ['actionInvoke', { verb: 'flags.delete' }, 'Action "flags.delete" is not allowed by this canvas'],
+        ['toolCall', { tool: 'feature-flag-enable' }, null],
+        ['toolRead', { tool: 'feature-flag-disable' }, 'Tool "feature-flag-disable" is not allowed by this canvas'],
         ['agentRequest', { prompt: 'x' }, 'Agent requests are not allowed by this canvas'],
         ['connectorCall', { provider: 'github', tool: 'list_pull_requests' }, null],
         [

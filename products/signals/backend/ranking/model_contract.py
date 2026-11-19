@@ -11,6 +11,10 @@ from typing import Any
 
 from products.signals.backend.ranking.features import FeatureSet, feature_set_by_name
 
+# The late feature groups a fit zeroed on every row (`zero_unfitted_groups` in the nn dag). A model
+# whose set has late feature groups records them, so serving zeroes the same groups for that version.
+ZEROED_FEATURE_GROUPS_KEY = "zeroed_feature_groups"
+
 
 def model_feature_set(metadata: Mapping[str, Any]) -> FeatureSet | None:
     """The feature set the model declares, or None when this build cannot produce it. Metadata
@@ -32,7 +36,19 @@ def model_mismatch(metadata: Mapping[str, Any]) -> str | None:
         return f"feature_schema_version {version} is not {feature_set.name}'s {feature_set.schema_version}"
     if tuple(metadata.get("feature_names") or ()) != feature_set.feature_names:
         return f"feature_names differ from the {feature_set.name} feature set"
+    if feature_set.late_feature_groups:
+        zeroed = metadata.get(ZEROED_FEATURE_GROUPS_KEY)
+        if not isinstance(zeroed, list) or not set(zeroed) <= set(feature_set.late_feature_groups):
+            return (
+                f"{ZEROED_FEATURE_GROUPS_KEY} does not list late feature groups of the {feature_set.name} feature set"
+            )
     return None
+
+
+def zeroed_feature_groups(metadata: Mapping[str, Any]) -> tuple[str, ...]:
+    """The late feature groups the model's fit zeroed, which serving zeroes too. Read only from a
+    model that `model_mismatch` accepts."""
+    return tuple(metadata.get(ZEROED_FEATURE_GROUPS_KEY) or ())
 
 
 def booster_mismatch(head: str, booster_feature_names: Sequence[str] | None, feature_set: FeatureSet) -> str | None:
@@ -71,7 +87,8 @@ def head_lifts(scores: Mapping[str, float], metadata: Mapping[str, Any]) -> dict
 
 
 def trained_head_files(metadata: Mapping[str, Any], known_heads: Collection[str]) -> dict[str, str]:
-    """The `<head>.ubj` object name per head the candidate fit, of the heads in `known_heads`.
+    """The model file per head the candidate fit, of the heads in `known_heads`: `<head>.ubj` for a
+    per-head booster, and the one shared `model.onnx` for every head of an ONNX model.
 
     Every trained head is scored, readable or not. A rare head never clears `min_holdout_positives`
     on one day's holdout, and the pooled newborn grade over many days is the only read that can

@@ -6,8 +6,8 @@ Use this path when adding a reusable alert capability, option, or advanced behav
 
 | Capability                                                                       | Primary source of truth                                                             | Also inspect                                                                           |
 | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Lifecycle state, notification action, control-plane transition, or policy option | `products/alerts/backend/facade/lifecycle.py`                                       | Shared decision tests, every adopter policy and adapter, semgrep rule                  |
-| Fixed-cadence, calendar, timezone, or schedule-restriction behavior              | `products/alerts/backend/facade/scheduling.py`                                      | Product wrappers, create/update paths, due queries, scheduler interval, DST boundaries |
+| Lifecycle state, notification action, control-plane transition, or policy option | `products/alerts_platform/backend/facade/lifecycle.py`                              | Shared decision tests, every adopter policy and adapter, semgrep rule                  |
+| Fixed-cadence, calendar, timezone, or schedule-restriction behavior              | `products/alerts_platform/backend/facade/scheduling.py`                             | Product wrappers, create/update paths, due queries, scheduler interval, DST boundaries |
 | Destination type or destination-wide option                                      | `products/alerts/backend/logic/destination_configs.py`                              | HogFunction templates/sub-templates, facade exports, product allowlists, `AlertWizard` |
 | HogFunction persistence or delivery semantics                                    | `products/alerts/backend/logic/destinations.py`                                     | Worker batching, rollback, delivery metrics, destination tests                         |
 | Email transport capability                                                       | `products/alerts/backend/facade/email.py`                                           | Campaign-key semantics, adopter templates and tests                                    |
@@ -21,7 +21,7 @@ If the change crosses rows, update each row deliberately. Do not hide a cross-la
 
 ### Lifecycle
 
-- Keep `products/alerts/backend/facade/lifecycle.py` free of Django and product-model imports.
+- Keep `products/alerts_platform/backend/facade/lifecycle.py` free of Django and product-model imports.
 - Add policy fields only for observed semantic differences. Give them defaults that preserve every existing adopter.
 - Prefer a new pure transition helper over direct model mutation.
 - Update the decision table for firing, resolving, snoozing, erroring, breaking, cooldown, and notification edges affected by the change.
@@ -44,7 +44,7 @@ A new destination type normally requires all of these:
 
 1. Add the enum value in `products/alerts_platform/backend/facade/contracts.py`, and the HogFunction template ID and required fields in `products/alerts/backend/logic/destination_configs.py`.
 2. Extend validation and `build_alert_destination_config(...)` without changing existing payloads.
-3. Add the transport template under `nodejs/src/cdp/templates/_destinations/<destination>/<destination>.template.ts`, register it in `nodejs/src/cdp/templates/index.ts`, and test it with `TemplateTester` next to it. Django tests that need the template in the database sync a stand-in from `posthog/cdp/templates/fixtures.py`; its inputs schema must track which inputs are secret, because that decides what a saved destination keeps in `inputs` versus `encrypted_inputs`. Only update an existing template under `posthog/cdp/templates/` when it already lives there.
+3. Add the transport template under `nodejs/src/cdp/templates/_destinations/<destination>/<destination>.template.ts`, register it in `nodejs/src/cdp/templates/index.ts`, and test it with `TemplateTester` next to it. Django tests that need the template in the database sync a stand-in from `products/cdp/backend/templates/fixtures.py`; its inputs schema must track which inputs are secret, because that decides what a saved destination keeps in `inputs` versus `encrypted_inputs`. Only update an existing template under `products/cdp/backend/templates/` when it already lives there.
 4. Add alert-specific template compatibility in `frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts`.
 5. Decide which products explicitly allow the destination and update their destination editors or display logic.
 6. Add the option to `AlertWizard` only where supported by the relevant sub-template.

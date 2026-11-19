@@ -14,7 +14,7 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.approvals.backend.decorators import approval_gate
-from products.approvals.backend.mixins import ApprovalHandlingMixin
+from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.experiments.backend.models.experiment import ExperimentHoldout
 from products.feature_flags.backend.facade.api import update_flag
 from products.feature_flags.backend.facade.filters import set_holdout

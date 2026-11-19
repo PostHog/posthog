@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 
-import { router } from 'kea-router'
+import { decodeParams, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -329,6 +329,63 @@ describe('llmPromptLogic', () => {
         })
 
         logic.unmount()
+    })
+
+    describe('with the trace drawer open on the related traces', () => {
+        const PATH = '/prompt-management/prompts/my-test-prompt'
+        const LIST_PARAMS = { tab: 'usage', version: 1 }
+
+        async function mountWithEdits(): Promise<ReturnType<typeof llmPromptLogic.build>> {
+            const { versions, has_more, ...promptFields } = mockPrompt
+            mockResolve.mockResolvedValue({
+                prompt: promptFields,
+                versions,
+                has_more,
+            } as unknown as LLMPromptResolveResponseApi)
+            router.actions.push(PATH, LIST_PARAMS)
+            const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+            logic.actions.setPromptFormValue('prompt', 'edited')
+            mockResolve.mockClear()
+            return logic
+        }
+
+        function goBackTo(search: string): void {
+            router.actions.locationChanged({
+                method: 'POP',
+                pathname: router.values.location.pathname,
+                search,
+                searchParams: decodeParams(search, '?'),
+                hash: '',
+                hashParams: {},
+                url: `${router.values.location.pathname}${search}`,
+            })
+        }
+
+        it('does not reload the prompt or reset the form on open, step, close and back', async () => {
+            const logic = await mountWithEdits()
+
+            router.actions.push(PATH, { ...LIST_PARAMS, trace: 'a', ts: '2026' })
+            router.actions.push(PATH, { ...LIST_PARAMS, trace: 'b', step: 'gen-1' })
+            goBackTo('?tab=usage&version=1&trace=a&ts=2026')
+            router.actions.push(PATH, LIST_PARAMS)
+
+            expect(mockResolve).not.toHaveBeenCalled()
+            expect(logic.values.promptForm.prompt).toBe('edited')
+            logic.unmount()
+        })
+
+        it('still reloads when a list param changes with the drawer params', async () => {
+            const logic = await mountWithEdits()
+            router.actions.push(PATH, { ...LIST_PARAMS, trace: 'a' })
+
+            router.actions.push(PATH, { ...LIST_PARAMS, version: 2, trace: 'b' })
+
+            await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+            expect(mockResolve).toHaveBeenCalledTimes(1)
+            logic.unmount()
+        })
     })
 
     it('discards a stale resolved-preview response once a newer load started', async () => {

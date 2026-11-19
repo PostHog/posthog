@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 
@@ -21,13 +21,33 @@ import { ActivityTab, LogEntryLevel, PropertyFilterType, PropertyOperator } from
 import type { AppMetricsCommonParams } from '../../../../frontend/src/lib/components/AppMetrics/appMetricsLogic'
 import type { Dayjs } from '../../../../frontend/src/lib/dayjs'
 import type { TeamPublicType, TeamType } from '../../../../frontend/src/types'
-import { isEmailAction, isPushAction } from './hogflows/steps/types'
+import { type EmailStepAction, isEmailStep } from './hogflows/steps/email/emailStepVariants'
+import { isPushAction } from './hogflows/steps/types'
 import type { HogFlow } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 
 // Each conversion is emitted as a `$workflows_conversion` PostHog event carrying `$workflow_id`, so
 // "View converted users" deep-links to the events explorer scoped to this workflow and date range.
 const CONVERSION_EVENT = '$workflows_conversion'
+
+// Earlier runs have no `conversion_by_start` row even when they converted, so a range that reaches back
+// past this keeps counting conversions by when they happened. Otherwise its rate would read near zero.
+export const CONVERSION_BY_START_RECORDED_SINCE = '2026-11-13T00:00:00Z'
+
+export function conversionRateQuery(
+    dateFrom: Dayjs,
+    dateTo: Dayjs
+): Pick<AppMetricsTotalsRequest, 'dateFrom' | 'dateTo' | 'metricName'> {
+    if (dateFrom.isBefore(dayjs.utc(CONVERSION_BY_START_RECORDED_SINCE))) {
+        return { dateFrom: dateFrom.toISOString(), dateTo: dateTo.toISOString(), metricName: ['conversion'] }
+    }
+    // `conversion_by_start` sits at the top of the UTC hour a run started, so both totals cover whole hours.
+    return {
+        dateFrom: dayjs.utc(dateFrom).startOf('hour').toISOString(),
+        dateTo: dayjs.utc(dateTo).add(1, 'hour').subtract(1, 'millisecond').startOf('hour').toISOString(),
+        metricName: ['conversion_by_start'],
+    }
+}
 
 // The run-level "succeeded" metric is emitted once per run that finishes successfully, with an
 // empty instance_id — for ANY terminal path, including early exits (e.g. exiting on conversion).
@@ -115,6 +135,7 @@ export type EmailMetric =
     | 'email_link_clicked'
     | 'email_bounced'
     | 'email_bounce_prevented'
+    | 'email_missing_recipient'
     | 'email_blocked'
     | 'email_untracked'
     | 'email_suspended'
@@ -129,6 +150,7 @@ export type EmailMetricName =
     | 'email_bounced_hard'
     | 'email_bounced_transient'
     | 'email_bounced_undetermined'
+    | 'email_sandbox_blocked'
 
 export type PushMetric = 'push_sent' | 'push_skipped' | 'push_failed' | 'push_opened'
 
@@ -155,10 +177,12 @@ export type EmailMetricRow = {
     bouncedSoft: number
     bouncedUnknown: number
     bouncePrevented: number
+    missingRecipient: number
     frequencyCapped: number
     // Spam complaints. Stored under the email_blocked metric name for continuity with
     // historical data (see the SES webhook handler's Complaint mapping).
     markedAsSpam: number
+    sandboxBlocked: number
     // Sends without open/click tracking (step toggle off or no recipient consent). These can never
     // record opens/clicks, so engagement reads against trackedSends rather than sent.
     untracked: number
@@ -168,6 +192,7 @@ export type EmailMetricRow = {
     // untracked audience starts bouncing. A true tracked-deliveries denominator would need an untracked
     // counter emitted at delivery time in the SES webhook, keyed off `mail.tags['ses:configuration-set']`.
     trackedSends: number
+    removed: boolean
 }
 
 // Single source of truth for metric colors across the workflow metric views. Keyed by the metric's
@@ -198,6 +223,7 @@ export const METRIC_COLORS: Record<string, string> = {
     'Link clicked': getColorVar('data-color-5'),
     Bounced: getColorVar('data-color-6'),
     'Bounce prevented': getColorVar('data-color-7'),
+    'No email address': getColorVar('data-color-13'),
     'Frequency capped': getColorVar('data-color-8'),
     'Marked as spam': getColorVar('data-color-9'),
     Untracked: getColorVar('data-color-10'),
@@ -210,6 +236,21 @@ export const METRIC_COLORS: Record<string, string> = {
     'Rate Limited': getColorVar('warning'),
     Triggered: getColorVar('blue'),
 }
+
+// Keyed by display name like METRIC_COLORS. These tiles color a rise red and a fall green.
+export const METRICS_BAD_WHEN_RISING = new Set<string>([
+    'Failed',
+    'Bounced',
+    'Bounce prevented',
+    'No email address',
+    'Frequency capped',
+    'Marked as spam',
+    'Suspended',
+    'Paused',
+    'Skipped',
+    'Failure',
+    'Rate Limited',
+])
 
 export const WORKFLOW_SUMMARY_METRICS: Record<
     WorkflowSummaryMetric,
@@ -305,10 +346,17 @@ export const WORKFLOW_EMAIL_METRICS: Record<
         color: METRIC_COLORS['Bounce prevented'],
         metricNames: ['email_bounce_prevented'],
     },
+    email_missing_recipient: {
+        name: 'No email address',
+        description:
+            'Total number of emails that were not sent because the recipient had no email address, for example a person without an email property. Add a filter so only people with an email address reach the step. These sends are not billed.',
+        color: METRIC_COLORS['No email address'],
+        metricNames: ['email_missing_recipient'],
+    },
     message_frequency_capped: {
         name: 'Frequency capped',
         description:
-            'Total number of emails that were not sent because the person already got the most marketing messages the project allows in the cap window. The workflow moves on to the next step. Change the cap under Project settings > Workflows > Frequency cap.',
+            'Total number of emails that were not sent because the person already got the most marketing messages the project allows in the cap window. When the project holds capped emails, an email counts here only if no slot opened before the hold ended. The workflow moves on to the next step. Change the cap under Project settings > Workflows > Frequency cap.',
         color: METRIC_COLORS['Frequency capped'],
         metricNames: ['message_frequency_capped'],
     },
@@ -394,10 +442,13 @@ export const EMAIL_METRIC_INVOCATION_FILTERS: Partial<
     email_bounced_undetermined: { search: 'Undetermined bounce', levels: ['WARN'] },
     // MX-validation skips log "Skipping send: …" at INFO (see HogFunctionHandler in the plugin server).
     email_bounce_prevented: { search: 'Skipping send', levels: ['INFO'] },
+    // A missing recipient logs "Skipping send: the recipient has no email address. …" at WARN (EmailService).
+    email_missing_recipient: { search: 'has no email address', levels: ['WARN'] },
     message_frequency_capped: { search: 'reached the frequency cap', levels: ['INFO'] },
     email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
-    // Suspension skips log "Skipping send: email sending is suspended …" at WARN (EmailService).
-    email_suspended: { search: 'Skipping send', levels: ['WARN'] },
+    // Both suspension causes log "Skipping send: … for this project. …" at WARN (EmailService). The
+    // narrower term keeps other WARN skips, such as a missing recipient, out of this drill-down.
+    email_suspended: { search: 'for this project', levels: ['WARN'] },
     // A per-workflow pause logs "Skipping send: … paused …" at ERROR (EmailService). The search
     // term stays generic because the staff and automatic pauses word the line differently.
     email_paused: { search: 'Skipping send', levels: ['ERROR'] },
@@ -439,19 +490,40 @@ const EMAIL_METRICS: EmailMetricName[] = [
     'email_bounced_transient',
     'email_bounced_undetermined',
     'email_bounce_prevented',
+    'email_missing_recipient',
     'email_blocked',
     'email_untracked',
     'email_suspended',
     'email_paused',
     'message_frequency_capped',
+    'email_sandbox_blocked',
+]
+
+export const SANDBOX_EMAIL_METRICS: Record<string, EmailMetricName> = {
+    email_sandbox_sent: 'email_sent',
+    email_sandbox_delivered: 'email_delivered',
+    email_sandbox_failed: 'email_failed',
+    email_sandbox_bounced: 'email_bounced',
+    email_sandbox_complained: 'email_blocked',
+}
+
+const EMAIL_SENT_METRIC_NAMES = [
+    'email_sent',
+    ...Object.keys(SANDBOX_EMAIL_METRICS).filter((name) => SANDBOX_EMAIL_METRICS[name] === 'email_sent'),
 ]
 
 const PUSH_METRICS: PushMetric[] = ['push_sent', 'push_skipped', 'push_failed', 'push_opened']
+// Every (step, metric) pair of a large workflow; the query's default limit is 100 rows.
+const MESSAGE_TOTALS_LIMIT = 10_000
 
 export interface WorkflowMetricsSummaryLogicProps {
     logicKey: string
     id: string
     appSourceId?: string
+    /** The overview reads the live config, not a staged draft, and skips the loaders only the Metrics tab shows. */
+    overview?: boolean
+    /** The range the Metrics tab opened with, so completed runs start on it rather than the default. */
+    defaultRange?: Pick<AppMetricsCommonParams, 'dateFrom' | 'dateTo' | 'interval'>
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -469,81 +541,28 @@ export interface workflowMetricsSummaryLogicValues {
     } // appMetricsLogic
     getSingleTrendSeries: (name: string, previousPeriod?: boolean) => AppMetricsTimeSeriesResponse | null // appMetricsLogic
     params: Partial<AppMetricsCommonParams> // appMetricsLogic
+    originalWorkflow: HogFlow | null // workflowLogic
     workflow: HogFlow // workflowLogic
     conversionRate: number
     conversionStats: {
         conversions: number
         started: number
     }
+    conversionStatsFailed: boolean
     conversionStatsLoading: boolean
     convertedUsersUrl: string
-    emailActions: ({
-        config: {
-            inputs: Record<
-                string,
-                {
-                    bytecode?: any
-                    order?: number | undefined
-                    secret?: boolean | undefined
-                    templating?: 'hog' | 'liquid' | undefined
-                    value: any
-                }
-            >
-            message_category_id?: string | undefined
-            message_category_type?: 'marketing' | 'transactional' | undefined
-            template_id: 'template-email'
-            template_uuid?: string | undefined
-            tracking_enabled?: boolean | undefined
-            utm_params?:
-                | {
-                      utm_campaign?: string | undefined
-                      utm_content?: string | undefined
-                      utm_medium?: string | undefined
-                      utm_source?: string | undefined
-                  }
-                | undefined
-            utm_tags_enabled?: boolean | undefined
-        }
-        created_at?: number | undefined
-        description: string
-        filters?:
-            | {
-                  actions?: any[] | undefined
-                  events?: any[] | undefined
-                  properties?: any[] | undefined
-              }
-            | null
-            | undefined
-        id: string
-        name: string
-        on_error?: 'abort' | 'continue' | null | undefined
-        output_variable?:
-            | {
-                  key: string
-                  label?: string | null | undefined
-                  result_path?: string | null | undefined
-                  spread?: boolean | null | undefined
-              }
-            | {
-                  key: string
-                  label?: string | null | undefined
-                  result_path?: string | null | undefined
-                  spread?: boolean | null | undefined
-              }[]
-            | null
-            | undefined
-        type: 'function_email'
-        updated_at?: number | undefined
-    } & Record<string, unknown>)[]
+    emailActions: EmailStepAction[]
     emailLinkTotalsByActionId: Record<string, EmailLinkRow[]>
     emailLinkTotalsByActionIdLoading: boolean
     emailMetricsRows: EmailMetricRow[]
     emailTotalsByActionId: Record<string, Partial<Record<EmailMetricName, number>>>
     emailTotalsByActionIdLoading: boolean
+    getSentSummarySeries: (previousPeriod?: boolean) => AppMetricsTimeSeriesResponse | null
     hasConversionGoal: boolean
     inProgressTotal: number
     inProgressTotalLoading: boolean
     loading: boolean
+    messageTotalsFailed: boolean
     messagingChannels: {
         hasEmail: boolean
         hasPush: boolean
@@ -563,6 +582,7 @@ export interface workflowMetricsSummaryLogicValues {
             >
             message_category_id?: string | undefined
             message_category_type?: 'marketing' | 'transactional' | undefined
+            sensitive?: boolean | undefined
             template_id: 'template-native-push'
             template_uuid?: string | undefined
         }
@@ -601,6 +621,7 @@ export interface workflowMetricsSummaryLogicValues {
     pushTotalsByActionId: Record<string, Partial<Record<PushMetric, number>>>
     pushTotalsByActionIdLoading: boolean
     sentSummaryLabel: string
+    sourceWorkflow: HogFlow
     summaryMetricKeys: WorkflowSummaryMetric[]
     workflowSummaryTrends: AppMetricsTimeSeriesResponse | null
 }
@@ -710,8 +731,10 @@ export interface workflowMetricsSummaryLogicActions {
 export interface workflowMetricsSummaryLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        sourceWorkflow: (workflow: HogFlow, originalWorkflow: HogFlow | null, arg: boolean | undefined) => HogFlow
         loading: (appMetricsTrendsLoading: boolean, completedLoading: boolean) => boolean
-        emailActions: (workflow: HogFlow) => ({
+        emailActions: (sourceWorkflow: HogFlow) => EmailStepAction[]
+        pushActions: (sourceWorkflow: HogFlow) => ({
             config: {
                 inputs: Record<
                     string,
@@ -725,64 +748,7 @@ export interface workflowMetricsSummaryLogicMeta {
                 >
                 message_category_id?: string | undefined
                 message_category_type?: 'marketing' | 'transactional' | undefined
-                template_id: 'template-email'
-                template_uuid?: string | undefined
-                tracking_enabled?: boolean | undefined
-                utm_params?:
-                    | {
-                          utm_campaign?: string | undefined
-                          utm_content?: string | undefined
-                          utm_medium?: string | undefined
-                          utm_source?: string | undefined
-                      }
-                    | undefined
-                utm_tags_enabled?: boolean | undefined
-            }
-            created_at?: number | undefined
-            description: string
-            filters?:
-                | {
-                      actions?: any[] | undefined
-                      events?: any[] | undefined
-                      properties?: any[] | undefined
-                  }
-                | null
-                | undefined
-            id: string
-            name: string
-            on_error?: 'abort' | 'continue' | null | undefined
-            output_variable?:
-                | {
-                      key: string
-                      label?: string | null | undefined
-                      result_path?: string | null | undefined
-                      spread?: boolean | null | undefined
-                  }
-                | {
-                      key: string
-                      label?: string | null | undefined
-                      result_path?: string | null | undefined
-                      spread?: boolean | null | undefined
-                  }[]
-                | null
-                | undefined
-            type: 'function_email'
-            updated_at?: number | undefined
-        } & Record<string, unknown>)[]
-        pushActions: (workflow: HogFlow) => ({
-            config: {
-                inputs: Record<
-                    string,
-                    {
-                        bytecode?: any
-                        order?: number | undefined
-                        secret?: boolean | undefined
-                        templating?: 'hog' | 'liquid' | undefined
-                        value: any
-                    }
-                >
-                message_category_id?: string | undefined
-                message_category_type?: 'marketing' | 'transactional' | undefined
+                sensitive?: boolean | undefined
                 template_id: 'template-native-push'
                 template_uuid?: string | undefined
             }
@@ -818,24 +784,31 @@ export interface workflowMetricsSummaryLogicMeta {
             updated_at?: number | undefined
         } & Record<string, unknown>)[]
         messagingChannels: (
-            workflow: HogFlow,
+            sourceWorkflow: HogFlow,
             appMetricsTrends: AppMetricsTimeSeriesResponse | null
         ) => {
             hasEmail: boolean
             hasPush: boolean
         }
         sentSummaryLabel: (messagingChannels: { hasEmail: boolean; hasPush: boolean }) => string
+        getSentSummarySeries: (
+            getSingleTrendSeries: (name: string, previousPeriod?: boolean) => AppMetricsTimeSeriesResponse | null, // appMetricsLogic
+            messagingChannels: {
+                hasEmail: boolean
+                hasPush: boolean
+            }
+        ) => (previousPeriod?: boolean) => AppMetricsTimeSeriesResponse | null
         metricNameBySummaryMetric: (
             appMetricsTrends: AppMetricsTimeSeriesResponse | null
         ) => Record<WorkflowSummaryMetric, string>
         conversionRate: (conversionStats: { conversions: number; started: number }) => number
-        hasConversionGoal: (workflow: HogFlow) => boolean
+        hasConversionGoal: (sourceWorkflow: HogFlow) => boolean
         convertedUsersUrl: (
             getDateRangeAbsolute: () => {
                 dateFrom: Dayjs
                 dateTo: Dayjs
                 diffMs: number
-            },
+            }, // appMetricsLogic
             arg: string
         ) => string
         workflowSummaryTrends: (
@@ -845,72 +818,12 @@ export interface workflowMetricsSummaryLogicMeta {
             getCompletedSingleTrendSeries: (
                 name: string,
                 previousPeriod?: boolean
-            ) => AppMetricsTimeSeriesResponse | null,
-            messagingChannels: {
-                hasEmail: boolean
-                hasPush: boolean
-            },
+            ) => AppMetricsTimeSeriesResponse | null, // appMetricsLogic
+            getSentSummarySeries: (previousPeriod?: boolean) => AppMetricsTimeSeriesResponse | null,
             sentSummaryLabel: string
         ) => AppMetricsTimeSeriesResponse | null
         emailMetricsRows: (
-            emailActions: ({
-                config: {
-                    inputs: Record<
-                        string,
-                        {
-                            bytecode?: any
-                            order?: number | undefined
-                            secret?: boolean | undefined
-                            templating?: 'hog' | 'liquid' | undefined
-                            value: any
-                        }
-                    >
-                    message_category_id?: string | undefined
-                    message_category_type?: 'marketing' | 'transactional' | undefined
-                    template_id: 'template-email'
-                    template_uuid?: string | undefined
-                    tracking_enabled?: boolean | undefined
-                    utm_params?:
-                        | {
-                              utm_campaign?: string | undefined
-                              utm_content?: string | undefined
-                              utm_medium?: string | undefined
-                              utm_source?: string | undefined
-                          }
-                        | undefined
-                    utm_tags_enabled?: boolean | undefined
-                }
-                created_at?: number | undefined
-                description: string
-                filters?:
-                    | {
-                          actions?: any[] | undefined
-                          events?: any[] | undefined
-                          properties?: any[] | undefined
-                      }
-                    | null
-                    | undefined
-                id: string
-                name: string
-                on_error?: 'abort' | 'continue' | null | undefined
-                output_variable?:
-                    | {
-                          key: string
-                          label?: string | null | undefined
-                          result_path?: string | null | undefined
-                          spread?: boolean | null | undefined
-                      }
-                    | {
-                          key: string
-                          label?: string | null | undefined
-                          result_path?: string | null | undefined
-                          spread?: boolean | null | undefined
-                      }[]
-                    | null
-                    | undefined
-                type: 'function_email'
-                updated_at?: number | undefined
-            } & Record<string, unknown>)[],
+            emailActions: EmailStepAction[],
             emailTotalsByActionId: Record<string, Partial<Record<EmailMetricName, number>>>
         ) => EmailMetricRow[]
         pushMetricsRows: (
@@ -928,6 +841,7 @@ export interface workflowMetricsSummaryLogicMeta {
                     >
                     message_category_id?: string | undefined
                     message_category_type?: 'marketing' | 'transactional' | undefined
+                    sensitive?: boolean | undefined
                     template_id: 'template-native-push'
                     template_uuid?: string | undefined
                 }
@@ -981,7 +895,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
     connect((props: WorkflowMetricsSummaryLogicProps) => ({
         values: [
             workflowLogic,
-            ['workflow'],
+            ['workflow', 'originalWorkflow'],
             appMetricsLogic({ logicKey: props.logicKey }),
             [
                 'appMetricsTrendsLoading',
@@ -992,9 +906,10 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 'getDateRangeAbsolute',
             ],
             appMetricsLogic({
-                logicKey: `workflow-completed-${props.appSourceId ?? props.id}`,
-                loadOnMount: true,
-                loadOnChanges: true,
+                logicKey: completedLogicKey(props),
+                loadOnMount: !props.overview,
+                loadOnChanges: !props.overview,
+                defaultParams: props.defaultRange,
                 forceParams: {
                     appSource: 'hog_flow',
                     appSourceId: props.appSourceId ?? props.id,
@@ -1022,7 +937,8 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                         appSource: values.params.appSource,
                         appSourceId: values.params.appSourceId,
                         breakdownBy: ['instance_id', 'metric_name'],
-                        metricName: [...EMAIL_METRICS],
+                        metricName: [...EMAIL_METRICS, ...Object.keys(SANDBOX_EMAIL_METRICS)],
+                        limit: MESSAGE_TOTALS_LIMIT,
                         dateFrom: dateRange.dateFrom.toISOString(),
                         dateTo: dateRange.dateTo.toISOString(),
                     }
@@ -1068,6 +984,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                         appSourceId: values.params.appSourceId,
                         breakdownBy: ['instance_id', 'metric_name'],
                         metricName: [...PUSH_METRICS],
+                        limit: MESSAGE_TOTALS_LIMIT,
                         dateFrom: dateRange.dateFrom.toISOString(),
                         dateTo: dateRange.dateTo.toISOString(),
                     }
@@ -1093,9 +1010,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                         appSource: values.params.appSource,
                         appSourceId: values.params.appSourceId,
                         breakdownBy: ['metric_name'],
-                        dateFrom: dateRange.dateFrom.toISOString(),
-                        dateTo: dateRange.dateTo.toISOString(),
-                        metricName: ['conversion'],
+                        ...conversionRateQuery(dateRange.dateFrom, dateRange.dateTo),
                     }
                     // The two totals have no data dependency, so fetch them in parallel.
                     const [conversionResponse, startedResponse] = await Promise.all([
@@ -1143,7 +1058,31 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
             },
         ],
     })),
+    reducers({
+        messageTotalsFailed: [
+            false,
+            {
+                loadEmailTotalsFailure: () => true,
+                loadPushTotalsFailure: () => true,
+                loadEmailTotals: () => false,
+                loadPushTotals: () => false,
+            },
+        ],
+        conversionStatsFailed: [
+            false,
+            {
+                loadConversionStatsFailure: () => true,
+                loadConversionStats: () => false,
+            },
+        ],
+    }),
     selectors({
+        sourceWorkflow: [
+            (s) => [s.workflow, s.originalWorkflow, (_, p: WorkflowMetricsSummaryLogicProps) => p.overview],
+            (workflow: HogFlow, originalWorkflow: HogFlow | null, overview: boolean | undefined): HogFlow =>
+                overview && originalWorkflow ? originalWorkflow : workflow,
+        ],
+
         loading: [
             (s) => [s.appMetricsTrendsLoading, s.completedLoading],
             (appMetricsTrendsLoading: boolean, completedLoading: boolean) =>
@@ -1151,12 +1090,12 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
         ],
 
         emailActions: [
-            (s) => [s.workflow],
-            (workflow: import('./hogflows/types').HogFlow) => workflow.actions.filter(isEmailAction),
+            (s) => [s.sourceWorkflow],
+            (workflow: import('./hogflows/types').HogFlow) => workflow.actions.filter(isEmailStep),
         ],
 
         pushActions: [
-            (s) => [s.workflow],
+            (s) => [s.sourceWorkflow],
             (workflow: import('./hogflows/types').HogFlow) => workflow.actions.filter(isPushAction),
         ],
 
@@ -1165,14 +1104,14 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
         // date ranges (matching the step tables, which also key off configured actions), unioned with any
         // channel that actually sent in the window so historical data from a since-deleted action still shows.
         messagingChannels: [
-            (s) => [s.workflow, s.appMetricsTrends],
+            (s) => [s.sourceWorkflow, s.appMetricsTrends],
             (
                 workflow: import('./hogflows/types').HogFlow,
                 appMetricsTrends: AppMetricsTimeSeriesResponse | null
             ): { hasEmail: boolean; hasPush: boolean } => {
                 const observed = detectMessagingChannels(appMetricsTrends)
                 return {
-                    hasEmail: workflow.actions.some(isEmailAction) || observed.hasEmail,
+                    hasEmail: workflow.actions.some(isEmailStep) || observed.hasEmail,
                     hasPush: workflow.actions.some(isPushAction) || observed.hasPush,
                 }
             },
@@ -1182,6 +1121,16 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
         sentSummaryLabel: [
             (s) => [s.messagingChannels],
             (messagingChannels: { hasEmail: boolean; hasPush: boolean }): string => channelSentLabel(messagingChannels),
+        ],
+
+        getSentSummarySeries: [
+            (s) => [s.getSingleTrendSeries, s.messagingChannels],
+            (
+                getSingleTrendSeries: (name: string, previousPeriod?: boolean) => AppMetricsTimeSeriesResponse | null,
+                messagingChannels: { hasEmail: boolean; hasPush: boolean }
+            ) =>
+                (previousPeriod: boolean = false): AppMetricsTimeSeriesResponse | null =>
+                    buildSentSummarySeries(getSingleTrendSeries, messagingChannels, previousPeriod),
         ],
 
         metricNameBySummaryMetric: [
@@ -1210,7 +1159,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
         // Only surface the conversion tiles when a goal is actually configured — without one the
         // backend never emits conversion metrics/events, so the tiles would always read empty.
         hasConversionGoal: [
-            (s) => [s.workflow],
+            (s) => [s.sourceWorkflow],
             (workflow: import('./hogflows/types').HogFlow): boolean => {
                 const filters = workflow.conversion?.filters
                 const hasPropertyGoal = Array.isArray(filters) && filters.length > 0
@@ -1267,7 +1216,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 s.completedTrends,
                 s.metricNameBySummaryMetric,
                 s.getCompletedSingleTrendSeries,
-                s.messagingChannels,
+                s.getSentSummarySeries,
                 s.sentSummaryLabel,
             ],
             (
@@ -1278,7 +1227,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                     name: string,
                     previousPeriod?: boolean
                 ) => AppMetricsTimeSeriesResponse | null,
-                messagingChannels: { hasEmail: boolean; hasPush: boolean },
+                getSentSummarySeries: (previousPeriod?: boolean) => AppMetricsTimeSeriesResponse | null,
                 sentSummaryLabel: string
             ): AppMetricsTimeSeriesResponse | null => {
                 const source = appMetricsTrends ?? completedTrends
@@ -1299,17 +1248,8 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                             return [{ name: WORKFLOW_SUMMARY_METRICS.completed.name, values: completedValues }]
                         }
 
-                        // Channel-aware "sent": split into separate Emails + Push notifications lines when
-                        // both channels sent, otherwise a single line labelled for whichever channel did.
                         if (summaryMetric === 'persons_messaged') {
-                            const { hasEmail, hasPush } = messagingChannels
-                            if (hasEmail && hasPush) {
-                                return [
-                                    { name: 'Emails sent', values: seriesFor('email_sent') },
-                                    { name: 'Push notifications sent', values: seriesFor('push_sent') },
-                                ]
-                            }
-                            return [{ name: sentSummaryLabel, values: seriesFor(hasPush ? 'push_sent' : 'email_sent') }]
+                            return getSentSummarySeries()?.series ?? [{ name: sentSummaryLabel, values: zero() }]
                         }
 
                         return [
@@ -1326,54 +1266,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
         emailMetricsRows: [
             (s) => [s.emailActions, s.emailTotalsByActionId],
             (
-                emailActions: ({
-                    config: {
-                        inputs: Record<
-                            string,
-                            {
-                                bytecode?: any
-                                order?: number | undefined
-                                secret?: boolean | undefined
-                                templating?: 'hog' | 'liquid' | undefined
-                                value: any
-                            }
-                        >
-                        message_category_id?: string | undefined
-                        message_category_type?: 'marketing' | 'transactional' | undefined
-                        template_id: 'template-email'
-                        template_uuid?: string | undefined
-                    }
-                    created_at?: number | undefined
-                    description: string
-                    filters?:
-                        | {
-                              actions?: any[] | undefined
-                              events?: any[] | undefined
-                              properties?: any[] | undefined
-                          }
-                        | null
-                        | undefined
-                    id: string
-                    name: string
-                    on_error?: 'abort' | 'continue' | null | undefined
-                    output_variable?:
-                        | {
-                              key: string
-                              label?: string | null | undefined
-                              result_path?: string | null | undefined
-                              spread?: boolean | null | undefined
-                          }
-                        | {
-                              key: string
-                              label?: string | null | undefined
-                              result_path?: string | null | undefined
-                              spread?: boolean | null | undefined
-                          }[]
-                        | null
-                        | undefined
-                    type: 'function_email'
-                    updated_at?: number | undefined
-                } & Record<string, unknown>)[],
+                emailActions: EmailStepAction[],
                 emailTotalsByActionId: Record<string, Partial<Record<EmailMetricName, number>>>
             ): EmailMetricRow[] => buildEmailMetricRows(emailActions, emailTotalsByActionId),
         ],
@@ -1434,35 +1327,67 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
         ],
     }),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, props }) => {
         actions.loadEmailTotals({})
-        actions.loadEmailLinkTotals({})
         actions.loadPushTotals({})
-        actions.loadInProgressTotal({})
         actions.loadConversionStats({})
+        if (!props.overview) {
+            actions.loadEmailLinkTotals({})
+            actions.loadInProgressTotal({})
+        }
     }),
 
     listeners(({ actions, values, props }) => ({
         setParams: () => {
+            actions.loadEmailTotals({})
+            actions.loadPushTotals({})
+            actions.loadConversionStats({})
+            if (props.overview) {
+                return
+            }
             // Sync date/interval params to the completed (run-level succeeded) logic
-            const completedLogic = appMetricsLogic({
-                logicKey: `workflow-completed-${props.appSourceId ?? props.id}`,
-            })
-            completedLogic.actions.setParams({
+            appMetricsLogic({ logicKey: completedLogicKey(props) }).actions.setParams({
                 interval: values.params.interval,
                 dateFrom: values.params.dateFrom,
                 dateTo: values.params.dateTo,
             })
-            actions.loadEmailTotals({})
             actions.loadEmailLinkTotals({})
-            actions.loadPushTotals({})
-            actions.loadConversionStats({})
         },
     })),
 ])
 
+function completedLogicKey(props: WorkflowMetricsSummaryLogicProps): string {
+    return `workflow-completed-${props.overview ? 'overview-' : ''}${props.appSourceId ?? props.id}`
+}
+
 function subtractSeriesValues(minuend: number[] | undefined, subtrahend: number[] | undefined, size: number): number[] {
     return Array.from({ length: size }, (_, index) => Math.max(0, (minuend?.[index] ?? 0) - (subtrahend?.[index] ?? 0)))
+}
+
+export function buildSentSummarySeries(
+    getSingleTrendSeries: (name: string, previousPeriod?: boolean) => AppMetricsTimeSeriesResponse | null,
+    messagingChannels: { hasEmail: boolean; hasPush: boolean },
+    previousPeriod?: boolean
+): AppMetricsTimeSeriesResponse | null {
+    const emailSeries = sumSeries(
+        EMAIL_SENT_METRIC_NAMES.map((name) => getSingleTrendSeries(name, previousPeriod)),
+        'Emails sent'
+    )
+    const pushSeries = withDisplayName(getSingleTrendSeries('push_sent', previousPeriod), 'Push notifications sent')
+    if (!messagingChannels.hasEmail || !messagingChannels.hasPush) {
+        return messagingChannels.hasPush ? pushSeries : emailSeries
+    }
+    const source = emailSeries ?? pushSeries
+    if (!source) {
+        return null
+    }
+    return {
+        ...source,
+        series: [
+            { name: 'Emails sent', values: emailSeries?.series[0]?.values ?? [] },
+            { name: 'Push notifications sent', values: pushSeries?.series[0]?.values ?? [] },
+        ],
+    }
 }
 
 export function withDisplayName(
@@ -1479,6 +1404,28 @@ export function withDisplayName(
             ...item,
             name: displayName,
         })),
+    }
+}
+
+function sumSeries(
+    parts: (AppMetricsTimeSeriesResponse | null)[],
+    displayName: string
+): AppMetricsTimeSeriesResponse | null {
+    const present = parts.filter((part): part is AppMetricsTimeSeriesResponse => !!part)
+    if (present.length === 0) {
+        return null
+    }
+    const source = present[0]
+    return {
+        ...source,
+        series: [
+            {
+                name: displayName,
+                values: source.labels.map((_, index) =>
+                    present.reduce((sum, part) => sum + (part.series[0]?.values[index] ?? 0), 0)
+                ),
+            },
+        ],
     }
 }
 
@@ -1515,7 +1462,7 @@ export function detectMessagingChannels(appMetricsTrends: AppMetricsTimeSeriesRe
     hasPush: boolean
 } {
     return {
-        hasEmail: !!appMetricsTrends?.series.some((x: { name: string }) => x.name === 'email_sent'),
+        hasEmail: !!appMetricsTrends?.series.some((x: { name: string }) => EMAIL_SENT_METRIC_NAMES.includes(x.name)),
         hasPush: !!appMetricsTrends?.series.some((x: { name: string }) => x.name === 'push_sent'),
     }
 }
@@ -1525,36 +1472,63 @@ export function channelSentLabel({ hasEmail, hasPush }: { hasEmail: boolean; has
     return hasEmail && hasPush ? 'Messages sent' : hasPush ? 'Push notifications sent' : 'Emails sent'
 }
 
+type EmailTotals = Partial<Record<EmailMetricName, number>>
+
+// Fallback to sent - bounced when email_delivered wasn't collected. Spam complaints are
+// feedback-loop reports recipients send after delivery, so they are not subtracted here.
+function deliveredCount(totals: EmailTotals): number {
+    return totals.email_delivered ?? Math.max(0, (totals.email_sent ?? 0) - (totals.email_bounced ?? 0))
+}
+
 export function buildEmailMetricRows(
     emailActions: { id: string; name: string }[],
     emailTotalsByActionId: Record<string, Partial<Record<EmailMetricName, number>>>
 ): EmailMetricRow[] {
-    return emailActions.map((action) => {
-        const totals = emailTotalsByActionId[action.id] || {}
-        const sent = totals.email_sent ?? 0
-        const bounced = totals.email_bounced ?? 0
-        const markedAsSpam = totals.email_blocked ?? 0
-        const untracked = totals.email_untracked ?? 0
-        return {
-            id: action.id,
-            email: action.name,
-            // Fallback to sent - bounced when email_delivered wasn't collected. Spam complaints are
-            // feedback-loop reports recipients send after delivery, so they are not subtracted here.
-            delivered: totals.email_delivered ?? Math.max(0, sent - bounced),
-            sent,
-            opened: totals.email_opened ?? 0,
-            linkClicked: totals.email_link_clicked ?? 0,
-            bounced,
-            bouncedHard: totals.email_bounced_hard ?? 0,
-            bouncedSoft: totals.email_bounced_transient ?? 0,
-            bouncedUnknown: totals.email_bounced_undetermined ?? 0,
-            bouncePrevented: totals.email_bounce_prevented ?? 0,
-            frequencyCapped: totals.message_frequency_capped ?? 0,
-            markedAsSpam,
-            untracked,
-            trackedSends: Math.max(0, sent - untracked),
-        }
-    })
+    const currentRows = emailActions.map((action) =>
+        toEmailMetricRow(action.id, action.name, emailTotalsByActionId[action.id] || {}, false)
+    )
+    const currentIds = new Set(emailActions.map((action) => action.id))
+    const removedRows = Object.entries(emailTotalsByActionId)
+        .filter(([actionId, totals]) => !currentIds.has(actionId) && hasEmailOnlyTotals(totals))
+        .map(([actionId, totals]) => toEmailMetricRow(actionId, 'Removed email', totals, true))
+    return [...currentRows, ...removedRows]
+}
+
+// Push and SMS steps also record message_frequency_capped, so that metric alone does not mark a step as an email.
+function hasEmailOnlyTotals(totals: Partial<Record<EmailMetricName, number>>): boolean {
+    return Object.entries(totals).some(([metricName, total]) => metricName !== 'message_frequency_capped' && total > 0)
+}
+
+function toEmailMetricRow(
+    id: string,
+    email: string,
+    totals: Partial<Record<EmailMetricName, number>>,
+    removed: boolean
+): EmailMetricRow {
+    const sent = totals.email_sent ?? 0
+    const bounced = totals.email_bounced ?? 0
+    const markedAsSpam = totals.email_blocked ?? 0
+    const untracked = totals.email_untracked ?? 0
+    return {
+        id,
+        email,
+        delivered: deliveredCount(totals),
+        sent,
+        opened: totals.email_opened ?? 0,
+        linkClicked: totals.email_link_clicked ?? 0,
+        bounced,
+        bouncedHard: totals.email_bounced_hard ?? 0,
+        bouncedSoft: totals.email_bounced_transient ?? 0,
+        bouncedUnknown: totals.email_bounced_undetermined ?? 0,
+        bouncePrevented: totals.email_bounce_prevented ?? 0,
+        missingRecipient: totals.email_missing_recipient ?? 0,
+        frequencyCapped: totals.message_frequency_capped ?? 0,
+        markedAsSpam,
+        sandboxBlocked: totals.email_sandbox_blocked ?? 0,
+        untracked,
+        trackedSends: Math.max(0, sent - untracked),
+        removed,
+    }
 }
 
 export function buildPushMetricRows(
@@ -1574,22 +1548,36 @@ export function buildPushMetricRows(
     })
 }
 
-function mapEmailMetricsToActions(
-    totalsResponse: AppMetricsTotalsResponse
-): Record<string, Partial<Record<EmailMetricName, number>>> {
-    const result: Record<string, Partial<Record<EmailMetricName, number>>> = {}
+function mapEmailMetricsToActions(totalsResponse: AppMetricsTotalsResponse): Record<string, EmailTotals> {
+    const bySender = new Map<string, { own: EmailTotals; sandbox: EmailTotals }>()
 
     Object.values(totalsResponse).forEach(({ total, breakdowns }) => {
-        const [instanceId, metricName] = breakdowns
+        const [instanceId, recordedName] = breakdowns
+        const metricName = SANDBOX_EMAIL_METRICS[recordedName] ?? recordedName
         if (!instanceId || !isEmailMetric(metricName)) {
             return
         }
 
-        result[instanceId] = result[instanceId] || {}
-        result[instanceId][metricName] = total
+        const senders = bySender.get(instanceId) ?? { own: {}, sandbox: {} }
+        bySender.set(instanceId, senders)
+        const totals = senders[recordedName in SANDBOX_EMAIL_METRICS ? 'sandbox' : 'own']
+        totals[metricName] = (totals[metricName] ?? 0) + total
     })
 
-    return result
+    return Object.fromEntries(
+        [...bySender].map(([instanceId, senders]) => [instanceId, combineSenders(senders.own, senders.sandbox)])
+    )
+}
+
+function combineSenders(...senders: EmailTotals[]): EmailTotals {
+    const combined: EmailTotals = {}
+    senders.forEach((totals) =>
+        Object.entries(totals).forEach(([name, value]) => {
+            combined[name as EmailMetricName] = (combined[name as EmailMetricName] ?? 0) + (value ?? 0)
+        })
+    )
+    combined.email_delivered = senders.reduce((sum, totals) => sum + deliveredCount(totals), 0)
+    return combined
 }
 
 function isEmailMetric(metricName: string): metricName is EmailMetricName {

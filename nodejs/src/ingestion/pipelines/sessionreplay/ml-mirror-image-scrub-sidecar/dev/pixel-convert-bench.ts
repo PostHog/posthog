@@ -47,7 +47,7 @@ const qr = {
     rust: (rgb: Buffer, rgba: Uint8ClampedArray) => rgbToRgba(rgb, rgba),
 }
 
-// The text canvases are two that the scale plan hands DBNet, YuNet takes a fixed 640x640 input,
+// The text canvases are two that the scale plan hands DBNet, YuNet takes its default 640x640 input,
 // safety.ts resizes to 224x224, and the code frames are two sizes that zxing reads.
 const CASES: Case[] = [
     { ...dbnet, width: 640, height: 384 },

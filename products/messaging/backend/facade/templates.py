@@ -7,6 +7,7 @@ from uuid import UUID
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 
+from posthog.api.tagged_item import current_tag_names
 from posthog.dataclasses import frozen
 
 from products.messaging.backend.models.message_template import MessageTemplate
@@ -34,9 +35,37 @@ class MessageTemplateRow:
     type: str
     message_category_id: UUID | None
     deleted: bool
+    transactional_hog_flow_id: UUID | None
+    draft_content: dict[str, Any] | None
+    sensitive: bool
+    # Tag names, sorted. Keeps its default last, so every field without one stays above it.
+    tags: tuple[str, ...] = ()
+
+    @property
+    def has_draft(self) -> bool:
+        return self.draft_content is not None
 
 
-def _to_contract(row: MessageTemplate) -> MessageTemplateRow:
+@frozen
+class MessageTemplateBasicRow:
+    """A template without its content or draft, for lists that show names and metadata only."""
+
+    id: UUID
+    name: str
+    description: str
+    created_at: datetime
+    updated_at: datetime
+    created_by_id: int | None
+    type: str
+    message_category_id: UUID | None
+    deleted: bool
+    transactional_hog_flow_id: UUID | None
+    sensitive: bool
+    has_draft: bool
+    tags: tuple[str, ...]
+
+
+def _to_contract(row: MessageTemplate, *, with_tags: bool = True) -> MessageTemplateRow:
     return MessageTemplateRow(
         id=row.id,
         name=row.name,
@@ -48,19 +77,66 @@ def _to_contract(row: MessageTemplate) -> MessageTemplateRow:
         type=row.type,
         message_category_id=row.message_category_id,
         deleted=row.deleted,
+        transactional_hog_flow_id=row.transactional_hog_flow_id,
+        draft_content=row.draft_content,
+        sensitive=row.sensitive,
+        tags=tuple(sorted(current_tag_names(row))) if with_tags else (),
     )
 
 
-def list_templates(team_id: int) -> Sequence[MessageTemplateRow]:
-    """The team's templates that are not deleted, newest first. Sizing is a COUNT, and a slice reads one page."""
-    return LazyList(templates_service.team_templates(team_id), _to_contract)
+def _to_basic_contract(row: MessageTemplate) -> MessageTemplateBasicRow:
+    return MessageTemplateBasicRow(
+        id=row.id,
+        name=row.name,
+        description=row.description,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        created_by_id=row.created_by_id,
+        type=row.type,
+        message_category_id=row.message_category_id,
+        deleted=row.deleted,
+        transactional_hog_flow_id=row.transactional_hog_flow_id,
+        sensitive=row.sensitive,
+        has_draft=row.has_draft,  # type: ignore[attr-defined]
+        tags=tuple(sorted(current_tag_names(row))),
+    )
 
 
-def get_template(team_id: int, template_id: UUID | str) -> MessageTemplateRow:
+def list_templates(team_id: int, *, transactional: bool | None = None) -> Sequence[MessageTemplateRow]:
+    """The team's templates that are not deleted, newest first. Sizing is a COUNT, and a slice reads one page.
+
+    `transactional` keeps only the templates that have a transactional workflow (True) or only those without (False).
+    """
+    return LazyList(templates_service.team_templates(team_id, transactional=transactional), _to_contract)
+
+
+def list_basic_templates(team_id: int, *, transactional: bool | None = None) -> Sequence[MessageTemplateBasicRow]:
+    """Like `list_templates`, but the content and the draft never leave the database."""
+    return LazyList(templates_service.team_basic_templates(team_id, transactional=transactional), _to_basic_contract)
+
+
+def get_template(team_id: int, template_id: UUID | str, *, with_tags: bool = True) -> MessageTemplateRow:
+    """The team's template that is not deleted. Without `with_tags`, `tags` stays empty and no tag query runs."""
     try:
-        return _to_contract(templates_service.team_template(team_id, template_id))
+        return _to_contract(templates_service.team_template(team_id, template_id), with_tags=with_tags)
     except (MessageTemplate.DoesNotExist, ValidationError, ValueError, TypeError) as e:
         raise MessageTemplateMissing() from e
+
+
+@frozen
+class MessageTemplatePlacement:
+    id: UUID
+    # The path of the template's own file, not a shortcut, whether or not the project tree shows it.
+    path: str | None
+
+
+def get_template_placement(team_id: int, template_id: UUID | str) -> MessageTemplatePlacement:
+    """Where the team's template that is not deleted sits in the project tree. Reads no template content."""
+    try:
+        found_id = templates_service.team_template_id(team_id, template_id)
+    except (MessageTemplate.DoesNotExist, ValidationError, ValueError, TypeError) as e:
+        raise MessageTemplateMissing() from e
+    return MessageTemplatePlacement(id=found_id, path=templates_service.file_path(team_id, found_id))
 
 
 def team_category_id(team_id: int, category_id: Any) -> UUID:
@@ -83,6 +159,11 @@ def create_template(team_id: int, created_by_id: int | None, fields: dict[str, A
 def update_template(team_id: int, template_id: UUID, fields: dict[str, Any]) -> MessageTemplateRow:
     """Set the given fields and save the whole row. `message_category` holds a category id or None."""
     return _to_contract(templates_service.update_template(team_id, template_id, fields))
+
+
+def save_template_draft(team_id: int, template_id: UUID, draft: dict[str, Any] | None) -> MessageTemplateRow:
+    """Replace only the template's unpublished draft. `None` discards it."""
+    return _to_contract(templates_service.save_draft(team_id, template_id, draft))
 
 
 def edit_template_content(

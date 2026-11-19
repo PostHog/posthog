@@ -92,6 +92,10 @@
                 <readonly><readonly/></readonly>
             </constraints>
         </autoresearch>
+        <signals>
+            <profile>default</profile>
+            <readonly>2</readonly>
+        </signals>
     </profiles>
 
     <!-- Users and ACL. -->
@@ -316,6 +320,12 @@
                 <query>GRANT SELECT ON system.query_log</query>
             </grants>
         </autoresearch>
+        <signals>
+            <password>signalspass</password>
+            <networks><ip>::/0</ip></networks>
+            <profile>signals</profile>
+            <quota>default</quota>
+        </signals>
     </users>
 
     <!-- Quotas. -->

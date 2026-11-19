@@ -1,3 +1,5 @@
+import json
+import uuid
 import base64
 from datetime import timedelta
 
@@ -7,6 +9,7 @@ from unittest.mock import Mock, patch
 
 from django.contrib.sessions.backends.signed_cookies import SessionStore
 from django.core.exceptions import PermissionDenied
+from django.db import OperationalError
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.utils import timezone
@@ -21,6 +24,7 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.models import User
 
+from products.tasks.backend.dev_stack_image_models import DevStackImageTarget
 from products.tasks.backend.logic.services.infrastructure_status import InfrastructureStatus, SourceSnapshot
 from products.tasks.backend.models import SandboxCustomImage
 from products.tasks.backend.presentation.views.infrastructure_admin import infrastructure_admin
@@ -76,6 +80,64 @@ class TestInfrastructureSourceCache(SimpleTestCase):
         self.assertEqual(result.status, "refreshing")
         self.assertTrue(successor.owned())
         self.assertEqual(collector.read("package", collector.package), newer)
+
+    def test_dev_stack_workflow_cache_never_reuses_a_different_attempt_or_run(self) -> None:
+        target = Mock(attempt_id=uuid.uuid4())
+        attempt = Mock(id=target.attempt_id, workflow_run_id="first-run")
+        request = RequestFactory().get(
+            "/admin/tasks/task/infrastructure/", {"source": "workflow", "image_id": "dev_stack"}
+        )
+        request.user = User(is_staff=True, is_active=True)
+        request.session = SessionStore()
+        with (
+            patch(
+                "products.tasks.backend.logic.services.infrastructure_status.DevStackImageState.target",
+                return_value=target,
+            ) as selection,
+            patch(
+                "products.tasks.backend.logic.services.infrastructure_status.DevStackImageAttempt.objects"
+            ) as attempts,
+            patch.object(
+                InfrastructureStatus,
+                "workflow",
+                return_value={"status": "completed", "url": "https://example.com/first", "activities": []},
+            ) as workflow,
+        ):
+            attempts.using.return_value.filter.return_value.first.return_value = attempt
+            first = json.loads(infrastructure_admin(request).content)
+            self.assertEqual(first["data"]["status"], "completed")
+            self.assertEqual(json.loads(infrastructure_admin(request).content), first)
+            self.assertEqual(workflow.call_count, 1)
+            for next_attempt, next_run in [(uuid.uuid4(), "second-run"), (attempt.id, "replacement-run")]:
+                attempt.id, attempt.workflow_run_id = next_attempt, next_run
+                workflow.side_effect = RuntimeError("Temporal unavailable")
+                result = json.loads(infrastructure_admin(request).content)
+                self.assertEqual(result["status"], "error")
+                self.assertIsNone(result["data"])
+                workflow.assert_called_with(f"activate-dev-stack-image-{next_attempt}", run_id=next_run)
+            selection.side_effect = OperationalError("Connection unavailable")
+            result = json.loads(infrastructure_admin(request).content)
+            self.assertEqual(result["status"], "error")
+            self.assertIsNone(result["data"])
+
+    @parameterized.expand([(True, "retry_scheduled"), (False, "blocked")])
+    def test_dev_stack_distinguishes_scheduled_retries_from_blocked_candidates(
+        self, scheduled: bool, expected: str
+    ) -> None:
+        retry_at = timezone.now() + timedelta(hours=1) if scheduled else None
+        reason = "Bake budget exhausted" if scheduled else "Candidate verification failed"
+        target = DevStackImageTarget(
+            name="posthog-dev-stack", enabled=True, generation=1, blocked_reason=reason, next_retry_at=retry_at
+        )
+        with patch(
+            "products.tasks.backend.logic.services.infrastructure_status.DevStackImageState.target",
+            return_value=target,
+        ):
+            result = InfrastructureStatus().dev_stack()
+        assert isinstance(result, dict)
+        self.assertEqual(result["status"], expected)
+        self.assertEqual(result["reason"], reason)
+        self.assertEqual(result["next_retry_at"], retry_at.isoformat() if retry_at else None)
 
     @parameterized.expand(
         [("completed", "skipped"), ("completed", "failure"), ("queued", None), ("completed", "success")]

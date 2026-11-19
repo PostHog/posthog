@@ -22,15 +22,6 @@ const SCOPE_FEATURE_FLAG_WRITE: &str = "feature_flag:write";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum TokenAuthData {
-    #[serde(rename = "secret")]
-    Secret {
-        team_id: i32,
-        /// The team's public API token, used to look up team metadata from
-        /// HyperCache when `?token=` is omitted. `#[serde(default)]` ensures
-        /// backwards compatibility with cached entries that predate this field.
-        #[serde(default)]
-        api_token: Option<String>,
-    },
     #[serde(rename = "personal")]
     Personal {
         user_id: i32,
@@ -44,6 +35,11 @@ pub enum TokenAuthData {
         /// this field (they resolve as `None` until the entry refreshes).
         #[serde(default)]
         current_team_id: Option<i32>,
+        /// When the key stops working; `None` means it never expires. Checked on every use,
+        /// including cache hits, so an entry cannot outlive the key. `#[serde(default)]` keeps
+        /// backwards compatibility with cached entries that predate this field.
+        #[serde(default)]
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
     },
     #[serde(rename = "project_secret")]
     ProjectSecret {
@@ -56,23 +52,12 @@ pub enum TokenAuthData {
     },
 }
 
-/// A validated `phs_` bearer token. `project_secret_key_id` is set only when the token was a
-/// project secret API key; the team-level secret token has no key row to stamp usage on.
+/// A validated `phs_` bearer token — always a project secret API key (#66179).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SecretTokenAuth {
     pub team_id: i32,
     pub api_token: Option<String>,
-    pub project_secret_key_id: Option<String>,
-}
-
-impl SecretTokenAuth {
-    pub fn method_label(&self) -> &'static str {
-        if self.project_secret_key_id.is_some() {
-            "project_secret_api_key"
-        } else {
-            "secret_api_key"
-        }
-    }
+    pub project_secret_key_id: String,
 }
 
 /// Extracts bearer token from Authorization header
@@ -131,30 +116,16 @@ pub async fn validate_secret_api_token(
 ) -> Result<SecretTokenAuth, FlagError> {
     let token_hash = hash_token_value(token);
     let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
-    let token_owned = token.to_string();
     let hash_for_loader = token_hash.clone();
 
     let result = state
         .auth_token_cache
         .get_or_load(&token_hash, |_key| {
-            load_token_from_pg(pg_reader, &token_owned, &hash_for_loader)
+            load_token_from_pg(pg_reader, &hash_for_loader)
         })
         .await?;
 
     match result.value {
-        Some(TokenAuthData::Secret {
-            team_id, api_token, ..
-        }) => {
-            debug!(
-                team_id = team_id,
-                "Secret API token validated (no token param)"
-            );
-            Ok(SecretTokenAuth {
-                team_id,
-                api_token,
-                project_secret_key_id: None,
-            })
-        }
         Some(TokenAuthData::ProjectSecret {
             team_id,
             api_token,
@@ -168,38 +139,22 @@ pub async fn validate_secret_api_token(
             Ok(SecretTokenAuth {
                 team_id,
                 api_token,
-                project_secret_key_id: Some(key_id),
+                project_secret_key_id: key_id,
             })
         }
         _ => Err(FlagError::SecretApiTokenInvalid),
     }
 }
 
-/// Load token auth data from PostgreSQL, trying Team secret tokens first then ProjectSecretAPIKeys.
-///
-/// Extracted from `validate_secret_api_token_for_team` for testability.
+/// Load token auth data from PostgreSQL: ProjectSecretAPIKeys only. A migrated legacy
+/// team token matches its backfilled mirror row by hash (#66179).
 async fn load_token_from_pg(
     pg_reader: PostgresReader,
-    plaintext_token: &str,
     hashed_token: &str,
 ) -> Result<Option<TokenAuthData>, FlagError> {
     use sqlx::Row;
 
-    // Try Team.secret_api_token / secret_api_token_backup first.
-    // Only fall through to PSAK on RowNotFound; propagate transient DB errors immediately
-    // to avoid doubling DB work during outages.
-    match Team::from_pg_by_secret_token(pg_reader.clone(), plaintext_token).await {
-        Ok(team) => {
-            return Ok(Some(TokenAuthData::Secret {
-                team_id: team.id,
-                api_token: Some(team.api_token),
-            }))
-        }
-        Err(FlagError::RowNotFound) => { /* token not in posthog_team, try PSAK below */ }
-        Err(e) => return Err(e),
-    }
-
-    // Try ProjectSecretAPIKey (JOIN with posthog_team to get api_token for HyperCache lookups)
+    // JOIN with posthog_team to get api_token for HyperCache lookups
     let mut conn =
         get_connection_with_metrics(&pg_reader, "non_persons_reader", "fetch_project_secret_key")
             .await?;
@@ -235,7 +190,7 @@ async fn load_token_from_pg(
             }))
         }
         None => {
-            warn!("phs_ token not found in team or project secret API key tables");
+            warn!("phs_ token not found in project secret API key table");
             Ok(None)
         }
     }
@@ -259,6 +214,7 @@ async fn load_personal_key_from_pg(
             pak.scopes,
             pak.scoped_teams,
             pak.scoped_organizations,
+            pak.expires_at,
             u.id as user_id,
             u.current_team_id,
             ARRAY(
@@ -286,6 +242,7 @@ async fn load_personal_key_from_pg(
             let scopes: Option<Vec<String>> = row.try_get("scopes")?;
             let org_ids: Vec<String> = row.try_get("org_ids")?;
             let current_team_id: Option<i32> = row.try_get("current_team_id")?;
+            let expires_at: Option<chrono::DateTime<chrono::Utc>> = row.try_get("expires_at")?;
 
             Ok(Some(TokenAuthData::Personal {
                 user_id,
@@ -295,6 +252,7 @@ async fn load_personal_key_from_pg(
                 scoped_orgs: scoped_organizations,
                 scopes,
                 current_team_id,
+                expires_at,
             }))
         }
         None => {
@@ -358,8 +316,15 @@ fn validate_personal_key_metadata(data: &TokenAuthData, team: &Team) -> Result<(
             scoped_teams,
             scoped_orgs,
             scopes,
+            expires_at,
             ..
         } => {
+            // Same rule as Django's PersonalAPIKey.is_expired: the expiry instant itself is expired
+            if expires_at.is_some_and(|expiry| expiry <= chrono::Utc::now()) {
+                debug!("Personal API key has expired");
+                return Err(FlagError::PersonalApiKeyInvalid);
+            }
+
             // Check scoped_teams restriction
             if let Some(teams) = scoped_teams {
                 if !teams.is_empty() && !teams.contains(&team.id) {
@@ -546,41 +511,6 @@ mod tests {
     }
 
     #[test]
-    fn test_token_auth_data_serialization_secret() {
-        let data = TokenAuthData::Secret {
-            team_id: 42,
-            api_token: Some("phc_test123".to_string()),
-        };
-        let json = serde_json::to_string(&data).unwrap();
-        assert!(json.contains("\"type\":\"secret\""));
-        assert!(json.contains("\"team_id\":42"));
-        assert!(json.contains("\"api_token\":\"phc_test123\""));
-
-        let parsed: TokenAuthData = serde_json::from_str(&json).unwrap();
-        match parsed {
-            TokenAuthData::Secret { team_id, api_token } => {
-                assert_eq!(team_id, 42);
-                assert_eq!(api_token, Some("phc_test123".to_string()));
-            }
-            _ => panic!("Expected Secret variant"),
-        }
-    }
-
-    #[test]
-    fn test_token_auth_data_deserializes_old_secret_without_api_token() {
-        // Old cached entries don't have api_token — serde(default) should give None
-        let json = r#"{"type":"secret","team_id":42}"#;
-        let parsed: TokenAuthData = serde_json::from_str(json).unwrap();
-        match parsed {
-            TokenAuthData::Secret { team_id, api_token } => {
-                assert_eq!(team_id, 42);
-                assert_eq!(api_token, None);
-            }
-            _ => panic!("Expected Secret variant"),
-        }
-    }
-
-    #[test]
     fn test_token_auth_data_deserializes_old_project_secret_without_api_token() {
         // Old cached entries don't have api_token — serde(default) should give None
         let json = r#"{"type":"project_secret","team_id":99,"key_id":"psak_abc","scopes":["feature_flag:read"]}"#;
@@ -606,6 +536,7 @@ mod tests {
             scoped_orgs: None,
             scopes: Some(vec!["feature_flag:read".to_string()]),
             current_team_id: None,
+            expires_at: None,
         };
         let json = serde_json::to_string(&data).unwrap();
         assert!(json.contains("\"type\":\"personal\""));
@@ -691,6 +622,7 @@ mod tests {
             scoped_orgs: None,
             scopes: Some(vec!["feature_flag:read".to_string()]),
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -714,6 +646,7 @@ mod tests {
             scoped_orgs: None,
             scopes: Some(vec!["feature_flag:read".to_string()]),
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
@@ -737,9 +670,45 @@ mod tests {
             scoped_orgs: None,
             scopes: None,
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
+    }
+
+    /// An expired key must fail even when every other check passes, including from a cached
+    /// entry that was written before the key expired.
+    #[rstest::rstest]
+    #[case::expired_a_minute_ago(Some(chrono::Utc::now() - chrono::Duration::minutes(1)), false)]
+    #[case::expires_in_a_day(Some(chrono::Utc::now() + chrono::Duration::days(1)), true)]
+    #[case::never_expires(None, true)]
+    fn test_validate_personal_key_metadata_checks_expiry(
+        #[case] expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        #[case] expected_ok: bool,
+    ) {
+        let team = Team {
+            id: 1,
+            organization_id: Some(
+                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        let data = TokenAuthData::Personal {
+            user_id: 42,
+            key_id: None,
+            org_ids: vec!["550e8400-e29b-41d4-a716-446655440000".to_string()],
+            scoped_teams: None,
+            scoped_orgs: None,
+            scopes: Some(vec!["feature_flag:read".to_string()]),
+            current_team_id: None,
+            expires_at,
+        };
+
+        assert_eq!(
+            validate_personal_key_metadata(&data, &team).is_ok(),
+            expected_ok
+        );
     }
 
     #[test]
@@ -760,6 +729,7 @@ mod tests {
             scoped_orgs: None,
             scopes: None,
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -783,6 +753,7 @@ mod tests {
             scoped_orgs: None,
             scopes: Some(vec!["*".to_string()]),
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -806,6 +777,7 @@ mod tests {
             scoped_orgs: Some(vec!["550e8400-e29b-41d4-a716-446655440000".to_string()]),
             scopes: None,
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -829,6 +801,7 @@ mod tests {
             scoped_orgs: Some(vec!["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string()]),
             scopes: None,
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
@@ -852,24 +825,7 @@ mod tests {
             scoped_orgs: None,
             scopes: Some(vec!["session_recording:read".to_string()]),
             current_team_id: None,
-        };
-
-        assert!(validate_personal_key_metadata(&data, &team).is_err());
-    }
-
-    #[test]
-    fn test_validate_personal_key_metadata_rejects_secret_variant() {
-        let team = Team {
-            id: 1,
-            organization_id: Some(
-                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
-            ),
-            ..Default::default()
-        };
-
-        let data = TokenAuthData::Secret {
-            team_id: 1,
-            api_token: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
@@ -913,6 +869,7 @@ mod tests {
             scoped_orgs: None,
             scopes: Some(vec!["feature_flag:write".to_string()]),
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -939,6 +896,7 @@ mod tests {
                 "feature_flag:read".to_string(),
             ]),
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -964,6 +922,7 @@ mod tests {
             scoped_orgs: Some(vec![]),  // empty = no restriction
             scopes: None,               // None = no restriction
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -989,6 +948,7 @@ mod tests {
             scoped_orgs: None,
             scopes: Some(vec![]),
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(matches!(
@@ -1013,44 +973,28 @@ mod tests {
             scoped_orgs: None,
             scopes: None,
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
     }
 
     #[tokio::test]
-    async fn test_load_token_from_pg_propagates_db_errors_instead_of_falling_through() {
+    async fn test_load_token_from_pg_propagates_db_errors() {
         use async_trait::async_trait;
         use common_database::{Client, CustomDatabaseError, PoolStats};
         use sqlx::pool::PoolConnection;
         use sqlx::Postgres;
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
 
-        /// A mock database client that always fails with a connection error
-        /// and tracks how many times get_connection was called.
-        struct FailingClient {
-            call_count: AtomicUsize,
-        }
-
-        impl FailingClient {
-            fn new() -> Self {
-                Self {
-                    call_count: AtomicUsize::new(0),
-                }
-            }
-
-            fn calls(&self) -> usize {
-                self.call_count.load(Ordering::SeqCst)
-            }
-        }
+        /// A mock database client that always fails with a connection error.
+        struct FailingClient;
 
         #[async_trait]
         impl Client for FailingClient {
             async fn get_connection(
                 &self,
             ) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
-                self.call_count.fetch_add(1, Ordering::SeqCst);
                 Err(CustomDatabaseError::Other(sqlx::Error::PoolClosed))
             }
 
@@ -1059,26 +1003,15 @@ mod tests {
             }
         }
 
-        let client = Arc::new(FailingClient::new());
-        let pg_reader: common_database::PostgresReader = client.clone();
+        let pg_reader: common_database::PostgresReader = Arc::new(FailingClient);
 
-        let result = load_token_from_pg(pg_reader, "phs_test_token", "sha256$fake").await;
+        let result = load_token_from_pg(pg_reader, "sha256$fake").await;
 
-        // The first query (Team::from_pg_by_secret_token) should fail with DatabaseUnavailable.
-        // The function should propagate that error immediately, NOT fall through to the
-        // ProjectSecretAPIKey query. If it falls through, get_connection would be called
-        // a second time for the PSAK query.
-        assert!(result.is_err(), "Expected error to be propagated");
+        // Ok(None) here would turn a DB outage into 401s for valid tokens instead of a 503.
         assert!(
             matches!(result, Err(FlagError::DatabaseUnavailable)),
             "Expected DatabaseUnavailable, got: {:?}",
             result
-        );
-        assert_eq!(
-            client.calls(),
-            1,
-            "get_connection should be called exactly once — the DB error from the \
-             Team secret token lookup should be propagated, not swallowed"
         );
     }
 }

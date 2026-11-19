@@ -1,3 +1,6 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import field
 from functools import reduce
 from operator import or_
@@ -13,6 +16,7 @@ from posthog.schema import (
     FunnelsDataWarehouseNode,
     HogQLQuery,
     LifecycleDataWarehouseNode,
+    MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
     RetentionEntity,
 )
@@ -70,9 +74,17 @@ _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
     "system._ticket_tagged_items": frozenset({"ticket"}),
     "system._ticket_assignments": frozenset({"ticket"}),
     "system._ticket_assignee_roles": frozenset({"ticket"}),
-    # Task predicates need these public channel IDs even under object-only task grants.
+    "system._event_definition_tagged_items": frozenset({"event_definition"}),
+    "system._property_definition_tagged_items": frozenset({"property_definition"}),
+    # Task predicates need these public channel and Slack task IDs even under object-only task grants.
     "system._task_public_channels": frozenset({"task"}),
+    "system._task_public_slack_tasks": frozenset({"task"}),
     "system.customer_tasks": frozenset({"account"}),
+    # Insight alerts are readable only with their insight, so the reader's insight rules decide their rows.
+    "system.alerts": frozenset({"insight"}),
+    "system._insight_alert_rows": frozenset({"insight"}),
+    "system._platform_insight_alerts": frozenset({"insight"}),
+    "system._platform_insight_alert_instances": frozenset({"insight"}),
 }
 
 
@@ -99,6 +111,18 @@ class _WarehouseCatalog:
     view_queries: dict[str, object] = field(default_factory=dict)
     looked_up_names: set[str] = field(default_factory=set)
     walked_views: set[str] = field(default_factory=set)
+
+    def for_next_fingerprint(self) -> "_WarehouseCatalog":
+        """A catalog that reuses these name lookups but walks views afresh. Walked views must not carry
+        over: a later query that reads an already walked view would skip it and drop the scopes it reads
+        from its cache key."""
+        return _WarehouseCatalog(
+            team_id=self.team_id,
+            table_names=self.table_names,
+            looked_up_table_names=self.looked_up_table_names,
+            view_queries=self.view_queries,
+            looked_up_names=self.looked_up_names,
+        )
 
     def has_table(self, names: set[str]) -> bool:
         # Deferred to break the query_runner -> this module -> hogql import cycle.
@@ -171,6 +195,35 @@ class _WarehouseCatalog:
         return [(name, self.view_queries[name]) for name in sorted(names) if name in self.view_queries]
 
 
+# Catalogs per team for the queries fingerprinted inside `shared_warehouse_lookups`. None outside it,
+# so nothing outside an explicit scope, such as a long-lived worker, reuses a lookup.
+_shared_catalogs: ContextVar[dict[int, _WarehouseCatalog] | None] = ContextVar(
+    "shared_warehouse_catalogs", default=None
+)
+
+
+@contextmanager
+def shared_warehouse_lookups() -> Iterator[None]:
+    """Share warehouse name lookups between the queries fingerprinted inside the block.
+
+    A dashboard fingerprints every tile's query to find its cached result, and each raw HogQL tile
+    otherwise looks up the names it reads in Postgres again. Inside the block a name is looked up once."""
+    token = _shared_catalogs.set({})
+    try:
+        yield
+    finally:
+        _shared_catalogs.reset(token)
+
+
+def _catalog_for_fingerprint(team_id: int) -> _WarehouseCatalog:
+    shared = _shared_catalogs.get()
+    if shared is None:
+        return _WarehouseCatalog(team_id=team_id)
+    if team_id not in shared:
+        shared[team_id] = _WarehouseCatalog(team_id=team_id)
+    return shared[team_id].for_next_fingerprint()
+
+
 def queried_access_controlled_resources(
     query: BaseModel,
     team: "Team",
@@ -186,10 +239,10 @@ def queried_access_controlled_resources(
     otherwise a denied user could be served an allowed user's cached rows on a cache hit (the hit
     short-circuits the schema strip that would otherwise raise "You don't have access to table").
 
-    `bypassed_scopes` are the scopes whose access control the principal bypasses. The parent such a
-    scope falls back to through `RESOURCE_FALLBACK_MAP` is left out, because the principal never
-    reaches the parent's rules; the parent still partitions the cache when a table carries that
-    scope directly.
+    `bypassed_scopes` are the scopes whose access control the principal bypasses on warehouse objects.
+    A bypassed scope is left out, and so is the parent it falls back to through `RESOURCE_FALLBACK_MAP`,
+    because the principal never reaches those rules. A system table that carries a bypassed scope keeps
+    it: system tables gate such a principal on its readable scopes, not on warehouse access control.
 
     `_catalog` carries the warehouse reads and the saved views already walked into nested calls. Each
     view is walked once per fingerprint: its scopes join the top-level result the first time, so a
@@ -202,7 +255,7 @@ def queried_access_controlled_resources(
     from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
     from posthog.hogql.visitor import GetFieldsTraverser  # noqa: PLC0415
 
-    catalog = _catalog or _WarehouseCatalog(team_id=team.pk)
+    catalog = _catalog or _catalog_for_fingerprint(team.pk)
 
     if getattr(query, "kind", None) == "AccountsTableQuery":
         return _with_fallback_parents({"account"}, bypassed_scopes)
@@ -240,6 +293,7 @@ def queried_access_controlled_resources(
         table_names = set(get_table_names(select))
         system_scopes = {f"system.{name}": scope for name, scope in access_controlled_system_tables().items()}
         scopes: set[str] = {system_scopes[name] for name in table_names if name in system_scopes}
+        scopes_from_system_tables = set(scopes)
 
         # Cache partitioning runs before lazy joins resolve, so their resource scopes do not appear as table names yet.
         if "system.accounts" in table_names and any(
@@ -319,12 +373,14 @@ def queried_access_controlled_resources(
                 if nested is None:
                     return None
                 scopes |= nested
+                # A nested result keeps a bypassed scope only when a system table carries it.
+                scopes_from_system_tables |= nested & bypassed_scopes
 
-        return _with_fallback_parents(scopes, bypassed_scopes)
+        return _with_fallback_parents(scopes, bypassed_scopes) - (bypassed_scopes - scopes_from_system_tables)
 
     # Structured queries can reference warehouse tables without a HogQLQuery in their tree.
     return (
-        _with_fallback_parents({"warehouse_table", "warehouse_view"}, bypassed_scopes)
+        _with_fallback_parents({"warehouse_table", "warehouse_view"}, bypassed_scopes) - bypassed_scopes
         if _references_data_warehouse(query)
         else set()
     )
@@ -348,6 +404,9 @@ def _references_data_warehouse(value) -> bool:
         return True
     if isinstance(value, MarketingAnalyticsSearchQuery):
         return bool(value.sources)
+    if isinstance(value, MarketingAnalyticsRecommendationsQuery):
+        # No sources means the runner reads every synced source in the project.
+        return value.sources is None or bool(value.sources)
     if isinstance(value, RetentionEntity) and value.type == EntityType.DATA_WAREHOUSE:
         return True
     if isinstance(value, BaseModel):

@@ -11,6 +11,7 @@ from django.test import SimpleTestCase
 from django.utils.timezone import now
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 
 from posthog import models, rate_limit
@@ -906,16 +907,22 @@ class _PSAKThrottleForTest(rate_limit.PersonalOrProjectSecretApiKeyRateThrottle)
     rate = "100/minute"
 
 
-class TestPersonalOrProjectSecretApiKeyRateThrottle(APIBaseTest):
+class TestPersonalOrProjectSecretApiKeyRateThrottle(SimpleTestCase):
     def _psak_request(self, key_id=1):
         auth = ProjectSecretAPIKeyAuthentication()
         auth.project_secret_api_key = Mock(id=key_id)
         return Mock(successful_authenticator=auth)
 
-    def test_psak_requests_do_not_bypass_throttle(self):
+    @parameterized.expand(
+        [
+            ("base", _PSAKThrottleForTest),
+            ("llm_prompt_fetch", rate_limit.LLMPromptFetchRateThrottle),
+        ]
+    )
+    def test_psak_requests_do_not_bypass_throttle(self, _name, throttle_class):
         # PSAK carries no personal API key; the throttle must not let it through the
         # personal_api_key_only gate that PersonalApiKeyRateThrottle uses.
-        throttle = _PSAKThrottleForTest()
+        throttle = throttle_class()
         request = self._psak_request()
         with patch.object(throttle, "_allow_request_internal", return_value=True) as spy:
             throttle.allow_request(request, Mock())
@@ -1026,7 +1033,7 @@ class _PSAKTeamThrottleForTest(rate_limit.ProjectSecretApiKeyTeamRateThrottle):
     rate = "100/minute"
 
 
-class TestProjectSecretApiKeyTeamRateThrottle(APIBaseTest):
+class TestProjectSecretApiKeyTeamRateThrottle(SimpleTestCase):
     def _psak_request(self, team_id=7):
         auth = ProjectSecretAPIKeyAuthentication()
         auth.project_secret_api_key = Mock(team_id=team_id)
@@ -1056,10 +1063,38 @@ class TestWidgetTeamPollWriteThrottleSplit(SimpleTestCase):
         cache.clear()
 
     def test_exhausted_poll_bucket_does_not_block_write(self) -> None:
-        request = Mock(headers={"X-Conversations-Token": "widget-token"})
+        request = Mock(headers={"X-Conversations-Token": "widget-token"}, path="/api/conversations/v1/widget/tickets")
         view = Mock()
         with patch.object(rate_limit.WidgetTeamPollThrottle, "rate", "1/minute"):
             poll = rate_limit.WidgetTeamPollThrottle()
             self.assertTrue(poll.allow_request(request, view))
             self.assertFalse(poll.allow_request(request, view))
         self.assertTrue(rate_limit.WidgetTeamWriteThrottle().allow_request(request, view))
+
+    @parameterized.expand(
+        [
+            ("user_burst", rate_limit.WidgetUserBurstThrottle),
+            ("team_poll", rate_limit.WidgetTeamPollThrottle),
+        ]
+    )
+    def test_exhausted_bucket_is_counted_by_scope_and_team(
+        self, _name: str, throttle_class: type[rate_limit.WidgetUserBurstThrottle | rate_limit.WidgetTeamPollThrottle]
+    ) -> None:
+        path = "/api/conversations/v1/widget/tickets"
+        request = Mock(
+            headers={"X-Conversations-Token": "widget-token"},
+            auth=Mock(id=7),
+            path=path,
+            data={},
+            query_params={"widget_session_id": "session"},
+        )
+        route = rate_limit.get_route_from_path(path)
+        labels = {"team_id": "7", "scope": throttle_class.scope, "path": route, "route": route}
+        before = REGISTRY.get_sample_value("rate_limit_exceeded_total", labels) or 0
+
+        with patch.object(throttle_class, "rate", "1/minute"):
+            throttle = throttle_class()
+            self.assertTrue(throttle.allow_request(request, Mock()))
+            self.assertFalse(throttle.allow_request(request, Mock()))
+
+        self.assertEqual(REGISTRY.get_sample_value("rate_limit_exceeded_total", labels), before + 1)

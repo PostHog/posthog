@@ -351,6 +351,7 @@ class TestRESTClient:
         [
             pytest.param(lambda: _make_response({"error": "rate limited"}, status_code=429), id="429"),
             pytest.param(lambda: _make_response({"error": "internal"}, status_code=500), id="500"),
+            pytest.param(lambda: _make_response({"error": "timeout"}, status_code=408), id="408"),
             pytest.param(_make_truncated_response, id="truncated_json"),
         ],
     )
@@ -359,7 +360,7 @@ class TestRESTClient:
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
     )
     def test_send_request_retries_transient_error_then_succeeds(self, MockSession, mock_sleep, make_error) -> None:
-        # A 429, a 5xx, and a truncated body are all transient: retry, then succeed.
+        # A 429, a 5xx, a 408, and a truncated body are all transient: retry, then succeed.
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()
@@ -643,6 +644,38 @@ class TestRESTClient:
         assert pages == [[{"id": 1}]]
         assert mock_session.send.call_count == 2
 
+    @pytest.mark.parametrize(
+        "make_error",
+        [
+            pytest.param(lambda: ReadTimeout("Read timed out."), id="read_timeout"),
+            pytest.param(lambda: ProxyError("Cannot connect to proxy."), id="connection_error"),
+        ],
+    )
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_send_request_retries_transient_error_from_prepare_request_then_succeeds(
+        self, MockSession, mock_sleep, make_error
+    ) -> None:
+        # A lazily-minted auth token (e.g. OAuth2Auth._obtain_token) makes its own HTTP call from
+        # inside `prepare_request`, before `send` is ever reached. A timeout or dropped connection
+        # there must retry through the same loop as one from `send`, not escape uncaught and fail
+        # the whole sync on one transient mint failure.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.side_effect = [make_error(), MagicMock(url="https://api.example.com/items")]
+
+        ok = _make_response({"results": [{"id": 1}]})
+        mock_session.send.return_value = ok
+
+        client = RESTClient(base_url="https://api.example.com")
+        pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
+
+        assert pages == [[{"id": 1}]]
+        assert mock_session.prepare_request.call_count == 2
+        assert mock_session.send.call_count == 1
+
     @patch("tenacity.nap.time.sleep")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -854,6 +887,25 @@ class TestRESTClient:
         response.headers["x-rate-limit-reset"] = str(int(now.timestamp()) + 120)
 
         assert _parse_retry_after(response) == 120
+
+    @parameterized.expand(
+        [
+            ("epoch_milliseconds", 1_772_798_430_000, 30.0),
+            ("epoch_seconds", 1_772_798_430, 30.0),
+            ("elapsed_epoch_milliseconds", 1_772_798_390_000, None),
+            ("plain_delay", 45, 45.0),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
+    def test_parse_retry_after_reads_a_reset_instant_in_retry_after(
+        self, _name: str, header_value: int, expected: float | None, mock_datetime
+    ) -> None:
+        mock_datetime.now.return_value = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
+
+        response = _make_response({"error": "rate limited"}, status_code=429)
+        response.headers["Retry-After"] = str(header_value)
+
+        assert _parse_retry_after(response) == expected
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
     def test_parse_retry_after_ignores_already_elapsed_sentry_reset(self, mock_datetime) -> None:

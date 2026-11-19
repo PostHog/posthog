@@ -76,14 +76,21 @@ jobs:
                   /tmp/hogli-smoke/bin/hogli --help
 
             - name: Generate build provenance attestation
-              uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+              uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
               with:
                   subject-path: |
                       dist/*.whl
                       dist/*.tar.gz
 
+            # PyPA action instead of `uv publish`: it generates and uploads PEP 740 attestations
+            # (default with trusted publishing), uv can't yet (astral-sh/uv#15618).
+            # No skip-existing: it matches by filename only. PyPI itself accepts a byte-identical
+            # re-upload and rejects different bytes under the same name, so a re-dispatch passes
+            # only when it rebuilt the exact files PyPI already serves.
             - name: Publish to PyPI
-              run: uv publish dist/*.whl dist/*.tar.gz
+              uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+              with:
+                  packages-dir: dist
 
             - name: Create GitHub Release
               uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0

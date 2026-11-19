@@ -8,7 +8,7 @@ from posthog.schema import CachedEventTaxonomyQueryResponse
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
@@ -81,7 +81,7 @@ class TestEvents(ClickhouseTestMixin, NonAtomicBaseTest):
             properties={},
         )
 
-        Action.objects.create(
+        create_action(
             id=232, team=self.team, name="action1", description="Test Description", steps_json=[{"event": "event1"}]
         )
 

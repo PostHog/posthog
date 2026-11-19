@@ -21,6 +21,7 @@ import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 WORKFLOW_PATH = "ci-backend.yml"
 ACTIVE = ("queued", "running")
@@ -64,18 +65,18 @@ def superseded(own_workflow_id: str, active_workflows: Sequence[Workflow], runs:
     ]
 
 
-def depot(*args: str) -> list[dict[str, str]]:
+def depot(*args: str) -> Any:
     # stderr passes through, so a failed call explains itself in the job log.
     result = subprocess.run(
         ["depot", "ci", *args], check=True, stdout=subprocess.PIPE, text=True, timeout=CLI_TIMEOUT_SECONDS
     )
-    # `depot ci run list` prints `null` when nothing matches.
-    return json.loads(result.stdout) or []
+    return json.loads(result.stdout)
 
 
 def list_pr(noun: str, repo: str, pr_number: str, statuses: Sequence[str]) -> list[dict[str, str]]:
     scope = ["--repo", repo, "--pr", pr_number, "--trigger", "pull_request", "-n", "200", "-o", "json"]
-    return depot(noun, "list", *scope, *(flag for status in statuses for flag in ("--status", status)))
+    # `depot ci run list` prints `null` when nothing matches.
+    return depot(noun, "list", *scope, *(flag for status in statuses for flag in ("--status", status))) or []
 
 
 def main() -> int:

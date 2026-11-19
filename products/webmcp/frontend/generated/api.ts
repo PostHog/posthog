@@ -8,7 +8,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { WebMCPExecRequestApi, WebMCPExecResultApi, WebMCPExecToolApi } from './api.schemas'
+import type { WebMCPExecRequestApi, WebMCPExecResultApi } from './api.schemas'
 
 export const getWebmcpExecCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/webmcp/exec/`
@@ -27,19 +27,5 @@ export const webmcpExecCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(webMCPExecRequestApi),
-    })
-}
-
-export const getWebmcpToolRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/webmcp/tool/`
-}
-
-/**
- * @summary Get the exec tool definition to register with WebMCP
- */
-export const webmcpToolRetrieve = async (projectId: string, options?: RequestInit): Promise<WebMCPExecToolApi> => {
-    return apiMutator<WebMCPExecToolApi>(getWebmcpToolRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
     })
 }

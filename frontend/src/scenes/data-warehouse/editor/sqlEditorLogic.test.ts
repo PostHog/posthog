@@ -1,19 +1,24 @@
-import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
+import * as dashboardsApi from '@posthog/products-dashboards/frontend/generated/api'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { ApiError } from 'lib/api'
+import { OrganizationMembershipLevel } from 'lib/constants'
+import {
+    MANAGED_TRINO_SCHEMA_SCOPE,
+    databaseTableListLogic,
+} from 'scenes/data-management/database/databaseTableListLogic'
 import { draftsLogic } from 'scenes/data-warehouse/editor/draftsLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { getMarkdownNotebookMarkdown } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { defaultNotebookContent } from 'scenes/notebooks/utils'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -34,6 +39,7 @@ import { ChartDisplayType, InsightShortId, InsightModel } from '~/types'
 
 import { BIEditorView, DEFAULT_BI_CONFIG, buildBIQuery } from 'products/business_intelligence/frontend/biEditorTypes'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+import { CONNECTION_SAVE_AS_VIEW_REASON } from 'products/data_warehouse/frontend/shared/viewEngine'
 import { sqlEditorDraftStorage } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
 
 import { buildSqlNotebook, editorSceneLogic } from './editorSceneLogic'
@@ -79,7 +85,6 @@ const MOCK_DATA_TABLE_INSIGHT: InsightModel = {
     name: 'DataTable Insight',
     query: MOCK_DATA_TABLE_INSIGHT_QUERY,
     result: null,
-    dashboards: [],
     dashboard_tiles: [],
     saved: true,
     order: null,
@@ -108,7 +113,6 @@ const MOCK_INSIGHT: InsightModel = {
     name: 'Test Insight',
     query: MOCK_INSIGHT_QUERY,
     result: null,
-    dashboards: [],
     dashboard_tiles: [],
     saved: true,
     order: null,
@@ -274,7 +278,6 @@ describe('sqlEditorLogic', () => {
                     }
                     return [404]
                 },
-                '/api/environments/:team_id/data_modeling_dags/': { results: [] },
                 '/api/environments/:team_id/data_modeling_nodes/': { results: [] },
                 '/api/environments/:team_id/data_modeling_edges/': { results: [] },
                 '/api/environments/:team_id/data_modeling_jobs/recent/': [],
@@ -285,6 +288,14 @@ describe('sqlEditorLogic', () => {
             },
             post: {
                 '/api/environments/:team_id/query/': queryEndpointMock,
+                '/api/environments/:team_id/warehouse_saved_queries/check_incremental/': {
+                    eligible: false,
+                    key_candidates: [],
+                    unique_key_candidates: [],
+                    key_candidate_types: {},
+                    blockers: [],
+                    warnings: [],
+                },
                 '/api/environments/:team_id/warehouse_saved_queries/': () => [
                     200,
                     {
@@ -329,11 +340,71 @@ describe('sqlEditorLogic', () => {
         databaseLogic?.unmount()
     })
 
+    it('restores a notebook SQL result on remount but still executes an explicit run', async () => {
+        const response = { results: [[42]], columns: ['value'], types: [['value', 'UInt8']] }
+        const querySpy = jest.spyOn(queryRunner, 'performQuery').mockResolvedValue(response as never)
+        const props = { tabId: 'notebook-navigation', mode: SQLEditorMode.Embedded }
+        try {
+            logic = sqlEditorLogic(props)
+            logic.mount()
+            await expectLogic(databaseLogic).toFinishAllListeners()
+            querySpy.mockClear()
+            logic.actions.runQuery('SELECT 42', undefined, true)
+            let dataLogic = dataNodeLogic.findMounted({ key: logic.values.dataLogicKey })!
+            await expectLogic(dataLogic).toDispatchActions(['loadDataSuccess']).toMatchValues({ response })
+            expect(querySpy).toHaveBeenCalledTimes(1)
+            expect(querySpy.mock.calls[0][2]).toBe('blocking')
+            logic.unmount()
+
+            logic = sqlEditorLogic(props)
+            logic.mount()
+            await expectLogic(databaseLogic).toFinishAllListeners()
+            querySpy.mockClear()
+            logic.actions.runQuery('SELECT 42', undefined, true)
+            dataLogic = dataNodeLogic.findMounted({ key: logic.values.dataLogicKey })!
+            await expectLogic(dataLogic).toFinishAllListeners().toMatchValues({ response })
+            expect(querySpy).not.toHaveBeenCalled()
+
+            await expectLogic(dataLogic, () => logic.actions.runQuery('SELECT 42')).toDispatchActions([
+                'loadDataSuccess',
+            ])
+            expect(querySpy).toHaveBeenCalledTimes(1)
+            expect(querySpy.mock.calls[0][2]).toBe('force_blocking')
+        } finally {
+            querySpy.mockRestore()
+        }
+    })
+
     describe('local draft recovery', () => {
         const mountEditor = (mode = SQLEditorMode.FullScene): void => {
             logic = sqlEditorLogic({ tabId: TAB_ID, mode, monaco: createMockMonaco(), editor: createMockEditor() })
             logic.mount()
         }
+
+        it('opens a raw Trino view without unsaved changes', async () => {
+            const trinoQuery = {
+                ...MOCK_VIEW.query,
+                query: 'SELECT * FROM "catalog".schema.events',
+                filters: {},
+                executionTarget: 'managed_trino',
+                sendRawQuery: true,
+            }
+            useMocks({
+                get: {
+                    '/api/:scope/:team_id/warehouse_saved_queries/:id/': [200, { ...MOCK_VIEW, query: trinoQuery }],
+                },
+            })
+            mountEditor()
+            await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), { open_view: MOCK_VIEW.id }))
+                .toDispatchActions(['createTab', 'setQueryInput'])
+                .toFinishAllListeners()
+
+            expect(logic.values.sourceQuery.source).toMatchObject({
+                executionTarget: 'managed_trino',
+                sendRawQuery: true,
+            })
+            expect(logic.values.hasEditorChanges).toBe(false)
+        })
 
         it.each(
             [
@@ -416,6 +487,18 @@ describe('sqlEditorLogic', () => {
                 .toMatchValues({ queryInput: restoredQuery, hasEditorChanges: false })
         })
 
+        it('opens a view with the query in the link as unsaved edits', async () => {
+            mountEditor()
+            await expectLogic(logic, () =>
+                router.actions.push(urls.sqlEditor({ view_id: MOCK_VIEW.id, query: 'SELECT edited' }))
+            )
+                .toDispatchActions(['createTab', 'setQueryInput'])
+                .toFinishAllListeners()
+                .toMatchValues({ queryInput: 'SELECT edited', hasEditorChanges: true })
+            expect(logic.values.editingView?.id).toBe(MOCK_VIEW.id)
+            expect(logic.values.editingView?.query?.query).toBe(MOCK_VIEW.query.query)
+        })
+
         it.each([false, true])('refreshes a discarded draft without overwriting new edits (%s)', async (editAgain) => {
             mountEditor()
             await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), { open_view: MOCK_VIEW.id }))
@@ -492,7 +575,11 @@ describe('sqlEditorLogic', () => {
             }
         )
 
-        it.each(['SELECT explicit', ''])('prefers explicit SQL over a local draft (%s)', async (query) => {
+        it.each([
+            { param: 'q', query: 'SELECT explicit' },
+            { param: 'q', query: '' },
+            { param: 'open_query', query: '' },
+        ])('prefers explicit SQL over a local draft ($param=$query)', async ({ param, query }) => {
             mountEditor()
             await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), {}, { q: 'SELECT 1' }))
                 .toDispatchActions(['createTab', 'setQueryInput'])
@@ -502,7 +589,13 @@ describe('sqlEditorLogic', () => {
             initKeaTests()
             mountEditor()
 
-            await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), {}, { q: query }))
+            await expectLogic(logic, () =>
+                router.actions.push(
+                    urls.sqlEditor(),
+                    param === 'open_query' ? { open_query: query } : {},
+                    param === 'q' ? { q: query } : {}
+                )
+            )
                 .toDispatchActions(['createTab', 'setQueryInput'])
                 .toFinishAllListeners()
                 .toMatchValues({ queryInput: query })
@@ -611,6 +704,82 @@ describe('sqlEditorLogic', () => {
             } finally {
                 window.performance.getEntriesByType = getEntriesByType
             }
+        })
+
+        it.each([SQLEditorMode.FullScene, SQLEditorMode.BusinessIntelligence])(
+            'recovers unused variable selections with the local draft (%s)',
+            async (mode) => {
+                const editorUrl =
+                    mode === SQLEditorMode.BusinessIntelligence ? urls.businessIntelligence() : urls.sqlEditor()
+                const variables = [{ variableId: 'region-id', code_name: 'region', value: 'West', isNull: false }]
+                mountEditor(mode)
+                await expectLogic(logic, () =>
+                    router.actions.push(editorUrl, { open_query: 'SELECT 1' })
+                ).toFinishAllListeners()
+                logic.actions.setSelectedVariables(variables)
+                expect(logic.values.sourceQuery.source.variables).toBeUndefined()
+                logic.unmount()
+                initKeaTests()
+                mountEditor(mode)
+                await expectLogic(logic, () => router.actions.push(editorUrl)).toFinishAllListeners()
+                expect(logic.values.activeTab?.selectedVariables).toEqual(variables)
+                logic.actions.setSelectedVariables([])
+                logic.unmount()
+                initKeaTests()
+                mountEditor(mode)
+                await expectLogic(logic, () => router.actions.push(editorUrl)).toFinishAllListeners()
+                expect(logic.values.activeTab?.selectedVariables).toEqual([])
+            }
+        )
+
+        it('uses recovered variable values on the first run of an unchanged saved insight', async () => {
+            const query = 'SELECT {variables.region}'
+            const selectedVariable = { variableId: 'region-id', code_name: 'region', value: 'West', isNull: false }
+            useMocks({
+                post: { '/api/environments/:team_id/query/:query_kind/': queryEndpointMock },
+                get: {
+                    '/api/environments/:team_id/insights/': [
+                        200,
+                        {
+                            results: [
+                                {
+                                    ...MOCK_INSIGHT,
+                                    query: {
+                                        ...MOCK_INSIGHT_QUERY,
+                                        source: {
+                                            ...MOCK_INSIGHT_QUERY.source,
+                                            query,
+                                            variables: { 'region-id': { ...selectedVariable, value: 'East' } },
+                                        },
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+            sqlEditorDraftStorage(
+                MOCK_DEFAULT_USER.uuid,
+                MOCK_DEFAULT_TEAM.id,
+                `insight:${MOCK_INSIGHT_SHORT_ID}`
+            )?.set({
+                q: query,
+                selected_variables: [selectedVariable],
+            })
+            mountEditor()
+            await expectLogic(logic, () =>
+                router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
+            )
+                .toDispatchActions(['runQuery'])
+                .toFinishAllListeners()
+            const dataLogic = dataNodeLogic.findMounted({ key: logic.values.dataLogicKey })!
+            await expectLogic(dataLogic).toDispatchActions(['loadDataSuccess'])
+            const requestBodies = await Promise.all(queryEndpointMock.mock.calls.map(([{ request }]) => request.json()))
+            const queryRequests = requestBodies
+                .map((body) => body.query)
+                .filter((request) => request.kind === NodeKind.HogQLQuery)
+            expect(queryRequests).toHaveLength(1)
+            expect(queryRequests[0].variables).toEqual({ 'region-id': selectedVariable })
         })
 
         it('preserves the view revision the recovered edits were based on', async () => {
@@ -1009,57 +1178,27 @@ describe('sqlEditorLogic', () => {
 
     describe('title section', () => {
         it.each([
-            [
-                'SQL v2',
-                true,
-                null,
-                'SQL query',
-                {
-                    type: NotebookNodeType.SQLV2,
-                    attrs: {
-                        nodeId: expect.any(String),
-                        code: 'SELECT * FROM events LIMIT 10',
-                        returnVariable: '',
-                        edit: true,
-                    },
-                },
-            ],
-            [
-                'legacy SQL',
-                false,
-                MOCK_INSIGHT,
-                MOCK_INSIGHT.name,
-                {
-                    type: NotebookNodeType.Query,
-                    attrs: {
-                        query: {
-                            kind: NodeKind.DataTableNode,
-                            source: {
-                                kind: NodeKind.HogQLQuery,
-                                query: 'SELECT * FROM events LIMIT 10',
-                            },
+            [null, 'SQL query'],
+            [MOCK_INSIGHT, MOCK_INSIGHT.name],
+        ])('builds a SQL notebook with the source title', (editingInsight, expectedTitle) => {
+            const notebook = buildSqlNotebook('SELECT * FROM events LIMIT 10', null, editingInsight)
+            expect(notebook).toMatchObject({
+                title: expectedTitle,
+                content: [
+                    {
+                        type: NotebookNodeType.SQLV2,
+                        attrs: {
+                            nodeId: expect.any(String),
+                            code: 'SELECT * FROM events LIMIT 10',
+                            returnVariable: '',
+                            edit: true,
                         },
-                        edit: true,
                     },
-                },
-            ],
-        ])(
-            'builds a %s notebook from the current SQL',
-            (_case, isFlagOn, editingInsight, expectedTitle, expectedNode) => {
-                const notebook = buildSqlNotebook('SELECT * FROM events LIMIT 10', null, editingInsight, {
-                    [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: isFlagOn,
-                })
-
-                expect(notebook).toMatchObject({
-                    title: expectedTitle,
-                    content: [expectedNode],
-                })
-
-                const markdown = getMarkdownNotebookMarkdown(defaultNotebookContent(notebook.title, notebook.content))
-
-                expect(markdown).not.toContain('hideFilters')
-            }
-        )
+                ],
+            })
+            const markdown = getMarkdownNotebookMarkdown(defaultNotebookContent(notebook.title, notebook.content))
+            expect(markdown).not.toContain('hideFilters')
+        })
 
         it('shows loading view title when opening a view from URL before view loads', async () => {
             logic = sqlEditorLogic({
@@ -1285,6 +1424,33 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('open_insight URL parameter', () => {
+        it.each([
+            [undefined, 'managed_trino', 'managed_trino'],
+            ['managed_trino', 'posthog', undefined],
+            ['managed_trino', undefined, 'managed_trino'],
+        ] as const)('restores saved target %s with URL override %s', async (savedTarget, urlTarget, expectedTarget) => {
+            const savedQuery = MOCK_INSIGHT_QUERY
+            const query: DataVisualizationNode = {
+                ...savedQuery,
+                source: { ...savedQuery.source, executionTarget: savedTarget },
+            }
+            const getInsight = jest.spyOn(insightsApi, 'getByShortId').mockResolvedValueOnce({ ...MOCK_INSIGHT, query })
+            try {
+                logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+                logic.mount()
+                router.actions.push(
+                    urls.sqlEditor(),
+                    { open_insight: MOCK_INSIGHT_SHORT_ID },
+                    { q: savedQuery.source.query, ...(urlTarget ? { engine: urlTarget } : {}) }
+                )
+                await expectLogic(logic).toDispatchActions(['editInsight', 'createTab', 'updateTab'])
+                expect(logic.values.sourceQuery.source.executionTarget).toEqual(expectedTarget)
+                expect(router.values.hashParams.engine).toEqual(urlTarget ?? expectedTarget)
+            } finally {
+                getInsight.mockRestore()
+            }
+        })
+
         it.each([MOCK_INSIGHT_SHORT_ID, MOCK_DATA_TABLE_INSIGHT_SHORT_ID])(
             'sets the editing insight and file tree reference when opening %s',
             async (shortId) => {
@@ -1551,6 +1717,28 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('open_query URL parameter', () => {
+        it.each([NodeKind.InsightActorsQuery, NodeKind.FunnelsActorsQuery])(
+            'does not execute a URL-supplied %s',
+            async (kind) => {
+                const performQuery = jest.spyOn(queryRunner, 'performQuery')
+                try {
+                    logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+                    logic.mount()
+                    router.actions.push(urls.sqlEditor(), {
+                        open_query: {
+                            kind: NodeKind.DataTableNode,
+                            source: { kind: NodeKind.ActorsQuery, source: { kind }, select: ['sleep(10)'] },
+                        },
+                    })
+                    await expectLogic(logic).toDispatchActions(['createTab']).toNotHaveDispatchedActions(['runQuery'])
+                    expect(performQuery.mock.calls.some(([query]) => query.kind === NodeKind.ActorsQuery)).toBe(false)
+                    expect(logic.values.insightLoading).toBe(false)
+                } finally {
+                    performQuery.mockRestore()
+                }
+            }
+        )
+
         const STACKED_BAR_NODE: DataVisualizationNode = {
             kind: NodeKind.DataVisualizationNode,
             source: {
@@ -1659,6 +1847,39 @@ describe('sqlEditorLogic', () => {
                     queryInput: 'SELECT count() FROM events',
                     editingMetricName: 'my_metric',
                 })
+        })
+
+        it('names the breadcrumb and title after the opened metric', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/data_catalog/metrics/my_metric/': [
+                        200,
+                        {
+                            name: 'my_metric',
+                            definition: { kind: NodeKind.HogQLQuery, query: 'SELECT count() FROM events' },
+                        },
+                    ],
+                },
+            })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), { source: 'metric', edit_metric: 'my_metric' })
+
+            await expectLogic(logic).toDispatchActions(['createTab', 'setQueryInput'])
+
+            expect(editorRootLogic.values.titleSectionProps).toMatchObject({
+                name: 'my_metric',
+                forceBackTo: { path: urls.dataCatalogMetric('my_metric') },
+            })
+            expect(editorRootLogic.values.breadcrumbs.map((crumb) => crumb.name)).toEqual(['SQL query', 'my_metric'])
         })
 
         it('opens another metric when the editor already holds a query', async () => {
@@ -1838,16 +2059,14 @@ describe('sqlEditorLogic', () => {
             await expectLogic(logic).toDispatchActions(['createTab']).toMatchValues({ metricPrefill: PREFILL })
         })
 
-        it('seeds the dialog with the prefill', async () => {
-            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+        it('seeds the save modal with the prefill', async () => {
             mountEditor()
             logic.actions.setMetricPrefill(PREFILL)
 
             logic.actions.saveAsMetric()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(openForm.mock.calls.at(-1)?.[0].initialValues).toEqual({ saveTarget: 0, ...PREFILL })
-            openForm.mockRestore()
+            expect(logic.values.saveAsMetricModal?.prefill).toEqual(PREFILL)
         })
 
         it.each([
@@ -1857,17 +2076,22 @@ describe('sqlEditorLogic', () => {
                 { display_name: 'Monthly active users', unit: 'users' },
             ],
             [
-                'omits the optional fields when they are blank',
+                'posts blank optional fields as blank, so an overwrite clears them',
                 { ...PREFILL, display_name: '', unit: '' },
-                { display_name: undefined, unit: undefined },
+                { display_name: '', unit: '' },
             ],
         ])('%s', async (_case, fields, expectedOptionalFields) => {
             let createBody: Record<string, any> | undefined
+            let approvals = 0
             useMocks({
                 post: {
                     '/api/projects/:team_id/data_catalog/metrics/': async ({ request }) => {
                         createBody = (await request.json()) as Record<string, any>
                         return [200, { name: fields.name }]
+                    },
+                    '/api/projects/:team_id/data_catalog/metrics/:name/approve/': () => {
+                        approvals += 1
+                        return [200, { name: fields.name, status: 'approved' }]
                     },
                 },
             })
@@ -1878,10 +2102,66 @@ describe('sqlEditorLogic', () => {
             logic.actions.saveAsMetricSubmit(fields)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(createBody).toMatchObject({ name: fields.name, description: fields.description })
+            expect(createBody).toMatchObject({
+                name: fields.name,
+                description: fields.description,
+                created_source: 'user',
+            })
             expect(createBody?.display_name).toEqual(expectedOptionalFields.display_name)
             expect(createBody?.unit).toEqual(expectedOptionalFields.unit)
+            expect(approvals).toEqual(1)
             expect(logic.values.metricPrefill).toBeNull()
+        })
+
+        it('asks before it overwrites a taken name, and lands the overwrite as proposed', async () => {
+            const createBodies: Record<string, any>[] = []
+            let approvals = 0
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/data_catalog/metrics/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        createBodies.push(body)
+                        return body.overwrite
+                            ? [201, { name: body.name }]
+                            : [
+                                  409,
+                                  {
+                                      type: 'invalid_request',
+                                      code: 'metric_name_taken',
+                                      detail: 'A metric with this name already exists.',
+                                      extra: { existing_metric: { name: body.name, status: 'approved' } },
+                                  },
+                              ]
+                    },
+                    '/api/projects/:team_id/data_catalog/metrics/:name/approve/': () => {
+                        approvals += 1
+                        return [200, {}]
+                    },
+                },
+            })
+            const open = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            mountEditor()
+            logic.actions.setQueryInput('SELECT 1;\nSELECT 2;\nSELECT 3')
+            logic.actions.saveAsMetric()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.saveAsMetricSubmit(PREFILL, 'SELECT 2', false, true)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createBodies.map((body) => body.overwrite)).toEqual([false])
+            expect(logic.values.saveAsMetricModal).not.toBeNull()
+            // A click on Overwrite runs onClick, and the close that follows runs onAfterClose.
+            const confirmDialog = open.mock.calls.at(-1)?.[0]
+            confirmDialog?.primaryButton?.onClick?.({} as any)
+            confirmDialog?.onAfterClose?.()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createBodies.map((body) => body.overwrite)).toEqual([false, true])
+            expect(createBodies[1].definition.query).toEqual('SELECT 2')
+            expect(approvals).toEqual(0)
+            expect(logic.values.saveAsMetricModal).toBeNull()
+            expect(router.values.location.pathname).toContain(urls.dataCatalogMetric(PREFILL.name))
+            open.mockRestore()
         })
 
         it('refreshes the sidebar metric list after saving a metric', async () => {
@@ -1915,6 +2195,55 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('save dialog selection guard', () => {
+        it('opens the view dialog without checking incremental materialization', async () => {
+            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            const checkIncremental = jest.fn(() => [500, { detail: 'Check unavailable' }])
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/warehouse_saved_queries/check_incremental/': checkIncremental,
+                },
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            logic.actions.setQueryInput('SELECT 1 AS value')
+
+            await logic.asyncActions.saveAsView()
+
+            expect(openForm).toHaveBeenCalledWith(expect.objectContaining({ title: 'Save as view' }))
+            expect(checkIncremental).not.toHaveBeenCalled()
+            openForm.mockRestore()
+        })
+
+        it.each([
+            { source: { connectionId: 'source-id' }, reason: CONNECTION_SAVE_AS_VIEW_REASON },
+            { source: { connectionId: 'source-id', sendRawQuery: true }, reason: CONNECTION_SAVE_AS_VIEW_REASON },
+            { source: { executionTarget: 'managed_trino' as const, sendRawQuery: true }, reason: null },
+            { source: {}, reason: null },
+        ])('gates saving as a view on the query engine ($source)', async ({ source, reason }) => {
+            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            logic.actions.setQueryInput('SELECT 1 AS value')
+            logic.actions.setSourceQuery({
+                ...logic.values.sourceQuery,
+                source: { ...logic.values.sourceQuery.source, ...source },
+            })
+
+            await logic.asyncActions.saveAsView()
+
+            expect(logic.values.saveAsViewDisabledReason).toEqual(reason)
+            expect(openForm).toHaveBeenCalledTimes(reason ? 0 : 1)
+            openForm.mockRestore()
+        })
+
         // Monaco reports a non-empty selection after a double-click, which is the editor state
         // that let a single identifier reach the API as the query to save.
         function createEditorWithSelection(selected: string): any {
@@ -1926,9 +2255,63 @@ describe('sqlEditorLogic', () => {
         }
 
         it.each([
+            ['view', 'selection'],
+            ['insight', 'selection'],
+            ['view', 'cursor'],
+            ['insight', 'cursor'],
+        ])('preserves the %s save target through diff acceptance (%s)', async (target, mode) => {
+            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            const savedQueries: string[] = []
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/warehouse_saved_queries/': async ({ request }) => {
+                        const body = (await request.json()) as { query: HogQLQuery }
+                        savedQueries.push(body.query.query)
+                        return [200, { ...MOCK_VIEW, ...body }]
+                    },
+                    '/api/environments/:team_id/insights/': async ({ request }) => {
+                        const body = (await request.json()) as { query: DataVisualizationNode }
+                        savedQueries.push(body.query.source.query)
+                        return [200, { ...MOCK_INSIGHT, ...body }]
+                    },
+                },
+            })
+            const editor = {
+                ...createMockEditor(),
+                getModel: () => ({ getValueInRange: () => 'SELECT 2', getOffsetAt: () => 35 }),
+                getSelection: jest.fn(() => ({ isEmpty: () => mode !== 'selection' })),
+                getPosition: jest.fn(() => ({ lineNumber: 1, column: 36 })),
+            }
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor })
+            logic.mount()
+            logic.actions.setQueryInput('SELECT 1 UNION ALL SELECT 2; SELECT 3')
+            const dataLogic = dataNodeLogic({ key: logic.values.dataLogicKey, query: logic.values.sourceQuery.source })
+            const unmountData = dataLogic.mount()
+            logic.actions.reviewQuerySave((candidates) => {
+                if (target === 'view') {
+                    logic.actions.saveAsView(false, undefined, candidates)
+                } else {
+                    logic.actions.saveAsInsight(candidates)
+                }
+            })
+            editor.getSelection.mockReturnValue({ isEmpty: () => true })
+            editor.getPosition.mockReturnValue({ lineNumber: 1, column: 1 })
+            editor.getModel = () => ({ getValueInRange: () => '', getOffsetAt: () => 0 })
+            expect(openForm).not.toHaveBeenCalled()
+            logic.actions.onAcceptSuggestedQueryInput()
+            await expectLogic(logic).toFinishAllListeners()
+            const form = openForm.mock.calls.at(-1)?.[0] as any
+            expect(form.title).toBe(target === 'view' ? 'Save as view' : 'Save as new insight')
+            await form.onSubmit({ ...form.initialValues, name: 'selected_query', viewName: 'selected_query' })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(savedQueries).toEqual([mode === 'selection' ? 'SELECT 2' : 'SELECT 3'])
+            unmountData()
+            openForm.mockRestore()
+        })
+
+        it.each([
             ['view', (): void => logic.actions.saveAsView()],
             ['endpoint', (): void => logic.actions.saveAsEndpoint()],
-            ['metric', (): void => logic.actions.saveAsMetric()],
         ])('refuses to save a selected identifier as a %s', async (_target, openDialog) => {
             const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
             logic = sqlEditorLogic({
@@ -1947,9 +2330,216 @@ describe('sqlEditorLogic', () => {
             )
             openForm.mockRestore()
         })
+
+        it('refuses to save a selected identifier as a metric', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createEditorWithSelection('weekly_active_users'),
+            })
+            logic.mount()
+
+            logic.actions.saveAsMetric()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.saveAsMetricModal?.selectionProblem).toEqual(SELECTION_NOT_A_QUERY)
+        })
     })
 
     describe('Update view', () => {
+        it.each([false, true])(
+            'saves the current SQL with matching result types only (latest run: %s)',
+            async (latestRun) => {
+                const updateBodies: Record<string, unknown>[] = []
+                useMocks({
+                    patch: {
+                        '/api/environments/:team_id/warehouse_saved_queries/:id/': async ({ request }) => {
+                            const body = (await request.json()) as Record<string, unknown>
+                            updateBodies.push(body)
+                            return [200, { ...MOCK_VIEW, query: body.query }]
+                        },
+                    },
+                })
+                logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+                logic.mount()
+                logic.actions.createTab(MOCK_VIEW.query.query, MOCK_VIEW)
+                await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+                logic.actions.setQueryInput('SELECT 2')
+                logic.actions.setLastRunQuery({
+                    ...logic.values.sourceQuery,
+                    source: { ...logic.values.sourceQuery.source, query: latestRun ? 'SELECT 2' : 'SELECT 1' },
+                })
+                const dataLogic = dataNodeLogic({
+                    key: logic.values.dataLogicKey,
+                    query: logic.values.sourceQuery.source,
+                    autoLoad: false,
+                })
+                dataLogic.mount()
+                dataLogic.actions.loadDataSuccess({ results: [[1]], columns: ['value'], types: [['value', 'UInt8']] })
+                logic.actions.updateEditingView()
+                expect(logic.values.suggestionPayload).toBeNull()
+                await expectLogic(logic).toDispatchActions(['updateViewSuccess']).toFinishAllListeners()
+                expect(updateBodies).toHaveLength(1)
+                expect(updateBodies[0]).toMatchObject({
+                    query: { query: 'SELECT 2' },
+                    types: latestRun ? [['value', 'UInt8']] : [],
+                })
+                dataLogic.unmount()
+            }
+        )
+
+        it('treats an initialized empty variable map as the same query as the latest run', async () => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            logic.actions.createTab(MOCK_VIEW.query.query, MOCK_VIEW)
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            logic.actions.setLastRunQuery(logic.values.sourceQuery)
+            logic.actions.setSourceQuery({
+                ...logic.values.sourceQuery,
+                source: { ...logic.values.sourceQuery.source, variables: {} },
+            })
+            expect(logic.values.isSourceQueryLastRun).toBe(true)
+            logic.actions.setSourceQuery({
+                ...logic.values.sourceQuery,
+                source: {
+                    ...logic.values.sourceQuery.source,
+                    variables: {
+                        'example-variable': { variableId: 'example-variable', code_name: 'limit', value: 10 },
+                    },
+                },
+            })
+            expect(logic.values.isSourceQueryLastRun).toBe(false)
+        })
+
+        it('treats changed filters as different from the latest run', async () => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            logic.actions.createTab(MOCK_VIEW.query.query, MOCK_VIEW)
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            logic.actions.setLastRunQuery(logic.values.sourceQuery)
+            expect(logic.values.isSourceQueryLastRun).toBe(true)
+            logic.actions.setSourceQuery({
+                ...logic.values.sourceQuery,
+                source: { ...logic.values.sourceQuery.source, filters: { dateRange: { date_from: '-30d' } } },
+            })
+            expect(logic.values.hasEditorChanges).toBe(true)
+            expect(logic.values.isSourceQueryLastRun).toBe(false)
+        })
+
+        it('confirms a breaking column change and retries with an acknowledgement', async () => {
+            const updateBodies: Record<string, any>[] = []
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        updateBodies.push(body)
+                        if (!body.acknowledge_breaking_changes) {
+                            return [
+                                400,
+                                {
+                                    code: 'breaking_column_change',
+                                    detail: 'This change removes columns that downstream views use.',
+                                    extra: {
+                                        removed_columns: ['legacy_value'],
+                                        affected_views: ['weekly_summary'],
+                                        affected_view_count: 1,
+                                        has_hidden_affected_views: false,
+                                    },
+                                },
+                            ]
+                        }
+                        return [200, MOCK_VIEW]
+                    },
+                },
+            })
+            const open = jest.spyOn(LemonDialog, 'open').mockImplementation((options) => {
+                void options.primaryButton?.onClick?.({} as any)
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.updateView({
+                id: MOCK_VIEW.id,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
+                types: [],
+            })
+            expect(logic.values.viewUpdateInProgress).toBe(true)
+            await expectLogic(logic).toDispatchActions(['updateView', 'updateViewSuccess']).toFinishAllListeners()
+            expect(logic.values.viewUpdateInProgress).toBe(false)
+
+            expect(open).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    title: 'Save breaking changes?',
+                    primaryButton: expect.objectContaining({ children: 'Save anyway', status: 'danger' }),
+                })
+            )
+            expect(updateBodies).toHaveLength(2)
+            expect(updateBodies[0].acknowledge_breaking_changes).toBeUndefined()
+            expect(updateBodies[1].acknowledge_breaking_changes).toBe(true)
+            open.mockRestore()
+        })
+
+        it('keeps the editor locked until a breaking column change is canceled and reports the unsaved view', async () => {
+            const updateBodies: Record<string, any>[] = []
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': async ({ request }) => {
+                        updateBodies.push((await request.json()) as Record<string, any>)
+                        return [
+                            400,
+                            {
+                                code: 'breaking_column_change',
+                                detail: 'This change removes columns that downstream views use.',
+                                extra: {
+                                    removed_columns: ['legacy_value'],
+                                    affected_views: ['weekly_summary'],
+                                    affected_view_count: 1,
+                                    has_hidden_affected_views: false,
+                                },
+                            },
+                        ]
+                    },
+                },
+            })
+            let closeDialog: (() => void) | undefined
+            let markDialogOpened!: () => void
+            const dialogOpened = new Promise<void>((resolve) => {
+                markDialogOpened = resolve
+            })
+            const open = jest.spyOn(LemonDialog, 'open').mockImplementation((options) => {
+                closeDialog = options.onAfterClose
+                markDialogOpened()
+            })
+            const toast = jest.spyOn(lemonToast, 'info').mockImplementation(() => 'x')
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.updateView({
+                id: MOCK_VIEW.id,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
+                types: [],
+            })
+            expect(logic.values.viewUpdateInProgress).toBe(true)
+            await dialogOpened
+            expect(logic.values.viewUpdateInProgress).toBe(true)
+            closeDialog?.()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.viewUpdateInProgress).toBe(false)
+            expect(updateBodies).toHaveLength(1)
+            expect(toast).toHaveBeenCalledWith('View was not saved')
+            open.mockRestore()
+            toast.mockRestore()
+        })
+
         it('advances the saved baseline after updating so reverting to the original query re-enables Update view', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
@@ -2040,36 +2630,82 @@ describe('sqlEditorLogic', () => {
         })
 
         it.each([
-            [false, 'Update view'],
-            [true, 'Update and re-materialize view'],
-        ])(
-            'reviewViewUpdate gates the save behind the inline diff (shouldRematerialize=%s)',
-            async (shouldRematerialize, acceptText) => {
-                logic = sqlEditorLogic({
-                    tabId: TAB_ID,
-                    monaco: createMockMonaco(),
-                    editor: createMockEditor(),
-                })
-                logic.mount()
+            ['view', 'Update view'],
+            ['materialized', 'Update and re-materialize view'],
+            ['insight', 'Update insight'],
+            ['new', 'Save query'],
+        ])('shows a save diff for %s without saving until accepted', async (kind, acceptText) => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            const savedQuery = kind === 'insight' ? MOCK_INSIGHT_QUERY.source.query : MOCK_VIEW.query.query
+            logic.actions.createTab(
+                savedQuery,
+                kind === 'view' || kind === 'materialized'
+                    ? { ...MOCK_VIEW, is_materialized: kind === 'materialized' }
+                    : undefined,
+                kind === 'insight' ? MOCK_INSIGHT : undefined
+            )
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            logic.actions.setLastRunQuery({
+                ...logic.values.sourceQuery,
+                source: { ...logic.values.sourceQuery.source, query: savedQuery },
+            })
+            logic.actions.setQueryInput('SELECT 2')
+            const save = jest.fn()
+            logic.actions.reviewQuerySave(save)
+            expect(logic.values.suggestionPayload).toMatchObject({
+                originalValue: savedQuery,
+                suggestedValue: 'SELECT 2',
+                acceptText,
+            })
+            expect(save).not.toHaveBeenCalled()
+            logic.actions.onRejectSuggestedQueryInput()
+            expect(save).not.toHaveBeenCalled()
+            expect(logic.values.queryInput).toBe('SELECT 2')
+            logic.actions.reviewQuerySave(save)
+            logic.actions.onAcceptSuggestedQueryInput()
+            expect(save).toHaveBeenCalledTimes(1)
+            expect(logic.values.suggestionPayload).toBeNull()
+        })
 
-                logic.actions.createTab(MOCK_VIEW.query.query, MOCK_VIEW)
-                await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+        it('updateEditingView builds the update from the open view, the edit and the last run', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                mode: SQLEditorMode.Embedded,
+            })
+            logic.mount()
 
-                logic.actions.setQueryInput('SELECT 2')
-                logic.actions.reviewViewUpdate({
-                    id: MOCK_VIEW.id,
-                    query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
-                    shouldRematerialize,
-                    types: [],
-                })
-                await expectLogic(logic).toDispatchActions(['reviewViewUpdate']).toFinishAllListeners()
+            logic.actions.editView(MOCK_VIEW.query.query, { ...MOCK_VIEW, is_materialized: true })
+            await expectLogic(logic).toDispatchActions(['editView', 'createTab', 'updateTab'])
+            logic.actions.setQueryInput('SELECT 2')
+            logic.actions.setLastRunQuery({
+                ...logic.values.sourceQuery,
+                source: { ...logic.values.sourceQuery.source, query: 'SELECT 2' },
+            })
 
-                // The edit is shown as an accept/reject diff (saved query vs edits), not saved
-                // immediately, and the accept label reflects whether it re-materializes.
-                expect(logic.values.suggestionPayload?.originalValue).toBe(MOCK_VIEW.query.query)
-                expect(logic.values.suggestionPayload?.acceptText).toBe(acceptText)
-            }
-        )
+            // The data node is mounted by the editor's visualization in the app, and not reachable from a host.
+            const editorDataNodeLogic = dataNodeLogic({
+                key: logic.values.dataLogicKey,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
+                autoLoad: false,
+            })
+            editorDataNodeLogic.mount()
+            editorDataNodeLogic.actions.loadDataSuccess({ results: [], types: [['two', 'UInt8']] } as any)
+
+            logic.actions.updateEditingView()
+            await expectLogic(logic)
+                .toDispatchActions([
+                    'updateEditingView',
+                    (action) =>
+                        action.type === logic.actionTypes.updateView &&
+                        action.payload.view.id === MOCK_VIEW.id &&
+                        action.payload.view.query.query === 'SELECT 2' &&
+                        action.payload.view.shouldRematerialize === true &&
+                        JSON.stringify(action.payload.view.types) === JSON.stringify([['two', 'UInt8']]),
+                ])
+                .toFinishAllListeners()
+            editorDataNodeLogic.unmount()
+        })
     })
 
     describe('inline insight metadata editing', () => {
@@ -2437,10 +3073,7 @@ describe('sqlEditorLogic', () => {
             limit: 1000,
             sort: null,
         }
-        it.each([true, false])('opens a saved BI insight with rollout enabled=%s', async (enabled) => {
-            featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.SQL_EDITOR_BI_MODE] : [], {
-                [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: enabled,
-            })
+        it('opens a saved BI insight without rollout flags', async () => {
             const getInsight = jest.spyOn(insightsApi, 'getByShortId').mockResolvedValue({
                 ...MOCK_INSIGHT,
                 query: {
@@ -2455,15 +3088,12 @@ describe('sqlEditorLogic', () => {
                 router.actions.push(urls.sqlEditor({ insightShortId: MOCK_INSIGHT_SHORT_ID }))
             ).toFinishAllListeners()
             expect(router.values.location.pathname).toBe(
-                `/project/${MOCK_DEFAULT_TEAM.id}${enabled ? urls.businessIntelligence() : urls.insightView(MOCK_INSIGHT_SHORT_ID)}`
+                `/project/${MOCK_DEFAULT_TEAM.id}${urls.businessIntelligence()}`
             )
             getInsight.mockRestore()
         })
 
         it('redirects bookmarked SQL editor BI links with their query state', () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_EDITOR_BI_MODE], {
-                [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,
-            })
             logic = sqlEditorLogic({ tabId: TAB_ID })
             logic.mount()
             router.actions.push(
@@ -2609,28 +3239,84 @@ describe('sqlEditorLogic', () => {
             expect(router.values.hashParams.c).toEqual('conn-123')
         })
 
-        it('reads send raw query from hash and keeps it in URL sync', async () => {
-            logic = sqlEditorLogic({
-                tabId: TAB_ID,
-                monaco: createMockMonaco(),
-                editor: createMockEditor(),
+        it.each([
+            [OrganizationMembershipLevel.Member, true],
+            [OrganizationMembershipLevel.Admin, true],
+            [OrganizationMembershipLevel.Owner, true],
+        ])('switches hosted execution for role %s with raw mode %s', async (membershipLevel, rawMode) => {
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                membership_level: membershipLevel,
             })
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
             logic.mount()
-
-            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123', raw: '1' })
-
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT event FROM events', c: 'conn-123', raw: '1' })
             await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
-
-            expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
-            expect(logic.values.sendRawQueryEnabled).toEqual(true)
-            expect(String(router.values.hashParams.raw)).toEqual('1')
-
-            await runDebouncedAction(() => logic.actions.setQueryInput('SELECT 2'))
-
-            expect(router.values.hashParams.q).toEqual('SELECT 2')
-            expect(router.values.hashParams.c).toEqual('conn-123')
-            expect(String(router.values.hashParams.raw)).toEqual('1')
+            const query = logic.values.queryInput
+            logic.actions.setLastRunQuery({
+                ...logic.values.sourceQuery,
+                source: { ...logic.values.sourceQuery.source, query: query ?? '' },
+            })
+            expect(logic.values.isSourceQueryLastRun).toEqual(true)
+            logic.actions.setExecutionTarget('managed_trino')
+            expect(logic.values.isSourceQueryLastRun).toEqual(false)
+            expect(logic.values.sourceQuery.source).toMatchObject({ query, executionTarget: 'managed_trino' })
+            expect(logic.values.sourceQuery.source.connectionId).toBeUndefined()
+            expect(logic.values.sendRawQueryEnabled).toEqual(rawMode)
+            expect(String(router.values.hashParams.raw ?? '')).toEqual(rawMode ? '1' : '')
+            expect(router.values.hashParams.engine).toEqual('managed_trino')
+            expect(router.values.hashParams.c).toBeUndefined()
+            expect(databaseTableListLogic.findMounted()?.values.connectionId).toEqual(MANAGED_TRINO_SCHEMA_SCOPE)
+            await runDebouncedAction(() => logic.actions.setQueryInput('SELECT count() FROM events'))
+            expect(router.values.hashParams.engine).toEqual('managed_trino')
+            expect(logic.values.sendRawQueryEnabled).toEqual(rawMode)
+            logic.actions.setSendRawQuery(false)
+            await runDebouncedAction(() => logic.actions.setQueryInput('SELECT 1'))
+            expect(logic.values.sendRawQueryEnabled).toEqual(false)
+            expect(router.values.hashParams.raw).toBeUndefined()
+            logic.actions.setExecutionTarget(undefined)
+            expect(logic.values.sourceQuery.source.query).toEqual('SELECT 1')
+            expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
+            expect(router.values.hashParams.engine).toBeUndefined()
+            expect(databaseTableListLogic.findMounted()?.values.connectionId).toBeNull()
         })
+
+        it.each([false, true])('restores the hosted target and raw mode %s from the URL', async (sendRawQuery) => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            router.actions.push(urls.sqlEditor({ query: 'SELECT 1', executionTarget: 'managed_trino', sendRawQuery }))
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            expect(logic.values.sourceQuery.source.executionTarget).toEqual('managed_trino')
+            expect(logic.values.sendRawQueryEnabled).toEqual(sendRawQuery)
+            expect(databaseTableListLogic.findMounted()?.values.connectionId).toEqual(MANAGED_TRINO_SCHEMA_SCOPE)
+        })
+
+        it.each([{ c: 'conn-123' }, { engine: 'managed_trino' }])(
+            'reads raw mode from $c $engine and keeps it in URL sync',
+            async (target) => {
+                logic = sqlEditorLogic({
+                    tabId: TAB_ID,
+                    monaco: createMockMonaco(),
+                    editor: createMockEditor(),
+                })
+                logic.mount()
+
+                router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', ...target, raw: '1' })
+
+                await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+
+                expect(logic.values.sourceQuery.source.connectionId).toEqual(target.c)
+                expect(logic.values.sendRawQueryEnabled).toEqual(true)
+                expect(String(router.values.hashParams.raw)).toEqual('1')
+
+                await runDebouncedAction(() => logic.actions.setQueryInput('SELECT 2'))
+
+                expect(router.values.hashParams.q).toEqual('SELECT 2')
+                expect(router.values.hashParams.c).toEqual(target.c)
+                expect(router.values.hashParams.engine).toEqual(target.engine)
+                expect(String(router.values.hashParams.raw)).toEqual('1')
+            }
+        )
 
         it('ignores send raw query from hash for PostHog warehouse', async () => {
             logic = sqlEditorLogic({
@@ -2649,25 +3335,28 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
         })
 
-        it('keeps send raw query enabled after the first toggle', async () => {
-            logic = sqlEditorLogic({
-                tabId: TAB_ID,
-                monaco: createMockMonaco(),
-                editor: createMockEditor(),
-            })
-            logic.mount()
+        it.each([{ c: 'conn-123' }, { engine: 'managed_trino' }])(
+            'keeps raw mode enabled after toggling for $c $engine',
+            async (target) => {
+                logic = sqlEditorLogic({
+                    tabId: TAB_ID,
+                    monaco: createMockMonaco(),
+                    editor: createMockEditor(),
+                })
+                logic.mount()
 
-            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123' })
+                router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', ...target })
 
-            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+                await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
 
-            logic.actions.setSendRawQuery(true)
-            await new Promise((resolve) => setTimeout(resolve, 0))
+                logic.actions.setSendRawQuery(true)
+                await new Promise((resolve) => setTimeout(resolve, 0))
 
-            expect(logic.values.sendRawQueryEnabled).toEqual(true)
-            expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
-            expect(String(router.values.hashParams.raw)).toEqual('1')
-        })
+                expect(logic.values.sendRawQueryEnabled).toEqual(true)
+                expect(logic.values.sourceQuery.source.connectionId).toEqual(target.c)
+                expect(String(router.values.hashParams.raw)).toEqual('1')
+            }
+        )
 
         it.each([
             {
@@ -3030,48 +3719,52 @@ describe('sqlEditorLogic', () => {
             performQuerySpy.mockRestore()
         })
 
-        it('passes sendRawQuery when running a direct query', async () => {
-            const performQuerySpy = jest
-                .spyOn(queryRunner, 'performQuery')
-                .mockResolvedValue({ results: [], columns: [], types: [] } as never)
+        it.each([{ c: 'conn-123' }, { engine: 'managed_trino' }])(
+            'passes raw mode when running against $c $engine',
+            async (target) => {
+                const performQuerySpy = jest
+                    .spyOn(queryRunner, 'performQuery')
+                    .mockResolvedValue({ results: [], columns: [], types: [] } as never)
 
-            logic = sqlEditorLogic({
-                tabId: TAB_ID,
-                monaco: createMockMonaco(),
-                editor: createMockEditor(),
-            })
-            logic.mount()
+                logic = sqlEditorLogic({
+                    tabId: TAB_ID,
+                    monaco: createMockMonaco(),
+                    editor: createMockEditor(),
+                })
+                logic.mount()
 
-            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123' })
+                router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', ...target })
 
-            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
-            await new Promise((resolve) => setTimeout(resolve, 0))
+                await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+                await new Promise((resolve) => setTimeout(resolve, 0))
 
-            performQuerySpy.mockClear()
+                performQuerySpy.mockClear()
 
-            logic.actions.setSourceQuery({
-                ...logic.values.sourceQuery,
-                source: {
-                    ...logic.values.sourceQuery.source,
+                logic.actions.setSourceQuery({
+                    ...logic.values.sourceQuery,
+                    source: {
+                        ...logic.values.sourceQuery.source,
+                        sendRawQuery: true,
+                    },
+                })
+
+                expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
+
+                logic.actions.runQuery()
+                await new Promise((resolve) => setTimeout(resolve, 0))
+
+                expect(performQuerySpy).toHaveBeenCalled()
+                expect(performQuerySpy.mock.calls[0][0]).toMatchObject({
+                    kind: NodeKind.HogQLQuery,
+                    query: 'SELECT 1',
+                    connectionId: target.c,
+                    executionTarget: target.engine,
                     sendRawQuery: true,
-                },
-            })
+                })
 
-            expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
-
-            logic.actions.runQuery()
-            await new Promise((resolve) => setTimeout(resolve, 0))
-
-            expect(performQuerySpy).toHaveBeenCalled()
-            expect(performQuerySpy.mock.calls[0][0]).toMatchObject({
-                kind: NodeKind.HogQLQuery,
-                query: 'SELECT 1',
-                connectionId: 'conn-123',
-                sendRawQuery: true,
-            })
-
-            performQuerySpy.mockRestore()
-        })
+                performQuerySpy.mockRestore()
+            }
+        )
 
         it("doesn't pass sendRawQuery when running against PostHog warehouse", async () => {
             const performQuerySpy = jest
@@ -3118,6 +3811,42 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('AI suggestion undo', () => {
+        it('delivers an AI fix only to the requesting editor tab', async () => {
+            let finish: ((response: [number, { query: string; trace_id: string }]) => void) | undefined
+            let started!: () => void
+            const requestStarted = new Promise<void>((resolve) => {
+                started = resolve
+            })
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/fix_hogql/': () =>
+                        new Promise<[number, { query: string; trace_id: string }]>((resolve) => {
+                            finish = resolve
+                            started()
+                        }),
+                },
+            })
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            logic.actions.updateTab({ uri: { path: `tab-${TAB_ID}` }, name: 'First query' } as any)
+            logic.actions.setQueryInput('SELECT broken')
+            const other = sqlEditorLogic({ tabId: 'other-tab', monaco: createMockMonaco(), editor: createMockEditor() })
+            other.mount()
+            other.actions.updateTab({ uri: { path: 'tab-other-tab' }, name: 'Other query' } as any)
+            other.actions.setQueryInput('SELECT 2')
+            logic.actions.fixErrors('SELECT broken', 'Unknown identifier')
+            await requestStarted
+            await expectLogic(logic).toMatchValues({ fixErrorsLoading: true })
+            expect(other.values.fixErrorsLoading).toBe(false)
+            finish!([200, { query: 'SELECT 1', trace_id: 'example-trace' }])
+            await expectLogic(logic).toDispatchActions(['fixErrorsSuccess']).toFinishAllListeners()
+            expect(logic.values.suggestionPayload?.suggestedValue).toBe('SELECT 1')
+            expect(logic.values.queryInput).toBe('SELECT broken')
+            expect(other.values.suggestionPayload).toBeNull()
+            expect(other.values.queryInput).toBe('SELECT 2')
+            other.unmount()
+        })
+
         const ORIGINAL = 'SELECT 1'
         const ACCEPTED = 'SELECT 2 FROM events'
 
@@ -3240,10 +3969,30 @@ describe('sqlEditorLogic', () => {
         })
 
         it.each([
-            { name: 'passes dashboards to insightsApi.create when a dashboardId is set', dashboardId: DASHBOARD_ID },
-            { name: 'does not pass dashboards to insightsApi.create when no dashboardId is set', dashboardId: null },
-        ])('$name', async ({ dashboardId }) => {
-            const createSpy = jest.spyOn(insightsApi, 'create').mockResolvedValue(MOCK_INSIGHT)
+            {
+                name: 'creates the insight on the dashboard when a dashboardId is set',
+                dashboardId: DASHBOARD_ID,
+                tileGroup: null,
+                expectedGroupWrites: [],
+            },
+            {
+                name: 'creates the insight on no dashboard when no dashboardId is set',
+                dashboardId: null,
+                tileGroup: null,
+                expectedGroupWrites: [],
+            },
+            {
+                name: 'creates the insight in the tile group the add started from',
+                dashboardId: DASHBOARD_ID,
+                tileGroup: 'target',
+                expectedGroupWrites: [[DASHBOARD_ID, { tiles: [{ id: 5, group_key: 'target' }] }]],
+            },
+        ])('$name', async ({ dashboardId, tileGroup, expectedGroupWrites }) => {
+            const createSpy = jest.spyOn(insightsApi, 'create').mockResolvedValue({
+                ...MOCK_INSIGHT,
+                dashboard_tiles: dashboardId !== null ? [{ id: 5, dashboard_id: dashboardId }] : [],
+            })
+            const groupWrite = jest.spyOn(dashboardsApi, 'dashboardsPartialUpdate').mockResolvedValue({} as any)
 
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
@@ -3256,6 +4005,7 @@ describe('sqlEditorLogic', () => {
             await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
             if (dashboardId !== null) {
                 logic.actions.setDashboardId(dashboardId)
+                logic.actions.setDashboardTileGroupKey(tileGroup)
             }
 
             logic.actions.setQueryInput('SELECT 42 AS unrun_edit')
@@ -3269,74 +4019,107 @@ describe('sqlEditorLogic', () => {
                 saved: true,
                 query: { source: { query: 'SELECT 42 AS unrun_edit' } },
             })
-            if (dashboardId !== null) {
-                expect(createPayload.dashboards).toEqual([dashboardId])
-            } else {
-                expect(createPayload).not.toHaveProperty('dashboards')
-            }
+            expect(createPayload).not.toHaveProperty('dashboards')
+            expect(createSpy.mock.calls[0][1]).toEqual(dashboardId !== null ? [dashboardId] : [])
+            expect(groupWrite.mock.calls.map(([, id, body]) => [id, body])).toEqual(expectedGroupWrites)
         })
 
-        // The update path unions the target dashboard with the insight's existing links, read
-        // from both dashboard_tiles (preferred) and the legacy dashboards field, deduped.
         it.each([
-            {
-                name: 'merges the dashboard with existing legacy dashboards links',
-                dashboards: [7],
-                dashboardTiles: [],
-                expected: [7, DASHBOARD_ID],
-            },
-            {
-                name: 'merges the dashboard with existing dashboard_tiles links',
-                dashboards: [],
-                dashboardTiles: [{ id: 1, dashboard_id: 7, deleted: null }],
-                expected: [7, DASHBOARD_ID],
-            },
-            {
-                name: 'does not duplicate a dashboard the insight is already linked to',
-                dashboards: [],
-                dashboardTiles: [{ id: 1, dashboard_id: DASHBOARD_ID, deleted: null }],
-                expected: [DASHBOARD_ID],
-            },
-        ])('$name', async ({ dashboards, dashboardTiles, expected }) => {
-            const updateSpy = jest.spyOn(insightsApi, 'update').mockResolvedValue(MOCK_INSIGHT)
+            { placement: 'accepted', expectedPath: `/dashboard/${DASHBOARD_ID}` },
+            { placement: 'refused', expectedPath: `/insights/${MOCK_INSIGHT_SHORT_ID}` },
+        ])(
+            'saving an existing insight from a dashboard flow, placement $placement',
+            async ({ placement, expectedPath }) => {
+                const updateSpy = jest.spyOn(insightsApi, 'update').mockResolvedValue(MOCK_INSIGHT)
+                const addToDashboardSpy = jest.spyOn(insightsApi, 'addToDashboard')
+                if (placement === 'accepted') {
+                    addToDashboardSpy.mockResolvedValue({ id: 2, dashboard_id: DASHBOARD_ID })
+                } else {
+                    addToDashboardSpy.mockRejectedValue(new ApiError('Non-OK response', 403))
+                }
 
-            logic = sqlEditorLogic({
-                tabId: TAB_ID,
-                monaco: createMockMonaco(),
-                editor: createMockEditor(),
-            })
-            logic.mount()
-            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
-            editorRootLogic.mount()
+                logic = sqlEditorLogic({
+                    tabId: TAB_ID,
+                    monaco: createMockMonaco(),
+                    editor: createMockEditor(),
+                })
+                logic.mount()
+                editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+                editorRootLogic.mount()
 
-            const insightOnDashboards = {
-                ...MOCK_INSIGHT,
-                dashboards,
-                dashboard_tiles: dashboardTiles,
-            } as InsightModel
-            logic.actions.editInsight(MOCK_INSIGHT_QUERY.source.query, insightOnDashboards)
-            await expectLogic(logic)
-                .toDispatchActions(['createTab', 'updateTab'])
-                .toMatchValues({ editingInsight: partial({ short_id: MOCK_INSIGHT_SHORT_ID }) })
+                const insightOnDashboards = {
+                    ...MOCK_INSIGHT,
+                    dashboard_tiles: [{ id: 1, dashboard_id: 7 }],
+                } as InsightModel
+                logic.actions.editInsight(MOCK_INSIGHT_QUERY.source.query, insightOnDashboards)
+                await expectLogic(logic)
+                    .toDispatchActions(['createTab', 'updateTab'])
+                    .toMatchValues({ editingInsight: partial({ short_id: MOCK_INSIGHT_SHORT_ID }) })
 
-            logic.actions.setDashboardId(DASHBOARD_ID)
-            logic.actions.setQueryInput('SELECT 42 AS unrun_edit')
-            logic.actions.updateInsight()
-            await expectLogic(logic).toFinishAllListeners()
+                logic.actions.setDashboardId(DASHBOARD_ID)
+                logic.actions.setQueryInput('SELECT 42 AS unrun_edit')
+                logic.actions.updateInsight()
+                await expectLogic(logic).toFinishAllListeners()
 
-            expect(updateSpy).toHaveBeenCalledTimes(1)
-            const [, updatePayload] = updateSpy.mock.calls[0]
-            expect(updatePayload.query).toMatchObject({ source: { query: 'SELECT 42 AS unrun_edit' } })
-            // Order-independent: only the set of linked dashboards matters.
-            expect([...(updatePayload.dashboards ?? [])].sort()).toEqual([...expected].sort())
-        })
+                expect(updateSpy).toHaveBeenCalledTimes(1)
+                const [, updatePayload] = updateSpy.mock.calls[0]
+                expect(updatePayload.query).toMatchObject({ source: { query: 'SELECT 42 AS unrun_edit' } })
+                expect(updatePayload).not.toHaveProperty('dashboards')
+                expect(addToDashboardSpy).toHaveBeenCalledWith(MOCK_INSIGHT.id, DASHBOARD_ID)
+                expect(router.values.location.pathname).toContain(expectedPath)
+            }
+        )
     })
 
     describe('materialize on save', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
         it.each([
-            { name: 'materializes the created view when materializeAfterSave is true', materialize: true },
-            { name: 'does not materialize when materializeAfterSave is false', materialize: false },
-        ])('$name', async ({ materialize }) => {
+            {
+                name: 'materializes the created view when materializeAfterSave is true',
+                materialize: true,
+                materializeResponse: [200, {}],
+                toasts: [
+                    {
+                        type: 'success',
+                        message: 'Materialized view successfully created and materialized',
+                        button: 'Go to view',
+                    },
+                ],
+            },
+            {
+                name: 'does not materialize when materializeAfterSave is false',
+                materialize: false,
+                materializeResponse: [200, {}],
+                toasts: [{ type: 'success', message: 'Materialized view successfully created', button: 'Go to view' }],
+            },
+            {
+                name: 'warns that the created view is not materialized when the materialization fails',
+                materialize: true,
+                materializeResponse: [400, { detail: 'Pick 1 week instead.' }],
+                toasts: [
+                    {
+                        type: 'warning',
+                        message: 'Materialized view was created but not materialized. Pick 1 week instead.',
+                        button: 'Go to view',
+                    },
+                ],
+            },
+        ])('$name', async ({ materialize, materializeResponse, toasts }) => {
+            const shownToasts: { type: string; message: unknown; button: string | undefined }[] = []
+            const recordToast =
+                (type: string) =>
+                (message: unknown, options?: { button?: { label: string } }): string => {
+                    shownToasts.push({ type, message, button: options?.button?.label })
+                    return 'x'
+                }
+            jest.spyOn(lemonToast, 'success').mockImplementation(recordToast('success'))
+            jest.spyOn(lemonToast, 'warning').mockImplementation(recordToast('warning'))
+            jest.spyOn(lemonToast, 'error').mockImplementation(recordToast('error'))
+            materializeEndpointMock.mockImplementation(() => materializeResponse)
+
             const viewsLogic = dataWarehouseViewsLogic()
             viewsLogic.mount()
 
@@ -3373,6 +4156,7 @@ describe('sqlEditorLogic', () => {
             } else {
                 expect(materializeEndpointMock).toHaveBeenCalledTimes(0)
             }
+            expect(shownToasts).toEqual(toasts)
 
             editorDataNodeLogic.unmount()
             viewsLogic.unmount()
@@ -3439,14 +4223,78 @@ describe('sqlEditorLogic', () => {
                 undefined,
                 false,
                 undefined,
-                incremental
+                incremental,
+                'Daily revenue by region'
             )
 
             await expectLogic(viewsLogic).toDispatchActions(['createDataWarehouseSavedQuerySuccess'])
             await expectLogic(viewsLogic).toFinishAllListeners()
 
             expect(createBody?.incremental).toEqual(incremental)
+            expect(createBody?.description).toEqual('Daily revenue by region')
             expect(materializeEndpointMock).toHaveBeenCalledTimes(1)
+
+            editorDataNodeLogic.unmount()
+            viewsLogic.unmount()
+        })
+
+        // Regression: a refused unique key used to close the dialog behind a toast, so the user
+        // lost the form and never saw which field to fix.
+        it.each([
+            { name: 'returns a refused key to the dialog', blockedKeys: ['unique_key'], keepsDialogOpen: true },
+            { name: 'returns nothing for a refusal that names no field', blockedKeys: [], keepsDialogOpen: false },
+        ])('$name', async ({ blockedKeys, keepsDialogOpen }) => {
+            jest.spyOn(lemonToast, 'error').mockImplementation(() => 'x')
+            const viewsLogic = dataWarehouseViewsLogic()
+            viewsLogic.mount()
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            logic.actions.setQueryInput('SELECT 1')
+
+            const editorDataNodeLogic = dataNodeLogic({
+                key: logic.values.dataLogicKey,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+            })
+            editorDataNodeLogic.mount()
+
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/warehouse_saved_queries/': () => [
+                        400,
+                        {
+                            type: 'validation_error',
+                            code: 'invalid_input',
+                            detail: 'Unique key column "id" can be null.',
+                            attr: 'incremental',
+                            extra: { blocked_keys: blockedKeys },
+                        },
+                    ],
+                },
+            })
+
+            const save = logic.asyncActions.saveAsViewSubmit(
+                'Incremental view',
+                true,
+                undefined,
+                undefined,
+                false,
+                undefined,
+                { enabled: true, incremental_key: 'timestamp', unique_key: ['id'], lookback_seconds: 0 }
+            )
+
+            if (keepsDialogOpen) {
+                await expect(save).resolves.toMatchObject({ attr: 'incremental' })
+            } else {
+                await expect(save).resolves.toBeUndefined()
+            }
 
             editorDataNodeLogic.unmount()
             viewsLogic.unmount()

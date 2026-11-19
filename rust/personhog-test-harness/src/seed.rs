@@ -33,10 +33,9 @@ pub async fn seed_persons(
     let ids: Vec<i64> = sqlx::query_scalar(&format!(
         r#"
         INSERT INTO {table} (
-            team_id, uuid, properties, properties_last_updated_at,
-            properties_last_operation, created_at, version, is_identified
+            team_id, uuid, properties, created_at, version, is_identified
         )
-        SELECT $1, gen_random_uuid(), '{{}}'::jsonb, '{{}}'::jsonb, '{{}}'::jsonb, now(), 0, false
+        SELECT $1, gen_random_uuid(), '{{}}'::jsonb, now(), 0, false
         FROM generate_series(1, $2)
         RETURNING id
         "#
@@ -69,6 +68,17 @@ pub fn lifecycle_tables_for(person_table: &str) -> (&'static str, &'static str) 
         ("lifecycle_op_tmp", "lifecycle_op_person_tmp")
     } else {
         ("lifecycle_op", "lifecycle_op_person")
+    }
+}
+
+/// The publish outbox paired with a person table, derived the way identity
+/// derives it. Identity validates its six tables as one set, so a spawned
+/// identity must be told this one too.
+pub fn publish_outbox_table_for(person_table: &str) -> &'static str {
+    if person_table == "personhog_person_tmp" {
+        "person_publish_outbox_tmp"
+    } else {
+        "person_publish_outbox"
     }
 }
 

@@ -10,14 +10,12 @@ from django.conf import settings
 import httpx
 import httpx_sse
 import structlog
-import posthoganalytics
 from temporalio import activity
 
 from posthog.security.outbound_proxy import internal_httpx_async_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
-from products.tasks.backend.constants import STREAM_VIA_PROXY_FEATURE_FLAG
 from products.tasks.backend.logic.services.connection_token import create_stream_read_token
 from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
@@ -147,9 +145,8 @@ def _agent_proxy_base_url() -> str | None:
 
     Prefer the in-cluster URL (skips the ingress/CDN round-trip, and exists on envs without a
     public proxy FQDN), then the public URL the browser uses, then the ingest URL. The ingest URL
-    is the single local opt-in — ``_is_sandbox_event_ingest_enabled`` keys off it and mprocs runs
-    the proxy on :8003 — and the proxy serves ingest and stream on the same host, so it doubles as
-    a read base locally.
+    is the single local opt-in for the proxy (mprocs runs it on :8003), and the proxy serves
+    ingest and stream on the same host, so it doubles as a read base locally.
     """
     return (
         settings.TASKS_AGENT_PROXY_INTERNAL_URL
@@ -173,31 +170,6 @@ def _resume_position() -> tuple[str | None, bool]:
     return last_event_id, turn_active
 
 
-def _stream_via_proxy_enabled(task_run: TaskRunModel) -> bool:
-    """Whether the read-via-proxy flag (``tasks-stream-via-proxy``) is on for this run.
-
-    Mirrors the UI's ``resolve_stream_base_url`` and event_ingest's push gate so the relay reads
-    the proxy leg only when the browser would too — a runtime kill-switch for both. Fails closed.
-    """
-    user = task_run.task.created_by
-    if user is None:
-        return False
-    organization_id = str(task_run.team.organization_id)
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                STREAM_VIA_PROXY_FEATURE_FLAG,
-                user.distinct_id or f"user_{user.id}",
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        return False
-
-
 @activity.defn
 @close_db_connections
 async def relay_agent_design_signals(input: RelayAgentDesignSignalsInput) -> None:
@@ -218,25 +190,18 @@ async def relay_agent_design_signals(input: RelayAgentDesignSignalsInput) -> Non
         logger.warning("relay_agent_design_signals_handle_init_failed", run_id=input.run_id, error=str(e))
         return
 
-    # Read the live proxy leg only when a proxy is configured AND the read-via-proxy flag is on for
-    # the run — the same decision the task UI makes. Otherwise tail the Django-side Redis stream.
+    # Read the live proxy leg when a proxy is configured. Otherwise tail the Django-side Redis stream.
     base_url = _agent_proxy_base_url()
-    task_run: TaskRunModel | None = None
-    stream_via_proxy = False
-    if base_url:
-        task_run = await TaskRunModel.objects.select_related("task__created_by", "team").aget(id=input.run_id)
-        # feature_enabled can block on a cold flag cache — off the event loop, this is an async activity.
-        stream_via_proxy = await asyncio.to_thread(_stream_via_proxy_enabled, task_run)
 
     logger.info(
         "relay_agent_design_signals_started",
         run_id=input.run_id,
-        leg="proxy" if stream_via_proxy else "redis",
+        leg="proxy" if base_url else "redis",
         base_url=base_url,
-        stream_via_proxy=stream_via_proxy,
     )
 
-    if base_url and stream_via_proxy and task_run is not None:
+    if base_url:
+        task_run = await TaskRunModel.objects.select_related("task").aget(id=input.run_id)
         await _relay_from_agent_proxy(base_url, task_run, input, workflow_handle)
         return
     # The Redis leg reads from 0 with a fresh emitter — no resume, so no turn to carry over.

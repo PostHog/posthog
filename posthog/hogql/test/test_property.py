@@ -3,7 +3,7 @@ from typing import Any, Literal, Optional, Union, cast
 
 import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_materialized_columns
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.conf import settings
 from django.test import SimpleTestCase, override_settings
@@ -45,15 +45,17 @@ from posthog.hogql.visitor import TraversingVisitor, clear_locations
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
-from posthog.models import Property, PropertyDefinition, Team
+from posthog.models import Property, Team
+from posthog.models.event import MAX_SELECTOR_LENGTH
 from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import get_property_string_expr
 from posthog.utils import relative_date_parse
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, update_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
@@ -489,8 +491,8 @@ class TestProperty(BaseTest):
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_property_to_expr_event_dotted_key_reads_one_flat_path(self):
-        # A filter key is one property name however many dots it holds, so the native read must bind the escaped
-        # path name rather than descend into `properties.a.b`.
+        # A filter key is one property name however many dots it holds, so the native read must take the escaped
+        # path name as one segment rather than descend into `properties.a.b`.
         expr = self._property_to_expr({"type": "event", "key": "a.b", "value": "x"})
         self.assertEqual(expr, self._parse_expr("properties.`a.b` = 'x'"))
 
@@ -501,12 +503,12 @@ class TestProperty(BaseTest):
         )
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         sql, _ = prepare_and_print_ast(query, context=context, dialect="clickhouse")
-        self.assertIn("getSubcolumn(events.properties, %(hogql_val_", sql)
+        self.assertIn("events.properties.`a\\x252Eb`", sql)
         self.assertNotIn("events.properties.a", sql)
-        self.assertEqual(set(context.values.values()) - {"x"}, {"a%2Eb"})
+        self.assertEqual(set(context.values.values()), {"x"})
 
     def test_property_string_expr_reads_dotted_key_as_one_flat_path_on_native_table(self):
-        # Raw-SQL readers must bind the escaped path name like the printer does, and stay safe for callers that
+        # Raw-SQL readers spell the escaped path name inline like the printer does, and stay safe for callers that
         # run the SQL through `%` parameter substitution.
         expr, _ = get_property_string_expr("events", "a.b", "'a.b'", "properties", use_new_events_schema=True)
         self.assertNotIn("%", expr)
@@ -842,6 +844,17 @@ class TestProperty(BaseTest):
             ),
             self._parse_expr("toString(elements_chain_href) ilike '%href-text.%'"),
         )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "element",
+                    "key": "href",
+                    "value": ["a", "b"],
+                    "operator": "not_in",
+                }
+            ),
+            self._parse_expr("elements_chain_href NOT IN ['a'] AND elements_chain_href NOT IN ['b']"),
+        )
         for text_key in ("text", "$el_text"):
             self.assertEqual(
                 self._property_to_expr(
@@ -955,6 +968,17 @@ class TestProperty(BaseTest):
             clear_locations(tag_name_to_expr("a")),
             clear_locations(elements_chain_match("(^|;)a(\\.|$|;|:)")),
         )
+
+    def test_selector_to_expr_length_cap(self):
+        long_id = "a" * (MAX_SELECTOR_LENGTH - len("[id='']"))
+        self.assertEqual(
+            self._selector_to_expr(f"[id='{long_id}']"),
+            clear_locations(
+                parse_expr("indexOf(elements_chain_ids, {value}) > 0", {"value": ast.Constant(value=long_id)})
+            ),
+        )
+        with self.assertRaises(QueryError):
+            self._selector_to_expr("a" * (MAX_SELECTOR_LENGTH + 1))
 
     def test_selector_to_expr(self):
         self.assertEqual(
@@ -1125,9 +1149,13 @@ class TestProperty(BaseTest):
             ),
         )
 
-    def test_cohort_filter_missing_cohort(self):
-        with self.assertRaisesMessage(QueryError, "Cohort 2137 does not exist"):
-            self._property_to_expr({"type": "cohort", "key": "id", "value": 2137}, self.team)
+    @parameterized.expand([("missing", False), ("deleted", True)])
+    def test_cohort_filter_missing_cohort(self, _name: str, deleted: bool):
+        cohort_id = 2137
+        if deleted:
+            cohort_id = Cohort.objects.create(team=self.team, name="gone", groups=[], deleted=True).pk
+        with self.assertRaisesMessage(QueryError, f"Cohort {cohort_id} does not exist"):
+            self._property_to_expr({"type": "cohort", "key": "id", "value": cohort_id}, self.team)
 
     def test_person_scope(self):
         self.assertEqual(
@@ -1205,11 +1233,10 @@ class TestProperty(BaseTest):
         assert "pdi" not in sql
 
     def test_entity_to_expr_actions_type_with_id(self):
-        action_mock = MagicMock()
-        with patch("products.actions.backend.models.action.Action.objects.get", return_value=action_mock):
-            entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_ACTIONS, "id": 123})
-            result = entity_to_expr(entity, self.team)
-            self.assertIsInstance(result, ast.Expr)
+        action = create_action(team=self.team, steps_json=[{"event": "$pageview"}])
+        entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_ACTIONS, "id": action.id})
+        result = entity_to_expr(entity, self.team)
+        self.assertIsInstance(result, ast.Expr)
 
     def test_entity_to_expr_events_type_with_id(self):
         entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": "event_id"})
@@ -1293,47 +1320,53 @@ class TestProperty(BaseTest):
             self._parse_expr("person.extended_properties.bool_prop = true"),
         )
 
-    def test_data_warehouse_property_with_list_values(self):
-        credential = DataWarehouseCredential.objects.create(
-            team=self.team, access_key="_accesskey", access_secret="_secret"
-        )
-        DataWarehouseTable.objects.create(
-            team=self.team,
-            name="foobars",
-            columns={
-                "event": {"hogql": "StringDatabaseField", "clickhouse": "String"},
-                "properties": {"hogql": "JSONField", "clickhouse": "String"},
-            },
-            credential=credential,
-            url_pattern="",
-        )
-
-        expr = self._property_to_expr(
-            Property(
-                type="data_warehouse",
-                key="foobars.properties.$feature/test",
-                value=["control", "test"],
-                operator="exact",
+    @parameterized.expand(
+        [
+            (
+                "exact",
+                ["control", "test"],
+                "foobars.properties.`$feature/test` = 'control' OR foobars.properties.`$feature/test` = 'test'",
             ),
+            (
+                "is_not",
+                ["control", "test"],
+                "foobars.properties.`$feature/test` != 'control' AND foobars.properties.`$feature/test` != 'test'",
+            ),
+            (
+                "not_in",
+                ["control", "test"],
+                "foobars.properties.`$feature/test` NOT IN ('control', 'test')",
+            ),
+            (
+                "not_icontains_multi",
+                ["control", "test"],
+                "NOT multiSearchAnyCaseInsensitive(toString(foobars.properties.`$feature/test`), ['control', 'test']) > 0",
+            ),
+            (
+                "between",
+                [1, 10],
+                "foobars.properties.`$feature/test` >= 1 AND foobars.properties.`$feature/test` <= 10",
+            ),
+            (
+                "not_between",
+                [1, 10],
+                "foobars.properties.`$feature/test` < 1 OR foobars.properties.`$feature/test` > 10"
+                " OR isNull(foobars.properties.`$feature/test`)",
+            ),
+        ]
+    )
+    def test_data_warehouse_property_with_list_values(self, operator: str, value: list, expected: str):
+        expr = self._property_to_expr(
+            {
+                "type": "data_warehouse",
+                "key": "foobars.properties.$feature/test",
+                "value": value,
+                "operator": operator,
+            },
             self.team,
         )
 
-        self.assertIsInstance(expr, ast.Or)
-        self.assertEqual(len(expr.exprs), 2)
-
-        # First expression
-        compare_op_1 = expr.exprs[0]
-        self.assertIsInstance(compare_op_1, ast.CompareOperation)
-        self.assertIsInstance(compare_op_1.left, ast.Field)
-        self.assertEqual(compare_op_1.left.chain, ["foobars", "properties", "$feature/test"])
-        self.assertEqual(compare_op_1.right.value, "control")
-
-        # Second expression
-        compare_op_2 = expr.exprs[1]
-        self.assertIsInstance(compare_op_2, ast.CompareOperation)
-        self.assertIsInstance(compare_op_2.left, ast.Field)
-        self.assertEqual(compare_op_2.left.chain, ["foobars", "properties", "$feature/test"])
-        self.assertEqual(compare_op_2.right.value, "test")
+        self.assertEqual(expr, self._parse_expr(expected))
 
     def test_revenue_analytics_property(self):
         self.assertEqual(
@@ -2012,6 +2045,22 @@ class TestProperty(BaseTest):
             ),
         )
 
+        # semver_neq with a list must drop a row that equals any listed version. An OR join keeps
+        # that row, because the row differs from the other listed versions.
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_neq", "value": ["1.2.3", "2.0.0"]}
+            ),
+            ast.And(
+                exprs=[
+                    self._property_to_expr(
+                        {"type": "person", "key": "app_version", "operator": "semver_neq", "value": version}
+                    )
+                    for version in ("1.2.3", "2.0.0")
+                ]
+            ),
+        )
+
     def test_property_to_expr_semver_validation(self):
         version_gate = "match(person.properties.version, '^\\\\s*v?(0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*)(?:[-+][^\\\\s]*)?\\\\s*$')"
 
@@ -2227,7 +2276,7 @@ class TestProperty(BaseTest):
     def test_every_negative_operator_is_known(self):
         # A negative operator missing from operator_is_negative silently negates per element on
         # array properties and loses its lowercase index hint, so the name pattern pins the set.
-        by_name = {op for op in PropertyOperator if op.value.startswith(("not_", "is_not"))}
+        by_name = {op for op in PropertyOperator if "not" in op.value.split("_") or op.value.endswith("_neq")}
         assert {op for op in PropertyOperator if operator_is_negative(op)} == by_name
 
     def test_flag_evaluates_to_produces_neutral_expr(self):
@@ -2438,9 +2487,9 @@ class TestProperty(BaseTest):
             self._property_to_expr(self._behavioral_filter(event_type="actions", key="999999"))
 
     def test_behavioral_performed_event_with_action(self):
-        action = Action.objects.create(team=self.team, steps_json=[{"event": "$pageview"}])
+        action = create_action(team=self.team, steps_json=[{"event": "$pageview"}])
         self.assertEqual(
-            self._property_to_expr(self._behavioral_filter(event_type="actions", key=str(action.pk))),
+            self._property_to_expr(self._behavioral_filter(event_type="actions", key=str(action.id))),
             self._parse_expr(
                 "person_id IN (SELECT person_id FROM events WHERE {action}"
                 " AND timestamp > now() - toIntervalDay(30) GROUP BY person_id)",
@@ -2450,14 +2499,16 @@ class TestProperty(BaseTest):
 
     def test_behavioral_property_in_action_step_raises(self):
         # Compiling one would re-enter action_to_expr until Python's recursion limit
-        action = Action.objects.create(team=self.team, steps_json=[{"event": "$pageview"}])
-        action.steps_json = [
-            {
-                "event": "$pageview",
-                "properties": [self._behavioral_filter(event_type="actions", key=str(action.pk))],
-            }
-        ]
-        action.save()
+        action = create_action(team=self.team, steps_json=[{"event": "$pageview"}])
+        action = update_action(
+            action,
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [self._behavioral_filter(event_type="actions", key=str(action.id))],
+                }
+            ],
+        )
         with self.assertRaises(QueryError):
             action_to_expr(action)
 
@@ -2483,7 +2534,7 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
                 "string_empty_prop",
                 "",
                 PropertyType.String,
-                False if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED,
+                self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED,
             ),
             ("string_null_literal_prop", "null", PropertyType.String, self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED),
             ("string_null_prop", None, PropertyType.String, False),
@@ -2768,7 +2819,7 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
     EVENT = "purchase"
     SCORED_EVENT = "scored"
     EXCEPTION_EVENT = "exception"
-    ARRAYS_WITHOUT_MATCH = {"types_missing", "types_empty", "types_nonmatch_only"}
+    ARRAYS_WITHOUT_MATCH = {"types_missing", "types_empty", "types_nonmatch_only", "types_versions"}
     ARRAYS_WITH_MATCH = {"types_match_only", "types_mixed"}
 
     @classmethod
@@ -2805,6 +2856,7 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
             ("types_match_only", ["ReferenceError"]),
             ("types_nonmatch_only", ["OtherError"]),
             ("types_mixed", ["ReferenceError", "OtherError"]),
+            ("types_versions", ["1.2.3", "2.0.0"]),
         ]:
             _create_event(
                 team=cls.team,
@@ -2851,6 +2903,11 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
             ),
             ("event_is_not_set", {"type": "event", "key": "plan", "operator": "is_not_set"}, {"missing"}),
             (
+                "event_is_cleaned_path_not_exact",
+                {"type": "event", "key": "plan", "value": ["free"], "operator": "is_cleaned_path_not_exact"},
+                {"present_nonmatch", "missing"},
+            ),
+            (
                 "person_multi_value_not_icontains_personless",
                 {"type": "person", "key": "email", "value": ["@a.com", "@b.com"], "operator": "not_icontains"},
                 {"present_nonmatch", "present_match", "missing"},
@@ -2879,6 +2936,7 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
             ("not_regex",),
             ("not_starts_with",),
             ("not_ends_with",),
+            ("is_cleaned_path_not_exact",),
         ]
     )
     def test_multi_value_negative_operator_drops_row_matching_any_value(self, operator: str):
@@ -2972,6 +3030,11 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
                 ARRAYS_WITHOUT_MATCH,
             ),
             ("is_not_set", {"operator": "is_not_set"}, {"types_missing", "types_empty"}),
+            (
+                "semver_neq",
+                {"value": "1.2.3", "operator": "semver_neq"},
+                (ARRAYS_WITHOUT_MATCH - {"types_versions"}) | ARRAYS_WITH_MATCH,
+            ),
             # positive baseline: the mixed row holds a match, so it belongs on this side and only this side
             (
                 "icontains_multi_value",

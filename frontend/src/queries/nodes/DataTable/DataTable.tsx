@@ -2,16 +2,17 @@ import './DataTable.scss'
 
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumn, Sorting } from 'lib/lemon-ui/LemonTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
@@ -24,6 +25,7 @@ import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { SupportTracesFilters } from '~/queries/nodes/DataNode/SupportTracesFilters'
 import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
 import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
+import { buildSampleTable } from '~/queries/nodes/DataTable/buildSampleTable'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { DataTableCount } from '~/queries/nodes/DataTable/DataTableCount'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
@@ -43,6 +45,7 @@ import {
     orderByForSelectKey,
     removeAsAlias,
     removeExpressionComment,
+    sortingForOrderBy,
 } from '~/queries/nodes/DataTable/utils'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
@@ -55,6 +58,7 @@ import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropert
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { SessionPropertyFilters } from '~/queries/nodes/SessionsNode/SessionPropertyFilters'
 import { TracesSearch } from '~/queries/nodes/TracesQuery/TracesSearch'
+import { isActorsQuery, isHogQLQuery } from '~/queries/schema/node-guards'
 import {
     ActorsQuery,
     AnyResponseType,
@@ -73,11 +77,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {
-    isActorsQuery,
     isEventsQuery,
     isGroupsQuery,
     isHogQLAggregation,
-    isHogQLQuery,
     isInsightActorsQuery,
     isMarketingAnalyticsTableQuery,
     isSessionsQuery,
@@ -135,6 +137,7 @@ const eventGroupTypes = [
     TaxonomicFilterGroupType.EventFeatureFlags,
 ]
 const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFilterGroupType.PersonProperties]
+const accountUsersGroupTypes = [TaxonomicFilterGroupType.PersonProperties]
 const sessionGroupTypes = [
     TaxonomicFilterGroupType.HogQLExpression,
     TaxonomicFilterGroupType.SessionProperties,
@@ -177,11 +180,13 @@ export function DataTable({
         query: query.source,
         key: context?.dataNodeLogicKey ?? vizKey,
         cachedResults: cachedResults,
+        retainResponseOnUnmount: insightProps.retainResponseOnUnmount,
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
         refresh: context?.refresh,
         maxPaginationLimit: context?.dataTableMaxPaginationLimit,
         maxPaginationRows: context?.dataTableMaxPaginationRows,
         limitContext: context?.limitContext,
+        captureQueryTelemetry: context?.dataTableCaptureQueryTelemetry,
     }
     const {
         response,
@@ -194,11 +199,18 @@ export function DataTable({
         newDataLoading,
         highlightedRows,
         backToSourceQuery,
+        canLoadNextData,
     } = useValues(dataNodeLogic(dataNodeLogicProps))
     const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
+    const onLoadingChange = context?.onLoadingChange
+    useEffect(() => {
+        onLoadingChange?.(responseLoading)
+        return () => onLoadingChange?.(false)
+    }, [onLoadingChange, responseLoading])
+
     const preComputeStrategy = response && 'preComputeStrategy' in response ? response.preComputeStrategy : undefined
     const usedWebAnalyticsPreAggregatedTables =
         canUseWebAnalyticsPreAggregatedTables &&
@@ -209,6 +221,8 @@ export function DataTable({
     // Lazy precompute can be on without the v2 pre-agg flag, so it surfaces a
     // badge regardless of `canUseWebAnalyticsPreAggregatedTables`.
     const usedWebAnalyticsLazyPrecompute = preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute
+    const preComputedAt = response && 'preComputedAt' in response ? response.preComputedAt : undefined
+    const preComputeStale = response && 'preComputeStale' in response ? response.preComputeStale : undefined
 
     const dataTableLogicProps: DataTableLogicProps = {
         query,
@@ -272,6 +286,11 @@ export function DataTable({
         [sourceFeatures, columnsInResponse, columnsInQuery]
     )
     const contextColumns = context?.columns
+    const columnFormatsRef = useRef<(string | null)[] | undefined>(undefined)
+    columnFormatsRef.current =
+        isHogQLQuery(query.source) && response && 'column_formats' in response
+            ? (response.column_formats as (string | null)[] | undefined)
+            : undefined
     const columnsInLemonTable = useMemo(
         () =>
             allColumns.filter((colName) => {
@@ -279,6 +298,15 @@ export function DataTable({
                 return !col?.queryContextColumn?.hidden
             }),
         [allColumns, contextColumns]
+    )
+    const sampleRowsSource = context?.dataTableSampleRows
+    const hasRows = !!dataTableRows?.length
+    const sampleTable = useMemo(
+        () =>
+            sampleRowsSource && !hasRows
+                ? buildSampleTable(sampleRowsSource, columnsInLemonTable, query, context, dayjs())
+                : undefined,
+        [sampleRowsSource, hasRows, columnsInLemonTable, query, context]
     )
     const orderByForKey = useCallback(
         (key: string): string => {
@@ -289,6 +317,40 @@ export function DataTable({
         },
         [sourceFeatures, query.source]
     )
+    const setSorting = useCallback(
+        (newSorting: Sorting | null) => {
+            const direction = newSorting?.order === -1 ? 'DESC' : 'ASC'
+            const orderBy = !newSorting
+                ? []
+                : isMarketingAnalyticsTableQuery(query.source)
+                  ? createMarketingAnalyticsOrderBy(newSorting.columnKey, direction)
+                  : [
+                        direction === 'DESC'
+                            ? `${orderByForKey(newSorting.columnKey)}\n DESC`
+                            : orderByForKey(newSorting.columnKey),
+                    ]
+            setQuery?.({
+                ...query,
+                source: {
+                    ...query.source,
+                    orderBy,
+                } as EventsQuery,
+            })
+        },
+        [query, setQuery, orderByForKey]
+    )
+    const sortOnHeaderClick = !!context?.dataTableSortOnHeaderClick
+    const sorting = useMemo((): Sorting | null => {
+        if (!canSort || !sortOnHeaderClick) {
+            return null
+        }
+        if (isMarketingAnalyticsTableQuery(query.source)) {
+            const [columnKey, direction] = query.source.orderBy?.[0] ?? []
+            return columnKey ? { columnKey, order: direction === 'DESC' ? -1 : 1 } : null
+        }
+        const source = query.source as EventsQuery
+        return sortingForOrderBy(source.orderBy, columnsInLemonTable, source.select ?? [])
+    }, [canSort, sortOnHeaderClick, query.source, columnsInLemonTable])
     const rowFillFractionIndex = allColumns.findIndex((colName) => {
         const col = getContextColumn(colName, context?.columns)
         return col?.queryContextColumn?.isRowFillFraction
@@ -322,7 +384,9 @@ export function DataTable({
     )
 
     const groupTypes = isActorsQuery(query.source)
-        ? personGroupTypes
+        ? query.source.source?.kind === NodeKind.AccountUsersQuery
+            ? accountUsersGroupTypes
+            : personGroupTypes
         : isSessionsQuery(query.source)
           ? sessionGroupTypes
           : eventGroupTypes
@@ -334,9 +398,17 @@ export function DataTable({
         () =>
             [
                 ...columnsInLemonTable.map((key, index) => {
+                    const sortable =
+                        !isReadOnly &&
+                        showActions &&
+                        canSort &&
+                        key !== 'person.$delete' &&
+                        key !== 'person' &&
+                        columnFeatures.includes(ColumnFeature.canSort)
+                    const sortableInHeader = sortable && sortOnHeaderClick
                     return {
                         dataIndex: key as any,
-                        ...renderColumnMeta(key, query, context),
+                        ...renderColumnMeta(key, query, context, { showSortingIndicator: !sortableInHeader }),
                         render: function RenderDataTableColumn(
                             _: any,
                             { result, label }: DataTableRow,
@@ -355,10 +427,21 @@ export function DataTable({
                                 const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
                                     ? (result as any[])[index]
                                     : (result as Record<string, any>)[key]
-                                return renderColumn(key, value, result, recordIndex, rowCount, query, setQuery, context)
+                                return renderColumn(
+                                    key,
+                                    value,
+                                    result,
+                                    recordIndex,
+                                    rowCount,
+                                    query,
+                                    setQuery,
+                                    context,
+                                    columnFormatsRef.current?.[index]
+                                )
                             }
                         },
-                        sorter: undefined, // using custom sorting code
+                        // Sorting runs in the query, so LemonTable only handles header clicks
+                        sorter: sortableInHeader ? (true as const) : undefined,
                         cellActions:
                             sourceFeatures.has(QueryFeature.campaignMappingActions) && !!getMappableColumn(key)
                                 ? (_: unknown, record: DataTableRow) => {
@@ -404,7 +487,7 @@ export function DataTable({
                                         <>
                                             <LemonDivider />
                                             <TaxonomicPopover
-                                                groupType={TaxonomicFilterGroupType.HogQLExpression}
+                                                groupType={groupTypes[0]}
                                                 value={key}
                                                 groupTypes={groupTypes}
                                                 metadataSource={query.source}
@@ -460,62 +543,27 @@ export function DataTable({
                                             />
                                         </>
                                     )}
-                                    {canSort &&
-                                    key !== 'person.$delete' &&
-                                    key !== 'person' &&
-                                    columnFeatures.includes(ColumnFeature.canSort) ? (
+                                    {sortable ? (
                                         <>
                                             <LemonDivider />
                                             <LemonButton
                                                 fullWidth
                                                 data-attr="datatable-sort-asc"
-                                                onClick={() => {
-                                                    const orderBy =
-                                                        query.source.kind === NodeKind.MarketingAnalyticsTableQuery
-                                                            ? createMarketingAnalyticsOrderBy(key, 'ASC')
-                                                            : [orderByForKey(key)]
-                                                    setQuery?.({
-                                                        ...query,
-                                                        source: {
-                                                            ...query.source,
-                                                            orderBy,
-                                                        } as EventsQuery,
-                                                    })
-                                                }}
+                                                onClick={() => setSorting({ columnKey: key, order: 1 })}
                                             >
                                                 Sort ascending
                                             </LemonButton>
                                             <LemonButton
                                                 fullWidth
                                                 data-attr="datatable-sort-desc"
-                                                onClick={() => {
-                                                    const orderBy =
-                                                        query.source.kind === NodeKind.MarketingAnalyticsTableQuery
-                                                            ? createMarketingAnalyticsOrderBy(key, 'DESC')
-                                                            : [`${orderByForKey(key)}\n DESC`]
-                                                    setQuery?.({
-                                                        ...query,
-                                                        source: {
-                                                            ...query.source,
-                                                            orderBy,
-                                                        } as EventsQuery,
-                                                    })
-                                                }}
+                                                onClick={() => setSorting({ columnKey: key, order: -1 })}
                                             >
                                                 Sort descending
                                             </LemonButton>
                                             <LemonButton
                                                 fullWidth
                                                 data-attr="datatable-reset-sort"
-                                                onClick={() => {
-                                                    setQuery?.({
-                                                        ...query,
-                                                        source: {
-                                                            ...query.source,
-                                                            orderBy: [],
-                                                        } as EventsQuery,
-                                                    })
-                                                }}
+                                                onClick={() => setSorting(null)}
                                             >
                                                 Reset sorting
                                             </LemonButton>
@@ -526,7 +574,7 @@ export function DataTable({
                                         <>
                                             <LemonDivider />
                                             <TaxonomicPopover
-                                                groupType={TaxonomicFilterGroupType.HogQLExpression}
+                                                groupType={groupTypes[0]}
                                                 value=""
                                                 groupTypes={groupTypes}
                                                 metadataSource={query.source}
@@ -570,7 +618,7 @@ export function DataTable({
                                                 }}
                                             />
                                             <TaxonomicPopover
-                                                groupType={TaxonomicFilterGroupType.HogQLExpression}
+                                                groupType={groupTypes[0]}
                                                 value=""
                                                 groupTypes={groupTypes}
                                                 metadataSource={query.source}
@@ -741,6 +789,8 @@ export function DataTable({
             columnsInQuery,
             columnsInResponse,
             orderByForKey,
+            setSorting,
+            sortOnHeaderClick,
         ]
     )
 
@@ -971,6 +1021,7 @@ export function DataTable({
                 fileNameForExport={context?.fileNameForExport}
                 excludedColumns={context?.dataTableExportExcludedColumns}
                 downloadQuery={context?.dataTableExportQuery}
+                iconOnly={context?.dataTableExportIconOnly}
             />
         ) : null,
         showExport && showOpenEditorButton ? (
@@ -1011,7 +1062,12 @@ export function DataTable({
                     {context?.compactDataTableToolbar ? (
                         <>
                             {compactToolbarLeft.length > 0 || compactToolbarRight.length > 0 ? (
-                                <div className="flex gap-2 items-center flex-wrap">
+                                <div
+                                    className={clsx(
+                                        'flex gap-2 items-center flex-wrap',
+                                        context?.dataTableToolbarClassName
+                                    )}
+                                >
                                     {compactToolbarLeft}
                                     {compactToolbarLeft.length > 0 && compactToolbarRight.length > 0 ? (
                                         <div className="flex-1" />
@@ -1054,6 +1110,7 @@ export function DataTable({
                             )}
                         </>
                     )}
+                    {context?.dataTableBelowToolbar}
                     {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (
                         <div className="absolute right-0 z-10 p-1">{editorButton}</div>
                     ) : null}
@@ -1068,6 +1125,8 @@ export function DataTable({
                                 <PreAggregatedBadge
                                     variant="precomputed"
                                     onDisable={context?.onDisableWebAnalyticsPrecompute}
+                                    computedAt={preComputedAt}
+                                    stale={preComputeStale}
                                 />
                             ) : usedWebAnalyticsPreAggregatedTables ? (
                                 <PreAggregatedBadge variant="preagg" />
@@ -1077,7 +1136,12 @@ export function DataTable({
                                 className="DataTable"
                                 allowContentScroll={context?.dataTableAllowContentScroll}
                                 stickyHeader={context?.dataTableStickyHeader}
-                                loading={responseLoading && !nextDataLoading && !newDataLoading}
+                                loading={
+                                    responseLoading &&
+                                    !nextDataLoading &&
+                                    !newDataLoading &&
+                                    !context?.externalLoadingIndicator
+                                }
                                 columns={lemonColumns}
                                 tableLayout={context?.tableLayout}
                                 tableStyle={context?.tableStyle}
@@ -1091,10 +1155,11 @@ export function DataTable({
                                 rowKey={(_, rowIndex) => {
                                     return rowIndex
                                 }}
-                                sorting={null}
+                                sorting={sorting}
+                                onSort={setSorting}
                                 useURLForSorting={false}
                                 emptyState={
-                                    responseError ? (
+                                    context?.externalLoadingIndicator && responseLoading ? null : responseError ? (
                                         sourceFeatures.has(QueryFeature.displayResponseError) ? (
                                             <InsightErrorState
                                                 query={query}
@@ -1126,6 +1191,7 @@ export function DataTable({
                                             detail={context?.emptyStateDetail}
                                             icon={context?.emptyStateIcon}
                                             sampleDataVariant="table"
+                                            sampleTable={sampleTable}
                                             insightProps={insightProps}
                                         />
                                     )
@@ -1146,8 +1212,15 @@ export function DataTable({
                                 footer={
                                     (dataTableRows ?? []).length > 0 &&
                                     (context?.showLoadNextButton ||
-                                        !sourceFeatures.has(QueryFeature.hideLoadNextButton)) ? (
-                                        <LoadNext query={query.source} nouns={context?.dataTableNouns} />
+                                        !sourceFeatures.has(QueryFeature.hideLoadNextButton)) &&
+                                    (!context?.dataTableHideLoadNextWhenComplete ||
+                                        canLoadNextData ||
+                                        nextDataLoading) ? (
+                                        <LoadNext
+                                            query={query.source}
+                                            nouns={context?.dataTableNouns}
+                                            expectedTotalRows={context?.dataTableExpectedTotalRows}
+                                        />
                                     ) : null
                                 }
                                 nouns={context?.dataTableNouns}

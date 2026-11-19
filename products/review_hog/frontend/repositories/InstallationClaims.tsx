@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconGithub } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { GitHubAccountCard } from 'lib/components/RepositoryList/GitHubAccountCard'
+
 import type { ReviewInstallationApi } from 'products/review_hog/frontend/generated/api.schemas'
 
 import { projectName } from './repositoryChoices'
@@ -11,12 +13,12 @@ import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 
 function claimHint(installation: ReviewInstallationApi): string {
     if (installation.scope === 'all') {
-        return 'Every repository, including ones created later, except the ones another project selected. Only one project can take all repositories of a GitHub account.'
+        return 'Includes future repositories. Repositories selected by another project stay there.'
     }
     if (installation.scope === 'selected') {
-        return 'Only the repositories included below. New repositories are not reviewed until you include them. Each repository belongs to one project.'
+        return 'Add repositories below to review them.'
     }
-    return 'This project reviews no repository here yet. Pick all repositories, or only selected ones and include them below.'
+    return 'Choose which repositories to review.'
 }
 
 function InstallationClaim({ installation }: { installation: ReviewInstallationApi }): JSX.Element {
@@ -26,11 +28,10 @@ function InstallationClaim({ installation }: { installation: ReviewInstallationA
     const scope: ClaimScopeChoice = installation.scope ?? 'none'
 
     return (
-        <div className="flex flex-wrap items-center gap-3 rounded border border-primary bg-surface-primary px-4 py-2.5">
-            <IconGithub className="size-6 shrink-0" />
-            <div className="flex min-w-0 flex-1 basis-72 flex-col gap-0.5">
-                <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-semibold">This project reviews {installation.account_name}:</span>
+        <GitHubAccountCard
+            title={
+                <>
+                    <span className="text-sm font-semibold">{installation.account_name}</span>
                     <LemonSelect<ClaimScopeChoice>
                         size="small"
                         aria-label={`Repositories of ${installation.account_name} this project reviews`}
@@ -50,10 +51,10 @@ function InstallationClaim({ installation }: { installation: ReviewInstallationA
                         disabledReason={claimSaving ? 'Saving…' : editDisabledReason}
                         data-attr="review-hog-installation-claim"
                     />
-                </div>
-                <span className="text-xs text-secondary">{claimHint(installation)}</span>
-            </div>
-        </div>
+                </>
+            }
+            hint={claimHint(installation)}
+        />
     )
 }
 
@@ -75,9 +76,7 @@ export function InstallationClaims(): JSX.Element {
     if (installations.length === 0) {
         return (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-primary bg-surface-primary px-4 py-3">
-                <span className="text-sm text-secondary">
-                    Connect GitHub to choose which repositories this project reviews.
-                </span>
+                <span className="text-sm text-secondary">Connect GitHub to add repositories.</span>
                 <LemonButton
                     type="primary"
                     size="small"

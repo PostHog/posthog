@@ -17,6 +17,12 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from products.review_hog.backend.facade.contracts import (
+    FindingOutcome,
+    FindingOutcomeMethod,
+    FindingReactionSentiment,
+    ReviewIssueCategory,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import (
     DropDisposition,
@@ -28,27 +34,13 @@ from products.review_hog.backend.reviewer.models.issues_review import (
 from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE
-from products.signals.backend.artefact_schemas import (
+from products.signals.backend.facade.report_artefacts import (
     ArtefactContentValidationError,
     CodeReference,
     Commit,
     NoteArtefact,
     TaskRunArtefact,
 )
-
-# Mirrors `IssueValidation.category` (the live LLM contract); redefined here so the durable
-# artefact shape doesn't drift with the regenerated review-tool schema.
-ReviewIssueCategory = Literal[
-    "bug",
-    "security",
-    "performance",
-    "code_quality",
-    "best_practice",
-    "documentation",
-    "testing",
-    "accessibility",
-    "compatibility",
-]
 
 
 class ReviewIssueFinding(BaseModel):
@@ -155,24 +147,19 @@ class FindingOutcomeArtefact(BaseModel):
 
     issue_key: str = Field(description="The `ReviewIssueFinding.issue_key` this outcome rules on.")
     run_index: int = Field(description="The review turn whose published head was compared against the merge.")
-    outcome: Literal["addressed", "reacted", "ignored"] = Field(description="The finding's classified fate.")
-    method: Literal[
-        "judge_confirmed",
-        "judge_rejected",
-        "comment_reply",
-        # A reply from an agent other than ReviewHog itself. Engagement like `comment_reply`, kept
-        # apart so "a human responded" stays answerable as agents take over more of the replying.
-        "comment_reply_agent",
-        "comment_reaction",
-        "no_signal",
-        # A line-proximity candidate the judge never ruled on: the report exhausted its per-report
-        # judge budget. Counts as `ignored` like `no_signal` (no evidence it was addressed), but is
-        # named apart so consumers can tell "nothing touched it" from "we did not look".
-        "judge_budget_exhausted",
-        # The judge was asked and errored. Also `ignored`, and also named apart: a rate of these is
-        # a health signal about the judge, not about how the PR's authors respond to review.
-        "judge_failed",
-    ] = Field(description="Which signal decided the outcome.")
+    outcome: FindingOutcome = Field(description="The finding's classified fate.")
+    method: FindingOutcomeMethod = Field(description="Which signal decided the outcome.")
+    reaction_sentiment: FindingReactionSentiment | None = Field(
+        default=None,
+        description="The tone of the reactions people and other agents left on the finding's comment, or None without one.",
+    )
+    reply_excerpt: str | None = Field(
+        default=None, description="The start of the first reply to the finding's comment that ReviewHog did not write."
+    )
+    comment_outdated: bool | None = Field(
+        default=None,
+        description="Whether GitHub marked the finding's comment outdated at merge, or None when no comment matched.",
+    )
     reviewed_head: str = Field(description="The head the finding was published at (the compare base).")
     final_head: str = Field(description="The PR branch tip at merge (the compare head).")
     judge_reasoning: str | None = Field(
@@ -327,7 +314,14 @@ class PRSnapshotArtefact(BaseModel):
     )
     merge_base_sha: str | None = Field(
         default=None,
-        description="The commit GitHub computes the PR diff against. Fetched for single-agent turns only.",
+        description="The commit GitHub computes the PR diff against. None when GitHub did not return it.",
+    )
+    skipped_paths: list[str] = Field(
+        default_factory=list, description="The changed files the review left out (lock, generated, test files)."
+    )
+    devex_lens_files: list[str] = Field(
+        default_factory=list,
+        description="The changed files the devex team owns, the scope of the devex lens session. Empty on a turn without it.",
     )
 
 
@@ -346,6 +340,23 @@ class TurnMarkerArtefact(BaseModel):
     reviewhog_fingerprint: str = Field(description="Short hash of the turn's mode, model pins, prompts, and skills.")
     fingerprint_inputs: dict[str, Any] = Field(
         default_factory=dict, description="The payload the fingerprint hashes (prompt and skill texts as hashes)."
+    )
+    # The fields below are None on markers written before they existed.
+    publishes: bool | None = Field(default=None, description="Whether the turn posts its result to the PR.")
+    base_branch: str | None = Field(default=None, description="The base branch the reviewed diff was taken against.")
+    base_sha: str | None = Field(default=None, description="The merge base the reviewed diff was taken against.")
+    skipped_paths: list[str] | None = Field(
+        default=None, description="The changed files the turn left out of the review."
+    )
+    review_design: str | None = Field(
+        default=None, description="The design the turn ran on (pipeline or single_agent)."
+    )
+    clean_full_coverage: bool | None = Field(
+        default=None,
+        description=(
+            "Set when a Standard automatic turn finished: true when it kept no valid finding, read every file, "
+            "and reviewed the PR without capping the lens parts. None on every other turn."
+        ),
     )
 
 

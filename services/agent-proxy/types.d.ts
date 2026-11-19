@@ -17,7 +17,8 @@ declare module 'ioredis' {
         quit(): Promise<string>
         // ioredis v4 disconnect() is synchronous and returns void (not a Promise).
         disconnect(): void
-        duplicate(): Redis
+        duplicate(options?: { lazyConnect?: boolean }): Redis
+        once(event: string, listener: (...args: any[]) => void): this
         on(event: string, listener: (...args: any[]) => void): this
         get(key: string): Promise<string | null>
         set(key: string, value: string | number, ...args: any[]): Promise<any>

@@ -22,7 +22,8 @@ from posthog.ingress.verify.schemes import HmacSignature, SignatureScheme
 # and the consumer reads the exact name off the payload.
 VERCEL_BILLING_EVENT = "marketplace.invoice"
 VERCEL_DEAUTHORIZATION_EVENT = "integration-configuration.removed"
-VERCEL_EVENT_TYPES = frozenset({VERCEL_BILLING_EVENT, VERCEL_DEAUTHORIZATION_EVENT})
+VERCEL_TRANSFER_EVENT = "integration-configuration.transferred"
+VERCEL_EVENT_TYPES = frozenset({VERCEL_BILLING_EVENT, VERCEL_DEAUTHORIZATION_EVENT, VERCEL_TRANSFER_EVENT})
 
 VERCEL_SIGNATURE_HEADER = "x-vercel-signature"
 

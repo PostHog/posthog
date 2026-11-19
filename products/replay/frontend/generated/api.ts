@@ -9,15 +9,17 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    PaginatedSessionRecordingListApi,
     PaginatedSessionRecordingPlaylistListApi,
     PatchedSessionRecordingApi,
     PatchedSessionRecordingPlaylistApi,
     SessionRecordingApi,
     SessionRecordingBulkDeleteRequestApi,
     SessionRecordingBulkDeleteResponseApi,
+    SessionRecordingConsoleLogsResponseApi,
+    SessionRecordingListResponseApi,
     SessionRecordingPlaylistApi,
     SessionRecordingPlaylistsListParams,
+    SessionRecordingsConsoleLogsRetrieveParams,
     SessionRecordingsListParams,
 } from './api.schemas'
 
@@ -244,8 +246,8 @@ export const sessionRecordingsList = async (
     projectId: string,
     params?: SessionRecordingsListParams,
     options?: RequestInit
-): Promise<PaginatedSessionRecordingListApi> => {
-    return apiMutator<PaginatedSessionRecordingListApi>(getSessionRecordingsListUrl(projectId, params), {
+): Promise<SessionRecordingListResponseApi> => {
+    return apiMutator<SessionRecordingListResponseApi>(getSessionRecordingsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -311,6 +313,45 @@ export const sessionRecordingsDestroy = async (projectId: string, id: string, op
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getSessionRecordingsConsoleLogsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: SessionRecordingsConsoleLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/session_recordings/${id}/console_logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/session_recordings/${id}/console_logs/`
+}
+
+/**
+ * Returns the browser console messages captured during a recording, oldest first.
+ * @summary List console logs of a session recording
+ */
+export const sessionRecordingsConsoleLogsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: SessionRecordingsConsoleLogsRetrieveParams,
+    options?: RequestInit
+): Promise<SessionRecordingConsoleLogsResponseApi> => {
+    return apiMutator<SessionRecordingConsoleLogsResponseApi>(
+        getSessionRecordingsConsoleLogsRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getSessionRecordingsBulkDeleteCreateUrl = (projectId: string) => {

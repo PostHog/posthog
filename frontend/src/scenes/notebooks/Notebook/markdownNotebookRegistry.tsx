@@ -42,6 +42,7 @@ import {
     useEffect,
     useMemo,
     useRef,
+    useState,
 } from 'react'
 import { useInView } from 'react-intersection-observer'
 
@@ -65,16 +66,15 @@ import {
     NotebookPropValue,
 } from 'lib/components/MarkdownNotebook/types'
 import { getSerializableProps, isNotebookPropValue } from 'lib/components/MarkdownNotebook/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { uuid } from 'lib/utils/dom'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookNodeGeneratedWidget'
+import { notebookExportLogic } from 'products/notebooks/frontend/notebookExportLogic'
 import { NotebookGeneratedWidgetRunButton } from 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookGeneratedWidgetRunButton'
 
 import { NODE_ICONS } from '../nodeIcons'
@@ -252,7 +252,6 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     { tagName: 'Dashboard', category: 'Insight' },
     { tagName: 'Action', category: 'Data' },
     { tagName: 'Workflow', category: 'PostHog' },
-    // The sandbox-kernel Python cell; insertion gated like SQLV2 in getMarkdownRegistryForFeatureFlags.
     {
         tagName: 'PythonV2',
         category: 'Code',
@@ -277,8 +276,6 @@ export const MARKDOWN_NODE_DEFINITIONS: {
             },
         },
     },
-    // insertCommand makes it show in the markdown insert menu; the feature-flag gate in
-    // getMarkdownRegistryForFeatureFlags strips it when revamped-py-notebooks is off.
     {
         tagName: 'SQLV2',
         category: 'SQL',
@@ -405,41 +402,8 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
     },
 ])
 
-// Node tags that only appear in the markdown insert menu when their feature flag is on.
-// Only insertion is gated — rendering of already-inserted nodes is never gated.
-export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet): NotebookComponentRegistry {
-    const hiddenTags: string[] = []
-    if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
-        hiddenTags.push('SQLV2', 'PythonV2')
-    }
-    if (!featureFlags[FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]) {
-        hiddenTags.push('Widget')
-    }
-
-    if (hiddenTags.length === 0) {
-        return NOTEBOOK_MARKDOWN_REGISTRY
-    }
-
-    // Dropping insertCommand hides the node from the insert menu (it filters falsy
-    // insertCommand), while the ViewComponent stays so existing nodes still render.
-    const components = { ...NOTEBOOK_MARKDOWN_REGISTRY.components }
-    for (const tagName of hiddenTags) {
-        const definition = components[tagName]
-        if (definition) {
-            components[tagName] = { ...definition, insertCommand: undefined }
-        }
-    }
-    return { components }
-}
-
-// The editor's built-in insert commands live outside the registry, so hiding a node's tag is not
-// enough to keep it out of the menu: a built-in that inserts the same tag has to be dropped by key.
-export function getHiddenInsertCommandKeysForFeatureFlags(featureFlags: FeatureFlagsSet): string[] {
-    // The built-in SQL command inserts a legacy `<Query>` HogQL cell, which SQLV2 replaces: it runs
-    // through the sandbox, names a dataframe other cells can reference, and keeps run history.
-    // Offering both would put two entries labeled "SQL" in the menu.
-    return featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] ? [QUERY_SQL_INSERT_COMMAND_KEY] : []
-}
+// The built-in SQL command inserts a legacy Query cell; SQLV2 supplies the notebook's SQL command.
+export const NOTEBOOK_HIDDEN_INSERT_COMMAND_KEYS = [QUERY_SQL_INSERT_COMMAND_KEY]
 
 export function getMarkdownNotebookNodeTitle(
     node: NotebookComponentBlockNode,
@@ -786,6 +750,27 @@ export function RealNotebookNodeComponent({
     )
 }
 
+const scrollContainersByNotebook = new WeakMap<Element, Element | null>()
+
+function findScrollContainer(element: Element): Element | null {
+    const notebook = element.closest('.MarkdownNotebook')
+    const cached = notebook ? scrollContainersByNotebook.get(notebook) : undefined
+    if (cached !== undefined) {
+        return cached
+    }
+    let container: Element | null = null
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+        if (/auto|scroll|overlay/.test(getComputedStyle(parent).overflowY)) {
+            container = parent
+            break
+        }
+    }
+    if (notebook) {
+        scrollContainersByNotebook.set(notebook, container)
+    }
+    return container
+}
+
 export function MountedRealNotebookNodeComponent({
     node,
     mode,
@@ -802,17 +787,27 @@ export function MountedRealNotebookNodeComponent({
     options: CreatePostHogWidgetNodeOptions<any>
 }): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
+    const { preparingPrint } = useValues(notebookExportLogic({ shortId: mountedNotebookLogic.props.shortId }))
     const contentRef = useRef<HTMLDivElement | null>(null)
+    const [scrollContainer, setScrollContainer] = useState<Element | null | undefined>(undefined)
     const { ref: inViewRef, inView } = useInView({
         triggerOnce: !options.unmountWhenOutOfView,
         fallbackInView: true,
+        // The observer clips targets to every scrolling ancestor, so the margin only reaches beyond
+        // the visible area when the notebook's own scroll container is the root.
+        ...(options.deferUntilInView
+            ? { root: scrollContainer, rootMargin: '100% 0px', skip: scrollContainer === undefined }
+            : {}),
     })
     const setContentRefs = useCallback(
         (element: HTMLDivElement | null): void => {
             contentRef.current = element
             inViewRef(element)
+            if (element && options.deferUntilInView) {
+                setScrollContainer(findScrollContainer(element))
+            }
         },
-        [inViewRef]
+        [inViewRef, options.deferUntilInView]
     )
     const attributes = useMemo(
         () => getNodeAttributes(node.props, node.id, options, notebookNodeType, forceEditing),
@@ -882,13 +877,16 @@ export function MountedRealNotebookNodeComponent({
     const showSettings = forceEditing && Settings
     const showContent = !editOnly
     const isNotebookEditable = (notebookMode ?? mode) === 'edit'
+    const isInsightEditorView = notebookNodeType === NotebookNodeType.Query && attributes.view === 'editor'
     const isResizeable =
         isNotebookEditable &&
+        !isInsightEditorView &&
         (typeof options.resizeable === 'function' ? options.resizeable(attributes) : (options.resizeable ?? true))
-    const contentStyle: CSSProperties | undefined =
-        isResizeable || attributes.height
-            ? { height: attributes.height ?? options.heightEstimate, minHeight: options.minHeight }
-            : undefined
+    const contentStyle: CSSProperties | undefined = isInsightEditorView
+        ? { height: 'auto' }
+        : isResizeable || attributes.height
+          ? { height: attributes.height ?? options.heightEstimate, minHeight: options.minHeight }
+          : undefined
     // Nodes that declare their own minHeight (e.g. LaTeX) size to their content instead of the 8rem default
     const nodeStyle: CSSProperties | undefined =
         options.minHeight !== undefined
@@ -976,7 +974,7 @@ export function MountedRealNotebookNodeComponent({
                             style={contentStyle}
                             onMouseDown={handleResizeStart}
                         >
-                            {!options.unmountWhenOutOfView || inView ? (
+                            {preparingPrint || !(options.unmountWhenOutOfView || options.deferUntilInView) || inView ? (
                                 <Component attributes={attributes} updateAttributes={updateAttributes} />
                             ) : (
                                 <LemonSkeleton className="h-full w-full" />

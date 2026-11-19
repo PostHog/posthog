@@ -136,6 +136,11 @@ export interface CertificationCreateApi {
     proposed_status?: ProposedStatusEnumApi
 }
 
+export interface MetricAvailabilityApi {
+    /** Whether the project has any live metric, counted before per-table access checks. */
+    has_metrics: boolean
+}
+
 /**
  * * `user` - user
  * * `ai_generated` - ai_generated
@@ -167,7 +172,7 @@ export interface DataCatalogMetricApi {
      */
     display_name?: string
     /**
-     * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+     * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put the query's design decisions in 'reasoning'.
      * @maxLength 300
      */
     description: string
@@ -177,10 +182,10 @@ export interface DataCatalogMetricApi {
      */
     unit?: string
     /**
-     * Email of the human accountable for this metric, or null.
+     * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
      * @nullable
      */
-    readonly owner: string | null
+    owner?: string | null
     /**
      * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
      * @nullable
@@ -197,6 +202,11 @@ export interface DataCatalogMetricApi {
     readonly status: string
     /** True when the definition has drifted from its linked source insight (or the insight is gone). */
     readonly is_drifted: boolean
+    /**
+     * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+     * @nullable
+     */
+    readonly match_reason: string | null
     /** @nullable */
     readonly approved_at: string | null
     /** User who approved this metric as canonical, or null. */
@@ -222,14 +232,7 @@ export interface DataCatalogMetricApi {
      * @maxLength 128
      */
     ai_model?: string
-    /**
-     * AI author's confidence in the proposal, 0-1.
-     * @minimum 0
-     * @maximum 1
-     * @nullable
-     */
-    confidence?: number | null
-    /** AI author's reasoning, surfaced as review context. */
+    /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
     reasoning?: string
     /** User who first created this metric. */
     readonly created_by: UserBasicApi
@@ -245,6 +248,134 @@ export interface PaginatedDataCatalogMetricListApi {
     /** @nullable */
     previous?: string | null
     results: DataCatalogMetricApi[]
+}
+
+/**
+ * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+ * @nullable
+ */
+export type DataCatalogMetricCreateApiDefinition = { [key: string]: unknown } | null
+
+/**
+ * Create input. ``overwrite`` exists only here, because PATCH addresses an existing metric by its URL name.
+ */
+export interface DataCatalogMetricCreateApi {
+    readonly id: string
+    /**
+     * Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving.
+     * @maxLength 128
+     * @pattern ^[A-Za-z][A-Za-z0-9_]*$
+     */
+    name: string
+    /**
+     * Human-friendly label. Mutable, unlike name.
+     * @maxLength 255
+     */
+    display_name?: string
+    /**
+     * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put the query's design decisions in 'reasoning'.
+     * @maxLength 300
+     */
+    description: string
+    /**
+     * Unit of the result, e.g. usd, percent, cents.
+     * @maxLength 64
+     */
+    unit?: string
+    /**
+     * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
+     * @nullable
+     */
+    owner?: string | null
+    /**
+     * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+     * @nullable
+     */
+    definition?: DataCatalogMetricCreateApiDefinition
+    /**
+     * Query kind of the definition (HogQLQuery, TrendsQuery, ...), or null for a stub.
+     * @nullable
+     */
+    readonly definition_kind: string | null
+    /** Tables the definition directly references, extracted at write time for the catalog's denied-table filter. */
+    readonly referenced_table_names: unknown
+    /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
+    readonly status: string
+    /** True when the definition has drifted from its linked source insight (or the insight is gone). */
+    readonly is_drifted: boolean
+    /**
+     * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+     * @nullable
+     */
+    readonly match_reason: string | null
+    /** @nullable */
+    readonly approved_at: string | null
+    /** User who approved this metric as canonical, or null. */
+    readonly approved_by: UserBasicApi | null
+    /**
+     * Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition.
+     * @maxLength 12
+     * @nullable
+     */
+    source_insight_short_id?: string | null
+    /**
+     * When the metric was last run (30-minute throttle).
+     * @nullable
+     */
+    readonly last_run_at: string | null
+    /** Whether a human ('user') or an agent ('ai_generated') authored this metric.
+     *
+     * * `user` - user
+     * * `ai_generated` - ai_generated */
+    created_source?: CreatedSourceEnumApi
+    /**
+     * Model that generated the metric, if AI-authored.
+     * @maxLength 128
+     */
+    ai_model?: string
+    /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
+    reasoning?: string
+    /** User who first created this metric. */
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** Replace the fields of the live metric that already holds this name. When false, a taken name returns 409 with code 'metric_name_taken' and the existing metric stays unchanged. Overwriting an approved metric with a changed name, description, unit, or definition resets it to 'proposed'. */
+    overwrite?: boolean
+}
+
+/**
+ * The live metric that holds the name a create was sent with.
+ */
+export interface DataCatalogMetricNameConflictExistingApi {
+    /** Name of the existing metric. */
+    name: string
+    /** Lifecycle state of the existing metric: 'proposed' or 'approved'. */
+    status: string
+}
+
+export interface DataCatalogMetricNameConflictExtraApi {
+    /** The metric that holds the name. Send overwrite true to replace it. */
+    existing_metric: DataCatalogMetricNameConflictExistingApi
+}
+
+/**
+ * The 409 body of a create whose name a live metric already holds.
+ */
+export interface DataCatalogMetricNameConflictApi {
+    /** Error class the API attaches to every error body. */
+    type: string
+    /** Always 'metric_name_taken'. */
+    code: string
+    /** Human-readable reason, safe to show as is. */
+    detail: string
+    /**
+     * Always null: the conflict is not tied to one field.
+     * @nullable
+     */
+    attr: string | null
+    /** Absent when the existing metric is hidden from the caller because it reads a table they cannot access. */
+    extra?: DataCatalogMetricNameConflictExtraApi
 }
 
 /**
@@ -267,7 +398,7 @@ export interface PatchedDataCatalogMetricApi {
      */
     display_name?: string
     /**
-     * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+     * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put the query's design decisions in 'reasoning'.
      * @maxLength 300
      */
     description?: string
@@ -277,10 +408,10 @@ export interface PatchedDataCatalogMetricApi {
      */
     unit?: string
     /**
-     * Email of the human accountable for this metric, or null.
+     * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
      * @nullable
      */
-    readonly owner?: string | null
+    owner?: string | null
     /**
      * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
      * @nullable
@@ -297,6 +428,11 @@ export interface PatchedDataCatalogMetricApi {
     readonly status?: string
     /** True when the definition has drifted from its linked source insight (or the insight is gone). */
     readonly is_drifted?: boolean
+    /**
+     * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+     * @nullable
+     */
+    readonly match_reason?: string | null
     /** @nullable */
     readonly approved_at?: string | null
     /** User who approved this metric as canonical, or null. */
@@ -322,20 +458,21 @@ export interface PatchedDataCatalogMetricApi {
      * @maxLength 128
      */
     ai_model?: string
-    /**
-     * AI author's confidence in the proposal, 0-1.
-     * @minimum 0
-     * @maximum 1
-     * @nullable
-     */
-    confidence?: number | null
-    /** AI author's reasoning, surfaced as review context. */
+    /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
     reasoning?: string
     /** User who first created this metric. */
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
+}
+
+/**
+ * Input for approving one metric.
+ */
+export interface DataCatalogMetricApproveRequestApi {
+    /** The metric's `updated_at` as last seen by the approver. When the metric changed since then, the API returns 409 and leaves it proposed. Omit to approve the current version. */
+    expected_updated_at?: string
 }
 
 /**
@@ -348,10 +485,9 @@ export interface PatchedDataCatalogMetricApi {
  * * `quarter` - quarter
  * * `year` - year
  */
-export type DataCatalogMetricRunRequestIntervalEnumApi =
-    (typeof DataCatalogMetricRunRequestIntervalEnumApi)[keyof typeof DataCatalogMetricRunRequestIntervalEnumApi]
+export type IntervalTypeEnumApi = (typeof IntervalTypeEnumApi)[keyof typeof IntervalTypeEnumApi]
 
-export const DataCatalogMetricRunRequestIntervalEnumApi = {
+export const IntervalTypeEnumApi = {
     Second: 'second',
     Minute: 'minute',
     Hour: 'hour',
@@ -380,7 +516,12 @@ export interface DataCatalogMetricRunRequestApi {
      * * `month` - month
      * * `quarter` - quarter
      * * `year` - year */
-    interval?: DataCatalogMetricRunRequestIntervalEnumApi
+    interval?: IntervalTypeEnumApi
+    /**
+     * Rows to skip, to read the page after a run that returned has_more. Pass next_offset from that run. Only HogQLQuery metrics accept it. Runs made with a personal or project API key are rejected.
+     * @minimum 0
+     */
+    offset?: number
     /** Client-supplied id to correlate or cancel the run. */
     query_id?: string
 }
@@ -417,13 +558,23 @@ export interface DataCatalogMetricRunApi {
     compiled_query: string | null
     /** Async query status, when the run is not blocking. */
     query_status: unknown
-    /** True when the query hit its row limit and more rows exist. Narrow the window or the interval and run the metric again. A HogQLQuery metric fixes its window in SQL and rejects those overrides, so report the window the definition itself covers, or ask for a parameterized metric. Either way, do not re-derive the series by hand. False whenever row_limit is null, because no row cap was reported for that run. */
+    /** True when the query hit its row limit and more rows exist. Run the metric again with offset set to next_offset, and repeat until has_more is false. Do not re-derive the rows by hand. False whenever row_limit is null, because no row cap was reported for that run. */
     has_more: boolean
     /**
      * Row limit applied to this run. Null when no row cap was reported: a markdown metric, an insight or trends query, or a HogQL metric that sets its own LIMIT or uses a UNION. This field cannot verify the completeness of those runs.
      * @nullable
      */
     row_limit: number | null
+    /**
+     * Offset that returns the next page of rows. Null when has_more is false, or when the run reached the page limit (see paging_stopped_reason). Pages follow the definition's ORDER BY, so rows that tie on every ORDER BY column can move between pages.
+     * @nullable
+     */
+    next_offset: number | null
+    /**
+     * Why paging stopped while has_more is still true: a metric run returns at most 10 pages. Report the result as partial. Null when paging can continue or the rows are complete.
+     * @nullable
+     */
+    paging_stopped_reason: string | null
     /**
      * Deep link to open the query in the app (SQL editor or insight).
      * @nullable
@@ -437,9 +588,121 @@ export interface DataCatalogMetricRunApi {
 }
 
 /**
- * Input for the bulk metric actions: the metric names to act on.
+ * Direct runs of the metric in the window, keyed by the surface that ran it: web, api, mcp, slack, posthog_ai, or posthog_code. Scout runs are not included.
  */
-export interface DataCatalogMetricBulkNamesRequestApi {
+export type MetricRunCountsApiDirectRuns = { [key: string]: number }
+
+export interface MetricRunCountsApi {
+    /** ID of the catalog metric. */
+    metric_id: string
+    /** Direct runs of the metric in the window, keyed by the surface that ran it: web, api, mcp, slack, posthog_ai, or posthog_code. Scout runs are not included. */
+    direct_runs: MetricRunCountsApiDirectRuns
+    /** Distinct people who ran the metric directly, without scouts. */
+    direct_people: number
+    /** Direct runs by scouts (scheduled agents), kept apart because one scout can run a metric many times a day. */
+    scout_runs: number
+}
+
+/**
+ * * `serves` - Serves
+ * * `slice` - Slice
+ * * `different` - Different
+ */
+export type JudgeRelationEnumApi = (typeof JudgeRelationEnumApi)[keyof typeof JudgeRelationEnumApi]
+
+export const JudgeRelationEnumApi = {
+    Serves: 'serves',
+    Slice: 'slice',
+    Different: 'different',
+} as const
+
+export interface AdjustedRunApi {
+    /** ID of the catalog metric the agent query re-derived. */
+    metric_id: string
+    /** True when the agent read this metric in the catalog before it wrote the query. */
+    read_metric_first: boolean
+    /** serves: the query computes the metric. slice: it computes the metric with an extra filter. Never different: the scan drops the queries the judge marks different.
+     *
+     * * `serves` - Serves
+     * * `slice` - Slice
+     * * `different` - Different */
+    relation: JudgeRelationEnumApi
+    /** What the agent said it was trying to answer. */
+    intent: string
+    /** The SQL the agent ran. */
+    sql: string
+    /** Why the judge matched the query to the metric. */
+    reasoning: string
+    /** When the agent ran the query. */
+    occurred_at: string
+    /**
+     * Agent conversation of the query, when known: the session id of the conversation's first piece. Every query in one conversation carries the same id.
+     * @nullable
+     */
+    session_id: string | null
+    /** True when a scout (scheduled agent) ran the query. */
+    is_scout: boolean
+}
+
+/**
+ * * `metric_runs` - Metric runs
+ * * `conversations` - Conversations
+ * * `adjusted_runs` - Adjusted runs
+ * * `topics` - Topics
+ * * `table_sources` - Table sources
+ * * `uncovered` - Uncovered
+ */
+export type UsageSectionEnumApi = (typeof UsageSectionEnumApi)[keyof typeof UsageSectionEnumApi]
+
+export const UsageSectionEnumApi = {
+    MetricRuns: 'metric_runs',
+    Conversations: 'conversations',
+    AdjustedRuns: 'adjusted_runs',
+    Topics: 'topics',
+    TableSources: 'table_sources',
+    Uncovered: 'uncovered',
+} as const
+
+export interface SectionFailureApi {
+    /** The payload section whose step failed.
+     *
+     * * `metric_runs` - Metric runs
+     * * `conversations` - Conversations
+     * * `adjusted_runs` - Adjusted runs
+     * * `topics` - Topics
+     * * `table_sources` - Table sources
+     * * `uncovered` - Uncovered */
+    section: UsageSectionEnumApi
+    /** Why the scan step failed. */
+    reason: string
+}
+
+export interface MetricUsageApi {
+    /** ID of the catalog metric. */
+    metric_id: string
+    /** The usage scan these numbers come from. */
+    snapshot_id: string
+    /** Start of the scanned window. */
+    window_start: string
+    /** End of the scanned window. */
+    window_end: string
+    /**
+     * When the scan finished.
+     * @nullable
+     */
+    computed_at: string | null
+    /** Run counts. Null when the metric had no runs. */
+    runs: MetricRunCountsApi | null
+    /** Agent queries that re-derived the metric. is_scout marks the ones a scout ran. */
+    adjusted_runs: AdjustedRunApi[]
+    /** Failed sections that these numbers read, so a missing count is not a zero. */
+    failed_sections: SectionFailureApi[]
+}
+
+/**
+ * Input for giving many metrics one owner.
+ */
+export interface DataCatalogMetricBulkChangeOwnerRequestApi {
     /**
      * Names of the metrics to act on, at most 100. Duplicates are collapsed.
      * @minItems 1
@@ -447,6 +710,11 @@ export interface DataCatalogMetricBulkNamesRequestApi {
      * @items.maxLength 128
      */
     names: string[]
+    /**
+     * Email of the member of this organization who becomes the owner of every named metric, or null to clear the owner. Changing the owner keeps each metric's approval.
+     * @nullable
+     */
+    owner: string | null
 }
 
 /**
@@ -457,6 +725,29 @@ export interface DataCatalogMetricBulkSkipApi {
     name: string
     /** Why it was skipped, e.g. 'Not found', 'Already approved', 'Drifted from its source insight'. */
     reason: string
+}
+
+/**
+ * Outcome of a bulk owner change: what changed, and what was left alone.
+ */
+export interface DataCatalogMetricBulkChangeOwnerApi {
+    /** The metrics that now have the new owner, freshly serialized. */
+    updated: DataCatalogMetricApi[]
+    /** Requested metrics whose owner did not change, with reasons. */
+    skipped: DataCatalogMetricBulkSkipApi[]
+}
+
+/**
+ * Input for the bulk metric actions: the metric names to act on.
+ */
+export interface DataCatalogMetricBulkNamesRequestApi {
+    /**
+     * Names of the metrics to act on, at most 100. Duplicates are collapsed.
+     * @minItems 1
+     * @maxItems 100
+     * @items.maxLength 128
+     */
+    names: string[]
 }
 
 /**
@@ -477,6 +768,15 @@ export interface DataCatalogMetricBulkDeleteApi {
     deleted: string[]
     /** Requested metrics that were not deleted, with reasons. */
     skipped: DataCatalogMetricBulkSkipApi[]
+}
+
+export interface PendingReviewCountsApi {
+    /** Proposed metrics you can see that wait for approval. */
+    metrics: number
+    /** Proposed joins that wait to be accepted or rejected. */
+    relationships: number
+    /** Proposed certifications that wait for review. */
+    certifications: number
 }
 
 export interface DataCatalogRelationshipProposalApi {
@@ -551,6 +851,288 @@ export interface RelationshipRejectApi {
     rejection_reason?: string
 }
 
+/**
+ * * `computing` - Computing
+ * * `done` - Done
+ * * `error` - Error
+ */
+export type UsageSnapshotStatusEnumApi = (typeof UsageSnapshotStatusEnumApi)[keyof typeof UsageSnapshotStatusEnumApi]
+
+export const UsageSnapshotStatusEnumApi = {
+    Computing: 'computing',
+    Done: 'done',
+    Error: 'error',
+} as const
+
+export interface UsageSnapshotSummaryApi {
+    /** ID of the usage scan. */
+    id: string
+    /** computing while the scan runs, then done or error.
+     *
+     * * `computing` - Computing
+     * * `done` - Done
+     * * `error` - Error */
+    status: UsageSnapshotStatusEnumApi
+    /** Why the scan failed, when status is error. */
+    error_message: string
+    /** Start of the scanned window. */
+    window_start: string
+    /** End of the scanned window. */
+    window_end: string
+    /** Model that judged adjusted runs in this scan. */
+    judge_model: string
+    /**
+     * When the scan finished.
+     * @nullable
+     */
+    computed_at: string | null
+    /** When the scan started. */
+    created_at: string
+}
+
+export interface TopicCoverageApi {
+    /** Sessions that asked for a metric and found one that fits. */
+    metric: number
+    /** Sessions that asked for a metric, found none, and found a table or view description that fits. */
+    table: number
+    /** Sessions that asked for a metric and found neither. */
+    nothing: number
+}
+
+export interface TopicClusterApi {
+    /** Short name of the subject. 'Other' holds the sessions that fit no topic. */
+    title: string
+    /** One sentence on what the topic covers. */
+    description: string
+    /** Agent sessions in the topic. Scout sessions are not included. */
+    session_count: number
+    /** Distinct people behind the topic's sessions. */
+    people: number
+    /** What the sessions that asked for a metric ended up with. */
+    coverage: TopicCoverageApi
+}
+
+export interface TopicDefinitionApi {
+    /** Short name of the subject. */
+    title: string
+    /** One sentence on what the topic covers. */
+    description: string
+}
+
+export interface TopicSessionCountsApi {
+    /** Sampled sessions that calculated or compared data. */
+    analysis: number
+    /** Sampled sessions that read or checked specific things. */
+    lookup: number
+    /** Sampled sessions from a scheduled or repeated job. */
+    automation: number
+    /** Sampled sessions whose intents did not show what they did with data. */
+    unclear: number
+    /** Sampled sessions that the model failed to read. */
+    unread: number
+    /** Analysis sessions whose coverage check failed. They count as a metric only after a direct run. */
+    coverage_unchecked: number
+}
+
+export interface TableSourceApi {
+    /** Name of the table or view, as the agent's search returned it. */
+    name: string
+    /** Sessions in the window that found its description and then queried it. */
+    sessions: number
+    /** Distinct people behind those sessions. */
+    people: number
+}
+
+/**
+ * * `covered` - Covered
+ * * `slice` - Slice
+ * * `uncovered` - Uncovered
+ */
+export type ShapeOutcomeEnumApi = (typeof ShapeOutcomeEnumApi)[keyof typeof ShapeOutcomeEnumApi]
+
+export const ShapeOutcomeEnumApi = {
+    Covered: 'covered',
+    Slice: 'slice',
+    Uncovered: 'uncovered',
+} as const
+
+export interface UncoveredGroupApi {
+    /** Stable ID of the measure the queries compute. */
+    fingerprint_digest: string
+    /** Readable description of the measure. */
+    measure: string
+    /** covered: a catalog metric computes it. slice: a catalog metric computes it without the extra filters. uncovered: no catalog metric computes it.
+     *
+     * * `covered` - Covered
+     * * `slice` - Slice
+     * * `uncovered` - Uncovered */
+    outcome: ShapeOutcomeEnumApi
+    /**
+     * The matching catalog metric, for covered and slice.
+     * @nullable
+     */
+    matched_metric_id: string | null
+    /** People who wrote the measure or created a chart of it, directly or through an agent. Without scouts. */
+    distinct_people: number
+    /** Runs of the measure that a person saw, in the web app or an agent session. At least the built count. */
+    views: number
+    /** Times a person or an agent wrote the measure, plus one per chart, notebook query or canvas query. */
+    built: number
+    /** One query that computes the measure. */
+    sample_sql: string
+    /**
+     * Proposed metric name, when one was drafted.
+     * @nullable
+     */
+    draft_name: string | null
+    /**
+     * Proposed metric description, when one was drafted.
+     * @nullable
+     */
+    draft_description: string | null
+    /**
+     * Proposed HogQL definition, when one was drafted.
+     * @nullable
+     */
+    draft_definition: string | null
+    /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
+    complexity: number
+}
+
+export interface ChartSourceApi {
+    /** Short ID of the saved chart, for a link to it. */
+    insight_short_id: string
+    /** Name of the saved chart. */
+    insight_name: string
+    /**
+     * The dashboard that ran the chart, if any.
+     * @nullable
+     */
+    dashboard_id: number | null
+    /**
+     * Name of the dashboard, if any.
+     * @nullable
+     */
+    dashboard_name: string | null
+    /** Distinct people whose visit ran the chart. Viewers count. */
+    people: number
+}
+
+export interface SurfaceSourceApi {
+    /** The web app area that ran the query. Empty when it is unknown. */
+    product: string
+    /** Distinct people who ran the query there. */
+    people: number
+    /** Query runs from that area. */
+    runs: number
+}
+
+export interface AgentSourceApi {
+    /** Distinct people whose agents ran the query, without scouts. */
+    people: number
+    /** Agent sessions that ran the query, without scouts. */
+    sessions: number
+    /** Query runs by agents, without scouts. */
+    runs: number
+}
+
+export interface ProposedMetricApi {
+    /** Proposed metric name. */
+    name: string
+    /** What the proposed metric counts. */
+    description: string
+    /** Proposed HogQL definition. */
+    definition: string
+    /** Recurring measures that this proposal merges. */
+    measures: number
+    /** Distinct people across the measures, without scouts. */
+    people: number
+    /** Runs of the measure that a person saw, in the web app or an agent session. At least the built count. */
+    views: number
+    /** Times a person or an agent wrote the most-built measure in the proposal, as on a measure. */
+    built: number
+    /** The saved charts with the most people. */
+    charts: ChartSourceApi[]
+    /** Saved charts that are not listed in charts. */
+    other_charts: number
+    /** Web app areas that ran it outside a saved chart. */
+    surfaces: SurfaceSourceApi[]
+    /** Agent use, or null when no agent ran it. */
+    agents: AgentSourceApi | null
+    /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
+    complexity: number
+}
+
+export interface UsageSnapshotPayloadApi {
+    /**
+     * Run counts per metric. Null until the scan counts runs.
+     * @nullable
+     */
+    metric_runs: MetricRunCountsApi[] | null
+    /**
+     * Agent queries that re-derived a metric. Null until judged.
+     * @nullable
+     */
+    adjusted_runs: AdjustedRunApi[] | null
+    /**
+     * Agent session topics. Null until grouped.
+     * @nullable
+     */
+    topics: TopicClusterApi[] | null
+    /**
+     * The whole topic list that the next scan keeps, including topics with no sessions in this scan. Null until grouped.
+     * @nullable
+     */
+    topic_definitions: TopicDefinitionApi[] | null
+    /** What the sampled sessions were about, by kind. Null until grouped. */
+    topic_sessions: TopicSessionCountsApi | null
+    /**
+     * Tables and views that agents found by description and then queried. Null until counted.
+     * @nullable
+     */
+    table_sources: TableSourceApi[] | null
+    /**
+     * Recurring query shapes and their catalog outcome. Null until grouped.
+     * @nullable
+     */
+    uncovered: UncoveredGroupApi[] | null
+    /**
+     * Proposed metrics with their sources. Null until drafted.
+     * @nullable
+     */
+    proposed_metrics: ProposedMetricApi[] | null
+    /** Sections whose scan step failed. Each one stays null, and the others keep their results. */
+    failed_sections: SectionFailureApi[]
+}
+
+export interface UsageSnapshotApi {
+    /** ID of the usage scan. */
+    id: string
+    /** computing while the scan runs, then done or error.
+     *
+     * * `computing` - Computing
+     * * `done` - Done
+     * * `error` - Error */
+    status: UsageSnapshotStatusEnumApi
+    /** Why the scan failed, when status is error. */
+    error_message: string
+    /** Start of the scanned window. */
+    window_start: string
+    /** End of the scanned window. */
+    window_end: string
+    /** Model that judged adjusted runs in this scan. */
+    judge_model: string
+    /**
+     * When the scan finished.
+     * @nullable
+     */
+    computed_at: string | null
+    /** When the scan started. */
+    created_at: string
+    /** The scan result, one key per section. */
+    payload: UsageSnapshotPayloadApi
+}
+
 export type DataCatalogCertificationsListParams = {
     /**
      * Number of results to return per page.
@@ -560,9 +1142,21 @@ export type DataCatalogCertificationsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+    /**
+     * Only certifications with this review status.
+     */
+    status?: string
 }
 
 export type DataCatalogMetricsListParams = {
+    /**
+     * Only metrics with this query node kind.
+     */
+    definition_kind?: string
     /**
      * Number of results to return per page.
      */
@@ -571,6 +1165,14 @@ export type DataCatalogMetricsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 20 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
+     */
+    search?: string
+    /**
+     * Only metrics with this review status.
+     */
+    status?: string
 }
 
 export type DataCatalogMetricsRunCreateParams = {
@@ -610,7 +1212,15 @@ export type DataCatalogRelationshipProposalsListParams = {
      */
     offset?: number
     /**
+     * A search term.
+     */
+    search?: string
+    /**
      * Filter by proposed/accepted/rejected.
      */
     status?: string
+    /**
+     * Only relationships involving this table on either side.
+     */
+    table_name?: string
 }

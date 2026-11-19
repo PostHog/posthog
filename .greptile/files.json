@@ -2,7 +2,19 @@
     "files": [
         {
             "path": "AGENTS.md",
-            "description": "Repository conventions: architecture guidelines, code style, commit and PR rules"
+            "description": "Repository conventions: commands, commit and PR rules, security rules, and mandatory skills"
+        },
+        {
+            "path": ".agents/architecture.md",
+            "description": "Architecture guidelines: layering, team scoping, person data, transactions, API schemas, async work, outbound calls, storage, settings"
+        },
+        {
+            "path": ".agents/code-style.md",
+            "description": "Code style for Python, frontend, comments, tests, and Markdown"
+        },
+        {
+            "path": ".agents/ci.md",
+            "description": "CI and GitHub Actions rules"
         },
         {
             "path": "products/warehouse_sources/backend/temporal/data_imports/sources/AGENTS.md",

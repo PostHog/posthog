@@ -14,6 +14,7 @@ import type {
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
 import { SignalScoutConfigNetworkAccessEnumApi } from 'products/signals/frontend/generated/api.schemas'
+import { SandboxCustomImagesListOriginProduct } from 'products/tasks/frontend/generated/api.schemas'
 import { MODELS } from 'products/tasks/frontend/modelCatalog.generated'
 
 import type { ScoutSurface } from '../../../inboxAnalytics'
@@ -34,12 +35,14 @@ import {
     timeToDailyCron,
     weeklyCronToDayTime,
 } from '../../../utils/scoutRunsWindow'
+import { CustomImagePicker } from '../CustomImagePicker'
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
 import { ScoutPrecheckSection } from './ScoutPrecheckSection'
 import { ScoutRepositoriesPicker } from './ScoutRepositoriesPicker'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 import { ScoutStructuredOutputSection } from './ScoutStructuredOutputSection'
 import { ScoutTagsEditor } from './ScoutTagsEditor'
+import { ScoutToolsSection } from './ScoutToolsSection'
 import { ScoutWriteAccessSection } from './ScoutWriteAccessSection'
 
 interface ScoutConfigControlsProps {
@@ -55,7 +58,9 @@ const SCOUT_MODEL_IDS = [
     'claude-opus-5-5',
     'gpt-6-luna',
     'gpt-5.6-luna',
+    'gpt-6.1-terra',
     'gpt-5.6-terra',
+    'gpt-6.1-sol',
     'gpt-6-sol',
     'gpt-5.6-sol',
     'gpt-6-astra',
@@ -210,7 +215,9 @@ export function ScoutConfigForm({
                 <div className="flex items-center justify-between gap-4">
                     <div className="flex flex-col min-w-0">
                         <span className="text-xs text-default">Run time</span>
-                        <span className="text-[11.5px] text-muted">Uses the project timezone ({projectTimezone})</span>
+                        <span className="text-[11.5px] text-muted">
+                            Uses the project timezone ({projectTimezone}). Starts within 20 minutes of this time.
+                        </span>
                     </div>
                     <LemonInput
                         key={config.run_cron_schedule ?? 'unset'}
@@ -304,6 +311,16 @@ export function ScoutConfigForm({
                     />
                 </div>
             ) : null}
+            <CustomImagePicker
+                origin={SandboxCustomImagesListOriginProduct.SignalsScout}
+                value={config.custom_image_id ?? null}
+                onChange={(imageId) => onUpdate(config.id, { custom_image_id: imageId })}
+                label="Image"
+                description="The image this scout's runs start from."
+                defaultLabel="Project default"
+                disabledReason={updating ? 'Saving scout settings' : undefined}
+                dataAttr="scout-custom-image"
+            />
             <div className="flex items-center justify-between gap-4">
                 <div className="flex flex-col min-w-0">
                     <span className="text-xs text-default">Opt out of auto-pause</span>
@@ -346,6 +363,25 @@ export function ScoutConfigForm({
                 </div>
                 <ScoutTagsEditor config={config} onUpdate={onUpdate} updating={updating} />
             </div>
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col min-w-0">
+                    <span className="text-xs text-default">Show in inbox</span>
+                    <span className="text-[11.5px] text-muted">
+                        Turn this off to keep this scout's reports out of the inbox, for example when you read them in
+                        Slack.
+                    </span>
+                </div>
+                <LemonSwitch
+                    size="small"
+                    checked={config.output_destinations?.inbox ?? true}
+                    disabledReason={updating ? 'Saving scout settings' : undefined}
+                    // The update replaces the stored destinations, so resend Slack and the webhook with the flag.
+                    onChange={(checked) =>
+                        onUpdate(config.id, { output_destinations: { ...config.output_destinations, inbox: checked } })
+                    }
+                    aria-label={`${config.skill_name} show in inbox`}
+                />
+            </div>
             <ScoutSlackDestination
                 destination={config.output_destinations?.slack}
                 onChange={(outputDestinations) => onUpdate(config.id, { output_destinations: outputDestinations })}
@@ -383,6 +419,7 @@ export function ScoutConfigForm({
                 updating={updating}
                 onUnsavedChange={setSchemaUnsaved}
             />
+            <ScoutToolsSection config={config} onUpdate={onUpdate} updating={updating} surface={surface} />
             <ScoutWriteAccessSection config={config} onUpdate={onUpdate} updating={updating} />
             {/* Only custom scouts are deletable. A canonical scout would be re-seeded from disk after
                 deletion (and couldn't be re-added from the UI), so its terminal action stays disable. */}

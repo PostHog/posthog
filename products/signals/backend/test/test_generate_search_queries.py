@@ -32,11 +32,13 @@ async def test_generate_search_queries_keeps_the_first_three_without_a_retry(ret
                 source_product="zendesk",
                 source_type="ticket",
                 signal_type_examples=[],
+                signal_id="driver-signal",
             )
         )
 
     assert result == queries[:MAX_SEARCH_QUERIES]
     assert call_llm.call_count == 1
+    assert call_llm.call_args.kwargs["signal_id"] == "driver-signal"
 
 
 @pytest.mark.asyncio
@@ -75,6 +77,8 @@ async def test_activity_preserves_only_signals_that_exhaust_refusal_attempts(ref
     )
     with (
         patch("products.signals.backend.temporal.llm.build_async_anthropic_client", return_value=client),
+        patch("products.signals.backend.trial.reports.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", return_value=None),
         patch("products.signals.backend.temporal.refusal_review.object_storage.read", return_value=None),
         patch("products.signals.backend.temporal.refusal_review.object_storage.write"),
         patch("products.signals.backend.temporal.refusal_review.object_storage.delete"),

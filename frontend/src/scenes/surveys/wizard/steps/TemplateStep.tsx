@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useRef, useState } from 'react'
 
 import {
@@ -25,7 +26,6 @@ import { LemonButton, LemonSegmentedButton, LemonTag, LemonTextArea } from '@pos
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
 import { SURVEY_CREATED_SOURCE, SurveyTemplate, SurveyTemplateMode, SurveyTemplateType } from '../../constants'
@@ -96,7 +96,6 @@ function TemplateCard({ template, onClick, featured }: TemplateCardProps): JSX.E
 export function TemplateStep({ handleCustomizeMore }: { handleCustomizeMore: () => void }): JSX.Element {
     const { coreTemplates, otherTemplates, templateMode } = useValues(surveyWizardLogic)
     const { selectTemplate, setTemplateMode } = useActions(surveyWizardLogic)
-    const { reportSurveyAiPromptSubmitted } = useActions(eventUsageLogic)
     const { handleMaxSurveyCreated } = useActions(surveysLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const hostedEditorEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_HOSTED_EDITOR]
@@ -111,7 +110,7 @@ export function TemplateStep({ handleCustomizeMore }: { handleCustomizeMore: () 
 
     const handleAiSubmit = (): void => {
         if (prompt.trim()) {
-            reportSurveyAiPromptSubmitted(SURVEY_CREATED_SOURCE.SURVEY_WIZARD)
+            posthog.capture('survey AI prompt submitted', { source: SURVEY_CREATED_SOURCE.SURVEY_WIZARD })
             openMax?.()
             setPrompt('')
         }

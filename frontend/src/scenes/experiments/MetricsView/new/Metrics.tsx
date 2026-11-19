@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, Tooltip } from '@posthog/lemon-ui'
 
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
@@ -13,6 +13,7 @@ import { getExperimentVariants, isSavedExperiment, metricResults } from '~/scene
 import { Experiment } from '~/types'
 
 import { SummarizeExperimentButton } from 'products/experiments/frontend/components/SummarizeExperimentButton'
+import { experimentExposuresWindowLogic } from 'products/experiments/frontend/exposures/experimentExposuresWindowLogic'
 import { METRIC_CONTEXTS } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 
 import { HowToReadTooltip } from './HowToReadTooltip'
@@ -32,12 +33,14 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
 }
 
 function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; isSecondary?: boolean }): JSX.Element {
-    const { getInsightType, hasMinimumExposureForResults } = useValues(experimentLogic)
+    useMountedLogic(experimentExposuresWindowLogic({ experiment }))
+    const { hasMinimumExposureForResults } = useValues(experimentLogic)
     const {
         primaryMetricsResults,
         primaryMetricsResultsErrors,
         secondaryMetricsResults,
         secondaryMetricsResultsErrors,
+        recalculationRejectionMessage,
     } = useValues(experimentMetricsLogic({ experiment }))
 
     const type = isSecondary ? 'secondary' : 'primary'
@@ -88,6 +91,11 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                     </div>
                 </div>
             </div>
+            {!isSecondary && recalculationRejectionMessage && (
+                <LemonBanner type="warning" className="mb-2">
+                    {recalculationRejectionMessage}
+                </LemonBanner>
+            )}
             {metrics.length > 0 ? (
                 detailResult ? (
                     <div className="rounded-md border bg-surface-primary overflow-hidden divide-y divide-border">
@@ -96,7 +104,6 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                             results={results}
                             errors={errors}
                             isSecondary={!!isSecondary}
-                            getInsightType={getInsightType}
                             showDetailsModal={false}
                             embedded
                         />
@@ -108,13 +115,7 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                         />
                     </div>
                 ) : (
-                    <MetricsTable
-                        metrics={metrics}
-                        results={results}
-                        errors={errors}
-                        isSecondary={!!isSecondary}
-                        getInsightType={getInsightType}
-                    />
+                    <MetricsTable metrics={metrics} results={results} errors={errors} isSecondary={!!isSecondary} />
                 )
             ) : (
                 <div className="border rounded bg-surface-primary pt-6 pb-8 text-secondary mt-2">

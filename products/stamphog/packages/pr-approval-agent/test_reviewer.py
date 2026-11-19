@@ -143,6 +143,19 @@ def test_prompt_truncates_long_review_body() -> None:
     assert "X" * 2501 not in prompt
 
 
+_COMPLETED_REVIEW = {
+    "state": "completed",
+    "reviewer": "PostHog Review",
+    "review_kind": "Deep",
+    "findings_count": 0,
+    "published": False,
+    "head_sha": "abc123",
+    "base_ref": "master",
+    "base_sha": "mb1",
+    "skipped_paths": [],
+}
+
+
 @pytest.mark.parametrize(
     "assurance,expected",
     [
@@ -160,6 +173,35 @@ def test_prompt_truncates_long_review_body() -> None:
             {"head_approvals": [], "head_commented": 0, "unresolved_threads": 0, "discussion": 0},
             "Assurance: no reviews or comments yet",
             id="nothing-yet",
+        ),
+        pytest.param(
+            {
+                "head_approvals": [],
+                "head_commented": 0,
+                "unresolved_threads": 2,
+                "discussion": 0,
+                "head_review_evidence": [{**_COMPLETED_REVIEW, "findings_count": 2, "published": True}],
+            },
+            "Assurance: PostHog Review (Deep) reviewed the current head: 2 findings, posted on the PR; "
+            "2 unresolved inline threads",
+            id="completed-automated-review",
+        ),
+        pytest.param(
+            {
+                "head_approvals": [],
+                "head_commented": 0,
+                "unresolved_threads": 0,
+                "discussion": 0,
+                "head_review_evidence": [{**_COMPLETED_REVIEW, "skipped_paths": ["a.lock", "b.py", "c.py"]}],
+            },
+            "Assurance: PostHog Review (Deep) reviewed the current head (no findings) but skipped 3 changed "
+            "files, so it does not count as assurance",
+            id="automated-review-with-skipped-files",
+        ),
+        pytest.param(
+            {"head_approvals": [], "head_commented": 0, "unresolved_threads": 0, "every_file_proven": True},
+            "Assurance: a pinned CI check proved every changed file",
+            id="pinned-proof-of-a-bot-pr",
         ),
     ],
 )
@@ -243,6 +285,35 @@ _ON_OWNING_TEAM = {"ownership": {"teams": ["@PostHog/team-core"]}, "author_on_ow
             False,
             "ESCALATE",
             id="claimed-review-github-does-not-show",
+        ),
+        pytest.param(
+            _RISKY_FACTS,
+            {"assurance": {"head_review_evidence": [_COMPLETED_REVIEW]}},
+            False,
+            "APPROVE",
+            id="completed-automated-review-assures",
+        ),
+        pytest.param(
+            _RISKY_FACTS,
+            {
+                "assurance": {
+                    "head_review_evidence": [{**_COMPLETED_REVIEW, "skipped_paths": ["posthog/models/team.py"]}]
+                }
+            },
+            False,
+            "ESCALATE",
+            id="automated-review-skipped-the-risky-file",
+        ),
+        # A risky area is free text, so a skipped file it does not name may still hold the risky part.
+        pytest.param(
+            _RISKY_FACTS,
+            {"assurance": {"head_review_evidence": [{**_COMPLETED_REVIEW, "skipped_paths": ["pnpm-lock.yaml"]}]}},
+            False,
+            "ESCALATE",
+            id="automated-review-skipped-any-file",
+        ),
+        pytest.param(
+            _RISKY_FACTS, {"assurance": {"every_file_proven": True}}, False, "APPROVE", id="pinned-proof-assures"
         ),
     ],
 )
@@ -346,7 +417,7 @@ def test_guidance_unchanged_without_steering(tmp_path: Path, monkeypatch: pytest
 
 
 @pytest.mark.parametrize(
-    "ownership, summary, expected_head",
+    "ownership, summary, unreadable, expected_head",
     [
         # Individual-only ownership must reach the prompt, not collapse to
         # "no ownership-source match", and the team-membership note (computed
@@ -354,13 +425,26 @@ def test_guidance_unchanged_without_steering(tmp_path: Path, monkeypatch: pytest
         (
             {"teams": [], "individuals": ["@handle"]},
             "individually owned by @handle",
+            False,
             "Ownership: individually owned by @handle",
         ),
-        ({"teams": [], "individuals": []}, "", "Ownership: no ownership-source match"),
+        ({"teams": [], "individuals": []}, "", False, "Ownership: no ownership-source match"),
+        (
+            {"teams": [], "individuals": []},
+            "",
+            True,
+            "Ownership: unknown, because the ownership files could not be read at the merge base. Treat"
+            " a rule this PR adds or changes as one that takes paths another team owns.",
+        ),
     ],
 )
-def test_format_ownership_individual_only(ownership: dict, summary: str, expected_head: str) -> None:
-    cl = {"ownership": ownership, "ownership_summary": summary, "author_on_owning_team": False}
+def test_format_ownership_individual_only(ownership: dict, summary: str, unreadable: bool, expected_head: str) -> None:
+    cl = {
+        "ownership": ownership,
+        "ownership_summary": summary,
+        "author_on_owning_team": False,
+        "ownership_unreadable": unreadable,
+    }
     out = Reviewer(Path("."))._format_ownership(cl)
     assert out.splitlines()[0] == expected_head
     assert "NOT on the owning team" not in out
@@ -372,6 +456,7 @@ def test_format_ownership_individual_only(ownership: dict, summary: str, expecte
         ("label", "this repo reviews on request only"),
         ("all", "this repo reviews every pull request automatically"),
         ("self_driving", "dispatched from a self-driving Inbox implementation run"),
+        ("bot_admission", "the repo policy admits this bot author"),
     ],
 )
 def test_prompt_states_why_the_review_was_asked_for(trigger: str, expected: str) -> None:
@@ -420,10 +505,20 @@ def test_prompt_omits_the_invocation_line_without_a_trigger() -> None:
     assert "Invocation:" not in prompt_with({})
 
 
-def test_prompt_provenance_renders_only_for_self_driving_runs() -> None:
-    # The Action never sets the flag, so its prompts must stay byte-identical (absent and False both
-    # render nothing); a self-driving run gets the TRUSTED provenance block that replaces the
-    # human-author trust context the prompt normally leans on.
+@pytest.mark.parametrize(
+    "provenance, expected",
+    [
+        ({"self_driving": True}, "Provenance: this PR was opened by a self-driving implementation task"),
+        (
+            {"admitted_bot": "renovate[bot]"},
+            "Provenance: the author renovate[bot] is a bot that the repo policy admits",
+        ),
+    ],
+)
+def test_prompt_provenance_renders_only_for_a_verified_machine_author(provenance: dict, expected: str) -> None:
+    # The Action never sets either key, so its prompts must stay byte-identical (absent and falsy
+    # both render nothing). A verified machine author gets the TRUSTED provenance block that replaces
+    # the human-author trust context, and without it the prompt's bot-author rule refuses the PR.
     reviewer = Reviewer(Path("."))
 
     def prompt_with(cl_extra: dict) -> str:
@@ -439,15 +534,15 @@ def test_prompt_provenance_renders_only_for_self_driving_runs() -> None:
         }
         return reviewer._build_review_prompt(_pr(), cl, {"gate_verdict": "PENDING", "gates": []}, Path("/tmp/d.patch"))
 
-    assert prompt_with({}) == prompt_with({"self_driving": False})
+    assert prompt_with({}) == prompt_with({"self_driving": False, "admitted_bot": ""})
     assert "Provenance:" not in prompt_with({})
 
-    self_driving_prompt = prompt_with({"self_driving": True})
-    assert "Provenance: this PR was opened by a self-driving implementation task" in self_driving_prompt
+    machine_author_prompt = prompt_with(provenance)
+    assert expected in machine_author_prompt
     # The block is trust guidance, not trust itself — it must sit in the TRUSTED region, above the
     # untrusted PR content. rindex: the anti-injection notice at the top of the prompt also quotes
     # the marker text, so the real delimiter is the last occurrence.
-    assert self_driving_prompt.index("Provenance:") < self_driving_prompt.rindex("--- BEGIN UNTRUSTED CONTENT ---")
+    assert machine_author_prompt.index("Provenance:") < machine_author_prompt.rindex("--- BEGIN UNTRUSTED CONTENT ---")
 
 
 @time_machine.travel("2026-01-01T12:00:00Z", tick=False)

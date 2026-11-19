@@ -2,16 +2,19 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
+import api from 'lib/api'
 import {
     IntegrationChoice,
     IntegrationConfigureProps,
 } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { getIntegrationSetup } from 'lib/components/CyclotronJob/integrations/integrationSetupRegistry'
+import { GitHubInstallRequestsBanner } from 'lib/integrations/GitHubInstallRequestsBanner'
 import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
 import { integrationsLogic, OAUTH_INTEGRATION_ID_PARAM } from 'lib/integrations/integrationsLogic'
 import { describeOAuthCallbackError, INTEGRATION_ERROR_PARAM } from 'lib/integrations/oauthCallbackErrors'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
@@ -41,6 +44,27 @@ export function authorizedIntegrationId(
     return integrations?.some((integration) => integration.id === id && integration.kind === kind) ? id : null
 }
 
+export function sourceOAuthRedirectUrl(sourceKind: string, pathname: string, search: string): string {
+    const searchParams = Object.fromEntries(new URLSearchParams(search))
+    const isOnboarding = pathname.includes('/onboarding')
+    let redirectUrl: string
+    if (isOnboarding) {
+        const params = new URLSearchParams(search)
+        params.set('kind', sourceKind)
+        redirectUrl = `${pathname}?${params.toString()}`
+    } else {
+        redirectUrl = urls.dataWarehouseSourceNew(
+            sourceKind,
+            searchParams.returnUrl,
+            searchParams.returnLabel,
+            searchParams.access_method === 'direct' ? 'direct' : undefined,
+            searchParams.entry_point
+        )
+    }
+
+    return redirectUrl
+}
+
 export function SourceIntegrationChoice({
     sourceConfig,
     integration,
@@ -49,6 +73,8 @@ export function SourceIntegrationChoice({
     ...props
 }: SourceIntegrationChoiceProps): JSX.Element {
     const { saveFormStateBeforeRedirect } = useActions(sourceWizardLogic)
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
+    const { oauthRedirectUrl } = useValues(sourceWizardLogic)
     const { location, searchParams } = useValues(router)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const integrationManagementRestriction = useIntegrationManagementRestriction()
@@ -92,16 +118,8 @@ export function SourceIntegrationChoice({
     // standalone new-source scene would drop the user out of the onboarding flow, so when we're
     // on an onboarding route we return to the current onboarding URL with the source kind instead.
     // InlineSourceSetup reads that kind on mount and resumes the wizard (credentials are restored
-    // from the state saved by beforeRedirect). Outside onboarding the standalone scene is correct.
-    const isOnboarding = location.pathname.includes('/onboarding')
-    let redirectUrl: string
-    if (isOnboarding) {
-        const params = new URLSearchParams(location.search)
-        params.set('kind', sourceKind)
-        redirectUrl = `${location.pathname}?${params.toString()}`
-    } else {
-        redirectUrl = urls.dataWarehouseSourceNew(sourceKind)
-    }
+    // from the state saved by beforeRedirect). Other embedded hosts supply their own return URL.
+    const redirectUrl = oauthRedirectUrl ?? sourceOAuthRedirectUrl(sourceKind, location.pathname, location.search)
 
     return (
         <div className="flex flex-col gap-2">
@@ -113,6 +131,18 @@ export function SourceIntegrationChoice({
                     Only project admins can connect a new {getIntegrationNameFromKind(kind)} account. Ask a project
                     admin to connect it, then pick it here.
                 </LemonBanner>
+            )}
+            {/* A GitHub install by someone who isn't an org owner only sends GitHub a request, and the
+                callback lands back here. The banner holds the message for the owner and resumes once
+                they approve. */}
+            {kind === 'github' && (
+                <GitHubInstallRequestsBanner
+                    finishConnectingUrl={api.integrations.authorizeUrl({ kind, next: redirectUrl })}
+                    onFinishConnecting={() => {
+                        reportIntegrationConnectClicked(kind, kind, 'install_approved_banner')
+                        saveFormStateBeforeRedirect()
+                    }}
+                />
             )}
             <IntegrationChoice
                 {...props}

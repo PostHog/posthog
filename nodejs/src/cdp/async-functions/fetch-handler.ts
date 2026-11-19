@@ -21,6 +21,8 @@ registerAsyncFunction('fetch', {
                 : JSON.stringify(fetchOptions.body)
             : fetchOptions?.body
 
+        const webhookId = fetchOptions?.standard_webhooks || fetchOptions?.hmac_sha256 ? randomUUID() : undefined
+
         // Hog templates targeting AWS services (Kinesis, SQS, …) pass `aws_sigv4`
         // here instead of computing the Authorization header in Hog. The fetch
         // executor re-signs on every attempt so a retry can never carry a stale
@@ -35,17 +37,16 @@ registerAsyncFunction('fetch', {
             body,
             headers: pickBy(headers, (v) => typeof v == 'string'),
             ...(fetchOptions?.aws_sigv4 ? { aws_sigv4: fetchOptions.aws_sigv4 } : {}),
+            ...(fetchOptions?.secret_headers_input ? { secret_headers_input: fetchOptions.secret_headers_input } : {}),
             // Mint the webhook id here, once per fetch call, rather than in the
             // executor: it has to survive every retry of this call (the receiver
             // dedupes on it) and it must not be shared with another fetch from the
             // same invocation, which anything derived from the invocation would be.
             ...(fetchOptions?.standard_webhooks
-                ? {
-                      standard_webhooks: {
-                          ...fetchOptions.standard_webhooks,
-                          webhook_id: randomUUID(),
-                      },
-                  }
+                ? { standard_webhooks: { ...fetchOptions.standard_webhooks, webhook_id: webhookId } }
+                : {}),
+            ...(fetchOptions?.hmac_sha256
+                ? { hmac_sha256: { ...fetchOptions.hmac_sha256, webhook_id: webhookId } }
                 : {}),
         })
 

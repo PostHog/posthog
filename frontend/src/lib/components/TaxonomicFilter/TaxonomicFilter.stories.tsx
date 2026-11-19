@@ -18,7 +18,6 @@ import { type AnyPropertyFilter, AvailableFeature, EntityTypes, PropertyFilterTy
 
 import { infiniteListLogic } from './infiniteListLogic'
 import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
-import { resetEventMatchMemoryForTests } from './taxonomicEventMatchLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
 import { taxonomicFilterCategoryLayoutLogic } from './taxonomicFilterCategoryLayoutLogic'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -578,6 +577,19 @@ export const CategoryDropdown: Story = {
     },
 }
 
+export const EmailSearchQueryHint: Story = {
+    render: CategoryDropdownStoryRender,
+    args: {
+        taxonomicFilterLogicKey: 'email-search-query-hint',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.EmailAddresses],
+        searchQuery: 'sample',
+    },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING],
+        testOptions: { waitForSelector: '.no-infinite-results' },
+    },
+}
+
 export const CategoryRailPinned: Story = {
     render: CategoryRailStoryRender,
     args: CATEGORY_DROPDOWN_ARGS,
@@ -731,6 +743,32 @@ export const FailedFetchOffersRetry: Story = {
     },
 }
 
+export const ForbiddenFetchExplainsAccess: Story = {
+    args: {
+        taxonomicFilterLogicKey: 'feature-flags-forbidden',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.FeatureFlags],
+        groupType: TaxonomicFilterGroupType.FeatureFlags,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/feature_flags': () => [
+                    403,
+                    { detail: 'permission denied', code: 'permission_denied' },
+                ],
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: { waitForSelector: '.no-infinite-results' },
+        docs: {
+            description: {
+                story: 'When the list returns 403, the list explains the missing access and offers no retry, because a retry cannot succeed.',
+            },
+        },
+    },
+}
+
 export const CustomEventName: Story = {
     render: (args) => {
         const { setSearchQuery } = useActions(
@@ -772,7 +810,13 @@ export const CohortsWithRealtimeStates: Story = {
                         name: 'Viewed pricing this week',
                         count: 4321,
                         is_static: false,
-                        realtime: { state: 'ready', ready_at: '2023-07-03T09:40:00Z', build: null },
+                        realtime: {
+                            state: 'ready',
+                            ready_at: '2023-07-03T09:40:00Z',
+                            build: null,
+                            reason: null,
+                            history_limit_days: null,
+                        },
                     },
                     {
                         id: 2,
@@ -783,6 +827,8 @@ export const CohortsWithRealtimeStates: Story = {
                             state: 'building',
                             ready_at: null,
                             build: { phase: 'scanning', percent_complete: 45, updated_at: '2023-07-03T23:58:00Z' },
+                            reason: null,
+                            history_limit_days: null,
                         },
                     },
                     {
@@ -790,7 +836,13 @@ export const CohortsWithRealtimeStates: Story = {
                         name: 'Churn risk',
                         count: 76,
                         is_static: false,
-                        realtime: { state: 'needs_attention', ready_at: null, build: null },
+                        realtime: {
+                            state: 'needs_attention',
+                            ready_at: null,
+                            build: null,
+                            reason: null,
+                            history_limit_days: null,
+                        },
                     },
                     { id: 4, name: 'Beta testers', count: 89, is_static: true, realtime: null },
                     { id: 5, name: 'Signed up last month', count: 1200, is_static: false, realtime: null },
@@ -799,7 +851,6 @@ export const CohortsWithRealtimeStates: Story = {
         }),
     ],
     parameters: {
-        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING],
         // The preparing cohort's tag holds a spinner while its build runs, so the runner cannot
         // wait for every loader to disappear here.
         testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="cohort-realtime-tag"]' },
@@ -847,101 +898,82 @@ export const EmptyEventsWithStaleToggle: Story = {
     },
 }
 
-function EventMatchStoryRender({
-    resetMatches = false,
-    ...args
-}: TaxonomicFilterProps & { resetMatches?: boolean }): JSX.Element {
-    useMountedLogic(actionsModel)
-    const { setSearchQuery } = useActions(
-        taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
-    )
+export const EmptyTabWithJumpsToOtherCategories: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        const { setSearchQuery, setActiveTab } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+        )
 
-    useOnMountEffect(() => {
-        if (resetMatches) {
-            resetEventMatchMemoryForTests()
-        }
-        setSearchQuery('browser capture')
-    })
+        useOnMountEffect(() => {
+            setSearchQuery('plan')
+            setActiveTab(TaxonomicFilterGroupType.Events)
+        })
 
-    return (
-        <div className="w-fit border rounded p-2 bg-surface-primary">
-            <TaxonomicFilter {...args} />
-        </div>
-    )
-}
-
-// No event name matches "browser capture", and the decision model answers with two core events.
-const eventMatchAutocaptureMock = mswDecorator({
-    get: {
-        '/api/projects/:team_id/event_definitions': [],
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
     },
-    post: {
-        '/api/projects/:team_id/taxonomic_search_intent/match_events/': () => [
-            200,
-            {
-                matches: [
-                    { name: '$autocapture', display_name: 'Autocapture', probability: 0.95 },
-                    { name: '$rageclick', display_name: 'Rageclick', probability: 0.74 },
-                ],
-            },
-        ],
-    },
-})
-
-/** A search that matches no event name gets core events the decision model thinks it describes. */
-export const EmptyEventsWithEventMatch: Story = {
-    render: EventMatchStoryRender,
     args: {
-        taxonomicFilterLogicKey: 'events-event-match',
-        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
-    },
-    decorators: [eventMatchAutocaptureMock],
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]: true },
-        testOptions: { waitForSelector: '[data-attr="taxonomic-event-match-suggestion"]' },
-    },
-}
-
-/** The "All" tab gets the same suggestions when no group has a result. */
-export const EmptyAllTabWithEventMatch: Story = {
-    render: EventMatchStoryRender,
-    args: {
-        taxonomicFilterLogicKey: 'all-event-match',
-        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-    },
-    decorators: [eventMatchAutocaptureMock],
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]: true },
-        testOptions: { waitForSelector: '[data-attr="taxonomic-event-match-suggestion"]' },
-    },
-}
-
-/** While the decision model is still answering, the empty state says so. */
-export const EmptyEventsWithEventMatchLoading: Story = {
-    render: (args) => <EventMatchStoryRender {...args} resetMatches />,
-    args: {
-        taxonomicFilterLogicKey: 'events-event-match-loading',
-        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+        taxonomicFilterLogicKey: 'empty-tab-jumps',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
     },
     decorators: [
         mswDecorator({
             get: {
                 '/api/projects/:team_id/event_definitions': [],
             },
-            post: {
-                '/api/projects/:team_id/taxonomic_search_intent/match_events/': async () => {
-                    await delay('infinite')
-                    return [200, { matches: [] }]
-                },
+        }),
+    ],
+    parameters: {
+        // Hidden tabs stay mounted and render the same jumps, so wait for the one on the open tab.
+        testOptions: { waitForSelector: '[data-attr="taxonomic-switch-to-all"] >> visible=true' },
+        docs: {
+            description: {
+                story: 'When the open tab has no results but another category does, the empty state names that category, with a jump to all categories as the fallback.',
+            },
+        },
+    },
+}
+
+export const EmptyTabSearchingACategoryName: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        const { setSearchQuery, setActiveTab } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+        )
+
+        useOnMountEffect(() => {
+            setSearchQuery('person')
+            setActiveTab(TaxonomicFilterGroupType.Events)
+        })
+
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        taxonomicFilterLogicKey: 'empty-tab-category-name',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PersonProperties],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/event_definitions': [],
             },
         }),
     ],
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]: true },
-        // The spinner is the point of this story, so the runner must not wait for it to disappear.
-        testOptions: {
-            waitForSelector: '[data-attr="taxonomic-event-match-loading"]',
-            waitForLoadersToDisappear: false,
+        // Hidden tabs stay mounted and render the same button, so wait for the one on the open tab.
+        testOptions: { waitForSelector: '[data-attr="taxonomic-show-group-person_properties"] >> visible=true' },
+        docs: {
+            description: {
+                story: 'A search for a category name, such as "person", offers to show that whole category.',
+            },
         },
     },
 }
@@ -1021,13 +1053,13 @@ export const SearchIntentSuggestsAnotherTabNarrow: Story = {
     },
 }
 
-/** Every arm: the predicted group moves to the top of the "All" list before the results show. */
+/** Promote arm: the predicted group moves to the top of the "All" list before the results show. */
 export const SearchIntentPromotesGroup: Story = {
     render: (args) => <SearchIntentStoryRender args={args} tab={TaxonomicFilterGroupType.SuggestedFilters} />,
     args: { taxonomicFilterLogicKey: 'search-intent-promotes-group', taxonomicGroupTypes: SEARCH_INTENT_GROUP_TYPES },
     decorators: [searchIntentPersonPropertiesMock],
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_SEARCH_INTENT]: 'control' },
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_SEARCH_INTENT]: 'promote' },
         testOptions: { waitForSelector: SEARCH_INTENT_ALL_TAB_FIRST_ROW },
     },
 }

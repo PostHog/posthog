@@ -23,34 +23,41 @@
             "require": "./dist/index.cjs",
             "default": "./dist/index.js"
         },
+        "./testing": {
+            "types": "./dist/testing/index.d.ts",
+            "import": "./dist/testing.js",
+            "require": "./dist/testing.cjs",
+            "default": "./dist/testing.js"
+        },
         "./package.json": "./package.json"
     },
     "publishConfig": {
         "access": "public"
     },
     "scripts": {
-        "build": "vite build"
+        "build": "vite build && pnpm check:node-import",
+        "check:node-import": "node --input-type=module -e \"await import('./dist/index.js'); await import('./dist/testing.js')\" && node -e \"require('./dist/index.cjs'); require('./dist/testing.cjs')\""
     },
     "dependencies": {
         "@floating-ui/react": "^0.27.19",
-        "@types/d3-shape": "^3.1.6",
+        "@types/d3-shape": "^3.2.0",
         "d3-array": "^3.2.4",
         "d3-color": "^3.1.0",
         "d3-scale": "^4.0.2",
         "d3-shape": "^3.2.0",
         "dayjs": "1.11.11",
-        "simple-statistics": "^7.8.3"
+        "simple-statistics": "^7.11.0"
     },
     "devDependencies": {
         "@posthog/quill-tokens": "workspace:*",
         "@storybook/react": "catalog:",
         "@testing-library/dom": ">=9.3.4",
-        "@testing-library/react": "^14.3.1",
+        "@testing-library/react": "^16.3.3",
         "@types/d3-array": "^3.2.1",
         "@types/d3-color": "^3.1.3",
         "@types/d3-scale": "^4.0.8",
         "@types/jest": "catalog:",
-        "@types/react": "^18.3.27",
+        "@types/react": "^18.3.31",
         "@types/react-dom": "^18.3.7",
         "@vitejs/plugin-react": "catalog:",
         "jest": "^29.7.0",
@@ -59,7 +66,13 @@
         "vite-plugin-dts": "^4.5.4"
     },
     "peerDependencies": {
+        "@testing-library/react": ">=14.3.1",
         "react": "^18.3.1 || ^19.0.0",
         "react-dom": "^18.3.1 || ^19.0.0"
+    },
+    "peerDependenciesMeta": {
+        "@testing-library/react": {
+            "optional": true
+        }
     }
 }

@@ -1,4 +1,4 @@
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
@@ -10,7 +10,74 @@ from rest_framework import status
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
-from products.signals.backend.models import SignalReport, SignalReportAction, SignalScoutConfig, SignalScoutRun
+from products.signals.backend.artefact_schemas import Dismissal
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportAction,
+    SignalReportArtefact,
+    SignalScoutConfig,
+    SignalScoutRun,
+)
+from products.signals.backend.report_actions import resolve_report_from_slack, suppress_report_from_slack
+
+
+class TestSignalReportSlackActions(BaseTest):
+    def test_slack_dismissal_records_its_verdict_once(self) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+
+        outcomes = [
+            suppress_report_from_slack(self.team.id, str(report.id), slack_user_id="slack-user-1", user_id=self.user.id)
+            for _ in range(2)
+        ]
+
+        assert outcomes == ["changed", "unchanged"]
+
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        feedback = Dismissal.model_validate_json(dismissal.content)
+        assert feedback.state == "suppressed"
+        assert feedback.reason == "slack_dismiss"
+        assert feedback.slack_user_id == "slack-user-1"
+
+    def test_slack_resolve_records_its_verdict_once(self) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+
+        outcomes = [
+            resolve_report_from_slack(self.team.id, str(report.id), slack_user_id="slack-user-1", user_id=self.user.id)
+            for _ in range(2)
+        ]
+
+        assert outcomes == ["changed", "unchanged"]
+
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.RESOLVED
+        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        feedback = Dismissal.model_validate_json(dismissal.content)
+        assert feedback.state == "resolved"
+        assert feedback.reason == "slack_resolve"
+        assert feedback.slack_user_id == "slack-user-1"
+
+    @parameterized.expand(
+        [
+            ("potential", SignalReport.Status.POTENTIAL, None),
+            # Monitoring has open checks that only the inbox resolve cancels.
+            ("monitoring", SignalReport.Status.MONITORING, None),
+            # A candidate archived and then resolved would skip research.
+            ("archived_candidate", SignalReport.Status.SUPPRESSED, SignalReport.Status.CANDIDATE),
+        ]
+    )
+    def test_slack_resolve_refuses_a_report_that_cannot_resolve_from_slack(
+        self, _name: str, status: str, status_before_suppression: str | None
+    ) -> None:
+        report = SignalReport.objects.create(
+            team=self.team, status=status, status_before_suppression=status_before_suppression, title="A report"
+        )
+
+        assert resolve_report_from_slack(self.team.id, str(report.id), user_id=self.user.id) == "refused"
+
+        report.refresh_from_db()
+        assert report.status == status
 
 
 class TestSignalReportViewedEndpoint(APIBaseTest):
@@ -181,12 +248,29 @@ class TestSignalReportViewedEndpoint(APIBaseTest):
             if call.kwargs["event"] == "signals_background_report_dismissed"
         ]
 
-    def test_a_suppressed_report_still_records_its_view(self) -> None:
-        # The Dismissed tab renders the same detail view, so its opens must count too instead of
-        # 404ing like mutating-by-ID actions on suppressed reports do.
-        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+    @parameterized.expand(
+        [
+            ("suppressed", SignalReport.Status.SUPPRESSED, False, True),
+            ("monitoring_disabled", SignalReport.Status.MONITORING, False, True),
+            ("monitoring_enabled", SignalReport.Status.MONITORING, True, True),
+        ]
+    )
+    def test_visible_reports_record_their_views(
+        self, _name: str, report_status: str, flag_enabled: bool, visible: bool
+    ) -> None:
+        report = self._create_report(status=report_status)
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=flag_enabled):
+            detail = self.client.get(f"/api/projects/{self.team.pk}/signals/reports/{report.pk}/")
+            response = self.client.post(self._viewed_url(str(report.pk)))
 
-        response = self.client.post(self._viewed_url(str(report.pk)))
-
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert SignalReportAction.objects.for_team(self.team.id).filter(report=report, user=self.user).exists()
+        assert detail.status_code == (status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND)
+        assert response.status_code == (status.HTTP_204_NO_CONTENT if visible else status.HTTP_404_NOT_FOUND)
+        actions = SignalReportAction.objects.for_team(self.team.id).filter(report=report, user=self.user)
+        if visible:
+            action = actions.get()
+            assert action.type == SignalReportAction.ActionType.VIEW
+            assert action.count == 1
+        else:
+            assert not actions.exists()
+        report.refresh_from_db()
+        assert report.status == report_status

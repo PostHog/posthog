@@ -41,10 +41,19 @@ class TestEnrichmentGates(BaseTest):
 
         assert resolve_signup_identity(str(organization.id)) == SignupIdentitySkip(reason="signup_user_left")
 
-    def test_resolve_signup_identity_with_a_generic_email_is_unusable(self):
-        organization = self._org_with_member("founder@gmail.com")
+    @parameterized.expand(
+        [
+            ("generic_provider", "founder@gmail.com"),
+            ("privacy_provider", "founder@proton.me"),
+            ("reserved_domain", "founder@example.com"),
+            ("mixed_case_address_saved_before_normalization", "Founder@Proton.Me"),
+        ]
+    )
+    def test_resolve_signup_identity_without_a_work_email_is_unusable(self, _name, email):
+        organization = self._org_with_member(email)
+        User.objects.filter(id=organization.memberships.get().user_id).update(email=email)
 
-        assert resolve_signup_identity(str(organization.id)) == SignupIdentitySkip(reason="no_usable_member")
+        assert resolve_signup_identity(str(organization.id)) == SignupIdentitySkip(reason="not_work_email")
 
     def test_resolve_signup_identity_with_a_work_email_returns_a_lowercased_identity(self):
         organization = self._org_with_member("Founder@Stripe.com")

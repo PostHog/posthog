@@ -32,8 +32,10 @@ from posthog.models import OrganizationMembership, Team
 
 from products.signals.backend.billing import first_billable_pr_run
 from products.signals.backend.models import SignalReport
+from products.signals.backend.task_profiles import INBOX
 from products.signals.backend.task_run_artefacts import record_implementation_task
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.profiles import SourceKind, TaskSource
 
 _DEFAULT_REPOSITORY = "posthog/posthog"
 
@@ -127,13 +129,13 @@ class Command(BaseCommand):
             team=team,
             title=f"impl: {title}",
             description="Synthetic implementation task seeded for refund testing.",
-            origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+            profile=INBOX,
+            source=TaskSource(kind=SourceKind.SIGNAL_REPORT, id=str(report.id)),
             user_id=user_id,
             repository=repository,
             create_pr=False,
+            ai_stage="implementation",
             start_workflow=False,
-            signal_report_id=str(report.id),
-            internal=False,
         )
         run = created.latest_run
         if run is None:
@@ -162,7 +164,7 @@ class Command(BaseCommand):
         if run_created_at is not None:
             tasks_facade.set_task_run_created_at_for_seeding(run_id, task_id, team.id, created_at=run_created_at)
 
-        billable = first_billable_pr_run(report.id)
+        billable = first_billable_pr_run(report.id, team_id=report.team_id)
         if billable is None:
             raise CommandError(f"Report {report.id} is not billable after seeding — bridge/run wiring broke")
         self.stdout.write(f"  · billable at {billable.created_at.isoformat()} ({billable.pr_url})")

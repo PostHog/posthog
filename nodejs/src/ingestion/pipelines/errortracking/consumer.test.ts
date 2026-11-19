@@ -186,6 +186,7 @@ describe('createErrorTrackingConsumer', () => {
 
         const sharedScope = newScope('shared-test', (builder) =>
             builder
+                .add('postgres', staticComponent(infra.postgres))
                 .add('redisPool', staticComponent(infra.redisPool))
                 .add('teamManager', staticComponent(infra.teamManager))
                 .add('cookielessManager', staticComponent(infra.cookielessManager))

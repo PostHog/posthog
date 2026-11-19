@@ -94,9 +94,6 @@ describe('taskDetailSceneLogic', () => {
         // mounts the common logics, so clear before init or flags enabled in one test leak into
         // the next.
         window.localStorage.clear()
-        // streamViaProxyEnabled is now purely flag-driven, so preflight no longer affects it. The
-        // default test fixture has is_debug: true; pin it to false to keep the app context minimal
-        // and unsurprising for these tests.
         window.POSTHOG_APP_CONTEXT = { preflight: { is_debug: false } } as unknown as typeof window.POSTHOG_APP_CONTEXT
         initKeaTests()
         global.fetch = createFetchMock()
@@ -292,6 +289,59 @@ describe('taskDetailSceneLogic', () => {
             ).toBe(true)
 
             logic.unmount()
+        })
+    })
+
+    describe('loader unmount', () => {
+        it.each([
+            ['list', false],
+            ['list', true],
+            ['selected run', false],
+            ['selected run', true],
+        ] as const)('ignores a %s response after unmount (failure: %s)', async (loader, fails) => {
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setSelectedRunId('run-456', 'task-123')
+            await expectLogic(logic).toFinishAllListeners()
+
+            let finishRequest!: (response: Response) => void
+            const response = new Promise<Response>((resolve) => {
+                finishRequest = resolve
+            })
+            global.fetch = jest.fn(() => response) as typeof fetch
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            await expectLogic(logic).clearHistory()
+
+            await expectLogic(logic, () => {
+                if (loader === 'list') {
+                    logic.actions.loadTaskRuns()
+                } else {
+                    logic.actions.loadSelectedTaskRun()
+                }
+                logic.unmount()
+                finishRequest(
+                    fails
+                        ? new Response(JSON.stringify({ detail: 'Request failed' }), {
+                              status: 500,
+                              headers: { 'Content-Type': 'application/json' },
+                          })
+                        : createJsonResponse(
+                              loader === 'list'
+                                  ? { results: [createMockRun('run-456', TaskRunStatus.COMPLETED)] }
+                                  : createMockRun('run-456', TaskRunStatus.COMPLETED)
+                          )
+                )
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions([
+                    'loadTaskRunsSuccess',
+                    'loadTaskRunsFailure',
+                    'loadSelectedTaskRunSuccess',
+                    'loadSelectedTaskRunFailure',
+                ])
+
+            expect(consoleError).not.toHaveBeenCalled()
         })
     })
 

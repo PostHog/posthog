@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import yaml
 import gates
 from gates import (
     DEPENDENCY_ECOSYSTEMS,
@@ -16,7 +17,7 @@ from gates import (
     is_size_exempt,
     substantive_size,
 )
-from policy import OwnershipSource
+from policy import OwnershipSource, bundled_defaults_dir, load_policy, merge_policy, repo_root
 
 # ── False positives that should NOT trigger ──────────────────────
 
@@ -85,6 +86,10 @@ from policy import OwnershipSource
             id="message-routing-test-not-infra",
         ),
         pytest.param(
+            ["rust/capture-apm-metrics/src/k8s_resource_attributes.rs"],
+            id="rust-k8s-source-not-infra",
+        ),
+        pytest.param(
             ["products/web_analytics/backend/temporal/health_checks/authorized_urls.py"],
             id="authorized-urls-domain-config-not-auth",
         ),
@@ -131,6 +136,15 @@ from policy import OwnershipSource
         pytest.param(
             ["tools/release/feature-product.yaml"],
             id="product-yaml-suffix-not-manifest",
+        ),
+        pytest.param([".agents/skills/django-migrations/SKILL.md"], id="migrations-skill-markdown"),
+        pytest.param(
+            ["posthog/templates/admin_console/downloads/recording_deletion_certificate.html"],
+            id="deletion-certificate-template",
+        ),
+        pytest.param(
+            ["products/authorization/package.json", "products/authorization/tsconfig.json"],
+            id="authorization-product-config",
         ),
     ],
 )
@@ -235,6 +249,11 @@ def test_no_false_positive(files: list[str]) -> None:
             id="pr-deploy-directory",
         ),
         pytest.param(
+            ["rust/capture/k8s/deployment.yaml"],
+            "infra_cicd",
+            id="k8s-manifest-under-rust",
+        ),
+        pytest.param(
             ["posthog/models/two_factor_auth.py"],
             "auth",
             id="two-factor-auth-file",
@@ -290,8 +309,13 @@ def test_no_false_positive(files: list[str]) -> None:
             id="egress-agents-md-matches-lowercased",
         ),
         pytest.param(
+            [".agents/code-style.md"],
+            "agent_steering",
+            id="root-agents-topic-guide",
+        ),
+        pytest.param(
             ["posthog/ingress/verify/hmac.py"],
-            "devex_guardrails",
+            "request_boundaries",
             id="ingress-shared-verify",
         ),
         pytest.param(
@@ -304,6 +328,13 @@ def test_no_false_positive(files: list[str]) -> None:
             "devex_guardrails",
             id="isolation-lint",
         ),
+        pytest.param(["docker-compose.hobby.yml"], "infra_cicd", id="hobby-compose-stays-infra"),
+        pytest.param(["docker-compose.base.yml"], "infra_cicd", id="base-compose-extended-by-hobby"),
+        pytest.param(["docker-compose.dev.yml"], "infra_cicd", id="dev-compose-feeds-image-builds"),
+        pytest.param(["docker-compose.dev-full.yml"], "dev_stack", id="local-compose-owner-only"),
+        pytest.param(["posthog/temporal/owners.yaml"], "ownership_files", id="nested-owners-yaml"),
+        pytest.param(["products/authorization/backend/roles.py"], "auth", id="authorization-code-stays-auth"),
+        pytest.param([".agents/skills/django-migrations/migrations/0001.py"], "migrations", id="skill-migration-code"),
     ],
 )
 def test_true_positive(files: list[str], expected_category: str) -> None:
@@ -333,27 +364,129 @@ def test_title_scrutiny_flags(subject: str, expected_flags: list[str]) -> None:
     assert detect_title_scrutiny_flags(subject) == expected_flags
 
 
-# ── Deny-list bypass via ignored_files ───────────────────────────
+@pytest.fixture
+def deny_exceptions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    raw = merge_policy(
+        yaml.safe_load((bundled_defaults_dir() / "policy.yml").read_text()),
+        yaml.safe_load((repo_root() / ".stamphog" / "policy.yml").read_text()),
+    )
+    raw["deny"]["billing"]["match"]["any"][0] = "Billing"
+    raw["deny_exceptions"] = {
+        "billing": [
+            {
+                "keyword": "BILLING",
+                "path_prefixes": ["APPS/", "argocd/", "shared/", "state/", "charts/"],
+                "extensions": [".YAML", ".yml"],
+            },
+            {"keyword": "billing", "path_prefixes": ["apps/billing.v2/"], "extensions": [".tar.gz"]},
+        ],
+        "infra_cicd": [{"path_prefixes": [".github/"]}],
+        "auth": [{"keyword": "permission", "path_prefixes": ["apps/billing.v2/"], "extensions": [".yaml"]}],
+    }
+    policy_path = tmp_path / "policy.yml"
+    policy_path.write_text(yaml.safe_dump(raw))
+    policy = load_policy(
+        policy_path, lockfile_names=gates._ALL_LOCKFILE_NAMES, ownership_formats=gates.OWNERSHIP_FORMAT_LOCATORS
+    )
+    monkeypatch.setattr(gates, "DENY_PATTERNS", gates._compile_patterns(policy.deny_pattern_defs()))
+    monkeypatch.setattr(
+        gates, "DENY_EXCEPTIONS", gates._compile_deny_exceptions(policy.deny_pattern_defs(), policy.deny_exceptions)
+    )
 
 
-def test_ignored_files_bypass_deny_list() -> None:
-    files = [
-        "posthog/migrations/1117_alter_integration_kind.py",
-        "posthog/migrations/max_migration.txt",
-    ]
-    ignored = set(files)
+@pytest.mark.parametrize(
+    "files, expected",
+    [
+        pytest.param(["apps/billing/values.yaml"], [], id="billing-yaml"),
+        pytest.param(["ARGocd/BILLING/VALUES.YML"], [], id="case-insensitive"),
+        pytest.param(["shared/billing.yaml", "state/billing.yml", "charts/billing/values.yaml"], [], id="all-prefixes"),
+        pytest.param(["apps/payment-billing/values.yaml"], ["billing"], id="payment-in-same-path"),
+        pytest.param(["apps/stripe-billing/values.yaml"], ["billing"], id="stripe-in-same-path"),
+        pytest.param(["apps/invoice-billing/values.yaml"], ["billing"], id="invoice-in-same-path"),
+        pytest.param(["apps/pricing-billing/values.yaml"], ["billing"], id="pricing-in-same-path"),
+        pytest.param(["apps/billing/values.json"], ["billing"], id="wrong-extension"),
+        pytest.param(["apps/billing/values.yaml.py"], ["billing"], id="lookalike-extension"),
+        pytest.param(["apps-other/billing/values.yaml"], ["billing"], id="lookalike-prefix"),
+        pytest.param(["src/apps/billing/values.yaml"], ["billing"], id="nested-prefix"),
+        pytest.param(["apps/billing.v2/values.tar.gz"], [], id="compound-suffix-and-literal-dot-prefix"),
+        pytest.param(["apps/billing-v2/values.tar.gz"], ["billing"], id="dot-prefix-is-literal"),
+        pytest.param(["apps/billing.v2/values.tar.gz.py"], ["billing"], id="compound-suffix-is-terminal"),
+        pytest.param(["apps/billing.v2/permission.yaml"], [], id="path-only-keyword-exception"),
+        pytest.param(["apps/billing.v2/permission-auth.yaml"], ["auth"], id="path-only-keeps-other-auth-pattern"),
+        pytest.param(["apps/billing/permission.yaml"], ["auth"], id="path-only-keeps-other-scopes"),
+        pytest.param(["apps/billing/values.yaml", "src/billing.py"], ["billing"], id="non-exempt-file"),
+        pytest.param(["apps/billing/auth.yaml"], ["auth"], id="auth-stays-protected"),
+        pytest.param(["apps/billing/secret.yaml"], ["crypto_secrets"], id="secrets-stay-protected"),
+        pytest.param(["apps/billing/openapi.yaml"], ["public_api"], id="api-stays-protected"),
+        pytest.param(["apps/billing/migrations/change.yaml"], ["migrations"], id="migrations-stay-protected"),
+        pytest.param(["apps/billing/owners.yaml"], ["ownership_files"], id="ownership-stays-protected"),
+        pytest.param([".github/helm/check.py"], [], id="category-exception-without-extension"),
+        pytest.param([".github/pr-deploy"], [], id="category-path-pattern"),
+        pytest.param([".github-other/helm/check.py"], ["infra_cicd"], id="category-prefix-lookalike"),
+        pytest.param([".github/helm/check.py", "terraform/main.tf"], ["infra_cicd"], id="category-mixed-files"),
+        pytest.param([".github/workflows/codeql.yml"], ["ci_workflows"], id="other-category-same-file"),
+    ],
+)
+def test_deny_exceptions_are_per_pattern_and_per_file(deny_exceptions, files: list[str], expected: list[str]) -> None:
+    assert detect_deny_categories(files) == expected
 
-    assert detect_deny_categories(files, ignored_files=ignored) == []
+
+def test_disabling_deny_exceptions_keeps_lifted_files(deny_exceptions) -> None:
+    files = ["apps/billing/values.yaml", "posthog/migrations/0999_add_column.py"]
+    lifted = {"migrations": {"posthog/migrations/0999_add_column.py"}}
+
+    assert detect_deny_categories(files, lifted) == []
+    assert detect_deny_categories(files, lifted, apply_exceptions=False) == ["billing"]
+    assert detect_title_scrutiny_flags("fix: billing helm auth") == ["auth", "billing", "infra_cicd"]
 
 
-def test_ignored_files_does_not_bypass_other_deny_list_files() -> None:
-    files = [
-        "posthog/migrations/1117_alter_integration_kind.py",
-        "posthog/migrations/1118_add_column.py",
-    ]
-    ignored = {"posthog/migrations/1117_alter_integration_kind.py"}
+# ── Deny-list bypass via lifted_files ────────────────────────────
 
-    assert detect_deny_categories(files, ignored_files=ignored) == ["migrations"]
+
+@pytest.mark.parametrize(
+    "files, lifted, expected",
+    [
+        pytest.param(
+            ["posthog/migrations/1117_alter_integration_kind.py", "posthog/migrations/max_migration.txt"],
+            {
+                "migrations": {
+                    "posthog/migrations/1117_alter_integration_kind.py",
+                    "posthog/migrations/max_migration.txt",
+                }
+            },
+            [],
+            id="lifted-files-pass",
+        ),
+        pytest.param(
+            ["posthog/migrations/1117_alter_integration_kind.py", "posthog/migrations/1118_add_column.py"],
+            {"migrations": {"posthog/migrations/1117_alter_integration_kind.py"}},
+            ["migrations"],
+            id="unlisted-file-still-denies",
+        ),
+        pytest.param(
+            ["ee/billing/migrations/0001_add_plan.py"],
+            {"migrations": {"ee/billing/migrations/0001_add_plan.py"}},
+            ["billing"],
+            id="lift-covers-only-its-category",
+        ),
+        pytest.param(
+            [".stamphog/policy.yml"],
+            {"migrations": {".stamphog/policy.yml"}},
+            ["stamphog_policy"],
+            id="lift-never-reaches-another-category",
+        ),
+        pytest.param(
+            ["Posthog/migrations/0001_add_col.py"],
+            {"migrations": {"posthog/migrations/0001_add_col.py"}},
+            ["migrations"],
+            id="lift-matches-exact-case",
+        ),
+    ],
+)
+def test_lifted_files_bypass_only_their_category(
+    files: list[str], lifted: dict[str, set[str]], expected: list[str]
+) -> None:
+    assert detect_deny_categories(files, lifted) == expected
 
 
 # ── Data warehouse connector exemption (auth + billing) ──────────
@@ -432,6 +565,18 @@ def test_dwh_source_mixed_still_denies() -> None:
         pytest.param("services/mcp/src/api/generated_helpers.ts", False, id="generated-underscore-counted"),
         pytest.param("frontend/src/queries/schema/schema-general.ts", True, id="queries-schema"),
         pytest.param("frontend/src/types.gen.ts", True, id="dot-gen-suffix"),
+        pytest.param(
+            "products/desktop/packages/workspace-server/src/db/migrations/meta/0009_snapshot.json",
+            True,
+            id="drizzle-snapshot",
+        ),
+        pytest.param(
+            "products/desktop/packages/workspace-server/src/db/migrations/meta/_journal.json",
+            False,
+            id="drizzle-journal-counted",
+        ),
+        pytest.param("frontend/src/meta/0001_snapshot.ts", False, id="snapshot-named-code-counted"),
+        pytest.param("config/meta/0001_snapshot.json", False, id="snapshot-outside-migrations-counted"),
         pytest.param("pnpm-lock.yaml", False, id="lockfile-yaml-counted"),
         pytest.param("uv.lock", True, id="lockfile-lock-ext"),
         pytest.param("posthog/api/insight.py", False, id="python-code"),
@@ -662,30 +807,40 @@ def test_owners_candidates_are_fixed_offsets_from_this_file() -> None:
     # controls. The sandbox would then import that directory, and the sandbox holds the run's LLM
     # credentials. Both candidates must stay fixed offsets from the engine's own file.
     engine_dir = Path(gates.__file__).resolve().parent
-    assert gates._OWNERS_PKG_CANDIDATES[0] == engine_dir.parents[3] / "packages" / "owners-yaml"
-    assert gates._OWNERS_PKG_CANDIDATES[1] == engine_dir.parent / "owners"
+    assert gates._OWNERS_PKG_CANDIDATES == (
+        engine_dir.parent / "owners",
+        engine_dir.parents[3] / "packages" / "owners-yaml",
+    )
 
 
 @pytest.mark.parametrize(
-    "engine_file, resolver_dir",
+    "engine_file, resolver_dir, planted_dirs",
     [
         pytest.param(
             "root/products/stamphog/packages/pr-approval-agent/gates.py",
             "root/packages/owners-yaml",
+            (),
             id="monorepo",
         ),
-        pytest.param("root/tools/pr-approval-agent/gates.py", "root/tools/owners", id="sandbox-and-vendored"),
+        pytest.param("root/tools/pr-approval-agent/gates.py", "root/tools/owners", (), id="sandbox-and-vendored"),
+        pytest.param(
+            "root/a/b/c/pr-approval-agent/gates.py",
+            "root/a/b/c/owners",
+            ("root/packages/owners-yaml",),
+            id="sandbox-engine-moved-by-pr-symlink",
+        ),
     ],
 )
 def test_the_owners_package_is_found_in_both_engine_layouts(
-    tmp_path: Path, engine_file: str, resolver_dir: str
+    tmp_path: Path, engine_file: str, resolver_dir: str, planted_dirs: tuple[str, ...]
 ) -> None:
     expected = tmp_path / resolver_dir
-    (expected / "owners_yaml").mkdir(parents=True)
+    for package_dir in (resolver_dir, *planted_dirs):
+        (tmp_path / package_dir / "owners_yaml").mkdir(parents=True)
     engine_path = tmp_path / engine_file
     engine_path.parent.mkdir(parents=True)
     engine_path.touch()
 
     found = [candidate for candidate in gates._owners_pkg_candidates(engine_path) if candidate.is_dir()]
 
-    assert found == [expected.resolve()]
+    assert found[0] == expected.resolve()

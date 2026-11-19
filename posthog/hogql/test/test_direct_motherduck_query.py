@@ -115,6 +115,7 @@ class TestDirectMotherDuckQuery(APIBaseTest):
 
         self.assertEqual(response.results, [(3, "ny")])
         self.assertEqual(response.types, [("n", "Int64"), ("c", "String")])
+        self.assertIsNone(response.column_formats)
 
     @parameterized.expand(
         [

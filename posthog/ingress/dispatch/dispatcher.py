@@ -15,7 +15,12 @@ from posthog.ingress.contracts import (
 from posthog.ingress.dispatch.budget import DeliveryBudget, delivery_budget_seconds
 from posthog.ingress.dispatch.dedup import DeliveryClaim, DeliveryClaimResult, DeliveryDedup
 from posthog.ingress.dispatch.registry import ConsumerRegistry
-from posthog.ingress.observability.metrics import observe_consumer_duration, observe_consumer_run, observe_ownership
+from posthog.ingress.observability.metrics import (
+    observe_budget_exhausted,
+    observe_consumer_duration,
+    observe_consumer_run,
+    observe_ownership,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -39,7 +44,7 @@ class WebhookDispatcher:
         self._dedup = dedup if dedup is not None else DeliveryDedup()
         self._budget_seconds = budget_seconds
 
-    def _run(self, consumer: WebhookConsumer, delivery: WebhookDelivery) -> bool:
+    def _claim_and_run(self, consumer: WebhookConsumer, delivery: WebhookDelivery) -> bool:
         """Run one consumer, and answer whether it accepted the delivery.
 
         A consumer deduped against a finished run accepted it then, so it answers True too. One
@@ -105,6 +110,14 @@ class WebhookDispatcher:
             observe_consumer_duration(
                 provider=delivery.provider, consumer=consumer.name, seconds=time.monotonic() - started
             )
+
+    def _run(self, consumer: WebhookConsumer, delivery: WebhookDelivery, budget: DeliveryBudget) -> bool:
+        # The budget counts the dedup claim too, so a slow claim is charged to its own consumer.
+        started = time.monotonic()
+        try:
+            return self._claim_and_run(consumer, delivery)
+        finally:
+            budget.record_run(consumer.name, time.monotonic() - started)
 
     def _ask_ownership(self, consumer: WebhookConsumer, delivery: WebhookDelivery) -> DeliveryOwnership:
         if consumer.ownership is None:
@@ -203,11 +216,16 @@ class WebhookDispatcher:
                     event_type=delivery.event_type,
                     delivery_id=delivery.delivery_id,
                     skipped=[pending.name for pending in skipped],
+                    exhausted_by=budget.exhausted_by,
+                    elapsed_by_consumer={
+                        name: round(seconds, 3) for name, seconds in budget.seconds_by_consumer.items()
+                    },
                 )
+                observe_budget_exhausted(provider=delivery.provider, consumer=budget.exhausted_by)
                 for pending in skipped:
                     observe_consumer_run(provider=delivery.provider, consumer=pending.name, outcome="budget_exceeded")
                     unaccepted.append(pending.name)
                 return DeliveryDispatch(unaccepted_consumers=tuple(unaccepted))
-            if not self._run(consumer, delivery):
+            if not self._run(consumer, delivery, budget):
                 unaccepted.append(consumer.name)
         return DeliveryDispatch(unaccepted_consumers=tuple(unaccepted))

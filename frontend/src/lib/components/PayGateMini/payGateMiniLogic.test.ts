@@ -1,43 +1,63 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
 
-import { billingLogic } from 'scenes/billing/billingLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AvailableFeature, BillingType } from '~/types'
+import { AvailableFeature, BillingProductV2Type, BillingProvider, BillingType } from '~/types'
 
 import { payGateMiniLogic } from './payGateMiniLogic'
 
 describe('payGateMiniLogic', () => {
-    it.each([
+    it.each<{
+        name: string
+        billing: Partial<BillingType>
+        expected: { isPaymentEntryFlow: boolean; ctaDisabledReason: string | null }
+    }>([
         {
-            name: 'disables the payment entry button',
-            subscriptionLevel: 'free' as const,
+            name: 'disables the payment entry button when a partner manages billing',
+            billing: {
+                customer_id: '',
+                subscription_level: 'free',
+                billing_managed_by_partner: { partner_name: 'Example Partner' },
+            },
             expected: {
                 isPaymentEntryFlow: true,
                 ctaDisabledReason: 'Billing for this organization is managed by Example Partner.',
             },
         },
         {
-            name: 'keeps the link to the billing page enabled',
-            subscriptionLevel: 'paid' as const,
+            name: 'keeps the link to the billing page enabled when a partner manages billing',
+            billing: {
+                customer_id: '',
+                subscription_level: 'paid',
+                billing_managed_by_partner: { partner_name: 'Example Partner' },
+            },
             expected: { isPaymentEntryFlow: false, ctaDisabledReason: null },
         },
-    ])('$name when a partner manages billing', async ({ subscriptionLevel, expected }) => {
-        const billing: BillingType = {
-            ...billingJson,
-            customer_id: '',
-            subscription_level: subscriptionLevel,
-            billing_managed_by_partner: { partner_name: 'Example Partner' },
-        }
+        {
+            name: 'disables the payment entry button when Vercel manages billing without an active subscription',
+            billing: {
+                subscription_level: 'free',
+                has_active_subscription: false,
+                billing_provider: BillingProvider.Vercel,
+            },
+            expected: {
+                isPaymentEntryFlow: true,
+                ctaDisabledReason:
+                    'Billing for this organization is managed by Vercel. Contact support to change your plan.',
+            },
+        },
+    ])('$name', async ({ billing, expected }) => {
         useMocks({
             get: {
                 '/_preflight': [200, { ...preflightJson, cloud: true }],
-                '/api/billing': [200, billing],
+                '/api/billing': [200, { ...billingJson, ...billing }],
             },
         })
         initKeaTests()
@@ -48,5 +68,33 @@ describe('payGateMiniLogic', () => {
         logic.mount()
 
         expect(logic.values).toMatchObject({ gateVariant: 'add-card', ...expected })
+    })
+
+    it('starts the payment entry flow for the gated product and the current page after the gate closes', async () => {
+        useMocks({
+            get: {
+                '/_preflight': [200, { ...preflightJson, cloud: true }],
+                '/api/billing': [200, { ...billingJson, customer_id: '', subscription_level: 'free' }],
+            },
+        })
+        initKeaTests()
+        await expectLogic(preflightLogic).toFinishAllListeners()
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        const logic = payGateMiniLogic({ feature: AvailableFeature.SUBSCRIPTIONS })
+        logic.mount()
+        const product = logic.values.productWithFeature as BillingProductV2Type
+        window.history.pushState({}, '', '/project/1/insights?tab=all')
+
+        await expectLogic(paymentEntryLogic, () => {
+            logic.actions.startPaymentEntryFlow()
+            logic.unmount()
+        }).toDispatchActions([
+            (action) =>
+                paymentEntryLogic.isMounted() &&
+                action.type === paymentEntryLogic.actionTypes.startPaymentEntryFlow &&
+                action.payload.product === product &&
+                action.payload.redirectPath === '/project/1/insights?tab=all',
+        ])
     })
 })

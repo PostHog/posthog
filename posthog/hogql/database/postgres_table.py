@@ -16,10 +16,12 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.person_db_router import PERSONS_DB_MODELS
 from posthog.persons_db import persons_db_url
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 @cache
@@ -128,6 +130,10 @@ class PostgresTable(FunctionCallTable):
     # read next to the team guard (see ClickHousePrinter._print_table_ref), so it prunes in Postgres
     # rather than after the rows have been copied out. None means the table has no retention window.
     retention_field: Optional[str] = None
+    # Keep the team guard next to the table function even when the table has predicates. A table that
+    # is too large to read in full needs this: as the right side of a LEFT JOIN its guard sits in the
+    # ON clause, which ClickHouse does not send to Postgres. The predicates then run in ClickHouse.
+    push_team_guard_with_predicates: bool = False
     postgres_pushdown_values: dict[str, str | int | bool] = {}
     predicates: list[Expr] = []
 
@@ -148,6 +154,12 @@ class PostgresTable(FunctionCallTable):
 
     def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
         return self.predicates
+
+    def postgres_pushdown_in_values(self, context: HogQLContext) -> dict[str, tuple[str, ...]]:
+        """Field name -> the values the Postgres read keeps, added as `IN` next to the team guard so Postgres
+        prunes the rows. For a filter that holds only at print time, such as ids read from another table.
+        A filter here prunes the read only: rows a reader may not see still need the table's predicates."""
+        return {}
 
     def retention_start(self, team: Optional["Team"], team_id: Optional[int]) -> Optional[datetime]:
         """Oldest `retention_field` value this team may read, or None when unrestricted.
@@ -178,6 +190,27 @@ class PostgresTable(FunctionCallTable):
         if self.access_control_id_field is not None or self.resource_level_access_only:
             return None
         return self.access_control_creator_id_field
+
+    def blocked_object_ids(self, user_access_control: "UserAccessControl", team_id: Optional[int]) -> frozenset[str]:
+        """Ids in the `access_control_id` column that the user is denied.
+
+        The default reads the rules on the objects of `access_scope`. A table overrides it when a
+        rule on another object also denies its rows, because those rules do not name the rows.
+        """
+        if self.access_scope is None:
+            return frozenset()
+        return user_access_control.blocked_resource_ids_by_scope.get(self.access_scope, frozenset())
+
+    def creator_owned_object_ids(
+        self, user_access_control: "UserAccessControl", team_id: Optional[int], candidate_ids: Optional[frozenset[str]]
+    ) -> frozenset[str]:
+        """Ids in the `access_control_id` column of objects the user created, among `candidate_ids`
+        (or among all ids when it is None).
+
+        The guard keeps these rows, so a child table can follow its parent's creator exemption. The
+        default is empty: a child row carries no creator of the parent to compare against.
+        """
+        return frozenset()
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)

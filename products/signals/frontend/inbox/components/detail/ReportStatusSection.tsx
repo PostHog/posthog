@@ -1,19 +1,26 @@
 import { type ReactNode } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import type { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
 import { Link } from 'lib/lemon-ui/Link'
+import { fullNameOrEmail } from 'lib/utils/strings'
 
 import type { ReportPriorityApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { PRIORITY_MEANING, PRIORITY_TAG_TYPE } from '../../filterOptions'
-import { SignalReport } from '../../types'
+import { ACTIONABILITY_LABEL, PRIORITY_MEANING, PRIORITY_TAG_TYPE } from '../../filterOptions'
+import { SignalReport, SignalReportActionability } from '../../types'
+import { reportClaimant } from '../../utils/reportClaim'
+import type { ReportActionabilityChange, ReportDecisionAttributions } from '../../utils/reportDecisions'
 import { parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
 import { ReportPullRequest, reportPullRequests } from '../../utils/reportPullRequests'
 import { STATUS_LABELS } from '../badges/SignalReportStatusBadge'
 import { DetailSection } from './DetailSection'
+import { ReportDecisionRow } from './ReportDecisionRow'
+import { ReportRepositoryDecisionRow } from './ReportRepositoryDecisionRow'
 
 const PULL_REQUEST_STATES: Record<ReportPullRequest['state'], string> = {
     unknown: 'Status unavailable',
@@ -21,6 +28,42 @@ const PULL_REQUEST_STATES: Record<ReportPullRequest['state'], string> = {
     open: 'Open',
     closed: 'Closed',
     merged: 'Merged',
+}
+
+const PRIORITY_OPTIONS: LemonSelectOptionLeaf<ReportPriorityApi>[] = Object.entries(PRIORITY_MEANING).map(
+    ([priority, { label }]) => ({
+        value: priority as ReportPriorityApi,
+        label: `${priority} · ${label}`,
+        labelInMenu: (
+            <span className="flex items-center gap-2">
+                <LemonTag type={PRIORITY_TAG_TYPE[priority as ReportPriorityApi]} size="small">
+                    {priority}
+                </LemonTag>
+                <span className="text-default">{label}</span>
+            </span>
+        ),
+    })
+)
+
+const ACTIONABILITY_OPTIONS: LemonSelectOptionLeaf<SignalReportActionability>[] = Object.entries(
+    ACTIONABILITY_LABEL
+).map(([actionability, label]) => ({ value: actionability as SignalReportActionability, label }))
+
+type AlreadyAddressedValue = 'true' | 'false'
+
+const ALREADY_ADDRESSED_LABEL: Record<AlreadyAddressedValue, string> = { true: 'Yes', false: 'No' }
+
+const ALREADY_ADDRESSED_OPTIONS: LemonSelectOptionLeaf<AlreadyAddressedValue>[] = [
+    { value: 'false', label: ALREADY_ADDRESSED_LABEL.false },
+    { value: 'true', label: ALREADY_ADDRESSED_LABEL.true },
+]
+
+function actionabilityLabel(value: string): string {
+    return ACTIONABILITY_LABEL[value as SignalReportActionability] ?? value
+}
+
+function alreadyAddressedLabel(value: string): string {
+    return ALREADY_ADDRESSED_LABEL[value as AlreadyAddressedValue] ?? value
 }
 
 const REVIEW_DECISIONS: Record<NonNullable<ReportPullRequest['review_decision']>, string> = {
@@ -45,7 +88,9 @@ function externalClaimLabel(report: SignalReport): string | null {
     if (assignee?.kind !== 'agent') {
         return null
     }
-    return assignee.agent?.trim() || 'External agent'
+    const agent = assignee.agent?.trim() || 'External agent'
+    const claimant = reportClaimant(report)
+    return claimant ? `${fullNameOrEmail(claimant)} (via ${agent})` : agent
 }
 
 export function ReportStatusSection({
@@ -53,22 +98,96 @@ export function ReportStatusSection({
     rightSlot,
     onPriorityChange,
     prioritySaving = false,
+    onRepositoryChange,
+    repositorySaving = false,
+    onActionabilityChange,
+    actionabilitySaving = false,
+    decisionAttributions = null,
 }: {
     report: SignalReport
     rightSlot?: ReactNode
     onPriorityChange?: (priority: ReportPriorityApi) => void
     prioritySaving?: boolean
+    onRepositoryChange?: (repository: string) => void
+    repositorySaving?: boolean
+    onActionabilityChange?: (change: ReportActionabilityChange) => void
+    actionabilitySaving?: boolean
+    /** Null before the report's detail loads. */
+    decisionAttributions?: ReportDecisionAttributions | null
 }): JSX.Element {
+    const editableDecisions = useFeatureFlag('INBOX_REPORT_EDITABLE_DECISIONS')
     const externalClaim = externalClaimLabel(report)
     const pullRequests = reportPullRequests(report)
     const trackerUrl = safeHttpUrl(report.tracker_issue_url ?? '')
+    const hasDecisions = !!(
+        report.repo_slug ||
+        report.priority ||
+        report.actionability ||
+        typeof report.already_addressed === 'boolean'
+    )
 
     return (
         <DetailSection icon={<IconInfo />} title="Status" rightSlot={rightSlot} collapsible>
             <dl className="m-0 flex flex-col gap-2">
+                {editableDecisions && hasDecisions && (
+                    <>
+                        {report.repo_slug && (
+                            <ReportRepositoryDecisionRow
+                                repository={report.repo_slug}
+                                attribution={decisionAttributions?.repository ?? null}
+                                onChange={onRepositoryChange}
+                                saving={repositorySaving}
+                            />
+                        )}
+                        {report.priority && (
+                            <ReportDecisionRow<ReportPriorityApi>
+                                label="Priority"
+                                value={report.priority}
+                                attribution={decisionAttributions?.priority ?? null}
+                                options={PRIORITY_OPTIONS}
+                                onChange={onPriorityChange}
+                                saving={prioritySaving}
+                                data-attr="report-priority-select"
+                            />
+                        )}
+                        {report.actionability && (
+                            <ReportDecisionRow<SignalReportActionability>
+                                label="Actionability"
+                                value={report.actionability}
+                                attribution={decisionAttributions?.actionability ?? null}
+                                options={ACTIONABILITY_OPTIONS}
+                                onChange={
+                                    onActionabilityChange
+                                        ? (actionability) => onActionabilityChange({ actionability })
+                                        : undefined
+                                }
+                                saving={actionabilitySaving}
+                                formatValue={actionabilityLabel}
+                                data-attr="report-actionability-select"
+                            />
+                        )}
+                        {typeof report.already_addressed === 'boolean' && (
+                            <ReportDecisionRow<AlreadyAddressedValue>
+                                label="Already addressed"
+                                value={report.already_addressed ? 'true' : 'false'}
+                                attribution={decisionAttributions?.already_addressed ?? null}
+                                options={ALREADY_ADDRESSED_OPTIONS}
+                                onChange={
+                                    onActionabilityChange
+                                        ? (value) => onActionabilityChange({ alreadyAddressed: value === 'true' })
+                                        : undefined
+                                }
+                                saving={actionabilitySaving}
+                                formatValue={alreadyAddressedLabel}
+                                data-attr="report-already-addressed-select"
+                            />
+                        )}
+                        <LemonDivider className="my-0" />
+                    </>
+                )}
                 <StatusRow label="Report status">{STATUS_LABELS[report.status] ?? report.status}</StatusRow>
                 {externalClaim && <StatusRow label="In progress by">{externalClaim}</StatusRow>}
-                {report.priority && (
+                {!editableDecisions && report.priority && (
                     <StatusRow label="Priority">
                         {onPriorityChange ? (
                             <LemonSelect<ReportPriorityApi>
@@ -83,21 +202,7 @@ export function ReportStatusSection({
                                 dropdownPlacement="bottom-end"
                                 dropdownMatchSelectWidth={false}
                                 menu={{ className: 'w-56' }}
-                                options={Object.entries(PRIORITY_MEANING).map(([priority, { label }]) => ({
-                                    value: priority as ReportPriorityApi,
-                                    label: `${priority} · ${label}`,
-                                    labelInMenu: (
-                                        <span className="flex items-center gap-2">
-                                            <LemonTag
-                                                type={PRIORITY_TAG_TYPE[priority as ReportPriorityApi]}
-                                                size="small"
-                                            >
-                                                {priority}
-                                            </LemonTag>
-                                            <span className="text-default">{label}</span>
-                                        </span>
-                                    ),
-                                }))}
+                                options={PRIORITY_OPTIONS}
                                 renderButtonContent={() => (
                                     <span className="text-default text-xs font-normal">{report.priority}</span>
                                 )}

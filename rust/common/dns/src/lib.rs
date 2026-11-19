@@ -6,6 +6,26 @@ use futures::FutureExt;
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use tokio::task::spawn_blocking;
 
+pub mod oob_domains;
+
+#[cfg(feature = "test-util")]
+pub mod test_util;
+
+/// The host is on the out-of-band interaction domain list, so the resolver refused the name.
+pub struct OobDomainError;
+
+impl std::error::Error for OobDomainError {}
+impl fmt::Display for OobDomainError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Host is not allowed")
+    }
+}
+impl fmt::Debug for OobDomainError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Host is not allowed")
+    }
+}
+
 pub struct NoPublicIPv4Error;
 
 impl std::error::Error for NoPublicIPv4Error {}
@@ -75,6 +95,13 @@ pub struct PublicIPv4Resolver {}
 
 impl Resolve for PublicIPv4Resolver {
     fn resolve(&self, name: Name) -> Resolving {
+        // The last net before the lookup leaves the process. A caller that reaches this resolver
+        // through no host guard, such as the batch import url list, is still refused here.
+        if oob_domains::check_oob_domain(name.as_str(), "common_dns_resolver", None).is_some() {
+            let err: BoxError = Box::new(OobDomainError);
+            return Box::pin(std::future::ready(Err(err)));
+        }
+
         // Closure to call the system's resolver (blocking call) through the ToSocketAddrs trait.
         let resolve_host = move || (name.as_str(), 0).to_socket_addrs();
 
@@ -127,6 +154,11 @@ impl aws_smithy_runtime_api::client::dns::ResolveDns for PublicIPv4SmithyResolve
         name: &'a str,
     ) -> aws_smithy_runtime_api::client::dns::DnsFuture<'a> {
         use aws_smithy_runtime_api::client::dns::{DnsFuture, ResolveDnsError};
+
+        // Same net as the reqwest resolver above, for the S3 client path.
+        if oob_domains::check_oob_domain(name, "common_dns_resolver", None).is_some() {
+            return DnsFuture::new(async move { Err(ResolveDnsError::new(OobDomainError)) });
+        }
 
         let name = name.to_string();
         DnsFuture::new(async move {

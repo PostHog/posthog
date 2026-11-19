@@ -1,0 +1,32 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "action": {
+            "description": "The action to run. Use a value from the actions list, or `ask` to send your own `message`.\n\n* `get_it_merged` - Get it merged\n* `make_it_green` - Make it green\n* `resolve_conflicts` - Resolve conflicts\n* `implement` - Implement\n* `suggested_prompt` - Suggested prompt\n* `ask` - Ask",
+            "enum": ["get_it_merged", "make_it_green", "resolve_conflicts", "implement", "suggested_prompt", "ask"],
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this signal report.",
+            "type": "string"
+        },
+        "message": {
+            "description": "Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Optional for `implement`, where it is added to the prompt as extra instructions. Not accepted for `suggested_prompt`.",
+            "maxLength": 2000,
+            "type": "string"
+        },
+        "repository": {
+            "description": "Only for `implement`: the repository to implement in, in 'owner/repo' format (case-insensitive). It must be connected to the project, and it becomes the report's repo selection. Omit it to use the report's own repository. A report whose repository cannot be resolved returns `report_implementation_repository_unresolved`.",
+            "maxLength": 140,
+            "minLength": 1,
+            "type": "string"
+        },
+        "suggested_prompt_index": {
+            "description": "Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.",
+            "minimum": 0,
+            "type": "number"
+        }
+    },
+    "required": ["id", "action"],
+    "type": "object"
+}

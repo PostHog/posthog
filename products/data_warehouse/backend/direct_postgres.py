@@ -100,5 +100,8 @@ def rename_direct_postgres_join_references(*, team_id: int, old_name: str, new_n
         return
     from products.data_tools.backend.models.join import DataWarehouseJoin
 
-    DataWarehouseJoin.objects.filter(team_id=team_id, source_table_name=old_name).update(source_table_name=new_name)
-    DataWarehouseJoin.objects.filter(team_id=team_id, joining_table_name=old_name).update(joining_table_name=new_name)
+    # Saved one by one because a queryset update writes no activity log row.
+    for field in ("source_table_name", "joining_table_name"):
+        for join in DataWarehouseJoin.objects.filter(team_id=team_id, **{field: old_name}):
+            setattr(join, field, new_name)
+            join.save(update_fields=[field])

@@ -1,5 +1,6 @@
 """Run the multi-head prototype against the snapshots `bin/sync_snapshots_local.sh` cached on disk.
 
+    uv sync --group inbox-ranking
     INBOX_RANKING_SYNC_EMBEDDINGS=1 products/signals/dags/inbox_ranking/bin/sync_snapshots_local.sh
     DEBUG=1 python -m products.signals.dags.inbox_ranking.multihead [--partition YYYY-MM-DD] [--output results.json]
 

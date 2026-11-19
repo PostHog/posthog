@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from products.metrics.backend.dashboard_import.colors import THRESHOLD_COLORS, map_color
 
 GRID_COLUMNS = 12
 # Far taller than any real panel. It keeps a malformed height from making a huge tile.
@@ -51,6 +53,12 @@ class Threshold(_Model):
     )
     value: float = Field(description="Lower bound of the band. The lowest band also colors every lower value.")
 
+    @field_validator("color")
+    @classmethod
+    def _theme_token(cls, color: str) -> str:
+        # An agent can write a Grafana name such as "orange" from a screenshot, and the panels have no variable for it.
+        return color if color in THRESHOLD_COLORS else map_color(color)
+
 
 class DisplaySpec(_Model):
     type: DisplayType = Field(default="line", description="How the panel draws its data.")
@@ -60,6 +68,7 @@ class DisplaySpec(_Model):
     min: float | None = Field(default=None, description="Lower end of the axis or gauge.")
     max: float | None = Field(default=None, description="Upper end of the axis or gauge.")
     log_scale: bool = Field(default=False, description="Use a logarithmic y-axis.")
+    sparkline: bool = Field(default=True, description="Draw a graph under the value of a stat panel.")
 
 
 class TargetSpec(_Model):
@@ -70,6 +79,8 @@ class TargetSpec(_Model):
     original_expr: str
     legend: str | None = None
     unresolved_variables: list[str] = Field(default_factory=list)
+    # The expression with references to live dashboard variables kept. None when it refers to none.
+    templated_expr: str | None = None
 
 
 class PanelSpec(_Model):
@@ -92,6 +103,8 @@ class DashboardSpec(_Model):
     date_from: str | None = None
     panels: list[PanelSpec]
     variables: dict[str, str] = Field(default_factory=dict)
+    # Dashboard variables that stay live on the imported dashboard, as MetricsDashboardVariable JSON.
+    metric_variables: list[dict[str, Any]] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 
 

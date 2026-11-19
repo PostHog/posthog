@@ -148,6 +148,22 @@ const computeCachedAudioInputCost = (
     return bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.5), cachedAudioTokens)
 }
 
+const computeCachedImageInputCost = (
+    event: PluginEvent,
+    cost: ResolvedModelCost,
+    cachedImageTokens: number
+): string => {
+    if (cachedImageTokens <= 0) {
+        return '0'
+    }
+    const multiplier = matchProvider(event, 'anthropic') ? 0.1 : 0.5
+    const rate =
+        cost.cost.input_image_cache ??
+        cost.cost.cache_read_token ??
+        bigDecimal.multiply(cost.cost.prompt_token, multiplier)
+    return bigDecimal.multiply(rate, cachedImageTokens)
+}
+
 export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
     if (!event.properties) {
         return '0'
@@ -171,22 +187,28 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
     // would under-bill here.
     const rawCachedAudioTokens = numericProperty(event, '$ai_cache_read_audio_tokens')
     const cachedAudioInputTokens = Math.max(0, Math.min(rawCachedAudioTokens, audioInputTokens, cacheReadTokens))
+    const cachedNonAudioTokens = cacheReadTokens - cachedAudioInputTokens
+    const rawCachedImageTokens = numericProperty(event, '$ai_cache_read_image_tokens')
+    const cachedImageInputTokens = Math.max(0, Math.min(rawCachedImageTokens, imageInputTokens, cachedNonAudioTokens))
 
     // Audio/image input tokens are reported by providers (OpenAI, Gemini) as a subset
     // of the total input token count. We bill them separately at modality rates and
     // subtract them from the text pool to avoid double-counting at the prompt rate.
-    // For audio, split further into cached / uncached so cached audio bills at the
-    // (typically much cheaper) audio-cache rate.
     const uncachedAudioInputTokens = audioInputTokens - cachedAudioInputTokens
+    const uncachedImageInputTokens = imageInputTokens - cachedImageInputTokens
     const audioInputCost = computeAudioInputCost(event, cost, uncachedAudioInputTokens)
     const cachedAudioInputCost = computeCachedAudioInputCost(event, cost, cachedAudioInputTokens)
-    const imageInputCost = computeImageInputCost(event, cost, imageInputTokens)
-    const modalityInputCost = bigDecimal.add(bigDecimal.add(audioInputCost, cachedAudioInputCost), imageInputCost)
+    const imageInputCost = computeImageInputCost(event, cost, uncachedImageInputTokens)
+    const cachedImageInputCost = computeCachedImageInputCost(event, cost, cachedImageInputTokens)
+    const modalityInputCost = bigDecimal.add(
+        bigDecimal.add(audioInputCost, cachedAudioInputCost),
+        bigDecimal.add(imageInputCost, cachedImageInputCost)
+    )
     const hasModalityTokens = audioInputTokens > 0 || imageInputTokens > 0
 
-    // Text-only portion of the cache pool. Subtracting cached_audio gives us
-    // the cached-text count, which we bill at the standard cache_read rate.
-    const cachedTextTokens = cacheReadTokens - cachedAudioInputTokens
+    // boffin: Cached image tokens leave the text cache pool so they are billed only once.
+    const cachedTextTokens = cachedNonAudioTokens - cachedImageInputTokens
+    const imageTokensToSubtract = exclusive ? uncachedImageInputTokens : imageInputTokens
 
     if (matchProvider(event, 'anthropic')) {
         const aggregateCacheWriteTokens = numericProperty(event, '$ai_cache_creation_input_tokens')
@@ -222,7 +244,7 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
             ? inputTokens
             : bigDecimal.subtract(bigDecimal.subtract(inputTokens, cachedTextTokens), cacheWriteTokens)
         const uncachedTextTokens = clampTextTokens(
-            bigDecimal.subtract(bigDecimal.subtract(baseUncachedTokens, audioInputTokens), imageInputTokens),
+            bigDecimal.subtract(bigDecimal.subtract(baseUncachedTokens, audioInputTokens), imageTokensToSubtract),
             hasModalityTokens
         )
         const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, uncachedTextTokens)
@@ -240,7 +262,7 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
         ? bigDecimal.add(inputTokens, isGeminiCatalogCost ? cacheWriteTokens : 0)
         : bigDecimal.subtract(bigDecimal.subtract(inputTokens, cachedTextTokens), separateCacheWriteTokens)
     const regularTextTokens = clampTextTokens(
-        bigDecimal.subtract(bigDecimal.subtract(baseRegularTokens, audioInputTokens), imageInputTokens),
+        bigDecimal.subtract(bigDecimal.subtract(baseRegularTokens, audioInputTokens), imageTokensToSubtract),
         hasModalityTokens
     )
 
@@ -253,7 +275,7 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
         // Use default multiplier of 0.5 for all providers when cache_read_token is not defined
         const multiplier = 0.5
 
-        if (cachedTextTokens > 0) {
+        if (cachedNonAudioTokens > 0) {
             logger.warn('Using default cache read multiplier for model', {
                 multiplier,
                 model: cost.model,

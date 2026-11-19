@@ -11,10 +11,14 @@ import {
   getCloudTaskGatewayUrl,
   isAnthropicModel,
   isBasetenModel,
+  isClaudeAdapterModel,
+  isClaudeAdapterModelId,
   isCloudflareModel,
+  isCodexAdapterModel,
   isDeepseekModelId,
   isModalModel,
   isModalModelId,
+  isServedModelId,
   normalizeGatewayModelsResponse,
   pickAllowedModel,
 } from "./cloud-task-models";
@@ -25,6 +29,7 @@ const model = (
   id: string,
   owned_by = "anthropic",
   allowed = true,
+  api_shapes?: string[],
 ): GatewayModel => ({
   id,
   owned_by,
@@ -32,6 +37,7 @@ const model = (
   supports_streaming: true,
   supports_vision: false,
   allowed,
+  ...(api_shapes ? { api_shapes } : {}),
 });
 
 describe("formatGatewayModelName", () => {
@@ -39,7 +45,7 @@ describe("formatGatewayModelName", () => {
     [model("claude-opus-4-8"), "Claude Opus 4.8"],
     [model("GPT-5.5", "openai"), "GPT-5.5"],
     [model("openai/gpt-5.6-sol", "openai"), "GPT-5.6 Sol"],
-    [model("moonshotai/kimi-k3", "modal"), "Kimi K3"],
+    [model("moonshotai/kimi-k3.1-pro", "modal"), "Kimi K3.1 Pro"],
     [model("@cf/zai-org/glm-5.2", "cloudflare"), "GLM-5.2"],
     [model("zai-org/glm-5.3", "baseten"), "GLM-5.3"],
     [model("zai-org/glm-5.3-flash", "baseten"), "GLM-5.3 Flash"],
@@ -124,10 +130,78 @@ describe("model classification", () => {
     expect(isAnthropicModel(gatewayModel)).toBe(false);
   });
 
-  it("recognizes Modal models by owner and id", () => {
-    const gatewayModel = model("moonshotai/kimi-k3", "modal");
-    expect(isModalModel(gatewayModel)).toBe(true);
-    expect(isModalModelId(gatewayModel.id)).toBe(true);
+  it.each(["moonshotai/kimi-k3", "moonshotai/kimi-k3.1-pro"])(
+    "recognizes Modal model %s",
+    (id) => {
+      const gatewayModel = model(id, "modal");
+      expect(isModalModel(gatewayModel)).toBe(true);
+      expect(isModalModelId(gatewayModel.id)).toBe(true);
+    },
+  );
+
+  it("classifies by the gateway's advertised api shapes when present", () => {
+    const messages = ["anthropic-messages", "openai-chat-completions"];
+    expect(
+      isClaudeAdapterModel(model("zai-org/glm-5.3", "posthog", true, messages)),
+    ).toBe(true);
+    expect(
+      isCodexAdapterModel(model("zai-org/glm-5.3", "posthog", true, messages)),
+    ).toBe(false);
+    expect(
+      isClaudeAdapterModel(
+        model("zai-org/glm-5.3", "posthog", true, ["openai-chat-completions"]),
+      ),
+    ).toBe(false);
+    expect(
+      isCodexAdapterModel(
+        model("gpt-5.4", "openai", true, ["openai-responses"]),
+      ),
+    ).toBe(true);
+    expect(
+      isClaudeAdapterModel(
+        model("claude-opus-4-8", "anthropic", true, [
+          "openai-chat-completions",
+        ]),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps a model on the adapter the catalog assigns even when shapes allow both", () => {
+    const everyShape = [
+      "openai-chat-completions",
+      "openai-responses",
+      "anthropic-messages",
+    ];
+    expect(
+      isCodexAdapterModel(
+        model("zai-org/glm-5.3", "posthog", true, everyShape),
+      ),
+    ).toBe(false);
+    expect(
+      isClaudeAdapterModel(model("gpt-5.5", "openai", true, everyShape)),
+    ).toBe(false);
+    expect(
+      isCodexAdapterModel(model("gpt-5.5", "openai", true, everyShape)),
+    ).toBe(true);
+    expect(
+      isCodexAdapterModel(
+        model("vendor/new-model", "vendor", true, ["openai-responses"]),
+      ),
+    ).toBe(true);
+  });
+
+  it("recognizes served models the gateway owns by their catalog adapter", () => {
+    const gatewayModel = model("zai-org/glm-5.3", "posthog");
+    expect(isClaudeAdapterModel(gatewayModel)).toBe(true);
+    expect(isCodexAdapterModel(model("gpt-5.4", "openai"))).toBe(true);
+    expect(isClaudeAdapterModelId("zai-org/glm-5.3-flash")).toBe(true);
+    expect(isClaudeAdapterModel(model("gpt-5.4", "posthog"))).toBe(false);
+    expect(isClaudeAdapterModelId("gpt-5.4")).toBe(false);
+    expect(isServedModelId("zai-org/glm-5.3")).toBe(true);
+    expect(isServedModelId("moonshotai/kimi-k3.1-pro")).toBe(true);
+    expect(isServedModelId("@cf/zai-org/glm-5.2")).toBe(false);
+    expect(isServedModelId("anthropic/claude-sonnet-5")).toBe(false);
+    expect(isServedModelId("claude-opus-4-8")).toBe(false);
   });
 
   it("recognizes Baseten models by owner and id", () => {
@@ -233,16 +307,41 @@ describe("buildCloudTaskConfigOptions", () => {
 
   it("offers Modal models to Claude sessions", () => {
     const options = buildCloudTaskConfigOptions(
-      [model("moonshotai/kimi-k3", "modal")],
+      [model("moonshotai/kimi-k3.1-pro", "modal")],
       "claude",
     );
 
     expect(options.find((option) => option.id === "model")?.options).toEqual([
       expect.objectContaining({
-        value: "moonshotai/kimi-k3",
-        name: "Kimi K3",
+        value: "moonshotai/kimi-k3.1-pro",
+        name: "Kimi K3.1 Pro",
       }),
     ]);
+  });
+
+  it("offers gateway-owned GLM models to Claude sessions but not Codex", () => {
+    const models = [
+      model("zai-org/glm-5.3", "posthog", true, [
+        "openai-chat-completions",
+        "openai-responses",
+        "anthropic-messages",
+      ]),
+    ];
+
+    const claudeModelOptions = buildCloudTaskConfigOptions(
+      models,
+      "claude",
+    ).find((option) => option.id === "model")?.options;
+    expect(claudeModelOptions).toEqual([
+      expect.objectContaining({ value: "zai-org/glm-5.3", name: "GLM-5.3" }),
+    ]);
+
+    const codexModelOptions = buildCloudTaskConfigOptions(models, "codex").find(
+      (option) => option.id === "model",
+    )?.options;
+    expect(codexModelOptions).not.toContainEqual(
+      expect.objectContaining({ value: "zai-org/glm-5.3" }),
+    );
   });
 
   it("offers Baseten models to Claude sessions but not Codex", () => {
@@ -274,7 +373,7 @@ describe("adapterForModelId", () => {
     ["openai/gpt-5.5", "codex"],
     ["claude-opus-5", "claude"],
     ["@cf/zai-org/glm-5.2", "claude"],
-    ["moonshotai/kimi-k3", "claude"],
+    ["moonshotai/kimi-k3.1-pro", "claude"],
     ["deepseek-ai/deepseek-v4-flash-0731", "claude"],
   ])("maps %s to the %s harness", (modelId, adapter) => {
     expect(adapterForModelId(modelId)).toBe(adapter);
@@ -286,7 +385,7 @@ describe("buildProviderModelGroups", () => {
     model("gpt-5.6-sol", "openai"),
     model("claude-opus-5", "anthropic"),
     model("claude-opus-4-8", "anthropic", false),
-    model("moonshotai/kimi-k3", "modal"),
+    model("moonshotai/kimi-k3.1-pro", "modal"),
   ];
 
   it.each(["claude", "codex"] as const)(
@@ -334,7 +433,7 @@ describe("buildProviderModelGroups", () => {
         name: "Moonshot AI",
         options: [
           {
-            value: "moonshotai/kimi-k3",
+            value: "moonshotai/kimi-k3.1-pro",
             _meta: { "posthog.code/modelHarness": "claude" },
           },
         ],

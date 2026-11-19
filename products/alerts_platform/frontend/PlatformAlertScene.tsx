@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -13,9 +16,13 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { PlatformAlertConfigurationDetails } from './PlatformAlertConfigurationDetails'
-import { SOURCE_KINDS, sourceAlertUrl } from './platformAlertFormat'
+import { PlatformAlertCustomSnoozeModal } from './PlatformAlertCustomSnoozeModal'
+import { SOURCE_KINDS, describeOverflow, describeOverflowDetail, sourceAlertUrl } from './platformAlertFormat'
 import { PlatformAlertGroupsTable } from './PlatformAlertGroupsTable'
 import { PlatformAlertLogicProps, platformAlertLogic } from './platformAlertLogic'
+import { PlatformAlertRuleMetadata } from './PlatformAlertRuleMetadata'
+import { PlatformAlertRuleMetadataModal } from './PlatformAlertRuleMetadataModal'
+import { PlatformAlertRoutingSection } from './routing/PlatformAlertRoutingSection'
 
 export const scene: SceneExport = {
     component: PlatformAlertScene,
@@ -25,14 +32,17 @@ export const scene: SceneExport = {
 
 export function PlatformAlertScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { configuration, configurationLoading, configurationError } = useValues(platformAlertLogic)
-    const { loadConfiguration } = useActions(platformAlertLogic)
+    const { configuration, configurationLoading, configurationError, canSnoozeGroups, canEditRuleMetadata } =
+        useValues(platformAlertLogic)
+    const { loadConfiguration, openRuleMetadataModal } = useActions(platformAlertLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS]) {
         return <NotFound object="page" />
     }
 
-    if (configurationLoading || configurationError || !configuration) {
+    // A reload of an alert already on screen keeps the page, so a stale-group refresh does not blank it.
+    if (configurationError || !configuration) {
         return (
             <SceneContent>
                 <SceneTitleSection name={configurationLoading ? '' : 'Alert'} resourceType={{ type: 'inbox' }} />
@@ -57,6 +67,7 @@ export function PlatformAlertScene(): JSX.Element {
 
     const sourceLabel = SOURCE_KINDS[configuration.source_kind].label
     const sourceUrl = sourceAlertUrl(configuration)
+    const overflow = describeOverflow(configuration)
 
     return (
         <SceneContent>
@@ -66,14 +77,24 @@ export function PlatformAlertScene(): JSX.Element {
                 resourceType={{ type: 'inbox' }}
                 actions={
                     sourceUrl ? (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            to={sourceUrl}
-                            data-attr="platform-alert-open-source"
-                        >
-                            Open in {sourceLabel}
-                        </LemonButton>
+                        todayRailNav ? (
+                            <Button
+                                variant="outline"
+                                render={<LinkPrimitive to={sourceUrl} />}
+                                data-attr="platform-alert-open-source"
+                            >
+                                Open in {sourceLabel}
+                            </Button>
+                        ) : (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                to={sourceUrl}
+                                data-attr="platform-alert-open-source"
+                            >
+                                Open in {sourceLabel}
+                            </LemonButton>
+                        )
                     ) : undefined
                 }
             />
@@ -81,10 +102,44 @@ export function PlatformAlertScene(): JSX.Element {
                 <PlatformAlertConfigurationDetails configuration={configuration} />
             </SceneSection>
             <SceneSection
-                title="Groups"
-                description="Runtime state for each result group. An alert that does not group results has one row."
+                title="Labels and annotations"
+                description="Labels say who owns the alert, such as its team or severity. Annotations give responders context, such as a runbook link."
+                actions={
+                    canEditRuleMetadata ? (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={openRuleMetadataModal}
+                            data-attr="platform-alert-rule-metadata-edit"
+                        >
+                            Edit
+                        </LemonButton>
+                    ) : undefined
+                }
             >
-                <PlatformAlertGroupsTable alerts={configuration.alerts} />
+                <PlatformAlertRuleMetadata configuration={configuration} />
+                <PlatformAlertRuleMetadataModal />
+            </SceneSection>
+            <PlatformAlertRoutingSection configuration={configuration} />
+            <SceneSection
+                title="Groups"
+                description={
+                    canSnoozeGroups
+                        ? 'Runtime state for each result group. Snooze a group to hold its notifications. It keeps being checked, and a firing group stays firing.'
+                        : 'Runtime state for each result group. An alert that does not group results has one row.'
+                }
+            >
+                {overflow && (
+                    <LemonBanner type="warning">
+                        <p className="m-0 font-semibold">{overflow}</p>
+                        <p className="m-0">{describeOverflowDetail(configuration)}</p>
+                    </LemonBanner>
+                )}
+                <PlatformAlertGroupsTable
+                    alerts={configuration.alerts}
+                    groupingKeys={configuration.grouping.keys ?? []}
+                />
+                <PlatformAlertCustomSnoozeModal />
             </SceneSection>
             <SceneSection title="Source settings">
                 <CodeSnippet language={Language.JSON} wrap>

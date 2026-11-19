@@ -8,7 +8,9 @@ from django.core.cache import cache
 from django.db import transaction
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models.integration import GitHubIntegration
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.logic import external_references
@@ -113,7 +115,7 @@ def prepare_jobs(event_type: str, payload: dict[str, Any]) -> list[contracts.Git
 def _extract_posthog_issue_references(body: str) -> list[_PostHogIssueReference]:
     site_url = re.escape(settings.SITE_URL.rstrip("/"))
     pattern = re.compile(
-        rf"{site_url}/project/(?P<team_id>[1-9][0-9]*)/error_tracking/"
+        rf"{site_url}/project/(?P<team_id>[1-9][0-9]*)/error[_-]tracking/"
         rf"(?:fingerprint/(?P<fingerprint>[^/?#\s<>\]\)]+)|"
         rf"(?P<issue_id>[0-9a-fA-F]{{8}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-"
         rf"[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{12}}))"
@@ -148,7 +150,7 @@ def _resolve_issue(job: contracts.GitHubExternalReferenceJob) -> ErrorTrackingIs
     return fingerprint.issue if fingerprint is not None else None
 
 
-def _actor_lacks_write_permission(integration: Integration, job: contracts.GitHubExternalReferenceJob) -> bool:
+def _actor_lacks_write_permission(integration: IntegrationRecord, job: contracts.GitHubExternalReferenceJob) -> bool:
     """Whether the actor's effective permission on the repo is below write.
 
     This is the only gate that proves repo access, because the webhook's author_association
@@ -163,9 +165,9 @@ def _actor_lacks_write_permission(integration: Integration, job: contracts.GitHu
     )
     permission = cache.get(cache_key)
     if permission is None:
-        permission = GitHubIntegration(integration).get_collaborator_permission(
-            job.repository_full_name, job.actor_login
-        )
+        permission = GitHubIntegration(
+            integration, source="error_tracking", priority=Priority.CRITICAL
+        ).get_collaborator_permission(job.repository_full_name, job.actor_login)
         ttl = (
             _ACTOR_PERMISSION_ALLOW_CACHE_SECONDS
             if permission in _WRITE_PERMISSIONS
@@ -177,19 +179,13 @@ def _actor_lacks_write_permission(integration: Integration, job: contracts.GitHu
 
 def link_reference(job: contracts.GitHubExternalReferenceJob) -> bool:
     owner, repository = job.repository_full_name.split("/", 1)
-    integration = (
-        Integration.objects.filter(
-            team_id=job.team_id,
-            kind=Integration.IntegrationKind.GITHUB.value,
-            integration_id=job.installation_id,
-        )
-        .order_by("id")
-        .first()
-    )
+    integration = IntegrationManager.github.oauth.find(job.team_id, external_id=job.installation_id)
     if integration is None:
         return False
     try:
-        integration_owner = GitHubIntegration(integration).organization()
+        integration_owner = GitHubIntegration(
+            integration, source="error_tracking", priority=Priority.BATCH
+        ).organization()
     except ValueError:
         return False
     if integration_owner.casefold() != owner.casefold():

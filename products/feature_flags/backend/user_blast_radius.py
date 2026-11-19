@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime
 from typing import Optional
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -21,7 +22,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
-from posthog.errors import ExposedCHQueryError, InternalCHQueryError
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError, look_up_clickhouse_error_code_meta
 from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, PropertyValidationError
 from posthog.models.property.parse import parse_properties_for_team
 from posthog.models.property.relative_date import relative_date_parse_for_feature_flag_matching
@@ -31,9 +32,9 @@ from posthog.ph_client import feature_enabled_or_false
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.blast_radius_flag_deps import FlagDependencyEstimator
 from products.feature_flags.backend.person_sampling import (
+    bounded_memory_settings,
     build_person_count_query,
     count_matching_persons,
-    count_settings,
     read_person_count,
 )
 
@@ -65,14 +66,10 @@ def use_blast_radius_query_v2(team: Team) -> bool:
 
 def sampled_person_blast_radius(team: Team, prop_group: PropertyGroup, query_type: str) -> BlastRadiusResult:
     """
-    Person blast radius whose peak query memory does not grow with the size of the person table.
-
-    The exact counts dedup the person table with a hash GROUP BY that holds every matched
-    person in memory, and HogQL's default settings set no spill threshold, so on a large team
-    both counts cross the per-query memory limit and the caller gets an error instead of a
-    number. These counts read a sample of the persons and extrapolate, and fall back to an
-    exact count when the sample holds too few matches to extrapolate from. That fallback stays
-    bounded because count_settings overrides those defaults with in-order aggregation and a
+    Person blast radius that counts a sample of the persons and extrapolates, so the dedup
+    aggregation holds only the sampled persons and keeps the fast parallel hash aggregation.
+    It falls back to an exact count when the sample holds too few matches to extrapolate from.
+    That fallback stays memory-bounded because count_settings sets in-order aggregation and a
     spill threshold.
     """
     # One database build shared by both counts; each execute_hogql_query call would otherwise
@@ -101,6 +98,17 @@ def sampled_person_blast_radius(team: Team, prop_group: PropertyGroup, query_typ
 # in stored flag dependencies, which must fall back to sizing without the dependency.
 _VALUE_PARSE_CH_ERROR_CODES = frozenset({6, 72})
 
+UNEVALUABLE_FILTERS_MESSAGE = "These filters can't be evaluated. Check the property values."
+
+
+def _group_property_globals(group_type_index: GroupTypeIndex) -> dict[str, int]:
+    """
+    HogQL reads the group type from this global to resolve group property types when a query
+    selects from `groups` directly. Without it, HogQL compares a Boolean group property as a
+    string, and ClickHouse rejects the query.
+    """
+    return {"group_id": group_type_index}
+
 
 @contextmanager
 def unevaluable_filters_as_validation_errors() -> Iterator[None]:
@@ -108,10 +116,13 @@ def unevaluable_filters_as_validation_errors() -> Iterator[None]:
     # layers reject - behavioral or event filters in person scope, deleted cohort references,
     # malformed regexes, values that don't cast to the property's type - fail deterministically
     # on every request, so they're the caller's input, not a server fault: surface them as a 400
-    # carrying the layer's own message instead of an opaque 500. Only deliberately-exposed error
-    # types are converted across query build and execution - plus ObjectDoesNotExist from cohort
-    # lookups, PropertyValidationError from Property construction during query build (its message
-    # already names the offending property), and the ClickHouse cannot-parse-value codes above.
+    # instead of an opaque 500. The release condition editor and the workflow batch trigger print
+    # the 400 detail as it arrives. HogQL writes its messages for a person to read, so those are
+    # echoed. ClickHouse writes its messages for the engine, so the caller sees only copy that
+    # PostHog wrote: an ErrorCodeMeta user_safe string, or the generic message. Only
+    # deliberately-exposed error types are converted across query build and execution - plus
+    # ObjectDoesNotExist from cohort lookups and PropertyValidationError from Property
+    # construction during query build, whose message already names the offending property.
     # Caller-shaped ValueError is converted separately in the parse phase
     # (replace_proxy_properties), so a bare ValueError from HogQL internals or team config
     # during build/execution still surfaces as a server fault, as does any other
@@ -121,19 +132,18 @@ def unevaluable_filters_as_validation_errors() -> Iterator[None]:
     except (
         ExposedHogQLError,
         HogQLNotImplementedError,
-        ExposedCHQueryError,
         ObjectDoesNotExist,
         PropertyValidationError,
     ) as e:
-        raise ValidationError({"filters": str(e) or "These filters cannot be evaluated."}) from e
+        raise ValidationError({"filters": str(e) or UNEVALUABLE_FILTERS_MESSAGE}) from e
+    except ExposedCHQueryError as e:
+        curated_copy = look_up_clickhouse_error_code_meta(e).user_safe
+        message = curated_copy if isinstance(curated_copy, str) else UNEVALUABLE_FILTERS_MESSAGE
+        raise ValidationError({"filters": message}) from e
     except InternalCHQueryError as e:
         if e.code not in _VALUE_PARSE_CH_ERROR_CODES:
             raise
-        # Unlike ExposedCHQueryError, InternalCHQueryError's str() keeps the raw server message.
-        # Rewrap so ExposedCHQueryError.__str__ strips the DB::Exception framing and any stack
-        # trace tail before the message is echoed back to the caller.
-        sanitized = str(ExposedCHQueryError(e.message, code=e.code, code_name=e.code_name))
-        raise ValidationError({"filters": sanitized or "These filters cannot be evaluated."}) from e
+        raise ValidationError({"filters": UNEVALUABLE_FILTERS_MESSAGE}) from e
 
 
 def _normalize_property_value(prop: Property) -> None:
@@ -146,12 +156,20 @@ def _normalize_property_value(prop: Property) -> None:
 
     if prop.type in ("person", "group"):
         if isinstance(prop.value, list):
-            prop.value = [str(v) for v in prop.value]
+            prop.value = [_as_property_string(v) for v in prop.value]
         elif not isinstance(prop.value, str | list | dict | type(None)):
-            prop.value = str(prop.value)
+            prop.value = _as_property_string(prop.value)
 
 
-def replace_proxy_properties(team: Team, feature_flag_condition: dict) -> PropertyGroup:
+def _as_property_string(value: object) -> str:
+    # HogQL reads only "true" and "false" as booleans, so str(True) would match no stored true value.
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def replace_proxy_properties(team: Team, feature_flag_condition: dict, now: Optional[datetime] = None) -> PropertyGroup:
+    """`now` is the time that relative dates such as "-7d" count back from. It defaults to the current time."""
     # Parse phase: everything here derives directly from the caller's filter JSON, so a
     # ValueError is caller input (malformed property shape, non-numeric cohort id) and becomes
     # a 400. Cohort ids are cast eagerly so a bad id fails here instead of surfacing as a bare
@@ -163,15 +181,16 @@ def replace_proxy_properties(team: Team, feature_flag_condition: dict) -> Proper
             if prop.type in ("cohort", "static-cohort", "precalculated-cohort"):
                 Cohort._meta.pk.get_prep_value(prop.value)
             if prop.operator in ("is_date_before", "is_date_after"):
-                relative_date = relative_date_parse_for_feature_flag_matching(str(prop.value))
+                relative_date = relative_date_parse_for_feature_flag_matching(str(prop.value), now=now)
                 if relative_date:
-                    prop.value = relative_date.strftime("%Y-%m-%d %H:%M:%S")
+                    # The offset keeps the time in UTC. HogQL reads a time without one in the team's timezone.
+                    prop.value = relative_date.isoformat()
             else:
                 _normalize_property_value(prop)
 
         return prop_groups
     except ValueError as e:
-        raise ValidationError({"filters": str(e) or "These filters cannot be evaluated."}) from e
+        raise ValidationError({"filters": str(e) or UNEVALUABLE_FILTERS_MESSAGE}) from e
 
 
 def get_user_blast_radius(
@@ -226,7 +245,7 @@ def _get_person_blast_radius(team: Team, prop_group: PropertyGroup) -> BlastRadi
 
     if len(properties) == 0:
         # No filters means all persons are affected
-        total_users = team.persons_seen_so_far
+        total_users = team.count_persons_seen_so_far(settings=bounded_memory_settings())
         return BlastRadiusResult(affected=total_users, total=total_users)
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
@@ -245,7 +264,7 @@ def _get_person_blast_radius(team: Team, prop_group: PropertyGroup) -> BlastRadi
         estimate = _run_exact_person_count(team, prop_group, database, weight=None)
     # A condition with a flag dependency sums per-person match probabilities, so the count is a float.
     total_count = int(round(estimate))
-    total_users = team.count_persons_seen_so_far(database=database)
+    total_users = team.count_persons_seen_so_far(database=database, settings=bounded_memory_settings())
     blast_radius = min(total_count, total_users)
 
     return BlastRadiusResult(affected=blast_radius, total=total_users)
@@ -260,9 +279,7 @@ def _run_exact_person_count(
         query=select_query,
         team=team,
         context=HogQLContext(team_id=team.pk, database=database),
-        # The weighted count groups by person, so it takes the settings that let that aggregation
-        # stream in id order and spill to disk. The plain count keeps its historical defaults.
-        settings=count_settings(None) if weight is not None else None,
+        settings=bounded_memory_settings(),
     )
     return read_person_count(response.results, weighted=weight is not None)[1]
 
@@ -343,7 +360,7 @@ def _get_group_blast_radius(
 
     if len(properties) == 0:
         # No filters means all groups of this type are affected
-        total_groups = team.groups_seen_so_far(group_type_index)
+        total_groups = team.count_groups_seen_so_far(group_type_index)
         return BlastRadiusResult(affected=total_groups, total=total_groups)
 
     # Build the SELECT query for groups
@@ -357,7 +374,7 @@ def _get_group_blast_radius(
         query=select_query,
         team=team,
         workload=Workload.OFFLINE,
-        context=HogQLContext(team_id=team.pk, database=database),
+        context=HogQLContext(team_id=team.pk, database=database, globals=_group_property_globals(group_type_index)),
     )
 
     total_affected = response.results[0][0] if response.results else 0
@@ -644,6 +661,7 @@ def _get_group_blast_radius_persons(
         query=select_query,
         team=team,
         workload=Workload.OFFLINE,
+        context=HogQLContext(team_id=team.pk, globals=_group_property_globals(group_type_index)),
     )
 
     # Extract group keys from results

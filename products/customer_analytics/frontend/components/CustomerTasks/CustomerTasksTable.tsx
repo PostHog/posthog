@@ -2,9 +2,13 @@ import './CustomerTasksTable.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDropdown, LemonInputSelect, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjsLocalToTimezone } from 'lib/dayjs'
+import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonTable, type LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -14,7 +18,11 @@ import type { CustomerTaskApi } from 'products/customer_analytics/frontend/gener
 import { CustomerTaskActionsMenu } from './CustomerTaskActionsMenu'
 import { CustomerTaskAssigneeSelect } from './CustomerTaskAssigneeSelect'
 import { CustomerTaskDueAtInput } from './CustomerTaskDueAtInput'
-import type { CustomerTasksContext } from './customerTaskFilters'
+import {
+    CUSTOMER_TASK_STATUS_TRANSITIONS,
+    customerTaskEditDisabledReason,
+    type CustomerTasksContext,
+} from './customerTaskFilters'
 import { CustomerTaskModal } from './CustomerTaskModal'
 import { CustomerTasksFilters } from './CustomerTasksFilters'
 import type { customerTasksLogicType } from './customerTasksLogic'
@@ -34,9 +42,34 @@ export function CustomerTasksTable({
     canViewAll = false,
     embedded = true,
 }: CustomerTasksTableProps): JSX.Element {
-    const { taskPage, taskPageError, taskPageLoading, tasks, pagination, hasActiveFilters, taskSorting, timezone } =
-        useValues(logic)
-    const { loadTaskPage, openCreateModal, openEditModal, setTaskSorting } = useActions(logic)
+    const {
+        taskPage,
+        taskPageError,
+        taskPageLoading,
+        tasks,
+        pagination,
+        hasActiveFilters,
+        taskSorting,
+        timezone,
+        filters,
+        page,
+        ordering,
+        mutationKeys,
+        accountOptions,
+        accountOptionsResponseLoading,
+        bulkAccountOpen,
+    } = useValues(logic)
+    const {
+        loadTaskPage,
+        openCreateModal,
+        openEditModal,
+        setTaskSorting,
+        bulkUpdateTasks,
+        loadAccountOptions,
+        setBulkAccountOpen,
+    } = useActions(logic)
+    const bulkSaving = Boolean(mutationKeys.bulk)
+    const bulkDisabledReason = bulkSaving ? 'Saving' : taskPageLoading ? 'Loading tasks' : undefined
     if (taskPage === null && taskPageLoading) {
         return <LemonSkeleton className="h-64 w-full" />
     }
@@ -69,12 +102,10 @@ export function CustomerTasksTable({
                     <div className="CustomerTasksTable__narrow-assignee">
                         <CustomerTaskAssigneeSelect task={task} logic={logic} />
                     </div>
-                    {context === 'account' && (
-                        <div className="CustomerTasksTable__narrow-controls flex-wrap items-center gap-1">
-                            <CustomerTaskStatusSelect task={task} logic={logic} />
-                            <CustomerTaskDueAtInput task={task} logic={logic} timezone={timezone} />
-                        </div>
-                    )}
+                    <div className="CustomerTasksTable__narrow-controls flex-wrap items-center gap-1">
+                        <CustomerTaskStatusSelect task={task} logic={logic} />
+                        <CustomerTaskDueAtInput task={task} logic={logic} timezone={timezone} />
+                    </div>
                 </div>
             ),
         },
@@ -150,7 +181,7 @@ export function CustomerTasksTable({
     )
     return (
         <div className={`CustomerTasksTable CustomerTasksTable--${context}`} data-attr="customer-tasks-table">
-            <div className="mb-4 flex items-start justify-between gap-2">
+            <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
                 <CustomerTasksFilters logic={logic} context={context} canViewAll={canViewAll} />
                 {canCreate && (
                     <LemonButton type="primary" size="small" onClick={openCreateModal}>
@@ -163,7 +194,7 @@ export function CustomerTasksTable({
                     Couldn't load tasks. Try again.
                 </LemonBanner>
             )}
-            <LemonTable<CustomerTaskApi>
+            <LemonTable<CustomerTaskApi, string>
                 embedded={embedded}
                 dataSource={tasks}
                 columns={columns}
@@ -177,6 +208,215 @@ export function CustomerTasksTable({
                 emptyState={empty}
                 nouns={['task', 'tasks']}
                 tableLayout="fixed"
+                bulkSelection={{
+                    actionsPlacement: 'start',
+                    barClassName: 'mb-2 flex-wrap justify-start! pl-0!',
+                    noun: ['task', 'tasks'],
+                    rowAriaLabel: (task) => `Select task ${task.name}`,
+                    headerAriaLabel: 'Select all tasks on this page',
+                    clearSelectionKey: JSON.stringify({ filters, page, ordering }),
+                    isRowSelectable: (task) => {
+                        const disabledReason =
+                            (task.archived_at
+                                ? task.can_restore
+                                    ? undefined
+                                    : 'You cannot restore this task'
+                                : customerTaskEditDisabledReason(task)) ??
+                            (mutationKeys[task.id] ? 'Saving' : bulkDisabledReason)
+                        return disabledReason ? { disabledReason } : true
+                    },
+                    renderActions: ({ selectedKeys, selectedRecords, setSelectedKeys }) => {
+                        const editDisabledReason =
+                            bulkDisabledReason ??
+                            (selectedRecords.some((task) => task.archived_at)
+                                ? 'Unarchive the selected tasks to edit them'
+                                : undefined)
+                        return (
+                            <>
+                                <LemonMenu
+                                    items={[
+                                        {
+                                            items: (['open', 'in_progress', 'completed', 'canceled'] as const).map(
+                                                (status) => ({
+                                                    label:
+                                                        status === 'in_progress'
+                                                            ? 'In progress'
+                                                            : status.charAt(0).toUpperCase() + status.slice(1),
+                                                    disabledReason: selectedRecords.every(
+                                                        (task) =>
+                                                            task.status === status ||
+                                                            CUSTOMER_TASK_STATUS_TRANSITIONS[task.status].includes(
+                                                                status
+                                                            )
+                                                    )
+                                                        ? editDisabledReason
+                                                        : 'Some selected tasks cannot change to this status',
+                                                    onClick: () =>
+                                                        bulkUpdateTasks([...selectedKeys], { status }, setSelectedKeys),
+                                                })
+                                            ),
+                                        },
+                                    ]}
+                                >
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        loading={bulkSaving}
+                                        disabledReason={editDisabledReason}
+                                        data-attr="customer-tasks-bulk-status"
+                                    >
+                                        Change status
+                                    </LemonButton>
+                                </LemonMenu>
+                                <MemberSelect
+                                    value={null}
+                                    defaultLabel="Unassigned"
+                                    allowNone
+                                    onChange={(user) =>
+                                        bulkUpdateTasks(
+                                            [...selectedKeys],
+                                            { assigned_to_id: user?.id ?? null },
+                                            setSelectedKeys
+                                        )
+                                    }
+                                >
+                                    {() => (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            loading={bulkSaving}
+                                            disabledReason={editDisabledReason}
+                                            data-attr="customer-tasks-bulk-assignee"
+                                        >
+                                            Assign to
+                                        </LemonButton>
+                                    )}
+                                </MemberSelect>
+                                <LemonCalendarSelectInput
+                                    value={null}
+                                    onChange={(value) =>
+                                        bulkUpdateTasks(
+                                            [...selectedKeys],
+                                            {
+                                                due_at: value
+                                                    ? dayjsLocalToTimezone(
+                                                          value.format('YYYY-MM-DDTHH:mm'),
+                                                          timezone
+                                                      ).toISOString()
+                                                    : null,
+                                            },
+                                            setSelectedKeys
+                                        )
+                                    }
+                                    granularity="minute"
+                                    use24HourFormat
+                                    placeholder="Due at"
+                                    buttonProps={{
+                                        type: 'secondary',
+                                        size: 'small',
+                                        fullWidth: false,
+                                        loading: bulkSaving,
+                                        disabledReason: editDisabledReason,
+                                        'data-attr': 'customer-tasks-bulk-due',
+                                        sideAction: {
+                                            icon: <IconX />,
+                                            onClick: () =>
+                                                bulkUpdateTasks([...selectedKeys], { due_at: null }, setSelectedKeys),
+                                            disabledReason: editDisabledReason,
+                                            'aria-label': 'Clear due dates',
+                                        },
+                                    }}
+                                />
+                                <LemonDropdown
+                                    visible={bulkAccountOpen}
+                                    closeOnClickInside={false}
+                                    onVisibilityChange={(open) => {
+                                        setBulkAccountOpen(open)
+                                        if (open) {
+                                            loadAccountOptions({ query: '' })
+                                        }
+                                    }}
+                                    overlay={
+                                        <div className="w-64 p-2">
+                                            <LemonInputSelect
+                                                mode="single"
+                                                value={[]}
+                                                options={[
+                                                    { key: 'none', label: 'No account' },
+                                                    ...accountOptions.map((account) => ({
+                                                        key: account.id,
+                                                        label: account.name,
+                                                    })),
+                                                ]}
+                                                loading={accountOptionsResponseLoading}
+                                                onInputChange={(query) => loadAccountOptions({ query })}
+                                                onChange={(values) => {
+                                                    if (values[0]) {
+                                                        bulkUpdateTasks(
+                                                            [...selectedKeys],
+                                                            { account_id: values[0] === 'none' ? null : values[0] },
+                                                            setSelectedKeys
+                                                        )
+                                                    }
+                                                }}
+                                                placeholder="Search accounts"
+                                                disabledReason={editDisabledReason}
+                                            />
+                                        </div>
+                                    }
+                                >
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        loading={bulkSaving}
+                                        disabledReason={editDisabledReason}
+                                        data-attr="customer-tasks-bulk-account"
+                                    >
+                                        Account
+                                    </LemonButton>
+                                </LemonDropdown>
+                                <LemonMenu
+                                    items={[
+                                        {
+                                            label: 'Archive tasks',
+                                            disabledReason:
+                                                bulkDisabledReason ??
+                                                (selectedRecords.every((task) => task.archived_at)
+                                                    ? 'The selected tasks are already archived'
+                                                    : undefined),
+                                            onClick: () =>
+                                                bulkUpdateTasks([...selectedKeys], { archived: true }, setSelectedKeys),
+                                        },
+                                        {
+                                            label: 'Unarchive tasks',
+                                            disabledReason:
+                                                bulkDisabledReason ??
+                                                (selectedRecords.every((task) => !task.archived_at)
+                                                    ? 'The selected tasks are already active'
+                                                    : undefined),
+                                            onClick: () =>
+                                                bulkUpdateTasks(
+                                                    [...selectedKeys],
+                                                    { archived: false },
+                                                    setSelectedKeys
+                                                ),
+                                        },
+                                    ]}
+                                >
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        loading={bulkSaving}
+                                        disabledReason={bulkDisabledReason}
+                                        data-attr="customer-tasks-bulk-archive"
+                                    >
+                                        Archive/unarchive
+                                    </LemonButton>
+                                </LemonMenu>
+                            </>
+                        )
+                    },
+                }}
             />
             <CustomerTaskModal logic={logic} context={context} />
         </div>

@@ -1,7 +1,7 @@
 //! The AI lane's per-project byte budget. The lane is the whole gate: every
 //! `$ai_` event (`v0_request::is_ai_event`) is bound for the AI Kafka topic on
 //! every deployment, stamped `DataType::AiEvents` in v0 and
-//! `Destination::AiEvents` in v1. Import deployments are exempt — backfills
+//! `Destination::AiMain` in v1. Import deployments are exempt — backfills
 //! are never throttled, matching the other limiters — which setup enforces by
 //! not building the limiter at all in import mode.
 //!
@@ -36,7 +36,7 @@ use crate::prometheus::report_dropped_events;
 use crate::v0_request::{DataType, ProcessedEvent};
 
 /// Flat allowance for the `CapturedEvent` envelope fields not in `data`.
-const ENVELOPE_WEIGHT_BYTES: usize = 512;
+pub(crate) const ENVELOPE_WEIGHT_BYTES: usize = 512;
 
 /// Charge `payload_bytes` against `token`'s AI budget and report whether the
 /// event is over it.
@@ -125,6 +125,7 @@ mod tests {
             timestamp,
             is_cookieless_mode: false,
             historical_migration: false,
+            options: None,
         };
         let metadata = ProcessedEventMetadata {
             data_type,

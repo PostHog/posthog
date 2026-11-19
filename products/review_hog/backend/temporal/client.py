@@ -34,10 +34,11 @@ from typing import Any, cast
 from django.conf import settings
 
 from asgiref.sync import async_to_sync
-from temporalio.client import WorkflowExecutionStatus
-from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.client import WorkflowExecutionStatus, WorkflowQueryRejectedError
+from temporalio.common import QueryRejectCondition, RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import sync_connect
 
@@ -52,7 +53,7 @@ from products.review_hog.backend.temporal.types import (
     review_branch_workflow_id,
     review_pr_workflow_id,
 )
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.facade.taxonomy import ReportPriority
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,37 @@ def probe_workflow(workflow_id: str, rpc_timeout: timedelta | None = None) -> Wo
     return WorkflowProbe.NOT_RUNNING
 
 
+@frozen
+class QueuedReviewHeads:
+    """The heads the PR's review queue still has to review. None is a request for the live head."""
+
+    # The request whose turn runs now, or waits for a resolution run to end before it starts.
+    active: tuple[str | None, ...] = ()
+    pending: tuple[str | None, ...] = ()
+
+
+def queued_review_heads(workflow_id: str, rpc_timeout: timedelta | None = None) -> QueuedReviewHeads:
+    """The heads the PR's review queue still has to review. Empty when no queue runs.
+
+    Raises when Temporal does not answer, so a caller cannot read an outage as "nothing queued".
+    """
+    try:
+        client = sync_connect()
+        handle = client.get_workflow_handle(workflow_id)
+        # async_to_sync erases query's overloads, so mypy binds the wrong one.
+        query = cast(Callable[..., Any], async_to_sync(handle.query))
+        heads: dict[str, list[str | None]] = query(
+            "requested_heads", reject_condition=QueryRejectCondition.NOT_OPEN, rpc_timeout=rpc_timeout
+        )
+    except WorkflowQueryRejectedError:
+        return QueuedReviewHeads()
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return QueuedReviewHeads()
+        raise
+    return QueuedReviewHeads(active=tuple(heads["active"]), pending=tuple(heads["pending"]))
+
+
 def workflow_running(workflow_id: str) -> bool:
     """Whether `workflow_id` has a live execution — the busy-guard's probe (CONTEXT.md — "Busy-guard").
 
@@ -115,6 +147,8 @@ def _build_inputs(
     signal_priority: ReportPriority | None = None,
     review_mode: str = REVIEW_MODE_FULL,
     requested_head_sha: str | None = None,
+    trigger_action: str | None = None,
+    marks_ready: bool = False,
     installation_id: str | None = None,
     github_repo_id: int | None = None,
 ) -> tuple[ReviewPRWorkflowInputs, str]:
@@ -155,6 +189,8 @@ def _build_inputs(
         resolve_comments=resolve_comments,
         review_mode=review_mode,
         requested_head_sha=requested_head_sha,
+        trigger_action=trigger_action,
+        marks_ready=marks_ready,
         installation_id=installation_id,
         github_repo_id=github_repo_id,
     )
@@ -231,6 +267,8 @@ def start_review_pr_workflow(
     resolve_comments: bool | None = None,
     review_mode: str = REVIEW_MODE_FULL,
     requested_head_sha: str | None = None,
+    trigger_action: str | None = None,
+    marks_ready: bool = False,
     installation_id: str | None = None,
     github_repo_id: int | None = None,
 ) -> str:
@@ -259,6 +297,8 @@ def start_review_pr_workflow(
         resolve_comments=resolve_comments,
         review_mode=review_mode,
         requested_head_sha=requested_head_sha,
+        trigger_action=trigger_action,
+        marks_ready=marks_ready,
         installation_id=installation_id,
         github_repo_id=github_repo_id,
     )

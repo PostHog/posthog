@@ -22,3 +22,21 @@ WORKFLOW_CLASSIFY_PURPOSE = ScopedServiceJwtPurpose(
     audience=PosthogJwtAudience.WORKFLOW_CLASSIFY,
     settings_name="WORKFLOW_CLASSIFY_JWT_SECRETS",
 )
+
+# Its own key, for the same narrowest-scope reason as WORKFLOW_SCOUT_RUN_PURPOSE.
+WORKFLOW_VISION_REQUEST_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOW_VISION_REQUEST,
+    settings_name="WORKFLOW_VISION_REQUEST_JWT_SECRETS",
+)
+
+# Its own key, for the same narrowest-scope reason as WORKFLOW_SCOUT_RUN_PURPOSE.
+WORKFLOW_ADD_TO_STATIC_COHORT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOW_ADD_TO_STATIC_COHORT,
+    settings_name="WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRETS",
+)
+
+# Its own key, for the same narrowest-scope reason as WORKFLOW_SCOUT_RUN_PURPOSE.
+WORKFLOW_MESSAGE_OPT_OUT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOW_MESSAGE_OPT_OUT,
+    settings_name="WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRETS",
+)

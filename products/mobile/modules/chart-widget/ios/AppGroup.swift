@@ -1,0 +1,1 @@
+../../../targets/HedgehogWidget/AppGroup.swift

@@ -4,6 +4,7 @@ export const ERROR_TRACKING_WIDGET_ORDER_BY_OPTIONS = [
     { value: 'first_seen', label: 'First seen' },
     { value: 'users', label: 'Users' },
     { value: 'sessions', label: 'Sessions' },
+    { value: 'severity', label: 'Severity' },
 ] as const
 
 /** True when the project can query error tracking issues (matches tile setup prompt gating). */

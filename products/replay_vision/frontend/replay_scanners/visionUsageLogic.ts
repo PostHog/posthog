@@ -5,16 +5,13 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import {
-    environmentVisionQuotaSpendSeriesRetrieve,
-    visionScannersList,
-    visionScannersPartialUpdate,
-} from '../generated/api'
+import { environmentVisionQuotaSpendSeriesRetrieve, visionScannersList } from '../generated/api'
 import type { VisionQuotaApi, VisionSpendSeriesApi } from '../generated/api.schemas'
 import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { fleetContributions } from '../utils/quotaContributions'
 import { hasCreditLimit } from '../utils/quotaProjection'
 import { type SpendVerdict, spendVerdict } from '../utils/spendVerdict'
+import { saveScannerEnabled } from './saveScannerEnabled'
 import type { ReplayScanner } from './types'
 
 /** Settled credit spend per UTC day of the current billing period, oldest first, zero-filled through today. */
@@ -206,7 +203,11 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
             }
             actions.setScannerEnabled(scanner.id, next)
             try {
-                await visionScannersPartialUpdate(String(teamId), scanner.id, { enabled: next })
+                const saved = await saveScannerEnabled(String(teamId), scanner.id, next)
+                if (!saved) {
+                    actions.setScannerEnabled(scanner.id, scanner.enabled)
+                    return
+                }
                 refreshVisionQuota()
                 lemonToast.success(`Scanner ${next ? 'enabled' : 'disabled'}`)
             } catch (error: any) {

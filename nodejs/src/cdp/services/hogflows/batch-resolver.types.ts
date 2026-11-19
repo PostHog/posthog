@@ -12,6 +12,20 @@ export const HOGFLOW_BATCH_RESOLVE_QUEUE = 'hogflow_batch_resolve' as const
 // fails so the janitor can clean it up.
 export const MAX_RESOLVER_ATTEMPTS = 5
 
+// Why a run reached a terminal failure. The failure and the terminal write happen on separate
+// dequeues, so the reason travels in state to reach the metric that alerting reads.
+export const BatchResolverFailureReasonSchema = z.enum([
+    'quota_limited',
+    'missing_entity',
+    'cohort_timeout',
+    'realtime_cohort_unavailable',
+    'audience_snapshot_timeout',
+    'audience_query_failed',
+    'fetch_failure',
+])
+
+export type BatchResolverFailureReason = z.infer<typeof BatchResolverFailureReasonSchema>
+
 // Zod-validated on every dequeue so a job written by an older deploy fails
 // cleanly at the boundary instead of crashing later in the page logic.
 export const BatchResolverStateSchema = z.object({
@@ -40,6 +54,28 @@ export const BatchResolverStateSchema = z.object({
     // mid-run flow edits can't flip dedup semantics between pages. Optional so
     // jobs written by older deploys keep parsing (they run un-deduped).
     dedupeKey: z.enum(['email']).optional(),
+    // Set by Django when the audience is exactly one realtime cohort. The resolver then pages that
+    // cohort's members from the realtime pipeline's Postgres table instead of the Django audience
+    // query. `teamId` is the cohort's own team, which owns its membership rows.
+    realtimeCohort: z
+        .object({
+            id: z.number().int(),
+            teamId: z.number().int(),
+            // Set while the cohort is still calculating: the job stays parked until Django resumes it
+            // once the cohort is ready, or fails at this instant if that never happens.
+            waitUntil: z.string().datetime().optional(),
+        })
+        .optional(),
+    // Set by Django when the run resolves its whole audience once before paging; `waitUntil` is when a
+    // resolution that never finished fails the run.
+    audienceSnapshot: z
+        .object({
+            waitUntil: z.string().datetime(),
+            // Set once Django has accepted the request, so a poll is not counted as a fresh start.
+            requested: z.boolean().optional(),
+            ready: z.boolean().optional(),
+        })
+        .optional(),
     maxAudienceSize: z.number().int().nonnegative(),
     cursor: z.string().nullable(),
     totalEnqueued: z.number().int().nonnegative(),
@@ -50,6 +86,7 @@ export const BatchResolverStateSchema = z.object({
     attempts: z.number().int().nonnegative().default(0),
     startedAt: z.string(),
     pendingTerminal: z.enum(['completed', 'failed']).optional(),
+    terminalReason: BatchResolverFailureReasonSchema.optional(),
 })
 
 export type BatchResolverState = z.infer<typeof BatchResolverStateSchema>

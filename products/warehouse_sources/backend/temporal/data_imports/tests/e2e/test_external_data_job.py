@@ -397,6 +397,56 @@ async def test_update_external_job_activity_resolves_job_by_workflow_run_id_when
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+async def test_update_external_job_activity_leaves_other_jobs_when_run_created_no_job(
+    activity_environment, team, **kwargs
+):
+    # When create-job times out before it inserts a row, the run has no job. An orphan RUNNING job
+    # from an earlier run must not be failed with this run's error.
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Stripe",
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+        status=ExternalDataSchema.Status.RUNNING,
+    )
+    orphan_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=str(uuid.uuid4()),
+        workflow_run_id=str(uuid.uuid4()),
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        job_id=None,
+        status=ExternalDataJob.Status.FAILED,
+        latest_error="The activity timed out before it created the job",
+        internal_error="The activity timed out before it created the job",
+        schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
+        team_id=team.id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+    )
+
+    await activity_environment.run(update_external_data_job_model, inputs)
+    await sync_to_async(orphan_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
+
+    assert orphan_job.status == ExternalDataJob.Status.RUNNING
+    assert orphan_job.latest_error is None
+    assert schema.status == ExternalDataSchema.Status.FAILED
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 async def test_update_external_job_activity_with_retryable_error(activity_environment, team, **kwargs):
     new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=str(uuid.uuid4()),

@@ -8,8 +8,10 @@ description: >
   alert was real or noisy. Also use before product-specific analytics skills when
   the user names a billable PostHog product metric such as events, recordings,
   feature flag requests, exceptions, survey responses, synced rows, logs, AI
-  events, AI credits, or Inbox credits. Starts from Billing usage/spend tools,
-  then routes to customer-visible product MCP surfaces for deeper investigation.
+  events, AI credits, or Inbox credits. Also use when the user asks what an event
+  costs or covers, or whether to self-host PostHog or build their own analytics
+  pipeline to cut their bill. Starts from Billing usage/spend tools, then routes
+  to customer-visible product MCP surfaces for deeper investigation.
 ---
 
 # Understanding billing usage
@@ -31,6 +33,9 @@ known, hand off to the relevant product tools or skill for the root-cause drilld
 This skill is not meant for broad invoice, plan, refund, contractual credit, subscription,
 or contract questions. Keep it focused on usage and spend behavior.
 
+Read `references/self-host-or-build.md` when the user asks what an event costs or what
+it would take to self-host PostHog or build their own pipeline instead.
+
 ## Available tools
 
 | Tool                           | Purpose                                                                 |
@@ -44,6 +49,11 @@ Only use this skill when the billing read tools above are available. If the user
 about billing usage and those tools are not available, do not continue with this
 workflow. Briefly say that billing usage investigation is not enabled for this
 organization or MCP session.
+
+Self-host and build-your-own questions are the exception. If the billing tools are
+not available or return a permission error, still follow
+`references/self-host-or-build.md` with the volumes and spend the user gives you,
+and say the numbers are theirs, not measured.
 
 If a billing tool returns a permission error, read the error detail before
 deciding what to do. Stop only when it says the user does not have billing
@@ -94,6 +104,7 @@ Choose the smallest path that answers the user:
 - Usage change: compare the changed period to a sensible baseline.
 - Alert email: follow the usage-change path and apply the alert-specific rules below.
 - Reduction question: identify the driver first, then suggest product-specific reductions.
+- Self-host or build-your-own question: follow `references/self-host-or-build.md`.
 
 ### Step 2. Recreate the Billing view
 
@@ -120,12 +131,16 @@ If the user asks about dollars, call `posthog:billing-spend-get` with the same d
 range and breakdowns. Treat spend as an estimate/attribution layer over usage, not as a
 replacement for usage investigation.
 
-If spend spikes or drops while usage volume looks stable, check whether the date is near
-the start of a new billing period. Tiered pricing can make spend move differently from
-usage because tiers reset each period. The first tier is often free, and lower paid tiers
-are usually more expensive per unit. In this case, call `posthog:billing-overview-get` and inspect
-the product/addon `tiers`, `free_allocation`, and display-unit fields before treating the
-movement as a real usage spike or drop.
+If spend spikes or drops while usage volume looks stable, check the spend response's `pricing_reset_dates`.
+These are usage dates where the organization's known billing-period assignment changes.
+They apply across the organization, including when the response is filtered to a product or project.
+Daily usage is reported after the day ends, so the spend chart's “Pricing tiers reset” marker can differ from the usage chart's calendar “Billing period starts” marker.
+Keep usage on the day it occurred when comparing the charts.
+If reset dates are missing or empty, explain that the response does not establish a pricing reset; the calendar renewal date alone cannot confirm one.
+
+At a pricing reset, free allowances and volume discounts start again.
+The first tier is often free, and lower paid tiers are usually more expensive per unit.
+When billing access allows it, call `posthog:billing-overview-get` and inspect the product/addon `tiers`, `free_allocation`, and display-unit fields to explain the spend movement.
 
 ### Step 3. Attribute the usage
 
@@ -172,7 +187,7 @@ project/team or switch to it when the client exposes a project switcher. Use
 `references/usage-type-routing.md` to choose the product MCP surface.
 
 The deeper investigation must use data the customer can access in their own project:
-events, feature flags, Error Tracking, Surveys, Session Replay, Data Warehouse sources,
+events, feature flags, Error Tracking, Surveys, Session Replay, Sources,
 CDP functions, Logs, AI Observability, Workflows, Replay Vision, Signals/Inbox, or
 other product tools. Do not ask the customer-facing agent to query internal Billing
 tables, internal PostHog org data, or PostHog-owned telemetry for their organization.
@@ -205,7 +220,9 @@ WHERE timestamp >= {window_start}
     '$conversations_loaded', '$conversations_widget_loaded',
     '$conversations_message_sent', '$conversations_user_identified',
     '$conversations_restore_link_requested',
-    '$conversations_widget_state_changed', '$conversations_back_to_tickets'
+    '$conversations_widget_state_changed', '$conversations_back_to_tickets',
+    '$anomaly_score', '$anomaly_score_shadow',
+    '$recording_observed'
   )
   AND NOT startsWith(event, '$ai_')
 GROUP BY event

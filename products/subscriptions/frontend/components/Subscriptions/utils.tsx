@@ -2,7 +2,7 @@ import { IconLetter } from '@posthog/icons'
 import { LemonSelectOption, LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { getGrantedScopes } from 'lib/integrations/IntegrationScopesWarning'
+import { getGrantedScopes } from 'lib/integrations/integrationScopes'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { range } from 'lib/utils/arrays'
@@ -281,10 +281,20 @@ export function formatSubscriptionSchedule(
 }
 
 export function getSubscriptionAdvancedSettings(
-    subscription: Pick<SubscriptionType, 'summary_enabled' | 'summary_prompt_guide' | 'send_test_now'>
+    subscription: Pick<
+        SubscriptionType,
+        'summary_enabled' | 'summary_prompt_guide' | 'send_test_now' | 'delivery_config' | 'resource_type'
+    >
 ): string[] {
     const settings: string[] = []
 
+    const size = subscription.delivery_config?.image_size
+    if (
+        subscription.resource_type !== SubscriptionResourceTypes.AiPrompt &&
+        (size?.width != null || size?.height != null)
+    ) {
+        settings.push(`Images: ${size?.width ?? 'Auto'} × ${size?.height ?? 'Auto'} px`)
+    }
     if (subscription.summary_enabled) {
         settings.push('Automatic AI summary')
     }
@@ -327,19 +337,19 @@ export function coerceDeliveryConfigForScope(
     subscription: SubscriptionType,
     integrations: IntegrationType[] | null | undefined
 ): SubscriptionType['delivery_config'] {
-    const deliveryConfig = dropAiDisplayConfigForNonAi(subscription)
+    let deliveryConfig = dropAiDisplayConfigForNonAi(subscription)
+    if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt && deliveryConfig?.image_size) {
+        deliveryConfig = { ...deliveryConfig }
+        delete deliveryConfig.image_size
+    }
     if (!deliveryConfig?.post_all_insights_in_main_message) {
         return deliveryConfig
-    }
-    // A prompt report always posts its charts in the main message, so the API rejects this option
-    // and the form hides its toggle. Without this the stored flag has no control that can clear it.
-    if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt) {
-        return { ...deliveryConfig, post_all_insights_in_main_message: false }
     }
     if (subscription.target_type !== 'slack') {
         return { ...deliveryConfig, post_all_insights_in_main_message: false }
     }
-    if (integrations == null) {
+    // A prompt report links its chart images instead of uploading them, so it needs no file upload permission.
+    if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt || integrations == null) {
         return deliveryConfig
     }
 

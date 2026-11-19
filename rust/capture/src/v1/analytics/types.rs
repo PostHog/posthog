@@ -26,10 +26,9 @@ impl io::Write for StringWriter<'_> {
 use super::constants::DETAIL_INVALID_OPTIONS;
 use crate::ordering::{person_ordering, OrderingGuarantee};
 use crate::v1::context::RequestContext;
-use crate::v1::sinks::event::Event as SinkEvent;
-use crate::v1::sinks::Destination;
+use crate::v1::types::{Destination, Publishable};
 
-fn empty_raw_object() -> Box<RawValue> {
+pub(super) fn empty_raw_object() -> Box<RawValue> {
     RawValue::from_string("{}".to_owned()).unwrap()
 }
 
@@ -39,13 +38,17 @@ fn deserialize_trimmed_string<'de, D>(deserializer: D) -> Result<String, D::Erro
 where
     D: serde::Deserializer<'de>,
 {
-    let s = String::deserialize(deserializer)?;
+    Ok(trim_owned(String::deserialize(deserializer)?))
+}
+
+/// Shared by [`Event`] and the lenient parse so their trims can't diverge.
+pub(super) fn trim_owned(s: String) -> String {
     let trimmed = s.trim();
-    Ok(if trimmed.len() == s.len() {
+    if trimmed.len() == s.len() {
         s
     } else {
         trimmed.to_owned()
-    })
+    }
 }
 
 /// Per-event outcome in the batch response.
@@ -61,6 +64,7 @@ pub enum EventResult {
     Retry,
 }
 
+/// Keep fields in sync with `LenientBatch` in `super::lenient`.
 #[derive(Debug, Deserialize)]
 pub struct Batch {
     pub created_at: String,
@@ -80,14 +84,14 @@ fn lenient_flag(value: &Value) -> Option<bool> {
     }
 }
 
-fn deserialize_lenient_flag<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+pub(super) fn deserialize_lenient_flag<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     Ok(lenient_flag(&Value::deserialize(deserializer)?))
 }
 
-fn deserialize_lenient_flag_or_false<'de, D>(deserializer: D) -> Result<bool, D::Error>
+pub(super) fn deserialize_lenient_flag_or_false<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -301,6 +305,7 @@ fn coerce_product_tour_id(v: &Value) -> Parsed<String> {
     }
 }
 
+/// Keep fields in sync with `LenientEvent` in `super::lenient`.
 #[derive(Debug, Deserialize)]
 pub struct Event {
     pub event: String,
@@ -348,45 +353,67 @@ pub struct WrappedEvent {
 }
 
 impl WrappedEvent {
-    /// Option keys that dropped this event; recomputed since only drops need it.
     pub fn failed_option_keys(&self) -> OptionKeys {
-        match self.details {
-            Some(DETAIL_INVALID_OPTIONS) => self
-                .event
-                .options
-                .validate()
-                .err()
-                .map_or_else(OptionKeys::default, OptionsError::failed_keys),
-            _ => OptionKeys::default(),
-        }
+        failed_option_keys(&self.event, self.details)
     }
 }
 
-impl SinkEvent for WrappedEvent {
-    // Pre-parsed UUID for result correlation. By the Sink stage,
-    // we know ALL well-formed incoming events have a valid UUID.
+#[derive(Debug)]
+pub struct ValidatedEvent {
+    pub event: Event,
+    pub uuid: Uuid,
+    pub options: Options,
+    pub adjusted_timestamp: Option<DateTime<Utc>>,
+    pub result: EventResult,
+    pub details: Option<&'static str>,
+    pub force_disable_person_processing: bool,
+}
+
+impl ValidatedEvent {
+    pub fn into_wrapped(self, destination: Destination) -> WrappedEvent {
+        WrappedEvent {
+            event: self.event,
+            uuid: self.uuid,
+            options: self.options,
+            adjusted_timestamp: self.adjusted_timestamp,
+            result: self.result,
+            details: self.details,
+            destination,
+            force_disable_person_processing: self.force_disable_person_processing,
+            spread_partitions: false,
+            is_gateway_verified: false,
+        }
+    }
+
+    pub fn failed_option_keys(&self) -> OptionKeys {
+        failed_option_keys(&self.event, self.details)
+    }
+}
+
+fn failed_option_keys(event: &Event, details: Option<&'static str>) -> OptionKeys {
+    match details {
+        Some(DETAIL_INVALID_OPTIONS) => event
+            .options
+            .validate()
+            .err()
+            .map_or_else(OptionKeys::default, OptionsError::failed_keys),
+        _ => OptionKeys::default(),
+    }
+}
+
+impl Publishable for WrappedEvent {
     fn uuid(&self) -> Uuid {
         self.uuid
     }
 
-    // Publish Ok and Warning events; skip Drop, Retry, and anything routed to Destination::Drop.
     fn should_publish(&self) -> bool {
-        (self.result == EventResult::Ok || self.result == EventResult::Warning)
-            && self.destination != Destination::Drop
+        self.result == EventResult::Ok || self.result == EventResult::Warning
     }
 
-    // Resolve the storage-agnostic Destination scope for this event.
-    // The config for each Sink implementation knows how to resolve
-    // these to topics (etc.) depending on the sink type
     fn destination(&self) -> &Destination {
         &self.destination
     }
 
-    // Returns the full typed header set for this event, combining per-request
-    // context fields (token, now, historical_migration) with event-owned
-    // fields. Sinks convert the returned CapturedEventHeaders to their
-    // backend-specific format (e.g. OwnedHeaders for Kafka) via the From impl
-    // in common_types — same conversion legacy capture uses.
     fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders {
         // Downstream treats this header as absolute: `decideProcessPerson` in
         // nodejs/src/common/persons/person-utils.ts skips person processing
@@ -436,6 +463,7 @@ impl SinkEvent for WrappedEvent {
             dlq_step,
             dlq_timestamp,
             content_encoding: None,
+            legacy_property_splice: ctx.legacy_property_splice.then_some(true),
         }
     }
 
@@ -459,12 +487,6 @@ impl SinkEvent for WrappedEvent {
         buf
     }
 
-    /// Computed here rather than stamped during processing because it depends
-    /// on the final destination: `apply_restrictions` can disable person
-    /// processing while an event is still `AnalyticsMain`, and
-    /// `apply_historical_rerouting` may afterwards move it to
-    /// `AnalyticsHistorical`, whose consumers need the key. Deciding late
-    /// keeps the rule correct no matter how the stages are ordered.
     fn ordering(&self) -> OrderingGuarantee {
         if !self.destination.absorbs_hot_keys() {
             return OrderingGuarantee::PerDistinctId;
@@ -480,7 +502,12 @@ impl SinkEvent for WrappedEvent {
     }
 
     fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
-        let spliced = self.build_spliced_properties(ctx)?;
+        let sdk_lib = ctx.sdk_lib_and_version();
+        let spliced = if ctx.legacy_property_splice {
+            self.build_spliced_properties(sdk_lib)?
+        } else {
+            None
+        };
         let properties: &RawValue = spliced.as_deref().unwrap_or(&self.event.properties);
         let ingestion_data = IngestionData {
             event: &self.event.event,
@@ -517,6 +544,7 @@ impl SinkEvent for WrappedEvent {
             timestamp,
             is_cookieless_mode: self.options.cookieless_mode.unwrap_or(false),
             historical_migration: ctx.historical_migration,
+            options: self.outbound_options(sdk_lib),
         };
 
         let mut buf = Vec::with_capacity(data.len() + 512);
@@ -527,8 +555,26 @@ impl SinkEvent for WrappedEvent {
 }
 
 impl WrappedEvent {
+    fn outbound_options<'a>(
+        &'a self,
+        sdk_lib: Option<(&'a str, &'a str)>,
+    ) -> Option<OutboundOptions<'a>> {
+        let opts = OutboundOptions {
+            session_id: self.event.session_id.as_deref(),
+            window_id: self.event.window_id.as_deref(),
+            cookieless_mode: self.options.cookieless_mode,
+            disable_skew_correction: self.options.disable_skew_correction,
+            product_tour_id: self.options.product_tour_id.as_deref(),
+            process_person_profile: self.options.process_person_profile,
+            req_lib: sdk_lib.map(|(lib, _)| lib),
+            req_lib_version: sdk_lib.map(|(_, version)| version),
+        };
+        (!opts.is_empty()).then_some(opts)
+    }
+
+    /// Server-side `$` properties as comma-separated `"key":value` pairs, without braces.
     #[allow(unused_assignments)]
-    fn build_property_injections(&self, ctx: &RequestContext) -> anyhow::Result<String> {
+    fn build_property_injections(&self, sdk_lib: Option<(&str, &str)>) -> anyhow::Result<String> {
         let mut buf = String::with_capacity(256);
         let mut first = true;
 
@@ -570,7 +616,7 @@ impl WrappedEvent {
         // so the header wins under last-key-wins parsing (same duplicate-key
         // semantics as the injections above). Unusable headers inject nothing
         // and are counted per-request in the handler.
-        if let Some((lib, lib_version)) = ctx.sdk_lib_and_version() {
+        if let Some((lib, lib_version)) = sdk_lib {
             inject!(buf, first, "$lib", lib);
             inject!(buf, first, "$lib_version", lib_version);
         }
@@ -578,13 +624,13 @@ impl WrappedEvent {
         Ok(buf)
     }
 
-    /// Build spliced properties if injection is needed, or return None
-    /// to signal the caller should borrow `self.event.properties` directly.
+    /// Appends the injected pairs inside the client's raw properties object,
+    /// so capture never parses the properties. Returns None when nothing is injected.
     fn build_spliced_properties(
         &self,
-        ctx: &RequestContext,
+        sdk_lib: Option<(&str, &str)>,
     ) -> anyhow::Result<Option<Box<RawValue>>> {
-        let injection = self.build_property_injections(ctx)?;
+        let injection = self.build_property_injections(sdk_lib)?;
         if injection.is_empty() {
             return Ok(None);
         }
@@ -663,6 +709,38 @@ pub struct IngestionEvent<'a> {
     pub is_cookieless_mode: bool,
     #[serde(skip_serializing_if = "<&bool>::not", default)]
     pub historical_migration: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub options: Option<OutboundOptions<'a>>,
+}
+
+/// Consumers of the capture topics read these keys, so a rename breaks them.
+/// They override the property for each present key, but fill `$lib` / `$lib_version` from
+/// `req_lib` / `req_lib_version` only when `$lib` is not a non-empty string, and `$lib_version`
+/// alone when `$lib` equals `req_lib` and `$lib_version` is not a non-empty string.
+#[derive(Debug, Default, Serialize, PartialEq)]
+pub struct OutboundOptions<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cookieless_mode: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disable_skew_correction: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub product_tour_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_person_profile: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub req_lib: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub req_lib_version: Option<&'a str>,
+}
+
+impl OutboundOptions<'_> {
+    fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 /// The inner `data` payload: a simplified RawEvent-shaped struct for
@@ -1274,11 +1352,10 @@ mod tests {
         }
     }
 
-    // --- SinkEvent impl for WrappedEvent ---
+    // --- Publishable impl for WrappedEvent ---
 
-    use crate::v1::sinks::event::Event as SinkEventTrait;
-    use crate::v1::sinks::Destination;
     use crate::v1::test_utils;
+    use crate::v1::types::{Destination, Publishable};
     use common_types::HasEventName;
 
     fn ok_wrapped(event_name: &str, distinct_id: &str) -> WrappedEvent {
@@ -1323,31 +1400,34 @@ mod tests {
         Stamps { spread: true, ..Stamps::on(Destination::AnalyticsMain) },
         OrderingGuarantee::PerDistinctId
     )]
-    #[case::overflow_untouched(Stamps::on(Destination::Overflow), OrderingGuarantee::PerDistinctId)]
+    #[case::overflow_untouched(
+        Stamps::on(Destination::AnalyticsOverflow),
+        OrderingGuarantee::PerDistinctId
+    )]
     #[case::overflow_person_off(
-        Stamps { person_off: true, ..Stamps::on(Destination::Overflow) },
+        Stamps { person_off: true, ..Stamps::on(Destination::AnalyticsOverflow) },
         OrderingGuarantee::None
     )]
     #[case::overflow_spread(
-        Stamps { spread: true, ..Stamps::on(Destination::Overflow) },
+        Stamps { spread: true, ..Stamps::on(Destination::AnalyticsOverflow) },
         OrderingGuarantee::PerDistinctId
     )]
     #[case::overflow_spread_person_off(
-        Stamps { person_off: true, spread: true, ..Stamps::on(Destination::Overflow) },
+        Stamps { person_off: true, spread: true, ..Stamps::on(Destination::AnalyticsOverflow) },
         OrderingGuarantee::None
     )]
     #[case::ai_overflow_spread(
-        Stamps { spread: true, ..Stamps::on(Destination::AiEventsOverflow) },
+        Stamps { spread: true, ..Stamps::on(Destination::AiOverflow) },
         OrderingGuarantee::None
     )]
     #[case::ai_overflow_person_off(
-        Stamps { person_off: true, ..Stamps::on(Destination::AiEventsOverflow) },
+        Stamps { person_off: true, ..Stamps::on(Destination::AiOverflow) },
         OrderingGuarantee::None
     )]
     // Lanes whose consumers need the key regardless: person processing being
     // off must not spread them, matching v0's route().
     #[case::ai_main_person_off(
-        Stamps { person_off: true, ..Stamps::on(Destination::AiEvents) },
+        Stamps { person_off: true, ..Stamps::on(Destination::AiMain) },
         OrderingGuarantee::PerDistinctId
     )]
     #[case::historical_person_off(
@@ -1382,10 +1462,10 @@ mod tests {
     #[rstest::rstest]
     #[case::ok_main(EventResult::Ok, Destination::AnalyticsMain)]
     #[case::ok_historical(EventResult::Ok, Destination::AnalyticsHistorical)]
-    #[case::ok_overflow(EventResult::Ok, Destination::Overflow)]
+    #[case::ok_overflow(EventResult::Ok, Destination::AnalyticsOverflow)]
     #[case::warning_main(EventResult::Warning, Destination::AnalyticsMain)]
     #[case::warning_historical(EventResult::Warning, Destination::AnalyticsHistorical)]
-    #[case::warning_overflow(EventResult::Warning, Destination::Overflow)]
+    #[case::warning_overflow(EventResult::Warning, Destination::AnalyticsOverflow)]
     fn should_publish_true(#[case] result: EventResult, #[case] dest: Destination) {
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.result = result;
@@ -1396,10 +1476,6 @@ mod tests {
     #[rstest::rstest]
     #[case::drop_main(EventResult::Drop, Destination::AnalyticsMain)]
     #[case::retry_main(EventResult::Retry, Destination::AnalyticsMain)]
-    #[case::ok_dest_drop(EventResult::Ok, Destination::Drop)]
-    #[case::warning_dest_drop(EventResult::Warning, Destination::Drop)]
-    #[case::drop_dest_drop(EventResult::Drop, Destination::Drop)]
-    #[case::retry_dest_drop(EventResult::Retry, Destination::Drop)]
     fn should_publish_false(#[case] result: EventResult, #[case] dest: Destination) {
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.result = result;
@@ -1419,6 +1495,7 @@ mod tests {
         assert!(h.force_disable_person_processing.is_none());
         assert!(h.session_id.is_none());
         assert!(h.dlq_reason.is_none());
+        assert_eq!(h.legacy_property_splice, Some(true));
     }
 
     #[test]
@@ -1587,8 +1664,8 @@ mod tests {
     #[test]
     fn destination_returns_event_destination() {
         let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.destination = Destination::Overflow;
-        assert_eq!(*ev.destination(), Destination::Overflow);
+        ev.destination = Destination::AnalyticsOverflow;
+        assert_eq!(*ev.destination(), Destination::AnalyticsOverflow);
     }
 
     #[test]
@@ -1701,6 +1778,16 @@ mod tests {
         (captured, data)
     }
 
+    fn captured_options(
+        wrapped: &WrappedEvent,
+        ctx: &crate::v1::context::RequestContext,
+    ) -> serde_json::Map<String, Value> {
+        serialize_and_parse(wrapped, ctx)
+            .0
+            .options
+            .expect("expected options on the v1 output")
+    }
+
     #[test]
     fn serialize_fails_without_adjusted_timestamp() {
         let mut ev = pageview_event();
@@ -1767,6 +1854,45 @@ mod tests {
         assert_eq!(data.properties["custom_prop"], 42);
     }
 
+    #[rstest::rstest]
+    #[case::client_lib_keys(
+        r#"{"$lib":"client-lib","$session_id":"client-sess","custom_prop":42}"#.to_owned()
+    )]
+    #[case::lone_surrogates(r#"{"\udc00":"\ud800","b":"\u0000\u001f\"\\\/"}"#.to_owned())]
+    #[case::numbers_beyond_f64(r#"{"a":1e400,"b":123456789012345678901234567890,"c":-0}"#.to_owned())]
+    #[case::duplicate_keys(r#"{"$lib":"a","$lib":"b","\u0024lib":"c"}"#.to_owned())]
+    #[case::raw_non_ascii("{\"a\":\"\u{2028}\u{7f}😀 é 漢字\"}".to_owned())]
+    #[case::inner_whitespace("{ \"a\" :\n[ 1 , { } ]\t}".to_owned())]
+    #[case::nested_past_serde_depth_limit(format!(
+        "{{\"a\":{}1{}}}",
+        "[".repeat(200),
+        "]".repeat(200)
+    ))]
+    fn serialize_without_splice_publishes_client_properties_untouched(
+        #[case] client_properties: String,
+    ) {
+        #[derive(serde::Deserialize)]
+        struct DataProperties<'a> {
+            #[serde(borrow)]
+            properties: &'a RawValue,
+        }
+
+        let mut wrapped = pageview_event();
+        wrapped.event.properties = raw_obj(&client_properties);
+        let mut ctx = serialize_ctx();
+        ctx.legacy_property_splice = false;
+
+        let buf = wrapped.serialize(&ctx).expect("serialize failed");
+        let captured: CapturedEvent = serde_json::from_slice(&buf).unwrap();
+
+        let data: DataProperties = serde_json::from_str(&captured.data).unwrap();
+        assert_eq!(data.properties.get(), client_properties);
+        let options = captured.options.expect("options ship with the splice off");
+        assert_eq!(options["session_id"], "sess-01jq9abc");
+        assert_eq!(options["process_person_profile"], true);
+        assert_eq!(options["req_lib"], "posthog-rs");
+    }
+
     #[test]
     fn serialize_oversized_sdk_info_skips_lib_injection() {
         use crate::v1::constants::MAX_SDK_INFO_LEN;
@@ -1796,6 +1922,11 @@ mod tests {
             assert!(
                 !data.properties.contains_key("$lib_version"),
                 "expected no $lib_version for sdk_info {bad:?}"
+            );
+            let options = captured_options(&wrapped, &ctx);
+            assert!(
+                !options.contains_key("req_lib") && !options.contains_key("req_lib_version"),
+                "expected no req_lib options for sdk_info {bad:?}: {options:?}"
             );
         }
     }
@@ -1872,7 +2003,7 @@ mod tests {
         };
 
         let ctx = serialize_ctx();
-        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+        let (captured, data) = serialize_and_parse(&wrapped, &ctx);
         let props = &data.properties;
 
         assert_eq!(props["existing"], "value");
@@ -1882,6 +2013,22 @@ mod tests {
         assert_eq!(props["$ignore_sent_at"], true);
         assert_eq!(props["$product_tour_id"], "tour-onboarding-v2");
         assert_eq!(props["$process_person_profile"], false);
+
+        let expected = serde_json::json!({
+            "session_id": "sess-01jq9abc",
+            "window_id": "win-xyz789",
+            "cookieless_mode": true,
+            "disable_skew_correction": true,
+            "product_tour_id": "tour-onboarding-v2",
+            "process_person_profile": false,
+            "req_lib": "posthog-rs",
+            "req_lib_version": "1.0.0",
+        });
+        assert_eq!(
+            captured.options.map(Value::Object),
+            Some(expected),
+            "options must carry the spliced values under the v1 option names"
+        );
     }
 
     #[test]
@@ -1915,7 +2062,7 @@ mod tests {
         };
 
         let ctx = serialize_ctx();
-        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+        let (captured, data) = serialize_and_parse(&wrapped, &ctx);
         let props = &data.properties;
 
         assert_eq!(props["$session_id"], "sess-abc");
@@ -1924,6 +2071,14 @@ mod tests {
         assert!(!props.contains_key("$ignore_sent_at"));
         assert!(!props.contains_key("$product_tour_id"));
         assert!(!props.contains_key("$process_person_profile"));
+
+        let expected = serde_json::json!({
+            "session_id": "sess-abc",
+            "cookieless_mode": false,
+            "req_lib": "posthog-rs",
+            "req_lib_version": "1.0.0",
+        });
+        assert_eq!(captured.options.map(Value::Object), Some(expected));
     }
 
     #[test]
@@ -1956,13 +2111,21 @@ mod tests {
             is_gateway_verified: false,
         };
 
-        let ctx = serialize_ctx();
+        let mut ctx = serialize_ctx();
         let (_, data) = serialize_and_parse(&wrapped, &ctx);
         // $lib/$lib_version always materialize from the (valid) Sdk-Info header.
         let props = &data.properties;
         assert_eq!(props["$lib"], "posthog-rs");
         assert_eq!(props["$lib_version"], "1.0.0");
         assert_eq!(props.len(), 2);
+
+        ctx.sdk_info = String::new();
+        let buf = wrapped.serialize(&ctx).expect("serialize failed");
+        let raw: Value = serde_json::from_slice(&buf).unwrap();
+        assert!(
+            raw.get("options").is_none(),
+            "options must be omitted when no value is present: {raw}"
+        );
     }
 
     #[test]
@@ -2142,8 +2305,13 @@ mod tests {
     ) {
         let mut wrapped = pageview_event();
         wrapped.options = options_with(key, raw).validate().unwrap();
-        let (_, data) = serialize_and_parse(&wrapped, &serialize_ctx());
+        let ctx = serialize_ctx();
+        let (_, data) = serialize_and_parse(&wrapped, &ctx);
         assert_eq!(data.properties[property], serde_json::Value::Bool(expected));
+        assert_eq!(
+            captured_options(&wrapped, &ctx)[key.as_str()],
+            serde_json::Value::Bool(expected)
+        );
     }
 
     #[test]

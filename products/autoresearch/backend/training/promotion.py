@@ -44,7 +44,12 @@ from products.autoresearch.backend.models import (
 from products.autoresearch.backend.query import QueryCost
 from products.autoresearch.backend.training import artifacts
 from products.autoresearch.backend.training.recipe_validation import RecipeValidationError, validate_model_class
-from products.autoresearch.backend.training.shadow_set import FITTED_METRIC_KEY, shadow_set
+from products.autoresearch.backend.training.shadow_set import (
+    ARCHIVED_REASON_METRIC_KEY,
+    ARCHIVED_UNSCORABLE,
+    FITTED_METRIC_KEY,
+    shadow_set,
+)
 from products.notebooks.backend.facade import api as notebooks_facade
 
 logger = structlog.get_logger(__name__)
@@ -320,6 +325,7 @@ def complete_training_run(
     distillation: str = "",
     report_notebook_short_id: str = "",
     reader_summary: str | None = None,
+    headline: str | None = None,
     next_steps: list[str] | None = None,
 ) -> dict[str, Any]:
     """Finalize a run: pick the best iteration, decide champion vs challenger, persist the model."""
@@ -341,6 +347,7 @@ def complete_training_run(
             distillation=distillation,
             report_notebook_short_id=_verified_report_notebook(current, report_notebook_short_id),
             reader_summary=reader_summary,
+            headline=headline,
             next_steps=next_steps,
         )
 
@@ -524,7 +531,8 @@ def _roll_back_promotion(
         if restored is not None:
             restored.role = AutoresearchModel.Role.CHAMPION
             restored.archived_at = None
-            restored.save(update_fields=["role", "archived_at"])
+            restored.metrics = {k: v for k, v in (restored.metrics or {}).items() if k != ARCHIVED_REASON_METRIC_KEY}
+            restored.save(update_fields=["role", "archived_at", "metrics"])
         elif previous_status is not None and locked.status == AutoresearchPipeline.Status.RUNNING:
             # The candidate was the first champion and made the pipeline live. With no champion
             # the daily sweep fails every cadence, so the pipeline goes back to waiting for one.
@@ -561,6 +569,7 @@ def _finalize_under_lock(
     distillation: str,
     report_notebook_short_id: str,
     reader_summary: str | None,
+    headline: str | None,
     next_steps: list[str] | None,
 ) -> dict[str, Any]:
     # Re-fetch under lock and re-check status inside the transaction. Both callers (the
@@ -638,8 +647,11 @@ def _finalize_under_lock(
     role: str
     if promotion_reason:
         if current is not None:
+            archived_metrics = {k: v for k, v in (current.metrics or {}).items() if k != ARCHIVED_REASON_METRIC_KEY}
+            if promotion_reason == "replaced_unscorable":
+                archived_metrics[ARCHIVED_REASON_METRIC_KEY] = ARCHIVED_UNSCORABLE
             AutoresearchModel.objects.filter(pk=current.pk).update(
-                role=AutoresearchModel.Role.ARCHIVED, archived_at=now
+                role=AutoresearchModel.Role.ARCHIVED, archived_at=now, metrics=archived_metrics
             )
         role = AutoresearchModel.Role.CHAMPION
         promoted = True
@@ -684,6 +696,7 @@ def _finalize_under_lock(
         report_notebook_short_id=report_notebook_short_id,
     )
     training_run.reader_summary = reader_summary
+    training_run.headline = headline
     training_run.next_steps = next_steps
     training_run.save(
         update_fields=[
@@ -692,6 +705,7 @@ def _finalize_under_lock(
             "best_holdout_score",
             "summary",
             "reader_summary",
+            "headline",
             "next_steps",
             "completed_at",
         ]

@@ -277,8 +277,8 @@ class ExperimentSummaryDataService:
             # without it the summary falls back to raw event names.
             if link.saved_metric.name:
                 query = {**query, "name": link.saved_metric.name}
-            metric_type = (link.metadata or {}).get("type", "primary")
-            if metric_type == "primary":
+            role = (link.metadata or {}).get("type", "primary")
+            if role == "primary":
                 primary_metrics.append(query)
             else:
                 secondary_metrics.append(query)

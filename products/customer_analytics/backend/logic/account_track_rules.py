@@ -18,6 +18,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.logic.account_filters import (
@@ -545,11 +547,9 @@ def to_run_view(run: AccountTrackRuleRun) -> contracts.AccountTrackRuleRunView:
     )
 
 
-def list_account_track_rule_runs(
-    team_id: int, *, offset: int, limit: int
-) -> tuple[list[contracts.AccountTrackRuleRunView], int]:
+def list_account_track_rule_runs(team_id: int, *, page: PageRequest) -> Page[contracts.AccountTrackRuleRunView]:
     queryset = AccountTrackRuleRun.objects.for_team(team_id).order_by("-created_at")
-    return [to_run_view(run) for run in queryset[offset : offset + limit]], queryset.count()
+    return select_page(queryset, page).map(to_run_view)
 
 
 def list_enabled_account_track_rule_configs(

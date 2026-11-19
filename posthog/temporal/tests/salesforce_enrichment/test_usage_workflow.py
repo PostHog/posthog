@@ -31,7 +31,7 @@ async def mock_to_thread(fn, *args, **kwargs):
     return fn(*args, **kwargs)
 
 
-class TestUsageEnrichmentInputs(TestCase):
+class TestUsageEnrichmentInputs(SimpleTestCase):
     def test_default_values(self):
         inputs = UsageEnrichmentInputs()
 
@@ -51,7 +51,7 @@ class TestUsageEnrichmentInputs(TestCase):
         assert inputs.specific_org_id == "org-123"
 
 
-class TestPrepareSalesforceUpdateRecord(TestCase):
+class TestPrepareSalesforceUpdateRecord(SimpleTestCase):
     def test_basic_signals(self):
         signals = UsageSignals(
             total_events_7d=10000,
@@ -166,7 +166,7 @@ class TestDecideOrgRegion(SimpleTestCase):
         assert decide_org_region("org-a", billing_region, current) == expected
 
 
-class TestWorkflowParseInputs(TestCase):
+class TestWorkflowParseInputs(SimpleTestCase):
     def test_parse_inputs_valid_json(self):
         inputs = SalesforceUsageEnrichmentWorkflow.parse_inputs(['{"batch_size": 50}'])
 
@@ -547,7 +547,7 @@ class TestEnrichOrgPageActivity(TestCase):
 WORKFLOW_CLASS = f"{WORKFLOW_MODULE}.SalesforceUsageEnrichmentWorkflow"
 
 
-class TestProductionModeContinueAsNew(TestCase):
+class TestProductionModeContinueAsNew(SimpleTestCase):
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")
     async def test_continues_as_new_when_page_is_full(self, mock_workflow):

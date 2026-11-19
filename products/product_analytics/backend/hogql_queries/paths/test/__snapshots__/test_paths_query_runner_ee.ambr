@@ -11,7 +11,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -59,7 +59,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -99,7 +99,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -147,7 +147,183 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'))
+                 ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
+              GROUP BY person_id) ARRAY
+           JOIN session_paths AS path_time_tuple,
+                arrayEnumerate(session_paths) AS session_index) ARRAY
+        JOIN limited_path_timings AS joined_path_tuple,
+             arrayEnumerate(limited_path_timings) AS event_in_session_index
+        WHERE ifNull(greater(target_index, 0), 0)))
+  WHERE isNotNull(source_event)
+  GROUP BY source_event,
+           target_event
+  ORDER BY event_count DESC,
+           source_event ASC,
+           target_event ASC
+  LIMIT 50 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=23622320128,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestClickhousePaths.test_end_materialized
+  '''
+  SELECT last_path_key AS source_event,
+         path_key AS target_event,
+         count(*) AS event_count,
+         avg(conversion_time) AS average_conversion_time
+  FROM
+    (SELECT person_id AS person_id,
+            path AS path,
+                    conversion_time AS conversion_time,
+                    event_in_session_index AS event_in_session_index,
+                    concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    path_dropoff_key AS path_dropoff_key
+     FROM
+       (SELECT person_id AS person_id,
+               joined_path_tuple.1 AS path,
+               joined_path_tuple.2 AS conversion_time,
+               joined_path_tuple.3 AS prev_path,
+               event_in_session_index,
+               session_index AS session_index,
+               arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0,
+               arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
+                                            and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping,
+               arrayFilter((x, y) -> y, time, mapping) AS timings,
+               arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path,
+               indexOf(compact_path, '/about') AS target_index,
+               if(ifNull(greater(target_index, 0), 0), arrayResize(compact_path, target_index), compact_path) AS filtered_path,
+               arraySlice(filtered_path, -5) AS limited_path,
+               if(ifNull(greater(target_index, 0), 0), arrayResize(timings, target_index), timings) AS filtered_timings,
+               arraySlice(filtered_timings, -5) AS limited_timings,
+               arrayDifference(limited_timings) AS timings_diff,
+               concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key,
+               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) AS limited_path_timings
+        FROM
+          (SELECT person_id AS person_id,
+                  path_time_tuple.1 AS path_basic,
+                  path_time_tuple.2 AS time,
+                  session_index,
+                  arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
+           FROM
+             (SELECT person_id AS person_id,
+                     groupArray(timestamp) AS timing_list,
+                     groupArray(path_item) AS path_list
+              FROM
+                (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
+                        ifNull(if(equals(events.event, '$screen'), nullIf(nullIf(events.`mat_$screen_name`, ''), 'null'), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
+                        NULL AS groupings,
+                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
+                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                 FROM events
+                 LEFT OUTER JOIN
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                           person_distinct_id_overrides.distinct_id AS distinct_id
+                    FROM person_distinct_id_overrides
+                    WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                    GROUP BY person_distinct_id_overrides.distinct_id
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'))
+                 ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
+              GROUP BY person_id) ARRAY
+           JOIN session_paths AS path_time_tuple,
+                arrayEnumerate(session_paths) AS session_index) ARRAY
+        JOIN limited_path_timings AS joined_path_tuple,
+             arrayEnumerate(limited_path_timings) AS event_in_session_index
+        WHERE ifNull(greater(target_index, 0), 0)))
+  WHERE isNotNull(source_event)
+  GROUP BY source_event,
+           target_event
+  ORDER BY event_count DESC,
+           source_event ASC,
+           target_event ASC
+  LIMIT 50 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=23622320128,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestClickhousePaths.test_end_materialized.1
+  '''
+  SELECT last_path_key AS source_event,
+         path_key AS target_event,
+         count(*) AS event_count,
+         avg(conversion_time) AS average_conversion_time
+  FROM
+    (SELECT person_id AS person_id,
+            path AS path,
+                    conversion_time AS conversion_time,
+                    event_in_session_index AS event_in_session_index,
+                    concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    path_dropoff_key AS path_dropoff_key
+     FROM
+       (SELECT person_id AS person_id,
+               joined_path_tuple.1 AS path,
+               joined_path_tuple.2 AS conversion_time,
+               joined_path_tuple.3 AS prev_path,
+               event_in_session_index,
+               session_index AS session_index,
+               arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0,
+               arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
+                                            and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping,
+               arrayFilter((x, y) -> y, time, mapping) AS timings,
+               arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path,
+               indexOf(compact_path, '/about') AS target_index,
+               if(ifNull(greater(target_index, 0), 0), arrayResize(compact_path, target_index), compact_path) AS filtered_path,
+               arraySlice(filtered_path, -5) AS limited_path,
+               if(ifNull(greater(target_index, 0), 0), arrayResize(timings, target_index), timings) AS filtered_timings,
+               arraySlice(filtered_timings, -5) AS limited_timings,
+               arrayDifference(limited_timings) AS timings_diff,
+               concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key,
+               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) AS limited_path_timings
+        FROM
+          (SELECT person_id AS person_id,
+                  path_time_tuple.1 AS path_basic,
+                  path_time_tuple.2 AS time,
+                  session_index,
+                  arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
+           FROM
+             (SELECT person_id AS person_id,
+                     groupArray(timestamp) AS timing_list,
+                     groupArray(path_item) AS path_list
+              FROM
+                (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
+                        ifNull(if(equals(events.event, '$screen'), nullIf(nullIf(events.`mat_$screen_name`, ''), 'null'), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
+                        NULL AS groupings,
+                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
+                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                 FROM events
+                 LEFT OUTER JOIN
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                           person_distinct_id_overrides.distinct_id AS distinct_id
+                    FROM person_distinct_id_overrides
+                    WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                    GROUP BY person_distinct_id_overrides.distinct_id
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -187,7 +363,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -235,7 +411,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), and(equals(events.event, '$pageview'), ifNull(notIn(path_item, ['/bar/*/foo']), 1)))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), and(equals(events.event, '$pageview'), ifNull(notIn(path_item, ['/bar/*/foo']), 1)))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -274,7 +450,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -322,7 +498,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), and(equals(events.event, '$pageview'), ifNull(notIn(path_item, ['/bar/*/foo']), 1)))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), and(equals(events.event, '$pageview'), ifNull(notIn(path_item, ['/bar/*/foo']), 1)))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -361,7 +537,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -409,7 +585,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -448,7 +624,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -496,7 +672,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$screen'))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$screen'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -535,7 +711,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -583,7 +759,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), not(startsWith(events.event, '$')))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -622,7 +798,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -670,7 +846,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))), ifNull(notIn(path_item, ['/custom1', '/1', '/2', '/3']), 1)))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))), ifNull(notIn(path_item, ['/custom1', '/1', '/2', '/3']), 1)))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -709,7 +885,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -757,7 +933,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-03 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-03 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), not(startsWith(events.event, '$')))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -796,7 +972,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -852,7 +1028,7 @@
                     WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                     GROUP BY groups.group_type_index,
                              groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
-                 WHERE and(equals(events.team_id, 99999), ifNull(equals(events__group_0.properties___industry, 'finance'), 0), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-02-01 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
+                 WHERE and(equals(events.team_id, 99999), ifNull(equals(events__group_0.properties___industry, 'finance'), 0), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-02-01 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -891,7 +1067,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -947,7 +1123,7 @@
                     WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                     GROUP BY groups.group_type_index,
                              groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
-                 WHERE and(equals(events.team_id, 99999), ifNull(equals(events__group_0.properties___industry, 'technology'), 0), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-02-01 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
+                 WHERE and(equals(events.team_id, 99999), ifNull(equals(events__group_0.properties___industry, 'technology'), 0), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-02-01 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -986,7 +1162,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -1042,7 +1218,7 @@
                     WHERE and(equals(groups.team_id, 99999), equals(index, 1))
                     GROUP BY groups.group_type_index,
                              groups.group_key) AS events__group_1 ON equals(events.`$group_1`, events__group_1.key)
-                 WHERE and(equals(events.team_id, 99999), ifNull(equals(events__group_1.properties___industry, 'technology'), 0), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-02-01 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
+                 WHERE and(equals(events.team_id, 99999), ifNull(equals(events__group_1.properties___industry, 'technology'), 0), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-02-01 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -1083,7 +1259,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -1163,7 +1339,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -1204,7 +1380,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -1284,7 +1460,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -1325,7 +1501,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -1405,7 +1581,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -1446,7 +1622,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -1526,7 +1702,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -1567,7 +1743,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -1647,7 +1823,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -1688,7 +1864,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -1768,7 +1944,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -1809,7 +1985,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -1889,7 +2065,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -1930,7 +2106,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -2010,7 +2186,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -2051,7 +2227,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -2131,7 +2307,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -2179,7 +2355,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -2227,7 +2403,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-02-01 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-02-01 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -2270,7 +2446,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -2350,7 +2526,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -2368,7 +2544,7 @@
                                                           FROM
                                                             (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
                                                              FROM
-                                                               (SELECT person_id AS person_id, path AS path, conversion_time AS conversion_time, event_in_session_index AS event_in_session_index, concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key, if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key, path_dropoff_key AS path_dropoff_key, final_uuid AS uuid, final_timestamp AS timestamp, final_session_id AS session_id, final_window_id AS window_id
+                                                               (SELECT person_id AS person_id, path AS path, conversion_time AS conversion_time, event_in_session_index AS event_in_session_index, concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key, if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key, path_dropoff_key AS path_dropoff_key, final_uuid AS uuid, final_timestamp AS timestamp, final_session_id AS session_id, final_window_id AS window_id
                                                                 FROM
                                                                   (SELECT person_id AS person_id, joined_path_tuple.1 AS path, joined_path_tuple.2 AS conversion_time, joined_path_tuple.3 AS prev_path, event_in_session_index, session_index AS session_index, arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0, arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
                                                                                                                                                                                                                                                                                                                                                             and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping, arrayFilter((x, y) -> y, time, mapping) AS timings, arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path, indexOf(compact_path, NULL) AS target_index, joined_path_tuple.4 AS final_uuid, joined_path_tuple.5 AS final_timestamp, joined_path_tuple.6 AS final_session_id, joined_path_tuple.7 AS final_window_id, arrayFilter((x, y) -> y, uuid_items, mapping) AS uuid, arrayFilter((x, y) -> y, timestamp_items, mapping) AS timestamp, arrayFilter((x, y) -> y, session_id_items, mapping) AS session_id, arrayFilter((x, y) -> y, window_id_items, mapping) AS window_id, if(ifNull(greater(target_index, 0), 0), arraySlice(compact_path, target_index), compact_path) AS filtered_path, arraySlice(filtered_path, 1, 5) AS limited_path, if(ifNull(greater(target_index, 0), 0), arraySlice(timings, target_index), timings) AS filtered_timings, arraySlice(filtered_timings, 1, 5) AS limited_timings, if(ifNull(greater(target_index, 0), 0), arraySlice(uuid, target_index), uuid) AS filtered_uuid, arraySlice(filtered_uuid, 1, 5) AS limited_uuid, if(ifNull(greater(target_index, 0), 0), arraySlice(timestamp, target_index), timestamp) AS filtered_timestamp, arraySlice(filtered_timestamp, 1, 5) AS limited_timestamp, if(ifNull(greater(target_index, 0), 0), arraySlice(session_id, target_index), session_id) AS filtered_session_id, arraySlice(filtered_session_id, 1, 5) AS limited_session_id, if(ifNull(greater(target_index, 0), 0), arraySlice(window_id, target_index), window_id) AS filtered_window_id, arraySlice(filtered_window_id, 1, 5) AS limited_window_id, arrayDifference(limited_timings) AS timings_diff, concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key, arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuid, limited_timestamp, limited_session_id, limited_window_id) AS limited_path_timings
@@ -2385,7 +2561,7 @@
                                                                                WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                GROUP BY person_distinct_id_overrides.distinct_id
                                                                                HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                                                                            WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                                                                            WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
                                                                             ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                          GROUP BY person_id) ARRAY
                                                                       JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -2452,7 +2628,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -2532,7 +2708,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -2550,7 +2726,7 @@
                                                           FROM
                                                             (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
                                                              FROM
-                                                               (SELECT person_id AS person_id, path AS path, conversion_time AS conversion_time, event_in_session_index AS event_in_session_index, concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key, if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key, path_dropoff_key AS path_dropoff_key, final_uuid AS uuid, final_timestamp AS timestamp, final_session_id AS session_id, final_window_id AS window_id
+                                                               (SELECT person_id AS person_id, path AS path, conversion_time AS conversion_time, event_in_session_index AS event_in_session_index, concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key, if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key, path_dropoff_key AS path_dropoff_key, final_uuid AS uuid, final_timestamp AS timestamp, final_session_id AS session_id, final_window_id AS window_id
                                                                 FROM
                                                                   (SELECT person_id AS person_id, joined_path_tuple.1 AS path, joined_path_tuple.2 AS conversion_time, joined_path_tuple.3 AS prev_path, event_in_session_index, session_index AS session_index, arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0, arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
                                                                                                                                                                                                                                                                                                                                                             and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping, arrayFilter((x, y) -> y, time, mapping) AS timings, arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path, indexOf(compact_path, NULL) AS target_index, joined_path_tuple.4 AS final_uuid, joined_path_tuple.5 AS final_timestamp, joined_path_tuple.6 AS final_session_id, joined_path_tuple.7 AS final_window_id, arrayFilter((x, y) -> y, uuid_items, mapping) AS uuid, arrayFilter((x, y) -> y, timestamp_items, mapping) AS timestamp, arrayFilter((x, y) -> y, session_id_items, mapping) AS session_id, arrayFilter((x, y) -> y, window_id_items, mapping) AS window_id, if(ifNull(greater(target_index, 0), 0), arraySlice(compact_path, target_index), compact_path) AS filtered_path, arraySlice(filtered_path, 1, 5) AS limited_path, if(ifNull(greater(target_index, 0), 0), arraySlice(timings, target_index), timings) AS filtered_timings, arraySlice(filtered_timings, 1, 5) AS limited_timings, if(ifNull(greater(target_index, 0), 0), arraySlice(uuid, target_index), uuid) AS filtered_uuid, arraySlice(filtered_uuid, 1, 5) AS limited_uuid, if(ifNull(greater(target_index, 0), 0), arraySlice(timestamp, target_index), timestamp) AS filtered_timestamp, arraySlice(filtered_timestamp, 1, 5) AS limited_timestamp, if(ifNull(greater(target_index, 0), 0), arraySlice(session_id, target_index), session_id) AS filtered_session_id, arraySlice(filtered_session_id, 1, 5) AS limited_session_id, if(ifNull(greater(target_index, 0), 0), arraySlice(window_id, target_index), window_id) AS filtered_window_id, arraySlice(filtered_window_id, 1, 5) AS limited_window_id, arrayDifference(limited_timings) AS timings_diff, concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key, arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuid, limited_timestamp, limited_session_id, limited_window_id) AS limited_path_timings
@@ -2567,7 +2743,7 @@
                                                                                WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                GROUP BY person_distinct_id_overrides.distinct_id
                                                                                HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                                                                            WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                                                                            WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
                                                                             ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                          GROUP BY person_id) ARRAY
                                                                       JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -2610,7 +2786,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -2690,7 +2866,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -2708,7 +2884,7 @@
                                                           FROM
                                                             (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
                                                              FROM
-                                                               (SELECT person_id AS person_id, path AS path, conversion_time AS conversion_time, event_in_session_index AS event_in_session_index, concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key, if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key, path_dropoff_key AS path_dropoff_key, final_uuid AS uuid, final_timestamp AS timestamp, final_session_id AS session_id, final_window_id AS window_id
+                                                               (SELECT person_id AS person_id, path AS path, conversion_time AS conversion_time, event_in_session_index AS event_in_session_index, concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key, if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key, path_dropoff_key AS path_dropoff_key, final_uuid AS uuid, final_timestamp AS timestamp, final_session_id AS session_id, final_window_id AS window_id
                                                                 FROM
                                                                   (SELECT person_id AS person_id, joined_path_tuple.1 AS path, joined_path_tuple.2 AS conversion_time, joined_path_tuple.3 AS prev_path, event_in_session_index, session_index AS session_index, arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0, arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
                                                                                                                                                                                                                                                                                                                                                             and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping, arrayFilter((x, y) -> y, time, mapping) AS timings, arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path, indexOf(compact_path, NULL) AS target_index, joined_path_tuple.4 AS final_uuid, joined_path_tuple.5 AS final_timestamp, joined_path_tuple.6 AS final_session_id, joined_path_tuple.7 AS final_window_id, arrayFilter((x, y) -> y, uuid_items, mapping) AS uuid, arrayFilter((x, y) -> y, timestamp_items, mapping) AS timestamp, arrayFilter((x, y) -> y, session_id_items, mapping) AS session_id, arrayFilter((x, y) -> y, window_id_items, mapping) AS window_id, if(ifNull(greater(target_index, 0), 0), arraySlice(compact_path, target_index), compact_path) AS filtered_path, arraySlice(filtered_path, 1, 5) AS limited_path, if(ifNull(greater(target_index, 0), 0), arraySlice(timings, target_index), timings) AS filtered_timings, arraySlice(filtered_timings, 1, 5) AS limited_timings, if(ifNull(greater(target_index, 0), 0), arraySlice(uuid, target_index), uuid) AS filtered_uuid, arraySlice(filtered_uuid, 1, 5) AS limited_uuid, if(ifNull(greater(target_index, 0), 0), arraySlice(timestamp, target_index), timestamp) AS filtered_timestamp, arraySlice(filtered_timestamp, 1, 5) AS limited_timestamp, if(ifNull(greater(target_index, 0), 0), arraySlice(session_id, target_index), session_id) AS filtered_session_id, arraySlice(filtered_session_id, 1, 5) AS limited_session_id, if(ifNull(greater(target_index, 0), 0), arraySlice(window_id, target_index), window_id) AS filtered_window_id, arraySlice(filtered_window_id, 1, 5) AS limited_window_id, arrayDifference(limited_timings) AS timings_diff, concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key, arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuid, limited_timestamp, limited_session_id, limited_window_id) AS limited_path_timings
@@ -2725,7 +2901,7 @@
                                                                                WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                GROUP BY person_distinct_id_overrides.distinct_id
                                                                                HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                                                                            WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                                                                            WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
                                                                             ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                          GROUP BY person_id) ARRAY
                                                                       JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -2792,7 +2968,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -2872,7 +3048,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -2890,7 +3066,7 @@
                                                           FROM
                                                             (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
                                                              FROM
-                                                               (SELECT person_id AS person_id, path AS path, conversion_time AS conversion_time, event_in_session_index AS event_in_session_index, concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key, if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key, path_dropoff_key AS path_dropoff_key, final_uuid AS uuid, final_timestamp AS timestamp, final_session_id AS session_id, final_window_id AS window_id
+                                                               (SELECT person_id AS person_id, path AS path, conversion_time AS conversion_time, event_in_session_index AS event_in_session_index, concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key, if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key, path_dropoff_key AS path_dropoff_key, final_uuid AS uuid, final_timestamp AS timestamp, final_session_id AS session_id, final_window_id AS window_id
                                                                 FROM
                                                                   (SELECT person_id AS person_id, joined_path_tuple.1 AS path, joined_path_tuple.2 AS conversion_time, joined_path_tuple.3 AS prev_path, event_in_session_index, session_index AS session_index, arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0, arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
                                                                                                                                                                                                                                                                                                                                                             and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping, arrayFilter((x, y) -> y, time, mapping) AS timings, arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path, indexOf(compact_path, NULL) AS target_index, joined_path_tuple.4 AS final_uuid, joined_path_tuple.5 AS final_timestamp, joined_path_tuple.6 AS final_session_id, joined_path_tuple.7 AS final_window_id, arrayFilter((x, y) -> y, uuid_items, mapping) AS uuid, arrayFilter((x, y) -> y, timestamp_items, mapping) AS timestamp, arrayFilter((x, y) -> y, session_id_items, mapping) AS session_id, arrayFilter((x, y) -> y, window_id_items, mapping) AS window_id, if(ifNull(greater(target_index, 0), 0), arraySlice(compact_path, target_index), compact_path) AS filtered_path, arraySlice(filtered_path, 1, 5) AS limited_path, if(ifNull(greater(target_index, 0), 0), arraySlice(timings, target_index), timings) AS filtered_timings, arraySlice(filtered_timings, 1, 5) AS limited_timings, if(ifNull(greater(target_index, 0), 0), arraySlice(uuid, target_index), uuid) AS filtered_uuid, arraySlice(filtered_uuid, 1, 5) AS limited_uuid, if(ifNull(greater(target_index, 0), 0), arraySlice(timestamp, target_index), timestamp) AS filtered_timestamp, arraySlice(filtered_timestamp, 1, 5) AS limited_timestamp, if(ifNull(greater(target_index, 0), 0), arraySlice(session_id, target_index), session_id) AS filtered_session_id, arraySlice(filtered_session_id, 1, 5) AS limited_session_id, if(ifNull(greater(target_index, 0), 0), arraySlice(window_id, target_index), window_id) AS filtered_window_id, arraySlice(filtered_window_id, 1, 5) AS limited_window_id, arrayDifference(limited_timings) AS timings_diff, concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key, arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuid, limited_timestamp, limited_session_id, limited_window_id) AS limited_path_timings
@@ -2907,7 +3083,7 @@
                                                                                WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                GROUP BY person_distinct_id_overrides.distinct_id
                                                                                HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                                                                            WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                                                                            WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
                                                                             ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                          GROUP BY person_id) ARRAY
                                                                       JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -2977,15 +3153,15 @@
                  event_in_session_index AS event_in_session_index,
                  concat(ifNull(toString(event_in_session_index), ''), '_',
                                                                       ifNull(toString(path), '')) AS path_key,
-                                                                                                if(ifNull(greater(event_in_session_index,
-                                                                                                                  1), 0), concat(ifNull(toString(minus(event_in_session_index,
-                                                                                                                                                       1)), ''), '_',
-                                                                                                                                                                 ifNull(toString(prev_path), '')), NULL) AS last_path_key,
-                                                                                                                                                                                                       path_dropoff_key AS path_dropoff_key,
-                                                                                                                                                                                                       final_uuid AS uuid,
-                                                                                                                                                                                                       final_timestamp AS timestamp,
-                                                                                                                                                                                                       final_session_id AS session_id,
-                                                                                                                                                                                                       final_window_id AS window_id
+                                                                                                if(greater(event_in_session_index,
+                                                                                                           1), concat(ifNull(toString(minus(event_in_session_index,
+                                                                                                                                            1)), ''), '_',
+                                                                                                                                                      ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                                                                                                                                                                                            path_dropoff_key AS path_dropoff_key,
+                                                                                                                                                                                            final_uuid AS uuid,
+                                                                                                                                                                                            final_timestamp AS timestamp,
+                                                                                                                                                                                            final_session_id AS session_id,
+                                                                                                                                                                                            final_window_id AS window_id
   FROM (
   SELECT person_id AS person_id,
          joined_path_tuple.1 AS path,
@@ -3204,8 +3380,9 @@
                                                                                                        'UTC')), toIntervalDay(1)), 6,
                                                                                                                                    'UTC')), lessOrEquals(events.timestamp,
                                                                                                                                                          assumeNotNull(toDateTime('2012-01-02 23:59:59',
-                                                                                                                                                                                  'UTC')))), equals(events.event,
-                                                                                                                                                                                                    '$pageview'))
+                                                                                                                                                                                  'UTC')))), notEquals(events.event,
+                                                                                                                                                                                                       '$feature_flag_called'), equals(events.event,
+                                                                                                                                                                                                                                       '$pageview'))
   ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                         events.person_id) ASC, toTimeZone(events.timestamp,
                                                                                           'UTC') ASC)
@@ -3240,15 +3417,15 @@
                    event_in_session_index AS event_in_session_index,
                    concat(ifNull(toString(event_in_session_index), ''), '_',
                                                                         ifNull(toString(path), '')) AS path_key,
-                                                                                                  if(ifNull(greater(event_in_session_index,
-                                                                                                                    1), 0), concat(ifNull(toString(minus(event_in_session_index,
-                                                                                                                                                         1)), ''), '_',
-                                                                                                                                                                   ifNull(toString(prev_path), '')), NULL) AS last_path_key,
-                                                                                                                                                                                                         path_dropoff_key AS path_dropoff_key,
-                                                                                                                                                                                                         final_uuid AS uuid,
-                                                                                                                                                                                                         final_timestamp AS timestamp,
-                                                                                                                                                                                                         final_session_id AS session_id,
-                                                                                                                                                                                                         final_window_id AS window_id
+                                                                                                  if(greater(event_in_session_index,
+                                                                                                             1), concat(ifNull(toString(minus(event_in_session_index,
+                                                                                                                                              1)), ''), '_',
+                                                                                                                                                        ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                                                                                                                                                                                              path_dropoff_key AS path_dropoff_key,
+                                                                                                                                                                                              final_uuid AS uuid,
+                                                                                                                                                                                              final_timestamp AS timestamp,
+                                                                                                                                                                                              final_session_id AS session_id,
+                                                                                                                                                                                              final_window_id AS window_id
     FROM (
     SELECT person_id AS person_id,
            joined_path_tuple.1 AS path,
@@ -3466,8 +3643,9 @@
                                                                                                        'UTC')), toIntervalDay(1)), 6,
                                                                                                                                    'UTC')), lessOrEquals(events.timestamp,
                                                                                                                                                          assumeNotNull(toDateTime('2012-01-02 23:59:59',
-                                                                                                                                                                                  'UTC')))), equals(events.event,
-                                                                                                                                                                                                    '$pageview'))
+                                                                                                                                                                                  'UTC')))), notEquals(events.event,
+                                                                                                                                                                                                       '$feature_flag_called'), equals(events.event,
+                                                                                                                                                                                                                                       '$pageview'))
   ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id,
                                                         events.person_id) ASC, toTimeZone(events.timestamp,
                                                                                           'UTC') ASC)
@@ -3541,7 +3719,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -3589,7 +3767,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -3628,7 +3806,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -3680,7 +3858,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -3722,7 +3900,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -3810,7 +3988,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -3850,7 +4028,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -3902,7 +4080,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -3944,7 +4122,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -4032,7 +4210,451 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
+                    ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
+                 GROUP BY person_id) ARRAY
+              JOIN session_paths AS path_time_tuple,
+                   arrayEnumerate(session_paths) AS session_index) ARRAY
+           JOIN limited_path_timings AS joined_path_tuple,
+                arrayEnumerate(limited_path_timings) AS event_in_session_index
+           WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
+     WHERE and(ifNull(equals(last_path_key, '3_...'), 0), equals(path_key, '4_/5'))
+     GROUP BY person_id) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestClickhousePaths.test_start_and_end_materialized
+  '''
+  SELECT last_path_key AS source_event,
+         path_key AS target_event,
+         count(*) AS event_count,
+         avg(conversion_time) AS average_conversion_time
+  FROM
+    (SELECT person_id AS person_id,
+            path AS path,
+                    conversion_time AS conversion_time,
+                    event_in_session_index AS event_in_session_index,
+                    concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    path_dropoff_key AS path_dropoff_key
+     FROM
+       (SELECT person_id AS person_id,
+               joined_path_tuple.1 AS path,
+               joined_path_tuple.2 AS conversion_time,
+               joined_path_tuple.3 AS prev_path,
+               event_in_session_index,
+               session_index AS session_index,
+               arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0,
+               arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
+                                            and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping,
+               arrayFilter((x, y) -> y, time, mapping) AS timings,
+               arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path,
+               indexOf(compact_path, '/about') AS target_index,
+               indexOf(compact_path, '/5') AS start_target_index,
+               if(ifNull(greater(start_target_index, 0), 0), arraySlice(compact_path, start_target_index), compact_path) AS start_filtered_path,
+               indexOf(start_filtered_path, '/about') AS end_target_index,
+               if(ifNull(greater(end_target_index, 0), 0), arrayResize(start_filtered_path, end_target_index), start_filtered_path) AS filtered_path,
+               if(ifNull(greater(length(filtered_path), 5), 0), arrayConcat(arraySlice(filtered_path, 1, intDiv(5, 2)), ['...'], arraySlice(filtered_path, multiply(-1, intDiv(5, 2)), intDiv(5, 2))), filtered_path) AS limited_path,
+               if(ifNull(greater(start_target_index, 0), 0), arraySlice(timings, start_target_index), timings) AS start_filtered_timings,
+               if(ifNull(greater(end_target_index, 0), 0), arrayResize(start_filtered_timings, end_target_index), start_filtered_timings) AS filtered_timings,
+               if(ifNull(greater(length(filtered_timings), 5), 0), arrayConcat(arraySlice(filtered_timings, 1, intDiv(5, 2)), [filtered_timings[plus(1, intDiv(5, 2))]], arraySlice(filtered_timings, multiply(-1, intDiv(5, 2)), intDiv(5, 2))), filtered_timings) AS limited_timings,
+               arrayDifference(limited_timings) AS timings_diff,
+               concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key,
+               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) AS limited_path_timings
+        FROM
+          (SELECT person_id AS person_id,
+                  path_time_tuple.1 AS path_basic,
+                  path_time_tuple.2 AS time,
+                  session_index,
+                  arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
+           FROM
+             (SELECT person_id AS person_id,
+                     groupArray(timestamp) AS timing_list,
+                     groupArray(path_item) AS path_list
+              FROM
+                (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
+                        ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
+                        NULL AS groupings,
+                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
+                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                 FROM events
+                 LEFT OUTER JOIN
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                           person_distinct_id_overrides.distinct_id AS distinct_id
+                    FROM person_distinct_id_overrides
+                    WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                    GROUP BY person_distinct_id_overrides.distinct_id
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
+                 ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
+              GROUP BY person_id) ARRAY
+           JOIN session_paths AS path_time_tuple,
+                arrayEnumerate(session_paths) AS session_index) ARRAY
+        JOIN limited_path_timings AS joined_path_tuple,
+             arrayEnumerate(limited_path_timings) AS event_in_session_index
+        WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
+  WHERE isNotNull(source_event)
+  GROUP BY source_event,
+           target_event
+  ORDER BY event_count DESC,
+           source_event ASC,
+           target_event ASC
+  LIMIT 50 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=23622320128,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestClickhousePaths.test_start_and_end_materialized.1
+  '''
+  SELECT source.id AS id
+  FROM
+    (SELECT person_id AS actor_id,
+            groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
+            count(*) AS event_count,
+            actor_id AS id
+     FROM
+       (SELECT person_id AS person_id,
+               path AS path,
+                       conversion_time AS conversion_time,
+                       event_in_session_index AS event_in_session_index,
+                       concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       path_dropoff_key AS path_dropoff_key,
+                       final_uuid AS uuid,
+                       final_timestamp AS timestamp,
+                       final_session_id AS session_id,
+                       final_window_id AS window_id
+        FROM
+          (SELECT person_id AS person_id,
+                  joined_path_tuple.1 AS path,
+                  joined_path_tuple.2 AS conversion_time,
+                  joined_path_tuple.3 AS prev_path,
+                  event_in_session_index,
+                  session_index AS session_index,
+                  arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0,
+                  arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
+                                               and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping,
+                  arrayFilter((x, y) -> y, time, mapping) AS timings,
+                  arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path,
+                  indexOf(compact_path, '/about') AS target_index,
+                  joined_path_tuple.4 AS final_uuid,
+                  joined_path_tuple.5 AS final_timestamp,
+                  joined_path_tuple.6 AS final_session_id,
+                  joined_path_tuple.7 AS final_window_id,
+                  arrayFilter((x, y) -> y, uuid_items, mapping) AS uuid,
+                  arrayFilter((x, y) -> y, timestamp_items, mapping) AS timestamp,
+                  arrayFilter((x, y) -> y, session_id_items, mapping) AS session_id,
+                  arrayFilter((x, y) -> y, window_id_items, mapping) AS window_id,
+                  indexOf(compact_path, '/5') AS start_target_index,
+                  if(ifNull(greater(start_target_index, 0), 0), arraySlice(compact_path, start_target_index), compact_path) AS start_filtered_path,
+                  indexOf(start_filtered_path, '/about') AS end_target_index,
+                  if(ifNull(greater(end_target_index, 0), 0), arrayResize(start_filtered_path, end_target_index), start_filtered_path) AS filtered_path,
+                  if(ifNull(greater(length(filtered_path), 5), 0), arrayConcat(arraySlice(filtered_path, 1, intDiv(5, 2)), ['...'], arraySlice(filtered_path, multiply(-1, intDiv(5, 2)), intDiv(5, 2))), filtered_path) AS limited_path,
+                  if(ifNull(greater(start_target_index, 0), 0), arraySlice(timings, start_target_index), timings) AS start_filtered_timings,
+                  if(ifNull(greater(end_target_index, 0), 0), arrayResize(start_filtered_timings, end_target_index), start_filtered_timings) AS filtered_timings,
+                  if(ifNull(greater(length(filtered_timings), 5), 0), arrayConcat(arraySlice(filtered_timings, 1, intDiv(5, 2)), [filtered_timings[plus(1, intDiv(5, 2))]], arraySlice(filtered_timings, multiply(-1, intDiv(5, 2)), intDiv(5, 2))), filtered_timings) AS limited_timings,
+                  if(ifNull(greater(start_target_index, 0), 0), arraySlice(uuid, start_target_index), uuid) AS start_filtered_uuid,
+                  if(ifNull(greater(end_target_index, 0), 0), arrayResize(start_filtered_uuid, end_target_index), start_filtered_uuid) AS filtered_uuid,
+                  if(ifNull(greater(length(filtered_uuid), 5), 0), arrayConcat(arraySlice(filtered_uuid, 1, intDiv(5, 2)), [filtered_uuid[plus(1, intDiv(5, 2))]], arraySlice(filtered_uuid, multiply(-1, intDiv(5, 2)), intDiv(5, 2))), filtered_uuid) AS limited_uuid,
+                  if(ifNull(greater(start_target_index, 0), 0), arraySlice(timestamp, start_target_index), timestamp) AS start_filtered_timestamp,
+                  if(ifNull(greater(end_target_index, 0), 0), arrayResize(start_filtered_timestamp, end_target_index), start_filtered_timestamp) AS filtered_timestamp,
+                  if(ifNull(greater(length(filtered_timestamp), 5), 0), arrayConcat(arraySlice(filtered_timestamp, 1, intDiv(5, 2)), [filtered_timestamp[plus(1, intDiv(5, 2))]], arraySlice(filtered_timestamp, multiply(-1, intDiv(5, 2)), intDiv(5, 2))), filtered_timestamp) AS limited_timestamp,
+                  if(ifNull(greater(start_target_index, 0), 0), arraySlice(session_id, start_target_index), session_id) AS start_filtered_session_id,
+                  if(ifNull(greater(end_target_index, 0), 0), arrayResize(start_filtered_session_id, end_target_index), start_filtered_session_id) AS filtered_session_id,
+                  if(ifNull(greater(length(filtered_session_id), 5), 0), arrayConcat(arraySlice(filtered_session_id, 1, intDiv(5, 2)), [filtered_session_id[plus(1, intDiv(5, 2))]], arraySlice(filtered_session_id, multiply(-1, intDiv(5, 2)), intDiv(5, 2))), filtered_session_id) AS limited_session_id,
+                  if(ifNull(greater(start_target_index, 0), 0), arraySlice(window_id, start_target_index), window_id) AS start_filtered_window_id,
+                  if(ifNull(greater(end_target_index, 0), 0), arrayResize(start_filtered_window_id, end_target_index), start_filtered_window_id) AS filtered_window_id,
+                  if(ifNull(greater(length(filtered_window_id), 5), 0), arrayConcat(arraySlice(filtered_window_id, 1, intDiv(5, 2)), [filtered_window_id[plus(1, intDiv(5, 2))]], arraySlice(filtered_window_id, multiply(-1, intDiv(5, 2)), intDiv(5, 2))), filtered_window_id) AS limited_window_id,
+                  arrayDifference(limited_timings) AS timings_diff,
+                  concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key,
+                  arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuid, limited_timestamp, limited_session_id, limited_window_id) AS limited_path_timings
+           FROM
+             (SELECT person_id AS person_id,
+                     path_time_tuple.1 AS path_basic,
+                     path_time_tuple.2 AS time,
+                     session_index,
+                     arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
+                     path_time_tuple.4 AS uuid_items,
+                     path_time_tuple.5 AS timestamp_items,
+                     path_time_tuple.6 AS session_id_items,
+                     path_time_tuple.7 AS window_id_items
+              FROM
+                (SELECT person_id AS person_id,
+                        groupArray(timestamp) AS timing_list,
+                        groupArray(path_item) AS path_list,
+                        groupArray(uuid) AS uuid_list,
+                        groupArray(timestamp) AS timestamp_list,
+                        groupArray(session_id) AS session_id_list,
+                        groupArray(window_id) AS window_id_list
+                 FROM
+                   (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                           if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
+                           ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
+                           events.uuid AS uuid,
+                           toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                           ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
+                           ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
+                           NULL AS groupings,
+                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
+                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                    FROM events
+                    LEFT OUTER JOIN
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                              person_distinct_id_overrides.distinct_id AS distinct_id
+                       FROM person_distinct_id_overrides
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                       GROUP BY person_distinct_id_overrides.distinct_id
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
+                    ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
+                 GROUP BY person_id) ARRAY
+              JOIN session_paths AS path_time_tuple,
+                   arrayEnumerate(session_paths) AS session_index) ARRAY
+           JOIN limited_path_timings AS joined_path_tuple,
+                arrayEnumerate(limited_path_timings) AS event_in_session_index
+           WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
+     WHERE and(ifNull(equals(last_path_key, '1_/5'), 0), equals(path_key, '2_/about'))
+     GROUP BY person_id) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestClickhousePaths.test_start_and_end_materialized.2
+  '''
+  SELECT last_path_key AS source_event,
+         path_key AS target_event,
+         count(*) AS event_count,
+         avg(conversion_time) AS average_conversion_time
+  FROM
+    (SELECT person_id AS person_id,
+            path AS path,
+                    conversion_time AS conversion_time,
+                    event_in_session_index AS event_in_session_index,
+                    concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    path_dropoff_key AS path_dropoff_key
+     FROM
+       (SELECT person_id AS person_id,
+               joined_path_tuple.1 AS path,
+               joined_path_tuple.2 AS conversion_time,
+               joined_path_tuple.3 AS prev_path,
+               event_in_session_index,
+               session_index AS session_index,
+               arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0,
+               arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
+                                            and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping,
+               arrayFilter((x, y) -> y, time, mapping) AS timings,
+               arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path,
+               indexOf(compact_path, '/about') AS target_index,
+               indexOf(compact_path, '/2') AS start_target_index,
+               if(ifNull(greater(start_target_index, 0), 0), arraySlice(compact_path, start_target_index), compact_path) AS start_filtered_path,
+               indexOf(start_filtered_path, '/about') AS end_target_index,
+               if(ifNull(greater(end_target_index, 0), 0), arrayResize(start_filtered_path, end_target_index), start_filtered_path) AS filtered_path,
+               if(ifNull(greater(length(filtered_path), 4), 0), arrayConcat(arraySlice(filtered_path, 1, intDiv(4, 2)), ['...'], arraySlice(filtered_path, multiply(-1, intDiv(4, 2)), intDiv(4, 2))), filtered_path) AS limited_path,
+               if(ifNull(greater(start_target_index, 0), 0), arraySlice(timings, start_target_index), timings) AS start_filtered_timings,
+               if(ifNull(greater(end_target_index, 0), 0), arrayResize(start_filtered_timings, end_target_index), start_filtered_timings) AS filtered_timings,
+               if(ifNull(greater(length(filtered_timings), 4), 0), arrayConcat(arraySlice(filtered_timings, 1, intDiv(4, 2)), [filtered_timings[plus(1, intDiv(4, 2))]], arraySlice(filtered_timings, multiply(-1, intDiv(4, 2)), intDiv(4, 2))), filtered_timings) AS limited_timings,
+               arrayDifference(limited_timings) AS timings_diff,
+               concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key,
+               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) AS limited_path_timings
+        FROM
+          (SELECT person_id AS person_id,
+                  path_time_tuple.1 AS path_basic,
+                  path_time_tuple.2 AS time,
+                  session_index,
+                  arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
+           FROM
+             (SELECT person_id AS person_id,
+                     groupArray(timestamp) AS timing_list,
+                     groupArray(path_item) AS path_list
+              FROM
+                (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
+                        ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
+                        NULL AS groupings,
+                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
+                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                 FROM events
+                 LEFT OUTER JOIN
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                           person_distinct_id_overrides.distinct_id AS distinct_id
+                    FROM person_distinct_id_overrides
+                    WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                    GROUP BY person_distinct_id_overrides.distinct_id
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
+                 ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
+              GROUP BY person_id) ARRAY
+           JOIN session_paths AS path_time_tuple,
+                arrayEnumerate(session_paths) AS session_index) ARRAY
+        JOIN limited_path_timings AS joined_path_tuple,
+             arrayEnumerate(limited_path_timings) AS event_in_session_index
+        WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
+  WHERE isNotNull(source_event)
+  GROUP BY source_event,
+           target_event
+  ORDER BY event_count DESC,
+           source_event ASC,
+           target_event ASC
+  LIMIT 50 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=23622320128,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestClickhousePaths.test_start_and_end_materialized.3
+  '''
+  SELECT source.id AS id
+  FROM
+    (SELECT person_id AS actor_id,
+            groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events,
+            count(*) AS event_count,
+            actor_id AS id
+     FROM
+       (SELECT person_id AS person_id,
+               path AS path,
+                       conversion_time AS conversion_time,
+                       event_in_session_index AS event_in_session_index,
+                       concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       path_dropoff_key AS path_dropoff_key,
+                       final_uuid AS uuid,
+                       final_timestamp AS timestamp,
+                       final_session_id AS session_id,
+                       final_window_id AS window_id
+        FROM
+          (SELECT person_id AS person_id,
+                  joined_path_tuple.1 AS path,
+                  joined_path_tuple.2 AS conversion_time,
+                  joined_path_tuple.3 AS prev_path,
+                  event_in_session_index,
+                  session_index AS session_index,
+                  arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0,
+                  arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
+                                               and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping,
+                  arrayFilter((x, y) -> y, time, mapping) AS timings,
+                  arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path,
+                  indexOf(compact_path, '/about') AS target_index,
+                  joined_path_tuple.4 AS final_uuid,
+                  joined_path_tuple.5 AS final_timestamp,
+                  joined_path_tuple.6 AS final_session_id,
+                  joined_path_tuple.7 AS final_window_id,
+                  arrayFilter((x, y) -> y, uuid_items, mapping) AS uuid,
+                  arrayFilter((x, y) -> y, timestamp_items, mapping) AS timestamp,
+                  arrayFilter((x, y) -> y, session_id_items, mapping) AS session_id,
+                  arrayFilter((x, y) -> y, window_id_items, mapping) AS window_id,
+                  indexOf(compact_path, '/2') AS start_target_index,
+                  if(ifNull(greater(start_target_index, 0), 0), arraySlice(compact_path, start_target_index), compact_path) AS start_filtered_path,
+                  indexOf(start_filtered_path, '/about') AS end_target_index,
+                  if(ifNull(greater(end_target_index, 0), 0), arrayResize(start_filtered_path, end_target_index), start_filtered_path) AS filtered_path,
+                  if(ifNull(greater(length(filtered_path), 4), 0), arrayConcat(arraySlice(filtered_path, 1, intDiv(4, 2)), ['...'], arraySlice(filtered_path, multiply(-1, intDiv(4, 2)), intDiv(4, 2))), filtered_path) AS limited_path,
+                  if(ifNull(greater(start_target_index, 0), 0), arraySlice(timings, start_target_index), timings) AS start_filtered_timings,
+                  if(ifNull(greater(end_target_index, 0), 0), arrayResize(start_filtered_timings, end_target_index), start_filtered_timings) AS filtered_timings,
+                  if(ifNull(greater(length(filtered_timings), 4), 0), arrayConcat(arraySlice(filtered_timings, 1, intDiv(4, 2)), [filtered_timings[plus(1, intDiv(4, 2))]], arraySlice(filtered_timings, multiply(-1, intDiv(4, 2)), intDiv(4, 2))), filtered_timings) AS limited_timings,
+                  if(ifNull(greater(start_target_index, 0), 0), arraySlice(uuid, start_target_index), uuid) AS start_filtered_uuid,
+                  if(ifNull(greater(end_target_index, 0), 0), arrayResize(start_filtered_uuid, end_target_index), start_filtered_uuid) AS filtered_uuid,
+                  if(ifNull(greater(length(filtered_uuid), 4), 0), arrayConcat(arraySlice(filtered_uuid, 1, intDiv(4, 2)), [filtered_uuid[plus(1, intDiv(4, 2))]], arraySlice(filtered_uuid, multiply(-1, intDiv(4, 2)), intDiv(4, 2))), filtered_uuid) AS limited_uuid,
+                  if(ifNull(greater(start_target_index, 0), 0), arraySlice(timestamp, start_target_index), timestamp) AS start_filtered_timestamp,
+                  if(ifNull(greater(end_target_index, 0), 0), arrayResize(start_filtered_timestamp, end_target_index), start_filtered_timestamp) AS filtered_timestamp,
+                  if(ifNull(greater(length(filtered_timestamp), 4), 0), arrayConcat(arraySlice(filtered_timestamp, 1, intDiv(4, 2)), [filtered_timestamp[plus(1, intDiv(4, 2))]], arraySlice(filtered_timestamp, multiply(-1, intDiv(4, 2)), intDiv(4, 2))), filtered_timestamp) AS limited_timestamp,
+                  if(ifNull(greater(start_target_index, 0), 0), arraySlice(session_id, start_target_index), session_id) AS start_filtered_session_id,
+                  if(ifNull(greater(end_target_index, 0), 0), arrayResize(start_filtered_session_id, end_target_index), start_filtered_session_id) AS filtered_session_id,
+                  if(ifNull(greater(length(filtered_session_id), 4), 0), arrayConcat(arraySlice(filtered_session_id, 1, intDiv(4, 2)), [filtered_session_id[plus(1, intDiv(4, 2))]], arraySlice(filtered_session_id, multiply(-1, intDiv(4, 2)), intDiv(4, 2))), filtered_session_id) AS limited_session_id,
+                  if(ifNull(greater(start_target_index, 0), 0), arraySlice(window_id, start_target_index), window_id) AS start_filtered_window_id,
+                  if(ifNull(greater(end_target_index, 0), 0), arrayResize(start_filtered_window_id, end_target_index), start_filtered_window_id) AS filtered_window_id,
+                  if(ifNull(greater(length(filtered_window_id), 4), 0), arrayConcat(arraySlice(filtered_window_id, 1, intDiv(4, 2)), [filtered_window_id[plus(1, intDiv(4, 2))]], arraySlice(filtered_window_id, multiply(-1, intDiv(4, 2)), intDiv(4, 2))), filtered_window_id) AS limited_window_id,
+                  arrayDifference(limited_timings) AS timings_diff,
+                  concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key,
+                  arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuid, limited_timestamp, limited_session_id, limited_window_id) AS limited_path_timings
+           FROM
+             (SELECT person_id AS person_id,
+                     path_time_tuple.1 AS path_basic,
+                     path_time_tuple.2 AS time,
+                     session_index,
+                     arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
+                     path_time_tuple.4 AS uuid_items,
+                     path_time_tuple.5 AS timestamp_items,
+                     path_time_tuple.6 AS session_id_items,
+                     path_time_tuple.7 AS window_id_items
+              FROM
+                (SELECT person_id AS person_id,
+                        groupArray(timestamp) AS timing_list,
+                        groupArray(path_item) AS path_list,
+                        groupArray(uuid) AS uuid_list,
+                        groupArray(timestamp) AS timestamp_list,
+                        groupArray(session_id) AS session_id_list,
+                        groupArray(window_id) AS window_id_list
+                 FROM
+                   (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                           if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
+                           ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped,
+                           events.uuid AS uuid,
+                           toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                           ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id,
+                           ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id,
+                           NULL AS groupings,
+                           multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
+                           (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                    FROM events
+                    LEFT OUTER JOIN
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                              person_distinct_id_overrides.distinct_id AS distinct_id
+                       FROM person_distinct_id_overrides
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                       GROUP BY person_distinct_id_overrides.distinct_id
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -4072,7 +4694,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -4120,7 +4742,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4160,7 +4782,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -4208,7 +4830,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4247,7 +4869,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -4295,7 +4917,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4336,7 +4958,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -4416,7 +5038,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -4457,7 +5079,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -4537,7 +5159,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -4576,7 +5198,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -4624,7 +5246,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4665,7 +5287,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -4745,7 +5367,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -4784,7 +5406,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -4832,7 +5454,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4873,7 +5495,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -4953,7 +5575,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -4994,7 +5616,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -5074,7 +5696,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -5115,7 +5737,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -5195,7 +5817,7 @@
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
+                    WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -5234,7 +5856,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -5282,7 +5904,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -5321,7 +5943,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -5374,7 +5996,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), notEquals(events.event, '$feature_flag_called'), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,

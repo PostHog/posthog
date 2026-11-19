@@ -7,6 +7,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { useSceneContentReady } from 'scenes/useSceneContentReady'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -54,10 +55,12 @@ export function ProductEmptyStateGate({ emptyState, params, children }: ProductE
         emptyState,
         activeSceneId,
         params: params ?? {},
+        searchParams,
         featureFlags,
         receivedFeatureFlags,
         forcedMode,
     })
+    useSceneContentReady(activation !== 'awaiting-flags')
     if (activation === 'off') {
         return <>{children}</>
     }
@@ -85,6 +88,8 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
     // bare scene with neither the setup screen nor the reminder banner.
     const skipHonored = skipped && config.skippable !== false
     const gateRender = activeProductEmptyStateGateRender({ config, forcedMode, status, skipped })
+
+    useSceneContentReady(gateRender !== 'loading')
 
     if (gateRender === 'setup') {
         return (

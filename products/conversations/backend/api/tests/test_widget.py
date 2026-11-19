@@ -1,22 +1,28 @@
 import time
 import uuid
+from datetime import timedelta
 
 import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.auth import WidgetAuthentication
 from posthog.models.comment import Comment
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.rate_limit import WidgetTeamPollThrottle
+from posthog.test.authentication_checks import covers_authentication
 
 from products.conversations.backend.api.serializers import WidgetMessageSerializer, WidgetTicketsQuerySerializer
+from products.conversations.backend.api.widget import WidgetTicketsTeamThrottle
+from products.conversations.backend.cache import get_session_has_tickets_cache_key
 from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.services.identity import (
@@ -26,14 +32,23 @@ from products.conversations.backend.services.identity import (
 )
 
 
-def _verification_counter(outcome: str, source: str) -> float:
+def _verification_counter(outcome: str, source: str, team_id: int) -> float:
     # Process-global, so callers compare deltas rather than absolute values.
     from prometheus_client import REGISTRY
 
     return (
-        REGISTRY.get_sample_value("conversations_identity_verification_total", {"outcome": outcome, "source": source})
+        REGISTRY.get_sample_value(
+            "conversations_identity_verification_total",
+            {"outcome": outcome, "source": source, "team_id": str(team_id)},
+        )
         or 0.0
     )
+
+
+def _stale_counter() -> float:
+    from prometheus_client import REGISTRY
+
+    return REGISTRY.get_sample_value("conversations_signing_secret_stale_total") or 0.0
 
 
 class TestWidgetAPI(BaseTest):
@@ -74,7 +89,13 @@ class TestWidgetAPI(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_create_message_creates_ticket(self):
+    @parameterized.expand([(False,), (True,)])
+    @covers_authentication(WidgetAuthentication)
+    def test_create_message_creates_ticket(self, signed_in: bool) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        cache.clear()
+        if signed_in:
+            self.client.force_login(self.user)
         response = self.client.post(
             "/api/conversations/v1/widget/message",
             {
@@ -96,6 +117,12 @@ class TestWidgetAPI(BaseTest):
 
     def test_exhausted_poll_throttle_does_not_block_send(self):
         cache.clear()
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
         tickets_url = f"/api/conversations/v1/widget/tickets?widget_session_id={self.widget_session_id}"
         try:
             with patch.object(WidgetTeamPollThrottle, "rate", "1/minute"):
@@ -115,6 +142,76 @@ class TestWidgetAPI(BaseTest):
             self.assertEqual(send.status_code, status.HTTP_200_OK)
         finally:
             cache.clear()
+
+    @parameterized.expand(
+        [
+            ("canonical", str),
+            ("uppercase", lambda session_id: session_id.upper()),
+            ("hyphenless", lambda session_id: session_id.replace("-", "")),
+        ]
+    )
+    def test_sessions_without_tickets_do_not_use_the_poll_bucket(self, _name, spell_session_id):
+        cache.clear()
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        tickets_url = "/api/conversations/v1/widget/tickets?widget_session_id={}"
+        try:
+            with (
+                patch.object(WidgetTeamPollThrottle, "rate", "1/minute"),
+                patch.object(WidgetTicketsTeamThrottle, "new_session_rate", "1/minute"),
+            ):
+                self.client.get(tickets_url.format(self.widget_session_id), **self._get_headers())
+                existing_session = self.client.get(
+                    tickets_url.format(spell_session_id(self.widget_session_id)), **self._get_headers()
+                )
+                new_session = self.client.get(tickets_url.format(uuid.uuid4()), **self._get_headers())
+                other_new_session = self.client.get(tickets_url.format(uuid.uuid4()), **self._get_headers())
+            self.assertEqual(existing_session.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertEqual(new_session.status_code, status.HTTP_200_OK)
+            self.assertEqual(other_new_session.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        finally:
+            cache.clear()
+
+    def test_full_new_session_bucket_does_not_use_the_poll_bucket(self):
+        cache.clear()
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        tickets_url = "/api/conversations/v1/widget/tickets?widget_session_id={}"
+        try:
+            with (
+                patch.object(WidgetTeamPollThrottle, "rate", "3/minute"),
+                patch.object(WidgetTicketsTeamThrottle, "new_session_rate", "1/minute"),
+                patch.object(WidgetTicketsTeamThrottle, "session_lookup_rate", "1/minute"),
+            ):
+                first_poll = self.client.get(tickets_url.format(self.widget_session_id), **self._get_headers())
+                cache.delete(get_session_has_tickets_cache_key(self.team.id, self.widget_session_id))
+                self.client.get(tickets_url.format(uuid.uuid4()), **self._get_headers())
+                returning_session = self.client.get(tickets_url.format(self.widget_session_id), **self._get_headers())
+                with patch("products.conversations.backend.api.widget._session_has_tickets") as ticket_lookup:
+                    overflow = self.client.get(tickets_url.format(uuid.uuid4()), **self._get_headers())
+                last_poll = self.client.get(tickets_url.format(self.widget_session_id), **self._get_headers())
+            self.assertEqual(first_poll.status_code, status.HTTP_200_OK)
+            self.assertEqual(returning_session.status_code, status.HTTP_200_OK)
+            self.assertEqual(overflow.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            ticket_lookup.assert_not_called()
+            self.assertEqual(last_poll.status_code, status.HTTP_200_OK)
+        finally:
+            cache.clear()
+
+    @parameterized.expand([("not_a_uuid", "not-a-uuid"), ("nul_byte", "%00")])
+    def test_list_tickets_rejects_invalid_widget_session_id(self, _name, widget_session_id):
+        response = self.client.get(
+            f"/api/conversations/v1/widget/tickets?widget_session_id={widget_session_id}", **self._get_headers()
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_ticket_channel_detail_widget_enabled(self):
         self.team.conversations_settings = {**self.team.conversations_settings, "widget_enabled": True}
@@ -702,7 +799,7 @@ class TestWidgetAPI(BaseTest):
 
 
 class TestWidgetCacheInvalidation(BaseTest):
-    """Test that widget message creation invalidates unread count cache."""
+    """Test that widget caches reflect new messages and ticket changes."""
 
     def setUp(self):
         super().setUp()
@@ -754,6 +851,67 @@ class TestWidgetCacheInvalidation(BaseTest):
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             mock_invalidate.assert_called_once_with(self.team.id)
+
+    def _create_widget_ticket(self) -> Ticket:
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+
+    def _create_message(self, ticket: Ticket, content: str, author_type: str) -> Comment:
+        with self.captureOnCommitCallbacks(execute=True):
+            comment = Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=content,
+                created_by=self.user if author_type == "team" else None,
+                item_context={"author_type": author_type, "is_private": False},
+            )
+        return comment
+
+    @parameterized.expand(
+        [
+            ("first_load", False, ["Question", "Reply"]),
+            ("poll", True, ["Reply"]),
+        ]
+    )
+    def test_get_messages_returns_a_reply_that_arrives_after_the_response_is_cached(
+        self, _name: str, poll_after_first_message: bool, expected_contents: list[str]
+    ) -> None:
+        cache.clear()
+        ticket = self._create_widget_ticket()
+        url = f"/api/conversations/v1/widget/messages/{ticket.id}"
+
+        with time_machine.travel(timezone.now(), tick=False) as traveller:
+            first = self._create_message(ticket, "Question", author_type="customer")
+            query: dict[str, str | int] = {"widget_session_id": self.widget_session_id, "limit": 50}
+            if poll_after_first_message:
+                query["after"] = first.created_at.isoformat()
+            self.client.get(url, query, **self._get_headers())
+
+            traveller.shift(timedelta(seconds=5))
+            self._create_message(ticket, "Reply", author_type="team")
+            response = self.client.get(url, query, **self._get_headers())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([m["content"] for m in response.json()["messages"]], expected_contents)
+
+    def test_get_messages_returns_the_current_ticket_status_when_messages_are_cached(self) -> None:
+        cache.clear()
+        ticket = self._create_widget_ticket()
+        url = f"/api/conversations/v1/widget/messages/{ticket.id}"
+        query: dict[str, str | int] = {"widget_session_id": self.widget_session_id, "limit": 50}
+        self.client.get(url, query, **self._get_headers())
+
+        ticket.status = Status.RESOLVED
+        ticket.save()
+        response = self.client.get(url, query, **self._get_headers())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["ticket_status"], Status.RESOLVED)
 
 
 class TestWidgetIdentityVerification(BaseTest):
@@ -832,6 +990,124 @@ class TestWidgetIdentityVerification(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
 
+    @parameterized.expand(
+        [
+            # setUp signs the hash with the value held in team.secret_api_token; with the
+            # kill switch off (#66179) that column must stop verifying — only a current
+            # SigningSecret row may.
+            ("signing_secret_row_verifies", "matching", "current", status.HTTP_200_OK, 0.0),
+            ("legacy_fallback_is_gone", "none", "current", status.HTTP_403_FORBIDDEN, 0.0),
+            # A stale row holds a retired key; accepting it under the switch would
+            # silently un-revoke that key.
+            ("stale_row_stays_excluded", "stale", "retired", status.HTTP_403_FORBIDDEN, 1.0),
+        ]
+    )
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_list_tickets_with_legacy_tokens_switched_off(
+        self, _name: str, row: str, sign_with: str, expected_status: int, expected_stale_delta: float
+    ) -> None:
+        retired_secret = "a_retired_secret_key"
+        if row != "none":
+            SigningSecret.objects.for_team(self.team.id).create(
+                team=self.team, secret=self.secret if row == "matching" else retired_secret
+            )
+        identity_hash = (
+            self.identity_hash if sign_with == "current" else compute_identity_hash(self.distinct_id, retired_secret)
+        )
+        self._create_ticket()
+        before_stale = _stale_counter()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": identity_hash,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(_stale_counter() - before_stale, expected_stale_delta)
+
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_list_tickets_independently_rotated_secret_verifies(self):
+        # The staleness guard excluding an independently rotated secret locks the team out.
+        independent_secret = "an_independent_secret"
+        SigningSecret.objects.for_team(self.team.id).create(
+            team=self.team, secret=independent_secret, rotated_independently=True
+        )
+        self._create_ticket()
+        before_stale = _stale_counter()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": compute_identity_hash(self.distinct_id, independent_secret),
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(_stale_counter() - before_stale, 0.0)
+
+    @parameterized.expand(
+        [
+            # A hash signed with the replaced secret keeps verifying inside the grace
+            # window and expires on its own after it, with no manual backup deletion.
+            ("inside_grace_window", timedelta(hours=47), status.HTTP_200_OK, "verified", "signing_secret_previous"),
+            ("after_grace_window", timedelta(hours=49), status.HTTP_403_FORBIDDEN, "invalid_hash", "none"),
+        ]
+    )
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_list_tickets_previous_secret_grace_window(
+        self, _name: str, age: timedelta, expected_status: int, outcome: str, source: str
+    ) -> None:
+        replaced_secret = "a_replaced_secret"
+        SigningSecret.objects.for_team(self.team.id).create(
+            team=self.team,
+            secret="the_new_secret",
+            rotated_independently=True,
+            previous_secret=replaced_secret,
+            previous_secret_rotated_at=timezone.now() - age,
+        )
+        self._create_ticket()
+        before_stale = _stale_counter()
+        before_outcome = _verification_counter(outcome, source, self.team.id)
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": compute_identity_hash(self.distinct_id, replaced_secret),
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(_stale_counter() - before_stale, 0.0)
+        self.assertEqual(_verification_counter(outcome, source, self.team.id) - before_outcome, 1.0)
+
+    def test_list_tickets_legacy_hash_rejected_after_independent_rotation(self):
+        # Even with the kill switch on, an independent rotation must revoke the legacy
+        # token for verification, or old hashes stay valid forever.
+        SigningSecret.objects.for_team(self.team.id).create(
+            team=self.team, secret="an_independent_secret", rotated_independently=True
+        )
+        self._create_ticket()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_list_tickets_post_backfill_reports_the_signing_secret_as_the_source(self):
         # After the backfill both stores hold the same value, so the response is 200 either
         # way and only the counter shows which one matched. Without this, reordering the
@@ -839,8 +1115,8 @@ class TestWidgetIdentityVerification(BaseTest):
         # what gates dropping the plaintext column — silently reports legacy forever.
         SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=self.secret)
         self._create_ticket()
-        before_signing = _verification_counter("verified", "signing_secret")
-        before_legacy = _verification_counter("verified", "legacy_token")
+        before_signing = _verification_counter("verified", "signing_secret", self.team.id)
+        before_legacy = _verification_counter("verified", "legacy_token", self.team.id)
 
         response = self.client.get(
             "/api/conversations/v1/widget/tickets",
@@ -852,8 +1128,8 @@ class TestWidgetIdentityVerification(BaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(_verification_counter("verified", "signing_secret") - before_signing, 1.0)
-        self.assertEqual(_verification_counter("verified", "legacy_token") - before_legacy, 0.0)
+        self.assertEqual(_verification_counter("verified", "signing_secret", self.team.id) - before_signing, 1.0)
+        self.assertEqual(_verification_counter("verified", "legacy_token", self.team.id) - before_legacy, 0.0)
 
     def test_list_tickets_non_hex_identity_hash_is_rejected_not_a_server_error(self):
         # hmac.compare_digest raises TypeError on non-ASCII str, so a 64-character non-hex
@@ -1251,16 +1527,18 @@ class TestWidgetIdentityVerification(BaseTest):
 
     @parameterized.expand(
         [
-            ("zendesk", None, Channel.EMAIL, 123),
-            ("slack", True, Channel.SLACK, None),
+            ("zendesk", None, Channel.EMAIL, 123, False),
+            ("slack", True, Channel.SLACK, None, False),
+            ("outbound_email_owned_by_distinct_id", None, Channel.EMAIL, None, True),
         ]
     )
     def test_send_message_to_bridged_ticket_preserves_channel_identity(
-        self, _name, identity_verified, channel_source, zendesk_ticket_id
+        self, _name, identity_verified, channel_source, zendesk_ticket_id, owned_by_distinct_id
     ):
         email = "person@example.com"
+        ticket_distinct_id = self.distinct_id if owned_by_distinct_id else email
         ticket = self._create_email_ticket(
-            email,
+            ticket_distinct_id,
             identity_verified=identity_verified,
             channel_source=channel_source,
             zendesk_ticket_id=zendesk_ticket_id,
@@ -1273,14 +1551,16 @@ class TestWidgetIdentityVerification(BaseTest):
                 **self._email_claim(email),
                 "message": "Follow-up",
                 "ticket_id": str(ticket.id),
+                "traits": {"email": "other@example.com"},
             },
             **self._get_headers(),
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ticket.refresh_from_db()
-        self.assertEqual(ticket.distinct_id, email)
+        self.assertEqual(ticket.distinct_id, ticket_distinct_id)
         self.assertEqual(ticket.identity_verified, identity_verified)
+        self.assertEqual(ticket.anonymous_traits, {})
 
     def test_mark_read_email_bridge_allows_verified_ticket(self):
         email = "person@example.com"

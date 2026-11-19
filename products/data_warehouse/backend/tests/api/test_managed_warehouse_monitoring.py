@@ -17,6 +17,8 @@ from products.data_warehouse.backend.presentation.managed_warehouse_monitoring i
 )
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
+_VIEWS = "products.data_warehouse.backend.presentation.views.data_warehouse"
+
 
 def _snapshot(organization_id: object) -> dict[str, object]:
     return {
@@ -109,6 +111,22 @@ class TestManagedWarehouseMonitoringAPI(APIBaseTest):
 
     def _series_url(self, query: str = "metric=query_rate&window=6h") -> str:
         return f"/api/projects/{self.team.id}/data_warehouse/managed-warehouse-monitoring-timeseries/?{query}"
+
+    @parameterized.expand([("snapshot",), ("series",)])
+    def test_duckdb_monitoring_returns_404_for_a_trino_organization(self, endpoint: str) -> None:
+        url = self._snapshot_url() if endpoint == "snapshot" else self._series_url()
+        with (
+            patch(f"{_VIEWS}.managed_warehouse.data_ops_variant", return_value="trino"),
+            patch(f"{_VIEWS}.managed_warehouse.monitoring_snapshot_for") as mock_snapshot,
+            patch(f"{_VIEWS}.managed_warehouse.monitoring_series_for") as mock_series,
+        ):
+            response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert "Trino" in response.json()["error"]
+        assert "managed-warehouse-trino-monitoring-get" in response.json()["error"]
+        mock_snapshot.assert_not_called()
+        mock_series.assert_not_called()
 
     @patch(
         "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.monitoring_snapshot_for"
@@ -313,6 +331,16 @@ class TestManagedWarehouseMonitoringAccessControl(WarehouseAccessControlTestMixi
                 "monitoring_series_for",
                 "managed-warehouse-monitoring-timeseries/?metric=query_rate&window=6h",
             ),
+            (
+                "trino_snapshot",
+                "trino_monitoring_snapshot_for",
+                "managed-warehouse-trino-monitoring/",
+            ),
+            (
+                "trino_timeseries",
+                "trino_monitoring_series_for",
+                "managed-warehouse-trino-monitoring-timeseries/?metric=query_rate&window=6h",
+            ),
         ]
     )
     def test_org_wide_monitoring_requires_resource_level_warehouse_access(
@@ -362,5 +390,21 @@ class TestManagedWarehouseMonitoringPersonalAPIKey(APIBaseTest):
         denied_response = self._get_snapshot(denied_token)
 
         assert allowed_response.status_code == status.HTTP_200_OK
+        assert denied_response.status_code == status.HTTP_403_FORBIDDEN
+        assert mock_snapshot.call_count == 1
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.trino_monitoring_snapshot_for"
+    )
+    def test_trino_snapshot_requires_the_warehouse_view_read_scope(self, mock_snapshot: MagicMock) -> None:
+        mock_snapshot.return_value = Response({"error": "unused"}, status=status.HTTP_502_BAD_GATEWAY)
+        url = f"/api/projects/{self.team.id}/data_warehouse/managed-warehouse-trino-monitoring/"
+        allowed_token = self.create_personal_api_key_with_scopes(["warehouse_view:read"])
+        denied_token = self.create_personal_api_key_with_scopes(["query:read"])
+
+        allowed_response = self.client.get(url, headers={"authorization": f"Bearer {allowed_token}"})
+        denied_response = self.client.get(url, headers={"authorization": f"Bearer {denied_token}"})
+
+        assert allowed_response.status_code == status.HTTP_502_BAD_GATEWAY
         assert denied_response.status_code == status.HTTP_403_FORBIDDEN
         assert mock_snapshot.call_count == 1

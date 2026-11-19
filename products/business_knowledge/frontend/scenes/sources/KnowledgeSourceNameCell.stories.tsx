@@ -42,6 +42,9 @@ function makeSource(overrides: Partial<KnowledgeSource> = {}): KnowledgeSource {
         file_content_type: '',
         file_size_bytes: null,
         always_include: false,
+        library_ids: [],
+        cited_run_count: 0,
+        last_cited_at: null,
         ...overrides,
     }
 }

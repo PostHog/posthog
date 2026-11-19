@@ -4,13 +4,17 @@ Applies only inside a PostHog Tasks cloud run, on the prebaked `posthog-dev-stac
 Local developers and CI are unaffected by everything on this page.
 `POSTHOG_TASK_RUN_ID` is set in that environment.
 
-Sandboxes using this image receive at least 32 GiB of RAM, including when automatic preview startup is disabled.
-Memory overrides above 32 GiB are preserved; lower overrides are raised to 32 GiB.
+User-created runs on this image receive at least 64 GiB of RAM.
+Self-driving runs, such as signal reports and scouts, receive 16 GiB.
 
 ## Booting the stack
 
 Run `bootstrap-dev-stack` first — it restores the compose host aliases and starts dockerd.
 Then `uv sync`, `source .venv/bin/activate`, `hogli start -y -d`, and `hogli wait`.
+
+On a 16 GiB VM the full `hogli start` stack takes about 12 GiB and leaves no room for tsgo, Jest, or pytest.
+Unless the task needs the running app, start only the datastores after `bootstrap-dev-stack`:
+`docker compose -f docker-compose.dev.yml up -d --no-build db redis7 zookeeper kafka clickhouse objectstorage`, then `bin/wait-for-docker objectstorage`.
 
 Always detached. The sandbox has no TTY, and phrocs under a pseudo-TTY grows in memory until the OOM killer takes it.
 The detached start returns while the stack is still booting, so `hogli wait` is what blocks until every process is ready.

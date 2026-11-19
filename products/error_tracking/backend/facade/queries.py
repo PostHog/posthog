@@ -23,6 +23,9 @@ from products.error_tracking.backend.hogql_queries.error_tracking_fingerprint_pr
 from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
     ErrorTrackingIssueCorrelationQueryRunner,
 )
+from products.error_tracking.backend.hogql_queries.error_tracking_issue_events_query_runner import (
+    ErrorTrackingIssueEventsQueryRunner,
+)
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.hogql_queries.error_tracking_releases_query_runner import (
     ErrorTrackingReleasesQueryRunner,
@@ -35,6 +38,7 @@ __all__ = [
     "ErrorTrackingBreakdownsQueryRunner",
     "ErrorTrackingFingerprintProjectionQueryRunner",
     "ErrorTrackingIssueCorrelationQueryRunner",
+    "ErrorTrackingIssueEventsQueryRunner",
     "ErrorTrackingQueryRunner",
     "ErrorTrackingReleasesQueryRunner",
     "ErrorTrackingSimilarIssuesQueryRunner",
@@ -42,7 +46,15 @@ __all__ = [
 ]
 
 
-def run_error_tracking_query(team: Team, query: ErrorTrackingQuery) -> dict[str, Any]:
+def run_error_tracking_query(
+    team: Team, query: ErrorTrackingQuery, *, align_volume_buckets_to_midpoint: bool = False
+) -> dict[str, Any]:
     """Execute an ErrorTrackingQuery with product query tagging and return the JSON-dumped response."""
     with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
-        return ErrorTrackingQueryRunner(team=team, query=query).calculate().model_dump(mode="json")
+        return (
+            ErrorTrackingQueryRunner(
+                team=team, query=query, align_volume_buckets_to_midpoint=align_volume_buckets_to_midpoint
+            )
+            .calculate()
+            .model_dump(mode="json")
+        )

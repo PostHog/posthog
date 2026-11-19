@@ -7,6 +7,108 @@
  * PostHog API - core
  * OpenAPI spec version: 1.0.0
  */
+export interface ConnectedAppApi {
+    /** The OAuth application ID */
+    id: string
+    /** The application name */
+    name: string
+    /**
+     * URL to the application's logo
+     * @nullable
+     */
+    logo_uri: string | null
+    /** Scopes granted to this application */
+    scopes: string[]
+    /** When the user first authorized this application */
+    authorized_at: string
+    /** Whether this application has been verified by PostHog */
+    is_verified: boolean
+    /** Whether this is a first-party PostHog application */
+    is_first_party: boolean
+    /** Whether the user must choose to keep or disconnect this application, because it set up one of the user's organizations and PostHog has not verified it */
+    requires_access_confirmation: boolean
+    /** Whether the application registered itself, through dynamic client registration or a client ID metadata document. MCP clients connect this way; applications PostHog registers do not. */
+    is_self_registered: boolean
+}
+
+export interface DeviceApprovalApi {
+    /**
+     * The code the device shows, as the person typed it. Case and dashes don't matter.
+     * @maxLength 20
+     */
+    user_code: string
+    /** The project the token is scoped to. */
+    project_id: number
+    /** The requested scopes the person kept. Leave it out to grant every requested scope. It must include every scope in `required_scopes`, and nothing outside the requested scopes. */
+    scopes?: string[]
+}
+
+/**
+ * * `authorized` - Authorized
+ * * `denied` - Denied
+ */
+export type DeviceDecisionEnumApi = (typeof DeviceDecisionEnumApi)[keyof typeof DeviceDecisionEnumApi]
+
+export const DeviceDecisionEnumApi = {
+    Authorized: 'authorized',
+    Denied: 'denied',
+} as const
+
+export interface DeviceDecisionApi {
+    /** The device grant's status after the decision.
+     *
+     * * `authorized` - Authorized
+     * * `denied` - Denied */
+    status: DeviceDecisionEnumApi
+}
+
+export interface DeviceUserCodeApi {
+    /**
+     * The code the device shows, as the person typed it. Case and dashes don't matter.
+     * @maxLength 20
+     */
+    user_code: string
+}
+
+export interface GrantedScopesApi {
+    /**
+     * The project these scopes work in. Null when the connection is not limited to projects.
+     * @nullable
+     */
+    project_id: number | null
+    /**
+     * The organization these scopes work in, for a connection limited to organizations. Null when the connection is not limited to organizations.
+     * @nullable
+     */
+    organization_id: string | null
+    /** The scopes granted in the project. */
+    scopes: string[]
+}
+
+export interface DeviceGrantDetailsApi {
+    /** The code, in the form the device shows it. */
+    user_code: string
+    /** The client that started the device grant. */
+    client_id: string
+    /** The client's display name. */
+    client_name: string
+    /**
+     * The client's logo, if it declared one.
+     * @nullable
+     */
+    logo_uri: string | null
+    /** Whether PostHog has verified the client. */
+    is_verified: boolean
+    /** The scopes the token will carry if the person approves. */
+    scopes: string[]
+    /** The requested scopes the person can't leave out: the client's required scopes, the scopes the client marked as required when it started the grant, such as the new scopes of a step-up, and identity scopes such as `openid`. */
+    required_scopes: string[]
+    /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones. */
+    granted_scopes: GrantedScopesApi[]
+    /** When the code expires. */
+    expires_at: string
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -339,6 +441,11 @@ export interface IdentityProviderConfigApi {
      * @items.maxLength 256
      */
     id_jag_allowed_clients?: string[]
+    /**
+     * Name of the OAuth application that registered this ID-JAG issuer through enterprise-managed auth setup, or null when the issuer was entered by hand.
+     * @nullable
+     */
+    readonly id_jag_registered_by_application_name: string | null
 }
 
 export interface PaginatedIdentityProviderConfigListApi {
@@ -440,6 +547,11 @@ export interface PatchedIdentityProviderConfigApi {
      * @items.maxLength 256
      */
     id_jag_allowed_clients?: string[]
+    /**
+     * Name of the OAuth application that registered this ID-JAG issuer through enterprise-managed auth setup, or null when the issuer was entered by hand.
+     * @nullable
+     */
+    readonly id_jag_registered_by_application_name?: string | null
 }
 
 export interface SCIMTokenResponseApi {
@@ -470,13 +582,19 @@ export interface OrganizationInviteApi {
     /** @maxLength 30 */
     first_name?: string
     readonly emailing_attempt_made: boolean
+    /** True when the email provider reported the target address as suppressed at send time. */
+    readonly email_suppressed: boolean
     level?: OrganizationMembershipLevelEnumApi
     /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
     readonly is_expired: boolean
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
-    /** @nullable */
+    /**
+     * Optional personal message in the invite email.
+     * @maxLength 1000
+     * @nullable
+     */
     message?: string | null
     /** List of team IDs and corresponding access levels to private projects. */
     private_project_access?: unknown
@@ -509,6 +627,8 @@ export interface OrganizationInviteDelegateApi {
 }
 
 /**
+ * * `approval_requested` - approval_requested
+ * * `approval_resolved` - approval_resolved
  * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
  * * `discussions_mentioned` - discussions_mentioned
  * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -524,6 +644,8 @@ export interface OrganizationInviteDelegateApi {
 export type SettingEnumApi = (typeof SettingEnumApi)[keyof typeof SettingEnumApi]
 
 export const SettingEnumApi = {
+    ApprovalRequested: 'approval_requested',
+    ApprovalResolved: 'approval_resolved',
     DataCatalogWeeklyDigest: 'data_catalog_weekly_digest',
     DiscussionsMentioned: 'discussions_mentioned',
     ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
@@ -540,6 +662,8 @@ export const SettingEnumApi = {
 export interface OrganizationNotificationLockApi {
     /** Notification setting this rule enforces.
      *
+     * * `approval_requested` - approval_requested
+     * * `approval_resolved` - approval_resolved
      * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -582,6 +706,8 @@ export interface OrganizationNotificationLockChangeApi {
     user_id: number
     /** Notification setting to lock or unlock.
      *
+     * * `approval_requested` - approval_requested
+     * * `approval_resolved` - approval_resolved
      * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -612,6 +738,67 @@ export interface OrganizationNotificationLockBulkUpdateApi {
 }
 
 /**
+ * * `not_a_partner` - Not a provisioning partner
+ * * `in_review` - In review
+ * * `waiting_for_staff` - Waiting for PostHog staff
+ * * `on` - On
+ * * `off` - Off
+ * * `blocked` - Blocked
+ */
+export type PartnerProvisioningStatusEnumApi =
+    (typeof PartnerProvisioningStatusEnumApi)[keyof typeof PartnerProvisioningStatusEnumApi]
+
+export const PartnerProvisioningStatusEnumApi = {
+    NotAPartner: 'not_a_partner',
+    InReview: 'in_review',
+    WaitingForStaff: 'waiting_for_staff',
+    On: 'on',
+    Off: 'off',
+    Blocked: 'blocked',
+} as const
+
+/**
+ * * `pending` - Pending
+ * * `accepted` - Accepted
+ * * `rejected` - Rejected
+ * * `needs_human` - Needs staff review
+ */
+export type ProvisioningReviewStatusEnumApi =
+    (typeof ProvisioningReviewStatusEnumApi)[keyof typeof ProvisioningReviewStatusEnumApi]
+
+export const ProvisioningReviewStatusEnumApi = {
+    Pending: 'pending',
+    Accepted: 'accepted',
+    Rejected: 'rejected',
+    NeedsHuman: 'needs_human',
+} as const
+
+/**
+ * The review an app went through to become a provisioning partner, as its owners see it.
+ *
+ * The verdict's internal reason and the evidence stay with PostHog staff: they describe what the
+ * review checks, which would teach an abusive app what to fake.
+ */
+export interface PartnerReviewApi {
+    /** pending: the automated review is running. needs_human: PostHog staff decide next. accepted: the app may provision. rejected: provisioning is blocked.
+     *
+     * * `pending` - Pending
+     * * `accepted` - Accepted
+     * * `rejected` - Rejected
+     * * `needs_human` - Needs staff review */
+    readonly status: ProvisioningReviewStatusEnumApi
+    /** When the app registered for provisioning. */
+    readonly opened_at: string
+    /**
+     * When the current decision was made. Null while pending.
+     * @nullable
+     */
+    readonly decided_at: string | null
+    /** What PostHog staff wrote to the app's owners about the decision. Empty when they wrote nothing. */
+    readonly partner_message: string
+}
+
+/**
  * Serializer for organization-scoped OAuth applications (read-only).
  */
 export interface OrganizationOAuthApplicationApi {
@@ -623,6 +810,18 @@ export interface OrganizationOAuthApplicationApi {
     readonly redirect_uris_list: readonly string[]
     /** True if this application has been verified by PostHog */
     is_verified?: boolean
+    /** True when the app registered itself from a client ID metadata document (CIMD). */
+    readonly is_cimd_client: boolean
+    /** Whether the app can create accounts and provision resources through the agentic provisioning API. in_review and waiting_for_staff mean its review has not finished.
+     *
+     * * `not_a_partner` - Not a provisioning partner
+     * * `in_review` - In review
+     * * `waiting_for_staff` - Waiting for PostHog staff
+     * * `on` - On
+     * * `off` - Off
+     * * `blocked` - Blocked */
+    readonly provisioning_status: PartnerProvisioningStatusEnumApi
+    readonly provisioning_review: PartnerReviewApi | null
     readonly created: string
     readonly updated: string
 }
@@ -1336,6 +1535,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -1369,6 +1569,10 @@ export interface PersonPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -1661,6 +1865,7 @@ export interface TeamMarketingAnalyticsConfigApi {
 /**
  * * `custom_property` - Custom property
  * * `relationship` - Relationship
+ * * `account_field` - Account field
  */
 export type AccountPropertyPinKindEnumApi =
     (typeof AccountPropertyPinKindEnumApi)[keyof typeof AccountPropertyPinKindEnumApi]
@@ -1668,15 +1873,20 @@ export type AccountPropertyPinKindEnumApi =
 export const AccountPropertyPinKindEnumApi = {
     CustomProperty: 'custom_property',
     Relationship: 'relationship',
+    AccountField: 'account_field',
 } as const
 
 export interface TeamCustomerAnalyticsPinnedAccountPropertyApi {
-    /** Definition type for this default pinned account property.
+    /** Type of this default pinned account property: a custom property, a relationship, or a built-in account field.
      *
      * * `custom_property` - Custom property
-     * * `relationship` - Relationship */
+     * * `relationship` - Relationship
+     * * `account_field` - Account field */
     kind: AccountPropertyPinKindEnumApi
-    /** Project-scoped custom property or relationship definition UUID. */
+    /**
+     * Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.
+     * @maxLength 64
+     */
     id: string
 }
 
@@ -1714,6 +1924,29 @@ export const EmailTrackingConsentModeEnumApi = {
     OptIn: 'opt_in',
 } as const
 
+export interface EmailUtmParamsApi {
+    /**
+     * Default utm_source. Supports Liquid variables.
+     * @maxLength 500
+     */
+    utm_source?: string
+    /**
+     * Default utm_medium. Supports Liquid variables.
+     * @maxLength 500
+     */
+    utm_medium?: string
+    /**
+     * Default utm_campaign. Empty uses the broadcast or workflow name. Supports Liquid variables.
+     * @maxLength 500
+     */
+    utm_campaign?: string
+    /**
+     * Default utm_content. Empty uses the email step name. Supports Liquid variables.
+     * @maxLength 500
+     */
+    utm_content?: string
+}
+
 export interface TeamWorkflowsConfigApi {
     /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
     capture_workflows_engagement_events?: boolean
@@ -1723,6 +1956,12 @@ export interface TeamWorkflowsConfigApi {
      * * `opt_out` - Opt Out
      * * `opt_in` - Opt In */
     email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
+    /** Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails change only through apply_utm_defaults. */
+    email_utm_tags_enabled?: boolean
+    /** Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag. */
+    email_utm_params?: EmailUtmParamsApi
+    /** Whether tracked links in emails this project sends get a ph_workflow_run parameter with the send's run ID. When the landing page runs posthog-js, the parameter links each click to the session it starts. Links with click tracking turned off never get it. On by default. */
+    email_workflow_run_link_tag_enabled?: boolean
     /**
      * How many AI tasks one workflow can create in a rolling 24 hours. Null uses the default of 100; zero pauses task creation for every workflow in the project. Support raises the limit above 500.
      * @minimum 0
@@ -1735,6 +1974,18 @@ export interface TeamWorkflowsConfigApi {
      * @nullable
      */
     workflow_task_team_rate_limit_per_day?: number | null
+    /**
+     * How many Replay Vision scans one workflow can request in a rolling 24 hours. Null uses the default of 100; zero pauses scans for every workflow in the project. Support raises the limit above 500.
+     * @minimum 0
+     * @nullable
+     */
+    replay_vision_scan_rate_limit_per_day?: number | null
+    /**
+     * How many Replay Vision scans all workflows in the project request together in a rolling 24 hours. Null uses the default of 500; zero pauses scans for the project. Support raises the limit above 2500.
+     * @minimum 0
+     * @nullable
+     */
+    replay_vision_scan_team_rate_limit_per_day?: number | null
     /**
      * ID of the verified email integration that new broadcasts and workflow email steps use as their sender. Null means no default. Set automatically when the project's first email sender is verified, and cleared when that integration is deleted.
      * @nullable
@@ -1754,11 +2005,30 @@ export interface TeamWorkflowsConfigApi {
      * @nullable
      */
     marketing_frequency_cap_window_days?: number | null
+    /**
+     * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away.
+     * @minimum 1
+     * @maximum 168
+     * @nullable
+     */
+    marketing_frequency_cap_hold_hours?: number | null
 }
 
 export interface TeamFeatureFlagPolicyConfigApi {
     /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
     require_tags?: boolean
+    /**
+     * Domains to block from feature flag requests (/flags and /decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.
+     * @maxItems 1000
+     * @items.maxLength 2000
+     */
+    blocked_hosts?: string[]
+    /**
+     * IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), up to 100. Ranges can be /8 or narrower for IPv4 and /16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.
+     * @maxItems 1000
+     * @items.maxLength 2000
+     */
+    blocked_ips?: string[]
 }
 
 /**
@@ -1915,6 +2185,7 @@ export interface ProjectCreateRequestApi {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -2421,7 +2692,6 @@ export interface ProjectCreateRequestApi {
      * @items.maxLength 400
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -2672,7 +2942,6 @@ export type ProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
  * * `create_early_access_feature` - create_early_access_feature
  * * `update_feature_stage` - update_feature_stage
  * * `use_posthog_ai` - use_posthog_ai
- * * `use_posthog_code` - use_posthog_code
  * * `use_posthog_mcp` - use_posthog_mcp
  * * `use_posthog_in_slack` - use_posthog_in_slack
  */
@@ -2743,9 +3012,48 @@ export const AvailableSetupTaskIdsEnumApi = {
     CreateEarlyAccessFeature: 'create_early_access_feature',
     UpdateFeatureStage: 'update_feature_stage',
     UsePosthogAi: 'use_posthog_ai',
-    UsePosthogCode: 'use_posthog_code',
     UsePosthogMcp: 'use_posthog_mcp',
     UsePosthogInSlack: 'use_posthog_in_slack',
+} as const
+
+/**
+ * * `off` - Off
+ * * `serving` - Serving
+ */
+export type RealtimeCohortsAccessEnumApi =
+    (typeof RealtimeCohortsAccessEnumApi)[keyof typeof RealtimeCohortsAccessEnumApi]
+
+export const RealtimeCohortsAccessEnumApi = {
+    Off: 'off',
+    Serving: 'serving',
+} as const
+
+export interface TeamRealtimeCohortsApi {
+    /** `serving` when the request's user sees realtime cohorts in this project: whether feature flags can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.
+     *
+     * * `off` - Off
+     * * `serving` - Serving */
+    access: RealtimeCohortsAccessEnumApi
+    /**
+     * How many cohorts in this project have realtime on. Null when `access` is `off`.
+     * @nullable
+     */
+    cohorts_used: number | null
+    /**
+     * How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, or when the plan sets no limit.
+     * @nullable
+     */
+    max_cohorts: number | null
+}
+
+/**
+ * * `issue_summaries` - Issue Summaries
+ */
+export type ErrorTrackingAIFeatureEnumApi =
+    (typeof ErrorTrackingAIFeatureEnumApi)[keyof typeof ErrorTrackingAIFeatureEnumApi]
+
+export const ErrorTrackingAIFeatureEnumApi = {
+    IssueSummaries: 'issue_summaries',
 } as const
 
 export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]
@@ -2766,11 +3074,21 @@ export interface ProjectBackwardCompatApi {
     readonly id: number
     readonly organization: string
     /**
+     * Whether the project's organization approved AI data processing. AI features need this approval.
+     * @nullable
+     */
+    readonly is_ai_data_processing_approved: boolean | null
+    /**
      * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
      * @minLength 1
      * @maxLength 200
      */
     name?: string
+    /**
+     * ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead.
+     * @nullable
+     */
+    logo_media_id?: string | null
     /**
      * Short description of what the project is about. This is helpful to give our AI agents context about your project.
      * @maxLength 1000
@@ -2909,6 +3227,7 @@ export interface ProjectBackwardCompatApi {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -3415,7 +3734,6 @@ export interface ProjectBackwardCompatApi {
      * @items.maxLength 400
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -3579,8 +3897,16 @@ export interface ProjectBackwardCompatApi {
      */
     readonly user_access_level: string | null
     readonly managed_viewsets: ProjectBackwardCompatApiManagedViewsets
+    /** Realtime cohorts as the request's user sees them in this project. */
+    readonly realtime_cohorts: TeamRealtimeCohortsApi
+    /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
+    readonly available_error_tracking_ai_features: readonly ErrorTrackingAIFeatureEnumApi[]
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
+    readonly flag_calls_only_in_flag_evaluations: boolean
+    /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+    readonly api_host: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
@@ -3650,11 +3976,21 @@ export interface PatchedProjectBackwardCompatApi {
     readonly id?: number
     readonly organization?: string
     /**
+     * Whether the project's organization approved AI data processing. AI features need this approval.
+     * @nullable
+     */
+    readonly is_ai_data_processing_approved?: boolean | null
+    /**
      * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
      * @minLength 1
      * @maxLength 200
      */
     name?: string
+    /**
+     * ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead.
+     * @nullable
+     */
+    logo_media_id?: string | null
     /**
      * Short description of what the project is about. This is helpful to give our AI agents context about your project.
      * @maxLength 1000
@@ -3793,6 +4129,7 @@ export interface PatchedProjectBackwardCompatApi {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -4299,7 +4636,6 @@ export interface PatchedProjectBackwardCompatApi {
      * @items.maxLength 400
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -4463,8 +4799,16 @@ export interface PatchedProjectBackwardCompatApi {
      */
     readonly user_access_level?: string | null
     readonly managed_viewsets?: PatchedProjectBackwardCompatApiManagedViewsets
+    /** Realtime cohorts as the request's user sees them in this project. */
+    readonly realtime_cohorts?: TeamRealtimeCohortsApi
+    /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
+    readonly available_error_tracking_ai_features?: readonly ErrorTrackingAIFeatureEnumApi[]
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
+    /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
+    readonly flag_calls_only_in_flag_evaluations?: boolean
+    /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+    readonly api_host?: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
@@ -4518,6 +4862,11 @@ export interface ProjectApi {
      * @maxLength 200
      */
     name?: string
+    /**
+     * ID of the uploaded image shown as this project's logo. Null when the project has no logo.
+     * @nullable
+     */
+    readonly logo_media_id: string | null
     /**
      * @maxLength 1000
      * @nullable
@@ -4626,6 +4975,8 @@ export interface SharingConfigurationApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Whether the project has configured access controls for shared content or its underlying data. */
+    readonly has_relevant_access_controls: boolean
 }
 
 /**
@@ -4998,6 +5349,11 @@ export interface PatchedFileSystemApi {
     readonly user_access_level?: string | null
 }
 
+export interface FileSystemMoveRequestApi {
+    /** Full new path for the entry, including its own name as the last segment, such as 'Experiments/Q4/Weekly signups'. Missing parent folders are created. Escape a '/' inside a name as '\/'. */
+    new_path: string
+}
+
 export interface FileSystemHomeFolderApi {
     /**
      * The user's home folder ID, or null if deleted.
@@ -5009,6 +5365,35 @@ export interface FileSystemHomeFolderApi {
      * @nullable
      */
     readonly path: string | null
+}
+
+export interface FileSystemRankedSearchItemApi {
+    /** The matching file system entry. */
+    entry: FileSystemApi
+    /** Sort key of the match. Lower sorts first. Compare element by element with other results. */
+    rank: number[]
+}
+
+export interface FileSystemRankedSearchTypeCountApi {
+    /** File system type, for example insight or dashboard. */
+    type: string
+    /** Number of matches of this type. */
+    count: number
+}
+
+export interface FileSystemRankedSearchResponseApi {
+    /** Matches, best first. */
+    results: FileSystemRankedSearchItemApi[]
+    /** True when every result contains every search word. False when no entry matched every word and the results match only some words. */
+    matched_all_words: boolean
+    /** Search words that the best result matched. Use it to tell the user which words were dropped when matched_all_words is false. */
+    matched_words: string[]
+    /** Number of matches for each type, largest first. */
+    type_counts: FileSystemRankedSearchTypeCountApi[]
+    /** True when no entry matched the words as typed, so every result is a close spelling. */
+    matched_with_typos: boolean
+    /** True when the search stopped at its candidate limit, so type_counts are lower bounds. */
+    counts_capped: boolean
 }
 
 export interface FileSystemShortcutApi {
@@ -5173,6 +5558,11 @@ export interface ProjectSecretAPIKeyApi {
     readonly last_rolled_at: string | null
     /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
     scopes: string[]
+    /**
+     * Value the AI gateway stamps as $ai_credential on generations made with this key, so gateway spend can be grouped by key. Derived from the key's hash, so it changes when the key is rolled.
+     * @nullable
+     */
+    readonly ai_credential: string | null
 }
 
 export interface PaginatedProjectSecretAPIKeyListApi {
@@ -5199,6 +5589,11 @@ export interface PatchedProjectSecretAPIKeyApi {
     readonly last_rolled_at?: string | null
     /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
     scopes?: string[]
+    /**
+     * Value the AI gateway stamps as $ai_credential on generations made with this key, so gateway spend can be grouped by key. Derived from the key's hash, so it changes when the key is rolled.
+     * @nullable
+     */
+    readonly ai_credential?: string | null
 }
 
 /**
@@ -5216,6 +5611,16 @@ export const PropertyTypeEnumApi = {
     Numeric: 'Numeric',
     Boolean: 'Boolean',
     Duration: 'Duration',
+} as const
+
+export type PropertyDefinitionTypeNameEnumApi =
+    (typeof PropertyDefinitionTypeNameEnumApi)[keyof typeof PropertyDefinitionTypeNameEnumApi]
+
+export const PropertyDefinitionTypeNameEnumApi = {
+    Event: 'event',
+    Person: 'person',
+    Group: 'group',
+    Session: 'session',
 } as const
 
 /**
@@ -5241,6 +5646,13 @@ export interface EnterprisePropertyDefinitionApi {
     hidden?: boolean | null
     /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
     readonly warehouse_origin: unknown
+    /** Kind of property: an event, person, group or session property. */
+    readonly type: PropertyDefinitionTypeNameEnumApi
+    /**
+     * Group type index of a group property, null for every other type.
+     * @nullable
+     */
+    readonly group_type_index: number | null
 }
 
 export interface PaginatedEnterprisePropertyDefinitionListApi {
@@ -5275,6 +5687,13 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     hidden?: boolean | null
     /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
     readonly warehouse_origin?: unknown
+    /** Kind of property: an event, person, group or session property. */
+    readonly type?: PropertyDefinitionTypeNameEnumApi
+    /**
+     * Group type index of a group property, null for every other type.
+     * @nullable
+     */
+    readonly group_type_index?: number | null
 }
 
 /**
@@ -5323,6 +5742,57 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export interface PropertyUsageEntryApi {
+    /** Property definition type the name belongs to.
+     *
+     * * `event` - Event
+     * * `person` - Person
+     * * `group` - Group
+     * * `session` - Session */
+    type?: PropertyDefinitionTypeNameEnumApi
+    /**
+     * Property name, for example `$current_url`.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Group type index of a group property. Required when `type` is `group`, otherwise omit it.
+     * @minimum 0
+     * @maximum 4
+     * @nullable
+     */
+    group_type_index?: number | null
+}
+
+export interface PropertyUsageMetricsRequestApi {
+    /** Properties to fetch 30-day query usage for, at most 100 per request. */
+    properties: PropertyUsageEntryApi[]
+}
+
+export interface PropertyUsageMetricsItemApi {
+    /** Property definition type the name belongs to.
+     *
+     * * `event` - Event
+     * * `person` - Person
+     * * `group` - Group
+     * * `session` - Session */
+    type: PropertyDefinitionTypeNameEnumApi
+    /** Property name. */
+    name: string
+    /**
+     * Group type index of a group property, null for other types.
+     * @nullable
+     */
+    group_type_index: number | null
+    /** Number of query executions in the last 30 days that referenced this property, including cached insight views. */
+    query_usage_30_day: number
+}
+
+export interface PropertyUsageMetricsResponseApi {
+    /** One entry per requested property, in request order. */
+    results: PropertyUsageMetricsItemApi[]
 }
 
 export interface SearchIntentRequestApi {
@@ -5393,28 +5863,6 @@ export interface SearchIntentResponseApi {
     model_query: string | null
 }
 
-export interface EventMatchRequestApi {
-    /**
-     * What the person typed into the events list search box, which matched no event name.
-     * @maxLength 200
-     */
-    query: string
-}
-
-export interface EventMatchApi {
-    /** The event name to select, such as $autocapture. */
-    name: string
-    /** The event's display name, such as Autocapture. */
-    display_name: string
-    /** How likely the search means this event, from 0 to 1. */
-    probability: number
-}
-
-export interface EventMatchResponseApi {
-    /** PostHog core events the search most likely means, strongest first. Empty when nothing is likely. */
-    matches: EventMatchApi[]
-}
-
 /**
  * * `offer` - offer
  * * `answer` - answer
@@ -5480,6 +5928,16 @@ export interface UploadedMediaApi {
     readonly content_type: string | null
     /** @nullable */
     readonly size_bytes: number | null
+    /**
+     * Width in pixels. Null for images uploaded before it was recorded.
+     * @nullable
+     */
+    readonly width: number | null
+    /**
+     * Height in pixels. Null for images uploaded before it was recorded.
+     * @nullable
+     */
+    readonly height: number | null
     /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
     readonly url: string
     readonly created_at: string
@@ -5492,6 +5950,19 @@ export interface PaginatedUploadedMediaListApi {
     /** @nullable */
     previous?: string | null
     results: UploadedMediaApi[]
+}
+
+export interface UploadedMediaCreatedApi {
+    /** Id of the uploaded image. */
+    readonly id: string
+    /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
+    readonly image_location: string
+    /** The file's original name. */
+    readonly name: string
+    /** Width in pixels. */
+    readonly width: number
+    /** Height in pixels. */
+    readonly height: number
 }
 
 export interface UploadedMediaStartUploadApi {
@@ -5521,6 +5992,369 @@ export interface UploadedMediaUploadStartedApi {
     readonly form_fields: UploadedMediaUploadStartedApiFormFields
     /** Seconds before upload_url expires. */
     readonly expires_in: number
+}
+
+/**
+ * * `github_actions` - GitHub Actions
+ * * `gitlab` - GitLab
+ * * `depot_ci` - Depot CI
+ */
+export type WorkloadProviderKeyEnumApi = (typeof WorkloadProviderKeyEnumApi)[keyof typeof WorkloadProviderKeyEnumApi]
+
+export const WorkloadProviderKeyEnumApi = {
+    GithubActions: 'github_actions',
+    Gitlab: 'gitlab',
+    DepotCi: 'depot_ci',
+} as const
+
+/**
+ * The label of each condition claim the provider allows, keyed by claim name.
+ */
+export type WorkloadClaimLabelsApiConditions = { [key: string]: string }
+
+export interface WorkloadClaimLabelsApi {
+    /** What the provider calls the subject, for example Repository ID. */
+    subject: string
+    /** What the provider calls the subject name, for example Repository. */
+    subject_name: string
+    /** The label of each condition claim the provider allows, keyed by claim name. */
+    conditions: WorkloadClaimLabelsApiConditions
+}
+
+/**
+ * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+ */
+export type WorkloadTrustPolicyApiConditions = { [key: string]: string }
+
+export interface WorkloadTrustPolicyApi {
+    readonly id: string
+    /**
+     * A name that says what the policy is for.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * The OIDC issuer of the workload provider, from the list of supported providers.
+     * @maxLength 255
+     */
+    issuer: string
+    /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab
+     * * `depot_ci` - Depot CI */
+    readonly provider: WorkloadProviderKeyEnumApi
+    /**
+     * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
+     * @maxLength 255
+     */
+    subject_name: string
+    /**
+     * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
+     * @maxLength 255
+     */
+    subject: string
+    /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+    conditions?: WorkloadTrustPolicyApiConditions
+    /** How the provider names the subject, the subject name and each condition claim, for display. */
+    readonly claim_labels: WorkloadClaimLabelsApi
+    /**
+     * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
+     * @items.maxLength 100
+     */
+    scopes: string[]
+    /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
+    enabled?: boolean
+    readonly created_by: UserBasicApi | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedWorkloadTrustPolicyListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WorkloadTrustPolicyApi[]
+}
+
+/**
+ * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+ */
+export type PatchedWorkloadTrustPolicyApiConditions = { [key: string]: string }
+
+export interface PatchedWorkloadTrustPolicyApi {
+    readonly id?: string
+    /**
+     * A name that says what the policy is for.
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * The OIDC issuer of the workload provider, from the list of supported providers.
+     * @maxLength 255
+     */
+    issuer?: string
+    /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab
+     * * `depot_ci` - Depot CI */
+    readonly provider?: WorkloadProviderKeyEnumApi
+    /**
+     * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
+     * @maxLength 255
+     */
+    subject_name?: string
+    /**
+     * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
+     * @maxLength 255
+     */
+    subject?: string
+    /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+    conditions?: PatchedWorkloadTrustPolicyApiConditions
+    /** How the provider names the subject, the subject name and each condition claim, for display. */
+    readonly claim_labels?: WorkloadClaimLabelsApi
+    /**
+     * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
+     * @items.maxLength 100
+     */
+    scopes?: string[]
+    /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
+    enabled?: boolean
+    readonly created_by?: UserBasicApi | null
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+/**
+ * What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care.
+ */
+export type WorkloadProvidersResponseApiRiskyScopes = { [key: string]: string }
+
+export interface WorkloadClaimApi {
+    /** The claim's name in the provider's OIDC token. */
+    name: string
+    /** What to call the claim in the UI. */
+    label: string
+    /** A hint that says where to find the claim's value. */
+    help_text: string
+    /** An example value to show in an empty field. */
+    placeholder: string
+}
+
+/**
+ * Claim name to value. {value} stands for what the person types into the preset's field.
+ */
+export type ConditionPresetApiConditions = { [key: string]: string }
+
+export interface ConditionPresetApi {
+    /** Stable identifier of the preset within its provider. */
+    key: string
+    /** What the UI calls the preset, like Pushes to a branch. */
+    label: string
+    /** What runs the preset matches. */
+    help_text: string
+    /** Claim name to value. {value} stands for what the person types into the preset's field. */
+    readonly conditions: ConditionPresetApiConditions
+    /** Whether the preset has a field to type a value into. */
+    takes_value: boolean
+    /** An example value for the preset's field. */
+    placeholder: string
+    /** The value the preset's field starts with. */
+    default_value: string
+}
+
+export interface ConditionCompanionsApi {
+    /** Condition claims a policy may set only with a companion. */
+    claims: string[]
+    /** Claims of which a policy must set at least one beside them. */
+    companions: string[]
+    /** Why the claims need a companion, to show the person. */
+    reason: string
+}
+
+/**
+ * Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works.
+ */
+export type WorkloadProviderApiSubjectLookupConditions = { [key: string]: string }
+
+export interface WorkloadProviderApi {
+    /** Stable identifier of the provider.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab
+     * * `depot_ci` - Depot CI */
+    key: WorkloadProviderKeyEnumApi
+    /** Display name of the provider. */
+    name: string
+    /** OIDC issuer a policy for this provider uses. */
+    issuer: string
+    /** Where to read how to set the provider up. */
+    docs_url: string
+    /** The claim that carries the workload's immutable ID. */
+    subject_claim: WorkloadClaimApi
+    /** The claim that carries the workload's readable name. */
+    subject_name_claim: WorkloadClaimApi
+    /** The claims a policy can require an exact value for, in display order. */
+    condition_claims: WorkloadClaimApi[]
+    /** Condition claims every policy for this provider must set. */
+    required_condition_claims: string[]
+    /** Condition claims that name the account and match every run, so they never limit which runs get a token. */
+    account_condition_claims: string[]
+    /** Common choices of conditions to offer before the raw claims, in display order. */
+    condition_presets: ConditionPresetApi[]
+    /** Rules for condition claims that a policy may set only together with another claim. */
+    condition_companions: ConditionCompanionsApi[]
+    /** Keys of the presets that set a condition claim every policy must set. */
+    required_presets: string[]
+    /** Keys of the presets a new policy starts with, in display order. */
+    default_presets: string[]
+    /** Whether PostHog can look up the subject from its name with resolve_subject. */
+    readonly can_resolve_subject: boolean
+    /** Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works. */
+    readonly subject_lookup_conditions: WorkloadProviderApiSubjectLookupConditions
+    /** The CI config a job needs to get a token for PostHog, empty when the provider has none. */
+    readonly setup_snippet: string
+}
+
+export interface WorkloadJobSettingsApi {
+    /** The PostHog address a job sends its token to, which is its audience. */
+    host: string
+    /** The project a job's token works in. */
+    project_id: number
+    /** Whether hog reads the host from posthog.json. It does only for PostHog Cloud, so other hosts need HOG_HOST. */
+    host_in_posthog_json: boolean
+}
+
+export interface WorkloadProvidersResponseApi {
+    /** Providers a policy can trust. */
+    supported: WorkloadProviderApi[]
+    /** Where a job's host and project come from: posthog.json first, or HOG_HOST and HOG_PROJECT_ID. */
+    job_settings: WorkloadJobSettingsApi
+    /** Every scope a policy's ceiling may hold. */
+    grantable_scopes: string[]
+    /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */
+    risky_scopes: WorkloadProvidersResponseApiRiskyScopes
+}
+
+export type WorkloadTrustPolicyRequestStatusEnumApi =
+    (typeof WorkloadTrustPolicyRequestStatusEnumApi)[keyof typeof WorkloadTrustPolicyRequestStatusEnumApi]
+
+export const WorkloadTrustPolicyRequestStatusEnumApi = {
+    Pending: 'pending',
+    Approved: 'approved',
+    Rejected: 'rejected',
+    Expired: 'expired',
+} as const
+
+/**
+ * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+ */
+export type WorkloadTrustPolicyRequestApiConditions = { [key: string]: string }
+
+/**
+ * What each risky scope in the request lets a token do, keyed by scope. Show it before approving.
+ */
+export type WorkloadTrustPolicyRequestApiRiskyScopes = { [key: string]: string }
+
+export interface WorkloadTrustPolicyRequestApi {
+    readonly id: string
+    /**
+     * The name the policy gets once approved.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * The OIDC issuer of the workload provider, from the list of supported providers.
+     * @maxLength 255
+     */
+    issuer: string
+    /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab
+     * * `depot_ci` - Depot CI */
+    readonly provider: WorkloadProviderKeyEnumApi
+    /**
+     * The display name of the workload provider, or null.
+     * @nullable
+     */
+    readonly provider_name: string | null
+    /**
+     * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
+     * @maxLength 255
+     */
+    subject_name: string
+    /**
+     * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
+     * @maxLength 255
+     */
+    subject: string
+    /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+    conditions?: WorkloadTrustPolicyRequestApiConditions
+    /** How the provider names the subject, the subject name and each condition claim, for display. */
+    readonly claim_labels: WorkloadClaimLabelsApi
+    /**
+     * The scopes the policy's tokens would carry.
+     * @items.maxLength 100
+     */
+    scopes: string[]
+    /** What each risky scope in the request lets a token do, keyed by scope. Show it before approving. */
+    readonly risky_scopes: WorkloadTrustPolicyRequestApiRiskyScopes
+    /** Where the request stands. A request expires after 24 hours. */
+    readonly status: WorkloadTrustPolicyRequestStatusEnumApi
+    /** The link to send to an admin to approve the request. */
+    readonly approval_url: string
+    /** Whether the current user's role lets them approve the request, in the browser. */
+    readonly can_approve: boolean
+    /** Names of the organization admins and owners who can approve, when the current user cannot. */
+    readonly approvers: readonly string[]
+    readonly requested_by: UserBasicApi | null
+    /**
+     * The name of the OAuth app the request came through, or null for other credentials.
+     * @nullable
+     */
+    readonly requested_via: string | null
+    /**
+     * Whether PostHog verified the OAuth app the request came through, or null for other credentials.
+     * @nullable
+     */
+    readonly requested_via_verified: boolean | null
+    /** When the request was made. */
+    readonly created_at: string
+    /** When a pending request stops being approvable. */
+    readonly expires_at: string
+    readonly resolved_by: UserBasicApi | null
+    /**
+     * When an admin approved or rejected the request.
+     * @nullable
+     */
+    readonly resolved_at: string | null
+    /**
+     * The policy created on approval.
+     * @nullable
+     */
+    readonly policy_id: string | null
+}
+
+export interface PaginatedWorkloadTrustPolicyRequestListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WorkloadTrustPolicyRequestApi[]
+}
+
+export interface ResolvedWorkloadSubjectApi {
+    /** The workload's immutable ID, for the policy's subject. */
+    subject: string
+    /** The provider's exact spelling of the name, which the token carries, for the policy's subject name. */
+    subject_name: string
+    /** Where PostHog found the workload, to show the user. */
+    found_via: string
 }
 
 export interface LeakedKeyReportApi {
@@ -5780,6 +6614,19 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly uses_most_specific_access_resolution: boolean | null
+    /**
+     * IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.
+     * @maxItems 100
+     * @items.maxLength 64
+     */
+    ip_restrictions?: string[]
+    /** When False, the IP allowlist is kept but not enforced. */
+    ip_restrictions_enabled?: boolean
+    /**
+     * A warning when the current request's IP address is not in the saved allowlist.
+     * @nullable
+     */
+    readonly ip_restrictions_warning: string | null
 }
 
 /**
@@ -5855,6 +6702,8 @@ export const ShortcutPositionEnumApi = {
  * * `later` - Skipped for later
  * * `other` - Other
  * * `provisioned` - Account provisioned by a partner
+ * * `connector` - Signed up through an OAuth connector
+ * * `device_login` - Signed up through an OAuth device login
  */
 export type OnboardingSkippedReasonEnumApi =
     (typeof OnboardingSkippedReasonEnumApi)[keyof typeof OnboardingSkippedReasonEnumApi]
@@ -5864,6 +6713,8 @@ export const OnboardingSkippedReasonEnumApi = {
     Later: 'later',
     Other: 'other',
     Provisioned: 'provisioned',
+    Connector: 'connector',
+    DeviceLogin: 'device_login',
 } as const
 
 /**
@@ -5959,7 +6810,7 @@ export interface UserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
-    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization. */
     ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at: string | null
@@ -5980,8 +6831,10 @@ export interface UserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types: readonly string[]
     readonly pending_invites: readonly PendingInviteApi[]
-    /** True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    /** True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review: boolean
+    /** How many personal API keys the user may hold, from the `personal_api_keys` billing entitlement of the user's organizations. The highest limit across their organizations applies, and 10 when no organization grants a limit. Creating a key beyond it is rejected with a validation error. Read-only. */
+    readonly personal_api_keys_limit: number
 }
 
 export interface PaginatedUserListApi {
@@ -6075,7 +6928,7 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
-    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization. */
     ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at?: string | null
@@ -6096,8 +6949,10 @@ export interface PatchedUserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types?: readonly string[]
     readonly pending_invites?: readonly PendingInviteApi[]
-    /** True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    /** True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review?: boolean
+    /** How many personal API keys the user may hold, from the `personal_api_keys` billing entitlement of the user's organizations. The highest limit across their organizations applies, and 10 when no organization grants a limit. Creating a key beyond it is rejected with a validation error. Read-only. */
+    readonly personal_api_keys_limit?: number
 }
 
 export interface UserGithubLoginApi {
@@ -6160,6 +7015,13 @@ export interface UserGitHubIntegrationItemApi {
      * * `connected` - connected
      * * `unavailable` - unavailable */
     installation_status: InstallationStatusEnumApi
+    /** True when GitHub rejected the stored credentials and PostHog dropped them. The installation is still on GitHub, but PostHog cannot act as the user until they authorize it again. */
+    needs_reauthorization: boolean
+    /**
+     * When the stored credentials stopped working, or null while they still work.
+     * @nullable
+     */
+    needs_reauthorization_at: string | null
     /** When this integration row was created. */
     created_at: string
 }
@@ -6233,7 +7095,20 @@ export interface UserCodexConnectRequestApi {
     tokens: UserCodexAuthTokensApi
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface GitHubBranchesResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** List of branch names */
     branches: string[]
     /**
@@ -6266,7 +7141,20 @@ export interface GitHubRepoApi {
     can_push?: boolean
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface GitHubReposResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
@@ -6796,7 +7684,12 @@ export type FileSystemListParams = {
      */
     include_content_type?: boolean
     /**
+     * Include meta.tags, the tag names, for dashboards and insights on this page.
+     */
+    include_tags?: boolean
+    /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -6804,9 +7697,30 @@ export type FileSystemListParams = {
      */
     offset?: number
     /**
+     * Only entries under this folder path, at any depth, such as 'Experiments/Q4'.
+     */
+    parent?: string
+    /**
+     * Only the entry at exactly this path.
+     */
+    path?: string
+    /**
+     * Only entries pointing at this item: the insight or notebook short_id, or the dashboard id. Combine with type to find an item's entry in the project tree.
+     */
+    ref?: string
+    /**
      * A search term.
      */
     search?: string
+    /**
+     * A JSON array of tag names, such as ["growth", "weekly"]. Keeps only the dashboards and insights that carry at least one of them.
+     * @minLength 1
+     */
+    tags?: string
+    /**
+     * Only entries of this type, such as 'insight', 'dashboard', 'notebook' or 'folder'.
+     */
+    type?: string
 }
 
 export type FileSystemDestroyParams = {
@@ -6814,6 +7728,40 @@ export type FileSystemDestroyParams = {
      * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
      */
     recursive?: boolean
+}
+
+export type FileSystemFrequentListParams = {
+    /**
+     * Maximum number of frequently viewed items to return.
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type FileSystemSearchRetrieveParams = {
+    /**
+     * Maximum number of results to return, best first.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Also include the best matches of every type, up to this many per type, so each type can show a preview.
+     * @minimum 0
+     * @maximum 10
+     */
+    per_type?: number
+    /**
+     * Search text. Supports the same field filters as the list search (type:, user:, path:, name:, negation with - or !). Free words are ranked by relevance.
+     * @minLength 1
+     * @maxLength 200
+     */
+    search: string
 }
 
 export type FileSystemShortcutListParams = {
@@ -6882,6 +7830,7 @@ export type PropertyDefinitionsListParams = {
     is_numerical?: boolean | null
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -6951,6 +7900,10 @@ export type UploadedMediaListParams = {
      * The library to list.
      */
     purpose: UploadedMediaListPurpose
+    /**
+     * Only list images whose name contains this text, ignoring case.
+     */
+    search?: string
 }
 
 export type UploadedMediaListPurpose = (typeof UploadedMediaListPurpose)[keyof typeof UploadedMediaListPurpose]
@@ -6958,6 +7911,7 @@ export type UploadedMediaListPurpose = (typeof UploadedMediaListPurpose)[keyof t
 export const UploadedMediaListPurpose = {
     Canvas: 'canvas',
     Email: 'email',
+    Experiment: 'experiment',
 } as const
 
 /**
@@ -6969,6 +7923,7 @@ export type UploadedMediaCreateBodyPurpose =
 export const UploadedMediaCreateBodyPurpose = {
     Email: 'email',
     Canvas: 'canvas',
+    Experiment: 'experiment',
 } as const
 
 export type UploadedMediaCreateBody = {
@@ -6978,7 +7933,47 @@ export type UploadedMediaCreateBody = {
     purpose?: UploadedMediaCreateBodyPurpose
 }
 
-export type UploadedMediaCreate201 = { [key: string]: unknown }
+export type WorkloadTrustPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WorkloadTrustPolicyRequestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WorkloadTrustPolicyRequestsResolveSubjectRetrieveParams = {
+    /**
+     * The policy's conditions as claim=value, repeated. PostHog refuses a lookup they rule out, like a repository on a forge the lookup doesn't ask.
+     * @items.maxLength 500
+     */
+    condition?: string[]
+    /**
+     * The OIDC issuer of the workload provider, from the list of supported providers.
+     * @minLength 1
+     * @maxLength 255
+     */
+    issuer: string
+    /**
+     * The name people know the workload by, from the provider's subject name claim, for example owner/repo.
+     * @minLength 1
+     * @maxLength 255
+     */
+    subject_name: string
+}
 
 export type UsersListParams = {
     email?: string

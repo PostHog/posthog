@@ -225,7 +225,7 @@ class ManagedWarehouseMonitoringSeriesResponseSerializer(serializers.Serializer)
 
 
 def serialize_monitoring_snapshot(raw: object, *, expected_organization_id: str) -> dict[str, object]:
-    return _serialize_monitoring_response(
+    return serialize_monitoring_response(
         raw,
         serializer_class=ManagedWarehouseMonitoringSnapshotResponseSerializer,
         expected_organization_id=expected_organization_id,
@@ -238,7 +238,7 @@ def serialize_monitoring_series(
     expected_organization_id: str,
     expected_metric: str,
 ) -> dict[str, object]:
-    data = _serialize_monitoring_response(
+    data = serialize_monitoring_response(
         raw,
         serializer_class=ManagedWarehouseMonitoringSeriesResponseSerializer,
         expected_organization_id=expected_organization_id,
@@ -254,7 +254,7 @@ def serialize_monitoring_series(
     return data
 
 
-def _serialize_monitoring_response(
+def serialize_monitoring_response(
     raw: object,
     *,
     serializer_class: type[serializers.Serializer],

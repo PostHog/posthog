@@ -21,6 +21,7 @@ import { createPrepareEventStep } from '~/ingestion/common/steps/event-processin
 import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processing/process-groups-step'
 import { createProcessPersonlessStep } from '~/ingestion/common/steps/event-processing/process-personless-step'
 import { createProcessPersonsStep } from '~/ingestion/common/steps/event-processing/process-persons-step'
+import { createStripAiEventBytesStep } from '~/ingestion/common/steps/event-processing/strip-ai-event-bytes-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import {
     createRecordEventUsageAfterIngestStep,
@@ -126,6 +127,9 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
             { retry: { tries: 5, sleepMs: 100, name: 'hog_transform_event' } }
         )
         .pipe(createNormalizeEventStep())
+        .pipe(createStripAiEventBytesStep())
+        // From here on the event writes persons, groups and itself, so finishing costs less than redelivering.
+        .timeoutBarrier()
         .pipe(
             createProcessPersonlessStep(
                 options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,

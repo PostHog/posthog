@@ -3,7 +3,7 @@
 //! strings parse as UTC, not the process-local timezone.
 
 use chrono::{NaiveDate, TimeZone, Utc};
-use hogvm::{sync_execute, ExecutionContext, Program};
+use hogvm::{sync_execute, ExecutionContext, Program, VmError};
 use serde_json::{json, Value};
 
 // Opcode numeric values (mirror common/hogvm/python/operation.py).
@@ -445,6 +445,42 @@ fn full_compiled_shape_to_string_to_datetime_lt() {
             sync_execute(&ctx, false).expect("execution succeeds"),
             Value::Bool(expected),
             "signup {signup}",
+        );
+    }
+}
+
+// Years 275760 and 262143 in luxon. The first is past chrono's calendar; the second is chrono's
+// last UTC second and crosses the end once the +09:00 offset is added.
+#[test]
+fn extract_defers_instants_past_the_chrono_calendar_to_the_fallback() {
+    for (dt, zone) in [
+        (8_640_000_000_000_i64, "UTC"),
+        (8_210_266_876_799_i64, "Asia/Tokyo"),
+    ] {
+        let bc = returning(&[
+            json!(OP_STRING),
+            json!("year"),
+            json!(33), // OP_INTEGER
+            json!(dt),
+            json!(OP_CALL_GLOBAL),
+            json!("fromUnixTimestamp"),
+            json!(1),
+            json!(OP_STRING),
+            json!(zone),
+            json!(OP_CALL_GLOBAL),
+            json!("toTimeZone"),
+            json!(2),
+            json!(OP_CALL_GLOBAL),
+            json!("extract"),
+            json!(2),
+        ]);
+        let program = Program::new(bc).expect("valid program");
+        let ctx = ExecutionContext::with_defaults(program).with_globals(json!({}));
+        let failure = sync_execute(&ctx, false).expect_err("chrono cannot read this instant");
+        assert!(
+            matches!(failure.error, VmError::NotImplemented(_)),
+            "{dt} in {zone}: {:?}",
+            failure.error
         );
     }
 }

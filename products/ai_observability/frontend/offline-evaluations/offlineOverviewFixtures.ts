@@ -2,12 +2,18 @@ import type { OfflineExperimentReadApi, OfflineHistoryPointApi, ScoreDefinitionA
 
 export const overviewScorers: ScoreDefinitionApi[] = ['Answer quality', 'Groundedness', 'Response time'].map(
     (name, index) => ({
+        tags: ['regression', 'production', 'quality'],
         id: `11111111-1111-4111-8111-${String(index + 1).padStart(12, '0')}`,
         name,
+        short_name: '',
         description: '',
         kind: index === 1 ? 'boolean' : 'numeric',
         archived: false,
         current_version: 2,
+        calculation: 'reported',
+        composition: null,
+        input_scorers: [],
+        dependent_composite_count: 0,
         current_version_id: `22222222-2222-4222-8222-${String(index + 1).padStart(12, '0')}`,
         config:
             index === 1
@@ -19,17 +25,20 @@ export const overviewScorers: ScoreDefinitionApi[] = ['Answer quality', 'Grounde
                   },
         created_by: null,
         created_at: '2026-09-01T12:00:00Z',
+        updated_by: null,
         updated_at: '2026-09-20T12:00:00Z',
         team: 997,
     })
 )
 
 export const overviewExperiments: OfflineExperimentReadApi[] = Array.from({ length: 8 }, (_, index) => ({
+    tags: ['regression', 'production', 'quality'],
     id: `33333333-3333-4333-8333-${String(index + 1).padStart(12, '0')}`,
     name: ['Support assistant prompt update', 'Tool selection regression', 'Response quality baseline'][index % 3],
     run_source: index % 3 === 0 ? 'ci' : index % 3 === 1 ? 'local' : null,
     status: index === 0 ? 'uploading' : index === 3 ? 'failed' : 'completed',
     started_at: `2026-09-${String(27 - index).padStart(2, '0')}T14:30:00Z`,
+    created_by: null,
     created_at: `2026-09-${String(27 - index).padStart(2, '0')}T14:32:00Z`,
     finished_at: index === 0 ? null : `2026-09-${String(27 - index).padStart(2, '0')}T14:33:00Z`,
     expected_item_count: 100,
@@ -56,9 +65,12 @@ export function overviewHistory(scorer: ScoreDefinitionApi): OfflineHistoryPoint
             experiment,
             summary: {
                 scorer: {
+                    calculation: 'reported',
+                    composition: null,
                     id: scorer.current_version_id!,
                     definition_id: scorer.id,
                     name: scorer.name,
+                    short_name: scorer.short_name,
                     description: '',
                     kind: scorer.kind,
                     archived: false,
@@ -69,6 +81,7 @@ export function overviewHistory(scorer: ScoreDefinitionApi): OfflineHistoryPoint
                 result_count: 100,
                 status_counts: { ok: 95, error: 3, skipped: 2, not_applicable: 0 },
                 missing_result_count: 0,
+                not_requested_count: 0,
                 distinct_case_count: 50,
                 items_with_case_key_count: 100,
                 items_without_case_key_count: 0,

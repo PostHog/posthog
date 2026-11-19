@@ -12,7 +12,8 @@ description: >
 
 This skill is switched off.
 PostHog Review reviews pull requests automatically in the repositories a project added in its Code review settings, for the authors its rules select.
-An eligible person can also add the `posthog-review` label to request a review.
+For the setup requirements, see the [PostHog Review architecture guide](../../../products/review_hog/ARCHITECTURE.md#entry-point-commands--configuration).
+An eligible person can also comment `@posthog review` to request a review.
 
 When this skill is invoked, or an instruction asks for a CodeRabbit CLI pass:
 

@@ -7,6 +7,8 @@ import ViewRecordingButton, {
     RecordingPlayerType,
     ViewRecordingButtonVariant,
 } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
+import { usableId } from 'lib/components/ViewTraceButton/usableId'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType, PropertyFilterType } from '~/types'
@@ -18,7 +20,7 @@ import { useCellScroll } from 'products/logs/frontend/components/VirtualizedLogs
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
-import { traceUrl } from 'products/tracing/frontend/traceLinks'
+import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 
 export interface AttributeCellProps {
     attributeKey: string
@@ -32,11 +34,8 @@ export interface AttributeCellProps {
      * together.
      */
     cellKey?: string
-    /**
-     * Which property the popover's filter actions target. Defaults to a log attribute; the Person
-     * and Session columns pass a resource-attribute filter when that is where the row's value came
-     * from, so the filter matches the row it was added from.
-     */
+    filterKey?: string
+    /** Popover filter type, default log attribute. Pass resource attribute for values read from resource attributes. */
     filterType?: PropertyFilterType
 }
 
@@ -46,11 +45,14 @@ export const AttributeCell = memo(function AttributeCell({
     width,
     timestamp,
     cellKey,
+    filterKey,
     filterType,
 }: AttributeCellProps): JSX.Element {
     const { id, isAttributeColumn } = useValues(logsViewerLogic)
     const { configuredDistinctIdKeys, configuredSessionIdKeys } = useValues(logsConfigLogic)
     const { addFilter, toggleAttributeColumn } = useActions(logsViewerLogic)
+    const traceId = attributeKey === 'trace_id' ? usableId(value) : null
+    const openTraceDialog = useOpenTraceDialog()
     const tracingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Tracing,
         AccessControlLevel.Viewer
@@ -66,7 +68,7 @@ export const AttributeCell = memo(function AttributeCell({
             attributeKey={attributeKey}
             value={value}
             isColumn={isAttributeColumn(attributeKey)}
-            onAddFilter={(key, filterValue, operator) => addFilter(key, filterValue, operator, filterType)}
+            onAddFilter={(key, filterValue, operator) => addFilter(filterKey ?? key, filterValue, operator, filterType)}
             onToggleColumn={toggleAttributeColumn}
         >
             <div style={{ width, flexShrink: 0 }} className="relative flex items-center self-stretch group/attr pr-1">
@@ -84,9 +86,16 @@ export const AttributeCell = memo(function AttributeCell({
                             className="font-mono text-xs whitespace-nowrap pr-24"
                             checkRecordingExists
                         />
-                    ) : attributeKey === 'trace_id' && value && !tracingDisabledReason ? (
+                    ) : traceId && !tracingDisabledReason ? (
                         <Link
-                            to={traceUrl({ traceId: value, ts: timestamp ?? null })}
+                            to={traceUrl({ traceId, ts: timestamp ?? null })}
+                            onClick={(event) =>
+                                openTraceDialog(
+                                    event,
+                                    { traceId, ts: timestamp ?? null },
+                                    { entryPoint: 'log_trace_id_cell' }
+                                )
+                            }
                             className="font-mono text-xs whitespace-nowrap pr-24"
                             title={value}
                         >

@@ -66,6 +66,7 @@ CAMPAIGN_PROPERTIES: list[str] = [
     "qclid",  # quora
     "sccid",  # snapchat
     "oppref",  # openai ads
+    "bfcid",  # freebuff
     "irclid",  # impact
     "_kx",  # klaviyo
 ]
@@ -300,6 +301,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "One Replay Vision scanner finished analyzing one session recording. Emitted once per scanner and session, minutes to months after the recording itself, so it describes a session rather than happening inside one. The scanner's output is flattened into `scanner_output_*` properties, and the observed session is named by `session_id`.",
             "primary_property": "scanner_name",
         },
+        "$anomaly_score": {
+            "label": "Anomaly score",
+            "description": "Self-driving scored one completed bucket of one series for anomalies. Emitted once per series and bucket. The timestamp is the bucket start, so a trends insight on this event lines up with the source chart. The `$anomaly_*` properties hold the result.",
+            "primary_property": "$anomaly_series_label",
+        },
+        "$anomaly_score_shadow": {
+            "label": "Anomaly score (shadow)",
+            "description": "Same shape as Anomaly score, but scored by a profile under comparison. Use it to compare profiles. Never count it in anomaly rates.",
+            "primary_property": "$anomaly_series_label",
+        },
         "$csp_violation": {
             "label": "CSP violation",
             "description": "Content Security Policy violation reported by a browser to our csp endpoint.",
@@ -376,6 +387,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$mcp_missing_capability": {
             "label": "MCP missing capability",
             "description": "Fires when an agent reports functionality it couldn't find via the `get_more_tools` virtual tool (when `reportMissing` is enabled). Carries the agent's reasoning in `$mcp_intent` — a capability gap, not a tool invocation.",
+        },
+        "$mcp_feedback": {
+            "label": "MCP feedback",
+            "description": "Fires when an agent sends feedback through the `send_feedback` virtual tool (when `collectFeedback` is enabled): a capability it needed that no tool provides, a tool that failed or misled it, or praise. Carries `$mcp_feedback_type`, `$mcp_feedback_summary`, and the other `$mcp_feedback_*` properties; the summary and details double as `$mcp_intent`. Never also counted as a `$mcp_tool_call`. Supersedes `$mcp_missing_capability` for new integrations.",
+            "primary_property": "$mcp_feedback_type",
         },
         # LEGACY MCP event names (non-`$`) — DO NOT USE. Dual-emitted through the cutover, now
         # stopped; query only for pre-2026-06-16 history. `ignored_in_assistant` hides them from
@@ -511,6 +527,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Error tracking issue split",
             "description": "Fires when fingerprints are split out of an error tracking issue into new issues.",
         },
+        "$signals_report_ready": {
+            "label": "Inbox report ready",
+            "description": "Fires when a self-driving Inbox report becomes ready. Destinations use it to act on a new report.",
+        },
         "$conversation_message_sent": {
             "label": "Conversation message sent",
             "description": "Fires when a message is sent in a support conversation.",
@@ -538,6 +558,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$conversation_ticket_priority_changed": {
             "label": "Conversation ticket priority changed",
             "description": "Fires when the priority of a support conversation ticket changes.",
+        },
+        "$conversation_ticket_tag_added": {
+            "label": "Conversation ticket tag added",
+            "description": "Fires when a tag is added to a support conversation ticket.",
         },
         "$slack_message_received": {
             "label": "Slack message received",
@@ -1453,6 +1477,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "App build",
             "description": "The build number for the app.",
         },
+        "$app_language": {
+            "label": "App language",
+            "description": "The language the app displays, which can differ from the device's locale.",
+            "examples": ["en", "pt-BR"],
+        },
         "$app_name": {
             "label": "App name",
             "description": "The name of the app.",
@@ -1877,6 +1906,36 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The numeric identifier of the feature flag that was called.",
             "examples": ["1234"],
         },
+        "$feature_flag_config_version": {
+            "label": "Feature flag config version",
+            "description": "The config format version of the feature flag that was called. Only sent for flags that use config version 2.",
+            "examples": ["2"],
+        },
+        "$feature_flag_reason_code": {
+            "label": "Feature flag reason code",
+            "description": "The machine-readable reason for the feature flag result. Sent in place of the feature flag evaluation reason for flags that use config version 2.",
+            "examples": ["experiment_split", "targeting_match", "rollout_miss", "holdout"],
+        },
+        "$feature_flag_rule_id": {
+            "label": "Feature flag rule ID",
+            "description": "The unique identifier of the feature flag rule that produced the result. Only sent for flags that use config version 2.",
+            "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
+        },
+        "$feature_flag_rule_type": {
+            "label": "Feature flag rule type",
+            "description": "The type of the feature flag rule that produced the result. Only sent for flags that use config version 2.",
+            "examples": ["experiment", "percentage_rollout", "targeted_release"],
+        },
+        "$feature_flag_variant_key": {
+            "label": "Feature flag variant key",
+            "description": "The key of the experiment variant that the user was assigned to. Only sent for flags that use config version 2, when an experiment rule assigned a variant.",
+            "examples": ["control", "test"],
+        },
+        "locally_evaluated": {
+            "label": "Locally evaluated",
+            "description": "Whether the server SDK evaluated the feature flag locally, without a request to PostHog.",
+            "examples": ["true", "false"],
+        },
         "$feature_flag_has_experiment": {
             "label": "Feature flag has experiment",
             "description": "Whether the feature flag that was called is linked to a live experiment.",
@@ -2080,6 +2139,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "oppref": {
             "label": "oppref",
             "description": "OpenAI Ads Click ID",
+        },
+        "bfcid": {
+            "label": "bfcid",
+            "description": "Freebuff Click ID",
         },
         "irclid": {
             "label": "irclid",
@@ -2763,28 +2826,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_eval_source": {
             "label": "AI eval source (LLM)",
             "description": "The source that triggered this evaluation.",
-            "examples": ["signals-grouping", "sandboxed-agent", "one-shot"],
+            "examples": ["sandboxed-agent", "one-shot"],
         },
         "$ai_evaluation_type": {
             "label": "AI evaluation type (LLM)",
             "description": "The type of evaluation that was run.",
             "examples": ["llm_judge", "hog"],
         },
-        "$ai_expected": {
-            "label": "AI expected output (LLM)",
-            "description": "The expected output for comparison in this evaluation.",
-        },
         "$ai_experiment_id": {
             "label": "AI experiment ID (LLM)",
             "description": "The unique identifier of the experiment this event belongs to.",
-        },
-        "$ai_experiment_item_id": {
-            "label": "AI experiment item ID (LLM)",
-            "description": "The unique identifier of the individual item being evaluated in an experiment.",
-        },
-        "$ai_experiment_item_name": {
-            "label": "AI experiment item name (LLM)",
-            "description": "The name of the individual item being evaluated in an experiment.",
         },
         "$ai_experiment_name": {
             "label": "AI experiment name (LLM)",
@@ -2822,10 +2873,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": [1024, 4096],
             "type": "Numeric",
         },
-        "$ai_metric_version": {
-            "label": "AI metric version (LLM)",
-            "description": "The version of the metric used for evaluation.",
-        },
         "$ai_output": {
             "label": "AI output (LLM)",
             "description": "The output text from a generation or the text being evaluated.",
@@ -2833,26 +2880,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_project_name": {
             "label": "AI project name (LLM)",
             "description": "The project name associated with this AI event.",
-        },
-        "$ai_result_type": {
-            "label": "AI result type (LLM)",
-            "description": "The type of result for this evaluation metric.",
-            "examples": ["binary", "numeric", "categorical"],
-        },
-        "$ai_score": {
-            "label": "AI score (LLM)",
-            "description": "The numeric score assigned by this evaluation metric.",
-            "type": "Numeric",
-        },
-        "$ai_score_max": {
-            "label": "AI score max (LLM)",
-            "description": "The maximum possible score for this evaluation metric.",
-            "type": "Numeric",
-        },
-        "$ai_score_min": {
-            "label": "AI score min (LLM)",
-            "description": "The minimum possible score for this evaluation metric.",
-            "type": "Numeric",
         },
         "$ai_span_type": {
             "label": "AI span type (LLM)",
@@ -2950,18 +2977,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_error_status": {
             "label": "MCP error status",
-            "description": "Upstream HTTP status code when an MCP tool call failed against a PostHog API (e.g. 429, 500). Only set for API-originated failures.",
+            "description": "HTTP status code behind a failed MCP tool call (e.g. 429, 503). PostHog's own MCP server sets the status of the PostHog API request that failed. Servers using the MCP Analytics SDKs get the first status found on the thrown error or its cause chain. Only set when a status was found.",
             "type": "Numeric",
             "examples": [429, 500, 403],
         },
         "$mcp_error_code": {
             "label": "MCP error code",
-            "description": "Machine-readable code for the leaf failure mode of an errored MCP tool call: the API's validation error code, or the exec dispatcher's rejection reason. Carries error codes only, never caller-supplied values. Only set when $mcp_is_error is true.",
+            "description": "Machine-readable code for the leaf failure mode of an errored MCP tool call: the API's error code (validation errors and other 4xx responses), or the exec dispatcher's rejection reason. Carries error codes only, never caller-supplied values. Only set when $mcp_is_error is true.",
             "examples": ["invalid", "required", "unknown_tool", "invalid_json"],
         },
         "$mcp_error_field": {
             "label": "MCP error field",
-            "description": "Field path the PostHog API's validation error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set for validation failures.",
+            "description": "Field path the PostHog API's error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set when the API error body names a field, such as validation failures.",
             "examples": ["actions__N__inputs__email", "query"],
         },
         "$mcp_validation_fields": {
@@ -3075,6 +3102,43 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Where $mcp_intent came from. 'context_parameter' means the client supplied it directly on the call; 'inferred' means the MCP server derived it via its intentFallback.",
             "examples": ["context_parameter", "inferred"],
         },
+        "$mcp_feedback_type": {
+            "label": "MCP feedback type",
+            "description": "What kind of feedback the agent sent through `send_feedback`, on $mcp_feedback. 'missing_capability' means no tool provides what it needed; 'issue' means an existing tool failed or misled it; 'praise' and 'other' cover the rest. An unrecognized value falls back to 'other'.",
+            "examples": ["missing_capability", "issue", "praise", "other"],
+        },
+        "$mcp_feedback_summary": {
+            "label": "MCP feedback summary",
+            "description": "The agent's one-sentence summary of its feedback, on $mcp_feedback. PII-redacted like $mcp_intent.",
+            "examples": ["No tool to delete multiple cohorts in one call."],
+        },
+        "$mcp_feedback_details": {
+            "label": "MCP feedback details",
+            "description": "Optional longer context for the feedback, on $mcp_feedback: what the agent tried, the parameters and error text it saw, and any workaround. PII-redacted like $mcp_intent.",
+        },
+        "$mcp_feedback_friction_points": {
+            "label": "MCP feedback friction points",
+            "description": "Optional: the specific moments that slowed the agent down, on $mcp_feedback. PII-redacted like $mcp_intent.",
+        },
+        "$mcp_feedback_suggested_improvement": {
+            "label": "MCP feedback suggested improvement",
+            "description": "Optional: the concrete change the agent says would have helped, such as a tool to add or an error message to improve, on $mcp_feedback. PII-redacted like $mcp_intent.",
+        },
+        "$mcp_feedback_tool": {
+            "label": "MCP feedback tool",
+            "description": "Optional: the existing tool the feedback is about, on $mcp_feedback. Usually set for 'issue' and 'praise' and empty for 'missing_capability'. Agent-written, so it may hold prose rather than an exact tool name.",
+            "examples": ["query-trends"],
+        },
+        "$mcp_feedback_sentiment": {
+            "label": "MCP feedback sentiment",
+            "description": "Optional: how the agent says the experience felt overall, on $mcp_feedback.",
+            "examples": ["positive", "neutral", "negative", "mixed"],
+        },
+        "$mcp_feedback_task_completed": {
+            "label": "MCP feedback task completed",
+            "description": "Optional: whether the agent says it still completed the user's task despite the problem it reported, on $mcp_feedback.",
+            "type": "Boolean",
+        },
         "$mcp_parameters": {
             "label": "MCP parameters",
             "description": "The arguments the client passed when invoking the tool. Large strings and sensitive keys (tokens, API keys, etc.) are redacted before capture.",
@@ -3126,6 +3190,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP transport",
             "description": "The transport the MCP client used to connect to the server.",
             "examples": ["stdio", "sse", "streamable-http"],
+        },
+        "$mcp_interface": {
+            "label": "MCP interface",
+            "description": "How the agent reached the tool. 'mcp' means an MCP server instrumented with the @posthog/mcp SDK. 'webmcp' means a tool a web page registered through WebMCP, captured by posthog-js in the browser. WebMCP events carry no transport or client properties, and their $mcp_server_name is the page's hostname. Older events omit this property.",
+            "examples": ["mcp", "webmcp"],
         },
         "$mcp_consumer": {
             "label": "MCP consumer",
@@ -3309,6 +3378,100 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Observed subject email (Replay Vision)",
             "description": "Email of the person in the recording, captured when the scan ran.",
         },
+        # Anomaly scoring properties, all on `$anomaly_score` and `$anomaly_score_shadow`. The `$anomaly_`
+        # prefix keeps them apart from a project's own property names and types.
+        "$anomaly_score": {
+            "label": "Anomaly score",
+            "description": "Score from 0 to 1. It ranks buckets within one series only, so never compare or average it across series. Empty while the series warms up.",
+            "type": "Numeric",
+        },
+        "$anomaly_flag": {
+            "label": "Anomaly flag",
+            "description": "1 when the bucket is anomalous, 0 when it is not, and empty while the series warms up. Average it for an anomaly rate, and sum it for an anomaly count.",
+            "examples": [0, 1],
+            "type": "Numeric",
+        },
+        "$anomaly_value": {
+            "label": "Anomaly scored value",
+            "description": "The series value that was scored, as it was at scoring time. It can differ from the chart later, when late events arrive.",
+            "type": "Numeric",
+        },
+        "$anomaly_bucket_start": {
+            "label": "Anomaly bucket start",
+            "description": "Start of the scored bucket, with the project timezone offset.",
+            "examples": ["2026-10-22T00:00:00+01:00"],
+            "type": "String",
+        },
+        "$anomaly_interval": {
+            "label": "Anomaly interval",
+            "description": "Interval of the scored series. Filter on one interval before you average flags across series, because an hourly series writes 24 events for each event a daily series writes.",
+            "examples": ["hour", "day", "week", "month"],
+            "type": "String",
+        },
+        "$anomaly_series_key": {
+            "label": "Anomaly series key",
+            "description": "Stable ID of the scored series. Use it with Anomaly bucket start to keep the latest result for each bucket.",
+            "type": "String",
+        },
+        "$anomaly_source": {
+            "label": "Anomaly source",
+            "description": "Where the series comes from. `insight` is a saved insight, and `default` is a series PostHog scores without a saved insight.",
+            "examples": ["insight", "default"],
+            "type": "String",
+        },
+        "$anomaly_insight_id": {
+            "label": "Anomaly insight ID",
+            "description": "ID of the saved insight that holds the series. It joins to `system.insights.id` and `system.dashboard_tiles.insight_id`. Empty for default series.",
+            "type": "Numeric",
+        },
+        "$anomaly_series_label": {
+            "label": "Anomaly series label",
+            "description": "Name of the series as the chart shows it.",
+            "type": "String",
+        },
+        "$anomaly_breakdown_value": {
+            "label": "Anomaly breakdown value",
+            "description": "Breakdown value of the series. Empty when the insight has no breakdown.",
+            "type": "String",
+        },
+        "$anomaly_profile": {
+            "label": "Anomaly scoring profile",
+            "description": "Name of the scoring profile that produced the score.",
+            "examples": ["default-v1"],
+            "type": "String",
+        },
+        "$anomaly_detector": {
+            "label": "Anomaly detector",
+            "description": "Detector type of the scoring profile.",
+            "examples": ["zscore", "ensemble"],
+            "type": "String",
+        },
+        "$anomaly_detector_version": {
+            "label": "Anomaly detector version",
+            "description": "Hash of the scoring settings for the interval. A change to the settings starts a new version.",
+            "type": "String",
+        },
+        "$anomaly_scored_at": {
+            "label": "Anomaly scored at",
+            "description": "When the bucket was scored. If a bucket was scored more than once, keep the latest result.",
+            "type": "String",
+        },
+        "$anomaly_details": {
+            "label": "Anomaly details",
+            "description": "Detector-specific values for this bucket, for example ensemble sub-scores. Its shape depends on the detector.",
+            "type": "String",
+        },
+        "$anomaly_run": {
+            "label": "Anomaly scoring run",
+            "description": "How the bucket was scored. `train` fit a new model on the history of the series, and `score` scored the bucket with a stored model. Empty when scoring fits the detector again on every run.",
+            "examples": ["train", "score"],
+            "type": "String",
+        },
+        "$anomaly_model_id": {
+            "label": "Anomaly model ID",
+            "description": "ID of the stored model that scored the bucket. Buckets with the same ID were scored with the same fit. Empty when scoring fits the detector again on every run.",
+            "type": "String",
+        },
         "$csp_document_url": {
             "label": "Document URL",
             "description": "The URL of the document where the violation occurred.",
@@ -3416,6 +3579,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "virtual": True,
         },
+        "$virt_mcp_harness": {
+            "label": "MCP harness",
+            "description": "MCP client label resolved from the event's client identity signals. Empty on non-MCP events.",
+            "type": "String",
+            "virtual": True,
+        },
         # LLM analytics — per-modality token counts, per-unit pricing, and per-modality costs.
         # Emitted on $ai_generation / $ai_embedding events and stored as typed columns on the ai_events table.
         "$ai_text_input_tokens": {
@@ -3469,6 +3638,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_cache_read_audio_tokens": {
             "label": "AI cache read audio tokens (LLM)",
             "description": "The number of audio tokens read from the prompt cache.",
+            "examples": [16],
+            "type": "Numeric",
+        },
+        "$ai_cache_read_image_tokens": {
+            "label": "AI cache read image tokens (LLM)",
+            "description": "The number of image tokens read from the prompt cache.",
             "examples": [16],
             "type": "Numeric",
         },

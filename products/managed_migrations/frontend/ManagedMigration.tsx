@@ -3,12 +3,14 @@ import { Form } from 'kea-forms'
 
 import { IconSort } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -16,7 +18,9 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -140,6 +144,7 @@ function IamRoleSetupInstructions({
 export function ManagedMigration(): JSX.Element {
     const { managedMigration, isManagedMigrationSubmitting, awsIamSetup } = useValues(managedMigrationLogic)
     const { setManagedMigrationValue } = useActions(managedMigrationLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isS3Source = managedMigration.source_type === 's3' || managedMigration.source_type === 's3_gzip'
     const usesIamRole = isS3Source && managedMigration.s3_auth_method === 'iam_role' && !!awsIamSetup?.available
@@ -151,9 +156,15 @@ export function ManagedMigration(): JSX.Element {
                     name="New managed migration"
                     resourceType={{ type: 'managed_migration', forceIcon: <IconSort /> }}
                     actions={
-                        <LemonButton type="primary" htmlType="submit" size="small">
-                            {managedMigration.is_trial ? 'Start trial run' : 'Import Data'}
-                        </LemonButton>
+                        todayRailNav ? (
+                            <Button variant="primary" type="submit">
+                                {managedMigration.is_trial ? 'Start trial run' : 'Import Data'}
+                            </Button>
+                        ) : (
+                            <LemonButton type="primary" htmlType="submit" size="small">
+                                {managedMigration.is_trial ? 'Start trial run' : 'Import Data'}
+                            </LemonButton>
+                        )
                     }
                     forceBackTo={{
                         path: urls.managedMigration(),
@@ -454,9 +465,21 @@ export function ManagedMigration(): JSX.Element {
     )
 }
 
+function completedLabel(migration: ManagedMigrationData): string {
+    const eventsEmitted = migration.state?.events_emitted
+    if (eventsEmitted === undefined) {
+        return 'Complete'
+    }
+    if (eventsEmitted === 0) {
+        return 'Complete, no events imported'
+    }
+    return `Complete, ${humanFriendlyNumber(eventsEmitted)} events imported`
+}
+
 export function ManagedMigrations(): JSX.Element {
     const { managedMigrationId, migrations, migrationsLoading, promotingMigrationId } = useValues(managedMigrationLogic)
     const { pauseMigration, resumeMigration, promoteTrial, viewTrialResults } = useActions(managedMigrationLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const calculateProgress = (
         migration: ManagedMigrationData
@@ -465,7 +488,7 @@ export function ManagedMigrations(): JSX.Element {
             const parts = migration.state.parts
             const totalParts = parts.length
             const completedParts = parts.filter(
-                (part) => part.total_size !== null && part.total_size === part.current_offset
+                (part) => part.total_size !== null && part.current_offset >= part.total_size
             ).length
             return {
                 progress: totalParts > 0 ? (completedParts / totalParts) * 100 : 0,
@@ -490,14 +513,24 @@ export function ManagedMigrations(): JSX.Element {
                             forceIcon: <IconSort />,
                         }}
                         actions={
-                            <LemonButton
-                                data-attr="new-managed-migration"
-                                to={urls.managedMigrationNew()}
-                                type="primary"
-                                size="small"
-                            >
-                                New migration
-                            </LemonButton>
+                            todayRailNav ? (
+                                <Button
+                                    variant="primary"
+                                    data-attr="new-managed-migration"
+                                    render={<LinkPrimitive to={urls.managedMigrationNew()} />}
+                                >
+                                    New migration
+                                </Button>
+                            ) : (
+                                <LemonButton
+                                    data-attr="new-managed-migration"
+                                    to={urls.managedMigrationNew()}
+                                    type="primary"
+                                    size="small"
+                                >
+                                    New migration
+                                </LemonButton>
+                            )
                         }
                     />
                     <LemonTable
@@ -609,7 +642,7 @@ export function ManagedMigrations(): JSX.Element {
                                             />
                                             <span className="text-xs text-muted">
                                                 {migration.display_status === 'completed'
-                                                    ? 'Complete'
+                                                    ? completedLabel(migration)
                                                     : migration.display_status === 'paused'
                                                       ? 'Paused'
                                                       : migration.display_status === 'waiting_to_start'

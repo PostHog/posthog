@@ -1,1 +1,1 @@
-0012_move_platform_models_to_alerts_platform
+0018_insight_alert_investigation_no_row

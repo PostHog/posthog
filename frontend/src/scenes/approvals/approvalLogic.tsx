@@ -6,13 +6,13 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { getApprovalActionLabel, getApprovalResourceUrl } from 'scenes/approvals/utils'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { AvailableFeature, Breadcrumb, ChangeRequest, ChangeRequestState } from '~/types'
 
 export interface ApprovalLogicProps {
@@ -163,7 +163,7 @@ export const approvalLogic = kea<approvalLogicType>([
     listeners(({ actions, values, props }) => {
         const navigateAfterAction = (fullReload: boolean = false): void => {
             const cr = values.changeRequest
-            const resourceUrl = cr ? getApprovalResourceUrl(cr.action_key, cr.resource_id) : null
+            const resourceUrl = cr ? getApprovalResourceUrl(cr.resource_type, cr.resource_id) : null
             const targetUrl = resourceUrl || urls.approvals()
 
             if (fullReload) {

@@ -8,7 +8,7 @@ from posthog.taxonomy.dynamic_properties import PropertyScope, dynamic_property_
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.chat_agent.taxonomy.entities import resolve_entity_name
-from ee.hogai.utils.helpers import format_events_yaml, get_event_description
+from ee.hogai.utils.helpers import format_events_yaml, get_event_description, get_event_owner
 
 ENTITY_FIELD_DESCRIPTION = (
     "The entity to read: `person`, `session` for the columns of the `sessions` table, or a group type name. "
@@ -25,7 +25,7 @@ class ReadEvents(BaseModel):
 
 
 class ReadEventProperties(BaseModel):
-    """Returns the description (if one is set) and properties list for a provided event. Before calling this tool, ensure the event exists by reading events."""
+    """Returns the description and owner (if set) and properties list for a provided event. Before calling this tool, ensure the event exists by reading events."""
 
     kind: Literal["event_properties"] = "event_properties"
     event_name: str = Field(description="The name of the event that you want to retrieve properties for.")
@@ -126,6 +126,8 @@ def execute_taxonomy_query(
             result = toolkit.retrieve_event_or_action_properties(query.event_name)
             description = get_event_description(team, query.event_name)
             prefix = f"Description of `{query.event_name}`: {description}\n\n" if description else ""
+            if owner := get_event_owner(team, query.event_name):
+                prefix += f"Owner of `{query.event_name}`: {owner}\n\n"
             return f"{prefix}{result}\n\n{DYNAMIC_EVENT_PROPERTIES_HINT}"
         case ReadEventSamplePropertyValues():
             return toolkit.retrieve_event_or_action_property_values(query.event_name, query.property_name)

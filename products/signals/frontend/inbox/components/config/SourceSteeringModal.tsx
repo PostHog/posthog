@@ -25,8 +25,13 @@ export function SourceSteeringModal({ sourceConfigs, sourceLabel, onClose }: Sou
     const formId = useId()
     const logicProps: SourceSteeringModalLogicProps = { sourceConfigs, onClose }
     const logic = sourceSteeringModalLogic(logicProps)
-    const { isSourceSteeringSubmitting, sourceSteeringChanged, sourceSteeringValidationErrors, steeringExamples } =
-        useValues(logic)
+    const {
+        isSourceSteeringSubmitting,
+        sourceSteeringChanged,
+        sourceSteeringValidationErrors,
+        steeringExamples,
+        steeringAppliesFrom,
+    } = useValues(logic)
     const { setSourceSteeringValue } = useActions(logic)
 
     const handleClose = (): void => {
@@ -87,7 +92,7 @@ export function SourceSteeringModal({ sourceConfigs, sourceLabel, onClose }: Sou
                     )}
                     <LemonField
                         name="steering"
-                        help="Applies from the next sync. Nothing already in your inbox changes."
+                        help={`Applies ${steeringAppliesFrom}. Nothing already in your inbox changes.`}
                     >
                         <LemonTextArea
                             minRows={4}

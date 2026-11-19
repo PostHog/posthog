@@ -1,47 +1,59 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { supportsMarketingCrossSell } from 'lib/marketingCrossSell'
 import { teamLogic } from 'scenes/teamLogic'
-import { SourceTab, TileId } from 'scenes/web-analytics/common'
+import { SourceTab, TileId, WebAnalyticsTile } from 'scenes/web-analytics/common'
 import { buildDataTableTileDataNodeLogicProps } from 'scenes/web-analytics/tiles/skeletons/useTileSkeletonLoading'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
+import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind, WebStatsBreakdown } from '~/queries/schema/schema-general'
 
-import { MarketingAnalyticsCrossSellCard } from './MarketingAnalyticsCrossSellCard'
+import { MarketingAnalyticsCrossSellSlot } from './MarketingAnalyticsCrossSellSlot'
+import { marketingCrossSellStateLogic } from './marketingCrossSellStateLogic'
+
+function sourceTabDataNodeProps(tiles: WebAnalyticsTile[], sourceTab: SourceTab): DataNodeLogicProps | null {
+    const sources = tiles.find((tile) => tile.tileId === TileId.SOURCES)
+    const tab = sources?.kind === 'tabs' ? sources.tabs.find((tab) => tab.id === sourceTab) : undefined
+    if (!tab || tab.query.kind !== NodeKind.DataTableNode) {
+        return null
+    }
+    return buildDataTableTileDataNodeLogicProps({
+        query: tab.query,
+        insightProps: tab.insightProps,
+        context: { insightProps: tab.insightProps },
+        uniqueKey: `WebAnalytics.${TileId.SOURCES}.${sourceTab}`,
+    })
+}
 
 export function MarketingAnalyticsCrossSell({ breakdown }: { breakdown: WebStatsBreakdown }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { tiles, marketingCrossSellDismissed } = useValues(webAnalyticsLogic)
-    const { dismissMarketingCrossSell } = useActions(webAnalyticsLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { isSnoozed } = useValues(marketingCrossSellStateLogic({ teamId: currentTeamId ?? 0 }))
 
     if (
         featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL] !== true ||
         marketingCrossSellDismissed ||
+        isSnoozed ||
         !supportsMarketingCrossSell(breakdown)
     ) {
         return null
     }
-    const sources = tiles.find((tile) => tile.tileId === TileId.SOURCES)
-    const channels = sources?.kind === 'tabs' ? sources.tabs.find((tab) => tab.id === SourceTab.CHANNEL) : undefined
-    if (!channels || channels.query.kind !== NodeKind.DataTableNode || !currentTeamId) {
+    const channels = sourceTabDataNodeProps(tiles, SourceTab.CHANNEL)
+    const utmSources = sourceTabDataNodeProps(tiles, SourceTab.UTM_SOURCE)
+    if (!channels || !utmSources || !currentTeamId) {
         return null
     }
 
     return (
-        <MarketingAnalyticsCrossSellCard
+        <MarketingAnalyticsCrossSellSlot
             teamId={currentTeamId}
             breakdown={breakdown}
-            channels={buildDataTableTileDataNodeLogicProps({
-                query: channels.query,
-                insightProps: channels.insightProps,
-                context: { insightProps: channels.insightProps },
-                uniqueKey: `WebAnalytics.${TileId.SOURCES}.${SourceTab.CHANNEL}`,
-            })}
-            onDismiss={dismissMarketingCrossSell}
+            channels={channels}
+            utmSources={utmSources}
         />
     )
 }

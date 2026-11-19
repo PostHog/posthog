@@ -1,6 +1,7 @@
 from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest import TestCase
 from unittest.mock import patch
 
 from parameterized import parameterized
@@ -16,9 +17,12 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import FloatDatabaseField, StringDatabaseField
+from posthog.hogql.database.models import FloatDatabaseField, StringDatabaseField, TableNode
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
+from posthog.hogql.errors import TableAccessDeniedError
+
+from posthog.models.team import Team
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -29,6 +33,100 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+
+
+class TestTableCatalogAutocomplete(TestCase):
+    @parameterized.expand(
+        [
+            ("", "events"),
+            ("", "posthog.static_cohort_people"),
+            ("ev", "events"),
+            ("po", "posthog.metric_samples"),
+            ("tr", "posthog.trace_spans"),
+            ("posthog.", "metric_samples"),
+            ("posthog.tr", "trace_spans"),
+            ("posthog.met", "metric_samples"),
+            ("posthog.ev", "events"),
+            ("POSTHOG.tr", "trace_spans"),
+        ]
+    )
+    def test_suggests_names_with_namespace_relative_insert_text(self, typed: str, expected: str) -> None:
+        query = f"SELECT * FROM {typed}"
+        start = len(query) - len(typed.rsplit(".", 1)[-1])
+        response = get_hogql_autocomplete(
+            HogQLAutocomplete(query=query, language=HogLanguage.HOG_QL, startPosition=start, endPosition=len(query)),
+            Team(id=1),
+            database_arg=Database(),
+        )
+        suggestion = next(item for item in response.suggestions if item.label == expected)
+        assert suggestion.insertText == expected
+        if "." not in typed:
+            assert "trace_spans" not in [item.label for item in response.suggestions]
+            assert "static_cohort_people" not in [item.label for item in response.suggestions]
+
+    @parameterized.expand([("posthog",), ("example",), ("example.nested",)])
+    def test_new_schema_tables_are_discoverable_without_an_allowlist(self, namespace: str) -> None:
+        database = Database()
+        parent = database.tables
+        for segment in namespace.split("."):
+            parent = parent.children.setdefault(segment, TableNode(name=segment))
+        parent.children["sample_table"] = TableNode(name="sample_table", table=EventsTable())
+        database.tables.add_child(
+            TableNode.create_nested_for_chain([f"other_{namespace}", "sample_table"], EventsTable())
+        )
+        query = f"SELECT * FROM {namespace}.sa"
+        response = get_hogql_autocomplete(
+            HogQLAutocomplete(
+                query=query, language=HogLanguage.HOG_QL, startPosition=len(query) - 2, endPosition=len(query)
+            ),
+            Team(id=1),
+            database_arg=database,
+        )
+        names = {item.insertText for item in response.suggestions}
+        if namespace == "posthog":
+            assert "sample_table" in names
+            assert "other_posthog.sample_table" not in names
+        else:
+            assert names == {"sample_table"}
+
+    @parameterized.expand([("events",), ("posthog.trace_spans",)])
+    def test_denied_warehouse_name_does_not_hide_a_resolvable_table(self, table_name: str) -> None:
+        database = Database()
+        table = database.get_table(table_name)
+        assert database._is_warehouse_table_denied(DataWarehouseTable(name=table_name))
+        assert database.get_table(table_name) is table
+        query = "SELECT * FROM "
+        response = get_hogql_autocomplete(
+            HogQLAutocomplete(
+                query=query, language=HogLanguage.HOG_QL, startPosition=len(query), endPosition=len(query)
+            ),
+            Team(id=1),
+            database_arg=database,
+        )
+        assert table_name in {item.insertText for item in response.suggestions}
+
+    @parameterized.expand([("hidden",), ("denied",), ("direct",)])
+    def test_unavailable_namespace_tables_are_not_suggested(self, restriction: str) -> None:
+        database = Database()
+        if restriction == "hidden":
+            database.tables.children["posthog"].children["trace_spans"].hidden = True
+        elif restriction == "denied":
+            del database.tables.children["posthog"].children["trace_spans"]
+            assert database._is_warehouse_table_denied(DataWarehouseTable(name="posthog.trace_spans"))
+            with self.assertRaises(TableAccessDeniedError):
+                database.get_table("posthog.trace_spans")
+        else:
+            database._connection_id = "test-connection"
+            database.apply_schema_scope()
+        query = "SELECT * FROM posthog.tr"
+        response = get_hogql_autocomplete(
+            HogQLAutocomplete(
+                query=query, language=HogLanguage.HOG_QL, startPosition=len(query) - 2, endPosition=len(query)
+            ),
+            Team(id=1),
+            database_arg=database,
+        )
+        assert {"trace_spans", "posthog.trace_spans"}.isdisjoint(item.label for item in response.suggestions)
 
 
 class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
@@ -127,11 +225,52 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._select(query=query, start=7, end=7)
         assert len(results.suggestions) != 0
 
-    def test_autocomplete_functions(self):
-        query = "select  from events"
-        results = self._select(query=query, start=7, end=7)
-        assert "toDateTime" in [suggestion.label for suggestion in results.suggestions]
-        assert "toDateTime()" in [suggestion.insertText for suggestion in results.suggestions]
+    @parameterized.expand(
+        [
+            (
+                "function",
+                "select  from events",
+                7,
+                7,
+                "toDateTime",
+                "toDateTime()",
+                AutocompleteCompletionItemKind.FUNCTION,
+            ),
+            (
+                "case_snippet",
+                "select  from events",
+                7,
+                7,
+                "CASE WHEN",
+                "CASE WHEN condition THEN result ELSE other END",
+                AutocompleteCompletionItemKind.SNIPPET,
+            ),
+            (
+                "case_snippet_partial_word",
+                "select ca",
+                7,
+                9,
+                "CASE WHEN",
+                "CASE WHEN condition THEN result ELSE other END",
+                AutocompleteCompletionItemKind.SNIPPET,
+            ),
+        ]
+    )
+    def test_autocomplete_functions(
+        self,
+        _name: str,
+        query: str,
+        start: int,
+        end: int,
+        label: str,
+        insert_text: str,
+        kind: AutocompleteCompletionItemKind,
+    ):
+        results = self._select(query=query, start=start, end=end)
+        assert any(
+            suggestion.label == label and suggestion.insertText == insert_text and suggestion.kind == kind
+            for suggestion in results.suggestions
+        )
 
     def test_autocomplete_includes_direct_connection_functions(self):
         database = Database.create_for(team=self.team)
@@ -243,6 +382,26 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert len(results.suggestions) == 1
         assert results.suggestions[0].label == "some_person_value"
 
+    @parameterized.expand(
+        [
+            ("group_join", "select group_1.properties. from events", 26, ["group_1_value"]),
+            ("group_subtable", "select goe_1.properties. from events", 24, ["group_1_value"]),
+            ("groups_table", "select properties. from groups", 18, ["group_0_value", "group_1_value"]),
+        ]
+    )
+    def test_autocomplete_group_properties(self, _name: str, query: str, cursor: int, expected: list[str]):
+        for group_type_index in (0, 1):
+            PropertyDefinition.objects.create(
+                team=self.team,
+                name=f"group_{group_type_index}_value",
+                property_type="String",
+                type=PropertyDefinition.Type.GROUP,
+                group_type_index=group_type_index,
+            )
+
+        results = self._select(query=query, start=cursor, end=cursor)
+        assert [suggestion.label for suggestion in results.suggestions] == expected
+
     def test_autocomplete_lazy_join(self):
         query = "select pdi. from events"
         results = self._select(query=query, start=11, end=11)
@@ -260,6 +419,10 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._select(query=query, start=18, end=23)
         assert len(results.suggestions) == 1
         assert results.suggestions[0].label == "some_event_value"
+
+        query = "select properties.SOME_ from events"
+        results = self._select(query=query, start=18, end=23)
+        assert [s.label for s in results.suggestions] == ["some_event_value"]
 
     def test_autocomplete_nested_tables(self):
         # Inner table
@@ -701,13 +864,18 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert len(results.suggestions) == 1
         assert results.suggestions[0].label == "variables.variable_1"
 
-    def test_autocomplete_variables_prefix(self):
+    @parameterized.expand(
+        [
+            ("select", "select {variables.}", 8, 18, ["variable_1"]),
+            ("expr", "{variables.}", 1, 11, []),
+        ]
+    )
+    def test_autocomplete_variables_prefix(self, language, query, start, end, expected_labels):
         InsightVariable.objects.create(team=self.team, name="Variable 1", code_name="variable_1")
-        query = "select {variables.}"
-        results = self._select(query=query, start=8, end=18)
+        autocomplete = self._select if language == "select" else self._expr
+        results = autocomplete(query=query, start=start, end=end)
 
-        assert len(results.suggestions) == 1
-        assert results.suggestions[0].label == "variable_1"
+        assert [suggestion.label for suggestion in results.suggestions] == expected_labels
 
     def test_autocomplete_warehouse_table(self):
         credentials = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
@@ -738,6 +906,11 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._select(query=query, start=14, end=14)
 
         assert "stripe.some_table" in [x.label for x in results.suggestions]
+
+        query = "select * from STRIPE."
+        results = self._select(query=query, start=21, end=21)
+
+        assert "some_table" in [x.label for x in results.suggestions]
 
     def test_autocomplete_warehouse_table_with_source_and_prefix_dot_notation(self):
         credentials = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")

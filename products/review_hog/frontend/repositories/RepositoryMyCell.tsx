@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, type LemonSelectOptions, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -8,7 +8,7 @@ import type { ReviewRepositoryOverviewEntryApi } from 'products/review_hog/front
 
 import { MyChoiceValue, myChoiceNote, myChoiceOptions, myChoiceValue, projectName } from './repositoryChoices'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
-import { YouMark } from './YouMark'
+import { withYouIcons } from './withYouIcons'
 
 /** The viewer's side of one repository: what their own pull requests get there, and their choice. */
 export function RepositoryMyCell({
@@ -44,36 +44,54 @@ export function RepositoryMyCell({
         content = <span className="text-xs text-secondary">No automatic review. Not part of this project.</span>
     } else {
         const note = myChoiceNote(entry)
+        const choices = myChoiceOptions(entry)
+        // With a choice of your own, going back reads as removing it, the same way an exception is removed.
+        const options: LemonSelectOptions<MyChoiceValue> = hasChoice
+            ? [
+                  { options: [{ value: 'follow', label: 'Remove my choice' }] },
+                  { options: withYouIcons(choices.filter((option) => option.value !== 'follow')) },
+              ]
+            : withYouIcons(choices)
         content = (
             <div className="flex min-w-0 flex-col items-start gap-1">
-                <LemonSelect<MyChoiceValue>
-                    size="small"
-                    aria-label={`My choice for ${name}`}
-                    value={value}
-                    options={myChoiceOptions(entry)}
-                    onChange={(picked) => setMyChoice(entry, picked)}
-                    disabledReason={busyReason}
-                    data-attr="review-hog-my-choice"
-                />
-                {note && <span className="text-xs text-secondary">{note}</span>}
+                <span className="flex max-w-full min-w-0 items-center gap-2">
+                    {/* The dot answers "do my PRs here get a review" at a glance, so a column scan finds the off rows. */}
+                    <Tooltip
+                        title={
+                            entry.my_result.flash
+                                ? 'Your pull requests here get automatic reviews'
+                                : 'Your pull requests here get no automatic review'
+                        }
+                    >
+                        <span
+                            className={`inline-block size-2 shrink-0 rounded-full ${entry.my_result.flash ? 'bg-success' : 'bg-border-bold'}`}
+                        />
+                    </Tooltip>
+                    <LemonSelect<MyChoiceValue>
+                        size="small"
+                        className="min-w-0 shrink"
+                        truncateText={{ maxWidthClass: 'max-w-full' }}
+                        aria-label={`My choice for ${name}`}
+                        value={value}
+                        options={options}
+                        onChange={(picked) => setMyChoice(entry, picked)}
+                        disabledReason={busyReason}
+                        data-attr="review-hog-my-choice"
+                    />
+                </span>
+                {note && <span className="pl-4 text-xs text-secondary">{note}</span>}
             </div>
         )
     }
 
     return (
-        <div className={`flex min-w-0 flex-col justify-center gap-1 px-4 py-2.5 ${className ?? ''}`}>
+        <div className={`flex min-w-0 flex-col gap-1 px-4 py-2.5 ${className ?? ''}`}>
             <span className="text-xxs font-semibold uppercase tracking-wide text-secondary @min-[48rem]:hidden">
-                My choice
+                My preference
             </span>
-            <div className="flex items-start gap-1">
-                {/* Lines the mark up with the select, not with the note under it. */}
-                <span className="pt-1.5">
-                    <YouMark shown={hasChoice} />
-                </span>
-                {content}
-            </div>
+            {content}
             {hasChoice && !entry.in_project && (
-                <div className="flex flex-wrap items-center gap-1 pl-10 text-xs text-secondary">
+                <div className="flex flex-wrap items-center gap-1 text-xs text-secondary">
                     Your saved choice applies if this repository joins this project.
                     <LemonButton
                         size="xsmall"

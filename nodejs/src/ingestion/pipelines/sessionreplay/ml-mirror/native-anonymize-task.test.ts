@@ -33,6 +33,7 @@ describeAddon('native anonymize task', () => {
                 ],
                 $session_id: 's-1',
                 $window_id: 'w',
+                $snapshot_source: 'web',
             },
         })
         return Buffer.from(JSON.stringify({ distinct_id: 'd-1', data: inner }))

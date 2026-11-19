@@ -1,6 +1,7 @@
 import './MarkdownNotebook.scss'
 
 import clsx from 'clsx'
+import posthog from 'posthog-js'
 import {
     ClipboardEvent as ReactClipboardEvent,
     Component,
@@ -27,6 +28,7 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { findMountedCodeEditorWithin } from 'lib/monaco/mountedCodeEditors'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { downloadFile, isMac, uuid } from 'lib/utils/dom'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
@@ -36,6 +38,13 @@ const LazyCodeEditor = lazyWithRetry(() =>
 )
 
 import { mergeNotebookMarkdownChanges } from './collaboration'
+import {
+    isInsideNotebookColumns,
+    groupNotebookColumns,
+    makeColumnsNodes,
+    resizeNotebookColumns,
+    isColumnLayoutNode,
+} from './columnLayout'
 import {
     ComponentPanelCacheEntry,
     ComponentPanelVisibility,
@@ -47,6 +56,7 @@ import {
     withPersistedComponentPanelProps,
 } from './componentPanels'
 import type { NotebookComponentRunHandler } from './componentRunHandlers'
+import type { MarkdownNotebookVisualGroup } from './documentModel'
 import {
     MarkdownNotebookTextSurface,
     areNotebookDocumentsEqual,
@@ -204,6 +214,8 @@ import {
     serializeMarkdownNotebook,
 } from './markdown'
 import { NOTEBOOK_AI_WRITING_PLACEHOLDER } from './notebookAI'
+import { NotebookColumns } from './NotebookColumns'
+import { installNotebookTextSelection } from './notebookTextSelection'
 import {
     NotebookOperation,
     applyNotebookOperations,
@@ -232,6 +244,7 @@ import {
     getTableCellRefKey,
     getTableColumnCount,
     getTableEdgeCellPosition,
+    isTableEmpty,
     makeEmptyTableRow,
     normalizeTableRow,
     tableCellPositionsEqual,
@@ -1232,7 +1245,8 @@ function MarkdownNotebookEditor({
         const firstTextNode = getRenderedNodes()[0]
         const firstElement = firstTextNode ? blockRefs.current[firstTextNode.id] : null
         if (firstElement) {
-            firstElement.focus()
+            // The host may have restored a scroll position, such as when the reader goes back to a notebook.
+            firstElement.focus({ preventScroll: true })
             restoreSelection(firstElement, 0, 0)
         }
         // oxlint-disable-next-line exhaustive-deps
@@ -2181,55 +2195,65 @@ function MarkdownNotebookEditor({
         [commitDocument]
     )
 
-    const insertTableRowAtCurrentSelection = useCallback((): boolean => {
-        const element = getSelectedInlineEditableElementOfType(
-            notebookRef.current,
-            'MarkdownNotebook__table-cell-content'
-        )
-        const position = element ? getTableCellPositionFromElement(element) : null
-        const nodeId = element?.dataset.markdownNotebookNodeId
-        if (!element || !position || !nodeId) {
-            return false
-        }
-
-        const currentDocument = documentRef.current
-        const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
-        const node = nodes.find((currentNode) => currentNode.id === nodeId)
-        if (!node || node.type !== 'table') {
-            return false
-        }
-
-        if (position.section === 'header' && node.rows.length) {
-            const targetPosition: TableCellPosition = {
-                section: 'body',
-                rowIndex: 0,
-                columnIndex: position.columnIndex,
+    const insertTableRowAtCurrentSelection = useCallback(
+        (source: 'enter' | 'tab' = 'enter'): boolean => {
+            const element = getSelectedInlineEditableElementOfType(
+                notebookRef.current,
+                'MarkdownNotebook__table-cell-content'
+            )
+            const position = element ? getTableCellPositionFromElement(element) : null
+            const nodeId = element?.dataset.markdownNotebookNodeId
+            if (!element || !position || !nodeId) {
+                return false
             }
-            const cellElement = tableCellRefs.current[getTableCellRefKey(node.id, targetPosition)]
-            if (cellElement) {
-                cellElement.focus()
-                restoreSelection(cellElement, 0, 0)
+
+            const currentDocument = documentRef.current
+            const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+            const node = nodes.find((currentNode) => currentNode.id === nodeId)
+            if (!node || node.type !== 'table') {
+                return false
             }
+
+            if (position.section === 'header' && node.rows.length) {
+                const targetPosition: TableCellPosition = {
+                    section: 'body',
+                    rowIndex: 0,
+                    columnIndex: position.columnIndex,
+                }
+                const cellElement = tableCellRefs.current[getTableCellRefKey(node.id, targetPosition)]
+                if (cellElement) {
+                    cellElement.focus()
+                    restoreSelection(cellElement, 0, 0)
+                }
+                return true
+            }
+
+            const columnCount = getTableColumnCount(node)
+            const insertIndex =
+                position.section === 'header' ? 0 : Math.max(0, Math.min(position.rowIndex + 1, node.rows.length))
+            const nextRows = node.rows.map((row) => normalizeTableRow(row, columnCount))
+            nextRows.splice(insertIndex, 0, makeEmptyTableRow(columnCount))
+            restoreSelectionRef.current = {
+                nodeId: node.id,
+                tableCell: {
+                    section: 'body',
+                    rowIndex: insertIndex,
+                    columnIndex: source === 'tab' ? 0 : position.columnIndex,
+                },
+                start: 0,
+                end: 0,
+            }
+            commitDocument({
+                ...currentDocument,
+                nodes: nodes.map((currentNode) =>
+                    currentNode.id === node.id ? { ...node, rows: nextRows } : currentNode
+                ),
+            })
+            posthog.capture('notebook table structure changed', { action: 'add', dimension: 'row', source })
             return true
-        }
-
-        const columnCount = getTableColumnCount(node)
-        const insertIndex =
-            position.section === 'header' ? 0 : Math.max(0, Math.min(position.rowIndex + 1, node.rows.length))
-        const nextRows = node.rows.map((row) => normalizeTableRow(row, columnCount))
-        nextRows.splice(insertIndex, 0, makeEmptyTableRow(columnCount))
-        restoreSelectionRef.current = {
-            nodeId: node.id,
-            tableCell: { section: 'body', rowIndex: insertIndex, columnIndex: position.columnIndex },
-            start: 0,
-            end: 0,
-        }
-        commitDocument({
-            ...currentDocument,
-            nodes: nodes.map((currentNode) => (currentNode.id === node.id ? { ...node, rows: nextRows } : currentNode)),
-        })
-        return true
-    }, [commitDocument])
+        },
+        [commitDocument]
+    )
 
     const startInsertMenuAtCurrentTextSelection = useCallback(
         (query: string = ''): boolean => {
@@ -2332,6 +2356,9 @@ function MarkdownNotebookEditor({
                 return false
             }
 
+            if (isColumnLayoutNode(previousNode)) {
+                return true
+            }
             const isEmptyTextBlock = !getInlineText(node.children).length
 
             if (previousNode.type === 'list') {
@@ -2795,6 +2822,16 @@ function MarkdownNotebookEditor({
 
     const replaceNodeWithInsertedComponent = useCallback(
         (nodeId: string, nextNode: NotebookComponentBlockNode): void => {
+            if (nextNode.tagName === 'Columns') {
+                const inserted = makeColumnsNodes(nextNode)
+                restoreSelectionRef.current = { nodeId: inserted[2].id, start: 0, end: 0 }
+                commitDocument({
+                    ...documentRef.current,
+                    nodes: documentRef.current.nodes.flatMap((node) => (node.id === nodeId ? inserted : [node])),
+                })
+                posthog.capture('notebook columns inserted', { columns: 2 })
+                return
+            }
             const definition = getMarkdownNotebookComponentDefinition(mergedRegistry, nextNode.tagName)
             const insertedPanels = getInsertedComponentPanelVisibility(nextNode)
             const insertedNode = withPersistedComponentPanelProps(nextNode, definition, insertedPanels)
@@ -2802,7 +2839,7 @@ function MarkdownNotebookEditor({
             focusNodeRef.current = nextNode.id
             replaceNode(nodeId, insertedNode)
         },
-        [mergedRegistry, replaceNode]
+        [mergedRegistry, replaceNode, commitDocument]
     )
 
     const insertMenuApi = useMemo<MarkdownNotebookInsertMenuApi>(
@@ -3037,6 +3074,7 @@ function MarkdownNotebookEditor({
     )
     const showInsertBoundaries = mode === 'edit' && document.nodes.length > 0
     const placeholderNodeId = hasNotebookContent(renderedNodes) ? null : renderedNodes[0]?.id
+    const insideColumns = isInsideNotebookColumns(document.nodes, insertMenu?.nodeId)
     const insertCommands = useMemo(
         () =>
             omitInsertCommands(
@@ -3063,9 +3101,10 @@ function MarkdownNotebookEditor({
                     extraInsertCommands ? extraInsertCommands(insertMenuApi) : [],
                     onBtw ? openBtwFromSlash : undefined
                 ),
-                hiddenInsertCommandKeys
+                [...(hiddenInsertCommandKeys ?? []), ...(insideColumns ? ['component-Columns'] : [])]
             ),
         [
+            insideColumns,
             mergedRegistry,
             replaceNodeWithInsertedComponent,
             replaceNode,
@@ -3242,6 +3281,12 @@ function MarkdownNotebookEditor({
 
     useEffect(() => clearFloatingToolbarRevealTimeout, [clearFloatingToolbarRevealTimeout])
 
+    useEffect(() => {
+        if (mode === 'edit' && canvasRef.current) {
+            return installNotebookTextSelection(canvasRef.current)
+        }
+    }, [mode])
+
     const updateSelectedComponentBlocksFromSelection = useCallback((): void => {
         const nextSelectedComponentNodeIds =
             mode === 'edit'
@@ -3270,7 +3315,7 @@ function MarkdownNotebookEditor({
             return
         }
 
-        const handleDocumentSelectionChange = (): void => {
+        const updateSelectionToolbar = (): void => {
             if (isTextSelectionPointerActiveRef.current) {
                 setFloatingToolbar(null)
             } else {
@@ -3278,6 +3323,10 @@ function MarkdownNotebookEditor({
                     Math.max(0, floatingToolbarRevealAfterRef.current - Date.now())
                 )
             }
+        }
+
+        const handleDocumentSelectionChange = (): void => {
+            updateSelectionToolbar()
             updateSelectedComponentBlocksFromSelection()
             // Non-text blocks (queries, dividers, comments…) never produce a text caret, so
             // fall back to the focused block — collaborators still see who is on it.
@@ -3290,6 +3339,18 @@ function MarkdownNotebookEditor({
                         blockRefs.current
                     )
             )
+        }
+
+        let viewportUpdateFrame: number | null = null
+        const handleViewportChange = (): void => {
+            // Scrolling moves the toolbar, not the selection or a collaborator's caret.
+            if (viewportUpdateFrame !== null || window.getSelection()?.isCollapsed !== false) {
+                return
+            }
+            viewportUpdateFrame = window.requestAnimationFrame(() => {
+                viewportUpdateFrame = null
+                updateSelectionToolbar()
+            })
         }
 
         const handleDocumentPointerStart = (event: MouseEvent | PointerEvent | TouchEvent): void => {
@@ -3306,9 +3367,9 @@ function MarkdownNotebookEditor({
         window.document.addEventListener('focusin', handleDocumentSelectionChange)
         window.document.addEventListener('mousedown', handleDocumentPointerStart, true)
         window.document.addEventListener('pointerdown', handleDocumentPointerStart, true)
-        window.document.addEventListener('touchstart', handleDocumentPointerStart, true)
-        window.addEventListener('resize', handleDocumentSelectionChange)
-        window.addEventListener('scroll', handleDocumentSelectionChange, true)
+        window.document.addEventListener('touchstart', handleDocumentPointerStart, { capture: true, passive: true })
+        window.addEventListener('resize', handleViewportChange)
+        window.addEventListener('scroll', handleViewportChange, { capture: true, passive: true })
 
         return () => {
             window.document.removeEventListener('selectionchange', handleDocumentSelectionChange)
@@ -3316,8 +3377,11 @@ function MarkdownNotebookEditor({
             window.document.removeEventListener('mousedown', handleDocumentPointerStart, true)
             window.document.removeEventListener('pointerdown', handleDocumentPointerStart, true)
             window.document.removeEventListener('touchstart', handleDocumentPointerStart, true)
-            window.removeEventListener('resize', handleDocumentSelectionChange)
-            window.removeEventListener('scroll', handleDocumentSelectionChange, true)
+            window.removeEventListener('resize', handleViewportChange)
+            window.removeEventListener('scroll', handleViewportChange, true)
+            if (viewportUpdateFrame !== null) {
+                window.cancelAnimationFrame(viewportUpdateFrame)
+            }
         }
     }, [
         mode,
@@ -3500,6 +3564,12 @@ function MarkdownNotebookEditor({
         writeSystemClipboardText(markdown)
     }
 
+    const copyComponentNode = (componentNode: NotebookComponentBlockNode): void => {
+        const markdown = serializeNotebookNodes([componentNode])
+        notebookClipboardMarkdownRef.current = markdown
+        void copyToClipboard(markdown, 'block')
+    }
+
     const pasteNotebookClipboardAfterNode = (nodeId: string): void => {
         const fallbackMarkdown = notebookClipboardMarkdownRef.current
         const pasteMarkdown = (markdown: string | null): void => {
@@ -3514,8 +3584,32 @@ function MarkdownNotebookEditor({
         void readSystemClipboardText().then(pasteMarkdown)
     }
 
+    const getJupyterClipboardCell = (target: EventTarget | null): NotebookJupyterCell | null => {
+        if (!jupyterMode || mode !== 'edit' || !window.getSelection()?.isCollapsed) {
+            return null
+        }
+        if (target === jupyterCommandSinkRef.current) {
+            return findJupyterCell(jupyterStore.getState().activeCellId)
+        }
+        const component = getFocusedComponentNode(
+            target instanceof Element ? target : null,
+            documentRef.current.nodes,
+            blockRefs.current
+        )
+        return component ? findJupyterCell(component.id) : null
+    }
+
     const handleCopy = (event: ReactClipboardEvent<HTMLDivElement>): void => {
         if (event.target instanceof HTMLElement && isNativeEditableElement(event.target)) {
+            return
+        }
+
+        const cell = getJupyterClipboardCell(event.target)
+        if (cell) {
+            const targets = getJupyterTargetCells(cell)
+            const markdown = copyJupyterCells(targets)
+            event.preventDefault()
+            setClipboardMarkdown(event.clipboardData, markdown)
             return
         }
 
@@ -3556,6 +3650,16 @@ function MarkdownNotebookEditor({
 
     const handleCut = (event: ReactClipboardEvent<HTMLDivElement>): void => {
         if (mode !== 'edit' || (event.target instanceof HTMLElement && isNativeEditableElement(event.target))) {
+            return
+        }
+
+        const cell = getJupyterClipboardCell(event.target)
+        if (cell) {
+            const targets = getJupyterTargetCells(cell)
+            const markdown = copyJupyterCells(targets)
+            event.preventDefault()
+            setClipboardMarkdown(event.clipboardData, markdown)
+            deleteJupyterCells(targets)
             return
         }
 
@@ -3641,6 +3745,17 @@ function MarkdownNotebookEditor({
                 insertExternalNodesAtBoundary(result, boundaryIndex)
                 return
             }
+        }
+
+        const cell = getJupyterClipboardCell(event.target)
+        if (cell) {
+            const markdown = getClipboardMarkdown(event.clipboardData)
+            if (markdown) {
+                event.preventDefault()
+                event.stopPropagation()
+                insertJupyterNodesAt(cell.endIndex + 1, copyJupyterNodes(markdown), 'command')
+            }
+            return
         }
 
         const targetComponentNode = getFocusedComponentNode(event.target, documentRef.current.nodes, blockRefs.current)
@@ -4571,6 +4686,9 @@ function MarkdownNotebookEditor({
     }, [insertMenu])
 
     const requestFocusForNode = useCallback((node: NotebookBlockNode, placement: 'start' | 'end'): boolean => {
+        if (isColumnLayoutNode(node)) {
+            return false
+        }
         const offsetForChildren = (children: NotebookInlineNode[]): number =>
             placement === 'start' ? 0 : getInlineText(children).length
 
@@ -4657,6 +4775,27 @@ function MarkdownNotebookEditor({
         return true
     }, [commitDocument, requestFocusAfterRemovingNode])
 
+    const deleteEmptyTableAtCurrentSelection = useCallback((): boolean => {
+        const element = getSelectedInlineEditableElementOfType(
+            notebookRef.current,
+            'MarkdownNotebook__table-cell-content'
+        )
+        const nodeId = element?.dataset.markdownNotebookNodeId
+        if (!element || !nodeId) {
+            return false
+        }
+
+        const nodes = documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current]
+        const node = nodes.find((currentNode) => currentNode.id === nodeId)
+        if (!node || node.type !== 'table' || !isTableEmpty(node)) {
+            return false
+        }
+
+        requestFocusAfterRemovingNode(nodeId)
+        deleteNodeWithRefCleanup(nodeId)
+        return true
+    }, [deleteNodeWithRefCleanup, requestFocusAfterRemovingNode])
+
     const insertParagraphBelowTrailingCodeBlockAtCurrentSelection = useCallback((): boolean => {
         const element = getSelectedInlineEditableElementOfType(notebookRef.current, 'MarkdownNotebook__code-block')
         const nodeId = element?.dataset.markdownNotebookNodeId
@@ -4740,6 +4879,10 @@ function MarkdownNotebookEditor({
             let targetIndex = nodeIndex + step
             while (targetIndex >= 0 && targetIndex < nodes.length) {
                 const targetNode = nodes[targetIndex]
+                if (isColumnLayoutNode(targetNode)) {
+                    targetIndex += step
+                    continue
+                }
                 if (isTextBlockNode(targetNode)) {
                     const element = blockRefs.current[targetNode.id]
                     if (!element) {
@@ -4830,7 +4973,9 @@ function MarkdownNotebookEditor({
 
             const nextPosition = positions[currentIndex + (direction === 'next' ? 1 : -1)]
             if (!nextPosition) {
-                return moveFocusToAdjacentNode(nodeId, direction, offset)
+                return direction === 'next'
+                    ? insertTableRowAtCurrentSelection('tab')
+                    : moveFocusToAdjacentNode(nodeId, direction, offset)
             }
 
             const element = tableCellRefs.current[getTableCellRefKey(nodeId, nextPosition)]
@@ -4846,7 +4991,7 @@ function MarkdownNotebookEditor({
             restoreSelection(element, targetOffset, targetOffset)
             return true
         },
-        [moveFocusToAdjacentNode]
+        [moveFocusToAdjacentNode, insertTableRowAtCurrentSelection]
     )
 
     const moveTableCellFocusAtCurrentSelection = useCallback(
@@ -5043,6 +5188,10 @@ function MarkdownNotebookEditor({
         }
 
         const key = event.key.toLowerCase()
+        // Native clipboard events carry both markdown and plain text and work without async clipboard permissions.
+        if (!event.shiftKey && ['c', 'x', 'v'].includes(key) && getJupyterClipboardCell(event.target)) {
+            return
+        }
         const inlineMarkShortcuts: Partial<Record<string, NotebookInlineMark['type']>> = {
             b: 'bold',
             i: 'italic',
@@ -5295,6 +5444,10 @@ function MarkdownNotebookEditor({
             return false
         }
 
+        const neighbour = documentRef.current.nodes[fromIndex + (direction === 'previous' ? -1 : 1)]
+        if (neighbour && isColumnLayoutNode(neighbour)) {
+            return false
+        }
         return moveBlockToBoundary(nodeId, direction === 'previous' ? fromIndex - 1 : fromIndex + 2)
     }
 
@@ -5633,11 +5786,12 @@ function MarkdownNotebookEditor({
         }
     }
 
-    const copyJupyterCells = (targets: NotebookJupyterCell[]): void => {
+    const copyJupyterCells = (targets: NotebookJupyterCell[]): string => {
         const nodes = getNotebookNodes()
         jupyterStore.clipboard = serializeJupyterNodes(
             targets.flatMap((cell) => nodes.slice(cell.startIndex, cell.endIndex + 1))
         )
+        return jupyterStore.clipboard
     }
 
     const pasteJupyterCells = (cell: NotebookJupyterCell, position: 'above' | 'below'): void => {
@@ -5817,6 +5971,9 @@ function MarkdownNotebookEditor({
         const passed = nodes.slice(neighbour.startIndex, neighbour.endIndex + 1)
         const [start, end] =
             direction === 'up' ? [neighbour.startIndex, cell.endIndex + 1] : [cell.startIndex, neighbour.endIndex + 1]
+        if (nodes.slice(start, end).some(isColumnLayoutNode)) {
+            return
+        }
         const reordered = direction === 'up' ? [...moved, ...passed] : [...passed, ...moved]
         const nextNodes = [...nodes.slice(0, start), ...reordered, ...nodes.slice(end)]
         // Where the second of the two swapped cells now starts.
@@ -5842,11 +5999,20 @@ function MarkdownNotebookEditor({
         }
         const definition = getMarkdownNotebookComponentDefinition(mergedRegistry, node.tagName)
         const panels = getComponentPanelVisibility(node, DEFAULT_COMPONENT_PANEL_VISIBILITY)
-        updateNode(node.id, (currentNode) =>
-            currentNode.type === 'component'
-                ? withPersistedComponentPanelProps(currentNode, definition, { ...panels, results: !panels.results })
-                : currentNode
-        )
+        if (panels.results && node.props.hideInput === true) {
+            return
+        }
+        updateNode(node.id, (currentNode) => {
+            if (currentNode.type !== 'component') {
+                return currentNode
+            }
+            const props = { ...currentNode.props }
+            delete props.hideInput
+            return withPersistedComponentPanelProps({ ...currentNode, props }, definition, {
+                ...panels,
+                results: !panels.results,
+            })
+        })
     }
 
     const executeJupyterCommand = (command: NotebookJupyterCommand, cellOrNodeId: string | null): void => {
@@ -6013,8 +6179,6 @@ function MarkdownNotebookEditor({
         }
     }, [jupyterMode, jupyterStore])
 
-    // A markdown cell in edit mode is text with the caret in it. Escape and the run keys there act
-    // on the cell, as in Jupyter, instead of typing; every other key keeps its text-editing meaning.
     const handleJupyterTextKeyDown = (event: KeyboardEvent<HTMLDivElement>): boolean => {
         if (!jupyterMode || mode !== 'edit' || insertMenu || event.target !== event.currentTarget) {
             return false
@@ -6036,7 +6200,7 @@ function MarkdownNotebookEditor({
             null,
             Date.now()
         )
-        if (!command) {
+        if (!command || command === 'run-and-advance') {
             return false
         }
         event.preventDefault()
@@ -6683,7 +6847,8 @@ function MarkdownNotebookEditor({
             !event.ctrlKey &&
             (deleteListItemRangeAtCurrentSelection() ||
                 deleteListItemAtCurrentSelection(event.key === 'Backspace' ? 'backward' : 'forward') ||
-                deleteEmptyCodeBlockAtCurrentSelection())
+                deleteEmptyCodeBlockAtCurrentSelection() ||
+                deleteEmptyTableAtCurrentSelection())
         ) {
             event.preventDefault()
             event.stopPropagation()
@@ -7016,6 +7181,8 @@ function MarkdownNotebookEditor({
                         ? () => openBtw(serializeMarkdownNotebook({ ...documentRef.current, nodes: [node] }))
                         : undefined,
                     askAIDisabledReason,
+                    // Shared renders have no editor to paste into, matching the legacy notebook's `!isShared` gate.
+                    copyNode: hideResourceLinks ? undefined : copyComponentNode,
                     deleteNode: () => deleteNodeWithRefCleanup(node.id),
                     deleteNodeAndFocusAdjacent: () => {
                         requestFocusAfterRemovingNode(node.id)
@@ -7133,6 +7300,78 @@ function MarkdownNotebookEditor({
 
     const firstTextGroupKey = renderedNodeGroups.find((group) => group.type === 'text')?.key
 
+    const renderVisualGroup = (group: MarkdownNotebookVisualGroup): JSX.Element => {
+        if (group.type === 'text') {
+            const lastItem = group.items[group.items.length - 1]
+            const chunks: { surface: MarkdownNotebookTextSurface; items: typeof group.items }[] = []
+            for (const item of group.items) {
+                const lastChunk = chunks[chunks.length - 1]
+                // Code blocks never merge: each one is its own surface with its own line
+                // numbers and copy button.
+                if (lastChunk && lastChunk.surface === item.surface && item.surface !== 'code') {
+                    lastChunk.items.push(item)
+                } else {
+                    chunks.push({ surface: item.surface, items: [item] })
+                }
+            }
+
+            return (
+                <Fragment key={group.key}>
+                    <MarkdownNotebookTextGroup
+                        className={clsx(
+                            'MarkdownNotebook__text-group',
+                            group.key === firstTextGroupKey &&
+                                showDebug &&
+                                'MarkdownNotebook__text-group--with-debug-toolbar'
+                        )}
+                        jupyterStore={jupyterMode ? jupyterStore : null}
+                        cellId={group.items[0].node.id}
+                    >
+                        {group.key === firstTextGroupKey ? renderDebugToolbar() : null}
+                        {chunks.map((chunk) => {
+                            const chunkLastIndex = chunk.items[chunk.items.length - 1].index
+                            const rows = chunk.items.map(({ node, index }) => (
+                                <Fragment key={node.id}>
+                                    {renderMemoizedNotebookRow(node, index)}
+                                    {chunk.surface === 'text' && index < chunkLastIndex
+                                        ? renderInsertBoundaryButton(index + 1, {
+                                              isGapClickable: false,
+                                          })
+                                        : null}
+                                </Fragment>
+                            ))
+
+                            return (
+                                <Fragment key={chunk.items[0].node.id}>
+                                    {chunk.surface === 'quote' ? (
+                                        <div className="MarkdownNotebook__blockquote-group">{rows}</div>
+                                    ) : chunk.surface === 'code' ? (
+                                        <div className="MarkdownNotebook__code-group">{rows}</div>
+                                    ) : (
+                                        rows
+                                    )}
+                                    {chunkLastIndex < lastItem.index
+                                        ? renderInsertBoundaryButton(chunkLastIndex + 1, {
+                                              isGapClickable: false,
+                                          })
+                                        : null}
+                                </Fragment>
+                            )
+                        })}
+                    </MarkdownNotebookTextGroup>
+                    {renderInsertBoundaryButton(lastItem.index + 1)}
+                </Fragment>
+            )
+        }
+
+        return (
+            <Fragment key={group.key}>
+                {renderMemoizedNotebookRow(group.node, group.index)}
+                {renderInsertBoundaryButton(group.index + 1)}
+            </Fragment>
+        )
+    }
+
     const notebookElement = (
         <div
             className={clsx(
@@ -7199,89 +7438,124 @@ function MarkdownNotebookEditor({
                         onDragLeave={handleCanvasDragLeave}
                     >
                         {renderInsertBoundaryButton(0)}
-                        {renderedNodeGroups.map((group) => {
-                            if (group.type === 'text') {
-                                const lastItem = group.items[group.items.length - 1]
-                                const chunks: { surface: MarkdownNotebookTextSurface; items: typeof group.items }[] = []
-                                for (const item of group.items) {
-                                    const lastChunk = chunks[chunks.length - 1]
-                                    // Code blocks never merge: each one is its own surface with its own line
-                                    // numbers and copy button.
-                                    if (lastChunk && lastChunk.surface === item.surface && item.surface !== 'code') {
-                                        lastChunk.items.push(item)
-                                    } else {
-                                        chunks.push({ surface: item.surface, items: [item] })
-                                    }
-                                }
-
-                                return (
-                                    <Fragment key={group.key}>
-                                        <MarkdownNotebookTextGroup
-                                            className={clsx(
-                                                'MarkdownNotebook__text-group',
-                                                group.key === firstTextGroupKey &&
-                                                    showDebug &&
-                                                    'MarkdownNotebook__text-group--with-debug-toolbar'
-                                            )}
-                                            jupyterStore={jupyterMode ? jupyterStore : null}
-                                            cellId={group.items[0].node.id}
-                                        >
-                                            {group.key === firstTextGroupKey ? renderDebugToolbar() : null}
-                                            {chunks.map((chunk) => {
-                                                const chunkLastIndex = chunk.items[chunk.items.length - 1].index
-                                                const rows = chunk.items.map(({ node, index }) => (
-                                                    <Fragment key={node.id}>
-                                                        {renderMemoizedNotebookRow(node, index)}
-                                                        {chunk.surface === 'text' && index < chunkLastIndex
-                                                            ? renderInsertBoundaryButton(index + 1, {
-                                                                  isGapClickable: false,
-                                                              })
-                                                            : null}
-                                                    </Fragment>
-                                                ))
-
-                                                return (
-                                                    <Fragment key={chunk.items[0].node.id}>
-                                                        {chunk.surface === 'quote' ? (
-                                                            <div className="MarkdownNotebook__blockquote-group">
-                                                                {rows}
-                                                            </div>
-                                                        ) : chunk.surface === 'code' ? (
-                                                            <div className="MarkdownNotebook__code-group">{rows}</div>
-                                                        ) : (
-                                                            rows
-                                                        )}
-                                                        {chunkLastIndex < lastItem.index
-                                                            ? renderInsertBoundaryButton(chunkLastIndex + 1, {
-                                                                  isGapClickable: false,
-                                                              })
-                                                            : null}
-                                                    </Fragment>
-                                                )
-                                            })}
-                                        </MarkdownNotebookTextGroup>
-                                        {renderInsertBoundaryButton(lastItem.index + 1)}
-                                    </Fragment>
-                                )
-                            }
-
-                            return (
+                        {groupNotebookColumns(renderedNodeGroups).map((group) =>
+                            group.type === 'columns' ? (
                                 <Fragment key={group.key}>
-                                    {renderMemoizedNotebookRow(group.node, group.index)}
-                                    {renderInsertBoundaryButton(group.index + 1)}
+                                    <NotebookColumns
+                                        group={group}
+                                        mode={mode}
+                                        renderGroup={renderVisualGroup}
+                                        onAddBlock={openInsertMenuAtBoundary}
+                                        onCountChange={(count) => {
+                                            commitDocument({
+                                                ...documentRef.current,
+                                                nodes: resizeNotebookColumns(documentRef.current.nodes, group, count),
+                                            })
+                                            posthog.capture('notebook columns configured', {
+                                                columns: count,
+                                                property: 'count',
+                                            })
+                                        }}
+                                        onWidthsChange={(widths) => {
+                                            const columnWidths = new Map(
+                                                group.columns.map((column, index) => [
+                                                    column.start.node.id,
+                                                    widths[index],
+                                                ])
+                                            )
+                                            commitDocument({
+                                                ...documentRef.current,
+                                                nodes: documentRef.current.nodes.map((node) =>
+                                                    node.type === 'component' && columnWidths.has(node.id)
+                                                        ? {
+                                                              ...node,
+                                                              props: {
+                                                                  ...node.props,
+                                                                  width: columnWidths.get(node.id)!,
+                                                              },
+                                                          }
+                                                        : node
+                                                ),
+                                            })
+                                            posthog.capture('notebook columns configured', {
+                                                columns: group.columns.length,
+                                                property: 'widths',
+                                            })
+                                        }}
+                                        onRemoveLayout={() => {
+                                            const markerIds = new Set([
+                                                group.start.node.id,
+                                                group.end.node.id,
+                                                ...group.columns.flatMap((column) => [
+                                                    column.start.node.id,
+                                                    column.end.node.id,
+                                                ]),
+                                            ])
+                                            commitDocument({
+                                                ...documentRef.current,
+                                                nodes: documentRef.current.nodes.filter(
+                                                    (node) => !markerIds.has(node.id)
+                                                ),
+                                            })
+                                            posthog.capture('notebook columns removed')
+                                        }}
+                                    />
+                                    {renderInsertBoundaryButton(group.end.index + 1)}
                                 </Fragment>
+                            ) : (
+                                renderVisualGroup(group)
                             )
-                        })}
+                        )}
                         {jupyterCommands && mode === 'edit' ? (
-                            <button
-                                type="button"
+                            <div
                                 className="MarkdownNotebook__jupyter-add-cell"
                                 contentEditable={false}
                                 data-attr="notebook-jupyter-add-cell"
-                                onClick={() => jupyterCommands.insertCell(null, 'below', { edit: true })}
                             >
-                                Click to add a cell.
-                            </button>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    aria-label="Add a cell"
+                                    tooltip="Add a cell"
+                                    data-attr="notebook-jupyter-add-cell-menu"
+                                    onClick={() => openInsertMenuAtBoundary(getJupyterAppendIndex())}
+                                >
+                                    /
+                                </LemonButton>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    data-attr="notebook-jupyter-add-text"
+                                    onClick={() =>
+                                        insertJupyterNodesAt(
+                                            getJupyterAppendIndex(),
+                                            [makeEmptyParagraph('text')],
+                                            'edit'
+                                        )
+                                    }
+                                >
+                                    Add text
+                                </LemonButton>
+                                {jupyterMode?.cellTagNames.map((tagName) => {
+                                    const definition = getMarkdownNotebookComponentDefinition(mergedRegistry, tagName)
+                                    return definition?.insertCommand ? (
+                                        <LemonButton
+                                            key={tagName}
+                                            size="small"
+                                            type="secondary"
+                                            data-attr="notebook-jupyter-add-code"
+                                            onClick={() => {
+                                                const node = createJupyterCellNode(tagName)
+                                                if (node) {
+                                                    insertJupyterNodesAt(getJupyterAppendIndex(), [node], 'edit')
+                                                }
+                                            }}
+                                        >
+                                            {`Add ${definition.label}`}
+                                        </LemonButton>
+                                    ) : null
+                                })}
+                            </div>
                         ) : null}
                     </div>
                     {adjustedRemoteCarets?.length ? (

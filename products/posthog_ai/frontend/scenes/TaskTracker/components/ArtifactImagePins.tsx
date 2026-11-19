@@ -6,6 +6,7 @@ import { cn } from '@posthog/quill-primitives'
 import { fullNameOrEmail } from 'lib/utils/strings'
 
 import type { RegionCommentAnchor } from '../artifactComments'
+import { COMMENT_MARK_ATTR } from '../artifactCommentScreenshot'
 import { TaskArtifactCommentsLogicProps, taskArtifactCommentsLogic } from '../taskArtifactCommentsLogic'
 import { ArtifactInlineThread } from './ArtifactInlineThread'
 import { ArtifactPendingComment } from './ArtifactPendingComment'
@@ -35,6 +36,7 @@ function PinMarker({
     onClick,
     anchor,
     threadId,
+    marked = false,
 }: {
     threadId?: string
     label: string
@@ -42,6 +44,7 @@ function PinMarker({
     active: boolean
     onClick?: () => void
     anchor: RegionCommentAnchor
+    marked?: boolean
 }): JSX.Element {
     return (
         <button
@@ -59,6 +62,7 @@ function PinMarker({
             onClick={onClick}
             data-thread-id={threadId}
             data-attr="task-artifact-comment-pin-marker"
+            {...(marked ? { [COMMENT_MARK_ATTR]: '' } : {})}
         >
             {number ?? '+'}
         </button>
@@ -104,7 +108,7 @@ export function ArtifactImagePins({ logicProps }: { logicProps: TaskArtifactComm
             })}
             {pendingRegion && (
                 <>
-                    <PinMarker label="New pin" number={null} active anchor={pendingRegion} />
+                    <PinMarker label="New pin" number={null} active anchor={pendingRegion} marked />
                     <ArtifactPendingComment
                         logicProps={logicProps}
                         className={besidePinClassName(pendingRegion)}

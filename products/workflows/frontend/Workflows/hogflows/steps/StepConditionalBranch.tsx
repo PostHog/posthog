@@ -8,7 +8,7 @@ import { Spinner, Tooltip } from '@posthog/lemon-ui'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
+import { ConditionFilters, HogFlowConditionFilters } from '../filters/HogFlowConditionFilters'
 import { useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
@@ -16,11 +16,6 @@ import { batchTriggerLogic } from './batchTriggerLogic'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import { HogFlowBranchCard } from './HogFlowBranchCard'
 import { getBranchRemovalDisabledReason, isCountableCondition, removeBranchEdge, useNameInputs } from './utils'
-
-type ConditionFilters = Extract<
-    HogFlowAction,
-    { type: 'conditional_branch' }
->['config']['conditions'][number]['filters']
 
 function ConditionAudienceEstimate({
     actionId,
@@ -31,11 +26,12 @@ function ConditionAudienceEstimate({
     index: number
     filters: ConditionFilters
 }): JSX.Element | null {
+    const properties = filters?.properties
     // Counting persons, not sends, so this deliberately skips the email dedup the batch trigger applies.
     const { blastRadius, blastRadiusLoading, blastRadiusError } = useValues(
         batchTriggerLogic({
             id: `${actionId}-condition-${index}`,
-            filters: { properties: filters?.properties ?? [] },
+            filters: { properties: Array.isArray(properties) ? properties : [] },
         })
     )
 
@@ -159,7 +155,7 @@ export function StepConditionalBranchConfiguration({
                             )
                         }
                     >
-                        <HogFlowPropertyFilters
+                        <HogFlowConditionFilters
                             filtersKey={`condition-branch-condition-${action.id}-${index}`}
                             filters={condition.filters ?? {}}
                             setFilters={(filters) =>
@@ -169,7 +165,6 @@ export function StepConditionalBranchConfiguration({
                                     )
                                 )
                             }
-                            typeKey={`workflow-trigger-${index}`}
                         />
                     </HogFlowBranchCard>
                 )

@@ -69,7 +69,7 @@ class EntityPage:
 
 
 _ENTITY_PAGES: dict[str, EntityPage] = {
-    SignalSourceProduct.ERROR_TRACKING: EntityPage(link_label="issue", path="/error_tracking/{id}"),
+    SignalSourceProduct.ERROR_TRACKING: EntityPage(link_label="issue", path="/error-tracking/{id}"),
     SignalSourceProduct.SESSION_REPLAY: EntityPage(link_label="recording", path="/replay/{id}"),
     SignalSourceProduct.CONVERSATIONS: EntityPage(link_label="ticket", path="/support/tickets/{id}"),
 }

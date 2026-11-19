@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
 from products.posthog_ai.eval_harness.harness.context import EvalContext
@@ -27,6 +27,7 @@ from products.posthog_ai.evals.cli_mcp.skill_usage_seeder import (
     PROJECT_SKILL_REFERENCE_PATH,
     seed_project_skill,
 )
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN
 
 
@@ -136,8 +137,22 @@ async def eval_skill_usage(ctx: EvalContext) -> None:
             )
         )
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-cli-mcp-skill-usage-cli",
+        offline_suite=offline_suite(
+            "cli_mcp/eval_skill_usage::eval_skill_usage",
+            metrics=[
+                "skill_search_first",
+                "expected_skill_discovered",
+                "expected_skill_loaded",
+                "skill_loaded_before_tool",
+                "no_bundled_skill_bypass",
+                "no_exec_skill_bypass",
+                "expected_reference_pulled",
+                "search_recovery_after_zero_hit",
+                "skill_answer_correctness",
+            ],
+        ),
         cases=cases,
         scorers=[
             SkillSearchFirst(),

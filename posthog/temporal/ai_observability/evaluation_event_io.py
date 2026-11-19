@@ -4,7 +4,7 @@ from typing import Any
 import temporalio.activity
 from temporalio.exceptions import ApplicationError
 
-from posthog.dataclasses import frozen
+from posthog.temporal.ai_observability.evaluation_types import GENERATION_NOT_FOUND
 from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.utils import ensure_utc
 
@@ -14,49 +14,27 @@ from products.ai_observability.backend.ai_event_lookup import fetch_generation_e
 # before it reaches `ai_events`, where it is read, so a miss gets two retries before it fails the
 # run. Only a live reference waits between them: a backfill miss is usually an expired row.
 GENERATION_NOT_FOUND_MAX_ATTEMPTS = 3
-GENERATION_NOT_FOUND_RETRY_DELAY = timedelta(seconds=15)
+# The waits before the second and third read of a live reference. A large generation can reach
+# `ai_events` well after it reaches `events`. With the scheduler's start delay, the last read runs
+# about two and a half minutes after the scheduler sees the event.
+GENERATION_NOT_FOUND_RETRY_DELAYS = (timedelta(seconds=30), timedelta(seconds=90))
+GENERATION_NOT_FOUND_RETRY_WINDOW = sum(GENERATION_NOT_FOUND_RETRY_DELAYS, timedelta())
+
+
+class GenerationNotFoundError(NonReportableApplicationError):
+    """The last miss on a reference that has no ingestion to wait for.
+
+    Only a backfill sends such a reference, and it selects candidates from `events`, which keeps
+    rows longer than `ai_events`. So the row most likely aged out of `ai_events`. An evaluation
+    catches this and records a skip. A caller that does not catch it fails the run, and the error
+    stays out of error tracking.
+    """
 
 
 def as_utc_datetime(value: str | datetime) -> datetime:
     """Read a ClickHouse event timestamp, which reaches us as a naive datetime on a direct call
     and as an ISO string once Temporal has serialized it through a payload."""
     return ensure_utc(value if isinstance(value, datetime) else datetime.fromisoformat(value))
-
-
-@frozen
-class EventIO:
-    input_raw: Any
-    output_raw: Any
-
-
-def extract_event_io(event_type: str, properties: dict[str, Any]) -> EventIO:
-    """Extract raw input and output values from event properties.
-
-    Returns an `EventIO` for use in Hog eval globals and preview display.
-
-    Invariant: `properties` must already contain the heavy `$ai_*` keys when present
-    on the source event. Heavy columns live only on the dedicated `ai_events` table —
-    they are not stored in `events.properties` — so callers must source the event from
-    a path that re-populates them. Today that's `EvaluationRunViewSet.create`, which
-    reads from `ai_events` and re-merges heavy columns via `merge_heavy_properties`
-    before handing `event_data` to this workflow. Adding a new caller? Use the same
-    pattern, or feed it `event_data` produced by an already-`ai_events`-backed reader.
-
-    If `properties` arrives without the heavy keys (e.g. sourced from a stripped
-    `events` row), `extract_event_io` returns empty `input_raw` / `output_raw` and the
-    LLM judge / Hog eval would silently grade an empty conversation — hence the invariant.
-    """
-    if event_type == "$ai_generation":
-        input_raw = properties.get("$ai_input") or properties.get("$ai_input_state", "")
-        output_raw = (
-            properties.get("$ai_output_choices")
-            or properties.get("$ai_output")
-            or properties.get("$ai_output_state", "")
-        )
-    else:
-        input_raw = properties.get("$ai_input_state", "")
-        output_raw = properties.get("$ai_output_state", "")
-    return EventIO(input_raw=input_raw, output_raw=output_raw)
 
 
 def extract_event_tools(properties: dict[str, Any]) -> Any:
@@ -90,12 +68,17 @@ def hydrate_event_reference(event_data: dict[str, Any]) -> dict[str, Any]:
         event_data.get("trace_id"),
     )
     if event is None:
-        if temporalio.activity.in_activity() and temporalio.activity.info().attempt < GENERATION_NOT_FOUND_MAX_ATTEMPTS:
-            # Only the last miss reaches error tracking: an earlier one is usually the lag above.
+        attempt = temporalio.activity.info().attempt if temporalio.activity.in_activity() else None
+        if attempt is not None and attempt < GENERATION_NOT_FOUND_MAX_ATTEMPTS:
             raise NonReportableApplicationError(
                 "Generation not found",
-                type="generation_not_found",
-                next_retry_delay=GENERATION_NOT_FOUND_RETRY_DELAY if event_data.get("awaiting_ingestion") else None,
+                type=GENERATION_NOT_FOUND,
+                next_retry_delay=GENERATION_NOT_FOUND_RETRY_DELAYS[attempt - 1]
+                if event_data.get("awaiting_ingestion")
+                else None,
             )
-        raise ApplicationError("Generation not found", type="generation_not_found", non_retryable=True)
+        # A live reference still fails the run and reaches error tracking: the scheduler saw the
+        # event, so a miss after the retries means ingestion lost or delayed it.
+        error_class = ApplicationError if event_data.get("awaiting_ingestion") else GenerationNotFoundError
+        raise error_class("Generation not found", type=GENERATION_NOT_FOUND, non_retryable=True)
     return event

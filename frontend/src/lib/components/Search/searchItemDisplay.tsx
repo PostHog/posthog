@@ -1,5 +1,7 @@
 import { ReactNode } from 'react'
 
+import { capitalizeFirstLetter } from 'lib/utils/strings'
+
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { fileSystemTypes } from '~/products'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
@@ -57,8 +59,10 @@ export const getItemTypeDisplayName = (type: string | null | undefined): string 
         alert: 'Alert',
         folder: 'Folder',
         hog_flow: 'Workflow',
+        'hog_function/internal_destination': 'Alert destination',
     }
-    return fallbackDisplayNames[type] ?? null
+    const subtype = type.includes('/') ? type.split('/').pop()?.replace(/_/g, ' ') : null
+    return fallbackDisplayNames[type] ?? (subtype ? capitalizeFirstLetter(subtype) : null)
 }
 
 export const getIconForItem = (item: SearchItem): ReactNode => {
@@ -71,6 +75,8 @@ export const getIconForItem = (item: SearchItem): ReactNode => {
         itemType = 'persons'
     } else if (itemType === 'hog_flow') {
         itemType = 'workflows'
+    } else if (itemType === 'alert') {
+        itemType = 'inbox'
     }
     if (itemType) {
         // Handle iconColor which may be a single-element array or tuple

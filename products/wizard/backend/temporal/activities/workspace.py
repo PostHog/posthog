@@ -113,8 +113,10 @@ def clone_repository(input: ProvisionedWizardWorker) -> PreparedGitRepositoryWor
         root_path = cloud_worker.clone_repository(
             GitRepositoryCloneRequest(
                 sandbox_id=input.sandbox_id,
+                team_id=input.team_id,
                 github_integration_id=integration_id,
                 repository=run.workspace.repository,
+                branch=run.workspace.branch,
             )
         )
     except cloud_worker.WizardWorkerExecutionError as error:
@@ -133,6 +135,7 @@ def clone_repository(input: ProvisionedWizardWorker) -> PreparedGitRepositoryWor
         root_path=root_path,
         github_integration_id=integration_id,
         use_local_wizard_source=input.use_local_wizard_source,
+        base_branch=run.workspace.branch,
     )
 
 

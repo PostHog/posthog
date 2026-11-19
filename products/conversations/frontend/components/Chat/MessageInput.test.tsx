@@ -29,12 +29,17 @@ jest.mock('../Editor', () => {
         }) => {
             React.useEffect(() => {
                 const el = document.querySelector('[data-attr="support-editor"]') as HTMLElement | null
+                const recorded = (globalThis as { __messageInputEditor?: MessageInputEditorMock }).__messageInputEditor
                 const editor = {
-                    getJSON: () => ({ type: 'doc' }),
-                    clear: () => {},
-                    setContent: () => {},
-                    isEmpty: () => false,
-                    focus: () => el?.focus(),
+                    getJSON: () => recorded?.getJSON?.() ?? { type: 'doc' },
+                    clear: () => recorded?.clear?.(),
+                    setContent: (content: unknown) => recorded?.setContent?.(content),
+                    insertContent: (content: unknown) => recorded?.insertContent?.(content),
+                    isEmpty: () => recorded?.isEmpty?.() ?? false,
+                    focus: () => {
+                        recorded?.focus?.()
+                        el?.focus()
+                    },
                 }
                 onCreate(editor)
                 if (autoFocus) {
@@ -53,9 +58,18 @@ jest.mock('../Editor', () => {
                 )
             )
         },
-        serializeToMarkdown: (): string => 'hello',
+        serializeToMarkdown: () => 'hello',
     }
 })
+
+interface MessageInputEditorMock {
+    setContent?: (content: unknown) => void
+    insertContent?: (content: unknown) => void
+    isEmpty?: () => boolean
+    getJSON?: () => { type: string }
+    clear?: () => void
+    focus?: () => void
+}
 
 const SEND_AND_SET_STATUS_OPTIONS: { value: TicketStatus; statusLabel: string }[] = [
     { value: 'pending', statusLabel: 'pending' },
@@ -353,5 +367,49 @@ describe('MessageInput editing mode', () => {
 
         const checkbox = screen.getByRole('checkbox')
         expect(checkbox).toBeDisabled()
+    })
+})
+
+describe('MessageInput macro insert', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    afterEach(() => {
+        delete (globalThis as { __messageInputEditor?: unknown }).__messageInputEditor
+        cleanup()
+    })
+
+    test.each<[string, boolean]>([
+        ['replaces an empty draft', true],
+        ['inserts into an existing draft', false],
+    ])('%s', async (_name, empty) => {
+        const setContent = jest.fn()
+        const insertContent = jest.fn()
+        ;(globalThis as { __messageInputEditor?: MessageInputEditorMock }).__messageInputEditor = {
+            isEmpty: () => empty,
+            setContent,
+            insertContent,
+            getJSON: () => ({ type: 'doc' }),
+        }
+
+        render(
+            <Provider>
+                <MessageInput
+                    onSendMessage={jest.fn()}
+                    messageSending={false}
+                    composerInsertAt={1}
+                    composerInsertContent="<p>Hi Jane</p>"
+                />
+            </Provider>
+        )
+
+        await waitFor(() => {
+            if (empty) {
+                expect(setContent).toHaveBeenCalledWith('<p>Hi Jane</p>')
+            } else {
+                expect(insertContent).toHaveBeenCalledWith('<p>Hi Jane</p>')
+            }
+        })
     })
 })

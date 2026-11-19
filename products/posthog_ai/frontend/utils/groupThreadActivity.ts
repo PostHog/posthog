@@ -92,10 +92,20 @@ const isToolCall = (item: ThreadItem): boolean => item.type === 'tool_invocation
 const ridesAlong = (item: ThreadItem): boolean =>
     item.type === 'assistant_thought' || (item.type === 'task_notification' && item.status === 'completed')
 
+// The agent must call this tool before its final reply, so it follows every chart the agent shows. The key has
+// a qualified form on the Claude SDK wire path and a bare form on a native MCP path.
+const TASK_SUMMARY_TOOL_KEYS = new Set(['task_summary_update', 'mcp__posthog-code-tools__task_summary_update'])
+
+const isTaskSummaryCall = (item: ThreadItem, toolInvocations: ReadonlyMap<string, ToolInvocation>): boolean => {
+    const invocation = toolInvocations.get(item.toolCallId!)
+    return !!invocation && TASK_SUMMARY_TOOL_KEYS.has(resolveToolCall(invocation).resolvedKey)
+}
+
 /**
  * PostHog Desktop's grouping: two or more tool calls fold into a group, and a lone call keeps its row. A
  * closed run's last call keeps its row when it is a finished widget, so the chart the agent talks about stays
- * visible. The trailing run closes only once `settled`, so its chart cannot appear and then fold again.
+ * visible. The task summary call does not count as the last call. The trailing run closes only once `settled`,
+ * so its chart cannot appear and then fold again.
  */
 export function groupToolRuns(
     items: ThreadItem[],
@@ -112,7 +122,9 @@ export function groupToolRuns(
     }
     for (const item of items) {
         if (isToolCall(item) && !pinnedToolIds.has(item.toolCallId!)) {
-            runLastCall = item.toolCallId
+            if (!isTaskSummaryCall(item, toolInvocations)) {
+                runLastCall = item.toolCallId
+            }
         } else if (!ridesAlong(item)) {
             closeRun()
         }
@@ -154,18 +166,34 @@ export function groupToolRuns(
 
 export function reuseActivityGroups(previous: ThreadDisplayItem[], next: ThreadDisplayItem[]): ThreadDisplayItem[] {
     const previousGroups = new Map<string, ThreadActivityGroup>()
+    const groupOfMember = new Map<string, string>()
     for (const item of previous) {
         if (item.type === 'activity_group') {
             previousGroups.set(item.id, item)
+            item.items.forEach((row) => groupOfMember.set(row.id, item.id))
         }
     }
     if (previousGroups.size === 0) {
         return next
     }
-    return next.map((item) => {
-        if (item.type !== 'activity_group') {
-            return item
+    // A group's id comes from its first member, so earlier calls that load in front of it would rename it and
+    // remount it. A group that shares a member with a previous group keeps that group's id, unless a group in
+    // `next` already has that id, so a group that splits never gives two groups one key.
+    const reserved = new Set(
+        next.flatMap((item) => (item.type === 'activity_group' && previousGroups.has(item.id) ? [item.id] : []))
+    )
+    const claimed = new Set<string>()
+    return next.map((nextItem) => {
+        if (nextItem.type !== 'activity_group') {
+            return nextItem
         }
+        const carried = previousGroups.has(nextItem.id)
+            ? undefined
+            : nextItem.items
+                  .map((row) => groupOfMember.get(row.id))
+                  .find((id) => id !== undefined && !claimed.has(id) && !reserved.has(id))
+        const item = carried ? { ...nextItem, id: carried } : nextItem
+        claimed.add(item.id)
         const old = previousGroups.get(item.id)
         return old &&
             old.startedAt === item.startedAt &&

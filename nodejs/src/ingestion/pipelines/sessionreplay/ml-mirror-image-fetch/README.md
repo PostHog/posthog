@@ -631,6 +631,8 @@ ai_research_session_replay_image_fetch_retry_1h
 
 **16.9** The delay consumer's `max.poll.interval.ms` must exceed the longest possible batch wait plus the time needed to publish the batch.
 
+**16.10** The consumer publishes a batch in release groups of at most 50 records. It starts all publishes in a group together and waits for the whole group before it starts the next group. After a group with a failed publish, it publishes no more records from the batch. One publish at a time limits a tier to one record for each produce round trip. The group size limits the number of records that one failure publishes twice.
+
 ## 17. Fetcher to scrubber message format
 
 **17.1** The fetcher publishes one Kafka record for each successful image fetch.

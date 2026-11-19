@@ -667,3 +667,84 @@ resource "posthog_insight" "alert_delivery_failure_rate" {
 
   tags = ["managed-by:terraform", "slo"]
 }
+
+# ---------------------------------------------------------------------------
+# Daily burn rate vs each operation's own recent baseline. Drives the
+# slo_regression alert, so it covers every operation/region emitting SLO events,
+# not just the ones in local.slo_operations.
+# ---------------------------------------------------------------------------
+resource "posthog_insight" "slo_regression" {
+  name        = "SLO: Daily burn rate regression by operation"
+  description = "Yesterday's burn rate (99.95% target) / median of the prior 14 days, floored at 1x. 0 when yesterday had <100 operations or <10 failures."
+  query_json = jsonencode({
+    kind = "DataVisualizationNode"
+    source = {
+      kind  = "HogQLQuery"
+      query = <<-SQL
+        -- Same pairing and sample-rate weighting as the burn rate tiles. Yesterday's correlated
+        -- starts are paired with completions from today, so operations in flight at midnight
+        -- aren't counted as failures.
+        WITH per_cid AS (
+            SELECT
+                properties.region AS region,
+                properties.operation AS operation,
+                coalesce(nullIf(properties.correlation_id, ''), '') AS cid,
+                toDate(timestamp) AS d,
+                sumIf(1.0 / coalesce(toFloat(properties.sample_rate), 1.0), event = 'slo_operation_started') AS starts,
+                sumIf(1.0 / coalesce(toFloat(properties.sample_rate), 1.0), event = 'slo_operation_completed' AND properties.outcome = 'success') AS successes,
+                max(1.0 / coalesce(toFloat(properties.sample_rate), 1.0)) AS w,
+                min(if(event = 'slo_operation_started', timestamp, NULL)) AS first_start
+            FROM events
+            WHERE event IN ('slo_operation_started', 'slo_operation_completed')
+              AND properties.region IN ('US', 'EU')
+              AND timestamp >= today() - 17
+            GROUP BY region, operation, cid, d
+        ),
+        daily AS (
+            SELECT region, operation, d, sum(total) AS total, sum(failures) AS failures
+            FROM (
+                SELECT region, operation, d, starts AS total, greatest(starts - successes, 0.0) AS failures
+                FROM per_cid
+                WHERE cid = ''
+
+                UNION ALL
+
+                SELECT region, operation, toDate(min(first_start)) AS d, max(w) AS total, if(max(successes) > 0, 0.0, max(w)) AS failures
+                FROM per_cid
+                WHERE cid != ''
+                GROUP BY region, operation, cid
+                HAVING d IS NOT NULL
+            )
+            GROUP BY region, operation, d
+        ),
+        scored AS (
+            SELECT
+                region,
+                operation,
+                d,
+                total,
+                failures,
+                failures / total / 0.0005 AS burn,
+                median(failures / total / 0.0005) OVER (PARTITION BY region, operation ORDER BY d ASC ROWS BETWEEN 14 PRECEDING AND 1 PRECEDING) AS baseline
+            FROM daily
+        )
+        SELECT
+            concat(region, ' / ', operation) AS operation,
+            round(total) AS total,
+            round(failures) AS failures,
+            round(burn, 1) AS burn_rate,
+            round(baseline, 1) AS baseline_burn_rate,
+            -- Floor the baseline at 1x so near-zero baselines don't turn a handful of failures into a huge ratio.
+            round(if(total >= 100 AND failures >= 10, burn / greatest(baseline, 1.0), 0), 2) AS regression_ratio
+        FROM scored
+        WHERE d = yesterday()
+        ORDER BY regression_ratio DESC
+        LIMIT 100
+      SQL
+    }
+    display = "ActionsTable"
+  })
+
+  dashboard_ids = [posthog_dashboard.slo_monitoring.id]
+  tags          = ["managed-by:terraform", "slo"]
+}

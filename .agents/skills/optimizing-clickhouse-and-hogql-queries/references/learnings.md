@@ -30,7 +30,7 @@ Suggested entry format:
 
 ## 2026-10-06: Single-person event lookups under override-based person IDs: prefilter on stored person ID or override distinct IDs, keep the resolved check
 
-**Context.** The related groups panel on person pages (`ee/clickhouse/queries/related_actors_query.py`, `_query_related_groups`): `SELECT DISTINCT` group keys `FROM events WHERE person_id = {person} AND timestamp` in the last 90 days. Under the override-based persons-on-events modes, HogQL resolves `events.person_id` through `person_distinct_id_overrides` for every row in the window before the person filter can apply. On team 2 a large share of loads failed with `MEMORY_LIMIT_EXCEEDED` after ~40s.
+**Context.** The related groups panel on person pages (`products/groups/backend/logic/related_actors_query.py`, `_query_related_groups`): `SELECT DISTINCT` group keys `FROM events WHERE person_id = {person} AND timestamp` in the last 90 days. Under the override-based persons-on-events modes, HogQL resolves `events.person_id` through `person_distinct_id_overrides` for every row in the window before the person filter can apply. On team 2 a large share of loads failed with `MEMORY_LIMIT_EXCEEDED` after ~40s.
 
 **Question.** Can the lookup stop resolving identity for the whole team's window without changing which groups come back for merged, detached or squashed persons?
 

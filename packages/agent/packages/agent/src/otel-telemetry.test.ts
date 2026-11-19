@@ -28,7 +28,7 @@ vi.mock("@opentelemetry/exporter-trace-otlp-http", () => ({
   },
 }));
 
-const RUN_ID = "run-456";
+const RUN_ID = "0190a5f0-7c3e-7d2a-9b1c-3f4e5d6c7b8a";
 
 const RESOURCE = {
   taskId: "task-123",
@@ -629,6 +629,7 @@ describe("OtelRunTelemetry", () => {
       expect(tool.parentSpanContext?.spanId).toBe(turn.spanContext().spanId);
 
       const traceId = root.spanContext().traceId;
+      expect(traceId).toBe(RUN_ID.replaceAll("-", ""));
       expect(turn.spanContext().traceId).toBe(traceId);
       expect(tool.spanContext().traceId).toBe(traceId);
 

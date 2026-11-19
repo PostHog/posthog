@@ -83,6 +83,18 @@ and disabled when a custom job is created for the same level.
 
 ## Workflow: explore clusters
 
+### Check setup and scheduled results
+
+If there are no recent results, read `posthog:llma-clustering-config-get` before diagnosing missing data.
+Clustering is off by default. If the user wants automatic clustering, use
+`posthog:llma-clustering-config-set-enabled` with `enabled: true`; organization AI data processing consent is required.
+Reading historical clusters does not require enabling new runs.
+
+Enabling clustering lets existing schedules prepare new data and find groups; it does not start an immediate run or backfill historical traces.
+Each job needs at least 10 eligible prepared items, and enough similar items to form groups.
+Trace and generation jobs look back seven days; evaluation jobs look back three days and exclude numeric and categorical results.
+If results are missing, inspect the enabled jobs and their saved filters, and confirm that matching data continues to arrive.
+
 ### Step 1 — List recent clustering runs
 
 ```sql
@@ -103,59 +115,154 @@ ORDER BY timestamp DESC
 LIMIT 10
 ```
 
+For a supplied run ID, add `AND toString(properties.$ai_clustering_run_id) = '<run_id>'` to this query's `WHERE` clause to retrieve its level and analyzed window.
+Widen the timestamp lookback to include that run's emitted cluster event; its analyzed window ends before the event is emitted.
+
 ### Step 2 — Get clusters from a specific run
+
+Return a page of summaries first.
+Keep the run's level and analyzed window from Step 1 for the later queries.
 
 ```sql
 posthog:execute-sql
+WITH cluster_run AS (
+    SELECT coalesce(toString(properties.$ai_clusters), '[]') AS clusters
+    FROM events
+    WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters', '$ai_evaluation_clusters')
+        AND timestamp >= now() - INTERVAL 14 DAY
+        AND toString(properties.$ai_clustering_run_id) = '<run_id>'
+    ORDER BY timestamp DESC
+    LIMIT 1
+)
 SELECT
-    toString(properties.$ai_clustering_run_id) AS run_id,
-    toString(properties.$ai_clustering_level) AS level,
-    toString(properties.$ai_clustering_job_id) AS job_id,
-    toString(properties.$ai_clustering_job_name) AS job_name,
-    toString(properties.$ai_window_start) AS window_start,
-    toString(properties.$ai_window_end) AS window_end,
-    toFloat64OrNull(toString(properties.$ai_total_items_analyzed)) AS total_items,
-    properties.$ai_clusters AS clusters,
-    properties.$ai_clustering_params AS params,
-    timestamp
-FROM events
-WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters', '$ai_evaluation_clusters')
-    AND timestamp >= now() - INTERVAL 14 DAY
-    AND toString(properties.$ai_clustering_run_id) = '<run_id>'
-ORDER BY timestamp DESC
-LIMIT 1
+    JSONExtractInt(cluster, 'cluster_id') AS cluster_id,
+    JSONExtractInt(cluster, 'size') AS size,
+    left(JSONExtractString(cluster, 'title'), 200) AS title,
+    left(JSONExtractString(cluster, 'description'), 500) AS description,
+    left(JSONExtractRaw(cluster, 'metrics'), 500) AS metrics_preview
+FROM (
+    SELECT arrayJoin(JSONExtractArrayRaw(clusters)) AS cluster
+    FROM cluster_run
+)
+ORDER BY size DESC, cluster_id
+LIMIT 10 OFFSET 0
 ```
 
 Keep the lookback bound wide enough to cover the `timestamp` Step 1 reported for the run.
-Never bound this query with `$ai_window_start` / `$ai_window_end`.
+Never bound these cluster-run queries with `$ai_window_start` / `$ai_window_end`.
 The cluster event is emitted after the window closes, so those bounds return zero rows.
 
-The `clusters` field is a JSON array. Parse it to see cluster titles, sizes, descriptions, optional `metrics`, and each cluster's `traces` map.
+After each complete page, increase `OFFSET` by the number of rows returned.
+Stop when a complete page contains fewer rows than the current `LIMIT`, including an empty final page when needed.
+Titles, descriptions, and metrics are capped previews.
+For more description text, filter to the chosen `cluster_id` and use `substringUTF8(JSONExtractString(cluster, 'description'), 501, 500)`, then starts `1001`, `1501`, and so on.
+Keep each text chunk bounded, or report the capped excerpt.
+For a specific metric, select only that field for the chosen `cluster_id`.
+For example, replace `metrics_preview` with `JSONExtractRaw(cluster, 'metrics', 'pass_rate') AS pass_rate` to preserve missing or null values.
+Cap any string metric with `left` or retrieve it in bounded chunks too.
 
-**Important:** The clusters JSON can be very large (thousands of trace, generation, or evaluation IDs with coordinates).
-When the result is too large for inline display, it auto-persists to a file.
-Use `print_clusters.py` from [scripts/](./scripts/) to get a readable summary.
+To get representative members of one cluster, extract only their IDs and ranks:
+
+```sql
+posthog:execute-sql
+WITH cluster_run AS (
+    SELECT coalesce(toString(properties.$ai_clusters), '[]') AS clusters
+    FROM events
+    WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters', '$ai_evaluation_clusters')
+        AND timestamp >= now() - INTERVAL 14 DAY
+        AND toString(properties.$ai_clustering_run_id) = '<run_id>'
+    ORDER BY timestamp DESC
+    LIMIT 1
+),
+cluster_objects AS (
+    SELECT arrayJoin(JSONExtractArrayRaw(clusters)) AS cluster
+    FROM cluster_run
+)
+SELECT
+    tupleElement(member, 1) AS item_id,
+    JSONExtractString(tupleElement(member, 2), 'trace_id') AS trace_id,
+    JSONExtractString(tupleElement(member, 2), 'generation_id') AS generation_id,
+    JSONExtractInt(tupleElement(member, 2), 'rank') AS rank,
+    JSONExtractFloat(tupleElement(member, 2), 'distance_to_centroid') AS distance_to_centroid
+FROM (
+    SELECT arrayJoin(JSONExtractKeysAndValuesRaw(cluster, 'traces')) AS member
+    FROM cluster_objects
+    WHERE JSONExtractInt(cluster, 'cluster_id') = <cluster_id>
+)
+ORDER BY rank, item_id
+LIMIT 5 OFFSET 0
+```
+
+Use `trace_id` with the trace tools.
+Use `item_id` for membership: it is the trace ID at trace level and the event UUID at generation or evaluation level.
+For metrics across the whole cluster, start with `LIMIT 100 OFFSET 0` and paginate using the same offset and completion rules as the summaries.
+Compute metrics for each batch with Step 3; representative members alone do not describe the whole cluster.
+
+Large tool responses may be truncated without a local file.
+If a page is incomplete, reduce its limit or field selection and retry the same offset before continuing.
 
 ### Step 3 — Compute metrics for clusters
 
-For trace-level clusters, compute cost/latency/token metrics:
+For trace-level clusters, compute cost/latency/token metrics.
+The latency rule is the same as in `query-llm-trace` and `query-llm-traces-list`, so the numbers match the trace view:
 
 ```sql
 posthog:execute-sql
 SELECT
-    properties.$ai_trace_id as trace_id,
-    sum(toFloat(properties.$ai_total_cost_usd)) as total_cost,
-    max(toFloat(properties.$ai_latency)) as latency,
-    sum(toInt(properties.$ai_input_tokens)) as input_tokens,
-    sum(toInt(properties.$ai_output_tokens)) as output_tokens,
-    countIf(properties.$ai_is_error = 'true') as error_count
+    properties.$ai_trace_id AS trace_id,
+    round(sumIf(toFloat(properties.$ai_total_cost_usd),
+                event IN ('$ai_generation', '$ai_embedding')), 10) AS total_cost,
+    round(
+        coalesce(
+            -- The root $ai_trace event reports the wall-clock latency of the whole trace.
+            nullIf(maxIf(toFloat(properties.$ai_latency),
+                         event = '$ai_trace' AND toFloat(properties.$ai_latency) > 0), 0),
+            CASE
+                WHEN countIf(toFloat(properties.$ai_latency) > 0 AND event != '$ai_generation') = 0
+                     AND countIf(toFloat(properties.$ai_latency) > 0 AND event = '$ai_generation') > 0
+                THEN sumIf(toFloat(properties.$ai_latency),
+                           event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0)
+                ELSE sumIf(toFloat(properties.$ai_latency),
+                           properties.$ai_parent_id IS NULL
+                           OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id))
+            END
+        ), 2
+    ) AS latency,
+    countIf(event = '$ai_trace' AND toFloat(properties.$ai_latency) > 0) > 0 AS has_root_latency,
+    sumIf(toInt(properties.$ai_input_tokens),
+          event IN ('$ai_generation', '$ai_embedding')) AS input_tokens,
+    sumIf(toInt(properties.$ai_output_tokens),
+          event IN ('$ai_generation', '$ai_embedding')) AS output_tokens,
+    countIf(isNotNull(properties.$ai_error) OR properties.$ai_is_error = 'true') AS error_count
 FROM events
-WHERE event IN ('$ai_generation', '$ai_embedding', '$ai_span')
+WHERE event IN ('$ai_trace', '$ai_generation', '$ai_embedding', '$ai_span')
     AND timestamp >= parseDateTimeBestEffort('<window_start>')
     AND timestamp <= parseDateTimeBestEffort('<window_end>')
     AND properties.$ai_trace_id IN ('<trace_id_1>', '<trace_id_2>', ...)
 GROUP BY trace_id
 ```
+
+How `latency` is resolved, in order:
+
+1. A positive `$ai_latency` on the root `$ai_trace` event. This is the measured wall-clock duration of the trace.
+2. If no root latency exists and only generations carry latency, the sum of the generation latencies.
+3. Otherwise, the sum of the latencies on the trace's direct children (events with no `$ai_parent_id`, or a parent equal to the trace ID).
+
+Steps 2 and 3 are approximations.
+They overstate the duration when children ran in parallel, and they count a nested event that has no `$ai_parent_id` as a direct child.
+Use `has_root_latency` to tell measured durations from approximations, and mention approximations when you compare clusters.
+
+Do not use `max($ai_latency)` across child events as the trace latency.
+It returns the longest single step, not the trace duration.
+For example, a trace runs three root-level spans one after another: 12 s, 9 s, and 6 s, with some time between them.
+Its `$ai_trace` event reports 30 s.
+`max` returns 12 s and the recipe above returns 30 s.
+Cluster averages built from `max` understate latency and can put the clusters in the wrong order.
+
+Cost and tokens only sum `$ai_generation` and `$ai_embedding` events, the same as the trace view.
+The query reads `$ai_trace` and `$ai_span` events for latency only, so their properties cannot count the same spend twice.
+The trace window bounds can cut off the root `$ai_trace` event, because it is usually the last event of the trace.
+If `has_root_latency` is false for traces that should have one, widen `<window_end>` a little.
 
 For generation-level clusters, match by event UUID:
 
@@ -175,7 +282,9 @@ WHERE event = '$ai_generation'
     AND uuid IN ('<gen_uuid_1>', '<gen_uuid_2>', ...)
 ```
 
-For evaluation-level clusters, first check each cluster's `metrics` field from `$ai_clusters` (for example pass rate, N/A rate, dominant evaluator name, and average judge cost). When you need individual evaluation rows, match by event UUID:
+For evaluation-level clusters, first check each cluster's metrics from Step 2 (for example pass rate, N/A rate, dominant evaluator name, and average judge cost).
+Retrieve specific fields when the preview is incomplete.
+When you need individual evaluation rows, match by event UUID:
 
 ```sql
 posthog:execute-sql
@@ -232,7 +341,7 @@ ORDER BY trace_id, timestamp
 ```
 
 `posthog.ai_events` has a shorter retention window than `events`; older clusters may still have metadata and metrics but no message content.
-For more detail, use the exploring LLM traces skill's [event reference](../exploring-llm-traces/references/events-and-properties.md).
+For the full `$ai_*` event schema, load the `exploring-llm-traces` skill.
 
 ## Investigation patterns
 
@@ -253,8 +362,8 @@ For more detail, use the exploring LLM traces skill's [event reference](../explo
 
 ### "What's in this cluster?"
 
-1. Load the cluster's traces (from the `traces` field)
-2. Sort by `rank` (closest to centroid = most representative)
+1. Load the cluster's ranked members (Step 2)
+2. Use the lowest `rank` values (closest to centroid = most representative)
 3. Inspect the top 3-5 traces via `query-llm-trace` to understand the pattern
 4. Check the cluster `title` and `description` for the AI-generated summary
 
@@ -264,6 +373,7 @@ For more detail, use the exploring LLM traces skill's [event reference](../explo
 2. Calculate error rate per cluster: `items_with_errors / total_items`
 3. Focus on clusters with high error rates
 4. Drill into errored traces to find root causes
+5. If a cluster shows a failure that keeps recurring, offer to catch it with an online evaluation scoped to that cluster (`creating-online-evaluations`)
 
 ### "How do clusters compare across runs?"
 

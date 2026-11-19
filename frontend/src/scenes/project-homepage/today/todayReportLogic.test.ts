@@ -1,4 +1,6 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -12,6 +14,8 @@ import { SignalReport, SignalReportStatus } from 'products/signals/frontend/inbo
 import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 
 import { todayReportLogic } from './todayReportLogic'
+import { todayReportQueueLogic } from './todayReportQueueLogic'
+import { todayVerdictLogic } from './todayVerdictLogic'
 
 const PAGE: ReportPageApi = {
     lead: 'Checkout fails for Safari users.',
@@ -26,6 +30,115 @@ const PAGE: ReportPageApi = {
 }
 
 describe('todayReportLogic', () => {
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
+    test.each([
+        [
+            'a direct page load as a deep-link with its link source',
+            '/project/997/home/reports/b?link_source=today',
+            false,
+            false,
+            'b',
+            1,
+            [
+                expect.objectContaining({
+                    report_id: 'b',
+                    surface: 'today',
+                    open_method: 'deeplink',
+                    link_source: 'today',
+                    list: null,
+                    rank: null,
+                    list_size: null,
+                }),
+            ],
+        ],
+        [
+            'a step onto the prefetched next report with its queue position',
+            '/project/997/home/reports/a',
+            true,
+            true,
+            'b',
+            1,
+            [
+                expect.objectContaining({
+                    report_id: 'b',
+                    surface: 'today',
+                    open_method: 'click',
+                    source: 'step',
+                    rank: 2,
+                    list_size: 2,
+                }),
+            ],
+        ],
+        [
+            'one open for each visit before the report loads',
+            '/project/997/home/reports/b?link_source=today',
+            false,
+            false,
+            'b',
+            2,
+            [
+                expect.objectContaining({
+                    report_id: 'b',
+                    open_method: 'deeplink',
+                    link_source: 'today',
+                }),
+                expect.objectContaining({
+                    report_id: 'b',
+                    open_method: 'deeplink',
+                    link_source: null,
+                }),
+            ],
+        ],
+        ['no open for a sample report', '/project/997/home/reports/sample-pr', false, false, 'sample-pr', 1, []],
+    ])('sends %s', async (_, path, step, prefetched, reportId, visits, opens) => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/': {
+                    results: [makeReport({ id: 'a' }), makeReport({ id: 'b' })],
+                    count: 2,
+                },
+                '/api/projects/:team_id/signals/reports/:id/': ({ params }) => [
+                    200,
+                    makeReport({ id: params.id as string }),
+                ],
+                '/api/projects/:team_id/today/reports/:id/page/': () => [200, PAGE],
+                '/api/projects/:team_id/today/briefing/': () => [404, {}],
+            },
+        })
+        initKeaTests()
+        const capture = jest.spyOn(posthog, 'capture')
+        const sentOpens = (): unknown[] =>
+            capture.mock.calls.filter(([event]) => event === 'Inbox report opened').map(([, props]) => props)
+        const queueLogic = todayReportQueueLogic()
+        queueLogic.mount()
+        router.actions.push(path)
+        await expectLogic(queueLogic).toFinishAllListeners()
+
+        const logic = todayReportLogic({ reportId })
+        logic.mount()
+        if (prefetched) {
+            await expectLogic(logic).toDispatchActions(['loadFullReportSuccess']).toFinishAllListeners()
+        }
+        // The report page prefetches its neighbors, and a prefetch is not a visit.
+        expect(sentOpens()).toEqual([])
+        if (step) {
+            queueLogic.actions.openAdjacentReport(1)
+        }
+        for (let visit = 0; visit < visits; visit++) {
+            logic.actions.reportVisited()
+        }
+        await expectLogic(logic)
+            .toDispatchActions(prefetched ? [] : ['loadFullReportSuccess'])
+            .toFinishAllListeners()
+
+        expect(sentOpens()).toEqual(opens)
+        // A copied address bar must not carry the link source to the next reader.
+        expect(router.values.searchParams.link_source).toBeUndefined()
+    })
+
     test.each([
         [
             'implements a report that is ready to act on',
@@ -45,7 +158,6 @@ describe('todayReportLogic', () => {
             get: {
                 '/api/projects/:team_id/signals/reports/:id/': () => [200, report],
                 '/api/projects/:team_id/today/reports/:id/page/': () => [200, PAGE],
-                '/api/projects/:team_id/today/briefing/': () => [404, {}],
             },
         })
         initKeaTests()
@@ -66,6 +178,29 @@ describe('todayReportLogic', () => {
             .toNotHaveDispatchedActions([other])
     })
 
+    // A verdict that timed out can still have saved, so the page must not keep showing the old state.
+    test.each([
+        { failedReportId: 'report-a', fetches: 2 },
+        { failedReportId: 'report-b', fetches: 1 },
+    ])('a failed verdict on $failedReportId fetches report-a $fetches times', async ({ failedReportId, fetches }) => {
+        const reportGet = jest.fn(() => [200, makeReport({ id: 'report-a' })])
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/:id/': reportGet,
+                '/api/projects/:team_id/today/reports/:id/page/': () => [200, PAGE],
+            },
+        })
+        initKeaTests()
+        const logic = todayReportLogic({ reportId: 'report-a' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadFullReportSuccess']).toFinishAllListeners()
+
+        todayVerdictLogic.actions.setReportVerdictFailure(failedReportId)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(reportGet).toHaveBeenCalledTimes(fetches)
+    })
+
     test('asks Jev once per mark while a request is in flight and hides the marks when the flag turns off', async () => {
         const report = makeReport({ actionability: 'immediately_actionable', status: SignalReportStatus.READY })
         const calls = { keyClauses: 0, figureMarks: 0 }
@@ -73,7 +208,6 @@ describe('todayReportLogic', () => {
             get: {
                 '/api/projects/:team_id/signals/reports/:id/': () => [200, report],
                 '/api/projects/:team_id/today/reports/:id/page/': () => [200, PAGE],
-                '/api/projects/:team_id/today/briefing/': () => [404, {}],
                 '/api/projects/:team_id/today/reports/:id/figure_marks/': () => {
                     calls.figureMarks += 1
                     return [200, { marks: [] }]

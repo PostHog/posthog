@@ -1,4 +1,4 @@
-import { EntityTypes, type FunnelStepWithConversionMetrics } from '~/types'
+import { type FunnelStepWithConversionMetrics } from '~/types'
 
 import {
     buildFunnelBarHorizontalCompareData,
@@ -7,6 +7,7 @@ import {
     type FunnelBarHorizontalStepData,
     FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
     FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX,
+    mergeFunnelBarHorizontalRows,
     resolveFunnelBarHorizontalHover,
 } from './funnelBarHorizontalTransforms'
 
@@ -23,13 +24,11 @@ function makeStep({
     ...overrides
 }: StepOverrides): FunnelStepWithConversionMetrics {
     return {
-        action_id: 'action',
         average_conversion_time: null,
         median_conversion_time: null,
         count: 0,
         name: 'Step',
         order: 0,
-        type: EntityTypes.EVENTS,
         converted_people_url: '',
         dropped_people_url: null,
         droppedOffFromPrevious: 0,
@@ -769,6 +768,48 @@ describe('buildFunnelBarHorizontalData', () => {
                 `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}1`,
                 FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
             ])
+        })
+    })
+
+    describe('mergeFunnelBarHorizontalRows', () => {
+        it('stacks each row in one chart, with the drop-off last and the row meta per bar', () => {
+            const segment = (breakdownIndex: number, value: number): FunnelBarHorizontalStepData['series'][number] => ({
+                key: `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}${breakdownIndex}`,
+                label: `value ${breakdownIndex}`,
+                data: [value],
+                meta: { isDropOff: false, breakdownIndex },
+            })
+            const dropOff = (
+                value: number,
+                entry: number,
+                compareLabel: 'current' | 'previous'
+            ): FunnelBarHorizontalStepData['series'][number] => ({
+                key: FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
+                label: 'Drop-off',
+                data: [value],
+                trackData: [entry],
+                meta: { isDropOff: true, breakdownIndex: null, compareLabel },
+            })
+            // The previous period's segment key first appears after the current period's drop-off.
+            const rows: FunnelBarHorizontalStepData[] = [
+                { label: '0', series: [segment(0, 60), dropOff(40, 100, 'current')] },
+                { label: '0', series: [segment(1, 50), dropOff(30, 80, 'previous')] },
+            ]
+
+            const merged = mergeFunnelBarHorizontalRows(rows)
+
+            expect(merged.map((s) => s.key)).toEqual([
+                `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}0`,
+                `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}1`,
+                FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
+            ])
+            expect(merged.map((s) => s.data)).toEqual([
+                [60, 0],
+                [0, 50],
+                [40, 30],
+            ])
+            expect(merged[2].trackData).toEqual([100, 80])
+            expect(merged[2].bars?.map((bar) => bar.meta?.compareLabel)).toEqual(['current', 'previous'])
         })
     })
 })

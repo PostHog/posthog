@@ -4,7 +4,7 @@
 # To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Error tracking alerts
 feature: error_tracking
-url_prefix: /error_tracking
+url_prefix: /error-tracking
 ui_apps: {}
 tools:
     error-tracking-alerts-create:
@@ -97,7 +97,7 @@ tools:
                      {"type": "divider"},
                      {"type": "actions", "elements": [
                        {"type": "button", "text": {"type": "plain_text", "text": "View Issue"},
-                        "url": "{project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"}
+                        "url": "{project.url}/error-tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"}
                      ]}
                    ]}
                  }

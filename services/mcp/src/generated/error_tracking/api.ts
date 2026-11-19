@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 28 enabled ops
+ * PostHog API - MCP 35 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -102,6 +102,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -162,6 +163,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -219,6 +221,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -276,6 +279,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -332,6 +336,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -388,6 +393,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -415,6 +421,16 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             .optional(),
                     }),
                     zod.object({
+                        cohort_deleted: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe('Set by the feature flag API when the cohort is deleted or does not exist.'),
+                        cohort_missing: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                            ),
                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
@@ -449,6 +465,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -500,6 +517,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -556,6 +574,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -614,6 +633,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -670,6 +690,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -763,6 +784,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -819,6 +841,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -875,6 +898,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -931,6 +955,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -985,6 +1010,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -1041,6 +1067,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -1095,6 +1122,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -1151,6 +1179,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -1210,6 +1239,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -1273,6 +1303,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -1337,6 +1368,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1396,6 +1428,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1454,6 +1487,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1554,6 +1588,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -1706,6 +1741,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -1766,6 +1802,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -1823,6 +1860,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -1880,6 +1918,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -1936,6 +1975,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -1992,6 +2032,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -2019,6 +2060,16 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             .optional(),
                     }),
                     zod.object({
+                        cohort_deleted: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe('Set by the feature flag API when the cohort is deleted or does not exist.'),
+                        cohort_missing: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                            ),
                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
@@ -2053,6 +2104,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -2104,6 +2156,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -2160,6 +2213,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -2218,6 +2272,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -2274,6 +2329,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -2367,6 +2423,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -2423,6 +2480,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -2479,6 +2537,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -2535,6 +2594,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -2589,6 +2649,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -2645,6 +2706,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -2699,6 +2761,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -2755,6 +2818,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -2814,6 +2878,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -2877,6 +2942,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -2941,6 +3007,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3000,6 +3067,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3058,6 +3126,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3158,6 +3227,7 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -3281,6 +3351,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -3341,6 +3412,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -3398,6 +3470,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -3455,6 +3528,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -3511,6 +3585,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -3567,6 +3642,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -3594,6 +3670,16 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             .optional(),
                     }),
                     zod.object({
+                        cohort_deleted: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe('Set by the feature flag API when the cohort is deleted or does not exist.'),
+                        cohort_missing: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                            ),
                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
@@ -3628,6 +3714,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -3679,6 +3766,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -3735,6 +3823,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -3793,6 +3882,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -3849,6 +3939,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -3942,6 +4033,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -3998,6 +4090,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -4054,6 +4147,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -4110,6 +4204,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -4164,6 +4259,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -4220,6 +4316,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -4274,6 +4371,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -4330,6 +4428,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -4389,6 +4488,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -4452,6 +4552,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -4516,6 +4617,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4575,6 +4677,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4633,6 +4736,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4733,6 +4837,7 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -4799,6 +4904,31 @@ export const ErrorTrackingExternalReferencesCreateBody = () => zod
         issue: zod.string().describe('ID of the error tracking issue to link the reference to.'),
     })
     .describe('Payload for creating a new provider issue and linking it to an error tracking issue.')
+
+/**
+ * Link an error to an issue that already exists in the connected provider.
+ */
+export const ErrorTrackingExternalReferencesLinkIssueCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ErrorTrackingExternalReferencesLinkIssueCreateBody = () => zod.object({
+    integration_id: zod
+        .number()
+        .describe(
+            "ID of the connected integration the existing issue lives in (one of 'github', 'gitlab', 'linear', 'jira')."
+        ),
+    issue: zod.string().describe('ID of the error tracking issue to link the reference to.'),
+    external_context: zod
+        .record(zod.string(), zod.unknown())
+        .describe(
+            "Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue."
+        ),
+})
 
 export const ErrorTrackingGroupingRulesListParams = () => zod.object({
     project_id: zod
@@ -4888,6 +5018,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -4948,6 +5079,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -5005,6 +5137,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -5062,6 +5195,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -5118,6 +5252,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -5174,6 +5309,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -5201,6 +5337,16 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             .optional(),
                     }),
                     zod.object({
+                        cohort_deleted: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe('Set by the feature flag API when the cohort is deleted or does not exist.'),
+                        cohort_missing: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                            ),
                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
@@ -5235,6 +5381,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -5286,6 +5433,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -5342,6 +5490,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -5400,6 +5549,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -5456,6 +5606,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -5549,6 +5700,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -5605,6 +5757,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -5661,6 +5814,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -5717,6 +5871,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -5771,6 +5926,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -5827,6 +5983,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -5881,6 +6038,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -5937,6 +6095,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -5996,6 +6155,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -6059,6 +6219,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -6123,6 +6284,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -6182,6 +6344,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -6240,6 +6403,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -6340,6 +6504,7 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -6483,6 +6648,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -6543,6 +6709,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 'in',
                                 'not_in',
                                 'is_cleaned_path_exact',
+                                'is_cleaned_path_not_exact',
                                 'flag_evaluates_to',
                                 'semver_eq',
                                 'semver_neq',
@@ -6600,6 +6767,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 'in',
                                 'not_in',
                                 'is_cleaned_path_exact',
+                                'is_cleaned_path_not_exact',
                                 'flag_evaluates_to',
                                 'semver_eq',
                                 'semver_neq',
@@ -6659,6 +6827,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 'in',
                                 'not_in',
                                 'is_cleaned_path_exact',
+                                'is_cleaned_path_not_exact',
                                 'flag_evaluates_to',
                                 'semver_eq',
                                 'semver_neq',
@@ -6715,6 +6884,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 'in',
                                 'not_in',
                                 'is_cleaned_path_exact',
+                                'is_cleaned_path_not_exact',
                                 'flag_evaluates_to',
                                 'semver_eq',
                                 'semver_neq',
@@ -6771,6 +6941,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 'in',
                                 'not_in',
                                 'is_cleaned_path_exact',
+                                'is_cleaned_path_not_exact',
                                 'flag_evaluates_to',
                                 'semver_eq',
                                 'semver_neq',
@@ -6798,6 +6969,16 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 .optional(),
                         }),
                         zod.object({
+                            cohort_deleted: zod
+                                .union([zod.boolean(), zod.null()])
+                                .optional()
+                                .describe('Set by the feature flag API when the cohort is deleted or does not exist.'),
+                            cohort_missing: zod
+                                .union([zod.boolean(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                ),
                             cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                             key: zod
                                 .literal('id')
@@ -6832,6 +7013,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -6886,6 +7068,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 'in',
                                 'not_in',
                                 'is_cleaned_path_exact',
+                                'is_cleaned_path_not_exact',
                                 'flag_evaluates_to',
                                 'semver_eq',
                                 'semver_neq',
@@ -6942,6 +7125,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 'in',
                                 'not_in',
                                 'is_cleaned_path_exact',
+                                'is_cleaned_path_not_exact',
                                 'flag_evaluates_to',
                                 'semver_eq',
                                 'semver_neq',
@@ -7000,6 +7184,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 'in',
                                 'not_in',
                                 'is_cleaned_path_exact',
+                                'is_cleaned_path_not_exact',
                                 'flag_evaluates_to',
                                 'semver_eq',
                                 'semver_neq',
@@ -7056,6 +7241,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 'in',
                                 'not_in',
                                 'is_cleaned_path_exact',
+                                'is_cleaned_path_not_exact',
                                 'flag_evaluates_to',
                                 'semver_eq',
                                 'semver_neq',
@@ -7151,6 +7337,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 'in',
                                 'not_in',
                                 'is_cleaned_path_exact',
+                                'is_cleaned_path_not_exact',
                                 'flag_evaluates_to',
                                 'semver_eq',
                                 'semver_neq',
@@ -7207,6 +7394,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 'in',
                                 'not_in',
                                 'is_cleaned_path_exact',
+                                'is_cleaned_path_not_exact',
                                 'flag_evaluates_to',
                                 'semver_eq',
                                 'semver_neq',
@@ -7263,6 +7451,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 'in',
                                 'not_in',
                                 'is_cleaned_path_exact',
+                                'is_cleaned_path_not_exact',
                                 'flag_evaluates_to',
                                 'semver_eq',
                                 'semver_neq',
@@ -7319,6 +7508,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 'in',
                                 'not_in',
                                 'is_cleaned_path_exact',
+                                'is_cleaned_path_not_exact',
                                 'flag_evaluates_to',
                                 'semver_eq',
                                 'semver_neq',
@@ -7373,6 +7563,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 'in',
                                 'not_in',
                                 'is_cleaned_path_exact',
+                                'is_cleaned_path_not_exact',
                                 'flag_evaluates_to',
                                 'semver_eq',
                                 'semver_neq',
@@ -7429,6 +7620,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 'in',
                                 'not_in',
                                 'is_cleaned_path_exact',
+                                'is_cleaned_path_not_exact',
                                 'flag_evaluates_to',
                                 'semver_eq',
                                 'semver_neq',
@@ -7483,6 +7675,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 'in',
                                 'not_in',
                                 'is_cleaned_path_exact',
+                                'is_cleaned_path_not_exact',
                                 'flag_evaluates_to',
                                 'semver_eq',
                                 'semver_neq',
@@ -7539,6 +7732,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 'in',
                                 'not_in',
                                 'is_cleaned_path_exact',
+                                'is_cleaned_path_not_exact',
                                 'flag_evaluates_to',
                                 'semver_eq',
                                 'semver_neq',
@@ -7598,6 +7792,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 'in',
                                 'not_in',
                                 'is_cleaned_path_exact',
+                                'is_cleaned_path_not_exact',
                                 'flag_evaluates_to',
                                 'semver_eq',
                                 'semver_neq',
@@ -7661,6 +7856,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -7727,6 +7923,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7788,6 +7985,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7848,6 +8046,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7952,6 +8151,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -8090,8 +8290,41 @@ export const ErrorTrackingIssuesSplitCreateBody = () => zod.object({
         .describe('Fingerprints to split into new issues. Each fingerprint becomes its own new issue.'),
 })
 
+export const ErrorTrackingIssuesTagPartialUpdateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const errorTrackingIssuesTagPartialUpdateBodyKeyMax = 64
+
+export const ErrorTrackingIssuesTagPartialUpdateBody = () => zod.object({
+    key: zod
+        .string()
+        .max(errorTrackingIssuesTagPartialUpdateBodyKeyMax)
+        .optional()
+        .describe(
+            'Key of the tag to apply or remove. The tag definitions endpoint lists the tags enabled for the project.'
+        ),
+    applied: zod
+        .boolean()
+        .optional()
+        .describe('True applies the tag. False removes it and stops automatic taggers from applying it again.'),
+})
+
+export const ErrorTrackingIssuesTagDefinitionsRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
 /**
- * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline and event breakdown.
+ * Fetch one error tracking issue with impact counts, trend, top in_app frame, first and latest release, and optional sparkline and event breakdown.
  * @summary Get compact error tracking issue details
  */
 export const ErrorTrackingQueryIssueCreateParams = () => zod.object({
@@ -8375,6 +8608,12 @@ export const errorTrackingQueryIssuesListCreateBodyUrlMax = 1000
 export const errorTrackingQueryIssuesListCreateBodyFilePathMax = 1000
 
 export const ErrorTrackingQueryIssuesListCreateBody = () => zod.object({
+    firstSeenAfter: zod
+        .string()
+        .optional()
+        .describe(
+            'Only include issues first seen strictly after this ISO timestamp or relative date, such as -24h or -7d. Independent of dateRange, which filters occurrences.'
+        ),
     dateRange: zod
         .object({
             date_from: zod
@@ -8516,13 +8755,13 @@ export const ErrorTrackingQueryIssuesListCreateBody = () => zod.object({
             'Advanced flat AND property filters. Prefer typed shortcut fields when they fit. HogQL filters are rejected.'
         ),
     orderBy: zod
-        .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
+        .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions', 'severity'])
         .describe(
-            '\* `last_seen` - last_seen\n\* `first_seen` - first_seen\n\* `occurrences` - occurrences\n\* `users` - users\n\* `sessions` - sessions'
+            '\* `last_seen` - last_seen\n\* `first_seen` - first_seen\n\* `occurrences` - occurrences\n\* `users` - users\n\* `sessions` - sessions\n\* `severity` - severity'
         )
         .default(errorTrackingQueryIssuesListCreateBodyOrderByDefault)
         .describe(
-            'Field used to sort issues. Defaults to occurrences.\n\n\* `last_seen` - last_seen\n\* `first_seen` - first_seen\n\* `occurrences` - occurrences\n\* `users` - users\n\* `sessions` - sessions'
+            'Field used to sort issues. Defaults to occurrences.\n\n\* `last_seen` - last_seen\n\* `first_seen` - first_seen\n\* `occurrences` - occurrences\n\* `users` - users\n\* `sessions` - sessions\n\* `severity` - severity'
         ),
     orderDirection: zod
         .enum(['ASC', 'DESC'])
@@ -8556,7 +8795,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = () => zod.object({
         .string()
         .max(errorTrackingQueryIssuesListCreateBodyReleaseMax)
         .optional()
-        .describe('Filter by exact release ID, version, or git commit ID captured in $exception_releases.'),
+        .describe('Filter by exact release ID, version, or git commit ID captured in $exception_release.'),
     fingerprint: zod
         .union([zod.string(), zod.array(zod.string()).min(1)])
         .optional()
@@ -8610,6 +8849,10 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateParams = () => zod.
 })
 
 export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = () => zod.object({
+    adaptive_ingestion_enabled: zod
+        .boolean()
+        .optional()
+        .describe('Project preference for adaptive ingestion. Turning this on does not currently change ingestion.'),
     project_rate_limit_value: zod
         .number()
         .min(1)
@@ -8634,6 +8877,18 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = () => zod.ob
         .min(1)
         .nullish()
         .describe('Bucket window over which the per-issue rate limit applies, in minutes.'),
+    ingestion_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered.'
+        ),
+    ai_issue_summaries_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds."
+        ),
 })
 
 export const ErrorTrackingSeverityRulesListParams = () => zod.object({
@@ -8725,6 +8980,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -8785,6 +9041,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -8842,6 +9099,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -8899,6 +9157,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -8955,6 +9214,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -9011,6 +9271,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -9038,6 +9299,16 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             .optional(),
                     }),
                     zod.object({
+                        cohort_deleted: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe('Set by the feature flag API when the cohort is deleted or does not exist.'),
+                        cohort_missing: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                            ),
                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
@@ -9072,6 +9343,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -9123,6 +9395,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -9179,6 +9452,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -9237,6 +9511,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -9293,6 +9568,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -9386,6 +9662,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -9442,6 +9719,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -9498,6 +9776,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -9554,6 +9833,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -9608,6 +9888,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -9664,6 +9945,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -9718,6 +10000,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -9774,6 +10057,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -9833,6 +10117,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -9896,6 +10181,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -9960,6 +10246,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -10019,6 +10306,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -10077,6 +10365,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -10177,6 +10466,7 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -10308,6 +10598,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -10368,6 +10659,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -10425,6 +10717,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -10482,6 +10775,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -10538,6 +10832,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -10594,6 +10889,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -10621,6 +10917,16 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             .optional(),
                     }),
                     zod.object({
+                        cohort_deleted: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe('Set by the feature flag API when the cohort is deleted or does not exist.'),
+                        cohort_missing: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                            ),
                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
@@ -10655,6 +10961,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -10706,6 +11013,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -10762,6 +11070,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -10820,6 +11129,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -10876,6 +11186,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -10969,6 +11280,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -11025,6 +11337,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -11081,6 +11394,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -11137,6 +11451,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -11191,6 +11506,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -11247,6 +11563,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -11301,6 +11618,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -11357,6 +11675,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -11416,6 +11735,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -11479,6 +11799,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -11543,6 +11864,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -11602,6 +11924,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -11660,6 +11983,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -11760,6 +12084,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -11904,6 +12229,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -11964,6 +12290,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -12021,6 +12348,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -12078,6 +12406,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -12134,6 +12463,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -12190,6 +12520,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -12217,6 +12548,16 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             .optional(),
                     }),
                     zod.object({
+                        cohort_deleted: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe('Set by the feature flag API when the cohort is deleted or does not exist.'),
+                        cohort_missing: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                            ),
                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
@@ -12251,6 +12592,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -12302,6 +12644,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -12358,6 +12701,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -12416,6 +12760,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -12472,6 +12817,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -12565,6 +12911,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -12621,6 +12968,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -12677,6 +13025,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -12733,6 +13082,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -12787,6 +13137,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -12843,6 +13194,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -12897,6 +13249,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -12953,6 +13306,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -13012,6 +13366,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -13075,6 +13430,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -13139,6 +13495,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -13198,6 +13555,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -13256,6 +13614,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -13356,6 +13715,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -13490,6 +13850,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -13550,6 +13911,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -13607,6 +13969,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -13664,6 +14027,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -13720,6 +14084,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -13776,6 +14141,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -13803,6 +14169,16 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             .optional(),
                     }),
                     zod.object({
+                        cohort_deleted: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe('Set by the feature flag API when the cohort is deleted or does not exist.'),
+                        cohort_missing: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                            ),
                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
@@ -13837,6 +14213,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -13888,6 +14265,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -13944,6 +14322,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -14002,6 +14381,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -14058,6 +14438,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -14151,6 +14532,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -14207,6 +14589,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -14263,6 +14646,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -14319,6 +14703,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -14373,6 +14758,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -14429,6 +14815,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -14483,6 +14870,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -14539,6 +14927,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -14598,6 +14987,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             'in',
                             'not_in',
                             'is_cleaned_path_exact',
+                            'is_cleaned_path_not_exact',
                             'flag_evaluates_to',
                             'semver_eq',
                             'semver_neq',
@@ -14661,6 +15051,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -14725,6 +15116,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -14784,6 +15176,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -14842,6 +15235,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -14942,6 +15336,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -15001,10 +15396,16 @@ export const ErrorTrackingSymbolSetsListParams = () => zod.object({
         ),
 })
 
+export const errorTrackingSymbolSetsListQueryLimitMax = 100
+
 export const errorTrackingSymbolSetsListQueryStatusDefault = `all`
 
 export const ErrorTrackingSymbolSetsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(errorTrackingSymbolSetsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .string()
@@ -15042,6 +15443,386 @@ export const ErrorTrackingSymbolSetsRetrieveParams = () => zod.object({
  * Return a presigned URL for downloading the symbol set's source map.
  */
 export const ErrorTrackingSymbolSetsDownloadRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ErrorTrackingTagRulesListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ErrorTrackingTagRulesCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const errorTrackingTagRulesCreateBodyLabelMax = 128
+
+export const errorTrackingTagRulesCreateBodyDescriptionDefault = ``
+export const errorTrackingTagRulesCreateBodyDescriptionMax = 1000
+
+export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemOneValuesItemOperatorDefault = `exact`
+export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemOneValuesItemTypeDefault = `event`
+export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
+export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemTwoTypeDefault = `event`
+export const errorTrackingTagRulesCreateBodyOrderKeyDefault = 0
+export const errorTrackingTagRulesCreateBodyOrderKeyMin = -2147483648
+export const errorTrackingTagRulesCreateBodyOrderKeyMax = 2147483647
+
+export const ErrorTrackingTagRulesCreateBody = () => zod.object({
+    label: zod
+        .string()
+        .max(errorTrackingTagRulesCreateBodyLabelMax)
+        .describe('Display name of the tag the rule applies to each new issue whose first event matches the filters.'),
+    description: zod
+        .string()
+        .max(errorTrackingTagRulesCreateBodyDescriptionMax)
+        .default(errorTrackingTagRulesCreateBodyDescriptionDefault)
+        .describe('What the tag means. Shown with the tag. Defaults to empty.'),
+    filters: zod
+        .object({
+            type: zod.enum(['AND', 'OR']),
+            values: zod.array(
+                zod.union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod
+                                    .union([
+                                        zod.enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                            'is_set',
+                                            'is_not_set',
+                                            'is_date_exact',
+                                            'is_date_before',
+                                            'is_date_after',
+                                            'between',
+                                            'not_between',
+                                            'min',
+                                            'max',
+                                            'in',
+                                            'not_in',
+                                            'is_cleaned_path_exact',
+                                            'is_cleaned_path_not_exact',
+                                            'flag_evaluates_to',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                            'icontains_multi',
+                                            'not_icontains_multi',
+                                        ]),
+                                        zod.null(),
+                                    ])
+                                    .default(
+                                        errorTrackingTagRulesCreateBodyFiltersOneValuesItemOneValuesItemOperatorDefault
+                                    ),
+                                type: zod
+                                    .literal('event')
+                                    .default(
+                                        errorTrackingTagRulesCreateBodyFiltersOneValuesItemOneValuesItemTypeDefault
+                                    )
+                                    .describe('Event properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            })
+                        ),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod
+                            .union([
+                                zod.enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'gte',
+                                    'lt',
+                                    'lte',
+                                    'is_set',
+                                    'is_not_set',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'between',
+                                    'not_between',
+                                    'min',
+                                    'max',
+                                    'in',
+                                    'not_in',
+                                    'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
+                                    'flag_evaluates_to',
+                                    'semver_eq',
+                                    'semver_neq',
+                                    'semver_gt',
+                                    'semver_gte',
+                                    'semver_lt',
+                                    'semver_lte',
+                                    'semver_tilde',
+                                    'semver_caret',
+                                    'semver_wildcard',
+                                    'icontains_multi',
+                                    'not_icontains_multi',
+                                ]),
+                                zod.null(),
+                            ])
+                            .default(errorTrackingTagRulesCreateBodyFiltersOneValuesItemTwoOperatorDefault),
+                        type: zod
+                            .literal('event')
+                            .default(errorTrackingTagRulesCreateBodyFiltersOneValuesItemTwoTypeDefault)
+                            .describe('Event properties'),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                ])
+            ),
+        })
+        .describe(
+            'Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected.'
+        ),
+    order_key: zod
+        .number()
+        .min(errorTrackingTagRulesCreateBodyOrderKeyMin)
+        .max(errorTrackingTagRulesCreateBodyOrderKeyMax)
+        .default(errorTrackingTagRulesCreateBodyOrderKeyDefault)
+        .describe('Position in the list of tag rules. Lower values come first. Defaults to 0.'),
+})
+
+export const ErrorTrackingTagRulesPartialUpdateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const errorTrackingTagRulesPartialUpdateBodyLabelMax = 128
+
+export const errorTrackingTagRulesPartialUpdateBodyDescriptionMax = 1000
+
+export const errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemOneValuesItemOperatorDefault = `exact`
+export const errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemOneValuesItemTypeDefault = `event`
+export const errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
+export const errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemTwoTypeDefault = `event`
+
+export const ErrorTrackingTagRulesPartialUpdateBody = () => zod.object({
+    label: zod
+        .string()
+        .max(errorTrackingTagRulesPartialUpdateBodyLabelMax)
+        .optional()
+        .describe('Replacement display name for the tag. Omit to keep the existing label.'),
+    description: zod
+        .string()
+        .max(errorTrackingTagRulesPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('Replacement description. Omit to keep the existing description.'),
+    filters: zod
+        .object({
+            type: zod.enum(['AND', 'OR']),
+            values: zod.array(
+                zod.union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod
+                                    .union([
+                                        zod.enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                            'is_set',
+                                            'is_not_set',
+                                            'is_date_exact',
+                                            'is_date_before',
+                                            'is_date_after',
+                                            'between',
+                                            'not_between',
+                                            'min',
+                                            'max',
+                                            'in',
+                                            'not_in',
+                                            'is_cleaned_path_exact',
+                                            'is_cleaned_path_not_exact',
+                                            'flag_evaluates_to',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                            'icontains_multi',
+                                            'not_icontains_multi',
+                                        ]),
+                                        zod.null(),
+                                    ])
+                                    .default(
+                                        errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemOneValuesItemOperatorDefault
+                                    ),
+                                type: zod
+                                    .literal('event')
+                                    .default(
+                                        errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemOneValuesItemTypeDefault
+                                    )
+                                    .describe('Event properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            })
+                        ),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod
+                            .union([
+                                zod.enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'gte',
+                                    'lt',
+                                    'lte',
+                                    'is_set',
+                                    'is_not_set',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'between',
+                                    'not_between',
+                                    'min',
+                                    'max',
+                                    'in',
+                                    'not_in',
+                                    'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
+                                    'flag_evaluates_to',
+                                    'semver_eq',
+                                    'semver_neq',
+                                    'semver_gt',
+                                    'semver_gte',
+                                    'semver_lt',
+                                    'semver_lte',
+                                    'semver_tilde',
+                                    'semver_caret',
+                                    'semver_wildcard',
+                                    'icontains_multi',
+                                    'not_icontains_multi',
+                                ]),
+                                zod.null(),
+                            ])
+                            .default(errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemTwoOperatorDefault),
+                        type: zod
+                            .literal('event')
+                            .default(errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemTwoTypeDefault)
+                            .describe('Event properties'),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                ])
+            ),
+        })
+        .optional()
+        .describe(
+            'Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags.'
+        ),
+})
+
+export const ErrorTrackingTagRulesDestroyParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()

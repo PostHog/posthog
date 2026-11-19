@@ -35,7 +35,6 @@ export const KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ = `${prefix}session_recor
 // write session recording and replay events to ClickHouse
 export const KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS = `${prefix}clickhouse_session_recording_events${suffix}`
 export const KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS = `${prefix}clickhouse_session_replay_events${suffix}`
-export const KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES = `${prefix}clickhouse_session_replay_features${suffix}`
 
 // anonymized block metadata mirrored to the ML account (consumed by the Parquet sink, not ClickHouse)
 export const KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA = `${prefix}session_replay_ml_block_metadata${suffix}`
@@ -55,6 +54,11 @@ export const KAFKA_SESSION_REPLAY_IMAGE_FETCH = `${prefix}session_replay_image_f
 export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M = `${prefix}ai_research_session_replay_image_fetch_retry_1m${suffix}`
 export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M = `${prefix}ai_research_session_replay_image_fetch_retry_10m${suffix}`
 export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H = `${prefix}ai_research_session_replay_image_fetch_retry_1h${suffix}`
+// The v4 image fetch lane: remote image URLs from the v4 recorder, and their delay tiers.
+export const KAFKA_AI_RESEARCH_V4_IMAGE_FETCH = `${prefix}ai_research_v4_image_fetch${suffix}`
+export const KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_RETRY_1M = `${prefix}ai_research_v4_image_fetch_retry_1m${suffix}`
+export const KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_RETRY_10M = `${prefix}ai_research_v4_image_fetch_retry_10m${suffix}`
+export const KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_RETRY_1H = `${prefix}ai_research_v4_image_fetch_retry_1h${suffix}`
 
 // images the scrub sidecar cannot process, parked so they stop holding the head of their partition.
 // The original bytes are kept: unscrubbed content must never reach the ML bucket, but it must not be
@@ -77,6 +81,9 @@ export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
 // per-invocation result rows for hog functions and hog flows
 export const KAFKA_HOG_INVOCATION_RESULTS = `${prefix}clickhouse_hog_invocation_results${suffix}`
 
+// one row per status change of a transactional email, for the email_status ClickHouse table
+export const KAFKA_EMAIL_STATUS = `${prefix}clickhouse_email_status${suffix}`
+
 // metadata rows for sent message assets (rendered emails stored in object storage)
 export const KAFKA_MESSAGE_ASSETS = `${prefix}clickhouse_message_assets${suffix}`
 
@@ -88,6 +95,11 @@ export const KAFKA_CDP_INTERNAL_EVENTS = `${prefix}cdp_internal_events${suffix}`
 // those after a forward fix. One topic per consumer, so a replay never touches another consumer's
 // records. It carries full event payloads, so retention is bounded the way the source topic is.
 export const KAFKA_CDP_EVENTS_DLQ = `${prefix}cdp_events_dlq${suffix}`
+export const KAFKA_CDP_SES_WEBHOOKS = `${prefix}cdp_ses_webhooks${suffix}`
+export const KAFKA_CDP_INTAKE_TRANSACTIONAL_EMAIL = `${prefix}cdp_intake_transactional_email${suffix}`
+export const KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK = `${prefix}cdp_intake_workflow_webhook${suffix}`
+// One dead-letter topic for both intake topics. A record holds the original message bytes and a fixed reason code.
+export const KAFKA_CDP_INTAKE_DLQ = `${prefix}cdp_intake_dlq${suffix}`
 export const KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES = `${prefix}clickhouse_behavioral_cohorts_matches${suffix}`
 export const KAFKA_COHORT_MEMBERSHIP_CHANGED = `${prefix}cohort_membership_changed${suffix}`
 // One completion marker per processor partition, certifying that a reconcile run replayed a

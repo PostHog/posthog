@@ -16,6 +16,13 @@ Write down the product-specific inputs before coding:
 
 Do not add a new `AlertPolicy` option merely because the product might need it. First confirm an existing policy cannot express the behavior and that the difference is intentional.
 
+A new source kind on the alerts platform opens behind its own feature flag.
+Set `rollout_flag` on its `SourceConfigSpec`, and create a boolean PostHog feature flag with that key, such as `platform-alerts-source-metrics`.
+Target the `project` group by its `id` property, starting with project 2.
+Creating an alert of the kind then needs both `platform-alerts` and that flag, so the kind opens on its own schedule while the other kinds stay available to every project with `platform-alerts`.
+The flag gates only creation: alerts that already exist keep evaluating.
+Once the kind is generally available, remove `rollout_flag` from the spec and delete the flag.
+
 ## 2. Add product persistence and isolation
 
 The product owns its alert configuration and check-history models.
@@ -29,7 +36,7 @@ Invoke `/django-migrations` for model changes.
 
 ## 3. Build the lifecycle adapter
 
-Create one product state-machine module, following `products/logs/backend/alert_state_machine.py`. It imports the shared machine from `products.alerts.backend.facade.lifecycle`.
+Create one product state-machine module, following `products/logs/backend/alert_state_machine.py`. It imports the shared machine from `products.alerts_platform.backend.facade.lifecycle`.
 
 1. Select or define the product's `AlertPolicy`.
 2. Convert the model and recent history into the shared snapshot.
@@ -75,7 +82,7 @@ For email, call `send_alert_email(...)` from `products.alerts.backend.facade.ema
 Import the product-facing scheduling contract from the facade:
 
 ```python
-from products.alerts.backend.facade.scheduling import (
+from products.alerts_platform.backend.facade.scheduling import (
     CalendarInterval,
     advance_next_check_at,
     compute_shard_offset_seconds,

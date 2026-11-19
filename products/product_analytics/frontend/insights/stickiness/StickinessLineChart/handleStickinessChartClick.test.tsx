@@ -1,7 +1,7 @@
 import { render } from '@testing-library/react'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { CompareLabelType, EntityTypes } from '~/types'
+import { CompareLabelType } from '~/types'
 
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
@@ -16,13 +16,7 @@ function makeTrendResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTr
         id: 0,
         seriesIndex: 0,
         colorIndex: 0,
-        action: {
-            id: '$pageview',
-            type: EntityTypes.EVENTS,
-            order: 0,
-            name: '$pageview',
-            days: daysAsType([1, 2, 3]),
-        },
+        order: 0,
         label: '$pageview',
         count: 10,
         aggregated_value: 10,
@@ -172,10 +166,9 @@ describe('handleStickinessChartClick', () => {
         expect(openPersonsModal).not.toHaveBeenCalled()
     })
 
-    it('uses trendResult.days[index] as fallback when action.days is missing', () => {
+    it('reads the day from trendResult.days[index]', () => {
         const openPersonsModal = jest.fn()
         const trendResult = makeTrendResult({
-            action: { id: '$pageview', type: EntityTypes.EVENTS, order: 0, name: '$pageview' },
             days: daysAsType([10, 20, 30]),
         })
         const deps = makeDeps({ openPersonsModal, indexedResults: [trendResult] })
@@ -185,11 +178,10 @@ describe('handleStickinessChartClick', () => {
         expect(openPersonsModal.mock.calls[0][0].query).toMatchObject({ day: 30 })
     })
 
-    it('no-ops when neither action.days nor trendResult.days can supply a day', () => {
+    it('no-ops when trendResult.days cannot supply a day', () => {
         const openPersonsModal = jest.fn()
         const onDataPointClick = jest.fn()
         const trendResult = makeTrendResult({
-            action: { id: '$pageview', type: EntityTypes.EVENTS, order: 0, name: '$pageview' },
             days: [],
         })
         const deps = makeDeps({

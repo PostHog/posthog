@@ -1,16 +1,36 @@
 import { FLOORS, bindingRatio, requiredRatio } from './floors.ts'
-import { type PlanLimits, faceInputScale, fitToCanvas, planScales, scaleToArea } from './scale-plan.ts'
+import { type PlanLimits, faceInputScale, fitToCanvas, limitsFromEnv, planScales, scaleToArea } from './scale-plan.ts'
 
 const LIMITS: PlanLimits = {
     framePixels: 450_000,
     textCanvasPixels: 736 * 736,
     storedPixels: 50_000,
     faceInputSide: 640,
+    storedMaxSide: 0,
     faceTileAbove: 3,
     faceTileAspect: 6,
     stride: 32,
     safetyFactor: 1.3,
 }
+
+function limitsWithStoredSide(side: number): PlanLimits {
+    const saved = process.env.SCRUB_STORED_MAX_SIDE
+    process.env.SCRUB_STORED_MAX_SIDE = String(side)
+    try {
+        return limitsFromEnv()
+    } finally {
+        if (saved === undefined) {
+            delete process.env.SCRUB_STORED_MAX_SIDE
+        } else {
+            process.env.SCRUB_STORED_MAX_SIDE = saved
+        }
+    }
+}
+
+const LIMIT_SETS: [string, PlanLimits][] = [
+    ['the default limits', LIMITS],
+    ['a 384px stored side', limitsWithStoredSide(384)],
+]
 
 describe('scale-plan', () => {
     // The four rules the plan exists to keep, asserted over the shape classes that have each broken
@@ -28,66 +48,93 @@ describe('scale-plan', () => {
         ['a degenerate column', 10, 100_000],
     ]
 
-    it.each(SHAPES)('never upscales any stage for %s', (_case, width, height) => {
-        const plan = planScales({ width, height }, LIMITS)
+    describe.each(LIMIT_SETS)('with %s', (_limitsName, limits) => {
+        it.each(SHAPES)('never upscales any stage for %s', (_case, width, height) => {
+            const plan = planScales({ width, height }, limits)
 
-        expect(plan.frame.width).toBeLessThanOrEqual(width)
-        expect(plan.frame.height).toBeLessThanOrEqual(height)
-        expect(plan.text.content.width).toBeLessThanOrEqual(plan.frame.width)
-        expect(plan.text.content.height).toBeLessThanOrEqual(plan.frame.height)
-        expect(plan.stored.width).toBeLessThanOrEqual(plan.frame.width)
-        expect(plan.stored.height).toBeLessThanOrEqual(plan.frame.height)
-        expect(plan.code.scale).toBeLessThanOrEqual(1)
-    })
+            expect(plan.frame.width).toBeLessThanOrEqual(width)
+            expect(plan.frame.height).toBeLessThanOrEqual(height)
+            expect(plan.text.content.width).toBeLessThanOrEqual(plan.frame.width)
+            expect(plan.text.content.height).toBeLessThanOrEqual(plan.frame.height)
+            expect(plan.stored.width).toBeLessThanOrEqual(plan.frame.width)
+            expect(plan.stored.height).toBeLessThanOrEqual(plan.frame.height)
+            expect(plan.code.scale).toBeLessThanOrEqual(1)
+        })
 
-    it.each(SHAPES)('keeps the frame inside its own budget for %s', (_case, width, height) => {
-        // An axis that scales below one pixel floors to one, which leaves the other at full length
-        // and the product above the budget by any factor: a 1x50,000,000 source planned ten times it.
-        // The per-worker memory model is derived from this budget, so an unbounded frame is an OOM.
-        const { frame } = planScales({ width, height }, LIMITS)
+        it.each(SHAPES)('keeps the frame inside its own budget for %s', (_case, width, height) => {
+            // An axis that scales below one pixel floors to one, which leaves the other at full length
+            // and the product above the budget by any factor: a 1x50,000,000 source planned ten times it.
+            // The per-worker memory model is derived from this budget, so an unbounded frame is an OOM.
+            const { frame } = planScales({ width, height }, limits)
 
-        expect(frame.width * frame.height).toBeLessThanOrEqual(LIMITS.framePixels)
-    })
+            expect(frame.width * frame.height).toBeLessThanOrEqual(limits.framePixels)
+        })
 
-    it.each(SHAPES)('bounds the allocated tensor for %s', (_case, width, height) => {
-        // Rule 2: a budget on content area does not bound the tensor once a collapsed axis is padded
-        // up to the stride. A 100 KB PNG allocated fifteen times the budget this way.
-        const { canvas } = planScales({ width, height }, LIMITS).text
+        it.each(SHAPES)('bounds the allocated tensor for %s', (_case, width, height) => {
+            // Rule 2: a budget on content area does not bound the tensor once a collapsed axis is padded
+            // up to the stride. A 100 KB PNG allocated fifteen times the budget this way.
+            const { canvas } = planScales({ width, height }, limits).text
 
-        expect(canvas.width * canvas.height).toBeLessThanOrEqual(LIMITS.textCanvasPixels)
-        expect(canvas.width % LIMITS.stride).toBe(0)
-        expect(canvas.height % LIMITS.stride).toBe(0)
-    })
+            expect(canvas.width * canvas.height).toBeLessThanOrEqual(limits.textCanvasPixels)
+            expect(canvas.width % limits.stride).toBe(0)
+            expect(canvas.height % limits.stride).toBe(0)
+        })
 
-    it.each(SHAPES)('keeps the canvas covering its content for %s', (_case, width, height) => {
-        const { content, canvas } = planScales({ width, height }, LIMITS).text
+        it.each(SHAPES)('keeps the canvas covering its content for %s', (_case, width, height) => {
+            const { content, canvas } = planScales({ width, height }, limits).text
 
-        expect(canvas.width).toBeGreaterThanOrEqual(content.width)
-        expect(canvas.height).toBeGreaterThanOrEqual(content.height)
-    })
+            expect(canvas.width).toBeGreaterThanOrEqual(content.width)
+            expect(canvas.height).toBeGreaterThanOrEqual(content.height)
+        })
 
-    it.each(SHAPES)('holds the ratio against EVERY detector for %s', (_case, width, height) => {
-        // Rule 4, and the finding that motivated the weakest-detector rule: deriving from the text
-        // detector alone gave faces 2.15x on an ordinary 1080p frame while the docs promised 3x.
-        const plan = planScales({ width, height }, LIMITS)
-        const required = bindingRatio()
+        it.each(SHAPES)('holds the ratio against EVERY detector for %s', (_case, width, height) => {
+            // Rule 4, and the finding that motivated the weakest-detector rule: deriving from the text
+            // detector alone gave faces 2.15x on an ordinary 1080p frame while the docs promised 3x.
+            const plan = planScales({ width, height }, limits)
+            const required = bindingRatio()
 
-        const textSeen = Math.min(plan.text.content.width, plan.text.content.height)
-        const faceSeen = Math.min(plan.frame.width, plan.frame.height) * plan.face.scale
-        const codeSeen = Math.min(plan.frame.width, plan.frame.height) * plan.code.scale
-        const kept = Math.min(plan.stored.width, plan.stored.height)
-        // A stored axis floored to one pixel cannot express a ratio; such a frame carries no text.
-        if (kept > 1) {
-            expect(textSeen / kept).toBeGreaterThanOrEqual(required)
-            expect(faceSeen / kept).toBeGreaterThanOrEqual(required)
-            expect(codeSeen / kept).toBeGreaterThanOrEqual(required)
-        }
+            const textSeen = Math.min(plan.text.content.width, plan.text.content.height)
+            const faceSeen = Math.min(plan.frame.width, plan.frame.height) * plan.face.scale
+            const codeSeen = Math.min(plan.frame.width, plan.frame.height) * plan.code.scale
+            const kept = Math.min(plan.stored.width, plan.stored.height)
+            // A stored axis floored to one pixel cannot express a ratio; such a frame carries no text.
+            if (kept > 1) {
+                expect(textSeen / kept).toBeGreaterThanOrEqual(required)
+                expect(faceSeen / kept).toBeGreaterThanOrEqual(required)
+                expect(codeSeen / kept).toBeGreaterThanOrEqual(required)
+            }
+        })
     })
 
     it('is the tightest subject that sets the ratio', () => {
         // Whichever subject has least room decides, so adding a detector can only tighten it.
         expect(bindingRatio()).toBe(Math.max(...Object.values(FLOORS).map(requiredRatio)))
         expect(requiredRatio(FLOORS.text)).toBeCloseTo(4.3 / 3, 5)
+    })
+
+    it.each([
+        ['a 1080p desktop frame', 1920, 1080],
+        ['a 4K desktop frame', 3840, 2160],
+    ])('stores %s at the configured side, with detectors grown to keep the ratio', (_case, width, height) => {
+        const limits = limitsWithStoredSide(384)
+        const plan = planScales({ width, height }, limits)
+
+        expect(Math.max(plan.stored.width, plan.stored.height)).toBe(384)
+        expect(limits.faceInputSide).toBeGreaterThanOrEqual(384 * bindingRatio() * limits.safetyFactor)
+    })
+
+    it.each([
+        ['a wide banner', 8000, 60],
+        ['a tall strip', 60, 8000],
+    ])('keeps the default stored size for %s past the tiling aspect', (_case, width, height) => {
+        const capped = planScales({ width, height }, limitsWithStoredSide(384)).stored
+        const unset = planScales({ width, height }, LIMITS).stored
+
+        expect(Math.min(capped.width, capped.height)).toBeGreaterThanOrEqual(Math.min(unset.width, unset.height))
+    })
+
+    it.each([1, 15, 2048])('refuses a stored side of %p', (side) => {
+        expect(() => limitsWithStoredSide(side)).toThrow('SCRUB_STORED_MAX_SIDE')
     })
 
     it('respects the stored budget when that is the tighter bound', () => {

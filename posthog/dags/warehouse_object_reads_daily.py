@@ -29,8 +29,8 @@ from products.web_analytics.dags.web_preaggregated_utils import (
     sync_partitions_on_replicas,
 )
 
-QUERY_LOG_ARCHIVE_TABLE = "query_log_archive"
 TEMPORAL_QUERY_KIND = "temporal"
+DEPLOYED_CLOUD_REGIONS = ("US", "EU", "DEV")
 QUERY_FINISH_TYPE = "QueryFinish"
 MAX_EXECUTION_TIME_SECONDS = 30 * 60
 ONE_GIB = 1024**3
@@ -39,7 +39,8 @@ SPILL_GROUP_BY_AFTER_BYTES = 2 * ONE_GIB
 MAX_THREADS = 8
 ROLLUP_NODE_ROLE = NodeRole.AUX
 ROLLUP_START_DATE = "2026-09-17"
-SCHEDULE_HOUR_UTC = 7
+ATTEMPT_HOURS_UTC = (5, 6, 7)
+CATCH_UP_DAYS = 7
 OVERDUE_AFTER_UTC = time(hour=10)
 OVERDUE_CHECK_INTERVAL_SECONDS = 60 * 60
 CONCURRENCY_TAG = {"warehouse_object_reads_backfill_concurrency": "warehouse_object_reads_v1"}
@@ -48,8 +49,8 @@ STUCK_RUN_AGE = timedelta(hours=3)
 
 PARTITION_ID_FORMAT = "%Y%m%d"
 READ_SUBJECT_ID = "read_subject_id"
-DIRECTLY_READ_IDS = "log_comment.directly_read_ids::Array(String)"
-MATERIALIZED_SAVED_QUERY_ID = "log_comment.materialized_saved_query_id::String"
+DIRECTLY_READ_IDS = "JSONExtract(log_comment, 'directly_read_ids', 'Array(String)')"
+MATERIALIZED_SAVED_QUERY_ID = "JSONExtractString(log_comment, 'materialized_saved_query_id')"
 SUBJECT_ID_TAGS = {
     SubjectKind.SAVED_QUERY: "saved_query_ids",
     SubjectKind.TABLE: "warehouse_table_ids",
@@ -66,21 +67,43 @@ AGGREGATE_COLUMNS = (
     "max(event_time) AS max_event_time",
 )
 
-ARCHIVE_ROW_FILTER = f"""event_date = %(day)s
+QUERY_LOG_COLUMNS = (
+    "event_date, event_time, is_initial_query, type, query_id, query_duration_ms, read_bytes, log_comment"
+)
+
+SOURCE_ROW_FILTER = f"""event_date = %(day)s
         AND event_time >= %(day_start)s AND event_time < %(day_end)s
         AND is_initial_query
         AND type = '{QUERY_FINISH_TYPE}'
-        AND NOT lc_is_impersonated"""
+        AND NOT JSONExtractBool(log_comment, 'is_impersonated')"""
 
-REFRESH_ROW_FILTER = f"""lc_feature = '{Feature.DATA_MODELING.value}'
-        AND lc_kind = '{TEMPORAL_QUERY_KIND}'
+REFRESH_ROW_FILTER = f"""position(log_comment, '"materialized_saved_query_id"') > 0
+        AND JSONExtractString(log_comment, 'feature') = '{Feature.DATA_MODELING.value}'
+        AND JSONExtractString(log_comment, 'kind') = '{TEMPORAL_QUERY_KIND}'
         AND {MATERIALIZED_SAVED_QUERY_ID} != ''"""
 
 daily_partitions = dagster.DailyPartitionsDefinition(start_date=ROLLUP_START_DATE, timezone="UTC")
 
 
-def _archive_branch_sql(
+def query_log_clusters() -> tuple[str, ...]:
+    # Warehouse reads run on the main, logs and endpoints clusters in the cloud. Local stacks have only the main one.
+    if settings.CLOUD_DEPLOYMENT in DEPLOYED_CLOUD_REGIONS:
+        return (settings.CLICKHOUSE_CLUSTER, "logs", "endpoints")
+    return (settings.CLICKHOUSE_CLUSTER,)
+
+
+def query_log_source() -> str:
+    # It keeps 14 days, so a day older than that rolls up to nothing and the published day is kept.
+    branches = " UNION ALL ".join(
+        f"SELECT {QUERY_LOG_COLUMNS} FROM clusterAllReplicas('{cluster}', system.query_log)"
+        for cluster in query_log_clusters()
+    )
+    return f"({branches})"
+
+
+def _source_branch_sql(
     *,
+    source: str,
     read_kind: ReadKind,
     subject_kind: SubjectKind,
     subject_id_column: str,
@@ -91,67 +114,79 @@ def _archive_branch_sql(
 ) -> str:
     return f"""
     SELECT
-        team_id,
+        JSONExtractInt(log_comment, 'team_id') AS team_id,
         toDate(%(day)s) AS day,
         '{read_kind.value}' AS read_kind,
         '{subject_kind.value}' AS subject_kind,
         {subject_id_column} AS subject_id,
         {workflow_id_column} AS workflow_id,
-        lc_kind,
-        lc_product,
-        lc_feature,
-        lc_access_method,
-        log_comment.source::String AS source,
-        log_comment.scene::String AS scene,
-        lc_user_id > 0 AS has_user_id,
-        if(lc_client_query_id = '', query_id, lc_client_query_id) AS request_id,
-        lc_user_id AS user_id,
+        JSONExtractString(log_comment, 'kind') AS lc_kind,
+        JSONExtractString(log_comment, 'product') AS lc_product,
+        JSONExtractString(log_comment, 'feature') AS lc_feature,
+        JSONExtractString(log_comment, 'access_method') AS lc_access_method,
+        JSONExtractString(log_comment, 'source') AS source,
+        JSONExtractString(log_comment, 'scene') AS scene,
+        JSONExtractInt(log_comment, 'user_id') > 0 AS has_user_id,
+        if(JSONExtractString(log_comment, 'client_query_id') = '', query_id, JSONExtractString(log_comment, 'client_query_id')) AS request_id,
+        JSONExtractInt(log_comment, 'user_id') AS user_id,
         query_duration_ms,
         read_bytes,
         event_time,
         {read_alone_expression} AS read_alone
-    FROM {QUERY_LOG_ARCHIVE_TABLE}
+    FROM {source}
     {array_join}
-    WHERE {ARCHIVE_ROW_FILTER}{extra_filter}"""
+    WHERE {SOURCE_ROW_FILTER}{extra_filter}"""
 
 
-def _subject_reads_sql(subject_kind: SubjectKind) -> str:
-    return _archive_branch_sql(
+def _subject_reads_sql(source: str, subject_kind: SubjectKind) -> str:
+    tag = SUBJECT_ID_TAGS[subject_kind]
+    return _source_branch_sql(
+        source=source,
         read_kind=ReadKind.READ,
         subject_kind=subject_kind,
         subject_id_column=READ_SUBJECT_ID,
         workflow_id_column="''",
         read_alone_expression=f"{DIRECTLY_READ_IDS} = [{READ_SUBJECT_ID}]",
-        array_join=f"ARRAY JOIN log_comment.{SUBJECT_ID_TAGS[subject_kind]}::Array(String) AS {READ_SUBJECT_ID}",
-        extra_filter="",
+        array_join=f"ARRAY JOIN JSONExtract(log_comment, '{tag}', 'Array(String)') AS {READ_SUBJECT_ID}",
+        # Skips the JSON parse for the many queries that carry no warehouse tag.
+        extra_filter=f"\n        AND position(log_comment, '\"{tag}\"') > 0",
     )
 
 
-REFRESH_READS_SQL = _archive_branch_sql(
-    read_kind=ReadKind.REFRESH,
-    subject_kind=SubjectKind.SAVED_QUERY,
-    subject_id_column=MATERIALIZED_SAVED_QUERY_ID,
-    workflow_id_column="lc_temporal__workflow_id",
-    read_alone_expression="false",
-    array_join="",
-    extra_filter=f"\n        AND {REFRESH_ROW_FILTER}",
-)
+def _refresh_reads_sql(source: str) -> str:
+    return _source_branch_sql(
+        source=source,
+        read_kind=ReadKind.REFRESH,
+        subject_kind=SubjectKind.SAVED_QUERY,
+        subject_id_column=MATERIALIZED_SAVED_QUERY_ID,
+        workflow_id_column="JSONExtractString(log_comment, 'temporal', 'workflow_id')",
+        read_alone_expression="false",
+        array_join="",
+        extra_filter=f"\n        AND {REFRESH_ROW_FILTER}",
+    )
 
-ROLLUP_SOURCE_SQL = f"""{_subject_reads_sql(SubjectKind.SAVED_QUERY)}
-UNION ALL{_subject_reads_sql(SubjectKind.TABLE)}
-UNION ALL{REFRESH_READS_SQL}
+
+def rollup_source_sql(source: str) -> str:
+    return f"""{_subject_reads_sql(source, SubjectKind.SAVED_QUERY)}
+UNION ALL{_subject_reads_sql(source, SubjectKind.TABLE)}
+UNION ALL{_refresh_reads_sql(source)}
 """
 
-INSERT_ROLLUP_SQL = f"""
+
+def insert_rollup_sql(source: str) -> str:
+    return f"""
 INSERT INTO {SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE}
 SELECT
     {", ".join(SORT_KEY_COLUMNS)},
     {", ".join(AGGREGATE_COLUMNS)}
-FROM ({ROLLUP_SOURCE_SQL})
+FROM ({rollup_source_sql(source)})
 GROUP BY {", ".join(SORT_KEY_COLUMNS)}
 """
 
-COUNT_ROLLUP_SOURCE_ROWS_SQL = f"SELECT count() FROM ({ROLLUP_SOURCE_SQL})"
+
+def count_rollup_source_rows_sql(source: str) -> str:
+    return f"SELECT count() FROM ({rollup_source_sql(source)})"
+
 
 TRUNCATE_STAGING_SQL = f"TRUNCATE TABLE {SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE}"
 
@@ -180,7 +215,9 @@ def insert_rollup_into_staging(
 ) -> None:
     def stage_day(client: Client) -> None:
         client.execute(TRUNCATE_STAGING_SQL)
-        client.execute(INSERT_ROLLUP_SQL, _day_query_parameters(day), settings=_rollup_query_settings(context))
+        client.execute(
+            insert_rollup_sql(query_log_source()), _day_query_parameters(day), settings=_rollup_query_settings(context)
+        )
 
     cluster.any_host_by_roles(stage_day, [ROLLUP_NODE_ROLE]).result()
 
@@ -188,7 +225,9 @@ def insert_rollup_into_staging(
 def count_rollup_source_rows(context: dagster.OpExecutionContext, cluster: ClickhouseCluster, day: date) -> int:
     [[source_rows]] = cluster.any_host_by_roles(
         lambda client: client.execute(
-            COUNT_ROLLUP_SOURCE_ROWS_SQL, _day_query_parameters(day), settings=_rollup_query_settings(context)
+            count_rollup_source_rows_sql(query_log_source()),
+            _day_query_parameters(day),
+            settings=_rollup_query_settings(context),
         ),
         [ROLLUP_NODE_ROLE],
     ).result()
@@ -239,11 +278,11 @@ def publish_day(context: dagster.OpExecutionContext, cluster: ClickhouseCluster,
     source_rows = count_rollup_source_rows(context, cluster, day)
     if source_rows:
         raise dagster.Failure(
-            description=f"The archive has {source_rows} reads for {day}, but staging is empty. "
+            description=f"The query log has {source_rows} reads for {day}, but staging is empty. "
             "The published day was kept. Run the day again."
         )
     raise dagster.Failure(
-        description=f"The archive has no reads for {day}. Query tagging may be broken. The published day was kept."
+        description=f"The query log has no reads for {day}. Query tagging may be broken. The published day was kept."
     )
 
 
@@ -282,14 +321,6 @@ def warehouse_object_reads_daily_job() -> None:
     rollup_warehouse_object_reads_for_day()
 
 
-warehouse_object_reads_daily_schedule = dagster.build_schedule_from_partitioned_job(
-    warehouse_object_reads_daily_job,
-    hour_of_day=SCHEDULE_HOUR_UTC,
-    minute_of_hour=0,
-    default_status=dagster.DefaultScheduleStatus.RUNNING,
-)
-
-
 def has_published_day(instance: dagster.DagsterInstance, day: date) -> bool:
     return bool(
         instance.get_run_records(
@@ -303,6 +334,36 @@ def has_published_day(instance: dagster.DagsterInstance, day: date) -> bool:
     )
 
 
+def unpublished_days(instance: dagster.DagsterInstance, today: date) -> list[date]:
+    first_day = max(date.fromisoformat(ROLLUP_START_DATE), today - timedelta(days=CATCH_UP_DAYS))
+    days = (first_day + timedelta(days=offset) for offset in range((today - first_day).days))
+    return [day for day in days if not has_published_day(instance, day)]
+
+
+@dagster.schedule(
+    job=warehouse_object_reads_daily_job,
+    name=f"{warehouse_object_reads_daily_job.name}_schedule",
+    cron_schedule=f"0 {','.join(str(hour) for hour in ATTEMPT_HOURS_UTC)} * * *",
+    execution_timezone="UTC",
+    default_status=dagster.DefaultScheduleStatus.RUNNING,
+)
+def warehouse_object_reads_daily_schedule(
+    context: dagster.ScheduleEvaluationContext,
+) -> dagster.RunRequest | dagster.SkipReason:
+    active_runs = describe_runs(
+        context.instance,
+        (warehouse_object_reads_daily_job.name,),
+        created_after=datetime.now(UTC) - STUCK_RUN_AGE,
+        exclude_run_id="",
+    )
+    if active_runs:
+        return dagster.SkipReason(f"{'; '.join(active_runs)} is queued or executing.")
+    missing_days = unpublished_days(context.instance, datetime.now(UTC).date())
+    if not missing_days:
+        return dagster.SkipReason(f"Every day of the last {CATCH_UP_DAYS} days is published.")
+    return dagster.RunRequest(partition_key=missing_days[-1].isoformat())
+
+
 @dagster.sensor(
     minimum_interval_seconds=OVERDUE_CHECK_INTERVAL_SECONDS,
     default_status=dagster.DefaultSensorStatus.RUNNING,
@@ -313,22 +374,26 @@ def warehouse_object_reads_daily_overdue_sensor(
     now = datetime.now(UTC)
     if now.time() < OVERDUE_AFTER_UTC:
         return dagster.SkipReason(f"The rollup is not overdue before {OVERDUE_AFTER_UTC} UTC.")
-    day = now.date() - timedelta(days=1)
-    if context.cursor == day.isoformat():
-        return dagster.SkipReason(f"Already alerted that {day} is missing.")
-    if has_published_day(context.instance, day):
-        return dagster.SkipReason(f"{day} is published.")
+    today = now.date()
+    if context.cursor == today.isoformat():
+        return dagster.SkipReason(f"Already alerted about missing days on {today}.")
+    missing_days = unpublished_days(context.instance, today)
+    if not missing_days:
+        return dagster.SkipReason(f"Every day of the last {CATCH_UP_DAYS} days is published.")
+    missing = ", ".join(day.isoformat() for day in missing_days)
     if not settings.CLOUD_DEPLOYMENT:
-        return dagster.SkipReason(f"{day} is missing, but alerts only go out in cloud deployments.")
+        return dagster.SkipReason(f"{missing} is missing, but alerts only go out in cloud deployments.")
 
+    attempt_times = ", ".join(f"{hour:02d}:00" for hour in ATTEMPT_HOURS_UTC)
     job_url = f"https://{settings.DAGSTER_DOMAIN}/locations/clickhouse/jobs/{warehouse_object_reads_daily_job.name}"
     message = (
-        f":hourglass: `{warehouse_object_reads_daily_job.name}` has no successful run for {day} "
-        f"by {OVERDUE_AFTER_UTC:%H:%M} UTC. Check that its schedule is running and that no run is stuck in the queue: "
+        f":hourglass: `{warehouse_object_reads_daily_job.name}` has no successful run for {missing} "
+        f"by {OVERDUE_AFTER_UTC:%H:%M} UTC. The schedule retries missing days at {attempt_times} UTC "
+        f"until they are {CATCH_UP_DAYS} days old. Check that its schedule is running and that no run is stuck in the queue: "
         f"<{job_url}|View in Dagster>\nEnvironment: {settings.CLOUD_DEPLOYMENT}"
     )
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": message}}]
     channel = notification_channel_per_team[JobOwners.TEAM_DATA_MODELING.value]
     if send_slack_alert(context, slack.get_client(), channel, blocks, message):
-        context.update_cursor(day.isoformat())
+        context.update_cursor(today.isoformat())
     return None

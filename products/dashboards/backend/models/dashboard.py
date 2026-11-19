@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE
@@ -11,8 +11,6 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri
-
-from products.dashboards.backend.facade import enums
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -36,6 +34,23 @@ class LayoutCompaction(models.TextChoices):
 DASHBOARD_GRID_COMPACTION_MODES = tuple(LayoutCompaction.values)
 
 
+class TileGroupDisplay(models.TextChoices):
+    SECTIONS = "sections", "sections"
+    TABS = "tabs", "tabs"
+
+
+DASHBOARD_TILE_GROUP_DISPLAY_MODES = tuple(TileGroupDisplay.values)
+
+
+class DashboardTileGroupColor(models.TextChoices):
+    BLUE = "blue", "Blue"
+    PURPLE = "purple", "Purple"
+    GREEN = "green", "Green"
+    YELLOW = "yellow", "Yellow"
+    ORANGE = "orange", "Orange"
+    RED = "red", "Red"
+
+
 class DashboardManager(RootTeamManager):
     def get_queryset(self):
         return super().get_queryset().exclude(deleted=True)
@@ -57,11 +72,6 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
             "Unlisted (product-embedded)",
         )  # Product dashboards (e.g. AI observability) - hidden from general lists, accessed via tag queries
 
-    # Aliases of the facade enums, which is where callers outside this product read them from.
-    # Kept on the model so `Dashboard.PrivilegeLevel` and the `choices=` below stay unchanged.
-    RestrictionLevel = enums.RestrictionLevel
-    PrivilegeLevel = enums.PrivilegeLevel
-
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -78,10 +88,6 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
         "posthog.DataColorTheme", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     creation_mode = models.CharField(max_length=16, default="default", choices=CreationMode)
-    restriction_level = models.PositiveSmallIntegerField(
-        default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
-        choices=RestrictionLevel.choices,
-    )
     insights = models.ManyToManyField(
         "product_analytics.Insight", related_name="dashboards", through="DashboardTile", blank=True
     )  # type: models.ManyToManyField
@@ -172,4 +178,20 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
             "has_description": self.description != "",
             "tags_count": self.tagged_items.count(),
             "creation_mode": self.creation_mode,
+            "group_display": self.group_display,
+            "group_count": self.tile_group_count,
         }
+
+    @property
+    def group_display(self) -> str:
+        group_display = self.customization.get("group_display") if isinstance(self.customization, dict) else None
+        return group_display if group_display in DASHBOARD_TILE_GROUP_DISPLAY_MODES else TileGroupDisplay.SECTIONS
+
+    @property
+    def tile_group_keys(self) -> set[str]:
+        visible_tiles = self.tiles.filter(Q(insight__deleted=False) | Q(insight__isnull=True))
+        return {group_key for group_key in visible_tiles.values_list("group_key", flat=True) if group_key}
+
+    @property
+    def tile_group_count(self) -> int:
+        return len(self.tile_group_keys)

@@ -109,12 +109,26 @@ RUN --mount=type=secret,id=posthog_upload_symbols_cli_api_key \
         echo "WARNING: native symbol upload failed for $BIN; panics from this build may not symbolicate" >&2; \
     fi
 
+FROM debian:bookworm-slim AS deploy-requirements
+
+# The deploy requirements manifest of this image (tools/deploy-requirements), for the
+# deploy-time check in bin/deploy-requirements-check.
+# SQLX_DATABASES comes from the image's sqlx_databases entry in .github/rust-images.yml.
+ARG SQLX_DATABASES=""
+WORKDIR /src
+COPY persons_migrations ./persons_migrations
+COPY behavioral_cohorts_migrations ./behavioral_cohorts_migrations
+COPY cyclotron-node-migrations ./cyclotron-node-migrations
+COPY flags_read_store_migrations ./flags_read_store_migrations
+COPY bin/write-deploy-requirements ./write-deploy-requirements
+RUN sh ./write-deploy-requirements "$SQLX_DATABASES" /schema-requirements.json /src
+
 FROM debian:bookworm-slim AS runtime
 
 # AWS RDS global CA bundle — all root and intermediate CAs for TLS verification.
 # To update: download the bundle, recompute the hash with sha256sum, and replace the value below.
 #   curl -fsS "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem" | sha256sum
-ARG RDS_CA_BUNDLE_SHA256=fe45bbebf92ad3e27a583bbb2ddd1553c521ed4d49af5514dc0a40372ea5395c
+ARG RDS_CA_BUNDLE_SHA256=90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -141,6 +155,7 @@ WORKDIR /app
 
 USER nobody
 
+COPY --from=deploy-requirements /schema-requirements.json /app/schema-requirements.json
 COPY --from=builder /app/target/release/$BIN /usr/local/bin
 ENTRYPOINT ["/bin/sh", "-c", "/usr/local/bin/$BIN"]
 

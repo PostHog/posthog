@@ -57,6 +57,8 @@ import type {
   SignalReportArtefact,
   SignalReportArtefactsResponse,
   SignalReportRefundReason,
+  SignalReportSectionCounts,
+  SignalReportSectionCountsParams,
   SignalReportSignalsResponse,
   SignalReportStatus,
   SignalReportsQueryParams,
@@ -240,6 +242,8 @@ export const DESKTOP_BILLING_LIMIT_ERROR_CODE =
 
 export const SESSION_LOGS_MAX_PAGE_SIZE = 5000;
 export const SESSION_LOGS_PAGE_TIMEOUT_MS = 30_000;
+// The task list endpoint caps a page at this many rows (TasksPagination.max_limit).
+export const TASK_LIST_MAX_PAGE_SIZE = 100;
 
 export interface TaskRunSessionLogsResult {
   entries: StoredLogEntry[];
@@ -339,6 +343,11 @@ export interface TaskListOptions {
   ciStatus?: string;
   /** List only tasks the requesting user has pinned. */
   pinned?: boolean;
+  /**
+   * List only tasks from any of these sources, in the desktop source filter's words. Filtering on
+   * the server keeps sources the user hid, such as scheduled runs, from filling the page.
+   */
+  sources?: readonly string[];
   /** Filter to tasks with a thread comment from this user ID. */
   commentedBy?: number;
   /** Filter to tasks whose thread mentions this user ID. */
@@ -438,6 +447,14 @@ export interface TaskSessionStorageAccess {
  */
 export const COMMENT_SCOPES = ["task_artifact", "canvas", "task"] as const;
 export type CommentScope = (typeof COMMENT_SCOPES)[number];
+
+export type SuggestedReviewerEdit = {
+  action: Extract<
+    NonNullable<Schemas.SignalReportArtefactWrite["action"]>,
+    "add" | "remove"
+  >;
+  targets: NonNullable<Schemas.SignalReportArtefactWrite["targets"]>;
+};
 
 /** Named `Resource*` so it never collides with the DOM's global `Comment`.
  * Optimistic rows do not have a server version yet, while item_context is a
@@ -1393,6 +1410,7 @@ type AnyArtefact =
 const DISMISSAL_REASONS = new Set<ReportStateReason>([
   ...DISMISSAL_REASON_OPTIONS.map((o) => o.value),
   ...RESOLVE_REASON_OPTIONS.map((o) => o.value),
+  "pr_merged",
 ]);
 
 const PRIORITY_VALUES = new Set(["P0", "P1", "P2", "P3", "P4"]);
@@ -1562,6 +1580,12 @@ function normalizeDismissalArtefact(
     type: "dismissal",
     ...artefactBase(value),
     content: {
+      state:
+        contentValue.state === "resolved" ||
+        contentValue.state === "suppressed" ||
+        contentValue.state === "potential"
+          ? contentValue.state
+          : null,
       reason,
       note: optionalString(contentValue.note) ?? "",
       user_id:
@@ -2098,6 +2122,7 @@ function parseAvailableSuggestedReviewersPayload(
 export class PostHogAPIClient {
   private api: ReturnType<typeof createApiClient>;
   private _teamId: number | null = null;
+  private _organizationId: string | null = null;
   private githubConnectFrom: string;
   private readonly apiHost: string;
   private readonly taskClientProvenance: TaskClientProvenance;
@@ -2121,6 +2146,7 @@ export class PostHogAPIClient {
         appVersion: options.appVersion ?? clientAppVersion,
         fetch: options.fetch,
         userAgent: options.userAgent,
+        taskClientProvenance: this.taskClientProvenance,
       }),
       baseUrl,
     );
@@ -2131,6 +2157,27 @@ export class PostHogAPIClient {
 
   setTeamId(teamId: number | null | undefined): void {
     this._teamId = teamId ?? null;
+    this._organizationId = null;
+  }
+
+  setOrganizationId(organizationId: string | null | undefined): void {
+    this._organizationId = organizationId ?? null;
+  }
+
+  // Organization routes name the organization of the client's project. The `@current` alias would
+  // resolve to the user's current organization on the server instead, and another tab, device or
+  // client can change that at any time.
+  private async getOrganizationId(): Promise<string> {
+    if (this._organizationId !== null) {
+      return this._organizationId;
+    }
+    const project = await this.getProject(await this.getTeamId());
+    this._organizationId = project.organization;
+    return this._organizationId;
+  }
+
+  private async organizationPath(path: string): Promise<string> {
+    return `/api/organizations/${encodeURIComponent(await this.getOrganizationId())}/${path}`;
   }
 
   private async getTeamId(): Promise<number> {
@@ -2409,6 +2456,21 @@ export class PostHogAPIClient {
     await this.api.delete("/api/projects/{project_id}/integrations/{id}/", {
       path: { project_id: projectId.toString(), id: Number(integrationId) },
     });
+  }
+
+  async getGitlabProjects(
+    integrationId: number,
+    search?: string,
+  ): Promise<Schemas.GitLabProjectsResponse> {
+    const teamId = await this.getTeamId();
+    const trimmedSearch = search?.trim();
+    return await this.api.get(
+      "/api/projects/{project_id}/integrations/{id}/gitlab_projects/",
+      {
+        path: { project_id: teamId.toString(), id: integrationId },
+        query: trimmedSearch ? { search: trimmedSearch } : {},
+      },
+    );
   }
 
   /** Emails the project's admins asking them to connect an integration; members only. */
@@ -3263,7 +3325,10 @@ export class PostHogAPIClient {
     const maxPages = pagination?.fetchAll
       ? Number.POSITIVE_INFINITY
       : (pagination?.maxPages ?? 1);
-    const pageSize = Math.min(options?.limit ?? 100, 100);
+    const pageSize = Math.min(
+      options?.limit ?? TASK_LIST_MAX_PAGE_SIZE,
+      TASK_LIST_MAX_PAGE_SIZE,
+    );
     const tasks: Task[] = [];
     let count = 0;
 
@@ -3303,7 +3368,7 @@ export class PostHogAPIClient {
     options?: TaskListOptions,
   ): Promise<{ tasks: Task[]; count: number }> {
     const teamId = await this.getTeamId();
-    const params: Record<string, string | number | boolean> = {
+    const params: Record<string, string | number | boolean | string[]> = {
       limit: options?.limit ?? 500,
     };
 
@@ -3351,6 +3416,10 @@ export class PostHogAPIClient {
       params.pinned = true;
     }
 
+    if (options?.sources?.length) {
+      params.sources = [...options.sources];
+    }
+
     if (options?.commentedBy) {
       params.commented_by = options.commentedBy;
     }
@@ -3388,7 +3457,6 @@ export class PostHogAPIClient {
     // the largest page, then pull any remaining pages in parallel by offset. The
     // old code walked `next` one blocking request at a time, so a large sidebar
     // turned into a chain of serial round-trips on every inbox open.
-    const PAGE_LIMIT = 100;
     const MAX_PAGES = 50;
     const teamId = await this.getTeamId();
     const basePath = `/api/projects/${teamId}/tasks/summaries/`;
@@ -3396,7 +3464,7 @@ export class PostHogAPIClient {
     const fetchPage = async (
       offset: number,
     ): Promise<TaskSummariesResponse> => {
-      const urlPath = `${basePath}?limit=${PAGE_LIMIT}&offset=${offset}`;
+      const urlPath = `${basePath}?limit=${TASK_LIST_MAX_PAGE_SIZE}&offset=${offset}`;
       const response = await this.api.fetcher.fetch({
         method: "post",
         url: new URL(`${this.api.baseUrl}${urlPath}`),
@@ -3415,15 +3483,19 @@ export class PostHogAPIClient {
 
     const first = await fetchPage(0);
     const all: TaskSummaryDTO[] = [...first.results];
-    const capped = Math.min(first.count, PAGE_LIMIT * MAX_PAGES);
-    if (first.count > PAGE_LIMIT * MAX_PAGES) {
+    const capped = Math.min(first.count, TASK_LIST_MAX_PAGE_SIZE * MAX_PAGES);
+    if (first.count > TASK_LIST_MAX_PAGE_SIZE * MAX_PAGES) {
       log.warn(
         `getTaskSummaries capped at ${MAX_PAGES} pages; returning partial results`,
         { ids: ids.length, count: first.count },
       );
     }
     const offsets: number[] = [];
-    for (let offset = PAGE_LIMIT; offset < capped; offset += PAGE_LIMIT) {
+    for (
+      let offset = TASK_LIST_MAX_PAGE_SIZE;
+      offset < capped;
+      offset += TASK_LIST_MAX_PAGE_SIZE
+    ) {
       offsets.push(offset);
     }
     // Cap how many page POSTs are in flight at once. A large sidebar can span
@@ -3533,6 +3605,7 @@ export class PostHogAPIClient {
       > & {
         github_integration?: number | null;
         github_user_integration?: string | null;
+        repository_integration?: number | null;
         signal_report_task_relationship?: string;
         signal_report_discussion_question?: string;
         branch?: string | null;
@@ -3545,7 +3618,7 @@ export class PostHogAPIClient {
         initial_permission_mode?: ExecutionMode;
         auto_publish?: boolean;
         naming_source?: string;
-      },
+      } & Pick<Schemas.TaskCreate, "warm_run_id">,
   ): Promise<Task> {
     const teamId = await this.getTeamId();
     const { origin_product: originProduct, ...taskOptions } = options;
@@ -4018,7 +4091,12 @@ export class PostHogAPIClient {
 
   // GET with the wiki's shared read semantics: 404 (never enabled or missing
   // page) reads as null, 403 (privacy guard) as ContextWikiUnavailableError.
-  private async getContextWikiResource<T>(urlPath: string): Promise<T | null> {
+  private async getContextWikiResource<T>(
+    contextLayerPath: string,
+  ): Promise<T | null> {
+    const urlPath = await this.organizationPath(
+      `context_layer/${contextLayerPath}`,
+    );
     try {
       const response = await this.api.fetcher.fetch({
         method: "get",
@@ -4038,49 +4116,41 @@ export class PostHogAPIClient {
   }
 
   async getContextWikiTree(): Promise<ContextWikiTree | null> {
-    return this.getContextWikiResource<ContextWikiTree>(
-      `/api/organizations/@current/context_layer/tree/`,
-    );
+    return this.getContextWikiResource<ContextWikiTree>("tree/");
   }
 
   async getContextWikiPage(path: string): Promise<ContextWikiPage | null> {
     return this.getContextWikiResource<ContextWikiPage>(
-      `/api/organizations/@current/context_layer/pages/?path=${encodeURIComponent(path)}`,
+      `pages/?path=${encodeURIComponent(path)}`,
     );
   }
 
   async getContextWikiHealthReport(): Promise<ContextWikiHealthReport | null> {
-    return this.getContextWikiResource<ContextWikiHealthReport>(
-      `/api/organizations/@current/context_layer/wiki/report/`,
-    );
+    return this.getContextWikiResource<ContextWikiHealthReport>("wiki/report/");
   }
 
   async getChannelContextWikiPage(
     channelId: string,
   ): Promise<ChannelContextWikiPage | null> {
     return this.getContextWikiResource<ChannelContextWikiPage>(
-      `/api/organizations/@current/context_layer/channel-pages/${encodeURIComponent(channelId)}/`,
+      `channel-pages/${encodeURIComponent(channelId)}/`,
     );
   }
 
   async getContextWikiDreams(): Promise<ContextWikiDreamList | null> {
-    return this.getContextWikiResource<ContextWikiDreamList>(
-      `/api/organizations/@current/context_layer/dreams/`,
-    );
+    return this.getContextWikiResource<ContextWikiDreamList>("dreams/");
   }
 
   async getContextWikiDream(
     sha: string,
   ): Promise<ContextWikiDreamDetail | null> {
     return this.getContextWikiResource<ContextWikiDreamDetail>(
-      `/api/organizations/@current/context_layer/dreams/${encodeURIComponent(sha)}/`,
+      `dreams/${encodeURIComponent(sha)}/`,
     );
   }
 
   async getContextWikiProposals(): Promise<ContextWikiPageProposal[] | null> {
-    const response = await this.getContextWikiResource<unknown>(
-      "/api/organizations/@current/context_layer/proposals/",
-    );
+    const response = await this.getContextWikiResource<unknown>("proposals/");
     return response === null
       ? null
       : contextWikiProposalsSchema.parse(response);
@@ -4089,7 +4159,9 @@ export class PostHogAPIClient {
   async applyContextWikiProposal(
     id: string,
   ): Promise<ContextWikiProposalApplyResult> {
-    const path = `/api/organizations/@current/context_layer/proposals/${encodeURIComponent(id)}/apply/`;
+    const path = await this.organizationPath(
+      `context_layer/proposals/${encodeURIComponent(id)}/apply/`,
+    );
     const response = await this.api.fetcher.fetch({
       method: "post",
       url: new URL(`${this.api.baseUrl}${path}`),
@@ -4111,7 +4183,7 @@ export class PostHogAPIClient {
     content: string;
     baseHead?: string;
   }): Promise<{ head_sha: string }> {
-    const urlPath = `/api/organizations/@current/context_layer/pages/`;
+    const urlPath = await this.organizationPath("context_layer/pages/");
     try {
       const response = await this.api.fetcher.fetch({
         method: "put",
@@ -4150,7 +4222,7 @@ export class PostHogAPIClient {
   }
 
   async enableContextWiki(): Promise<{ head_sha: string }> {
-    const urlPath = `/api/organizations/@current/context_layer/enable/`;
+    const urlPath = await this.organizationPath("context_layer/enable/");
     try {
       const response = await this.api.fetcher.fetch({
         method: "post",
@@ -4405,7 +4477,9 @@ export class PostHogAPIClient {
     const ORG_MEMBERS_MAX_PAGES = 20;
     const ORG_MEMBERS_PAGE_SIZE = 200;
     const all: OrganizationMemberBasic[] = [];
-    let urlPath = `/api/organizations/@current/members/?limit=${ORG_MEMBERS_PAGE_SIZE}`;
+    let urlPath = await this.organizationPath(
+      `members/?limit=${ORG_MEMBERS_PAGE_SIZE}`,
+    );
     for (let i = 0; i < ORG_MEMBERS_MAX_PAGES; i++) {
       const response = await this.api.fetcher.fetch({
         method: "get",
@@ -4574,7 +4648,7 @@ export class PostHogAPIClient {
     fast_mode?: boolean | null;
     sandbox_environment_id?: string | null;
     custom_image_id?: string | null;
-  }): Promise<{ task_id: string; run_id: string } | null> {
+  }): Promise<Schemas.WarmTaskResponse | null> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/tasks/warm/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -4583,11 +4657,6 @@ export class PostHogAPIClient {
         method: "post",
         url,
         path: urlPath,
-        parameters: {
-          header: {
-            "X-PostHog-Client-Provenance": this.taskClientProvenance,
-          },
-        },
         overrides: {
           body: JSON.stringify({
             repository: options.repository,
@@ -4621,7 +4690,7 @@ export class PostHogAPIClient {
     if (!text) {
       return null;
     }
-    return JSON.parse(text) as { task_id: string; run_id: string };
+    return JSON.parse(text) as Schemas.WarmTaskResponse;
   }
 
   async prepareTaskStagedArtifactUploads(
@@ -5413,23 +5482,37 @@ export class PostHogAPIClient {
 
   async getGithubRepositories(
     integrationId: string | number,
+    signal?: AbortSignal,
   ): Promise<string[]> {
     const repositories: string[] = [];
     let offset = 0;
 
     while (true) {
-      const page = await this.getGithubRepositoriesPage(
-        integrationId,
-        offset,
-        500,
-      );
-      repositories.push(...page.repositories);
+      const controller = new AbortController();
+      const requestSignal = signal
+        ? AbortSignal.any([signal, controller.signal])
+        : controller.signal;
+      const timeout = setTimeout(() => controller.abort(), 15_000);
 
-      if (!page.hasMore) {
-        return repositories;
+      try {
+        requestSignal.throwIfAborted();
+        const page = await this.getGithubRepositoriesPage(
+          integrationId,
+          offset,
+          500,
+          undefined,
+          requestSignal,
+        );
+        repositories.push(...page.repositories);
+
+        if (!page.hasMore) {
+          return repositories;
+        }
+
+        offset += page.repositories.length;
+      } finally {
+        clearTimeout(timeout);
       }
-
-      offset += page.repositories.length;
     }
   }
 
@@ -5438,6 +5521,7 @@ export class PostHogAPIClient {
     offset: number,
     limit: number,
     search?: string,
+    signal?: AbortSignal,
   ): Promise<{
     repositories: string[];
     hasMore: boolean;
@@ -5456,6 +5540,7 @@ export class PostHogAPIClient {
       method: "get",
       url,
       path: `/api/environments/${teamId}/integrations/${integrationId}/github_repos/`,
+      overrides: { signal },
     });
 
     if (!response.ok) {
@@ -5539,25 +5624,38 @@ export class PostHogAPIClient {
 
   async refreshGithubRepositories(
     integrationId: string | number,
+    signal?: AbortSignal,
   ): Promise<string[]> {
     const teamId = await this.getTeamId();
     const url = new URL(
       `${this.api.baseUrl}/api/environments/${teamId}/integrations/${integrationId}/github_repos/refresh/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: `/api/environments/${teamId}/integrations/${integrationId}/github_repos/refresh/`,
-    });
+    const controller = new AbortController();
+    const requestSignal = signal
+      ? AbortSignal.any([signal, controller.signal])
+      : controller.signal;
+    const timeout = setTimeout(() => controller.abort(), 60_000);
 
-    if (!response.ok) {
-      throw new Error(
-        `Failed to refresh GitHub repositories: ${response.statusText}`,
-      );
+    try {
+      requestSignal.throwIfAborted();
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path: `/api/environments/${teamId}/integrations/${integrationId}/github_repos/refresh/`,
+        overrides: { signal: requestSignal },
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to refresh GitHub repositories: ${response.statusText}`,
+        );
+      }
+
+      const data: unknown = await response.json();
+      return this.normalizeGithubRepositories(data);
+    } finally {
+      clearTimeout(timeout);
     }
-
-    const data: unknown = await response.json();
-    return this.normalizeGithubRepositories(data);
   }
 
   async refreshGithubUserRepositories(
@@ -5808,6 +5906,29 @@ export class PostHogAPIClient {
       results: data.results ?? [],
       count: data.count ?? data.results?.length ?? 0,
     };
+  }
+
+  async getSignalReportSectionCounts(
+    params?: SignalReportSectionCountsParams,
+  ): Promise<SignalReportSectionCounts> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/section_counts/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    if (params?.source_product) {
+      url.searchParams.set("source_product", params.source_product);
+    }
+    if (params?.priority) url.searchParams.set("priority", params.priority);
+    if (params?.suggested_reviewers) {
+      url.searchParams.set("suggested_reviewers", params.suggested_reviewers);
+    }
+
+    const response = await this.api.fetcher.fetch({ method: "get", url, path });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch signal report section counts: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as SignalReportSectionCounts;
   }
 
   async getSignalProcessingState(): Promise<SignalProcessingStateResponse> {
@@ -6069,6 +6190,36 @@ export class PostHogAPIClient {
   }
 
   /**
+   * Take over the claim another person holds on a report. `claimId` names the
+   * claim the user confirmed, so the server refuses when a newer claim replaced
+   * it, and it notifies the person who held it.
+   */
+  async takeOverSignalReportClaim(
+    reportId: string,
+    claimId: string | null,
+  ): Promise<SignalReport> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/${reportId}/claim/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: {
+        body: JSON.stringify(
+          claimId
+            ? { takeover: true, takeover_claim_id: claimId }
+            : { takeover: true },
+        ),
+      },
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || "Failed to take over the report");
+    }
+    return (await response.json()) as SignalReport;
+  }
+
+  /**
    * Refund a report's billed PR. The server freezes the billing path, archives
    * the report, and kicks off the billing credit when one is due; it also
    * enforces eligibility, so callers only gate for display.
@@ -6113,6 +6264,7 @@ export class PostHogAPIClient {
     reportId: string,
     artefactId: string,
     content: SuggestedReviewerWriteEntry[],
+    edit: SuggestedReviewerEdit,
   ): Promise<SuggestedReviewersArtefact> {
     const teamId = await this.getTeamId();
     const url = new URL(
@@ -6125,7 +6277,7 @@ export class PostHogAPIClient {
       url,
       path,
       overrides: {
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, ...edit }),
       },
     });
 
@@ -6144,6 +6296,7 @@ export class PostHogAPIClient {
   async setSignalReportReviewers(
     reportId: string,
     content: SuggestedReviewerWriteEntry[],
+    edit: SuggestedReviewerEdit,
   ): Promise<SuggestedReviewersArtefact> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/reviewers/`;
@@ -6153,7 +6306,7 @@ export class PostHogAPIClient {
       url,
       path,
       overrides: {
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, ...edit }),
       },
     });
 
@@ -7763,6 +7916,39 @@ export class PostHogAPIClient {
                 results: insight.result,
                 columns: insight.columns ?? [],
               },
+      };
+    } catch (error) {
+      if (requestErrorStatus(error) === 404) return null;
+      throw error;
+    }
+  }
+
+  /**
+   * The insight's name and description by short id. Reads the cache only, so
+   * a reference card never runs the insight's query.
+   */
+  async getInsightSummary(shortId: string): Promise<{
+    name: string | null;
+    description: string | null;
+  } | null> {
+    const projectId = (await this.getTeamId()).toString();
+    try {
+      const urlPath = `/api/projects/${projectId}/insights/${encodeURIComponent(shortId)}/`;
+      const url = new URL(`${this.api.baseUrl}${urlPath}`);
+      url.searchParams.set("basic", "true");
+      url.searchParams.set("refresh", "force_cache");
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url,
+        path: urlPath,
+      });
+      const insight = (await response.json()) as Pick<
+        Schemas.Insight,
+        "name" | "derived_name" | "description"
+      >;
+      return {
+        name: insight.name || insight.derived_name || null,
+        description: insight.description || null,
       };
     } catch (error) {
       if (requestErrorStatus(error) === 404) return null;

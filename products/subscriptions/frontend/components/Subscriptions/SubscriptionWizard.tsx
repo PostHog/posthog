@@ -8,6 +8,7 @@ import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useFeatureFlagVariantKey } from '@posthog/react'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import { ImageSize } from 'lib/components/ImageSize/ImageSize'
 import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
 import { NextScheduledRun, ProjectTimezoneNotice } from 'lib/components/ScheduledRunStatus'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -28,12 +29,12 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { FEATURE_FLAGS } from '~/lib/constants'
+import { membersLogic } from '~/models/membersLogic'
 import { DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from './AiPromptFields'
@@ -357,7 +358,8 @@ function SubscriptionDeliveryStep({
     subscription: SubscriptionType
     logicProps: SubscriptionLogicProps
 }): JSX.Element {
-    const { meFirstMembers, membersLoading } = useValues(membersLogic)
+    const { members, meFirstMembers, membersLoading } = useValues(membersLogic)
+    const { ensureAllMembersLoaded } = useActions(membersLogic)
     const { integrations, slackIntegrations } = useValues(integrationsLogic)
     const { preflight } = useValues(preflightLogic)
     const { setSubscriptionValue } = useActions(subscriptionLogic(logicProps))
@@ -386,6 +388,11 @@ function SubscriptionDeliveryStep({
                                 allowCustomValues
                                 options={usersLemonSelectOptions(meFirstMembers.map((member) => member.user))}
                                 loading={membersLoading}
+                                onFocus={() => {
+                                    if (!members) {
+                                        ensureAllMembersLoaded()
+                                    }
+                                }}
                                 placeholder="Enter an email address"
                             />
                         )}
@@ -642,6 +649,17 @@ function SubscriptionSettingsStep({
     return (
         <div className="mt-6 flex flex-col gap-2">
             <LemonLabel>Advanced settings</LemonLabel>
+            {subscription.resource_type !== SubscriptionResourceTypes.AiPrompt && (
+                <LemonField name={['delivery_config', 'image_size']}>
+                    {({ value, onChange }) => (
+                        <ImageSize
+                            value={value}
+                            onChange={onChange}
+                            description="Applies to each insight image in this subscription. Leave a dimension blank for automatic sizing. Content fits without stretching or cropping."
+                        />
+                    )}
+                </LemonField>
+            )}
             {dataProcessingAccepted && subscription.resource_type !== SubscriptionResourceTypes.AiPrompt ? (
                 <LemonField name="summary_enabled">
                     {({ value, onChange }) => (

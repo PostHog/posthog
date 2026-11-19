@@ -12,27 +12,37 @@ import type {
     BusinessKnowledgeDocumentsSearchListParams,
     BusinessKnowledgeDocumentsWindowListParams,
     BusinessKnowledgeGapSuggestionsListParams,
+    BusinessKnowledgePlaygroundChatsListParams,
     BusinessKnowledgeRepositoriesFileRetrieveParams,
     BusinessKnowledgeRepositoriesSearchParams,
     BusinessKnowledgeSettingsApi,
     BusinessKnowledgeSourcesDocumentsListParams,
     BusinessKnowledgeSourcesListParams,
     BusinessKnowledgeSourcesTextRetrieve200,
+    BusinessKnowledgeSourcesUsageRetrieveParams,
     CreateTextSourceApi,
     GapActionApi,
     GapTopicActionApi,
     GapTopicActionResultApi,
+    KnowledgeAccessApi,
+    KnowledgeAvailabilityApi,
     KnowledgeDocumentWindowApi,
     KnowledgeGapSuggestionApi,
+    KnowledgeKeyApi,
+    KnowledgeKeyCreateApi,
+    KnowledgeLibraryApi,
+    KnowledgeLibraryCreateApi,
     KnowledgeSearchResultApi,
     KnowledgeSourceApi,
+    KnowledgeUsageApi,
     PaginatedKnowledgeGapSuggestionListApi,
     PaginatedKnowledgeSourceDocumentListApi,
     PaginatedKnowledgeSourceListApi,
+    PaginatedPlaygroundChatListListApi,
     PatchedBusinessKnowledgeSettingsUpdateApi,
+    PatchedKnowledgeLibraryUpdateApi,
     PatchedUpdateTextSourceApi,
     PlaygroundChatApi,
-    PlaygroundChatListApi,
     RepositoryConnectApi,
     RepositoryConnectionApi,
     RepositoryFileApi,
@@ -59,6 +69,24 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getBusinessKnowledgeAccessRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/access/`
+}
+
+/**
+ * The project and, for a project secret API key limited to a library, the library the caller reads. A project secret API key can call this with `@current` as the project ID to learn its own project.
+ * @summary Get what the caller can read
+ */
+export const businessKnowledgeAccessRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<KnowledgeAccessApi> => {
+    return apiMutator<KnowledgeAccessApi>(getBusinessKnowledgeAccessRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getBusinessKnowledgeDocumentsWindowListUrl = (
     projectId: string,
@@ -262,8 +290,177 @@ export const businessKnowledgeGapSuggestionsDismissTopicCreate = async (
     })
 }
 
-export const getBusinessKnowledgePlaygroundChatsListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/business_knowledge/playground/chats/`
+export const getBusinessKnowledgeKeysListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/keys/`
+}
+
+/**
+ * Project secret API keys in this project with the business_knowledge:read scope, newest first, and the library each one is limited to.
+ * @summary List the keys that read business knowledge
+ */
+export const businessKnowledgeKeysList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<KnowledgeKeyApi[]> => {
+    return apiMutator<KnowledgeKeyApi[]>(getBusinessKnowledgeKeysListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBusinessKnowledgeKeysCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/keys/`
+}
+
+/**
+ * Creates a project secret API key with the business_knowledge:read scope. The key reads one library, or all business knowledge in the project when library_id is null. The response is the only place the key value appears. Delete or roll the key through the project secret API keys endpoint.
+ * @summary Create a key that reads business knowledge
+ */
+export const businessKnowledgeKeysCreate = async (
+    projectId: string,
+    knowledgeKeyCreateApi: KnowledgeKeyCreateApi,
+    options?: RequestInit
+): Promise<KnowledgeKeyApi> => {
+    return apiMutator<KnowledgeKeyApi>(getBusinessKnowledgeKeysCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(knowledgeKeyCreateApi),
+    })
+}
+
+export const getBusinessKnowledgeLearningBackfillCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/learning_backfill/`
+}
+
+/**
+ * Start learning from resolved support tickets of the last 90 days. Tickets that were already analyzed are skipped. The work runs in the background in small batches and can take a few hours.
+ * @summary Learn from past support tickets
+ */
+export const businessKnowledgeLearningBackfillCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<BusinessKnowledgeSettingsApi> => {
+    return apiMutator<BusinessKnowledgeSettingsApi>(getBusinessKnowledgeLearningBackfillCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getBusinessKnowledgeLibrariesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/libraries/`
+}
+
+/**
+ * Libraries in this project. The default library is first.
+ * @summary List business knowledge libraries
+ */
+export const businessKnowledgeLibrariesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<KnowledgeLibraryApi[]> => {
+    return apiMutator<KnowledgeLibraryApi[]>(getBusinessKnowledgeLibrariesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBusinessKnowledgeLibrariesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/libraries/`
+}
+
+/**
+ * @summary Create a business knowledge library
+ */
+export const businessKnowledgeLibrariesCreate = async (
+    projectId: string,
+    knowledgeLibraryCreateApi: KnowledgeLibraryCreateApi,
+    options?: RequestInit
+): Promise<KnowledgeLibraryApi> => {
+    return apiMutator<KnowledgeLibraryApi>(getBusinessKnowledgeLibrariesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(knowledgeLibraryCreateApi),
+    })
+}
+
+export const getBusinessKnowledgeLibrariesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/business_knowledge/libraries/${id}/`
+}
+
+/**
+ * @summary Get a business knowledge library
+ */
+export const businessKnowledgeLibrariesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<KnowledgeLibraryApi> => {
+    return apiMutator<KnowledgeLibraryApi>(getBusinessKnowledgeLibrariesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBusinessKnowledgeLibrariesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/business_knowledge/libraries/${id}/`
+}
+
+/**
+ * Send only the fields you want to change. `source_ids` replaces every source in the library. `repos` replaces this environment's repositories and leaves repositories that only another environment allows.
+ * @summary Rename a library or replace its sources and repositories
+ */
+export const businessKnowledgeLibrariesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedKnowledgeLibraryUpdateApi?: PatchedKnowledgeLibraryUpdateApi,
+    options?: RequestInit
+): Promise<KnowledgeLibraryApi> => {
+    return apiMutator<KnowledgeLibraryApi>(getBusinessKnowledgeLibrariesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedKnowledgeLibraryUpdateApi),
+    })
+}
+
+export const getBusinessKnowledgeLibrariesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/business_knowledge/libraries/${id}/`
+}
+
+/**
+ * Removes the library and its links. Sources, documents, and selected repositories stay.
+ * @summary Delete a business knowledge library
+ */
+export const businessKnowledgeLibrariesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBusinessKnowledgeLibrariesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getBusinessKnowledgePlaygroundChatsListUrl = (
+    projectId: string,
+    params?: BusinessKnowledgePlaygroundChatsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/business_knowledge/playground/chats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/business_knowledge/playground/chats/`
 }
 
 /**
@@ -272,12 +469,16 @@ export const getBusinessKnowledgePlaygroundChatsListUrl = (projectId: string) =>
  */
 export const businessKnowledgePlaygroundChatsList = async (
     projectId: string,
+    params?: BusinessKnowledgePlaygroundChatsListParams,
     options?: RequestInit
-): Promise<PlaygroundChatListApi[]> => {
-    return apiMutator<PlaygroundChatListApi[]>(getBusinessKnowledgePlaygroundChatsListUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<PaginatedPlaygroundChatListListApi> => {
+    return apiMutator<PaginatedPlaygroundChatListListApi>(
+        getBusinessKnowledgePlaygroundChatsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getBusinessKnowledgePlaygroundChatsCreateUrl = (projectId: string) => {
@@ -744,4 +945,55 @@ export const businessKnowledgeSourcesTextRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getBusinessKnowledgeSourcesAvailabilityRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/sources/availability/`
+}
+
+/**
+ * Whether the project has any source and whether this environment has any selected GitHub repository.
+ * @summary Check whether business knowledge has content
+ */
+export const businessKnowledgeSourcesAvailabilityRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<KnowledgeAvailabilityApi> => {
+    return apiMutator<KnowledgeAvailabilityApi>(getBusinessKnowledgeSourcesAvailabilityRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBusinessKnowledgeSourcesUsageRetrieveUrl = (
+    projectId: string,
+    params?: BusinessKnowledgeSourcesUsageRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/business_knowledge/sources/usage/?${stringifiedParams}`
+        : `/api/projects/${projectId}/business_knowledge/sources/usage/`
+}
+
+/**
+ * Usage of the project's knowledge over a period: chunks ingested, searches, and how often support agent runs cited the sources.
+ */
+export const businessKnowledgeSourcesUsageRetrieve = async (
+    projectId: string,
+    params?: BusinessKnowledgeSourcesUsageRetrieveParams,
+    options?: RequestInit
+): Promise<KnowledgeUsageApi> => {
+    return apiMutator<KnowledgeUsageApi>(getBusinessKnowledgeSourcesUsageRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }

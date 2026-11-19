@@ -7,7 +7,8 @@ use async_trait::async_trait;
 use common::TestContext;
 use tonic::{Code, Request, Status};
 
-use personhog_identity::leader::PropertyWriter;
+use personhog_identity::leader::{PersonStateReader, PropertyWriter};
+use personhog_identity::lifecycle::detach::DetachedDrives;
 use personhog_identity::lifecycle::merge::{MergeDriver, MergeOpExecutor};
 use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::service::validation::RequestLimits;
@@ -36,6 +37,14 @@ impl MockPropertyWriter {
 
     fn calls(&self) -> Vec<UpdatePersonPropertiesRequest> {
         self.calls.lock().unwrap().clone()
+    }
+}
+
+/// These tests seed the identity row directly, so the leader agrees with it.
+#[async_trait]
+impl PersonStateReader for MockPropertyWriter {
+    async fn is_identified(&self, _team_id: i64, _person_id: i64) -> Result<Option<bool>, Status> {
+        Ok(Some(false))
     }
 }
 
@@ -82,13 +91,16 @@ impl ServiceTestContext {
         let merge = MergeEntrance::new(
             ctx.storage.clone(),
             writer.clone(),
+            writer.clone(),
             MergeOpExecutor::new(
                 engine,
                 MergeDriver::new(
                     Arc::new(common::UnusedLeader),
                     ctx.tables.clone(),
                     common::FAN_OUT_CONCURRENCY,
+                    personhog_identity::config::OutboxWrites::Disabled,
                 ),
+                DetachedDrives::new(common::FAN_OUT_CONCURRENCY),
             ),
         );
         let service = PersonHogIdentityService::new(

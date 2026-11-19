@@ -11,7 +11,7 @@ from posthog.schema import (
 
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 
-from products.alerts.backend.evaluation.contract import ExtractionResult
+from products.alerts.backend.evaluation.contract import ComparableSeries, ExtractionResult
 
 # Aggregated (any-row) breach lists are capped so a wide violation doesn't flood the notification.
 # The persisted structured detail uses the same cap.
@@ -105,6 +105,50 @@ def _relative_value(
     return numerator / previous
 
 
+def _breach_detail(
+    result: ExtractionResult,
+    series: ComparableSeries,
+    condition: AlertCondition,
+    threshold: InsightThreshold,
+    calculated: float,
+) -> dict[str, str]:
+    def format_value(value: float, *, change: bool = False) -> str:
+        if change and threshold.type == InsightThresholdType.PERCENTAGE:
+            return f"{value:.2%}"
+        if result.value_formatter is not None:
+            return result.value_formatter(value)
+        return f"{value:g}{result.unit}"
+
+    current = series.points[series.current_index]
+    previous = series.points[series.current_index - 1] if series.current_index > 0 else None
+    detail = {"observed": format_value(current.value if current.value is not None else calculated)}
+    if result.framed or result.is_breakdown or result.include_series_label:
+        detail["group"] = series.label[:400]
+    if current.date:
+        detail["date"] = current.date
+    if result.interval_type:
+        detail["interval"] = result.interval_type
+    relative = condition.type != AlertConditionType.ABSOLUTE_VALUE
+    if previous is not None and previous.value is not None:
+        detail["previous"] = format_value(previous.value)
+        detail["previous_label"] = "Previous interval"
+        if relative:
+            if previous.value == 0 and threshold.type == InsightThresholdType.PERCENTAGE:
+                detail["change"] = "Not defined from zero"
+            else:
+                arrow = "▲" if current.value is not None and current.value > previous.value else "▼"
+                detail["change"] = f"{arrow} {format_value(abs(calculated), change=True)}"
+    if threshold.bounds is not None:
+        for side, bound in (("lower", threshold.bounds.lower), ("upper", threshold.bounds.upper)):
+            if bound is not None and (
+                (side == "lower" and calculated < bound) or (side == "upper" and calculated > bound)
+            ):
+                detail["limit_label"] = "Change limit" if relative else f"{side.capitalize()} limit"
+                detail["limit"] = format_value(bound, change=relative)
+                break
+    return detail
+
+
 def evaluate_threshold(
     result: ExtractionResult,
     condition: AlertCondition,
@@ -126,6 +170,7 @@ def evaluate_threshold(
     calculated: float | None = None
     all_breaches: list[str] = []
     breaching_rows: list[dict] = []
+    breach_details: list[dict[str, str]] = []
     first_breach_value: float | None = None
     for s in result.series:
         anchor = s.points[s.current_index].value
@@ -155,8 +200,13 @@ def evaluate_threshold(
             value_formatter=result.value_formatter,
         )
         if breaches:
+            detail = _breach_detail(result, s, condition, threshold, calculated)
             if not result.aggregate_breaches:
-                return AlertEvaluationResult(value=calculated, breaches=breaches)
+                return AlertEvaluationResult(
+                    value=calculated, breaches=breaches, triggered_metadata={"breach_details": [detail]}
+                )
+            if len(breach_details) < MAX_BREACH_MESSAGES:
+                breach_details.append(detail)
             if first_breach_value is None:
                 # Representative value = the first breaching row in result order; the full list
                 # of breaching rows is carried by ``breaches`` and ``triggered_metadata``.
@@ -167,6 +217,7 @@ def evaluate_threshold(
     if all_breaches:
         capped = all_breaches[:MAX_BREACH_MESSAGES]
         if len(all_breaches) > MAX_BREACH_MESSAGES:
+            breach_details[-1]["other_groups"] = str(len(breaching_rows) - MAX_BREACH_MESSAGES)
             capped.append(f"...and {len(all_breaches) - MAX_BREACH_MESSAGES} more rows breach")
         # Persist which rows breached on the check record — notifications are transient, and the
         # row labels have no other durable source of truth.
@@ -175,6 +226,7 @@ def evaluate_threshold(
             breaches=capped,
             triggered_metadata={
                 "breaching_rows": breaching_rows[:MAX_BREACH_MESSAGES],
+                "breach_details": breach_details,
                 "breaching_row_count": len(breaching_rows),
             },
         )

@@ -1,4 +1,41 @@
 {% extends "email/base.html" %}
+{% block head %}
+    <style type="text/css">
+        .main {
+            max-width: 1280px;
+        }
+
+        .container {
+            max-width: none;
+            padding: 0 48px;
+        }
+
+        .subscription-summary ul,
+        .subscription-summary ol {
+            margin: 0;
+            padding-left: 24px;
+        }
+
+        .subscription-summary li {
+            margin-bottom: 12px;
+        }
+
+        .subscription-summary li:last-child {
+            margin-bottom: 0;
+        }
+
+        .subscription-summary p {
+            margin: 0;
+        }
+    </style>
+    <style type="text/css" inline="false">
+        @media only screen and (max-width: 600px) {
+            .container {
+                padding: 0 20px !important;
+            }
+        }
+    </style>
+{% endblock %}
 {% block section %}
     {% if inviter %}
         <h1 class="invite-header">
@@ -38,7 +75,7 @@
                     border-radius: 4px;
                     margin-bottom: 16px">
             <p style="margin: 0 0 8px 0; font-weight: bold;">AI summary:</p>
-            <div style="margin: 0;">{{ change_summary|linebreaksbr }}</div>
+            <div class="subscription-summary">{{ change_summary_html }}</div>
         </div>
     {% elif summary_skipped_over_budget %}
         <div style="padding: 16px;

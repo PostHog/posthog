@@ -4,7 +4,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError
 
 from products.ai_training.backend.config import key_table_name
-from products.ai_training.backend.privacy.store import AITrainingPrivacyStore
+from products.ai_training.backend.privacy.store import V3KeyTarget
 
 
 class Command(BaseCommand):
@@ -17,7 +17,7 @@ class Command(BaseCommand):
         if not key_table_name():
             raise CommandError("AI_RESEARCH_REPLAY_KEY_TABLE is not configured")
         try:
-            count = AITrainingPrivacyStore.from_settings().delete_month(options["session_month"])
+            count = V3KeyTarget.from_settings().delete_month(options["session_month"])
         except ValueError as error:
             raise CommandError(str(error)) from error
         self.stdout.write(f"Removed {count} indexed keys. A reader that already cached a key can still use it.")

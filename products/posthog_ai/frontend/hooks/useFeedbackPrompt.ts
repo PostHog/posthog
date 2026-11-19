@@ -16,15 +16,17 @@ export interface UseFeedbackPromptResult {
  * turn finishes, and treats a new message sent while the prompt is open as an implicit dismissal.
  */
 export function useFeedbackPrompt(sessionId: string, streamKey: string): UseFeedbackPromptResult {
-    const { threadItems, streamPhase } = useValues(runStreamLogic)
+    const { threadItems, streamPhase, historyTurnBase } = useValues(runStreamLogic)
     const logic = feedbackPromptLogic({ sessionId, streamKey })
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible } = useValues(logic)
     const { checkShouldShowPrompt, implicitDismissPrompt, implicitDismissDetailedFeedback } = useActions(logic)
 
     const streamingActive = streamPhase !== 'idle'
+    // Counted over the full history, so an older page that loads is not a new send, and the trigger uses the same
+    // intervals as a submitted rating.
     const humanMessageCount = useMemo(
-        () => threadItems.filter((item) => item.type === 'human_message').length,
-        [threadItems]
+        () => historyTurnBase + threadItems.filter((item) => item.type === 'human_message').length,
+        [threadItems, historyTurnBase]
     )
     const prevMessageCountRef = useRef(humanMessageCount)
     const prevStreamingActiveRef = useRef(streamingActive)

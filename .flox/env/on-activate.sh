@@ -9,14 +9,14 @@
 set -euo pipefail
 
 # ── Colors & symbols ────────────────────────────────────────────────
-readonly C_RESET='\033[0m'
-readonly C_DIM='\033[2m'
-readonly C_GREEN='\033[32m'
-readonly C_YELLOW='\033[33m'
-readonly C_RED='\033[31m'
-readonly C_CYAN='\033[1;36m'
-readonly C_ITALIC='\033[3m'
-readonly C_BOLD='\033[1m'
+readonly C_RESET=$'\033[0m'
+readonly C_DIM=$'\033[2m'
+readonly C_GREEN=$'\033[32m'
+readonly C_YELLOW=$'\033[33m'
+readonly C_RED=$'\033[31m'
+readonly C_CYAN=$'\033[1;36m'
+readonly C_ITALIC=$'\033[3m'
+readonly C_BOLD=$'\033[1m'
 readonly SPINNER_FRAMES=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 
 _ACTIVATION_TMPFILES=()
@@ -55,12 +55,8 @@ _save_failure_log() {
 }
 
 # ── Step runner ─────────────────────────────────────────────────────
-# Runs a command with a spinner and live output preview.
+# Runs a command and shows its progress with wait_bg_step.
 # Usage: run_step "Label" command [args...]
-#   - Shows a braille spinner with elapsed time while the command runs.
-#   - Below the spinner line, the last line of command output scrolls in-place.
-#   - On completion, collapses to a single "✓ Label  Ns" or "✗ Label  Ns" line.
-#   - Non-interactive: falls back to a simple "... Label" / "✓ Label" pair.
 run_step() {
   local label="$1"
   shift
@@ -72,70 +68,78 @@ run_step() {
   local start_time
   start_time=$(date +%s)
 
-  # Non-interactive fallback
+  "$@" > "$tmpfile" 2>&1 &
+  wait_bg_step "$label" $! "$start_time" "$tmpfile"
+}
+
+# Waits for a step running as a background process and reports its outcome.
+# Usage: wait_bg_step "Label" <pid> <start_epoch> <logfile>
+#   - Shows a braille spinner with elapsed time while the process runs.
+#   - Below the spinner line, the last line of its log scrolls in-place.
+#   - On completion, collapses to a single "✓ Label  Ns" or "✗ Label  Ns" line.
+#   - Non-interactive: prints "... Label" while it runs, then the status line.
+wait_bg_step() {
+  local label="$1"
+  local pid="$2"
+  local start_time="$3"
+  local tmpfile="$4"
+
+  # A non-interactive shell starts background jobs with SIGINT ignored, so
+  # Ctrl+C would otherwise leave the step running after activation exits.
+  trap 'kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || true; echo; exit 130' INT
+
   if [[ ! -t 1 ]]; then
     echo -ne "  ... ${label}"
-    if "$@" > "$tmpfile" 2>&1; then
-      echo -e "\r  ${C_GREEN}✓${C_RESET} ${label}"
-    else
-      echo -e "\r  ${C_RED}✗${C_RESET} ${label}  (failed)"
-      _save_failure_log "$label" "$tmpfile"
-      return 1
-    fi
-    return 0
-  fi
+  else
+    local frame=0
+    local had_output=false
 
-  # Run command in background
-  "$@" > "$tmpfile" 2>&1 &
-  local pid=$!
+    # Spinner loop
+    while kill -0 "$pid" 2>/dev/null; do
+      local elapsed=$(( $(date +%s) - start_time ))
+      local ch="${SPINNER_FRAMES[$(( frame % ${#SPINNER_FRAMES[@]} ))]}"
 
-  local frame=0
-  local had_output=false
+      # Read last line of output
+      local last_line=""
+      if [[ -s "$tmpfile" ]]; then
+        last_line=$(tail -n 1 "$tmpfile" 2>/dev/null)
+        last_line="${last_line//$'\r'/}"
+        last_line="${last_line:0:70}"
+      fi
 
-  # Spinner loop
-  while kill -0 "$pid" 2>/dev/null; do
-    local elapsed=$(( $(date +%s) - start_time ))
-    local ch="${SPINNER_FRAMES[$(( frame % ${#SPINNER_FRAMES[@]} ))]}"
+      # Redraw: clear previous output line if we had one
+      if [[ "$had_output" == true ]]; then
+        echo -ne "\033[A\033[2K"  # up one, clear line
+      fi
+      # Clear spinner line and redraw
+      printf "\r\033[2K  ${C_YELLOW}%s${C_RESET} %-42s %3ds" "$ch" "$label" "$elapsed"
 
-    # Read last non-empty line from output
-    local last_line=""
-    if [[ -s "$tmpfile" ]]; then
-      last_line=$(tail -n 1 "$tmpfile" 2>/dev/null | tr -d '\r' | cut -c1-70)
-    fi
+      # Show output preview below spinner
+      if [[ -n "$last_line" ]]; then
+        printf "\n\033[2K    ${C_DIM}%s${C_RESET}" "$last_line"
+        had_output=true
+      else
+        had_output=false
+      fi
 
-    # Redraw: clear previous output line if we had one
+      frame=$(( frame + 1 ))
+      sleep 0.08
+    done
+
+    # Clear output preview line, then move back up to the spinner line
     if [[ "$had_output" == true ]]; then
-      echo -ne "\033[A\033[2K"  # up one, clear line
+      echo -ne "\r\033[2K\033[A"
     fi
-    # Clear spinner line and redraw
-    printf "\r\033[2K  ${C_YELLOW}%s${C_RESET} %-42s %3ds" "$ch" "$label" "$elapsed"
-
-    # Show output preview below spinner
-    if [[ -n "$last_line" ]]; then
-      printf "\n    ${C_DIM}%s${C_RESET}" "$last_line"
-      had_output=true
-    else
-      had_output=false
-    fi
-
-    frame=$(( frame + 1 ))
-    sleep 0.08
-  done
+  fi
 
   local exit_code=0
   wait "$pid" 2>/dev/null || exit_code=$?
+  trap - INT
   local elapsed=$(( $(date +%s) - start_time ))
-
-  # Clear output preview line
-  if [[ "$had_output" == true ]]; then
-    echo -ne "\033[A\033[2K"
-  fi
 
   # Final status line
   if [[ $exit_code -eq 0 ]]; then
     printf "\r\033[2K  ${C_GREEN}✓${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
-    # Clear the line below (old output preview may linger)
-    if [[ "$had_output" == true ]]; then printf "\033[2K"; fi
   else
     printf "\r\033[2K  ${C_RED}✗${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
     # Save failure log and show last few lines of output on failure
@@ -169,29 +173,6 @@ _read_ami_stamp() {
   tr -d '[:space:]' < "$file" 2>/dev/null || true
 }
 
-# Waits for a step that was started earlier as a background subshell and
-# reports its outcome. Mirrors run_step's final status line without a
-# spinner -- the work has usually completed by the time wait is called.
-# Usage: wait_bg_step "Label" <pid> <start_epoch> <logfile>
-wait_bg_step() {
-  local label="$1"
-  local pid="$2"
-  local start_time="$3"
-  local tmpfile="$4"
-
-  local exit_code=0
-  wait "$pid" 2>/dev/null || exit_code=$?
-  local elapsed=$(( $(date +%s) - start_time ))
-
-  if [[ $exit_code -eq 0 ]]; then
-    printf "  ${C_GREEN}✓${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
-  else
-    printf "  ${C_RED}✗${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
-    _save_failure_log "$label" "$tmpfile"
-    return $exit_code
-  fi
-}
-
 # Inline step (instant, no spinner)
 done_step() {
   local label="$1"
@@ -212,15 +193,25 @@ fi
 
 # ── Go toolchain isolation ─────────────────────────────────────────
 # User shells often export GOROOT/GOCACHE for Homebrew, asdf, or other local Go
-# installs. Keep flox builds on the pinned Go toolchain and cache compiled
-# packages inside the flox environment so host Go upgrades cannot poison builds.
+# installs. Keep flox builds on the pinned Go toolchain and in caches this repo
+# owns so host Go upgrades cannot poison builds. Go keys both caches by toolchain
+# and module version, so every worktree shares them.
 unset GOROOT
 export GOTOOLCHAIN=local
-export GOPATH="$FLOX_ENV_CACHE/go"
-export GOCACHE="$FLOX_ENV_CACHE/go-build"
+export GOPATH="$HOME/.cache/posthog/go"
+export GOCACHE="$HOME/.cache/posthog/go-build"
 export GOMODCACHE="$GOPATH/pkg/mod"
-# Go creates the module cache read-only by default, and `rm -rf` on a worktree
-# cannot delete a read-only directory tree.
+# Old per-checkout caches hold six-figure file counts, so delete them off the activation path.
+# A shell opened before this change may still build from them, so wait until no go runs.
+# Module caches made without -modcacherw are read-only.
+for old_go_cache in "$FLOX_ENV_CACHE/go" "$FLOX_ENV_CACHE/go-build"; do
+  if [[ -d "$old_go_cache" ]] && ! pgrep -x go >/dev/null 2>&1 && mv "$old_go_cache" "$old_go_cache.old" 2>/dev/null; then
+    (chmod -R u+w "$old_go_cache.old"; rm -rf "$old_go_cache.old") >/dev/null 2>&1 &
+    disown
+  fi
+done
+# Go creates the module cache read-only by default, so `rm -rf` on the shared
+# cache would need a chmod first.
 export GOFLAGS=-modcacherw
 
 # uv-managed venv location (mirrors the [profile] scripts; not in [vars], which
@@ -232,6 +223,38 @@ export UV_PROJECT_ENVIRONMENT="$FLOX_ENV_CACHE/venv"
 # Python tooling.
 if [[ "$_interactive" != true ]] && [[ ":$PATH:" != *":$UV_PROJECT_ENVIRONMENT/bin:"* ]]; then
   export PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
+fi
+
+# ── pnpm on the pinned Node ─────────────────────────────────────────
+# The corepack package's shims carry a shebang for the Node that nixpkgs built
+# corepack with, not the pinned nodejs. pnpm on that Node fails the engines check
+# and compiles native addons for the wrong ABI, so the nodejs services die with
+# ERR_DLOPEN_FAILED. These shims run the same corepack scripts on the pinned Node.
+#
+# corepack also picks the pnpm version from the package.json above the working
+# directory, not above `--dir`, so `pnpm --dir products/mobile install` ran the
+# root's pnpm against a workspace that pins another. The shims cd there first.
+_NODE_SHIM_DIR="$FLOX_ENV_CACHE/node-shims"
+mkdir -p "$_NODE_SHIM_DIR"
+for _shim_tool in corepack pnpm pnpx yarn; do
+  _shim_target="$(readlink -f "$FLOX_ENV/bin/$_shim_tool" 2>/dev/null || true)"
+  [[ -f "$_shim_target" ]] || continue
+  _shim_tmp="$(mktemp "$_NODE_SHIM_DIR/.$_shim_tool.XXXXXX")"
+  cat >"$_shim_tmp" <<EOF
+#!/bin/sh
+# Generated by .flox/env/on-activate.sh on each activation.
+case "\${1:-}" in
+  --dir | -C) [ \$# -ge 2 ] && { cd "\$2" || exit 1; shift 2; } ;;
+  --dir=*) cd "\${1#--dir=}" || exit 1; shift ;;
+esac
+exec "$FLOX_ENV/bin/node" "$_shim_target" "\$@"
+EOF
+  chmod +x "$_shim_tmp"
+  mv -f "$_shim_tmp" "$_NODE_SHIM_DIR/$_shim_tool"
+done
+unset _shim_tool _shim_target _shim_tmp
+if [[ ":$PATH:" != *":$_NODE_SHIM_DIR:"* ]]; then
+  export PATH="$_NODE_SHIM_DIR:$PATH"
 fi
 # ── Direnv first-time setup (interactive only) ─────────────────────
 if [[ "$_interactive" == true ]] && ! command -v direnv >/dev/null 2>&1 && [[ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]]; then
@@ -283,12 +306,12 @@ _activation_start=$(date +%s)
 
 # ── Steps 1, 1b, 2 (kicked off in parallel; uv and pnpm have an AMI cache-skip) ───
 # uv sync, pnpm install, and `make phrocs build` are independent -- none
-# of them reads or writes the other's outputs. Kick the two non-spinner
-# ones off in the background BEFORE foregrounding uv sync, so the wall
+# of them reads or writes the other's outputs. Kick the other two
+# off in the background BEFORE foregrounding uv sync, so the wall
 # clock is bounded by the slowest single step instead of the sum. uv sync
 # stays foregrounded because the completion + man-page steps that follow
-# depend on the venv it populates, and because its run_step spinner remains
-# the user-visible progress indicator for activate.
+# depend on the venv it populates. wait_bg_step shows a spinner for each
+# background step that is still running when activation reaches it.
 #
 # uv sync and pnpm install also check an AMI-bake stamp file (sha256 of the
 # lockfile recorded at bake time): when the on-disk hash matches the baked
@@ -318,6 +341,19 @@ _UV_CURRENT=$(_sha256_file "$_UV_LOCK")
 # since both tools create the parent early and populate it afterwards.
 _PNPM_SKIP=0
 [[ -n "$_PNPM_BAKED" && -n "$_PNPM_CURRENT" && "$_PNPM_BAKED" == "$_PNPM_CURRENT" && -d "$FLOX_ENV_PROJECT/node_modules/.pnpm" ]] && _PNPM_SKIP=1
+
+# Native addons that an older pnpm launcher built for another Node stay that way:
+# `pnpm install` reports the tree as up to date and restores them from its cache.
+# A native addon exports node_register_module_v<ABI>, so reading the re2 binary tells which
+# Node it was built for without running dependency code outside bin/dev-sandbox.
+_PNPM_COMMAND="pnpm install"
+_RE2_BINARY="$FLOX_ENV_PROJECT/nodejs/node_modules/re2/build/Release/re2.node"
+_NODE_ABI="$(node -p process.versions.modules 2>/dev/null || true)"
+if [[ -f "$_RE2_BINARY" && -n "$_NODE_ABI" ]] &&
+  ! grep -aqE "node_register_module_v${_NODE_ABI}([^0-9]|\$)" "$_RE2_BINARY"; then
+  _PNPM_COMMAND="pnpm install && pnpm -r rebuild re2 node-rdkafka lz4 cpu-features"
+  _PNPM_SKIP=0
+fi
 _UV_SKIP=0
 [[ -n "$_UV_BAKED" && -n "$_UV_CURRENT" && "$_UV_BAKED" == "$_UV_CURRENT" && -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] && _UV_SKIP=1
 
@@ -358,9 +394,14 @@ if [[ "$_PNPM_SKIP" -eq 0 ]]; then
   _BG_PNPM_LOG=$(mktemp)
   _ACTIVATION_TMPFILES+=("$_BG_PNPM_LOG")
   if [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
-    ( "$FLOX_ENV_PROJECT/bin/dev-sandbox" "pnpm install" ) >"$_BG_PNPM_LOG" 2>&1 &
+    ( "$FLOX_ENV_PROJECT/bin/dev-sandbox" "$_PNPM_COMMAND" ) >"$_BG_PNPM_LOG" 2>&1 &
+  elif [[ "$(uname -s)" == "Linux" ]]; then
+    # LDFLAGS links against flox's libs, which need the nix glibc. On a host with an
+    # older glibc, the host linker then rejects librdkafka's example programs, which
+    # node-rdkafka builds but never uses. Scoped to this install so other builds keep strict linking.
+    ( LDFLAGS="${LDFLAGS:-} -Wl,--allow-shlib-undefined" bash -c "$_PNPM_COMMAND" ) >"$_BG_PNPM_LOG" 2>&1 &
   else
-    ( pnpm install ) >"$_BG_PNPM_LOG" 2>&1 &
+    ( bash -c "$_PNPM_COMMAND" ) >"$_BG_PNPM_LOG" 2>&1 &
   fi
   _BG_PNPM_PID=$!
   _BG_PNPM_START=$(date +%s)
@@ -371,63 +412,6 @@ _ACTIVATION_TMPFILES+=("$_BG_PHROCS_LOG")
 ( make -C "$FLOX_ENV_PROJECT/tools/phrocs" build ) >"$_BG_PHROCS_LOG" 2>&1 &
 _BG_PHROCS_PID=$!
 _BG_PHROCS_START=$(date +%s)
-
-# CodeRabbit CLI, downloaded from the vendor's release server. The flox catalog
-# build omits x86_64-darwin, and the vendor install script edits the user's shell
-# profile, so neither is used. One store per machine and version serves every
-# checkout, and the venv symlink in Step 2b resolves each worktree's own pin.
-# A failed install must not break activation: the CLI is only needed at PR-open
-# time, and the reviewing-with-coderabbit skill opens the PR without it.
-_CODERABBIT_VERSION="0.8.0"
-_CODERABBIT_STORE="$HOME/.config/posthog/tools/coderabbit/$_CODERABBIT_VERSION"
-_CODERABBIT_BIN="$_CODERABBIT_STORE/coderabbit"
-
-# Release asset suffix for this host, empty when the host cannot install it.
-# Digests come from https://cli.coderabbit.ai/releases/<version>/SHA256SUMS.
-_CODERABBIT_PLATFORM=""
-_CODERABBIT_SHA256=""
-if command -v unzip >/dev/null 2>&1; then
-  case "$(uname -s)-$(uname -m)" in
-    Darwin-arm64)
-      _CODERABBIT_PLATFORM="darwin-arm64"
-      _CODERABBIT_SHA256="748271195b85cc245613f2affabacd4189c721f3839fb14d3efceccffdb382f5" ;;
-    Darwin-x86_64)
-      _CODERABBIT_PLATFORM="darwin-x64"
-      _CODERABBIT_SHA256="ccebc6335fd7fe0bbe2ad595aa57f684890551ff03114c8cc2403952d9c7ac52" ;;
-    Linux-aarch64 | Linux-arm64)
-      _CODERABBIT_PLATFORM="linux-arm64"
-      _CODERABBIT_SHA256="570fd0569239371de6b7cb1004c760052c507d1fbb3189b692988d7f3804ee6d" ;;
-    Linux-x86_64 | Linux-amd64)
-      _CODERABBIT_PLATFORM="linux-x64"
-      _CODERABBIT_SHA256="e60aa408266c3e2350aae890b239ab8d1c12b3f607f4475e1c2ddd4529af1d71" ;;
-  esac
-fi
-
-_install_coderabbit() {
-  mkdir -p "$_CODERABBIT_STORE"
-  # A temp dir inside the store keeps the final mv an atomic rename, so a
-  # concurrent or interrupted install never leaves a partial binary behind.
-  tmp=$(mktemp -d "$_CODERABBIT_STORE/.tmp.XXXXXX")
-  trap 'rm -rf "$tmp"' EXIT
-  # The release path carries no leading "v", unlike the vendor script's example.
-  curl -fsSL --connect-timeout 10 --max-time 300 \
-    "https://cli.coderabbit.ai/releases/$_CODERABBIT_VERSION/coderabbit-$_CODERABBIT_PLATFORM.zip" \
-    -o "$tmp/coderabbit.zip"
-  [[ "$(_sha256_file "$tmp/coderabbit.zip")" == "$_CODERABBIT_SHA256" ]]
-  unzip -qo "$tmp/coderabbit.zip" -d "$tmp"
-  chmod +x "$tmp/coderabbit"
-  mv -f "$tmp/coderabbit" "$_CODERABBIT_BIN"
-}
-
-_CODERABBIT_SKIP=0
-[[ -x "$_CODERABBIT_BIN" ]] && _CODERABBIT_SKIP=1
-if [[ "$_CODERABBIT_SKIP" -eq 0 && -n "$_CODERABBIT_PLATFORM" ]]; then
-  _BG_CODERABBIT_LOG=$(mktemp)
-  _ACTIVATION_TMPFILES+=("$_BG_CODERABBIT_LOG")
-  ( _install_coderabbit ) >"$_BG_CODERABBIT_LOG" 2>&1 &
-  _BG_CODERABBIT_PID=$!
-  _BG_CODERABBIT_START=$(date +%s)
-fi
 
 # ── Step 1: Python packages (must run before hogli — it needs Click) ─
 if [[ "$_UV_SKIP" -eq 1 ]]; then
@@ -443,25 +427,53 @@ if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
 fi
 
+# ── Background housekeeping (hogli watch) ───────────────────────────
+# Runs the daily stale worktree cleanup and stops an unused local ClickHouse.
+# One watcher runs per machine, so skip the spawn when the pid in its lock file is alive.
+# POSTHOG_WATCH=0 opts out of all of it; POSTHOG_WORKTREES_AUTOCLEAN=0 and
+# POSTHOG_CLICKHOUSE_IDLE_STOP_MINUTES=0 turn off one job each.
+_WATCH_PID="$(cat "$HOME/.config/posthog/watch.lock" 2>/dev/null || true)"
+_WATCH_ALIVE=0
+if [[ -n "$_WATCH_PID" ]] && kill -0 "$_WATCH_PID" 2>/dev/null; then
+  _WATCH_ALIVE=1
+fi
+if [[ "${POSTHOG_WATCH:-1}" != "0" ]] && [[ -z "${CI:-}" ]] && [[ -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] \
+  && [[ "$_WATCH_ALIVE" == "0" ]]; then
+  mkdir -p "$HOME/.cache/posthog"
+  "$UV_PROJECT_ENVIRONMENT/bin/python" -P -m hogli watch >>"$HOME/.cache/posthog/watch.log" 2>&1 &
+  disown
+fi
+unset _WATCH_PID _WATCH_ALIVE
+
 # Install shell completions for hogli
 HOGLI_COMPLETION_DIR="$FLOX_ENV_CACHE/completions"
 mkdir -p "$HOGLI_COMPLETION_DIR"
-if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
+# The completions list only the commands in hogli.yaml, so they change only when that file,
+# the manifest loader, or their generator changes.
+if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]] && {
+  [[ ! -s "$HOGLI_COMPLETION_DIR/hogli.bash" || ! -s "$HOGLI_COMPLETION_DIR/_hogli" ]] ||
+    [[ "$FLOX_ENV_PROJECT/hogli.yaml" -nt "$HOGLI_COMPLETION_DIR/_hogli" ]] ||
+    [[ "$FLOX_ENV_PROJECT/tools/hogli/src/hogli/manifest.py" -nt "$HOGLI_COMPLETION_DIR/_hogli" ]] ||
+    [[ "$FLOX_ENV_PROJECT/tools/hogli/src/hogli/completion.py" -nt "$HOGLI_COMPLETION_DIR/_hogli" ]]
+}; then
   "$UV_PROJECT_ENVIRONMENT/bin/python" \
     -m hogli.completion --shell bash > "$HOGLI_COMPLETION_DIR/hogli.bash" 2>/dev/null || true
   "$UV_PROJECT_ENVIRONMENT/bin/python" \
     -m hogli.completion --shell zsh > "$HOGLI_COMPLETION_DIR/_hogli" 2>/dev/null || true
 fi
 
-# Generate hogli man page into the active environment so `man hogli` works.
+# Generate hogli man page into the active environment so `man hogli` works. The page also
+# documents commands defined in Python, so it is regenerated in the background each time
+# instead of making activation wait for it.
 HOGLI_MANPAGE_DIR="$UV_PROJECT_ENVIRONMENT/share/man/man1"
 if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   (
     mkdir -p "$HOGLI_MANPAGE_DIR"
     "$UV_PROJECT_ENVIRONMENT/bin/python" \
       "$FLOX_ENV_PROJECT/tools/hogli/scripts/generate_man_page.py" \
-      --output "$HOGLI_MANPAGE_DIR/hogli.1" >/dev/null 2>&1
-  ) || true
+      --output "$HOGLI_MANPAGE_DIR/hogli.1"
+  ) >/dev/null 2>&1 &
+  disown
 fi
 
 # ── Step 1b: Build phrocs from source ─────────────────────────────
@@ -475,20 +487,6 @@ if [[ "$_PNPM_SKIP" -eq 1 ]]; then
   done_step "Node packages (cached)"
 else
   wait_bg_step "Node packages" "$_BG_PNPM_PID" "$_BG_PNPM_START" "$_BG_PNPM_LOG"
-fi
-
-# ── Step 2b: CodeRabbit CLI (reap; launched above with the other jobs) ──
-if [[ "$_CODERABBIT_SKIP" -eq 1 ]]; then
-  done_step "CodeRabbit CLI (cached)"
-elif [[ -z "$_CODERABBIT_PLATFORM" ]]; then
-  warn_step "CodeRabbit CLI skipped  ${C_DIM}(no release for this host, or unzip is missing)${C_RESET}"
-else
-  wait_bg_step "CodeRabbit CLI" "$_BG_CODERABBIT_PID" "$_BG_CODERABBIT_START" "$_BG_CODERABBIT_LOG" \
-    || warn_step "CodeRabbit CLI install failed  ${C_DIM}(reviews skip until it installs)${C_RESET}"
-fi
-if [[ -x "$_CODERABBIT_BIN" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
-  ln -sf "$_CODERABBIT_BIN" "$UV_PROJECT_ENVIRONMENT/bin/coderabbit"
-  ln -sf "$_CODERABBIT_BIN" "$UV_PROJECT_ENVIRONMENT/bin/cr"
 fi
 
 # ── Step 3: /etc/hosts ──────────────────────────────────────────────
@@ -585,7 +583,7 @@ if [[ "$(uname -s)-$(uname -m)" == "Darwin-arm64" && -z "${SDKROOT:-}" ]] && com
 
     if [[ -n "$_lld_sdk" ]]; then
       export SDKROOT="$_lld_sdk"
-      done_step "macOS SDK ${C_DIM}($(basename "$_lld_sdk") — newest one lld can link against)${C_RESET}"
+      done_step "macOS SDK ${C_DIM}($(basename "$_lld_sdk"), the newest one lld can link against)${C_RESET}"
     else
       warn_step "No macOS SDK found that lld can link against. Rust builds will fail."
       echo -e "    ${C_DIM}$(basename "$_active_sdk") has an arm64e.x1 slice that lld cannot parse, or no arm64 slice.${C_RESET}"
@@ -594,9 +592,6 @@ if [[ "$(uname -s)-$(uname -m)" == "Darwin-arm64" && -z "${SDKROOT:-}" ]] && com
   fi
   unset -f _sdk_lld_can_link
 fi
-
-# Share a single Cargo target dir so worktrees skip redundant linking
-export CARGO_TARGET_DIR="$HOME/.cargo/target"
 
 # ── Summary ─────────────────────────────────────────────────────────
 _activation_end=$(date +%s)

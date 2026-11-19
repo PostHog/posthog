@@ -65,7 +65,7 @@ describe('Feature flags', { concurrent: false }, () => {
             expect(flagData.key).toBe(params.key)
             expect(flagData.name).toBe(params.name)
             expect(flagData.active).toBe(params.active)
-            expect(flagData._posthogUrl).toContain('/feature_flags/')
+            expect(flagData._posthogUrl).toContain('/feature-flags/')
             expect(flagData.updated_at).toBeTruthy()
 
             createdResources.featureFlags.push(flagData.id)
@@ -151,7 +151,7 @@ describe('Feature flags', { concurrent: false }, () => {
 
             expect(Array.isArray(response.results)).toBe(true)
             expect(response.results.some((flag: { id: number }) => flag.id === createdFlag.id)).toBe(true)
-            expect(response._posthogUrl).toContain('/feature_flags')
+            expect(response._posthogUrl).toContain('/feature-flags')
         })
 
         it('should support search by key and use returned ID for retrieval', async () => {
@@ -205,7 +205,7 @@ describe('Feature flags', { concurrent: false }, () => {
 
             expect(flagData.id).toBe(createdFlag.id)
             expect(flagData.key).toBe(createdFlag.key)
-            expect(flagData._posthogUrl).toContain('/feature_flags/')
+            expect(flagData._posthogUrl).toContain('/feature-flags/')
         })
     })
 
@@ -231,7 +231,7 @@ describe('Feature flags', { concurrent: false }, () => {
 
             expect(flagData.id).toBe(createdFlag.id)
             expect(flagData.key).toBe(uniqueKey)
-            expect(flagData._posthogUrl).toContain('/feature_flags/')
+            expect(flagData._posthogUrl).toContain('/feature-flags/')
             expect(flagData.found).toBe(true)
         })
 
@@ -272,7 +272,7 @@ describe('Feature flags', { concurrent: false }, () => {
             expect(updatedFlag.id).toBe(createdFlag.id)
             expect(updatedFlag.name).toBe('Updated name')
             expect(updatedFlag.active).toBe(false)
-            expect(updatedFlag._posthogUrl).toContain('/feature_flags/')
+            expect(updatedFlag._posthogUrl).toContain('/feature-flags/')
         })
 
         it('keeps group targeting when partial filters omit the group fields', async () => {

@@ -71,6 +71,10 @@
             <profile>default</profile>
         </app>
 
+        <signals>
+            <profile>default</profile>
+            <readonly>2</readonly>
+        </signals>
     </profiles>
 
     <!-- Users and ACL. -->
@@ -206,6 +210,12 @@
                 <query>GRANT SELECT ON posthog_test.*</query>
             </grants>
         </dict_reader>
+        <signals>
+            <password>signalspass</password>
+            <networks><ip>::/0</ip></networks>
+            <profile>signals</profile>
+            <quota>default</quota>
+        </signals>
     </users>
 
     <!-- Quotas. -->

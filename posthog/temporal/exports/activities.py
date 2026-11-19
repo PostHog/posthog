@@ -7,7 +7,12 @@ from temporalio.exceptions import ApplicationError
 from posthog.event_usage import EventSource
 from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
-from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, MAX_ERROR_TRACE_CHARS, truncate_for_temporal_payload
+from posthog.temporal.common.errors import (
+    MAX_ERROR_MESSAGE_CHARS,
+    MAX_ERROR_TRACE_CHARS,
+    NonReportableApplicationError,
+    truncate_for_temporal_payload,
+)
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult, export_failure_metadata
 
@@ -17,6 +22,7 @@ from products.exports.backend.tasks.failure_handler import (
     TIMEOUT_ERROR_NAMES,
     ExportCancelled,
     export_slo_failure_details,
+    is_reportable_export_failure,
 )
 
 logger = structlog.get_logger(__name__)
@@ -75,7 +81,9 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
             # errors retry; programming errors and Chrome crashes fail fast). See
             # posthog.temporal.exports.types.extract_error_details. Strings are truncated so
             # an upstream exception can't blow out the 2 MiB payload envelope.
-            raise ApplicationError(
+            # A user query error is not a defect, so it stays out of error tracking.
+            error_class = ApplicationError if is_reportable_export_failure(e) else NonReportableApplicationError
+            raise error_class(
                 truncate_for_temporal_payload(str(e), MAX_ERROR_MESSAGE_CHARS),
                 truncate_for_temporal_payload(error_trace, MAX_ERROR_TRACE_CHARS),
                 export_failure_metadata(export_slo_failure_details(e)),

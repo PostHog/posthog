@@ -16,7 +16,7 @@ from posthog.models.user import User
 import products.review_hog.backend.temporal.client  # noqa: F401
 from products.review_hog.backend.models import ReviewUserSettings
 from products.review_hog.backend.receivers import resolve_stamphog_acting_reviewer
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.facade.taxonomy import ReportPriority
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.tasks.backend.models import Task, TaskRun
 
@@ -157,6 +157,7 @@ class TestInboxTrigger(BaseTest):
             publish=True,
             acting_user_id=self.alice.id,
             trigger_source="inbox",
+            review_mode="flash",
             signal_report_id=str(task.signal_report_id),
             signal_priority=None,
             pr_url=_PR_URL,

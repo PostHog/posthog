@@ -12,7 +12,7 @@ import React, {
     useState,
 } from 'react'
 
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 

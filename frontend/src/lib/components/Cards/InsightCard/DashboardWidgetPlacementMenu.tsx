@@ -5,7 +5,7 @@ import { IconChevronRight } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItem, LemonMenuItems, LemonMenuSection } from 'lib/lemon-ui/LemonMenu'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -24,6 +24,7 @@ interface DashboardWidgetPlacementMenuProps {
     label?: string
     /** When there are no destinations, the trigger stays visible but disabled (avoids hiding the action). */
     emptyDisabledReason?: string
+    leadingSections?: LemonMenuSection[]
 }
 
 export function DashboardWidgetPlacementMenu({
@@ -31,6 +32,7 @@ export function DashboardWidgetPlacementMenu({
     onSelect,
     label = 'Move to',
     emptyDisabledReason = 'No other dashboards',
+    leadingSections = [],
 }: DashboardWidgetPlacementMenuProps): JSX.Element {
     const [searchTerm, setSearchTermState] = useState('')
     const { dashboardsLoading } = useValues(dashboardsModel)
@@ -70,7 +72,7 @@ export function DashboardWidgetPlacementMenu({
         label: SearchInputLabel,
     }
 
-    const items: LemonMenuItems = dashboardsLoading
+    const dashboardItems: LemonMenuItems = dashboardsLoading
         ? [{ custom: true, label: () => <LemonSkeleton.Row className="m-2 h-8" repeat={5} fade /> }]
         : filteredDestinations.length > 0
           ? [
@@ -108,7 +110,10 @@ export function DashboardWidgetPlacementMenu({
                 },
             ]
 
-    if (!destinations.length && !dashboardsLoading) {
+    const hasDashboardItems = destinations.length > 0 || dashboardsLoading
+    const items: LemonMenuItems = [...leadingSections, ...(hasDashboardItems ? dashboardItems : [])]
+
+    if (!items.length) {
         return (
             <LemonButton fullWidth disabledReason={emptyDisabledReason}>
                 {label}

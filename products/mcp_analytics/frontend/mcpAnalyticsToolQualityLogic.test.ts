@@ -1,13 +1,26 @@
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { formatMsAsSeconds } from './dashboard/formatters'
-import { type DailyToolStat, buildDailyChartData, mcpAnalyticsToolQualityLogic } from './mcpAnalyticsToolQualityLogic'
+import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
+import {
+    type ChartViewChange,
+    DEFAULT_CHART_VIEWS,
+    type DailyToolStat,
+    buildDailyChartData,
+    maskIncompleteLatencyBox,
+    mcpAnalyticsToolQualityLogic,
+    mcpToolQualityUrlWithDates,
+} from './mcpAnalyticsToolQualityLogic'
 
 jest.mock('lib/api')
 jest.mock('~/queries/query', () => ({
@@ -39,6 +52,56 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             expect(data.successRate[0]).toBeCloseTo(90)
             expect(data.successRate[1]).toBeNaN()
             expect(data.p99).toEqual([2100, NaN, 1500])
+            expect(data.errorRate[0]).toBeCloseTo(10)
+            expect(data.errorRate[1]).toBeNaN()
+            expect(data.errorRate[2]).toEqual(0)
+        })
+
+        it.each([
+            ['no errors', 10, 0, 0],
+            ['half the calls errored', 10, 5, 50],
+            ['the row has no calls', 0, 0, NaN],
+        ])('gives the error rate as a percentage of calls when %s', (_label, calls, errors, expected) => {
+            const data = buildDailyChartData([dailyStat({ day: '2026-06-05', calls, errors })], ['2026-06-05 00:00:00'])
+            expect(data.errorRate).toEqual([expected])
+        })
+
+        it('builds a latency box per bucket with whiskers clipped at p99', () => {
+            const data = buildDailyChartData(
+                [
+                    dailyStat({
+                        day: '2026-06-05',
+                        calls: 3,
+                        min: 10,
+                        p25: 50,
+                        p50: 100,
+                        mean: 120,
+                        p75: 200,
+                        p95: 900,
+                        p99: 2100,
+                        max: 60000,
+                    }),
+                    dailyStat({ day: '2026-06-06', calls: 1, p50: 100, p95: 100, p99: 100 }),
+                    dailyStat({ day: '2026-06-07', calls: 2, min: null, p25: null, mean: null, p75: null, max: null }),
+                ],
+                ['2026-06-05 00:00:00', '2026-06-06 00:00:00', '2026-06-07 00:00:00']
+            )
+            expect(data.latencyBoxes).toEqual([
+                {
+                    day: '2026-06-05 00:00:00',
+                    min: 10,
+                    p25: 50,
+                    median: 100,
+                    mean: 120,
+                    p75: 200,
+                    max: 60000,
+                    whiskerMax: 2100,
+                },
+                // A row cached before the spread fields existed has no box to draw.
+                null,
+                // Neither does a bucket whose calls all lack a duration.
+                null,
+            ])
         })
 
         it('returns empty series for empty bucket keys', () => {
@@ -72,6 +135,57 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             [Infinity, '—'],
         ])('formats %s ms as %s', (input, expected) => {
             expect(formatMsAsSeconds(input)).toBe(expected)
+        })
+    })
+
+    describe('maskIncompleteLatencyBox', () => {
+        const box = (day: string): ReturnType<typeof maskIncompleteLatencyBox>[number] => ({
+            day,
+            min: 10,
+            p25: 20,
+            median: 30,
+            mean: 35,
+            p75: 40,
+            max: 50,
+            whiskerMax: 45,
+        })
+
+        it.each([
+            { name: 'drops the last bucket when it is still in progress', incompleteTail: true, last: true },
+            { name: 'leaves every bucket alone when the tail is complete', incompleteTail: false, last: false },
+        ])('$name', ({ incompleteTail, last }) => {
+            const boxes = [box('2026-06-05'), box('2026-06-06')]
+            expect(maskIncompleteLatencyBox(boxes, incompleteTail)).toEqual([
+                box('2026-06-05'),
+                last ? null : box('2026-06-06'),
+            ])
+        })
+    })
+
+    describe('chart views', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            localStorage.clear()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery ? emptyToolRowsResponse : { results: [] }
+            )
+        })
+
+        it.each<ChartViewChange>([
+            { chart: 'calls', view: 'percentage' },
+            { chart: 'successRate', view: 'zoom' },
+            { chart: 'latency', view: 'boxPlot' },
+        ])('switches the $chart chart to $view and reports it', async (change) => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setChartView(change)
+            }).toMatchValues({
+                chartViews: { ...DEFAULT_CHART_VIEWS, [change.chart]: change.view },
+            })
+            expect(posthog.capture).toHaveBeenCalledWith('mcp analytics tool quality chart view changed', change)
         })
     })
 
@@ -231,6 +345,78 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['page-two-tool'])
         })
 
+        it.each([
+            ['the first load', false],
+            ['a reload with rows already on screen', true],
+        ])('reports a failed rows request on %s as an error, not as no rows', async (_name, firstLoadSucceeds) => {
+            let rowsFail = !firstLoadSucceeds
+            mockApi.query.mockImplementation(async (query: any) => {
+                if (query.kind !== NodeKind.MCPToolQualityRowsQuery) {
+                    return { results: [] }
+                }
+                if (rowsFail) {
+                    throw new Error('Internal server error')
+                }
+                return { ...emptyToolRowsResponse, results: [toolRowResult('tool_a')], totalCount: 1 }
+            })
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            if (firstLoadSucceeds) {
+                rowsFail = true
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchTerm('tool')
+                }).toFinishAllListeners()
+            }
+
+            expect(logic.values.toolRowsLoadFailed).toBe(true)
+            expect(logic.values.toolRowsPage).toBeNull()
+
+            rowsFail = false
+            logic.actions.loadToolRowsPage()
+            expect(logic.values.toolRowsLoadFailed).toBe(false)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['tool_a'])
+        })
+
+        it('ignores a failure from a rows request that a newer one replaced', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const pendingRows: { resolve: (response: unknown) => void; reject: (error: Error) => void }[] = []
+            mockApi.query.mockImplementation((query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery
+                    ? new Promise((resolve, reject) => pendingRows.push({ resolve, reject }))
+                    : Promise.resolve({ results: [] })
+            )
+            jest.useFakeTimers()
+            try {
+                logic.actions.setSearchTerm('old')
+                await jest.advanceTimersByTimeAsync(300)
+                logic.actions.setSearchTerm('new')
+                await jest.advanceTimersByTimeAsync(300)
+                expect(pendingRows).toHaveLength(2)
+
+                pendingRows[0].reject(new Error('Internal server error'))
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.toolRowsLoadFailed).toBe(false)
+                expect(logic.values.toolRowsPageLoading).toBe(true)
+
+                pendingRows[1].resolve({
+                    ...emptyToolRowsResponse,
+                    results: [toolRowResult('tool_new')],
+                    totalCount: 1,
+                })
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.toolRowsLoadFailed).toBe(false)
+                expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['tool_new'])
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('sends search, global sort, and page offsets to the rows query', async () => {
             mockApi.query.mockImplementation(async (query: any) =>
                 query.kind === NodeKind.MCPToolQualityRowsQuery
@@ -264,6 +450,49 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             }).toFinishAllListeners()
             rowsQuery = queryCallsSince(callsBefore).find((query) => query.kind === NodeKind.MCPToolQualityRowsQuery)
             expect(rowsQuery).toMatchObject({ sortColumn: 'error_rate_pct', sortDirection: 'ASC', offset: 0 })
+        })
+
+        it.each([
+            [
+                'the dashboard link sorted by p95',
+                () =>
+                    mcpToolQualityUrlWithDates({ dateFrom: '-7d', dateTo: null }, null, {
+                        column: 'p95_duration_ms',
+                        direction: 'DESC',
+                    }),
+                { column: 'p95_duration_ms', direction: 'DESC' },
+            ],
+            [
+                'an ascending sort',
+                () => combineUrl(urls.mcpAnalyticsToolQuality(), { sort: 'users', sort_direction: 'ASC' }).url,
+                { column: 'users', direction: 'ASC' },
+            ],
+            [
+                'an unknown sort column',
+                () => combineUrl(urls.mcpAnalyticsToolQuality(), { sort: 'toString' }).url,
+                { column: 'total_calls', direction: 'DESC' },
+            ],
+        ])('opens the table on the sort from %s', async (_name, url, expected) => {
+            router.actions.push(url())
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const rowsQueries = queryCallsSince(0).filter((query) => query.kind === NodeKind.MCPToolQualityRowsQuery)
+            expect(rowsQueries.at(-1)).toMatchObject({ sortColumn: expected.column, sortDirection: expected.direction })
+        })
+
+        it('keeps a picked sort in the URL and drops it for the default sort', async () => {
+            router.actions.push(urls.mcpAnalyticsToolQuality())
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+
+            logic.actions.setToolQualitySort('p95_duration_ms', 'ASC')
+            expect(router.values.searchParams).toMatchObject({ sort: 'p95_duration_ms', sort_direction: 'ASC' })
+
+            logic.actions.setToolQualitySort('total_calls', 'DESC')
+            expect(router.values.searchParams).not.toHaveProperty('sort')
+            expect(router.values.searchParams).not.toHaveProperty('sort_direction')
         })
 
         it('refetches the charts at the picked grouping, leaving the table alone', async () => {
@@ -324,7 +553,7 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             const callsBefore = mockApi.query.mock.calls.length
 
             await expectLogic(logic, () => {
-                logic.actions.setPropertyFilters([EVENT_FILTER])
+                mcpAnalyticsFiltersLogic.actions.setPropertyFilters([EVENT_FILTER])
             }).toFinishAllListeners()
 
             const reloads = queryCallsSince(callsBefore)
@@ -334,19 +563,75 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             )
         })
 
-        it('spreads filterTestAccounts into every query and reloads on change', async () => {
+        it.each([
+            ['the test-account toggle', () => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true)],
+            [
+                "the team's test-account default",
+                () =>
+                    teamLogic.actions.loadCurrentTeamSuccess({
+                        ...teamLogic.values.currentTeam!,
+                        test_account_filters_default_checked: true,
+                    }),
+            ],
+        ])('spreads filterTestAccounts into every query and reloads on %s', async (_label, change) => {
             const logic = mcpAnalyticsToolQualityLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
             const callsBefore = mockApi.query.mock.calls.length
 
-            await expectLogic(logic, () => {
-                logic.actions.setFilterTestAccounts(true)
-            }).toFinishAllListeners()
+            await expectLogic(logic, change).toFinishAllListeners()
 
             const reloads = queryCallsSince(callsBefore)
             expect(reloads.length).toBe(4)
             expect(reloads.every((call) => call.filterTestAccounts === true)).toBe(true)
+        })
+
+        it.each([
+            ['no URL params', {}, 4],
+            ['shared filters', { filter_test_accounts: true, properties: [EVENT_FILTER] }, 4],
+            [
+                'shared filters and a date range',
+                { filter_test_accounts: true, properties: [EVENT_FILTER], date_from: '-30d' },
+                5,
+            ],
+        ])(
+            'does not reload for the shared filters when mounting with %s',
+            async (_label, searchParams, expectedRequests) => {
+                router.actions.push(urls.mcpAnalyticsToolQuality(), searchParams)
+
+                const logic = mcpAnalyticsToolQualityLogic()
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(mockApi.query).toHaveBeenCalledTimes(expectedRequests)
+            }
+        )
+
+        it.each([
+            [
+                'the test-account toggle',
+                () => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true),
+                { filterTestAccounts: true, propertyFilters: [] },
+                { filter_test_accounts: true },
+            ],
+            [
+                'a property filter',
+                () => mcpAnalyticsFiltersLogic.actions.setPropertyFilters([EVENT_FILTER]),
+                { filterTestAccounts: false, propertyFilters: [EVENT_FILTER] },
+                { properties: [EVENT_FILTER] },
+            ],
+        ])('keeps %s and clears the selected tool', async (_label, change, expectedFilters, expectedParams) => {
+            router.actions.push(urls.mcpAnalyticsToolQuality())
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic, () => logic.actions.setSelectedTool('tool_a')).toFinishAllListeners()
+
+            await expectLogic(logic, change).toFinishAllListeners()
+
+            expect(logic.values.selectedTool).toBeNull()
+            expect(mcpAnalyticsFiltersLogic.values).toMatchObject(expectedFilters)
+            expect(router.values.searchParams).toMatchObject(expectedParams)
+            expect(router.values.searchParams.tool).toBeUndefined()
         })
 
         it('reloads once when both shared filters hydrate from the URL', async () => {
@@ -356,7 +641,7 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             const callsBefore = mockApi.query.mock.calls.length
 
             await expectLogic(logic, () => {
-                logic.actions.hydrateFilters(true, [EVENT_FILTER])
+                mcpAnalyticsFiltersLogic.actions.hydrateFilters(true, [EVENT_FILTER])
             }).toFinishAllListeners()
 
             const reloads = queryCallsSince(callsBefore)

@@ -15,11 +15,14 @@ const DEFAULT_BREAKDOWN_PROPERTY_NAMES = new Set([
     '$browser',
     '$device_type',
     '$os',
+    '$os_name',
     '$pathname',
+    '$screen_name',
     '$user_id',
     '$ip',
     '$geoip_country_name',
     '$geoip_city_name',
+    '$current_url',
 ])
 
 export const BREAKDOWN_PRESETS: BreakdownPreset[] = BUILT_IN_ERROR_TRACKING_PROPERTIES.filter(({ property }) =>

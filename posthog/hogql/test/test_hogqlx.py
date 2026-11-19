@@ -1,10 +1,10 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.hogql import ast
 from posthog.hogql.hogqlx import convert_dict_to_hx, convert_tag_to_hx, convert_to_hx
 
 
-class TestHogQLX(BaseTest):
+class TestHogQLX(SimpleTestCase):
     def test_convert_tag_to_hx(self):
         tag = ast.HogQLXTag(kind="Sparkline", attributes=[])
         self.assertEqual(

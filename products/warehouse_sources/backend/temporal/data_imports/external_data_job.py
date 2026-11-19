@@ -20,6 +20,7 @@ from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
 # TODO: remove dependency
 from posthog.exceptions_capture import capture_exception
+from posthog.models.utils import strip_null_bytes
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
@@ -30,14 +31,7 @@ from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkfl
 from posthog.usage_ingestion.client import UsageRecord, areport_usage
 from posthog.utils import get_machine_id
 
-from products.data_warehouse.backend.facade.api import (
-    SyncAlertEvent,
-    SyncAlertKind,
-    a_unpause_external_data_schedule,
-    create_warehouse_templates_for_source,
-    emit_sync_alert,
-    update_external_job_status,
-)
+from products.data_warehouse.backend.facade.api import create_warehouse_templates_for_source, update_external_job_status
 from products.managed_warehouse.backend.facade.temporal import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsWorkflow,
@@ -45,7 +39,9 @@ from products.managed_warehouse.backend.facade.temporal import (
     DuckLakeRegisterDataImportsWorkflow,
     build_register_data_imports_workflow_id,
 )
+from products.warehouse_sources.backend.ad_hoc_sync import resume_schedule_after_ad_hoc_run
 from products.warehouse_sources.backend.billing import billed_usage_for_job
+from products.warehouse_sources.backend.facade.contracts import SOURCE_CREDENTIALS_MISSING_ERROR
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     AUTO_DISABLED_JOB_ERROR,
@@ -53,15 +49,19 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
     UNSUPPORTED_SYNC_TYPE_DISABLED_MESSAGE,
     UNSUPPORTED_SYNC_TYPE_ERROR,
+    WORKER_RESTART_ERROR_MESSAGE,
     ExternalDataSchema,
     update_should_sync,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     EmitSignalsActivityInputs,
     PersonPropertySyncActivityInputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    CANCELLED_METRIC_STATUS,
+    failure_streak_label,
     get_data_import_finished_metric,
     get_fast_returned_run_metric,
     get_import_handoffs_per_run_metric,
@@ -73,6 +73,12 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DUPLICATE_PRIMARY_KEYS_ERROR,
     MISSING_PRIMARY_KEYS_ERROR,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_warehouse_bucket_error,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    OBJECT_STORE_TRANSIENT_MESSAGE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
@@ -97,6 +103,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.err
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    SOURCE_HOST_NOT_ALLOWED_ERROR,
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
     TEMPORARY_HOST_RESOLUTION_PREFIX,
 )
@@ -139,7 +146,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     RepartitionActivityInputs,
     maybe_repartition_table_activity,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 
@@ -180,6 +186,12 @@ Any_Source_Errors: dict[str, str | None] = {
     # entry: a config problem only the customer can fix, so retrying just re-hits the same
     # rejection. Match the stable prefix and exclude the volatile host details that follow it.
     DATABASE_HOST_NOT_ALLOWED_ERROR: DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    # Raised by the shared HTTP adapter when a request targets an out-of-band interaction domain.
+    # The host is in the source's config, so every retry replays the same refusal.
+    SOURCE_HOST_NOT_ALLOWED_ERROR: (
+        "PostHog rejected this source's host because it belongs to a blocked domain. "
+        "Point the source at a host on a domain you control, then re-enable the sync."
+    ),
     # Raised by `_pinned_ssh_host` for the bastion, the same class of config problem as the entry
     # above: the tunnel host doesn't resolve, or resolves to a private/internal address.
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR: (
@@ -206,6 +218,12 @@ Any_Source_Errors: dict[str, str | None] = {
     # integration id back at the customer.
     "Integration not found:": MISSING_INTEGRATION_MESSAGE,
     "Missing integration ID": MISSING_INTEGRATION_MESSAGE,
+    # Raised by `SourceInputsStore.load` when a source has no copy of its connection fields in `job_inputs` and
+    # its credentials row is missing or unreadable. A retry reads the same row, so only new credentials help.
+    SOURCE_CREDENTIALS_MISSING_ERROR: (
+        "The saved credentials of this source are missing or cannot be read. Enter the credentials of the "
+        "source again, or reconnect its account, then re-enable the sync."
+    ),
     # A fatal TLS alert from the remote host (raised in the shared HTTP transport for every
     # REST-based source). The server refused the handshake, which is deterministic for a given
     # host/TLS config — retrying replays the identical failure, so it's not transient. Usually a
@@ -234,6 +252,10 @@ Any_Source_Errors: dict[str, str | None] = {
     # it here so every other source stops retrying too. The enriched message names the offending column
     # and shows example cells, so keep the raw error rather than replacing it with a generic one.
     "must be real number, not str": None,
+    # Raised before extraction, and again before the table changes, when a migration source must not
+    # adopt a self-managed table because the access rules changed. Only a person can fix the rules,
+    # and the message names the table and the next step, so keep it.
+    ADOPTION_ACCESS_ERROR: None,
     # Raised by botocore (`is_valid_endpoint_url`) when the object storage endpoint URL has a
     # hostname it rejects — most often an underscore, invalid in a DNS hostname but common in a
     # self-hosted deployment's OBJECT_STORAGE_ENDPOINT (e.g. a docker service name). The endpoint is
@@ -276,6 +298,17 @@ TRANSIENT_CONNECT_DROPPED_MESSAGE = (
     "allows PostHog's IP addresses; the next sync runs on schedule."
 )
 
+# A tunneled source connects to the local end of the SSH tunnel, which `SSHTunnel.get_tunnel` binds
+# to loopback, so libpq names that address instead of the customer's host. The local end accepts the
+# connection and closes it when the SSH server cannot reach the database behind it, so an IP
+# allowlist is not the cause. Wording mirrors `_SSH_FORWARD_FAILED_GUIDANCE` in the Postgres source.
+LIBPQ_SSH_TUNNEL_CONNECT_FAILURE_MARKER = f'{LIBPQ_CONNECT_FAILURE_MARKER} "127.0.0.1"'
+
+TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE = (
+    "Your SSH server couldn't reach your database through the tunnel. Check the database host and "
+    "port set for the tunnel; the next sync runs on schedule."
+)
+
 TRANSIENT_POOLER_MESSAGE = (
     "Your database's connection pooler couldn't reach your database and refused the connection. "
     "Check that the database is running; the next sync runs on schedule."
@@ -297,16 +330,17 @@ TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE = (
     "Your source's API was temporarily unavailable, so this sync couldn't finish. The next sync runs on schedule."
 )
 
-# An activity that ran past its start-to-close (or schedule-to-close) budget. Those budgets are a
-# day for a full refresh and a week for an incremental run, so reaching one means the extraction
+# The import activity ran past its start-to-close (or schedule-to-close) budget. Those budgets are
+# a day for a full refresh and a week for an incremental run, so reaching one means the extraction
 # itself cannot finish in the window rather than that something stalled.
 SYNC_RUN_TOO_LONG_MESSAGE = (
     "This sync ran longer than PostHog allows and stopped before it finished. Switch this table to "
     "incremental sync, or sync less data, so the next run finishes in time."
 )
 
-# An activity that stopped heartbeating, or that no worker picked up in time. Both are PostHog-side
-# and clear on their own, so the copy asks nothing of the customer.
+# An activity that stopped heartbeating, that no worker picked up in time, or a bookkeeping activity
+# (job creation, billing check) that ran past its one-minute budget. All are PostHog-side and clear
+# on their own, so the copy asks nothing of the customer.
 SYNC_RUN_STALLED_MESSAGE = (
     "This sync stopped making progress on PostHog's side and did not finish. The next sync runs on schedule."
 )
@@ -396,11 +430,6 @@ CANCELLED_RUN_MESSAGE = (
     "it or the source is paused. It will run again on its next schedule."
 )
 
-WORKER_RESTART_ERROR_MESSAGE = (
-    "This sync run was interrupted too many times by restarts on PostHog's side, so it did not finish. "
-    "It will run again automatically. No action is needed."
-)
-
 TRANSIENT_SOURCE_ERROR_MESSAGE = (
     "The source's API kept returning temporary errors, such as rate limits or server errors, so this "
     "sync run did not finish. This is usually a short problem on the source's side. The sync will run "
@@ -414,7 +443,10 @@ TRANSIENT_SOURCE_ERROR_MESSAGE = (
 RETRYABLE_STATUS_ERROR_MARKER = "(retryable): status="
 
 
-def _customer_facing_error(cause: BaseException | None) -> str:
+IMPORT_ACTIVITY_TYPE = import_data_activity_sync.__name__
+
+
+def _customer_facing_error(cause: BaseException | None, activity_type: str | None = None) -> str:
     """`latest_error` text a customer reads, without the leaked internal exception class name.
 
     Temporal renders a wrapped activity failure as ``<ExceptionClass>: <message>`` (see
@@ -442,11 +474,14 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     if getattr(cause, "type", None) == "RESTClientRetryableError":
         return TRANSIENT_SOURCE_ERROR_MESSAGE
     # A timed-out activity carries Temporal's own wording for its message ("activity StartToClose
-    # timeout"), which names our orchestration rather than anything the customer can act on. Which
-    # budget ran out decides the guidance: an exhausted run budget needs less data per run, while a
-    # stalled or unclaimed activity is ours and recovers by itself.
+    # timeout"), which names our orchestration rather than anything the customer can act on. Only the
+    # import activity's run budget means the customer has too much data per run. Every other activity
+    # has a budget of minutes, so running past it is a slow step on our side that recovers by itself.
     if isinstance(cause, exceptions.TimeoutError):
-        if cause.type in (TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE):
+        if (
+            cause.type in (TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE)
+            and activity_type == IMPORT_ACTIVITY_TYPE
+        ):
             return SYNC_RUN_TOO_LONG_MESSAGE
         return SYNC_RUN_STALLED_MESSAGE
     message = getattr(cause, "message", None)
@@ -471,6 +506,23 @@ def _is_app_db_failure(internal_error: str) -> bool:
     return normalized.startswith(APP_DB_ERROR_PREFIX) and READ_ONLY_TRANSACTION_PHRASE in normalized
 
 
+def _non_retryable_error_message(non_retryable_errors: dict[str, str | None], internal_error: str) -> str | None:
+    """Customer-facing copy for a non-retryable failure: the first matching entry that has one.
+
+    A `None` entry only marks the error non-retryable. Temporal prefixes the driver's class name, so
+    a class-name key such as `InsufficientPrivilege` matches the same error as a later key that
+    carries the message, and it must not hide that message.
+    """
+    return next(
+        (
+            message
+            for pattern, message in non_retryable_errors.items()
+            if message is not None and error_message_matches(internal_error, [pattern])
+        ),
+        None,
+    )
+
+
 def _transient_error_message(internal_error: str) -> str | None:
     """Customer-facing copy for a transient failure that outlived its retries, if we have any.
 
@@ -487,6 +539,8 @@ def _transient_error_message(internal_error: str) -> str | None:
     if message == TRANSIENT_SOURCE_CONNECTION_MESSAGE and error_message_matches(
         internal_error, [LIBPQ_CONNECT_FAILURE_MARKER]
     ):
+        if error_message_matches(internal_error, [LIBPQ_SSH_TUNNEL_CONNECT_FAILURE_MARKER]):
+            return TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE
         return TRANSIENT_CONNECT_DROPPED_MESSAGE
     return message
 
@@ -503,7 +557,9 @@ def _fail_stale_running_schema(
     if schema is None or schema.status != ExternalDataSchema.Status.RUNNING or schema.cdc_halted:
         return
     schema.status = ExternalDataSchema.Status.FAILED
-    schema.latest_error = latest_error
+    # latest_error is raw driver/vendor text and can carry a NUL byte, which Postgres text
+    # columns reject outright.
+    schema.latest_error = strip_null_bytes(latest_error)
     schema.save(update_fields=["status", "latest_error", "updated_at"])
     logger.info("Reset stale Running schema status to Failed", schema_id=schema_id)
 
@@ -570,14 +626,15 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         def _resolve_job() -> ExternalDataJob | None:
             # Resolve this run's own job by run id; the finally-block update is the only finalizer for
             # zero-batch runs (e.g. quiet Slack channels) that never send a batch to complete the job.
+            # The create-job activity stamps the run id on every row it inserts, so a miss means this run
+            # never created a job. The legacy fallback would then pick an unrelated RUNNING job, such as
+            # an orphan from an earlier run, and fail it with this run's error.
             if inputs.workflow_run_id is not None:
-                job = (
+                return (
                     ExternalDataJob.objects.filter(team_id=inputs.team_id, workflow_run_id=inputs.workflow_run_id)
                     .order_by("-created_at")
                     .first()
                 )
-                if job is not None:
-                    return job
             # Legacy fallback for runs started before workflow_run_id existed; racy under concurrent runs.
             return (
                 ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
@@ -617,7 +674,7 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
 
         source = await database_sync_to_async_pool(ExternalDataSource.objects.get)(pk=inputs.source_id)
-        source_cls = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+        source_cls = SourceRegistry.get_source(source.source_type)
         non_retryable_errors = source_cls.get_non_retryable_errors()
 
         if len(non_retryable_errors) == 0:
@@ -629,24 +686,24 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         # (SQLSTATE 25006 after a failover, our pooler's "server login has been failing"), so
         # matching it here would disable a sync whose source never failed, and hand the customer a
         # message telling them to go fix a database that is working.
-        platform_failure = _is_app_db_failure(internal_error_normalized)
-        if platform_failure:
+        # The same applies to an error from our own warehouse bucket: its 403 body says "not
+        # authorized", which source maps read as a customer access denial.
+        if _is_app_db_failure(internal_error_normalized):
+            platform_failure = True
             inputs.latest_error = POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
+        elif is_warehouse_bucket_error(internal_error_normalized):
+            platform_failure = True
+            inputs.latest_error = OBJECT_STORE_TRANSIENT_MESSAGE
 
         has_non_retryable_error = not platform_failure and error_message_matches(
             internal_error_normalized, non_retryable_errors.keys()
         )
 
         if has_non_retryable_error:
-            friendly_errors = [
-                friendly_error
-                for error, friendly_error in non_retryable_errors.items()
-                if error_message_matches(internal_error_normalized, [error])
-            ]
-
-            if friendly_errors and friendly_errors[0] is not None:
-                logger.exception(friendly_errors[0])
-                inputs.latest_error = friendly_errors[0]
+            friendly_error = _non_retryable_error_message(non_retryable_errors, internal_error_normalized)
+            if friendly_error is not None:
+                logger.exception(friendly_error)
+                inputs.latest_error = friendly_error
 
             # Computed after the friendly error so the teardown records the same message
             # the job will show. Excluding this workflow keeps the disable's teardown from
@@ -701,18 +758,6 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         team_id=inputs.team_id,
         counts_as_source_failure=counts_as_source_failure,
     )
-
-    if has_non_retryable_error:
-        # A non-retryable failure does not count toward the failure streak, so the status write
-        # above sends no failed alert for it. The schema stops syncing until a person turns it back
-        # on, which is the failure a destination most needs to hear about.
-        await database_sync_to_async_pool(emit_sync_alert)(
-            team_id=inputs.team_id,
-            schema_id=inputs.schema_id,
-            event=SyncAlertEvent.FAILED,
-            kind=SyncAlertKind.SCHEMA_PAUSED,
-            job_id=job_id,
-        )
 
     if inputs.internal_error and source is not None:
         # This activity runs once the workflow has given up, so every error reaching here has
@@ -775,29 +820,15 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
     # non-COMPLETED outcome (FAILED, BILLING_LIMIT_REACHED, …) the flag stays
     # set and the schedule stays paused — a human looks at it before resuming.
     if inputs.status == ExternalDataJob.Status.COMPLETED:
-        await _maybe_unpause_schedule_after_admin_run(inputs.schema_id, logger)
-
-
-async def _maybe_unpause_schedule_after_admin_run(schema_id: str, logger) -> None:
-    try:
-        schema = await database_sync_to_async_pool(ExternalDataSchema.objects.get)(id=schema_id)
-    except ExternalDataSchema.DoesNotExist:
-        return
-
-    sync_type_config = schema.sync_type_config or {}
-    if not sync_type_config.get("admin_unpause_schedule_after_run"):
-        return
-
-    try:
-        await a_unpause_external_data_schedule(schema_id)
-    except Exception:
-        logger.exception(f"Failed to auto-unpause schedule for schema {schema_id} after admin run")
-        return
-
-    sync_type_config.pop("admin_unpause_schedule_after_run", None)
-    schema.sync_type_config = sync_type_config
-    await database_sync_to_async_pool(schema.save)(update_fields=["sync_type_config"])
-    logger.info(f"Auto-unpaused schedule for schema {schema_id} after successful admin-triggered run")
+        try:
+            if await database_sync_to_async_pool(resume_schedule_after_ad_hoc_run)(
+                inputs.schema_id, inputs.team_id, job_id
+            ):
+                logger.info(
+                    f"Auto-unpaused schedule for schema {inputs.schema_id} after successful admin-triggered run"
+                )
+        except Exception:
+            logger.exception(f"Failed to auto-unpause schedule for schema {inputs.schema_id} after admin run")
 
 
 @dataclasses.dataclass
@@ -937,7 +968,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 delay = min(IMPORT_HANDOFF_FIRST_DELAY * 2 ** min(early_handoffs, 10), IMPORT_HANDOFF_MAX_DELAY)
                 workflow.logger.info(
                     "Import handed off by a worker that is shutting down, running it again",
-                    extra={"handoffs": handoffs, "delay_seconds": delay.total_seconds()},
+                    extra={
+                        "handoffs": handoffs,
+                        "delay_seconds": delay.total_seconds(),
+                        "handoff_made_progress": pipeline_result.get("handoff_made_progress"),
+                        "handoff_reason": pipeline_result.get("handoff_reason"),
+                    },
                 )
                 await workflow.sleep(delay)
         finally:
@@ -985,6 +1021,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         )
 
         source_type = None
+        # The finally block reads it, so it must exist when job creation itself fails.
+        failed_runs_in_a_row = 0
+        run_cancelled = False
         consumer_manages_job_status = False
         skip_post_import_activities = False
         workflow_starts_post_import = False
@@ -1099,7 +1138,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 hit_billing_limit = False
                 source_templates_needed = True
                 import_handoffs_are_free = False
-                failed_runs_in_a_row = 0
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -1178,7 +1216,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             is_resumable_source = False
             if source_type is not None:
-                source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+                source = SourceRegistry.get_source(source_type)
                 # The class can resume, and its mechanism covers a run of this shape. Both halves
                 # matter: a class whose resume is narrower than itself would otherwise hand the
                 # resumable allowance to every one of its runs, including the ones that restart from
@@ -1504,13 +1542,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 # `_customer_facing_error` here too (like the else branch): a non-retryable error whose
                 # friendly mapping is None keeps its raw message, and the finalization activity won't
                 # overwrite it — so `str(e.cause.cause)` would leak the wrapped exception class name.
-                update_inputs.latest_error = _customer_facing_error(e.cause.cause)
+                update_inputs.latest_error = _customer_facing_error(e.cause.cause, e.activity_type)
                 raise
             else:
                 # Handle other activity errors normally
+                run_cancelled = isinstance(e.cause, exceptions.CancelledError)
                 update_inputs.status = ExternalDataJob.Status.FAILED
                 update_inputs.internal_error = str(e.cause)
-                update_inputs.latest_error = _customer_facing_error(e.cause)
+                update_inputs.latest_error = _customer_facing_error(e.cause, e.activity_type)
                 raise
         except Exception as e:
             # Catch all
@@ -1526,7 +1565,16 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 consumer_manages_job_status and update_inputs.status == ExternalDataJob.Status.COMPLETED
             )
 
-            get_data_import_finished_metric(source_type=source_type, status=update_inputs.status.lower()).add(1)
+            finished_status = update_inputs.status.lower()
+            # A cancelled run is a person or our own teardown stopping it, not the source failing.
+            # The job still records Failed, but counting it as a failure lets one action that
+            # cancels every schema of a source page the failure-rate alert.
+            metric_status = CANCELLED_METRIC_STATUS if run_cancelled else finished_status
+            get_data_import_finished_metric(
+                source_type=source_type,
+                status=metric_status,
+                streak=failure_streak_label(metric_status, failed_runs_in_a_row),
+            ).add(1)
 
             # This run still owns the v3 lock when no batch reached the loader (extraction failed
             # before producing batches, or a zero-batch run); the loader releases it otherwise.

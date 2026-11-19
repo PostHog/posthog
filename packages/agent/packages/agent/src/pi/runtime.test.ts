@@ -245,6 +245,43 @@ describe("PiRuntime", () => {
     );
   });
 
+  it("shows the conversation content a user message was sent with, not the prompt", async () => {
+    const { client, emit, send } = createClient();
+    const runtime = new PiRuntime(client);
+    const conversationListener = vi.fn();
+    runtime.onConversationEvent(conversationListener);
+    const prompt =
+      "Read this\n\nAttached files:\n- /work/.posthog/attachments/run/a/notes.txt";
+    const conversationContent = [
+      { type: "text" as const, text: "Read this" },
+      {
+        type: "resource_link" as const,
+        uri: "file:///work/.posthog/attachments/run/a/notes.txt",
+        name: "notes.txt",
+      },
+    ];
+    send.mockImplementation(async () => {
+      emit({
+        type: "message_end",
+        message: { role: "user", content: prompt, timestamp: 1 },
+      });
+      return { type: "response", command: "prompt", success: true };
+    });
+
+    await runtime.sendCommand(
+      { id: "message-1", type: "prompt", message: prompt },
+      { conversationContent },
+    );
+
+    expect(conversationListener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "user_message",
+        id: "message-1",
+        content: conversationContent,
+      }),
+    );
+  });
+
   it("does not apply an extension command id to a later user message", async () => {
     const { client, emit, send } = createClient();
     const runtime = new PiRuntime(client);

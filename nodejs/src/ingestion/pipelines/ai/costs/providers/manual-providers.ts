@@ -30,6 +30,32 @@ const manualProviderCosts: ModelCostRow[] = [
             },
         },
     },
+    // Gemini TTS models accept text-only input and emit audio-only output.
+    // Standard Gemini Developer API rates, USD per token:
+    // https://ai.google.dev/gemini-api/docs/pricing#gemini-2.5-pro-preview-tts
+    // https://ai.google.dev/gemini-api/docs/pricing#gemini-3.1-flash-tts-preview
+    // The completion rate also prices audio when a client omits the modality breakdown.
+    ...['gemini-2.5-pro-preview-tts', 'gemini-3.1-flash-tts-preview'].map((model) => ({
+        model,
+        cost: {
+            default: { prompt_token: 0.000001, completion_token: 0.00002, audio_output: 0.00002 },
+            'google-ai-studio': { prompt_token: 0.000001, completion_token: 0.00002, audio_output: 0.00002 },
+        },
+    })),
+    // GPT Image 2 is absent from OpenRouter; manual rates: https://developers.openai.com/api/docs/pricing
+    ...['gpt-image-2', 'gpt-image-2-2026-04-21'].map((model) => ({
+        model,
+        cost: {
+            default: {
+                prompt_token: 0.000005,
+                completion_token: 0.00003,
+                cache_read_token: 0.00000125,
+                image: 0.000008,
+                input_image_cache: 0.000002,
+                image_output: 0.00003,
+            },
+        },
+    })),
     // Other
     {
         model: 'deepseek-v3-fireworks',

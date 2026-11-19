@@ -28,6 +28,7 @@ permissions:
 jobs:
     collect-and-merge:
         name: Collect timing data from CI artifacts
+        if: github.repository == 'PostHog/posthog'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
         steps:
@@ -62,8 +63,8 @@ jobs:
                   BACKEND_RUNS_TO_AVERAGE: ${{ vars.BACKEND_RUNS_TO_AVERAGE }}
               run: |
                   if [ -n "$INPUT_RUN_ID" ]; then
-                      echo "run_id=$INPUT_RUN_ID" >> $GITHUB_OUTPUT
-                      echo "run_ids=$INPUT_RUN_ID" >> $GITHUB_OUTPUT
+                      echo "run_id=$INPUT_RUN_ID" >> "$GITHUB_OUTPUT"
+                      echo "run_ids=$INPUT_RUN_ID" >> "$GITHUB_OUTPUT"
                       echo "Using provided Backend CI run: $INPUT_RUN_ID"
                       exit 0
                   fi
@@ -80,9 +81,10 @@ jobs:
                   N="${BACKEND_RUNS_TO_AVERAGE:-5}"
                   [[ "$N" =~ ^[1-9][0-9]*$ ]] || N=5
 
-                  # Newest first: successful hourly runs on Depot CI that uploaded a full set of
-                  # timing artifacts (>=38), up to N.
-                  run_ids=$(python3 .github/scripts/depot_scheduled_runs.py find \
+                  # Newest first: successful full-matrix scheduled runs on Depot CI that uploaded a
+                  # full set of timing artifacts (>=38), up to N. The core-only hourly runs carry no
+                  # Temporal or Products timing, which the steps below need from the primary.
+                  run_ids=$(python3 .github/scripts/depot_backend_runs.py find --trigger schedule --matrix full \
                       --prefix timing_data- --min-artifacts 38 --limit "$N" | cut -d' ' -f1)
 
                   primary=$(echo "$run_ids" | head -1)
@@ -91,9 +93,9 @@ jobs:
                       exit 1
                   fi
 
-                  echo "run_id=$primary" >> $GITHUB_OUTPUT
-                  echo "run_ids=$(echo $run_ids | tr '\n' ' ')" >> $GITHUB_OUTPUT
-                  echo "Found Backend CI runs (newest first): $(echo $run_ids | tr '\n' ' ')"
+                  echo "run_id=$primary" >> "$GITHUB_OUTPUT"
+                  echo "run_ids=$(echo "$run_ids" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+                  echo "Found Backend CI runs (newest first): $(echo "$run_ids" | tr '\n' ' ')"
 
             - name: Find Dagster CI run to use
               id: find-dagster-run
@@ -102,7 +104,7 @@ jobs:
                   INPUT_RUN_ID: ${{ inputs.dagster_run_id }}
               run: |
                   if [ -n "$INPUT_RUN_ID" ]; then
-                      echo "run_id=$INPUT_RUN_ID" >> $GITHUB_OUTPUT
+                      echo "run_id=$INPUT_RUN_ID" >> "$GITHUB_OUTPUT"
                       echo "Using provided Dagster CI run: $INPUT_RUN_ID"
                       exit 0
                   fi
@@ -119,7 +121,7 @@ jobs:
                       --jq '.workflow_runs[] | select(
                           (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
                       ) | .id' | head -5 | \
-                      while read id; do
+                      while read -r id; do
                           count=$(gh api "repos/${{ github.repository }}/actions/runs/$id/artifacts?per_page=100" \
                               --jq '[.artifacts[] | select(.name | startswith("timing_data-Dagster-")) | select(.expired == false)] | length' 2>/dev/null)
                           echo "Run $id has $count Dagster timing artifacts" >&2
@@ -132,9 +134,9 @@ jobs:
 
                   if [ -z "$run_id" ]; then
                       echo "::warning::No suitable Dagster CI run found with timing artifacts - skipping Dagster"
-                      echo "run_id=" >> $GITHUB_OUTPUT
+                      echo "run_id=" >> "$GITHUB_OUTPUT"
                   else
-                      echo "run_id=$run_id" >> $GITHUB_OUTPUT
+                      echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
                       echo "Found Dagster CI run: $run_id"
                   fi
 
@@ -175,7 +177,7 @@ jobs:
                   DAGSTER_RUN_ID: ${{ steps.find-dagster-run.outputs.run_id }}
               run: |
                   # Backend runs live on Depot CI, Dagster runs on GitHub Actions.
-                  depot_download() { python3 .github/scripts/depot_scheduled_runs.py download "$@"; }
+                  depot_download() { python3 .github/scripts/depot_backend_runs.py download "$@"; }
 
                   # Download backend timing artifacts. Use segment-specific patterns
                   # so we don't accidentally pull Dagster artifacts here when the same
@@ -276,7 +278,13 @@ jobs:
                       if [ -f /tmp/previous_durations ]; then
                           # Only entries the fresh slices do not carry: the outlier merge would
                           # otherwise let a stale value here beat a fresh one for the same test.
-                          jq -s 'add' $(ls /tmp/core_durations /tmp/temporal_durations /tmp/dagster_durations 2>/dev/null) > /tmp/fresh_durations
+                          fresh_files=()
+                          for file in /tmp/core_durations /tmp/temporal_durations /tmp/dagster_durations; do
+                              if [ -f "$file" ]; then
+                                  fresh_files+=("$file")
+                              fi
+                          done
+                          jq -s 'add' "${fresh_files[@]}" > /tmp/fresh_durations
                           jq --slurpfile fresh /tmp/fresh_durations \
                               'with_entries(select((.key | startswith("products/")) and ($fresh[0][.key] == null)))' \
                               /tmp/previous_durations > /tmp/products_durations
@@ -293,17 +301,17 @@ jobs:
                       # as the per-segment plans below. Each older run goes through the same drift
                       # check as the newest one, and a run that fails it stays out of the average.
                       # The newest slice goes first because it anchors which tests the average keeps.
-                      products_files="/tmp/products_durations"
+                      products_files=(/tmp/products_durations)
                       for rid in $BACKEND_RUN_IDS; do
                           if [ "$rid" = "$BACKEND_RUN_ID" ]; then
                               continue
                           fi
                           if uv run .github/scripts/optimize_test_durations.py "runs/$rid/timing" "/tmp/products_$rid" \
                               --segment Products --junit-dir "runs/$rid/junit" --fail-on-drift; then
-                              products_files="$products_files /tmp/products_$rid"
+                              products_files+=("/tmp/products_$rid")
                           fi
                       done
-                      if uv run .github/scripts/optimize_test_durations.py /tmp/products_averaged --average-files $products_files; then
+                      if uv run .github/scripts/optimize_test_durations.py /tmp/products_averaged --average-files "${products_files[@]}"; then
                           mv /tmp/products_averaged /tmp/products_durations
                       else
                           echo "::warning::Products multi-run average failed, keeping the newest run's slice"
@@ -346,27 +354,27 @@ jobs:
                   # the newest run is passed first so it anchors membership (a test deleted since
                   # an older run never lingers). Non-fatal throughout: a run with no JUnit is
                   # skipped, and if none survive ci-backend falls back to scoping the union.
-                  core_files=""
-                  temporal_files=""
+                  core_files=()
+                  temporal_files=()
                   for rid in $BACKEND_RUN_IDS; do
                       if uv run .github/scripts/optimize_test_durations.py "runs/$rid/timing" "/tmp/core_$rid" \
                           --segment Core --junit-dir "runs/$rid/junit" --scope-to-junit; then
-                          core_files="$core_files /tmp/core_$rid"
+                          core_files+=("/tmp/core_$rid")
                       fi
                       if uv run .github/scripts/optimize_test_durations.py "runs/$rid/timing" "/tmp/temporal_$rid" \
                           --segment Temporal --junit-dir "runs/$rid/junit" --scope-to-junit; then
-                          temporal_files="$temporal_files /tmp/temporal_$rid"
+                          temporal_files+=("/tmp/temporal_$rid")
                       fi
                   done
 
-                  if [ -n "$core_files" ]; then
-                      uv run .github/scripts/optimize_test_durations.py .test_durations.core --average-files $core_files \
+                  if [ "${#core_files[@]}" -gt 0 ]; then
+                      uv run .github/scripts/optimize_test_durations.py .test_durations.core --average-files "${core_files[@]}" \
                           || echo "::warning::Core multi-run average failed — file-mode falls back to union scoping"
                   else
                       echo "::warning::Core per-segment durations skipped (no JUnit in any run?) — file-mode falls back to union scoping"
                   fi
-                  if [ -n "$temporal_files" ]; then
-                      uv run .github/scripts/optimize_test_durations.py .test_durations.temporal --average-files $temporal_files \
+                  if [ "${#temporal_files[@]}" -gt 0 ]; then
+                      uv run .github/scripts/optimize_test_durations.py .test_durations.temporal --average-files "${temporal_files[@]}" \
                           || echo "::warning::Temporal multi-run average failed — file-mode falls back to union scoping"
                   else
                       echo "::warning::Temporal per-segment durations skipped (no JUnit in any run?) — file-mode falls back to union scoping"
@@ -445,11 +453,11 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   path: depot-reader
-                  sparse-checkout: .github/scripts/depot_scheduled_runs.py
+                  sparse-checkout: .github/scripts/depot_backend_runs.py
                   sparse-checkout-cone-mode: false
 
             - name: Keep the Depot run reader
-              run: cp depot-reader/.github/scripts/depot_scheduled_runs.py "$RUNNER_TEMP/depot_scheduled_runs.py"
+              run: cp depot-reader/.github/scripts/depot_backend_runs.py "$RUNNER_TEMP/depot_backend_runs.py"
 
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
 
@@ -461,7 +469,7 @@ jobs:
                   # Only the hourly runs on Depot CI that take the events_json rows record. A
                   # successful one carries every shard's recording, because a shard that wrote
                   # none fails.
-                  read -r id sha < <(python3 "$RUNNER_TEMP/depot_scheduled_runs.py" find \
+                  read -r id sha < <(python3 "$RUNNER_TEMP/depot_backend_runs.py" find --trigger schedule \
                       --prefix events-schema-record- --max-age-days 2) || true
                   if [ -n "${id:-}" ]; then
                       echo "Using run $id at $sha"
@@ -500,7 +508,7 @@ jobs:
               env:
                   DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
                   RUN_ID: ${{ steps.find-run.outputs.run_id }}
-              run: python3 "$RUNNER_TEMP/depot_scheduled_runs.py" download "$RUN_ID" --pattern 'events-schema-record-*' --dir events-schema-records
+              run: python3 "$RUNNER_TEMP/depot_backend_runs.py" download "$RUN_ID" --pattern 'events-schema-record-*' --dir events-schema-records
 
             - name: Build the manifest
               if: steps.cached.outputs.cache-hit != 'true'

@@ -11,6 +11,11 @@ export function reviewTitle(
     return review.pr_title ?? `${review.repository}#${review.pr_number ?? review.head_branch}`
 }
 
+// A running turn can run another mode than the last completed turn, which `review_mode` describes.
+export function displayedReviewMode(review: ReviewRecentReviewApi): ReviewTriggerReviewModeEnumApi | null {
+    return review.progress ? review.progress.review_mode : review.review_mode
+}
+
 function withCounter(label: string, done: number | null, total: number | null): string {
     return done !== null && total !== null && total > 0 ? `${label} ${done}/${total}` : label
 }

@@ -16,22 +16,24 @@ import pyarrow.fs as fs
 import pyarrow.ipc as ipc
 from rich.console import Console
 
-from posthog.models.event.new_events_schema import use_new_events_schema
-from posthog.models.integration import DatabricksIntegration
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import DatabricksIntegration, GoogleCloudServiceAccountIntegration
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
+from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
     BaseBatchExportInputs,
     BatchExportField,
-    BatchExportModel,
-    BigQueryBatchExportInputs,
     DatabricksBatchExportInputs,
+    get_batch_export_model,
 )
+from products.batch_exports.backend.temporal.batch_exports import with_inserted_at_field
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryClient,
     bigquery_default_fields,
+    verify_impersonated_service_account_ownership,
 )
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
     DatabricksClient,
@@ -49,7 +51,6 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
-    SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
     native_events_export_query,
 )
 from products.batch_exports.backend.temporal.sql.persons import SELECT_FROM_PERSONS, SELECT_FROM_PERSONS_BACKFILL
@@ -277,7 +278,7 @@ class BatchExportsDebugger:
             filters["id"] = id
 
         self.loaded_batch_exports = tuple(
-            BatchExport.objects.select_related("destination__integration").filter(team_id=self.team_id, **filters)
+            BatchExport.objects.select_related("destination").filter(team_id=self.team_id, **filters)
         )
         return self.loaded_batch_exports
 
@@ -293,13 +294,7 @@ class BatchExportsDebugger:
             team_id=self.batch_export.team_id,
             batch_export_id=str(self.batch_export.id),
             interval=str(self.batch_export.interval),
-            batch_export_model=BatchExportModel(
-                name=self.batch_export.model or "events",
-                schema=self.batch_export.schema,
-                filters=self.batch_export.filters,
-                hogql_query=self.batch_export.hogql_query,
-                hogql_modifiers=self.batch_export.hogql_modifiers,
-            ),
+            batch_export_model=get_batch_export_model(self.batch_export),
             integration_id=self.batch_export.destination.integration_id,
             **destination_config,
         )
@@ -462,8 +457,6 @@ class BatchExportsDebugger:
                 is_backfill=is_backfill, backfill_details=None, data_interval_start=full_range[0]
             ):
                 query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
-            elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-                query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
             elif is_backfill:
                 query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
             else:
@@ -473,26 +466,20 @@ class BatchExportsDebugger:
                 )
                 parameters["lookback_days"] = lookback_days
 
-            fields = default_fields_for_destination(batch_export_run.parent.destination.type)
+            fields = with_inserted_at_field(default_fields_for_destination(batch_export_run.parent.destination.type))
 
-            if "_inserted_at" not in [field["alias"] for field in fields]:
-                control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
-            else:
-                control_fields = []
-
-            query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
-
-            native_source = query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema(team_id)
+            native_source = query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL and batch_exports_read_new_events_table()
 
             filters_str = ""
             if filters is not None and len(filters) > 0:
                 filters_str, extra_query_parameters = compose_filters_clause(
-                    filters, team_id=team_id, values=extra_query_parameters
+                    filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=native_source
                 )
 
             if native_source:
-                query = native_events_export_query(query_fields, filters_str)
+                query = native_events_export_query(fields, filters_str)
             else:
+                query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields)
                 if filters_str:
                     filters_str = f"AND {filters_str}"
                 query = query_template.safe_substitute(fields=query_fields, filters=filters_str, order="")
@@ -533,8 +520,12 @@ class BatchExportsDebugger:
             case BatchExportDestination.Destination.DATABRICKS:
                 console.print("[bold green]Getting Databricks client...[/bold green]")
                 databricks_inputs = cast(DatabricksBatchExportInputs, self.batch_export_inputs)
-                assert self.batch_export.destination.integration is not None
-                integration = DatabricksIntegration(self.batch_export.destination.integration)
+                assert self.batch_export.destination.integration_id is not None
+                integration = DatabricksIntegration(
+                    await IntegrationManager.databricks.credentials.aget(
+                        self.batch_export.team_id, self.batch_export.destination.integration_id
+                    )
+                )
                 client = DatabricksClient(
                     server_hostname=integration.server_hostname,
                     http_path=databricks_inputs.http_path,
@@ -547,23 +538,17 @@ class BatchExportsDebugger:
                     yield databricks_client
             case BatchExportDestination.Destination.BIGQUERY:
                 console.print("[bold green]Getting BigQuery client...[/bold green]")
-                bigquery_inputs = cast(BigQueryBatchExportInputs, self.batch_export_inputs)
-                if (
-                    bigquery_inputs.private_key is None
-                    or bigquery_inputs.private_key_id is None
-                    or bigquery_inputs.token_uri is None
-                    or bigquery_inputs.client_email is None
-                    or bigquery_inputs.project_id is None
-                ):
-                    # TODO: Support integration model/service account impersonation.
-                    raise ValueError("Missing required values")
-                async with BigQueryClient.from_service_account_inputs(
-                    private_key=bigquery_inputs.private_key,
-                    private_key_id=bigquery_inputs.private_key_id,
-                    token_uri=bigquery_inputs.token_uri,
-                    client_email=bigquery_inputs.client_email,
-                    project_id=bigquery_inputs.project_id,
-                ) as bigquery_client:
+                assert self.batch_export.destination.integration_id is not None
+                google_cloud_integration = GoogleCloudServiceAccountIntegration(
+                    await IntegrationManager.google_cloud_service_account.credentials.aget(
+                        self.batch_export.team_id, self.batch_export.destination.integration_id
+                    )
+                )
+                if not google_cloud_integration.has_key():
+                    await verify_impersonated_service_account_ownership(
+                        google_cloud_integration.service_account_email, self.batch_export.team_id
+                    )
+                async with BigQueryClient.from_service_account_integration(google_cloud_integration) as bigquery_client:
                     yield bigquery_client
             case t:
                 raise NotImplementedError(f"get_client not yet implemented for destination: {t}")

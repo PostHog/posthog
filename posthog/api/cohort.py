@@ -1,13 +1,18 @@
+import io
+import re
 import csv
 import json
 import time
 import uuid
 import hashlib
-from collections.abc import Iterable, Iterator, Sequence
-from copy import deepcopy
-from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
+import collections
+from collections import defaultdict
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from typing import Annotated, Any, ClassVar, Literal, NoReturn, Optional, Union, cast
 
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.conf import settings
+from django.db import transaction
+from django.db.models import OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
 import requests
@@ -33,11 +38,14 @@ from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT, LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
 
+from posthog.api.fields import LengthFirstListField
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.flags_service import (
     FlagVersionConflictError,
@@ -46,7 +54,6 @@ from posthog.api.services.flags_service import (
 )
 from posthog.api.shared import SearchMatchTypeSerializerMixin, SerializedPersonActorSerializer, UserBasicSerializer
 from posthog.api.utils import action, paging_params, parse_actor_property_filters
-from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
@@ -60,7 +67,13 @@ from posthog.helpers.trigram_search import (
     normalize_search_term,
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+from posthog.hogql_queries.hogql_cohort_query import (
+    FLAG_CALL_READS_COMPILE_ERRORS,
+    FlagCallReads,
+    HogQLCohortQuery,
+    batch_flag_call_reads,
+    behavioral_date_range,
+)
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
@@ -72,23 +85,47 @@ from posthog.models.activity_logging.activity_log import (
     load_activity,
     log_activity,
 )
-from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
+from posthog.models.activity_logging.activity_page import (
+    ActivityLogPaginatedResponseSerializer,
+    ActivityQueryParamsSerializer,
+    activity_page_response,
+    parse_activity_page_params,
+)
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.filters.utils import earliest_timestamp_func
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_RETENTION_DAYS, FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
-from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS, Property
+from posthog.models.property.property import (
+    SEMVER_OPERATORS,
+    STRING_PREFIX_SUFFIX_OPERATORS,
+    BehavioralPropertyType,
+    Property,
+)
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
+from posthog.permissions import get_authenticator_scopes
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
 from posthog.renderers import SafeJSONRenderer
-from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
-from posthog.utils import format_query_params_absolute_url, str_to_bool
+from posthog.scopes.checks import scopes_not_covered
+from posthog.taxonomy.hidden_events import EVENTS_HIDDEN_IN_QUERY_BUILDERS, HIDDEN_EVENT_REASON
+from posthog.utils import format_query_params_absolute_url, safe_int, str_to_bool
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.cdp.backend.filters import build_behavioral_event_expr
+from products.cohorts.backend.cohort_enablement import (
+    RealtimeLimitReached,
+    RealtimeTurnOnRefused,
+    flag_calls_table_refusal,
+    refuse_edit_over_plan_limits,
+    turn_realtime_off,
+    turn_realtime_on,
+    turn_realtime_on_for_included_cohorts,
+)
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import (
+    COHORT_REALTIME_SWITCH_FIELDS,
     DEFAULT_COHORT_INSERT_BATCH_SIZE,
     REALTIME_COHORT_MAX_PERSON_COUNT,
     Cohort,
@@ -96,24 +133,35 @@ from products.cohorts.backend.models.cohort import (
     CohortType,
     Group,
 )
-from products.cohorts.backend.models.dependencies import get_flag_excluded_behavioral_cohort_ids
+from products.cohorts.backend.models.dependencies import (
+    extract_cohort_dependencies,
+    get_flag_excluded_behavioral_cohort_ids,
+)
+from products.cohorts.backend.models.leaf_shape import FilterShapeHashes
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
+    close_open_population_attempts,
     cohort_filters_have_values,
     get_all_cohort_dependencies,
     get_friendly_error_message,
+    legacy_groups_to_filters,
     validate_actors_query_for_cohort,
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
+from products.cohorts.backend.parity.eligibility import behavioral_history_over_limit
+from products.cohorts.backend.parity.tzdates import day_of_instant, resolve_zoneinfo
 from products.cohorts.backend.realtime_state import (
     CohortHistoryBuildPhase,
     CohortRealtimeReadiness,
     CohortRealtimeState,
-    has_realtime_state,
+    CohortRealtimeUnavailableReason,
+    cohorts_with_realtime_state,
+    has_event_criteria,
     resolve_realtime_readiness,
 )
 from products.feature_flags.backend.facade.config import ConfigFormatError, UnsupportedConfig, decode_config
-from products.feature_flags.backend.facade.flags import hides_flag_calls_from_query_builders
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 from products.feature_flags.backend.facade.references import references
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
@@ -122,6 +170,98 @@ from products.feature_flags.backend.models.team_feature_flags_config import (
 )
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
 from products.product_analytics.backend.facade.models import Insight
+from products.surveys.backend.models import Survey
+from products.workflows.backend.facade.api import (
+    filter_hog_flow_references_by_access_level,
+    get_active_workflows_using_realtime_cohort,
+    team_has_active_workflows_using_cohorts,
+)
+from products.workflows.backend.facade.contracts import CohortDependentWorkflow, HogFlowReference
+
+
+def _workflows_relying_on_cohort(cohort: Cohort) -> list[CohortDependentWorkflow]:
+    # Most teams have no active cohort workflows, so skip loading every cohort in the project for them.
+    if not team_has_active_workflows_using_cohorts(team_id=cohort.team_id):
+        return []
+    # A cohort that includes this one as a criterion reads its membership, so a workflow on that cohort
+    # also relies on this one. Load the project's cohort references in one query and walk them in memory.
+    dependents: defaultdict[int, set[int]] = defaultdict(set)
+    for other in Cohort.objects.filter(team__project_id=cohort.team.project_id, deleted=False).only(
+        "id", "filters", "groups", "deleted"
+    ):
+        for dependency_id in extract_cohort_dependencies(other):
+            dependents[dependency_id].add(other.id)
+    cohort_ids = {cohort.id}
+    pending = [cohort.id]
+    while pending:
+        for dependent_id in dependents[pending.pop()] - cohort_ids:
+            cohort_ids.add(dependent_id)
+            pending.append(dependent_id)
+    return get_active_workflows_using_realtime_cohort(team_id=cohort.team_id, cohort_ids=cohort_ids)
+
+
+def _token_can_read(request: Request, scope_object: str) -> bool:
+    scopes = get_authenticator_scopes(request.successful_authenticator)
+    return scopes is None or "*" in scopes or not scopes_not_covered(scopes, [f"{scope_object}:read"])
+
+
+def _visible_workflows(
+    request: Request,
+    user_access_control: Optional[UserAccessControl],
+    team_id: int,
+    workflows: list[CohortDependentWorkflow],
+) -> list[CohortDependentWorkflow]:
+    # The caller sees the workflows it can view. Callers count every workflow.
+    if user_access_control is None or not _token_can_read(request, "hog_flow"):
+        return []
+    references = [
+        HogFlowReference(id=workflow.id, name=workflow.name, status=workflow.status) for workflow in workflows
+    ]
+    visible_ids = {
+        reference.id
+        for reference in filter_hog_flow_references_by_access_level(
+            team_id, {"blocking": references}, user_access_control
+        ).get("blocking", [])
+    }
+    return [workflow for workflow in workflows if workflow.id in visible_ids]
+
+
+def _visible_flags(
+    request: Request,
+    user_access_control: Optional[UserAccessControl],
+    project_id: int,
+    flags: list[FeatureFlag],
+) -> list[FeatureFlag]:
+    if user_access_control is None or not _token_can_read(request, "feature_flag"):
+        return []
+    visible_ids = set(
+        user_access_control.filter_queryset_by_access_level(
+            FeatureFlag.objects.filter(team__project_id=project_id, id__in=[flag.id for flag in flags]),
+            include_all_if_admin=True,
+        ).values_list("id", flat=True)
+    )
+    return [flag for flag in flags if flag.id in visible_ids]
+
+
+def _names_suffix(visible_names: list[str], total: int) -> str:
+    if not visible_names:
+        return ""
+    hidden = total - len(visible_names)
+    return f": {', '.join(visible_names)}" + (f" and {hidden} more" if hidden else "")
+
+
+def _workflow_names_suffix(
+    request: Request,
+    user_access_control: Optional[UserAccessControl],
+    team_id: int,
+    workflows: list[CohortDependentWorkflow],
+) -> str:
+    visible = _visible_workflows(request, user_access_control, team_id, workflows)
+    return _names_suffix([workflow.name for workflow in visible], len(workflows))
+
+
+COHORT_USED_BY_WORKFLOWS_ERROR_CODE = "cohort_used_by_workflows"
+REALTIME_LIMIT_REACHED_ERROR_CODE = "realtime_limit_reached"
 
 
 class CohortPersonsResponseSerializer(serializers.Serializer):
@@ -135,6 +275,7 @@ def validate_filters_and_compute_realtime_support(
     team: Team,
     current_cohort_type: str | None = None,
     cohort_count: int | None = None,
+    apply_history_limit: bool = True,
 ) -> tuple[dict, str | None, list[str] | None]:
     try:
         if not filters_dict:
@@ -170,6 +311,17 @@ def validate_filters_and_compute_realtime_support(
             if _calculate_realtime_support(cast(CohortFilterGroup, validated_filters.properties))
             else None
         )
+
+        if (
+            apply_history_limit
+            and cohort_type == CohortType.REALTIME
+            and behavioral_history_over_limit(
+                clean_filters["properties"],
+                limit_days=settings.REALTIME_COHORT_MAX_HISTORY_DAYS,
+                today=day_of_instant(timezone.now(), resolve_zoneinfo(team.timezone)),
+            )
+        ):
+            cohort_type = None
 
         # Check if cohort exceeds the maximum person count for real-time evaluation
         if cohort_type == CohortType.REALTIME and cohort_count is not None:
@@ -328,6 +480,7 @@ SINGLE_VALUE_OPERATORS = (
     "not_icontains",
     *STRING_PREFIX_SUFFIX_OPERATORS,
     *DATE_OPERATORS,
+    *SEMVER_OPERATORS,
 )
 
 # Filter variants that inherit PersonValueValidationMixin, and so store an unwrapped value.
@@ -348,6 +501,59 @@ def _single_value_operator_value(operator: str | None, value: Any) -> Any:
         if isinstance(value[0], str):
             return value[0]
     return value
+
+
+_COMPUTED_FILTER_KEYS = frozenset({"bytecode", "bytecode_error", "conditionHash"})
+
+
+def _canonical_criteria(node: Any) -> Any:
+    """The criteria with server-computed keys and a false negation removed, and single-child groups collapsed.
+
+    The editor wraps conditions in an extra group and the server recompiles bytecode on every save,
+    so comparing raw filters would count a save that touched no criteria as a change. The validator
+    adds `negation: false` to every criterion, and a criterion without the key means the same thing.
+    """
+    if isinstance(node, list):
+        return [_canonical_criteria(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    canonical = {
+        key: _canonical_criteria(value)
+        for key, value in node.items()
+        if key not in _COMPUTED_FILTER_KEYS and not (key == "negation" and value is False)
+    }
+    values = canonical.get("values")
+    if (
+        canonical.get("type") in ("AND", "OR")
+        and isinstance(values, list)
+        and len(values) == 1
+        and isinstance(values[0], dict)
+        and values[0].get("type") in ("AND", "OR")
+    ):
+        return values[0]
+    return canonical
+
+
+def _criteria_key(filters: Any) -> str:
+    # JSON keeps 1 and 1.0 apart, which Python equality does not, and they compile to different criteria.
+    return json.dumps(_canonical_criteria(filters), sort_keys=True, default=str)
+
+
+def _criteria_edit_queues_behavioral_run(cohort: Cohort, previous_filters: Any) -> bool:
+    """Whether saving the cohort's edited filters queues a behavioral backfill.
+
+    `Cohort._maintain_filter_shape_hashes` decides this on save. It compares against the stored behavioral hash
+    when there is one, and against the old filters otherwise. A change against either one counts here. When the
+    two disagree, the caller's check still runs.
+    """
+    previous = FilterShapeHashes.from_filters(previous_filters)
+    current = FilterShapeHashes.from_filters(cohort.filters)
+    stored_behavioral = cohort.behavioral_filters_shape_hash
+    return (
+        current.behavioral != previous.behavioral
+        or (stored_behavioral is not None and current.behavioral != stored_behavioral)
+        or "behavioral" in current.composition_repair_kinds(previous, cohort.filters)
+    )
 
 
 def _coerce_stored_filter_values(filters: Any) -> Any:
@@ -505,10 +711,35 @@ logger = structlog.get_logger(__name__)
 
 
 class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
-    person_ids = serializers.ListField(
-        child=serializers.UUIDField(),
+    person_ids = LengthFirstListField(
+        child=serializers.UUIDField(
+            error_messages={
+                "invalid": "Must be a person UUID (the `id` column of the persons table), not a distinct ID or an email."
+            }
+        ),
         required=True,
-        help_text="List of person UUIDs to add to the cohort",
+        allow_empty=False,
+        max_length=DEFAULT_COHORT_INSERT_BATCH_SIZE,
+        error_messages={
+            "max_length": (
+                "Too many person_ids. Send at most {max_length} per request. To add a larger set, set a `query` "
+                "on the static cohort instead, and the server adds every matching person."
+            )
+        },
+        help_text=(
+            "Person UUIDs to add to the cohort (the `id` column of the persons table, not distinct IDs). "
+            f"At most {DEFAULT_COHORT_INSERT_BATCH_SIZE} per request."
+        ),
+    )
+
+
+class CohortRealtimeRequestSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(
+        help_text="True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and "
+        "starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts "
+        "with realtime on, or when the criteria look back further than the plan allows. False turns realtime off. "
+        "PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the "
+        "cohort.",
     )
 
 
@@ -523,6 +754,14 @@ class CohortUsedInFlagSerializer(serializers.Serializer):
     id = serializers.IntegerField(help_text="Feature flag database ID")
     key = serializers.CharField(help_text="Feature flag key (URL slug)")
     name = serializers.CharField(allow_null=True, allow_blank=True, help_text="Feature flag display name")
+    archived = serializers.BooleanField(
+        help_text="True when the flag is archived. Every flag that is not archived prevents the cohort from being deleted, enabled or not"
+    )
+
+
+class CohortUsedInEnvironmentSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="Environment (team) database ID")
+    name = serializers.CharField(help_text="Environment display name")
 
 
 class CohortUsedInInsightSerializer(serializers.Serializer):
@@ -538,12 +777,23 @@ class CohortUsedInCohortSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Cohort display name; falls back to 'Unnamed' when empty")
 
 
+class CohortUsedInWorkflowSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Workflow ID (UUID)")
+    name = serializers.CharField(allow_blank=True, help_text="Workflow display name")
+    status = serializers.CharField(
+        help_text="Workflow status. Always 'active', because only active workflows rely on the cohort"
+    )
+
+
 class CohortUsedInFlagsBlockSerializer(serializers.Serializer):
     results = CohortUsedInFlagSerializer(
         many=True, help_text=f"Feature flags referencing this cohort, capped at {COHORT_USED_IN_PAGE_SIZE} results"
     )
     total = serializers.IntegerField(
-        help_text="Total number of feature flags referencing this cohort, before truncation"
+        help_text="Total number of feature flags referencing this cohort that the caller can view, before truncation"
+    )
+    hidden = serializers.IntegerField(
+        help_text="Number of flags that are not archived and that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total"
     )
     has_more = serializers.BooleanField(help_text="True when more feature flags exist beyond the truncation cap")
 
@@ -552,7 +802,12 @@ class CohortUsedInInsightsBlockSerializer(serializers.Serializer):
     results = CohortUsedInInsightSerializer(
         many=True, help_text=f"Insights referencing this cohort, capped at {COHORT_USED_IN_PAGE_SIZE} results"
     )
-    total = serializers.IntegerField(help_text="Total number of insights referencing this cohort, before truncation")
+    total = serializers.IntegerField(
+        help_text="Total number of insights referencing this cohort that the caller can view, before truncation"
+    )
+    hidden = serializers.IntegerField(
+        help_text="Number of insights referencing this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total"
+    )
     has_more = serializers.BooleanField(help_text="True when more insights exist beyond the truncation cap")
 
 
@@ -561,8 +816,40 @@ class CohortUsedInCohortsBlockSerializer(serializers.Serializer):
         many=True,
         help_text=f"Cohorts that include this cohort as a criterion, capped at {COHORT_USED_IN_PAGE_SIZE} results",
     )
-    total = serializers.IntegerField(help_text="Total number of cohorts referencing this cohort, before truncation")
+    total = serializers.IntegerField(
+        help_text="Total number of cohorts referencing this cohort that the caller can view, before truncation"
+    )
+    hidden = serializers.IntegerField(
+        help_text="Number of cohorts referencing this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total"
+    )
     has_more = serializers.BooleanField(help_text="True when more cohorts exist beyond the truncation cap")
+
+
+class CohortUsedInEnvironmentsBlockSerializer(serializers.Serializer):
+    results = CohortUsedInEnvironmentSerializer(
+        many=True,
+        help_text=f"Environments that use this cohort in 'Filter out internal and test users', capped at {COHORT_USED_IN_PAGE_SIZE} results",
+    )
+    total = serializers.IntegerField(
+        help_text="Total number of environments using this cohort in their test account filters, before truncation"
+    )
+    has_more = serializers.BooleanField(help_text="True when more environments exist beyond the truncation cap")
+
+
+class CohortUsedInWorkflowsBlockSerializer(serializers.Serializer):
+    results = CohortUsedInWorkflowSerializer(
+        many=True,
+        help_text=(
+            f"Active workflows relying on this cohort that the caller can view, capped at {COHORT_USED_IN_PAGE_SIZE} results"
+        ),
+    )
+    total = serializers.IntegerField(
+        help_text="Total number of active workflows relying on this cohort, including ones the caller cannot view"
+    )
+    hidden = serializers.IntegerField(
+        help_text="Number of relying workflows the caller cannot view. They count toward total but are never listed"
+    )
+    has_more = serializers.BooleanField(help_text="True when some relying workflows are not listed in results")
 
 
 class CohortUsedInResponseSerializer(serializers.Serializer):
@@ -575,6 +862,32 @@ class CohortUsedInResponseSerializer(serializers.Serializer):
     cohorts = CohortUsedInCohortsBlockSerializer(
         help_text="Other cohorts that include this cohort as a criterion, with truncation metadata"
     )
+    test_account_filters = CohortUsedInEnvironmentsBlockSerializer(
+        help_text="Environments across the project that use this cohort in 'Filter out internal and test users', with truncation metadata"
+    )
+    workflows = CohortUsedInWorkflowsBlockSerializer(
+        help_text=(
+            "Active workflows that trigger on this cohort or branch on its membership. While any exist, the "
+            "cohort cannot be deleted or edited in a way that stops it updating in real time."
+        )
+    )
+
+
+# Each run carries its per-query stats, so a page stays bounded well above the UI page size of 100.
+COHORT_CALCULATION_HISTORY_MAX_LIMIT = 500
+
+
+class CohortCalculationHistoryQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=COHORT_CALCULATION_HISTORY_MAX_LIMIT,
+        help_text=f"Number of calculation runs to return. Defaults to 100, at most {COHORT_CALCULATION_HISTORY_MAX_LIMIT}.",
+    )
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Number of calculation runs to skip. Defaults to 0."
+    )
 
 
 class CohortCalculationHistorySerializer(serializers.ModelSerializer):
@@ -586,7 +899,6 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
     total_read_rows = serializers.ReadOnlyField()
     total_written_rows = serializers.ReadOnlyField()
     main_query = serializers.ReadOnlyField()
-    main_query_id = serializers.ReadOnlyField()
 
     class Meta:
         model = CohortCalculationHistory
@@ -606,26 +918,76 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
             "total_read_rows",
             "total_written_rows",
             "main_query",
-            "main_query_id",
         ]
+
+
+class CohortCalculationHistoryResponseSerializer(serializers.Serializer):
+    results = CohortCalculationHistorySerializer(many=True, help_text="Calculation runs on this page, newest first.")
+    count = serializers.IntegerField(help_text="Number of calculation runs recorded for the cohort.")
+    next = serializers.CharField(
+        allow_null=True, help_text="Query string for the next page, such as `?limit=100&offset=100`, or null."
+    )
+    previous = serializers.CharField(
+        allow_null=True, help_text="Query string for the previous page, or null on the first page."
+    )
 
 
 class CSVConfig:
     """Configuration constants for CSV processing"""
 
-    PERSON_ID_HEADERS = ["person_id", "person-id", "Person .id"]
+    # These must be lowercase with no whitespace. Matching compares them to normalize_header() output.
+    PERSON_ID_HEADERS = ["person_id", "person-id", "person.id"]
     DISTINCT_ID_HEADERS = ["distinct_id", "distinct-id"]
     EMAIL_HEADERS = ["email", "e-mail"]
     # utf-8-sig strips the byte order mark that Excel and Google Sheets glue onto the first header
     ENCODING = "utf-8-sig"
 
+    @staticmethod
+    def normalize_header(header: str) -> str:
+        # PostHog exports have written the person column as both "Person.id" and "Person .id". Dropping all whitespace lets both spellings match.
+        return "".join(header.split()).lower()
+
     class ErrorMessages:
         EMPTY_FILE = "CSV file is empty. Please upload a CSV file with at least one row of data."
-        MISSING_ID_COLUMN = "Multi-column CSV must contain at least one column with a supported ID header: 'person_id', 'Person .id' (PostHog export format), 'distinct_id', 'distinct-id', or 'email'. Found columns: {columns}"
+        MISSING_ID_COLUMN = "Multi-column CSV must contain at least one column with a supported ID header: 'person_id', 'Person.id' (PostHog export format), 'distinct_id', 'distinct-id', or 'email'. Found columns: {columns}"
         NO_VALID_IDS = "CSV file contains no valid person IDs, distinct IDs, or email addresses. Please ensure your file has data rows with person IDs, distinct IDs, or email addresses."
         ENCODING_ERROR = "CSV file encoding is not supported. Please save your file as UTF-8 and try again."
         FORMAT_ERROR = "CSV file format is invalid. Please check your file format and try again."
         GENERIC_ERROR = "An error occurred while processing your CSV file. Please try again or contact support if the problem persists."
+        FILE_TOO_LARGE = "CSV file is larger than the limit of {limit}. Split the file into smaller parts and upload them one at a time."
+        TOO_MANY_ROWS = (
+            "CSV file has more than {limit} rows. Split the file into smaller parts and upload them one at a time."
+        )
+
+    @staticmethod
+    def file_too_large_message() -> str:
+        limit = settings.COHORT_CSV_UPLOAD_MAX_BYTES
+        if limit < 1024 * 1024:
+            readable = f"{limit:,} bytes"
+        else:
+            readable = f"{limit / (1024 * 1024):.1f}".removesuffix(".0") + " MB"
+        return CSVConfig.ErrorMessages.FILE_TOO_LARGE.format(limit=readable)
+
+    @staticmethod
+    def too_many_rows_message() -> str:
+        return CSVConfig.ErrorMessages.TOO_MANY_ROWS.format(limit=f"{settings.COHORT_CSV_UPLOAD_MAX_ROWS:,}")
+
+
+CsvIdType = Literal["distinct_id", "person_id", "email"]
+
+
+@frozen
+class ParsedCsvIds:
+    ids: list[str]
+    id_type: CsvIdType
+    email_property_key: str | None
+
+
+@frozen
+class _CsvIdColumn:
+    index: int
+    id_type: CsvIdType
+    header: str
 
 
 @extend_schema_field(CohortFilters)  # type: ignore[arg-type]
@@ -682,14 +1044,182 @@ def _flat_properties(filters: object) -> list[Property]:
     return parse_property_group_data(filters["properties"]).flat
 
 
-def _behavioral_event_names(properties: Iterable[Property]) -> Iterator[object]:
+def _hidden_event_references(properties: Iterable[Property]) -> Iterator[tuple[str, Property]]:
     for prop in properties:
         if prop.type != "behavioral":
             continue
-        if prop.event_type == "events":
-            yield prop.key
-        if prop.seq_event_type == "events":
-            yield prop.seq_event
+        for event_type, event in ((prop.event_type, prop.key), (prop.seq_event_type, prop.seq_event)):
+            if event_type == "events" and event in EVENTS_HIDDEN_IN_QUERY_BUILDERS:
+                yield str(event), prop
+
+
+# products/cohorts/frontend/criteria/flagCallCriterionProblem.ts copies the type, window and filter rules for the
+# cohort move notice. A change to these rules needs the same change there.
+
+# The criterion types whose flag calls the batch calculation reads from flag_evaluations.
+_FLAG_CALL_CRITERION_TYPES = frozenset(
+    {BehavioralPropertyType.PERFORMED_EVENT, BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE}
+)
+# flag_evaluations holds every flag call only from UTC midnight FLAG_EVALUATIONS_COMPLETE_DAYS back. The batch
+# calculation starts a window at midnight in the team's timezone. That midnight can fall on the previous UTC day. So a
+# window of N days reads every flag call in it at every hour only when N + 1 days fit.
+_MAX_FLAG_CALL_LOOKBACK_HOURS = (FLAG_EVALUATIONS_COMPLETE_DAYS - 1) * 24
+_RELATIVE_DATE_UNIT_MAX_HOURS = {"h": 1, "d": 24, "w": 7 * 24, "m": 31 * 24}
+_RELATIVE_DATE_PATTERN = re.compile(r"-(\d+)([hdwm])")
+
+_FLAG_CALL_CRITERION_TYPE_REASON = (
+    'Only "Completed event", "Did not complete event" and "Completed an event multiple times" can use this event.'
+)
+_FLAG_CALL_WINDOW_REASON = (
+    f"PostHog keeps this event for {FLAG_EVALUATIONS_RETENTION_DAYS} days, so pick a range relative to today that goes back "
+    f'{_MAX_FLAG_CALL_LOOKBACK_HOURS // 24} days or less, such as "Last 30 days".'
+)
+_FLAG_CALL_KEY_REASON = (
+    'Add an event property filter where "Feature flag" equals one or more flag keys, and filter only on event '
+    "properties."
+)
+_FLAG_CALL_COMPILE_REASON = "PostHog can't calculate this criterion. Check its count and its event property filters."
+_FLAG_CALL_FILTER_REASON = "Use event property filters on this event instead of a SQL expression."
+_FLAG_CALL_SQL_EXPRESSION_REASON = (
+    "A SQL expression filter on another criterion in this cohort reads this event in a way PostHog can't "
+    "calculate. Change that filter, or filter on event properties instead."
+)
+
+
+def _flag_call_window_fits_retention(prop: Property) -> bool:
+    try:
+        date_from, _ = behavioral_date_range(prop)
+    except ValidationError:
+        return False
+    match = _RELATIVE_DATE_PATTERN.fullmatch(date_from)
+    if match is None:
+        return False
+    count, unit = match.groups()
+    return int(count) * _RELATIVE_DATE_UNIT_MAX_HOURS[unit] <= _MAX_FLAG_CALL_LOOKBACK_HOURS
+
+
+def _has_hogql_filter(prop: Property) -> bool:
+    return bool(prop.event_filters) and any(
+        event_filter.type == "hogql" for event_filter in parse_property_group_data(prop.event_filters).flat
+    )
+
+
+def flag_call_criterion_shape_problem(prop: Property) -> str | None:
+    """Why a criterion on $feature_flag_called has a type, window or filter that flag_evaluations can't serve, or
+    None."""
+    if prop.value not in _FLAG_CALL_CRITERION_TYPES:
+        return _FLAG_CALL_CRITERION_TYPE_REASON
+    if not _flag_call_window_fits_retention(prop):
+        return _FLAG_CALL_WINDOW_REASON
+    # A SQL expression can read flag calls through a saved view, a function predicate, or a subquery that reads
+    # calls from before the window starts. The compile check counts none of these, so the guard refuses the expression.
+    if _has_hogql_filter(prop):
+        return _FLAG_CALL_FILTER_REASON
+    return None
+
+
+@frozen
+class HiddenEventRefusal:
+    event: str
+    reason: str
+
+
+def _static_hidden_event_reasons(references: Iterable[tuple[str, Property]]) -> collections.Counter[HiddenEventRefusal]:
+    reasons: collections.Counter[HiddenEventRefusal] = collections.Counter()
+    for event, prop in references:
+        reason = (
+            flag_call_criterion_shape_problem(prop) if event == FLAG_EVALUATIONS_SOURCE_EVENT else HIDDEN_EVENT_REASON
+        )
+        if reason is not None:
+            reasons[HiddenEventRefusal(event=event, reason=reason)] += 1
+    return reasons
+
+
+def _flag_call_reads_or_none(criteria: Sequence[Property], team: Team) -> FlagCallReads | None:
+    """The batch query's flag-call reads for these criteria, or None when it doesn't compile.
+
+    The batch calculation keeps the flag_evaluations swap only when the whole rewritten query resolves. So one
+    criterion that reads a field flag_evaluations lacks sends every flag-call criterion in the cohort to events, and
+    the criteria compile together. On an organization whose flag calls are only in flag_evaluations, that criterion
+    makes the whole query fail to compile instead.
+    """
+    # The query reads the same events scans with or without negation. A cohort can't negate every criterion.
+    values = [{**prop.to_dict(), "negation": False} for prop in criteria]
+    try:
+        return batch_flag_call_reads(Cohort(team=team, filters={"properties": {"type": "OR", "values": values}}), team)
+    except FLAG_CALL_READS_COMPILE_ERRORS:
+        return None
+    except Exception as error:
+        # A malformed filter value can fail an assert in the HogQL printer. The guard refuses the save, so the API
+        # returns 400 instead of 500.
+        capture_exception(error, additional_properties={"team_id": team.id})
+        return None
+
+
+def _is_flag_call_criterion(prop: Property) -> bool:
+    return any(event == FLAG_EVALUATIONS_SOURCE_EVENT for event, _ in _hidden_event_references([prop]))
+
+
+def _criteria_that_may_read_flag_calls(properties: Iterable[Property]) -> list[Property]:
+    """The criteria whose scans decide the batch query's flag_evaluations swap: criteria on $feature_flag_called, and
+    criteria with a SQL expression filter, which can query flag calls in a subquery."""
+    return [
+        prop
+        for prop in properties
+        if _is_flag_call_criterion(prop) or (prop.type == "behavioral" and _has_hogql_filter(prop))
+    ]
+
+
+def _another_criterions_sql_expression_blocks_swap(candidates: Sequence[Property], team: Team) -> bool:
+    """Whether another criterion's SQL expression filter causes the refusal: the cohort has one, and the flag-call
+    criteria compile and read no flag calls from events without it."""
+    flag_call_criteria = [prop for prop in candidates if _is_flag_call_criterion(prop)]
+    if len(flag_call_criteria) == len(candidates):
+        return False
+    if not flag_call_criteria:
+        return True
+    reads = _flag_call_reads_or_none(flag_call_criteria, team)
+    return reads is not None and reads.reads_from_events == 0
+
+
+def _criteria_counts(properties: Iterable[Property]) -> collections.Counter[str]:
+    return collections.Counter(_criteria_key(prop.to_dict()) for prop in properties)
+
+
+def _added_unsupported_hidden_event_reference(
+    new_properties: Sequence[Property], existing_properties: Sequence[Property], team: Team
+) -> HiddenEventRefusal | None:
+    """A reference to a hidden event that a save adds and the batch calculation can't count in full, with the
+    reason, or None.
+
+    A save may keep or edit an unsupported reference that the stored cohort already has. Only a count above the
+    stored count is an addition. A compile failure that the stored cohort already has is not an addition either.
+    """
+    new_references = list(_hidden_event_references(new_properties))
+    existing_references = list(_hidden_event_references(existing_properties))
+    added = _static_hidden_event_reasons(new_references) - _static_hidden_event_reasons(existing_references)
+    if added:
+        return next(iter(added))
+
+    new_candidates = _criteria_that_may_read_flag_calls(new_properties)
+    existing_candidates = _criteria_that_may_read_flag_calls(existing_properties)
+    if _criteria_counts(new_candidates) == _criteria_counts(existing_candidates):
+        return None
+    new_reads = _flag_call_reads_or_none(new_candidates, team)
+    if new_reads is not None and new_reads.reads_from_events == 0:
+        return None
+    existing_reads = _flag_call_reads_or_none(existing_candidates, team) if existing_candidates else None
+    if new_reads is None:
+        if existing_candidates and existing_reads is None:
+            return None
+        reason = _FLAG_CALL_COMPILE_REASON
+    elif existing_reads is not None and new_reads.reads_from_events <= existing_reads.reads_from_events:
+        return None
+    else:
+        reason = _FLAG_CALL_KEY_REASON
+    if _another_criterions_sql_expression_blocks_swap(new_candidates, team):
+        reason = _FLAG_CALL_SQL_EXPRESSION_REASON
+    return HiddenEventRefusal(event=FLAG_EVALUATIONS_SOURCE_EVENT, reason=reason)
 
 
 def _team_from_serializer_context(context: dict[str, Any]) -> Optional[Team]:
@@ -733,10 +1263,57 @@ def _resolve_realtime_readiness_if_in_rollout(
     Eligibility is checked before the rollout flag, and not after, so a project the pipeline does
     not cover never pays for a flag evaluation that cannot change its answer.
     """
-    relevant = [cohort for cohort in cohorts if has_realtime_state(cohort)]
+    relevant = cohorts_with_realtime_state(cohorts)
     if not relevant or not _realtime_targeting_enabled(context):
         return {}
     return resolve_realtime_readiness(relevant)
+
+
+def _can_edit(user_access_control: Optional[UserAccessControl]) -> Callable[[Cohort], bool]:
+    # Turning a cohort on also writes the cohorts it includes, so each one needs the access a direct switch needs.
+    return lambda cohort: (
+        user_access_control is not None
+        and user_access_control.check_access_level_for_object(cohort, required_level="editor")
+    )
+
+
+def _report_realtime_limit_reached(
+    request: Request, cohort: Cohort, error: RealtimeLimitReached, source: Literal["switch", "create", "edit"]
+) -> None:
+    report_user_action(
+        cast(User, request.user),
+        "cohort realtime limit reached",
+        {
+            **cohort.get_analytics_metadata(),
+            "limit": error.limit,
+            "allowed": error.allowed,
+            "used": error.used,
+            "source": source,
+        },
+        team=cohort.team,
+        request=request,
+    )
+
+
+def _turn_realtime_on_after_save(
+    turn_on: Callable[..., list[int]],
+    cohort: Cohort,
+    request: Request,
+    user_access_control: Optional[UserAccessControl],
+    source: Literal["create", "edit"],
+) -> None:
+    """Turn realtime on after a request saved the cohort. A refusal or an error leaves the save in place."""
+    try:
+        turn_on(cohort.team_id, cohort.pk, can_edit=_can_edit(user_access_control))
+    except RealtimeTurnOnRefused as error:
+        if isinstance(error, RealtimeLimitReached):
+            _report_realtime_limit_reached(request, cohort, error, source)
+        logger.info("cohort_realtime_turn_on_after_save_refused", cohort_id=cohort.pk, error=str(error))
+        return
+    except Exception as error:
+        capture_exception(error, additional_properties={"cohort_id": cohort.pk, "team_id": cohort.team_id})
+        return
+    cohort.refresh_from_db(fields=list(COHORT_REALTIME_SWITCH_FIELDS))
 
 
 class CohortHistoryBuildSerializer(serializers.Serializer):
@@ -762,7 +1339,8 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
         help_text="Whether feature flags can target this cohort now. `ready`: they can, and they "
         "see membership changes within about a minute. `building` / `rebuilding`: PostHog is "
         "preparing the cohort from past events, and flags cannot target it yet. "
-        "`needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its "
+        "`needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and "
+        "realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: its "
         "criteria are not supported in realtime, so its membership only comes from the once-a-day "
         "calculation. `person_properties`: it matches on person properties, which flags read "
         "directly, so they can always target it. `static`: it is a fixed list of people.",
@@ -774,6 +1352,20 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
     build = CohortHistoryBuildSerializer(
         allow_null=True,
         help_text="The build preparing the cohort. Null unless the state is `building` or `rebuilding`.",
+    )
+    reason = serializers.ChoiceField(
+        choices=CohortRealtimeUnavailableReason.choices,
+        allow_null=True,
+        help_text="Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria "
+        "look back further than realtime cohorts can. On an `off` cohort: its criteria look back further than the "
+        "project's plan allows, so it can't be turned on. `too_large_to_build`, on a `needs_attention` cohort: the events "
+        "in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, "
+        "including a `daily` cohort that other criteria keep off realtime.",
+    )
+    history_limit_days = serializers.IntegerField(
+        allow_null=True,
+        help_text="The most days realtime cohort criteria can look back on the project's plan. Null unless the reason "
+        "is `history_over_limit`.",
     )
 
 
@@ -794,12 +1386,22 @@ class CohortListSerializer(serializers.ListSerializer):
         return super().to_representation(cohorts)
 
 
+def _completed_calculations_newest_first(cohort: Any) -> QuerySet[CohortCalculationHistory]:
+    return CohortCalculationHistory.objects.filter(cohort=cohort, finished_at__isnull=False).order_by(
+        "-started_at", "-id"
+    )
+
+
 class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    earliest_timestamp_func = earliest_timestamp_func
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     _create_static_person_ids = serializers.ListField(
-        required=False, child=serializers.CharField(), write_only=True, default=[]
+        required=False,
+        child=serializers.CharField(),
+        write_only=True,
+        default=[],
+        max_length=DEFAULT_COHORT_INSERT_BATCH_SIZE,
+        help_text="Person UUIDs to add to a new static cohort.",
     )
 
     # Explicit filters field with proper OpenAPI schema
@@ -817,6 +1419,13 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)  # ty: ignore[invalid-assignment]
     last_error_message = serializers.SerializerMethodField()
     realtime = serializers.SerializerMethodField()
+    realtime_enabled = serializers.BooleanField(
+        required=False,
+        help_text="Whether realtime is on for this cohort, so PostHog keeps its membership current for feature flags "
+        "and workflows. Send true when you create a cohort to turn realtime on for it. It stays false when the project "
+        "has no realtime cohorts or the cohort's criteria can't be realtime. For an existing cohort, use the `realtime` "
+        "endpoint to turn it on or off.",
+    )
 
     class Meta:
         model = Cohort
@@ -845,6 +1454,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "cohort_type",
             "condition_type",
             "realtime",
+            "realtime_enabled",
             "experiment_set",
             "search_match_type",
             "_create_in_folder",
@@ -916,19 +1526,30 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 return get_friendly_error_message(cohort.last_error_code, will_retry=will_retry)
             return None
 
-        # Fall back to querying calculation history.
+        # Fall back to querying the most recent completed calculation.
+        # If a newer completed run succeeded (error is empty/NULL), the cohort has recovered
+        # and no stale error from an older failed run should be surfaced.
         # Old records may have error set but error_code=NULL; get_friendly_error_message
         # returns None for those, so they won't surface user-facing messages.
-        last_failed_calculation = (
-            CohortCalculationHistory.objects.filter(cohort=cohort)
-            .exclude(error__isnull=True)
-            .exclude(error="")
-            .order_by("-started_at")
-            .first()
-        )
-        if last_failed_calculation:
-            return get_friendly_error_message(last_failed_calculation.error_code, will_retry=will_retry)
+        last_completed_calculation = _completed_calculations_newest_first(cohort).first()
+        if last_completed_calculation and last_completed_calculation.error:
+            return get_friendly_error_message(last_completed_calculation.error_code, will_retry=will_retry)
         return None
+
+    def validate_realtime_enabled(self, value: bool) -> bool:
+        # update() never reads this field, so a changed value would be dropped without an error. The `realtime`
+        # action runs the turn-on checks and queues the build. DRF reads a boolean left out of form data as false,
+        # so only a value the request sent is compared.
+        if (
+            self.instance is not None
+            and "realtime_enabled" in self.initial_data
+            and value != cast(Cohort, self.instance).realtime_enabled
+        ):
+            raise ValidationError(
+                "To turn realtime on or off for an existing cohort, send `enabled` to the cohort's `realtime` endpoint.",
+                code="realtime_enabled_read_only",
+            )
+        return value
 
     def validate_cohort_type(self, value):
         """Validate that the cohort type matches the filters"""
@@ -966,6 +1587,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         context: dict,
         validated_data: dict,
         person_ids: list[str] | None,
+        parsed_csv: ParsedCsvIds | None,
     ) -> None:
         from posthog.tasks.calculate_cohort import (
             insert_cohort_from_feature_flag,
@@ -973,13 +1595,12 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             insert_cohort_from_query,
         )
 
-        request = self.context["request"]
-        if request.FILES.get("csv") or person_ids:
+        if parsed_csv is not None or person_ids:
             if person_ids:
                 uuids = validate_person_uuids_exist(self.context["team_id"], person_ids)
                 cohort.insert_users_list_by_uuid(uuids, team_id=self.context["team_id"])
-            if request.FILES.get("csv"):
-                self._calculate_static_by_csv(request.FILES["csv"], cohort)
+            if parsed_csv is not None:
+                self._enqueue_csv_ids(parsed_csv, cohort)
         elif context.get("from_feature_flag_key"):
             insert_cohort_from_feature_flag.delay(cohort.pk, context["from_feature_flag_key"], self.context["team_id"])
         elif validated_data.get("query"):
@@ -1018,6 +1639,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             validated_data["cohort_type"] = computed_cohort_type
 
         person_ids = validated_data.pop("_create_static_person_ids", None)
+        parsed_csv = validated_data.pop("_parsed_csv", None)
+        realtime_enabled = validated_data.pop("realtime_enabled", False)
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
         if cohort.is_static:
@@ -1030,13 +1653,16 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 cohort.is_calculating = True
                 cohort.save(update_fields=["is_calculating"])
 
-            self._handle_static(cohort, self.context, validated_data, person_ids)
+            self._handle_static(cohort, self.context, validated_data, person_ids, parsed_csv)
             # Refresh from DB to get updated count field set by _insert_users_list_with_batching
             cohort.refresh_from_db()
         elif cohort.query is not None:
             raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
             cohort.enqueue_calculation(initiating_user=request.user)
+
+        if realtime_enabled and _realtime_targeting_enabled(self.context):
+            _turn_realtime_on_after_save(turn_realtime_on, cohort, request, self._user_access_control(), "create")
 
         report_user_action(
             request.user,
@@ -1049,8 +1675,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
     def _parse_csv_file(self, file) -> tuple[list[str], Iterator[list[str]]]:
         """Handle file reading and CSV parsing with error handling"""
-        decoded_file = file.read().decode(CSVConfig.ENCODING).splitlines()
-        reader = csv.reader(decoded_file)
+        # Decodes row by row, so the upload is never held whole in memory as bytes, text, or a list of lines.
+        reader = csv.reader(io.TextIOWrapper(file, encoding=CSVConfig.ENCODING, newline=""))
 
         # Skip empty rows at the beginning
         first_row: list[str] = []
@@ -1069,37 +1695,38 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
     def _is_person_id_header(self, header: str) -> bool:
         """Check if header indicates person_id column"""
-        person_id_headers_lower = [h.lower() for h in CSVConfig.PERSON_ID_HEADERS]
-        return header.strip().lower() in person_id_headers_lower
+        return CSVConfig.normalize_header(header) in CSVConfig.PERSON_ID_HEADERS
 
     def _is_email_header(self, header: str) -> bool:
         """Check if header indicates email column"""
-        email_headers_lower = [h.lower() for h in CSVConfig.EMAIL_HEADERS]
-        return header.strip().lower() in email_headers_lower
+        return CSVConfig.normalize_header(header) in CSVConfig.EMAIL_HEADERS
 
-    def _find_id_column(self, headers: list[str]) -> tuple[int, str, str] | None:
+    def _find_id_column(self, headers: list[str]) -> _CsvIdColumn | None:
         """Find the index, type, and actual column name of the ID column in headers, with preference order: person_id > distinct_id > email"""
         normalized_headers = [h.strip() for h in headers]
-        normalized_lower_headers = [h.lower() for h in normalized_headers]
+        header_keys = [CSVConfig.normalize_header(h) for h in headers]
 
-        # First, look for person_id columns (preferred) - use case-insensitive matching
-        person_id_headers_lower = [h.lower() for h in CSVConfig.PERSON_ID_HEADERS]
-        for i, header in enumerate(normalized_lower_headers):
-            if header in person_id_headers_lower:
-                return i, "person_id", normalized_headers[i]
+        # First, look for person_id columns (preferred)
+        for i, key in enumerate(header_keys):
+            if key in CSVConfig.PERSON_ID_HEADERS:
+                return _CsvIdColumn(index=i, id_type="person_id", header=normalized_headers[i])
 
         # Then, look for distinct_id columns
-        for i, header in enumerate(normalized_lower_headers):
-            if header in CSVConfig.DISTINCT_ID_HEADERS:
-                return i, "distinct_id", normalized_headers[i]
+        for i, key in enumerate(header_keys):
+            if key in CSVConfig.DISTINCT_ID_HEADERS:
+                return _CsvIdColumn(index=i, id_type="distinct_id", header=normalized_headers[i])
 
         # Finally, look for email columns
-        email_headers_lower = [h.lower() for h in CSVConfig.EMAIL_HEADERS]
-        for i, header in enumerate(normalized_lower_headers):
-            if header in email_headers_lower:
-                return i, "email", normalized_headers[i]
+        for i, key in enumerate(header_keys):
+            if key in CSVConfig.EMAIL_HEADERS:
+                return _CsvIdColumn(index=i, id_type="email", header=normalized_headers[i])
 
         return None
+
+    def _append_id_within_row_limit(self, ids: list[str], id_value: str) -> None:
+        if len(ids) >= settings.COHORT_CSV_UPLOAD_MAX_ROWS:
+            raise ValidationError({"csv": [CSVConfig.too_many_rows_message()]})
+        ids.append(id_value)
 
     def _extract_ids_single_column(
         self,
@@ -1108,22 +1735,22 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         skip_header: bool = False,
     ) -> list[str]:
         """Process single-column CSV format"""
-        distinct_ids = []
+        distinct_ids: list[str] = []
 
         # Include first row only if it's not a header
         if not skip_header and first_row and first_row[0].strip() != "":
-            distinct_ids.append(first_row[0].strip())
+            self._append_id_within_row_limit(distinct_ids, first_row[0].strip())
 
         for row in reader:
             if len(row) > 0:
                 stripped_id = row[0].strip()
                 if stripped_id != "":
-                    distinct_ids.append(stripped_id)
+                    self._append_id_within_row_limit(distinct_ids, stripped_id)
         return distinct_ids
 
-    def _extract_ids_multi_column(self, reader: Iterator[list[str]], id_col: int, cohort_pk: int) -> list[str]:
+    def _extract_ids_multi_column(self, reader: Iterator[list[str]], id_col: int) -> list[str]:
         """Process multi-column CSV format with robust error handling"""
-        ids = []
+        ids: list[str] = []
         skipped_rows = 0
 
         for row in reader:
@@ -1135,73 +1762,23 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             # Extract ID if present and non-empty
             id_value = row[id_col].strip()
             if id_value != "":
-                ids.append(id_value)
+                self._append_id_within_row_limit(ids, id_value)
 
         if skipped_rows > 0:
-            logger.info(f"Skipped {skipped_rows} rows with incorrect column count in CSV for cohort {cohort_pk}")
+            logger.info(
+                f"Skipped {skipped_rows} rows with incorrect column count in CSV for team {self.context['team_id']}"
+            )
 
         return ids
 
-    def _validate_and_process_ids(
-        self, ids: list[str], id_type: str, cohort: Cohort, email_property_key: str | None = None
-    ) -> None:
-        """Final validation and task scheduling"""
-        from posthog.tasks.calculate_cohort import calculate_cohort_from_list
-
-        if not ids:
-            raise ValidationError({"csv": [CSVConfig.ErrorMessages.NO_VALID_IDS]})
-
-        logger.info(f"Processing CSV upload for cohort {cohort.pk} with {len(ids)} {id_type}s")
-        calculate_cohort_from_list.delay(
-            cohort.pk,
-            ids,
-            team_id=self.context["team_id"],
-            id_type=id_type,
-            email_property_key=email_property_key,
-        )
-
-    def _handle_csv_errors(self, e: Exception, cohort: Cohort) -> None:
-        """Centralized error handling with consistent exception capture"""
-
-        # Reset calculating flag on error
-        cohort.is_calculating = False
-        cohort.save(update_fields=["is_calculating"])
-
-        if isinstance(e, UnicodeDecodeError):
-            raise ValidationError({"csv": [CSVConfig.ErrorMessages.ENCODING_ERROR]})
-        elif isinstance(e, csv.Error):
-            capture_exception(
-                e,
-                additional_properties={
-                    "cohort_id": cohort.pk,
-                    "team_id": self.context["team_id"],
-                },
-            )
-            raise ValidationError({"csv": [CSVConfig.ErrorMessages.FORMAT_ERROR]})
-        elif isinstance(e, ValidationError):
-            # If it's already a ValidationError, just re-raise it to preserve format
-            raise
-        else:
-            capture_exception(
-                e,
-                additional_properties={
-                    "cohort_id": cohort.pk,
-                    "team_id": self.context["team_id"],
-                },
-            )
-            raise ValidationError({"csv": [CSVConfig.ErrorMessages.GENERIC_ERROR]})
-
-    def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
-        """Main orchestration method for CSV processing - clear high-level flow"""
-        # Set calculating flag immediately so UI shows loading state
-        cohort.is_calculating = True
-        cohort.save(update_fields=["is_calculating"])
-
+    def _parse_csv_ids(self, file) -> ParsedCsvIds:
+        """Parse the uploaded CSV into IDs, raising a ValidationError on the csv field for any problem"""
         try:
             first_row, reader = self._parse_csv_file(file)
 
+            id_type: CsvIdType
+            email_property_key: str | None = None
             if self._is_single_column_format(first_row):
-                email_property_key: str | None = None
                 if first_row and self._is_person_id_header(first_row[0]):
                     ids = self._extract_ids_single_column(first_row, reader, skip_header=True)
                     id_type = "person_id"
@@ -1213,8 +1790,6 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     # Single column format treated as distinct_ids for backwards compatibility
                     ids = self._extract_ids_single_column(first_row, reader, skip_header=False)
                     id_type = "distinct_id"
-
-                self._validate_and_process_ids(ids, id_type, cohort, email_property_key)
             else:
                 result = self._find_id_column(first_row)
 
@@ -1232,12 +1807,59 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                         }
                     )
 
-                id_col, id_type, actual_column_name = result
-                ids = self._extract_ids_multi_column(reader, id_col, cohort.pk)
-                self._validate_and_process_ids(ids, id_type, cohort, actual_column_name if id_type == "email" else None)
-
+                ids = self._extract_ids_multi_column(reader, result.index)
+                id_type = result.id_type
+                if id_type == "email":
+                    email_property_key = result.header
+        except ValidationError:
+            raise
+        except UnicodeDecodeError as e:
+            raise ValidationError({"csv": [CSVConfig.ErrorMessages.ENCODING_ERROR]}) from e
         except Exception as e:
-            self._handle_csv_errors(e, cohort)
+            capture_exception(e, additional_properties=self._csv_error_properties())
+            message = (
+                CSVConfig.ErrorMessages.FORMAT_ERROR
+                if isinstance(e, csv.Error)
+                else CSVConfig.ErrorMessages.GENERIC_ERROR
+            )
+            raise ValidationError({"csv": [message]}) from e
+
+        if not ids:
+            raise ValidationError({"csv": [CSVConfig.ErrorMessages.NO_VALID_IDS]})
+        return ParsedCsvIds(ids=ids, id_type=id_type, email_property_key=email_property_key)
+
+    def _csv_error_properties(self) -> dict[str, Any]:
+        return {
+            "cohort_id": self.instance.pk if self.instance is not None else None,
+            "team_id": self.context["team_id"],
+        }
+
+    def _enqueue_csv_ids(self, parsed: ParsedCsvIds, cohort: Cohort) -> None:
+        """Schedule the import of IDs that _parse_csv_ids already validated"""
+        from posthog.tasks.calculate_cohort import calculate_cohort_from_list
+
+        # Set calculating flag immediately so UI shows loading state
+        cohort.is_calculating = True
+        cohort.save(update_fields=["is_calculating"])
+
+        try:
+            logger.info(f"Processing CSV upload for cohort {cohort.pk} with {len(parsed.ids)} {parsed.id_type}s")
+            # A killed import leaves its history row open. The stuck-cohort sweep resets a cohort whose newest row stays
+            # open past its cutoff. That row stays the newest until the task of this upload starts. A run that is still
+            # alive overwrites this stamp when it finishes.
+            close_open_population_attempts(cohort.pk, finished_at=timezone.now())
+            calculate_cohort_from_list.delay(
+                cohort.pk,
+                parsed.ids,
+                team_id=self.context["team_id"],
+                id_type=parsed.id_type,
+                email_property_key=parsed.email_property_key,
+            )
+        except Exception as e:
+            cohort.is_calculating = False
+            cohort.save(update_fields=["is_calculating"])
+            capture_exception(e, additional_properties={"cohort_id": cohort.pk, "team_id": self.context["team_id"]})
+            raise ValidationError({"csv": [CSVConfig.ErrorMessages.GENERIC_ERROR]}) from e
 
     def validate_query(self, query: Optional[dict]) -> Optional[dict]:
         if not query:
@@ -1275,10 +1897,13 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             return str_to_bool(self.initial_data["is_static"])
         return bool(getattr(self.instance, "is_static", False))
 
-    def _effective_filters_after_update(self, attrs: dict, team: Optional[Team] = None) -> dict | None:
-        # Derive the properties that survive the save, mirroring Cohort.properties precedence:
-        # filters win over the legacy groups field, so clearing filters re-activates preserved
-        # groups. Pass team on the create path, where there's no instance to read it from.
+    def _reactivates_static_cohort(self, attrs: dict) -> bool:
+        instance = cast(Optional[Cohort], self.instance)
+        return instance is not None and instance.is_static and attrs.get("is_static") is False
+
+    def _effective_filters_after_update(self, attrs: dict) -> dict | None:
+        # Derive the properties that survive the save, mirroring Cohort.properties precedence: filters
+        # win over the legacy groups field, so clearing filters re-activates preserved groups.
         instance = cast(Optional[Cohort], self.instance)
         filters = attrs.get("filters", instance.filters if instance else None)
         if filters:
@@ -1288,12 +1913,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if not groups:
             return None
 
-        effective_team = team or (instance.team if instance else None)
-        if effective_team is None:
-            return None
-
-        cohort = Cohort(team=effective_team, filters=None, groups=deepcopy(groups))
-        return {"properties": cohort.properties.to_dict()}
+        return legacy_groups_to_filters(groups)
 
     def validate_filters(self, raw: dict):
         """
@@ -1336,7 +1956,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         can change - `filters`, the legacy `groups` field, and query-based cohorts' `query`."""
         instance = cast(Optional[Cohort], self.instance)
         # Flipping a static cohort to dynamic activates its preserved definition.
-        reactivating_static = instance is not None and instance.is_static and attrs.get("is_static") is False
+        reactivating_static = self._reactivates_static_cohort(attrs)
         if not reactivating_static and not any(field in attrs for field in ("filters", "groups", "query")):
             return
         team = self._team_for_warehouse_access_check()
@@ -1358,7 +1978,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             return
 
         # Check what survives the save, not just the fields in the payload.
-        effective = self._effective_filters_after_update(attrs, team=team)
+        effective = self._effective_filters_after_update(attrs)
         properties = effective.get("properties") if effective else None
         # A payload query is what's being saved; a flip re-activates the instance's preserved query.
         query = attrs["query"] if "query" in attrs else (instance.query if reactivating_static and instance else None)
@@ -1380,25 +2000,109 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             # Only access denials gate saving; other compile problems surface elsewhere.
             return
 
+    def _validate_cohort_references(self, attrs: dict) -> None:
+        """Reject criteria that include a cohort that is deleted or does not exist.
+
+        The flag evaluator loads only non-deleted cohorts. A flag on a cohort that includes a
+        deleted one therefore fails on every request. This check covers only this cohort's own
+        references. Each included cohort's own save checks its references. A deeper check here
+        would block this save because of a fault in another cohort.
+        """
+        instance = cast(Optional[Cohort], self.instance)
+        # The delete call sends the whole cohort, criteria included. Checking it would block
+        # deleting a cohort that includes a deleted cohort.
+        if instance is not None and attrs.get("deleted"):
+            return
+        restoring = instance is not None and instance.deleted and attrs.get("deleted") is False
+        if not (restoring or self._reactivates_static_cohort(attrs) or "filters" in attrs or "groups" in attrs):
+            return
+        # Static criteria run once, when the cohort is created. The editor resends them on every save.
+        if instance is not None and self._cohort_will_be_static():
+            return
+
+        team = _team_from_serializer_context(self.context)
+        if team is None:
+            return
+        effective = self._effective_filters_after_update(attrs)
+        if not effective:
+            return
+        referenced_ids = [
+            prop.value for prop in parse_property_group_data(effective.get("properties")).flat if prop.type == "cohort"
+        ]
+        if not referenced_ids:
+            return
+
+        # The lookup includes deleted cohorts so that the error can name the cohort.
+        cohorts_by_id = Cohort.objects.filter(team__project_id=team.project_id).in_bulk(
+            {cohort_id for cohort_id in map(safe_int, referenced_ids) if cohort_id is not None}
+        )
+        # A deleted cohort's page has no criteria editor. The restore messages therefore do not ask the user to remove the criterion.
+        for value in referenced_ids:
+            cohort = cohorts_by_id.get(safe_int(value))
+            if cohort is None:
+                detail = (
+                    f"This cohort can't be restored because it includes cohort with id {value}, which does not exist. Create a new cohort instead."
+                    if restoring
+                    else f"Cohort with id {value} does not exist. Choose another cohort or remove this criterion."
+                )
+                raise ValidationError(detail=detail, code="cohort_does_not_exist")
+            if cohort.deleted:
+                label = f"'{cohort.name}' (ID {cohort.pk})" if cohort.name else f"with id {cohort.pk}"
+                detail = (
+                    f"This cohort includes cohort {label}, which has been deleted. Restore that cohort first."
+                    if restoring
+                    else f"Cohort {label} has been deleted. Choose another cohort or remove this criterion."
+                )
+                raise ValidationError(detail=detail, code="cohort_does_not_exist")
+
     def validate(self, attrs: dict) -> dict:
         # Field-level validate_filters only runs when the PATCH body includes `filters`. This
         # object-level guard covers the static-to-dynamic flip when it does not, re-checking the
         # instance's preserved behavioral filters against the feature-flag rule.
         attrs = super().validate(attrs)
 
+        cohort_will_be_static = self._cohort_will_be_static()
+        if not attrs.get("filters") and attrs.get("groups") and not cohort_will_be_static:
+            derived_filters = legacy_groups_to_filters(attrs["groups"])
+            if not derived_filters:
+                raise ValidationError(
+                    {"groups": "The provided legacy groups could not be converted to cohort filters."}
+                )
+
+            # Same schema and feature-flag checks as the `filters` field.
+            attrs["filters"] = self.validate_filters(derived_filters)
+
+        parsed_csv = self._parse_csv_upload(attrs)
+        if parsed_csv is not None:
+            attrs["_parsed_csv"] = parsed_csv
+        self._validate_cohort_references(attrs)
         self._validate_warehouse_access(attrs)
         self._validate_no_new_hidden_event_criteria(attrs)
 
         if self.context["request"].method != "PATCH" or self.instance is None:
             return attrs
 
-        instance = cast(Cohort, self.instance)
-        if instance.is_static and attrs.get("is_static") is False:
+        if self._reactivates_static_cohort(attrs):
             effective_filters = self._effective_filters_after_update(attrs)
             if effective_filters is not None and cohort_filters_have_values(effective_filters):
                 self._validate_feature_flag_constraints(effective_filters, cohort_will_be_static=False)
 
         return attrs
+
+    def _parse_csv_upload(self, attrs: dict) -> ParsedCsvIds | None:
+        # Runs in validate() so that every CSV rejection, the size and row limits included, happens before
+        # create() or update() writes the cohort. create() and update() only enqueue the parsed IDs.
+        csv_file = self.context["request"].FILES.get("csv")
+        if csv_file is None:
+            return None
+        # Mirrors the conditions under which create() and update() use the file, so an ignored file is not parsed.
+        is_static = attrs.get("is_static", self.instance.is_static if self.instance is not None else False)
+        if not is_static or attrs.get("deleted"):
+            return None
+        # `size` is what the upload handler received, not the Content-Length header.
+        if csv_file.size > settings.COHORT_CSV_UPLOAD_MAX_BYTES:
+            raise ValidationError({"csv": [CSVConfig.file_too_large_message()]})
+        return self._parse_csv_ids(csv_file)
 
     def _validate_no_new_hidden_event_criteria(self, attrs: dict) -> None:
         if self.context.get(ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY):
@@ -1406,16 +2110,19 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if self.instance is not None and "filters" not in attrs and "groups" not in attrs:
             return
         team = _team_from_serializer_context(self.context)
+        new_properties = _flat_properties(self._effective_filters_after_update(attrs))
+        if team is None or next(_hidden_event_references(new_properties), None) is None:
+            return
+        mode = get_flag_evaluations_read_mode(team.organization_id)
+        if mode == FlagEvaluationsMode.EVENTS:
+            return
         # Passing no attrs reads the stored definition. Cohort.properties would rewrite the stored
         # legacy groups in place.
-        existing = self._effective_filters_after_update({}, team=team)
-        hidden_event = added_hidden_event(
-            _behavioral_event_names(_flat_properties(self._effective_filters_after_update(attrs, team=team))),
-            _behavioral_event_names(_flat_properties(existing)),
-        )
-        if hidden_event and team is not None and hides_flag_calls_from_query_builders(team.organization_id):
+        existing_properties = _flat_properties(self._effective_filters_after_update({}))
+        added = _added_unsupported_hidden_event_reference(new_properties, existing_properties, team)
+        if added is not None:
             raise ValidationError(
-                {"filters": f"You can't add a new criterion on {hidden_event}. {HIDDEN_EVENT_REASON}"},
+                {"filters": f"You can't save this criterion on {added.event}. {added.reason}"},
                 code="hidden_event",
             )
 
@@ -1474,7 +2181,13 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 self._validate_nested_cohort_behavioral_filters(prop, cohort_used_in_flags)
 
     def _validate_nested_cohort_behavioral_filters(self, prop: Any, cohort_used_in_flags: bool):
-        nested_cohort = Cohort.objects.get(pk=prop.value, team__project_id=self.context["project_id"])
+        try:
+            nested_cohort = Cohort.objects.get(
+                pk=prop.value, team__project_id=self.context["project_id"], deleted=False
+            )
+        except Cohort.DoesNotExist:
+            # _validate_cohort_references reports a missing or deleted cohort with an error that names it.
+            return
         dependency_cohorts = get_all_cohort_dependencies(nested_cohort, stop_traversal_at_static=True)
 
         for dependency_cohort in [nested_cohort, *dependency_cohorts]:
@@ -1488,16 +2201,75 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     code="behavioral_cohort_found",
                 )
 
+    def _reject_delete(self, cohort: Cohort, blocked_by: str, message: str, code: str | None = None) -> NoReturn:
+        """Refuse a cohort deletion and record why, so the block is measurable.
+
+        The rejection is a 400 the user never sees as an event otherwise, which left the
+        frequency of this dead end unknown.
+        """
+        request = self.context["request"]
+        report_user_action(
+            request.user,
+            "cohort deletion blocked",
+            {"cohort_id": cohort.id, "blocked_by": blocked_by},
+            team=cohort.team,
+            request=request,
+        )
+        raise ValidationError(message, code=code)
+
+    def _user_access_control(self) -> Optional[UserAccessControl]:
+        return getattr(self.context.get("view"), "user_access_control", None)
+
+    def _claim_static_population(self, cohort: Cohort, source_field: Literal["query", "csv"]) -> None:
+        # A query population can run on ClickHouse for hours, and each PATCH would otherwise queue another full run.
+        # The claim sets is_calculating, and a query or CSV PATCH gets a 400 until it is cleared. A CSV import takes
+        # the claim too, because it clears is_calculating when it finishes and would release a running population.
+        # The conditional update locks the row, so two concurrent requests cannot both claim it. The task clears
+        # is_calculating when it finishes, and the stuck-cohort sweep clears it if the task dies.
+        from posthog.tasks.calculate_cohort import HAS_STATIC_POPULATION_SOURCE
+
+        claimable = Q(is_calculating=False)
+        if source_field == "csv":
+            # Only a cohort with a query or filters can have a population that a CSV import would release, and the
+            # sourced sweep frees that cohort if this request dies before it enqueues. The sourceless sweep cannot
+            # tell an abandoned claim from a queued upload, so a CSV-only cohort skips the check, and the next upload
+            # recovers it.
+            claimable |= ~HAS_STATIC_POPULATION_SOURCE
+        claimed = Cohort.objects.filter(claimable, pk=cohort.pk, team_id=cohort.team_id).update(is_calculating=True)
+        if not claimed:
+            raise ValidationError({source_field: ["This cohort is still being populated. Try again when it finishes."]})
+        # cohort.save() writes every field, so the in-memory value must match the claim.
+        cohort.is_calculating = True
+
+    def _enqueue_query_population(self, cohort: Cohort) -> None:
+        from posthog.tasks.calculate_cohort import insert_cohort_from_query
+
+        try:
+            insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
+        except Exception as e:
+            # Without a release, every retry is rejected for a run that was never queued.
+            Cohort.objects.filter(pk=cohort.pk, team_id=cohort.team_id).update(is_calculating=False)
+            cohort.is_calculating = False
+            capture_exception(e, additional_properties={"cohort_id": cohort.pk, "team_id": cohort.team_id})
+            raise ValidationError(
+                {"query": ["Couldn't start populating this cohort. Try again in a few minutes."]}
+            ) from e
+
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
+        previous_filters = cohort.filters
         existing_has_criteria = cohort_filters_have_values(cohort.filters)
-        filters_changed = "filters" in validated_data and validated_data.get("filters") != _coerce_stored_filter_values(
-            cohort.filters
+        filters_changed = "filters" in validated_data and _criteria_key(validated_data.get("filters")) != _criteria_key(
+            _coerce_stored_filter_values(cohort.filters)
         )
 
+        parsed_csv = validated_data.pop("_parsed_csv", None)
         create_in_folder = validated_data.pop("_create_in_folder", None)
         if create_in_folder is not None:
             cohort._create_in_folder = create_in_folder or None
+
+        was_realtime = cohort.cohort_type == CohortType.REALTIME and not cohort.is_static
+        held_a_realtime_slot = cohort.realtime_enabled and was_realtime and not cohort.deleted
 
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
@@ -1517,13 +2289,84 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     cohort.team,
                     current_cohort_type=cohort.cohort_type,
                     cohort_count=cohort.count,
+                    # The editor sends filters on every save. An absolute start date that aged past the limit
+                    # must not take a realtime cohort off realtime on a rename, because flags that target it
+                    # would then match nobody.
+                    apply_history_limit=filters_changed or not was_realtime,
                 )
                 cohort.filters = clean_filters
                 cohort.cohort_type = computed_cohort_type
             else:
                 cohort.filters = filters
 
+        # A criteria edit that moves a behavioral leaf of a cohort with realtime on queues a behavioral backfill.
+        # The backfill refuses a cohort whose flag calls it can't read. The cohort would then never be ready.
+        if (
+            filters_changed
+            and cohort.realtime_enabled
+            and not cohort.is_static
+            and cohort.cohort_type == CohortType.REALTIME
+            and _criteria_edit_queues_behavioral_run(cohort, previous_filters)
+        ):
+            refusal = flag_calls_table_refusal(cohort)
+            if refusal is not None:
+                logger.info(
+                    "cohort_realtime_criteria_edit_refused",
+                    cohort_id=cohort.pk,
+                    team_id=cohort.team_id,
+                    reason=refusal,
+                )
+                raise ValidationError(
+                    {
+                        "filters": "Realtime is on for this cohort, and PostHog can't prepare one of its criteria in "
+                        "realtime. Change that criterion, or turn realtime off first."
+                    },
+                    code="realtime_criteria_unsupported",
+                )
+
+        # A cohort that stops being realtime stops emitting membership changes, so its workflows would
+        # never trigger and their branches would read frozen membership, with no error anywhere.
+        stops_realtime = was_realtime and (cohort.is_static or cohort.cohort_type != CohortType.REALTIME)
+        # A criteria edit makes the stream processor re-evaluate every person and send `entered` again for
+        # current members, so cohort-triggered workflows would run again for people who never left.
+        if stops_realtime or filters_changed:
+            workflows_relying_on_cohort = _workflows_relying_on_cohort(cohort)
+            if workflows_relying_on_cohort:
+                count = len(workflows_relying_on_cohort)
+                names = _workflow_names_suffix(
+                    request, self._user_access_control(), cohort.team_id, workflows_relying_on_cohort
+                )
+                if stops_realtime:
+                    raise ValidationError(
+                        f"This change stops the cohort updating in real time, and {count} "
+                        f"active workflow(s) rely on that{names}. "
+                        "Please remove the cohort from these workflows before making this change.",
+                        code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
+                    )
+                raise ValidationError(
+                    f"This cohort is used in {count} active workflow(s){names}. Changing its criteria would send "
+                    "its current members through them again. "
+                    "Please remove the cohort from these workflows before changing its criteria.",
+                    code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
+                )
+
         deleted_state = cast(bool | None, validated_data.get("deleted"))
+
+        # The plan's limits judge new criteria, and an edit that brings back a cohort that is on. Such a cohort keeps its
+        # switch while it is daily, static or deleted, and holds no slot then, so the edit takes a slot without a
+        # turn-on. A user who doesn't see realtime cohorts is not judged, because they can't see or turn off the
+        # cohorts that hold the slots. The turn-on after the save still checks the plan for the cohorts it turns on.
+        holds_a_realtime_slot = (
+            cohort.realtime_enabled
+            and cohort.cohort_type == CohortType.REALTIME
+            and not cohort.is_static
+            and not (cohort.deleted if deleted_state is None else deleted_state)
+        )
+        judge_plan_limits = (
+            holds_a_realtime_slot
+            and (filters_changed or not held_a_realtime_slot)
+            and _realtime_targeting_enabled(self.context)
+        )
 
         incoming_has_criteria = cohort_filters_have_values(validated_data.get("filters"))
         if cohort.is_static and filters_changed and (existing_has_criteria or incoming_has_criteria):
@@ -1534,31 +2377,55 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
             if deleted_state:
-                flags_with_cohort = get_active_flags_using_cohort(cohort)
+                flags_with_cohort = get_flags_blocking_cohort_deletion(cohort)
                 if flags_with_cohort:
-                    flag_names = [flag.name or flag.key for flag in flags_with_cohort]
-                    raise ValidationError(
-                        f"This cohort is used in {len(flags_with_cohort)} active feature flag(s): {', '.join(flag_names)}. "
-                        "Please remove the cohort from these feature flags before deleting it."
+                    visible_flags = _visible_flags(
+                        request, self._user_access_control(), cohort.team.project_id, flags_with_cohort
+                    )
+                    names = _names_suffix([flag.name or flag.key for flag in visible_flags], len(flags_with_cohort))
+                    message = (
+                        f"This cohort is used in {len(flags_with_cohort)} feature flag(s){names}. "
+                        "Remove the cohort from these flags, or archive the flags, before deleting it."
+                    )
+                    # Resuming a survey enables its targeting flag. That save fails once the flag is archived.
+                    visible_flag_ids = [flag.id for flag in visible_flags]
+                    if (
+                        visible_flag_ids
+                        and Survey.objects.filter(
+                            Q(targeting_flag_id__in=visible_flag_ids)
+                            | Q(internal_targeting_flag_id__in=visible_flag_ids)
+                            | Q(internal_response_sampling_flag_id__in=visible_flag_ids),
+                            team__project_id=cohort.team.project_id,
+                        ).exists()
+                    ):
+                        message += " For a survey's targeting flag, change the survey's targeting or delete the survey instead."
+                    self._reject_delete(cohort, "feature_flags", message)
+
+                workflows_with_cohort = _workflows_relying_on_cohort(cohort)
+                if workflows_with_cohort:
+                    names = _workflow_names_suffix(
+                        request, self._user_access_control(), cohort.team_id, workflows_with_cohort
+                    )
+                    self._reject_delete(
+                        cohort,
+                        "workflows",
+                        f"This cohort is used in {len(workflows_with_cohort)} active workflow(s){names}. "
+                        "Please remove the cohort from these workflows before deleting it.",
+                        code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
                     )
 
                 # Check if cohort is used in test_account_filters
-                teams_with_cohort = Team.objects.filter(
-                    project_id=cohort.team.project_id,
-                    test_account_filters__contains=[{"type": "cohort"}],
-                )
-                teams_using_cohort = []
-                for team in teams_with_cohort:
-                    for filter_item in team.test_account_filters:
-                        if filter_item.get("type") == "cohort" and filter_item.get("value") == cohort.id:
-                            teams_using_cohort.append(team)
-                            break
+                teams_using_cohort = get_environments_using_cohort_in_test_account_filters(cohort)
 
                 if teams_using_cohort:
-                    team_names = [team.name for team in teams_using_cohort]
-                    raise ValidationError(
+                    # The environment id is part of the name because environments in one project
+                    # often share a name, and the settings page only shows the current one.
+                    team_names = [f"{team.name} (environment {team.id})" for team in teams_using_cohort]
+                    self._reject_delete(
+                        cohort,
+                        "test_account_filters",
                         f"This cohort is used in 'Filter out internal and test users' for {len(teams_using_cohort)} environment(s): {', '.join(team_names)}. "
-                        "Please remove the cohort from these test account filters before deleting it."
+                        "Please remove the cohort from these test account filters before deleting it.",
                     )
 
                 # Check if cohort is used in insights
@@ -1572,9 +2439,11 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     names_str = ", ".join(insight_names)
                     if count > 5:
                         names_str = f"{names_str}, and {count - 5} more"
-                    raise ValidationError(
+                    self._reject_delete(
+                        cohort,
+                        "insights",
                         f"This cohort is used in {count} insight(s): {names_str}. "
-                        "Please remove the cohort from these insights before deleting it."
+                        "Please remove the cohort from these insights before deleting it.",
                     )
 
                 # Check if cohort is used as criteria in other cohorts
@@ -1586,9 +2455,11 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     names_str = ", ".join(cohort_names)
                     if count > 5:
                         names_str = f"{names_str}, and {count - 5} more"
-                    raise ValidationError(
+                    self._reject_delete(
+                        cohort,
+                        "cohorts",
                         f"This cohort is used as criteria in {count} other cohort(s): {names_str}. "
-                        "Please remove this cohort from those cohort definitions before deleting it."
+                        "Please remove this cohort from those cohort definitions before deleting it.",
                     )
 
             relevant_team_ids = Team.objects.filter(project_id=cohort.team.project_id).values_list("id", flat=True)
@@ -1611,29 +2482,64 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     ],
                     ignore_conflicts=True,
                 )
-            else:
-                AsyncDeletion.objects.filter(
-                    deletion_type=DeletionType.Cohort_full,
-                    key__startswith=f"{cohort.pk}_{cohort.version}",  # We target this _prefix_, so all teams are covered
-                ).delete()
         elif not cohort.is_static:
             cohort.is_calculating = True
 
         if will_create_loops(cohort):
             raise ValidationError("Cohorts cannot reference other cohorts in a loop.")
 
-        cohort.save()
+        import_from_csv = not deleted_state and cohort.is_static and parsed_csv is not None
+        populate_from_query = (
+            not deleted_state and cohort.is_static and parsed_csv is None and bool(validated_data.get("query"))
+        )
+        # The row was read when the request started. Writing the realtime switch or a stamp from it would undo a
+        # turn-on, a turn-off or a finalizer stamp that committed since. save() still writes the stamps an edit clears.
+        update_fields = [
+            field.name
+            for field in Cohort._meta.concrete_fields
+            if not field.primary_key and field.name not in COHORT_REALTIME_SWITCH_FIELDS
+        ]
+        with transaction.atomic():
+            # Judged in the save's transaction, under the lock turn-ons take, so no other turn-on or edit takes a slot
+            # between the count and the save. A restore cancels its pending deletion in the same transaction, so a
+            # refused restore keeps it.
+            if judge_plan_limits:
+                try:
+                    refuse_edit_over_plan_limits(
+                        cohort, held_a_slot=held_a_realtime_slot, can_edit=_can_edit(self._user_access_control())
+                    )
+                except RealtimeLimitReached as error:
+                    _report_realtime_limit_reached(request, cohort, error, "edit")
+                    raise ValidationError(str(error), code=REALTIME_LIMIT_REACHED_ERROR_CODE) from error
+            if is_deletion_change and deleted_state is False:
+                AsyncDeletion.objects.filter(
+                    deletion_type=DeletionType.Cohort_full,
+                    key__startswith=f"{cohort.pk}_{cohort.version}",  # We target this _prefix_, so all teams are covered
+                ).delete()
+            if import_from_csv or populate_from_query:
+                self._claim_static_population(cohort, "csv" if import_from_csv else "query")
+                cohort.save(update_fields=update_fields)
+            elif cohort.is_static:
+                # A concurrent query PATCH can claim the cohort after this request loaded it. Writing this request's
+                # stale is_calculating would release that claim and let a duplicate population through.
+                cohort.save(update_fields=[field for field in update_fields if field != "is_calculating"])
+            else:
+                cohort.save(update_fields=update_fields)
 
         if not deleted_state:
-            from posthog.tasks.calculate_cohort import insert_cohort_from_query
-
-            if cohort.is_static and request.FILES.get("csv"):
+            if import_from_csv:
                 # You can't update a static cohort using the trend/stickiness thing
-                self._calculate_static_by_csv(request.FILES["csv"], cohort)
-            elif cohort.is_static and validated_data.get("query"):
-                insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
+                self._enqueue_csv_ids(parsed_csv, cohort)
+            elif populate_from_query:
+                self._enqueue_query_population(cohort)
             elif not cohort.is_static:
                 cohort.enqueue_calculation(initiating_user=request.user)
+            # A cohort that is on can only be ready when every cohort it includes is on too. A restore needs this as
+            # well, because turning off an included cohort ignores parents that are deleted.
+            if filters_changed or (is_deletion_change and deleted_state is False):
+                _turn_realtime_on_after_save(
+                    turn_realtime_on_for_included_cohorts, cohort, request, self._user_access_control(), "edit"
+                )
 
         report_user_action(
             request.user,
@@ -1662,6 +2568,26 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 def _used_in_block(page: list[dict], total: int) -> dict[str, Any]:
     """Build one ``{results, total, has_more}`` block of the used_in response."""
     return {"results": page, "total": total, "has_more": total > len(page)}
+
+
+def _hidden_reference_count(all_references: QuerySet, visible_references: QuerySet, visible_total: int) -> int:
+    # filter_queryset_by_access_level returns the queryset it was given when it applies no filter,
+    # so that case skips a second run of the reference predicate.
+    if visible_references is all_references:
+        return 0
+    return max(all_references.count() - visible_total, 0)
+
+
+def _workflows_block(
+    request: Request, user_access_control: Optional[UserAccessControl], cohort: Cohort
+) -> dict[str, Any]:
+    workflows = _workflows_relying_on_cohort(cohort)
+    visible = _visible_workflows(request, user_access_control, cohort.team_id, workflows)
+    page = [
+        {"id": workflow.id, "name": workflow.name, "status": workflow.status}
+        for workflow in visible[:COHORT_USED_IN_PAGE_SIZE]
+    ]
+    return {**_used_in_block(page, len(workflows)), "hidden": len(workflows) - len(visible)}
 
 
 def _truncate_used_in_queryset(qs: QuerySet) -> tuple[list[dict], int]:
@@ -1708,7 +2634,7 @@ def _directly_referenced_cohort_ids(flags: list[FeatureFlag]) -> set[int]:
     """Cohort ids each flag references directly, the ones ``FeatureFlag.get_cohort_ids`` starts from.
 
     Used to bulk-load those cohorts so the expansion doesn't point-query them one at a time.
-    An id that is not an integer is left to the expansion, which rejects it in v1 and skips it in v2.
+    An id that is not an integer is left to the expansion, which skips it.
     """
     return {cohort_id for flag in flags for cohort_id in references(decode_config(flag.filters)).cohort_ids}
 
@@ -1741,17 +2667,24 @@ def _filter_flags_referencing_cohort(
         in flag.get_cohort_ids(
             seen_cohorts_cache=seen_cohorts_cache,
             stop_traversal_at_static=stop_traversal_at_static,
+            # A non-integer id cannot reach this cohort. Raising on it would fail the whole lookup.
+            invalid_cohort_ids="skip",
         )
     ]
 
 
-def get_active_flags_using_cohort(cohort: Cohort) -> list[FeatureFlag]:
-    """Return active, non-deleted feature flags that reference this cohort.
+def get_flags_blocking_cohort_deletion(cohort: Cohort) -> list[FeatureFlag]:
+    """Return non-deleted, non-archived feature flags that reference this cohort.
 
-    Used by deletion protection: only live flags should block cohort deletion.
+    The flag evaluator skips deleted cohorts. A flag that still references one fails every
+    evaluation. A disabled flag blocks deletion because some writers enable a flag without the
+    flag API's validation. For example, starting a survey enables its targeting flag directly.
+    A deleted or archived flag does not block deletion. A database constraint keeps an archived
+    flag disabled. The flag API rejects a restore or unarchive of a flag that targets a deleted
+    cohort.
     """
     return _filter_flags_referencing_cohort(
-        _flags_with_cohort_filters(cohort).filter(active=True),
+        _flags_with_cohort_filters(cohort).filter(archived=False),
         cohort,
         stop_traversal_at_static=True,
     )
@@ -1792,6 +2725,8 @@ def get_insights_using_cohort(cohort: Cohort) -> QuerySet[Insight]:
 
 def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
     """Return other cohorts that include this cohort as criteria."""
+    # Legacy groups can store the cohort id as a string.
+    path_vars = json.dumps({"id": cohort.id, "id_text": str(cohort.id)})
     return (
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
         Cohort.objects.filter(
@@ -1801,12 +2736,33 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
         .exclude(id=cohort.id)
         .extra(
             where=[
-                """jsonb_path_exists(filters, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)"""
+                # Cohort.properties reads groups only when filters is empty.
+                """jsonb_path_exists(COALESCE(NULLIF(filters, '{}'::jsonb), groups), '$.** ? (@.type == "cohort" && (@.value == $id || @.value == $id_text))', %s::jsonb)"""
             ],
-            params=[cohort.id, cohort.id],
+            params=[path_vars],
         )
         .order_by("id")
     )
+
+
+def get_environments_using_cohort_in_test_account_filters(cohort: Cohort) -> list[Team]:
+    """Return environments in the cohort's project whose test account filters reference it.
+
+    The scan covers every environment in the project, not just the cohort's own, because
+    test account filters are stored per environment and any one of them keeps the cohort alive.
+    """
+    candidate_teams = Team.objects.filter(
+        project_id=cohort.team.project_id,
+        test_account_filters__contains=[{"type": "cohort"}],
+    ).order_by("id")
+    return [
+        team
+        for team in candidate_teams
+        if any(
+            filter_item.get("type") == "cohort" and filter_item.get("value") == cohort.id
+            for filter_item in team.test_account_filters
+        )
+    ]
 
 
 @extend_schema(extensions={"x-product": "cohorts"})
@@ -1830,6 +2786,19 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
                 type=OpenApiTypes.BOOL,
                 location=OpenApiParameter.QUERY,
                 description="Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.",
+            ),
+            OpenApiParameter(
+                name="type",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=["static", "dynamic"],
+                description="Optional. `static` returns only static cohorts, `dynamic` only dynamic ones.",
+            ),
+            OpenApiParameter(
+                name="created_by_id",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Return only cohorts created by the user with this id.",
             ),
             OpenApiParameter(
                 name="basic",
@@ -1860,6 +2829,20 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         context = super().get_serializer_context()
         context["basic_cohort_list"] = self._is_basic_list_request()
         return context
+
+    def _filter_queryset_by_parents_lookups(self, queryset: QuerySet) -> QuerySet:
+        # The default project scoping filters on `team__project_id`, a JOIN to `posthog_team`.
+        # With that JOIN, Postgres reads and sorts every cohort of the project before it applies
+        # the page limit. A filter on `team_id` lets `cohort_team_created_idx` serve the
+        # `-created_at` page directly. A project and its only team share an id. This filter
+        # therefore selects the same rows as the default. The API cannot add a second team to a
+        # project, because `ProjectEnvironmentsViewSet` rejects every request.
+        if set(self.parents_query_dict) != {"project_id"}:
+            return super()._filter_queryset_by_parents_lookups(queryset)
+        # `RootTeamQuerySet.filter` rewrites a `team_id=` keyword into an `OR` over the parent team.
+        # That `OR` JOINs `posthog_team`. A `Q` object skips the rewrite, as the default
+        # `team__project_id` filter does.
+        return queryset.filter(Q(team_id=self.team_id))
 
     def _filter_request(self, request: Request, queryset: QuerySet) -> tuple[QuerySet, bool]:
         # Returns (queryset, search_ordered). `search_ordered` is True only when a non-blank
@@ -1930,13 +2913,11 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         # `created_by` and `team` are forward FKs, so `select_related` JOINs them in one query
         # instead of the extra round-trips `prefetch_related` costs. The list serializer never
-        # reads `cohort.team`, so the list path only `select_related`s `created_by`. Project
-        # scoping still JOINs `posthog_team` to filter on `project_id`, but without hydration that
-        # JOIN reads only the id — not the full team payload (heavy JSON and array columns) each
-        # cohort row would otherwise carry. Detail and write actions do read `cohort.team`, so they
-        # keep the hydrating JOIN but re-apply `.defer(*DEPRECATED_ATTRS)` — mirroring
-        # `TeamManager`'s lazy-load defer — so the deprecated taxonomy columns, which TOAST out to
-        # megabytes per team, stay off it.
+        # reads `cohort.team`, so the list path only `select_related`s `created_by`, and the cohort
+        # SELECT does not read the full team payload (heavy JSON and array columns) per row. Detail
+        # and write actions do read `cohort.team`, so they keep the hydrating JOIN but re-apply
+        # `.defer(*DEPRECATED_ATTRS)` — mirroring `TeamManager`'s lazy-load defer — so the deprecated
+        # taxonomy columns, which TOAST out to megabytes per team, stay off it.
         if self.action == "list":
             queryset = queryset.select_related("created_by")
         else:
@@ -1951,13 +2932,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         # cohorts.
         if not is_basic_list:
             last_error_code_subquery = Subquery(
-                CohortCalculationHistory.objects.filter(
-                    cohort=OuterRef("pk"),
-                    error__isnull=False,
-                )
-                .exclude(error="")
-                .order_by("-started_at")
-                .values("error_code")[:1]
+                _completed_calculations_newest_first(OuterRef("pk")).values("error_code")[:1]
             )
             queryset = queryset.prefetch_related("experiment_set").annotate(last_error_code=last_error_code_subquery)
 
@@ -2078,17 +3053,22 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     def add_persons_to_static_cohort(self, request: request.Request, **kwargs):
         cohort: Cohort = self.get_object()
         if not cohort.is_static:
-            raise ValidationError("Can only add users to static cohorts")
-        person_ids = request.data.get("person_ids", None)
-        if not isinstance(person_ids, list):
-            raise ValidationError("person_ids must be a list")
-        if len(person_ids) == 0:
-            raise ValidationError("person_ids cannot be empty")
-        if len(person_ids) > DEFAULT_COHORT_INSERT_BATCH_SIZE:
-            raise ValidationError("List size exceeds limit")
+            raise ValidationError(
+                "Can only add users to static cohorts. This cohort is dynamic, so its filters decide who is in it. "
+                "Change the filters, or create a static cohort (`is_static: true`) and add the persons to that one.",
+                code="cohort_not_static",
+            )
+        serializer = AddPersonsToStaticCohortRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        person_ids = [str(person_id) for person_id in serializer.validated_data["person_ids"]]
         uuids = validate_person_uuids_exist(self.team_id, person_ids)
         if len(uuids) == 0:
-            raise ValidationError("No valid users to add to cohort")
+            raise ValidationError(
+                "No valid users to add to cohort. None of the person_ids match a person in this project. "
+                "Use person UUIDs from the persons table (for example `SELECT id FROM persons WHERE ...`). "
+                "Distinct IDs do not match, even when they look like UUIDs.",
+                code="no_matching_persons",
+            )
         cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id)
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),
@@ -2159,6 +3139,10 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
+    @extend_schema(
+        parameters=[ActivityQueryParamsSerializer],
+        responses={200: ActivityLogPaginatedResponseSerializer, 404: None},
+    )
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
         page_params = parse_activity_page_params(request)
@@ -2176,10 +3160,16 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
+    @extend_schema(
+        parameters=[CohortCalculationHistoryQuerySerializer],
+        responses={200: CohortCalculationHistoryResponseSerializer},
+    )
     @action(methods=["GET"], detail=True, required_scopes=["cohort:read"])
     def calculation_history(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "100"))
-        offset = int(request.query_params.get("offset", "0"))
+        query = CohortCalculationHistoryQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        limit: int = query.validated_data["limit"]
+        offset: int = query.validated_data["offset"]
 
         cohort: Cohort = self.get_object()
 
@@ -2204,19 +3194,29 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     @action(methods=["GET"], detail=True, required_scopes=["cohort:read"])
     def used_in(self, request: request.Request, **kwargs) -> Response:
         cohort: Cohort = self.get_object()
-        # Hide references the caller has been denied at the object level, matching the
-        # access-level filtering on the flag/insight list endpoints.
+        # Hide references the caller has been denied at the object level. Org admins see every
+        # reference, because they can open every object.
         uac = self.user_access_control
 
-        # Access-filter before the Python-side expansion so denied flags are never
-        # loaded or expanded.
-        flags_qs = uac.filter_queryset_by_access_level(
-            _flags_with_cohort_filters(cohort), include_all_if_admin=True
-        ).order_by("id")
-        flags = _filter_flags_referencing_cohort(flags_qs, cohort, stop_traversal_at_static=True)
-        flags_data = [{"id": flag.id, "key": flag.key, "name": flag.name} for flag in flags]
+        # Flags that are not archived sort first because they block a delete, and the page below
+        # is truncated: a cohort behind more flags than the cap would otherwise report no blocker
+        # while the deletion guard still refuses.
+        all_flags_qs = _flags_with_cohort_filters(cohort)
+        visible_flags_qs = uac.filter_queryset_by_access_level(all_flags_qs, include_all_if_admin=True)
+        referencing_flags = _filter_flags_referencing_cohort(
+            all_flags_qs.order_by("archived", "-active", "id"), cohort, stop_traversal_at_static=True
+        )
+        flags, hidden_flags = referencing_flags, 0
+        if visible_flags_qs is not all_flags_qs:
+            visible_flag_ids = set(
+                visible_flags_qs.filter(id__in=[flag.id for flag in referencing_flags]).values_list("id", flat=True)
+            )
+            flags = [flag for flag in referencing_flags if flag.id in visible_flag_ids]
+            hidden_flags = sum(1 for flag in referencing_flags if flag.id not in visible_flag_ids and not flag.archived)
+        flags_data = [{"id": flag.id, "key": flag.key, "name": flag.name, "archived": flag.archived} for flag in flags]
 
-        insights_qs = uac.filter_queryset_by_access_level(get_insights_using_cohort(cohort))
+        all_insights_qs = get_insights_using_cohort(cohort)
+        insights_qs = uac.filter_queryset_by_access_level(all_insights_qs, include_all_if_admin=True)
         insights_page, insights_total = _truncate_used_in_queryset(
             insights_qs.values("id", "short_id", "name", "derived_name")
         )
@@ -2229,17 +3229,152 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             for insight in insights_page
         ]
 
-        cohorts_qs = uac.filter_queryset_by_access_level(get_cohorts_using_cohort(cohort))
+        all_cohorts_qs = get_cohorts_using_cohort(cohort)
+        cohorts_qs = uac.filter_queryset_by_access_level(all_cohorts_qs, include_all_if_admin=True)
         cohorts_page, cohorts_total = _truncate_used_in_queryset(cohorts_qs.values("id", "name"))
         cohorts_data = [{"id": c["id"], "name": c["name"] or "Unnamed"} for c in cohorts_page]
 
+        # Not access-filtered, unlike the blocks above: this mirrors the deletion guard, which
+        # scans every environment in the project. Hiding one would show a blocker-free list to a
+        # user whose delete is still refused.
+        environments = get_environments_using_cohort_in_test_account_filters(cohort)
+        environments_data = [{"id": team.id, "name": team.name} for team in environments]
+
         return Response(
             {
-                "feature_flags": _used_in_block(flags_data[:COHORT_USED_IN_PAGE_SIZE], len(flags_data)),
-                "insights": _used_in_block(insights_data, insights_total),
-                "cohorts": _used_in_block(cohorts_data, cohorts_total),
+                "feature_flags": {
+                    **_used_in_block(flags_data[:COHORT_USED_IN_PAGE_SIZE], len(flags_data)),
+                    "hidden": hidden_flags,
+                },
+                "insights": {
+                    **_used_in_block(insights_data, insights_total),
+                    "hidden": _hidden_reference_count(all_insights_qs, insights_qs, insights_total),
+                },
+                "cohorts": {
+                    **_used_in_block(cohorts_data, cohorts_total),
+                    "hidden": _hidden_reference_count(all_cohorts_qs, cohorts_qs, cohorts_total),
+                },
+                "test_account_filters": _used_in_block(
+                    environments_data[:COHORT_USED_IN_PAGE_SIZE], len(environments_data)
+                ),
+                "workflows": _workflows_block(request, uac, cohort),
             }
         )
+
+    @extend_schema(
+        description="Active workflows that block deleting this cohort or editing it so it stops updating in real time.",
+        responses=CohortUsedInWorkflowsBlockSerializer,
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["cohort:read"])
+    def blocking_workflows(self, request: request.Request, **kwargs) -> Response:
+        cohort: Cohort = self.get_object()
+        return Response(_workflows_block(request, self.user_access_control, cohort))
+
+    @validated_request(
+        request_serializer=CohortRealtimeRequestSerializer,
+        responses={200: CohortSerializer},
+        description="Turn realtime on or off for a cohort. Turning it on also turns it on for every realtime cohort "
+        "it includes as criteria, and PostHog prepares them from past events before feature flags can target them.",
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["cohort:write"])
+    def realtime(self, request: ValidatedRequest, **kwargs) -> Response:
+        cohort: Cohort = self.get_object()
+        if not is_realtime_cohort_flag_targeting_enabled(request, team=self.team):
+            raise ValidationError("Realtime cohorts aren't available for this project.", code="realtime_unavailable")
+
+        enabled: bool = request.validated_data["enabled"]
+        before = cohort.to_dict()
+        if enabled:
+            try:
+                turn_realtime_on(cohort.team_id, cohort.pk, can_edit=_can_edit(self.user_access_control))
+            except RealtimeLimitReached as error:
+                _report_realtime_limit_reached(request, cohort, error, "switch")
+                raise ValidationError(str(error), code=REALTIME_LIMIT_REACHED_ERROR_CODE) from error
+            except RealtimeTurnOnRefused as error:
+                raise ValidationError(str(error), code="realtime_refused") from error
+        else:
+            self._refuse_turning_off_a_cohort_that_is_read(request, cohort)
+            turn_realtime_off(cohort.team_id, cohort.pk)
+
+        cohort.refresh_from_db()
+        changes = dict_changes_between("Cohort", previous=before, new=cohort.to_dict())
+        if changes:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
+                item_id=cohort.pk,
+                scope="Cohort",
+                activity="updated",
+                detail=Detail(changes=changes, name=cohort.name),
+            )
+            report_user_action(
+                cast(User, request.user),
+                "cohort realtime enabled" if enabled else "cohort realtime disabled",
+                cohort.get_analytics_metadata(),
+                team=cohort.team,
+                request=request,
+            )
+        return Response(self.get_serializer(cohort).data)
+
+    def _refuse_turning_off_a_cohort_that_is_read(self, request: Request, cohort: Cohort) -> None:
+        # Flags, active workflows and cohorts that are on check this cohort's readiness stamps, which a turn-off clears,
+        # so each of them would stop matching anyone without an error. Flags read a cohort with person criteria alone
+        # straight off the person, so only event criteria block.
+        if has_event_criteria(cohort):
+            flags = get_flags_blocking_cohort_deletion(cohort)
+            if flags:
+                visible_flags = _visible_flags(request, self.user_access_control, cohort.team.project_id, flags)
+                names = _names_suffix([flag.name or flag.key for flag in visible_flags], len(flags))
+                self._refuse_turning_off(
+                    request,
+                    cohort,
+                    "feature_flags",
+                    f"This cohort is used in {len(flags)} feature flag(s){names}. Remove the cohort from these flags, "
+                    "or archive the flags, before turning realtime off.",
+                )
+
+        workflows = _workflows_relying_on_cohort(cohort)
+        if workflows:
+            names = _workflow_names_suffix(request, self.user_access_control, cohort.team_id, workflows)
+            self._refuse_turning_off(
+                request,
+                cohort,
+                "workflows",
+                f"This cohort is used in {len(workflows)} active workflow(s){names}. Remove the cohort from these "
+                "workflows before turning realtime off.",
+                code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
+            )
+
+        # Turning a cohort on turns on everything it includes, so a direct parent that is on is the only one to check.
+        # A parent that became static or daily keeps its switch, but nothing reads realtime membership through it.
+        parents = get_cohorts_using_cohort(cohort).filter(
+            realtime_enabled_at__isnull=False, is_static=False, cohort_type=CohortType.REALTIME
+        )
+        count = parents.count()
+        if count:
+            visible = self.user_access_control.filter_queryset_by_access_level(parents, include_all_if_admin=True)
+            names = _names_suffix([parent.name or "Unnamed" for parent in visible[:5]], count)
+            self._refuse_turning_off(
+                request,
+                cohort,
+                "cohorts",
+                f"Realtime is on for {count} cohort(s) that include this cohort as criteria{names}. "
+                "Turn realtime off for those cohorts first.",
+            )
+
+    def _refuse_turning_off(
+        self, request: Request, cohort: Cohort, blocked_by: str, message: str, code: str | None = None
+    ) -> NoReturn:
+        report_user_action(
+            cast(User, request.user),
+            "cohort realtime disable blocked",
+            {**cohort.get_analytics_metadata(), "blocked_by": blocked_by},
+            team=cohort.team,
+            request=request,
+        )
+        raise ValidationError(message, code=code)
 
     def perform_create(self, serializer):
         serializer.save()
@@ -2468,6 +3603,23 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
     started_at = timezone.now()
     start_monotonic = time.monotonic()
     eval_errors_count = 0
+    # The stuck-cohort sweep measures a run that has an open history row from the row's start. Without that row, the
+    # sweep measures the run from created_at. That measure also counts the time that the task waited in the queue. A
+    # failed insert must not stop the population. Django then keeps the row unsaved. The save of the outcome inserts it.
+    history = CohortCalculationHistory(
+        team_id=team_id, cohort=cohort, filters=cohort.filters or {}, started_at=started_at
+    )
+    try:
+        history.save()
+    except Exception as err:
+        logger.warning(
+            "cohort_from_feature_flag_history_open_failed",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            flag_key=feature_flag.key,
+            exc_info=True,
+        )
+        capture_exception(err, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
     try:
         uuids_to_add_to_cohort: list[str] = []
         cursor = 0
@@ -2547,15 +3699,10 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         # store the friendly message; raw exception details (internal URLs, instance
         # config) stay in logs and error tracking only. This path only ever populates a
         # static cohort, and nothing re-runs one, so the message must not ask for that.
-        CohortCalculationHistory.objects.create(
-            team_id=team_id,
-            cohort=cohort,
-            filters=cohort.filters or {},
-            started_at=started_at,
-            finished_at=timezone.now(),
-            error=get_friendly_error_message(error_code, will_retry=False),
-            error_code=error_code,
-        )
+        history.finished_at = timezone.now()
+        history.error = get_friendly_error_message(error_code, will_retry=False)
+        history.error_code = error_code
+        history.save()
         raise
 
     # The save above finalized cohort state, including the recomputed count. Recording the run
@@ -2564,14 +3711,11 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
     # the block above: the population is already committed, so a failure to record it must not
     # report a finished run as a failed one.
     try:
-        CohortCalculationHistory.objects.create(
-            team_id=team_id,
-            cohort=cohort,
-            filters=cohort.filters or {},
-            started_at=started_at,
-            finished_at=timezone.now(),
-            count=cohort.count,
-        )
+        history.finished_at = timezone.now()
+        history.count = cohort.count
+        # The full save also clears an INTERRUPTED stamp that the stuck-cohort sweep or a CSV upload wrote while this
+        # run was alive.
+        history.save()
     except Exception as err:
         logger.warning(
             "cohort_from_feature_flag_history_write_failed",

@@ -1,6 +1,7 @@
 import hashlib
 import smtplib
 import datetime
+import contextlib
 import dataclasses
 from decimal import Decimal
 from typing import Any
@@ -13,20 +14,29 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core import mail
+from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
+from django.db import OperationalError
 from django.test import override_settings
 from django.utils import timezone
 
+import urllib3
+import requests
+import posthoganalytics
+from celery.exceptions import Retry
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.email import (
-    CUSTOMER_IO_TEMPLATE_ID_MAP,
+    HTTP_SEND_RETRY_COUNTDOWNS_SECONDS,
+    WORKFLOWS_TEMPLATE_ID_MAP,
     EmailMessage,
+    WorkflowsEmailError,
     _send_email,
     _send_via_http,
     _send_via_smtp,
     get_email_team_and_org_context,
+    is_email_available,
     sanitize_email_properties,
 )
 from posthog.models import Organization, Person, Team, User
@@ -88,6 +98,7 @@ class TestEmail(BaseTest):
     @time_machine.travel("2020-09-21", tick=False)
     def setUp(self):
         super().setUp()
+        cache.clear()
         self.organization = Organization.objects.create()
         self.team = Team.objects.create(organization=self.organization, name="The Bakery")
         self.user = User.objects.create(email="test@posthog.com")
@@ -113,6 +124,15 @@ class TestEmail(BaseTest):
             with self.assertRaises(ImproperlyConfigured) as e:
                 EmailMessage(campaign_key="test_campaign", subject="Subject", template_name="template")
             self.assertEqual(str(e.exception), "Email is not enabled in this instance.")
+
+        with (
+            override_instance_config("EMAIL_HOST", None),
+            self.settings(
+                POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="http://us.posthog.com", DEBUG=False
+            ),
+        ):
+            with self.assertRaises(ImproperlyConfigured):
+                EmailMessage(campaign_key="test_campaign", subject="Subject", template_name="template")
 
     def test_cant_send_same_campaign_twice(self) -> None:
         with override_instance_config("EMAIL_HOST", "localhost"):
@@ -167,6 +187,50 @@ class TestEmail(BaseTest):
         after = REGISTRY.get_sample_value("posthog_email_send_total", labels) or 0.0
         self.assertEqual(after - before, 1.0)
 
+    @patch("posthog.email.ph_background_capture", side_effect=RuntimeError("capture down"))
+    def test_smtp_send_goes_out_when_the_capture_client_cannot_start(self, _capture: MagicMock) -> None:
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            message = EmailMessage(
+                campaign_key="capture_down", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_recipient("capture-down@posthog.com")
+            message.send(send_async=False)
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIsNotNone(MessagingRecord.objects.get(campaign_key="capture_down").sent_at)
+
+    def test_smtp_send_captures_the_send_with_the_instance_region(self) -> None:
+        events: list[dict[str, Any]] = []
+
+        def record_event(event: dict[str, Any]) -> dict[str, Any]:
+            events.append(event)
+            return event
+
+        client = posthoganalytics.Client("example-key", send=False, before_send=record_event)
+        client.super_properties = {"region": "US"}
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            self.settings(CLOUD_DEPLOYMENT="EU"),
+            patch("posthog.ph_client.get_client", return_value=client),
+            patch.dict("posthog.ph_client._background_clients", clear=True),
+        ):
+            message = EmailMessage(
+                campaign_key="capture_test_campaign", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_recipient("capture-test@posthog.com")
+            message.send(send_async=False)
+
+        self.assertEqual([e["event"] for e in events], ["transactional email triggered"])
+        self.assertLessEqual(
+            {
+                "template_name": "async_migration_error",
+                "campaign_key": "capture_test_campaign",
+                "provider": "smtp",
+                "region": "EU",
+            }.items(),
+            events[0]["properties"].items(),
+        )
+
     @parameterized.expand(
         [
             ("transient_disconnect", smtplib.SMTPServerDisconnected("dropped"), True),
@@ -204,6 +268,7 @@ class TestEmail(BaseTest):
             kwargs: dict[str, Any] = {
                 "to": [{"raw_email": f"{name}@posthog.com", "recipient": f"{name}@posthog.com"}],
                 "campaign_key": f"retry_{name}",
+                "template_name": "async_migration_error",
                 "subject": "Subject",
                 "txt_body": "",
                 "html_body": "<p>hi</p>",
@@ -235,6 +300,7 @@ class TestEmail(BaseTest):
                     {"raw_email": "second@posthog.com", "recipient": "second@posthog.com"},
                 ],
                 "campaign_key": "batch_transient",
+                "template_name": "async_migration_error",
                 "subject": "Subject",
                 "txt_body": "",
                 "html_body": "<p>hi</p>",
@@ -246,7 +312,7 @@ class TestEmail(BaseTest):
         first = MessagingRecord.objects.filter(
             email_hash__in=get_email_hashes("first@posthog.com"), campaign_key="batch_transient"
         ).first()
-        self.assertIsNotNone(first)
+        assert first is not None
         self.assertIsNotNone(first.sent_at)  # committed before the failure → a retry skips it
         second = MessagingRecord.objects.filter(
             email_hash__in=get_email_hashes("second@posthog.com"), campaign_key="batch_transient"
@@ -266,6 +332,7 @@ class TestEmail(BaseTest):
             _send_via_smtp(
                 to=[{"raw_email": "t@posthog.com", "recipient": "t@posthog.com"}],
                 campaign_key="timeout_kwarg",
+                template_name="async_migration_error",
                 subject="Subject",
                 txt_body="",
                 html_body="<p>hi</p>",
@@ -279,15 +346,17 @@ class TestEmail(BaseTest):
         # `failed` must count every recipient that didn't get through (the failing one + any not yet
         # attempted), per recipient like `sent` — not once per batch — or the alertable failure rate
         # under-reports multi-recipient batches.
-        ok = MagicMock(status_code=200)
-        ok.json.return_value = {}
-        bad = MagicMock(status_code=500, text="boom")
+        ok = MagicMock(status_code=202, json=MagicMock(return_value={"message_id": "m1"}))
+        bad = MagicMock(status_code=500, text="boom", json=MagicMock(return_value={}))
         mock_post.side_effect = [ok, bad]
 
         failed_labels = {"outcome": "failed", "transport": "http"}
         before = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
 
-        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
+        with (
+            self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"),
+            self.assertRaises(WorkflowsEmailError),
+        ):
             _send_via_http(
                 to=[
                     {"raw_email": "a@posthog.com"},
@@ -302,102 +371,368 @@ class TestEmail(BaseTest):
         after = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
         self.assertEqual(after - before, 2.0)  # b failed + c never attempted; a succeeded
 
-    @patch("posthoganalytics.capture")
+    @parameterized.expand([("attempts_left", True), ("last_attempt", False)])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch("posthog.email.posthoganalytics.capture")
     @patch("posthog.email.requests.post")
-    def test_send_via_http_success(self, mock_post, mock_capture) -> None:
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"delivery_id": "test_delivery_id", "queued_at": 1604977406}
-        mock_post.return_value = mock_response
+    def test_send_via_http_reraises_a_lost_database_connection_so_celery_retries(
+        self, _name: str, will_retry: bool, mock_post: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        lost_connection = OperationalError("could not translate host name to address")
 
-        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
-            message = EmailMessage(
-                campaign_key="test_campaign", subject="Test subject", template_name="2fa_enabled", use_http=True
-            )
-            message.add_recipient("test@posthog.com", "Test User")
-            message.send(send_async=False)
-
-            mock_post.assert_called_once_with(
-                f"{settings.CUSTOMER_IO_API_URL}/v1/send/email",
-                headers={
-                    "Authorization": "Bearer test-key",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "to": "test@posthog.com",
-                    "identifiers": {"email": "test@posthog.com"},
-                    "transactional_message_id": CUSTOMER_IO_TEMPLATE_ID_MAP["2fa_enabled"],
-                    "message_data": {"utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=2fa_enabled"},
-                },
-                timeout=30,
-            )
-
-            mock_capture.assert_called_once_with(
-                distinct_id="test@posthog.com",
-                event="transactional email triggered",
-                properties={
-                    "template_name": "2fa_enabled",
-                    "campaign_key": "test_campaign",
-                    "recipient_email": "test@posthog.com",
-                    "delivery_id": "test_delivery_id",
-                    "queued_at": 1604977406,
-                },
-            )
-
-    @patch("posthog.email.requests.post")
-    def test_send_via_http_handles_decimal_values(self, mock_post) -> None:
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_post.return_value = mock_response
-
-        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
-            message = EmailMessage(
-                campaign_key="test_campaign",
-                subject="Test subject",
+        with (
+            self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"),
+            patch("posthog.email.MessagingRecord.objects.get_or_create", side_effect=lost_connection),
+            self.assertRaises(OperationalError),
+        ):
+            _send_via_http(
+                to=[{"raw_email": "a@posthog.com"}],
+                campaign_key="db_blip",
                 template_name="2fa_enabled",
-                template_context={"decimal_value": Decimal("1.23")},
+                properties={},
+                will_retry=will_retry,
+            )
+
+        mock_post.assert_not_called()
+        failed = [
+            c.kwargs for c in mock_capture.call_args_list if c.kwargs.get("event") == "transactional email failed"
+        ]
+        self.assertEqual(
+            [(f["properties"]["error_type"], f["properties"]["retrying"]) for f in failed],
+            [("OperationalError", will_retry)],
+        )
+
+    @parameterized.expand(
+        [
+            ("request_on_cloud", None, "US", False, 1),
+            ("request_self_hosted", None, None, False, 0),
+            ("eager_task_on_cloud", True, "US", False, 1),
+            ("worker_task", False, "US", True, 0),
+        ]
+    )
+    @patch("posthog.email.ph_scoped_capture")
+    @patch("posthog.email.posthoganalytics.capture")
+    @patch("posthog.email.requests.post")
+    def test_send_via_http_flushes_events_only_in_a_worker(
+        self,
+        _name: str,
+        task_is_eager: bool | None,
+        cloud_deployment: str | None,
+        expect_scoped_client: bool,
+        expected_global_captures: int,
+        mock_post: MagicMock,
+        mock_global_capture: MagicMock,
+        mock_scoped_capture: MagicMock,
+    ) -> None:
+        mock_post.return_value = MagicMock(status_code=202, json=MagicMock(return_value={"message_id": "m1"}))
+        task = None if task_is_eager is None else MagicMock(request=MagicMock(is_eager=task_is_eager))
+
+        with (
+            self.settings(
+                POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
+                POSTHOG_HOST="https://us.posthog.com",
+                CLOUD_DEPLOYMENT=cloud_deployment,
+            ),
+            patch("posthog.email.current_task", task),
+        ):
+            _send_via_http(
+                to=[{"raw_email": "a@posthog.com"}],
+                campaign_key="flush_path",
+                template_name="2fa_enabled",
+                properties={},
+            )
+
+        self.assertEqual(mock_scoped_capture.called, expect_scoped_client)
+        self.assertEqual(mock_global_capture.call_count, expected_global_captures)
+
+    @parameterized.expand(
+        [
+            ("workflows_accepts", 202, ["transactional email triggered"]),
+            ("workflows_rejects_sends_nothing", 400, ["transactional email failed"]),
+            ("workflows_in_flight_sends_nothing", 409, ["transactional email failed"]),
+            (
+                "workflows_refuses_suppressed_recipient_drops_email",
+                (422, {"type": "invalid_request", "code": "recipient_suppressed"}),
+                ["transactional email workflows rejected"],
+            ),
+            (
+                "workflows_refuses_paused_sending_sends_nothing",
+                (422, {"type": "invalid_request", "code": "sending_paused"}),
+                ["transactional email failed"],
+            ),
+            (
+                "workflows_refuses_unreachable_recipient_drops_email",
+                (422, {"type": "invalid_request", "code": "recipient_unreachable"}),
+                ["transactional email workflows rejected"],
+            ),
+            (
+                "workflows_rejects_invalid_recipient_address_drops_email",
+                (400, {"type": "validation_error", "code": "invalid_input", "attr": "to"}),
+                ["transactional email workflows rejected"],
+            ),
+            (
+                "workflows_rejects_other_invalid_field_sends_nothing",
+                (400, {"type": "validation_error", "code": "invalid_input", "attr": "message_data"}),
+                ["transactional email failed"],
+            ),
+            (
+                "workflows_key_already_used_sends_nothing",
+                (422, {"type": "invalid_request", "code": "idempotency_key_reused"}),
+                ["transactional email failed"],
+            ),
+            ("workflows_server_error_sends_nothing", 503, ["transactional email failed"]),
+            ("workflows_accepts_without_message_id_sends_nothing", (202, {}), ["transactional email failed"]),
+            (
+                "workflows_unreachable_sends_nothing",
+                requests.ConnectionError(
+                    urllib3.exceptions.MaxRetryError(
+                        urllib3.HTTPConnectionPool("us.posthog.com"),
+                        "/",
+                        urllib3.exceptions.NewConnectionError(None, "refused"),
+                    )
+                ),
+                ["transactional email failed"],
+            ),
+            (
+                "workflows_reset_after_send_sends_nothing",
+                requests.ConnectionError(urllib3.exceptions.ProtocolError("Connection aborted.")),
+                ["transactional email failed"],
+            ),
+            ("workflows_timeout_sends_nothing", requests.ReadTimeout("no response"), ["transactional email failed"]),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch("posthog.email.posthoganalytics.capture")
+    @patch("posthog.email.requests.post")
+    def test_send_via_http_sends_through_workflows_without_customer_io(
+        self,
+        _name: str,
+        workflows_answer: int | tuple[int, dict] | Exception,
+        expected_events: list[str],
+        mock_post: MagicMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        if isinstance(workflows_answer, Exception):
+            mock_post.side_effect = workflows_answer
+        else:
+            status_code, body = (
+                workflows_answer if isinstance(workflows_answer, tuple) else (workflows_answer, {"message_id": "m1"})
+            )
+            mock_post.return_value = MagicMock(status_code=status_code, text="error", json=MagicMock(return_value=body))
+
+        with (
+            override_instance_config("EMAIL_HOST", ""),
+            self.settings(
+                POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
+                POSTHOG_HOST="https://us.posthog.com",
+            ),
+            patch.dict(
+                "posthog.email.WORKFLOWS_TEMPLATE_ID_MAP", {"password_reset": "0b5f6c2e-8d4a-4f1e-9c3b-7a2d1e6f4c58"}
+            ),
+        ):
+            self.assertTrue(is_email_available())
+            message = EmailMessage(
+                campaign_key="routing_campaign",
+                subject="Test subject",
+                template_name="password_reset",
+                template_context={"team_name": "O'Brien & Co", "url": "https://app.posthog.com/r?a=1&b=2"},
+                use_http=True,
+            )
+            message.add_recipient("test@posthog.com", "Test", distinct_id="user-1")
+            if "transactional email failed" in expected_events:
+                # Workflows may have queued the email, so the error reaches Celery, which retries with the same key.
+                with self.assertRaises(WorkflowsEmailError):
+                    message.send(send_async=False, retry=False)
+            else:
+                undeliverable = message.send(send_async=False, retry=False)
+                refused = "transactional email workflows rejected" in expected_events
+                self.assertEqual(undeliverable, ["test@posthog.com"] if refused else [])
+
+        mock_post.assert_called_once()
+        workflows_call = mock_post.call_args
+        self.assertEqual(workflows_call.args[0], "https://us.posthog.com/api/messaging/send/email/")
+        self.assertEqual(workflows_call.kwargs["headers"]["Authorization"], "Bearer phs_test")
+        self.assertIn("Idempotency-Key", workflows_call.kwargs["headers"])
+        self.assertFalse(workflows_call.kwargs["allow_redirects"])
+        payload = workflows_call.kwargs["json"]
+        self.assertEqual(payload["template_id"], "0b5f6c2e-8d4a-4f1e-9c3b-7a2d1e6f4c58")
+        self.assertEqual(payload["distinct_id"], "user-1")
+        # Workflows escapes Liquid output itself, so values must arrive unescaped or they render as &amp;amp;
+        self.assertEqual(payload["message_data"]["team_name"], "O'Brien & Co")
+        self.assertEqual(payload["message_data"]["url"], "https://app.posthog.com/r?a=1&b=2")
+        self.assertEqual(
+            payload["message_data"]["customer"],
+            {"email": "test@posthog.com", "id": "user-1", "first_name": "Test"},
+        )
+
+        self.assertEqual([c.kwargs["event"] for c in mock_capture.call_args_list], expected_events)
+        self.assertTrue(
+            all(c.kwargs["properties"]["$update_person_last_seen_at"] is False for c in mock_capture.call_args_list)
+        )
+        self.assertTrue(
+            all(c.kwargs["properties"]["template_name"] == "password_reset" for c in mock_capture.call_args_list)
+        )
+        record = MessagingRecord.objects.filter(campaign_key="routing_campaign").first()
+        if expected_events == ["transactional email triggered"]:
+            assert record is not None
+            self.assertIsNotNone(record.sent_at)
+            self.assertEqual(mock_capture.call_args.kwargs["properties"]["provider"], "workflows")
+        else:
+            self.assertTrue(record is None or record.sent_at is None)
+
+    @patch("posthog.email.ph_scoped_capture")
+    @patch("posthog.email.requests.post")
+    def test_retry_after_failing_to_mark_a_workflows_send_replays_it_under_the_same_key(
+        self, mock_post: MagicMock, _mock_capture: MagicMock
+    ) -> None:
+        accepted = MagicMock(status_code=202, json=MagicMock(return_value={"message_id": "m1"}))
+        mock_post.side_effect = [accepted, accepted]
+        original_save = MessagingRecord.save
+        failed: list[MessagingRecord] = []
+
+        def lose_connection_on_first_sent_mark(record: MessagingRecord, *args: Any, **kwargs: Any) -> None:
+            if record.sent_at and not failed:
+                failed.append(record)
+                raise OperationalError("could not translate host name to address")
+            original_save(record, *args, **kwargs)
+
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            self.settings(
+                POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
+                POSTHOG_HOST="https://us.posthog.com",
+            ),
+            patch.dict("posthog.email.WORKFLOWS_TEMPLATE_ID_MAP", {"password_reset": "tmpl-1"}),
+            patch.object(MessagingRecord, "save", autospec=True, side_effect=lose_connection_on_first_sent_mark),
+        ):
+            message = EmailMessage(
+                campaign_key="mark_failed_campaign",
+                subject="Test subject",
+                template_name="password_reset",
                 use_http=True,
             )
             message.add_recipient("test@posthog.com")
-            message.send(send_async=False)
+            with self.assertRaises(OperationalError):
+                message.send(send_async=False, retry=False)
+            message.send(send_async=False, retry=False)
 
-            mock_post.assert_called_once_with(
-                f"{settings.CUSTOMER_IO_API_URL}/v1/send/email",
-                headers={
-                    "Authorization": "Bearer test-key",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "to": "test@posthog.com",
-                    "identifiers": {"email": "test@posthog.com"},
-                    "transactional_message_id": CUSTOMER_IO_TEMPLATE_ID_MAP["2fa_enabled"],
-                    "message_data": {
-                        "decimal_value": 1.23,
-                        "utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=2fa_enabled",
-                    },
-                },
-                timeout=30,
-            )
+        # Workflows already queued the first email, so the retry must replay it rather than send a second one.
+        keys = [call.kwargs["headers"]["Idempotency-Key"] for call in mock_post.call_args_list]
+        self.assertEqual(len(keys), 2)
+        self.assertEqual(keys[0], keys[1])
 
-    @patch("posthog.email.requests.post")
-    def test_send_via_http_api_error(self, mock_post) -> None:
-        mock_response = MagicMock()
-        mock_response.status_code = 400
-        mock_response.text = "Bad Request"
-        mock_post.return_value = mock_response
-
-        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
+    @parameterized.expand(
+        [
+            ("workflows_timeout", None, 1),
+            ("lost_database_connection", OperationalError("could not translate host name to address"), 0),
+        ]
+    )
+    @patch.object(_send_email, "apply_async")
+    @patch("posthog.email.posthoganalytics.capture")
+    @patch("posthog.email.requests.post", side_effect=requests.ReadTimeout("no response"))
+    def test_inline_send_hands_a_retryable_failure_to_a_worker(
+        self,
+        _name: str,
+        record_error: Exception | None,
+        expected_posts: int,
+        mock_post: MagicMock,
+        _mock_capture: MagicMock,
+        mock_apply_async: MagicMock,
+    ) -> None:
+        with (
+            patch("posthog.email.MessagingRecord.objects.get_or_create", side_effect=record_error)
+            if record_error
+            else contextlib.nullcontext(),
+            override_instance_config("EMAIL_HOST", "localhost"),
+            self.settings(
+                POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
+                POSTHOG_HOST="https://us.posthog.com",
+            ),
+            patch.dict("posthog.email.WORKFLOWS_TEMPLATE_ID_MAP", {"password_reset": "tmpl-1"}),
+        ):
             message = EmailMessage(
-                campaign_key="test_campaign", subject="Test subject", template_name="2fa_enabled", use_http=True
+                campaign_key="inline_campaign", subject="Test subject", template_name="password_reset", use_http=True
             )
             message.add_recipient("test@posthog.com")
-
-            # The error should be caught and logged, not raised
             message.send(send_async=False)
 
-            # Verify the message wasn't marked as sent
-            record = MessagingRecord.objects.filter(campaign_key="test_campaign").first()
-            self.assertIsNone(record)
+        # Eager retries would run at once inside the request, with no backoff for the failure to clear.
+        self.assertEqual(mock_post.call_count, expected_posts)
+        mock_apply_async.assert_called_once()
+        retry_kwargs = mock_apply_async.call_args.kwargs["kwargs"]
+        self.assertEqual(retry_kwargs["campaign_key"], "inline_campaign")
+        # A worker still on the previous release rejects an argument it does not know.
+        self.assertNotIn("retry_in_worker", retry_kwargs)
+
+    @parameterized.expand(
+        [
+            ("first_attempt_waits_10s", False, 0, 10, True, 1.0, 0.0),
+            ("last_attempt_gives_up", False, len(HTTP_SEND_RETRY_COUNTDOWNS_SECONDS), None, False, 1.0, 1.0),
+            ("in_flight_retries_without_failing", True, 0, 10, True, 0.0, 0.0),
+            ("in_flight_last_attempt_gives_up", True, len(HTTP_SEND_RETRY_COUNTDOWNS_SECONDS), None, False, 1.0, 1.0),
+        ]
+    )
+    @patch.object(_send_email, "apply_async")
+    @patch("posthog.email.ph_scoped_capture")
+    @patch("posthog.email.requests.post")
+    def test_worker_retries_a_workflows_failure_on_the_http_schedule(
+        self,
+        _name: str,
+        in_flight: bool,
+        retries: int,
+        expected_countdown: int | None,
+        expected_retrying: bool,
+        expected_failed: float,
+        expected_dropped: float,
+        mock_post: MagicMock,
+        mock_scoped_capture: MagicMock,
+        mock_apply_async: MagicMock,
+    ) -> None:
+        if in_flight:
+            mock_post.return_value = MagicMock(
+                status_code=409, text="error", json=MagicMock(return_value={"code": "idempotency_key_in_flight"})
+            )
+        else:
+            mock_post.side_effect = requests.ReadTimeout("no response")
+        failed_labels = {"outcome": "failed", "transport": "http"}
+        failed_before = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
+        dropped_labels = {"transport": "http"}
+        dropped_before = REGISTRY.get_sample_value("posthog_email_send_dropped_total", dropped_labels) or 0.0
+        _send_email.push_request(id="worker-task", retries=retries, is_eager=False, called_directly=False)
+        try:
+            with (
+                patch("posthog.email.current_task", _send_email),
+                override_instance_config("EMAIL_HOST", "localhost"),
+                self.settings(
+                    POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
+                    POSTHOG_HOST="https://us.posthog.com",
+                ),
+                patch.dict("posthog.email.WORKFLOWS_TEMPLATE_ID_MAP", {"password_reset": "tmpl-1"}),
+            ):
+                with self.assertRaises(Retry if expected_countdown else WorkflowsEmailError):
+                    _send_email.run(
+                        campaign_key="worker_campaign",
+                        to=[{"raw_email": "test@posthog.com", "recipient": "test@posthog.com"}],
+                        subject="Test subject",
+                        headers={},
+                        template_name="password_reset",
+                        use_http=True,
+                        properties={},
+                    )
+        finally:
+            _send_email.pop_request()
+
+        if expected_countdown is None:
+            mock_apply_async.assert_not_called()
+        else:
+            self.assertEqual(mock_apply_async.call_args.kwargs["countdown"], expected_countdown)
+        capture = mock_scoped_capture.return_value.__enter__.return_value
+        failed = [c.kwargs for c in capture.call_args_list if c.kwargs.get("event") == "transactional email failed"]
+        self.assertEqual([f["properties"]["retrying"] for f in failed], [expected_retrying])
+        failed_after = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
+        self.assertEqual(failed_after - failed_before, expected_failed)
+        dropped_after = REGISTRY.get_sample_value("posthog_email_send_dropped_total", dropped_labels) or 0.0
+        self.assertEqual(dropped_after - dropped_before, expected_dropped)
 
     def test_sanitize_email_properties(self) -> None:
         # Test with various types of input including potential HTML injection
@@ -608,10 +943,10 @@ class TestEmail(BaseTest):
             # Raw email should remain unchanged
             self.assertEqual(message.to[0]["raw_email"], "test@example.com")
 
-    def test_all_http_templates_are_registered_in_customer_io_map(self) -> None:
+    def test_all_http_templates_are_registered_in_workflows_map(self) -> None:
         # Every EmailMessage(use_http=True, template_name="X", ...) call in
-        # production code under posthog/ needs "X" in CUSTOMER_IO_TEMPLATE_ID_MAP.
-        # The Customer.io HTTP sender raises "Unknown template name" if it
+        # production code under posthog/ needs "X" in WORKFLOWS_TEMPLATE_ID_MAP.
+        # The HTTP sender raises "Unknown template name" if it
         # isn't, and the Celery task wrapper swallows the exception via
         # capture_exception. Without this test, a new transactional email
         # added with a forgotten map entry sends zero emails and surfaces
@@ -645,15 +980,15 @@ class TestEmail(BaseTest):
                     continue
                 template_name = kwargs.get("template_name")
                 if isinstance(template_name, ast.Constant) and isinstance(template_name.value, str):
-                    if template_name.value not in CUSTOMER_IO_TEMPLATE_ID_MAP:
+                    if template_name.value not in WORKFLOWS_TEMPLATE_ID_MAP:
                         missing.setdefault(template_name.value, str(source_path.relative_to(posthog_root.parent)))
 
         self.assertEqual(
             missing,
             {},
             "These template_name values use use_http=True in production code but are missing "
-            "from CUSTOMER_IO_TEMPLATE_ID_MAP in posthog/email.py. Add a map entry pointing to "
-            "the Customer.io transactional message ID, otherwise the sender will raise "
+            "from WORKFLOWS_TEMPLATE_ID_MAP in posthog/email.py. Add a map entry pointing to "
+            "the Workflows message template ID, otherwise the sender will raise "
             "'Unknown template name' at runtime and capture_exception will swallow it.",
         )
 
@@ -739,9 +1074,7 @@ class TestMessagingHashSalt(BaseTest):
 
         with self.settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=["old_salt"]):
             self.assertTrue(
-                # django-stubs' mypy plugin resolves filter() kwargs against model fields
-                # and can't follow the manager's raw_email→email_hash__in remap.
-                MessagingRecord.objects.filter(  # type: ignore[misc]
+                MessagingRecord.objects.filter(
                     raw_email="rotate@posthog.com", campaign_key="c", sent_at__isnull=False
                 ).exists()
             )

@@ -484,7 +484,7 @@ async function runComplete(options: RunCompleteOptions): Promise<number> {
     return reportRunOutcome(
         client,
         run,
-        `${api}/project/${team}/visual_review/runs/${runId}`,
+        `${api}/project/${team}/visual-review/runs/${runId}`,
         options.purpose ?? 'review',
         options.tolerateDrift ?? false
     )
@@ -717,7 +717,7 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     return reportRunOutcome(
         client,
         run,
-        `${api}/project/${team}/visual_review/runs/${runId}`,
+        `${api}/project/${team}/visual-review/runs/${runId}`,
         purpose,
         options.tolerateDrift ?? false
     )

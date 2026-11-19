@@ -6,8 +6,8 @@ from posthog.models.utils import UUIDModel
 
 
 class WebAnalyticsAchievementProgress(TeamScopedRootMixin, UUIDModel):
-    """Per-track achievement progress for a scope holder. `user` is NULL for team-scoped tracks
-    (Conversions, Traffic) — never sum per-user rows into team totals. `state` holds the JSON
+    """Per-user achievement progress on one track. Rows with a NULL `user` are left over from the
+    retired team-scoped tracks and are never read. `state` holds the JSON
     detail: `unlocked_stages` (stage -> ISO timestamp), `pending_celebrations` (stages awaiting a
     client acknowledge), and `streak` (`last_visit_date`, `grace_used`)."""
 
@@ -18,6 +18,8 @@ class WebAnalyticsAchievementProgress(TeamScopedRootMixin, UUIDModel):
     progress_value = models.BigIntegerField(default=0)
     state = models.JSONField(default=dict)
     last_computed_at = models.DateTimeField(null=True, blank=True)
+    failed_attempts = models.PositiveSmallIntegerField(default=0, db_default=0)
+    retry_after = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

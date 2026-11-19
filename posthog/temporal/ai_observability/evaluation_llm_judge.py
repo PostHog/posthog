@@ -1,18 +1,17 @@
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import Annotated, Any, Literal
+from typing import Any
 
 import structlog
 import temporalio
 import posthoganalytics
-from pydantic import BaseModel, BeforeValidator, Field
 from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.llm.system_one import (
     MAX_SCORE_LEVELS,
     ChoiceAnswer,
@@ -30,12 +29,16 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     truncate_error_detail,
 )
 from posthog.temporal.ai_observability.evaluation_event_io import (
-    extract_event_io,
+    GenerationNotFoundError,
     extract_event_tools,
     hydrate_event_reference,
 )
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
-from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
+from posthog.temporal.ai_observability.evaluation_types import (
+    EvaluationActivityResult,
+    build_generation_not_found_result,
+    build_skipped_evaluation_result,
+)
+from posthog.temporal.ai_observability.judge_attachments import AttachmentPrompt, build_attachment_prompt
 from posthog.temporal.ai_observability.metrics import (
     increment_errors,
     increment_key_type,
@@ -44,18 +47,33 @@ from posthog.temporal.ai_observability.metrics import (
     increment_user_errors,
 )
 from posthog.temporal.ai_observability.model_resolution import model_spec
+from posthog.temporal.ai_observability.retries import is_last_attempt
 from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.utils import close_db_connections
 
+from products.ai_observability.backend.facade.evaluation_runtime import (
+    BooleanEvalResult,
+    BooleanWithNAEvalResult,
+    CategoricalEvalResult,
+    CategoricalWithNAEvalResult,
+    NumericEvalResult,
+    NumericWithNAEvalResult,
+    build_system_prompt,
+    build_user_prompt,
+    extract_event_io,
+    format_tool_definitions,
+    get_output_type_config,
+)
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest, Usage
+from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.llm.decisions import (
     DecisionClient,
     DecisionEndpointBlockedError,
-    decision_evaluations_enabled,
     is_decision_model,
 )
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ClaudeDeploymentOnAzureOpenAIError,
     ContentFilteredError,
     ContextWindowExceededError,
     ModelNotFoundError,
@@ -72,21 +90,20 @@ from products.ai_observability.backend.llm.errors import (
     UnsupportedModelError,
     provider_error_detail,
 )
-from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_DECISIONS_BASE_URL, decision_model_ids
+from products.ai_observability.backend.llm.providers.openai import OPENAI_DECISIONS_BASE_URL
+from products.ai_observability.backend.llm.providers.openai_decisions import OpenAIDecisionAdapter
+from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_DECISIONS_BASE_URL
 from products.ai_observability.backend.llm.types import CompletionResponse
 from products.ai_observability.backend.models.evaluation_configs import (
+    BooleanOutputConfig,
     CategoricalOutputConfig,
     NumericOutputConfig,
     NumericScoreOutOfBounds,
 )
-from products.ai_observability.backend.text_repr.formatters import add_line_numbers, reduce_by_uniform_sampling
 
 logger = structlog.get_logger(__name__)
 
 DEFAULT_JUDGE_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
-
-# Same cap as the trace-level judge (JUDGE_TRACE_MAX_CHARS).
-JUDGE_EVENT_MAX_CHARS = 150_000
 
 LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
@@ -95,14 +112,34 @@ LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     backoff_coefficient=2.0,
 )
 
+BACKFILL_ACTIVITY_TIMEOUT = timedelta(minutes=10)
+BACKFILL_ACTIVITY_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=5,
+    initial_interval=timedelta(seconds=10),
+    maximum_interval=timedelta(seconds=60),
+    backoff_coefficient=2.0,
+)
+
+
+def backfill_timeout(recover_backfill: bool, live: timedelta | None) -> timedelta | None:
+    if not recover_backfill:
+        return live
+    return max(live, BACKFILL_ACTIVITY_TIMEOUT) if live else BACKFILL_ACTIVITY_TIMEOUT
+
+
+def backfill_retry_policy(recover_backfill: bool, live: RetryPolicy) -> RetryPolicy:
+    return BACKFILL_ACTIVITY_RETRY_POLICY if recover_backfill else live
+
 
 # A retry can fix these client errors, so they stay on the retry policy like a 5xx.
 # 499 is a cancellation, which Gemini already maps to the transport lane.
 _RETRYABLE_CLIENT_ERROR_STATUSES = frozenset({408, 409, 429, 499})
 
 
-def _is_last_judge_attempt() -> bool:
-    if not temporalio.activity.in_activity():
+def _is_last_judge_attempt(backfill: bool = False) -> bool:
+    # A backfill run never treats an attempt as its last: running out of retries fails the run, and
+    # the backfill decides whether to pause or stop. Only a live run gives up for good.
+    if backfill or not temporalio.activity.in_activity():
         return False
     return temporalio.activity.info().attempt >= (LLM_JUDGE_RETRY_POLICY.maximum_attempts or 0)
 
@@ -123,158 +160,11 @@ class TransientJudgeError(NonReportableError):
     """
 
 
-class BooleanEvalResult(BaseModel):
-    """Structured output for boolean evaluation results"""
-
-    reasoning: str
-    verdict: bool
-
-
-_OUTCOME_ALIASES = {
-    "n/a": "not_applicable",
-    "na": "not_applicable",
-    "notapplicable": "not_applicable",
-}
-
-
-def _normalize_outcome(value: Any) -> Any:
-    if not isinstance(value, str):
-        return value
-    cleaned = value.strip().strip(".").lower().replace("-", "_").replace(" ", "_")
-    return _OUTCOME_ALIASES.get(cleaned, cleaned)
-
-
-class BooleanWithNAEvalResult(BaseModel):
-    """Structured output for boolean evaluation results that allow N/A.
-
-    One enum rather than an `applicable` flag beside a nullable `verdict`, because no provider's
-    JSON Schema subset expresses "verdict is required when applicable is true", so the two-field
-    shape let a model return a combination a validator here then rejected. Anthropic does not
-    enforce the enum, which is what `_normalize_outcome` is for.
-    """
-
-    reasoning: str
-    outcome: Annotated[Literal["pass", "fail", "not_applicable"], BeforeValidator(_normalize_outcome)]
-
-    @property
-    def applicable(self) -> bool:
-        return self.outcome != "not_applicable"
-
-    @property
-    def verdict(self) -> bool | None:
-        if self.outcome == "not_applicable":
-            return None
-        return self.outcome == "pass"
-
-
-class NumericEvalResult(BaseModel):
-    reasoning: str
-    score: float = Field(strict=True, allow_inf_nan=False)
-
-
-class NumericWithNAEvalResult(BaseModel):
-    reasoning: str
-    score: float | None = Field(strict=True, allow_inf_nan=False)
-
-    @property
-    def applicable(self) -> bool:
-        return self.score is not None
-
-
-class CategoricalEvalResult(BaseModel):
-    reasoning: str
-    categories: list[str]
-
-
-class CategoricalWithNAEvalResult(BaseModel):
-    reasoning: str
-    categories: list[str] | None
-
-
-@frozen
-class OutputTypeConfig:
-    """Configuration for each evaluation output type"""
-
-    response_format: (
-        type[BooleanEvalResult]
-        | type[BooleanWithNAEvalResult]
-        | type[NumericEvalResult]
-        | type[NumericWithNAEvalResult]
-        | type[CategoricalEvalResult]
-        | type[CategoricalWithNAEvalResult]
-    )
-    instructions: str
-
-
-def get_output_type_config(
-    allows_na: bool,
-    *,
-    output_type: str = "boolean",
-    output_config: dict[str, Any] | None = None,
-) -> OutputTypeConfig:
-    """Get the output type configuration based on whether N/A is allowed."""
-    if output_type == "categorical":
-        config = CategoricalOutputConfig.model_validate(output_config or {})
-        options = json.dumps([option.model_dump() for option in config.options])
-        count = (
-            "exactly one category key" if config.selection_mode == "single" else "zero or more distinct category keys"
-        )
-        instructions = f"Provide a brief reasoning (1 sentence) and categories containing {count} from these options: {options}. Return keys, not display labels."
-        if allows_na:
-            instructions += " Return categories=null when the criteria does not apply."
-        if config.selection_mode == "multiple":
-            instructions += " An empty list means no categories apply."
-        return OutputTypeConfig(
-            response_format=CategoricalWithNAEvalResult if allows_na else CategoricalEvalResult,
-            instructions=instructions,
-        )
-    if output_type == "numeric":
-        numeric_config = NumericOutputConfig.model_validate(output_config or {})
-        instructions = "Provide a brief reasoning (1 sentence) and a finite numeric score."
-        if numeric_config.min is not None:
-            instructions += f" The score must be at least {numeric_config.min}."
-        if numeric_config.max is not None:
-            instructions += f" The score must be at most {numeric_config.max}."
-        if numeric_config.step is not None:
-            instructions += f" Suggested score increment: {numeric_config.step}; do not round an otherwise valid score."
-        if allows_na:
-            instructions += " Return score=null when the criteria does not apply."
-        return OutputTypeConfig(
-            response_format=NumericWithNAEvalResult if allows_na else NumericEvalResult, instructions=instructions
-        )
-    if allows_na:
-        return OutputTypeConfig(
-            response_format=BooleanWithNAEvalResult,
-            instructions="""First, determine if this evaluation criteria is applicable to the given input/output. If the criteria doesn't apply to this case mark it as not applicable.
-
-Note: If the criteria above instructs you to return "N/A", "not applicable", or similar, return an outcome of "not_applicable".
-
-Return:
-- reasoning: a brief explanation (1 sentence)
-- outcome: "pass" if the generation meets the criteria, "fail" if it does not, "not_applicable" if the criteria doesn't apply to this input/output""",
-        )
-    return OutputTypeConfig(
-        response_format=BooleanEvalResult,
-        instructions="Provide a brief reasoning (1 sentence) and a boolean verdict (true/false).",
-    )
-
-
-def build_system_prompt(
-    prompt: str, allows_na: bool, *, output_type: str = "boolean", output_config: dict[str, Any] | None = None
-) -> str:
-    """Build the system prompt for the LLM judge."""
-    config = get_output_type_config(allows_na, output_type=output_type, output_config=output_config)
-    return f"""You are an evaluator. Evaluate the following generation according to this criteria:
-
-{prompt}
-
-{config.instructions}"""
-
-
-@dataclass
+@dataclass(frozen=False)
 class ExecuteLLMJudgeInputs:
     evaluation: dict[str, Any]
     event_data: dict[str, Any]
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -411,6 +301,31 @@ def _build_unparsable_response_skip_result(
     return result
 
 
+# Statuses an attached image can cause. Auth, permission and missing-model errors fail the same way without images.
+_IMAGE_REJECTION_STATUSES = frozenset({400, 413, 415, 422})
+
+
+_ATTACHMENTS_NOT_SENT_NOTE = (
+    "The model provider rejected the attachments in this transcript, so none are attached. "
+    "Judge from the text only, and don't guess what an attachment contains."
+)
+
+
+class JudgeAttachmentsRejectedError(Exception):
+    """Reported without the provider's message, which can quote a live presigned link."""
+
+
+def _attachment_rejection_status(error: Exception) -> int | None:
+    """The status of a provider rejection an image can cause, raw or wrapped by an adapter."""
+    for candidate in (error, error.__cause__):
+        if (
+            isinstance(candidate, Exception)
+            and (status := _rejected_request_status(candidate)) in _IMAGE_REJECTION_STATUSES
+        ):
+            return status
+    return None
+
+
 def _rejected_request_status(error: Exception) -> int | None:
     """The 4xx status of a provider rejection that no retry can fix, or None.
 
@@ -460,6 +375,23 @@ def _build_rejected_request_skip_result(
     return result
 
 
+def _build_rate_limit_skip_result(
+    error: RetryableRateLimitError, *, allows_na: bool, output_type: str
+) -> EvaluationActivityResult:
+    reasoning = require_user_error_spec("rate_limit_retries_exhausted").safe_message
+    # Only the SDK error the adapter wrapped carries the provider's sentence. Our own message on
+    # `error` is generic, and the provider's text names the limit that the customer has to change.
+    detail = truncate_error_detail(provider_error_detail(error.__cause__))
+    if detail:
+        reasoning = f"{reasoning} Provider message: {detail}"
+    return build_skipped_evaluation_result(
+        output_type=output_type,
+        allows_na=allows_na,
+        reasoning=reasoning,
+        skip_reason="rate_limit_retries_exhausted",
+    )
+
+
 @temporalio.activity.defn
 @close_db_connections
 # capture_exceptions=False: the worker interceptor reports judge failures, and its capture carries
@@ -470,12 +402,15 @@ def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActiv
 
     Fetches API key configuration internally to avoid passing sensitive data between activities.
     """
-    return _execute_llm_judge_activity(inputs)
+    return run_generation_llm_judge(inputs)
 
 
-def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
+def run_generation_llm_judge(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
     evaluation = inputs.evaluation
-    event_data = hydrate_event_reference(inputs.event_data)
+    try:
+        event_data = hydrate_event_reference(inputs.event_data)
+    except GenerationNotFoundError:
+        return build_generation_not_found_result(evaluation)
 
     if evaluation["evaluation_type"] != "llm_judge":
         raise ApplicationError(
@@ -507,31 +442,33 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         return _build_errored_trace_result(allows_na, output_type=output_type)
 
     io = extract_event_io(event_type, properties)
-    tools_raw = extract_event_tools(properties)
-
-    input_data = extract_text_from_messages(io.input_raw)
-    output_data = extract_text_from_messages(io.output_raw)
-    tools_data = format_tool_definitions(tools_raw)
-
+    tools_data = format_tool_definitions(extract_event_tools(properties))
     system_prompt = build_system_prompt(prompt, allows_na, output_type=output_type, output_config=output_config)
 
-    sections = [f"Input: {input_data}"]
-    if tools_data:
-        sections.append(f"Tools available:\n{tools_data}")
-    sections.append(f"Output: {output_data}")
-    user_prompt = "\n\n".join(sections)
-    if len(user_prompt) > JUDGE_EVENT_MAX_CHARS:
-        # Line-number first so the sampler's "gaps indicate omitted content" header is truthful,
-        # then hard-truncate to guarantee the cap for low-newline payloads the sampler leaves whole.
-        user_prompt = add_line_numbers(user_prompt)
-        user_prompt, _ = reduce_by_uniform_sampling(user_prompt, JUDGE_EVENT_MAX_CHARS)
-        user_prompt = user_prompt[:JUDGE_EVENT_MAX_CHARS]
+    user_prompt = build_user_prompt(io.input_raw, io.output_raw, tools_data)
+    attachment_prompt = build_attachment_prompt(
+        evaluation,
+        user_prompt,
+        lambda media_marker: build_user_prompt(io.input_raw, io.output_raw, tools_data, media_marker=media_marker),
+    )
+    if user_prompt is None and attachment_prompt is not None:
+        # Inline base64 can push the plain text over the limit when the marked text still fits.
+        user_prompt = attachment_prompt.unnumbered_text()
+    if user_prompt is None:
+        return build_skipped_evaluation_result(
+            output_type=output_type,
+            allows_na=allows_na,
+            reasoning="Generation output exceeded the judge's text limit; evaluation skipped.",
+            skip_reason="generation_output_too_long",
+        )
 
     return call_llm_judge(
         evaluation=evaluation,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         allows_na=allows_na,
+        backfill=inputs.backfill_id is not None,
+        attachment_prompt=attachment_prompt,
     )
 
 
@@ -555,6 +492,8 @@ def call_llm_judge(
     system_prompt: str,
     user_prompt: str,
     allows_na: bool,
+    backfill: bool = False,
+    attachment_prompt: AttachmentPrompt | None = None,
 ) -> EvaluationActivityResult:
     """Resolve the judge model/key for `evaluation` and run a single judge completion.
 
@@ -591,17 +530,22 @@ def call_llm_judge(
         provider_key=provider_key,
         config=config,
         capture_analytics=False,
+        # Temporal retries a rate limit after the provider's delay. SDK retries underneath would
+        # multiply the calls and can run past the activity's timeout before the last attempt ends.
+        max_retries=0,
     )
 
     probability: float | None = None
     decision_result = None
     try:
-        openrouter_enabled = provider == "openrouter" and decision_evaluations_enabled(
-            team_id, base_url=OPENROUTER_DECISIONS_BASE_URL
+        judge_method = evaluation["evaluation_config"].get("judge_method")
+        # Explicit selection takes precedence for models that support both methods.
+        # Models gaining decisions must not move existing chat evaluations onto a different API.
+        uses_decisions = (
+            judge_method == "decision"
+            if judge_method is not None
+            else is_decision_model(provider, model, decision_only=True)
         )
-        uses_decisions = is_decision_model(provider, model, openrouter_enabled=openrouter_enabled)
-        if provider == "openrouter" and not openrouter_enabled:
-            uses_decisions = model in (decision_model_ids(refresh=False) or ())
         if uses_decisions:
             if output_type not in ("boolean", "categorical", "numeric"):
                 return build_skipped_evaluation_result(
@@ -613,19 +557,12 @@ def call_llm_judge(
             base_url = (
                 OPENROUTER_DECISIONS_BASE_URL
                 if provider == "openrouter"
+                else OPENAI_DECISIONS_BASE_URL
+                if provider == "openai"
                 else provider_key.encrypted_config.get("base_url", "")
                 if provider_key
                 else ""
             )
-            if (provider == "openrouter" and not openrouter_enabled) or (
-                provider == "system_one" and not decision_evaluations_enabled(team_id, base_url=base_url)
-            ):
-                return build_skipped_evaluation_result(
-                    output_type=output_type,
-                    allows_na=allows_na,
-                    reasoning="Decision model evaluations are not available for this project.",
-                    skip_reason="system_one_unavailable",
-                )
             prompt = evaluation["evaluation_config"]["prompt"]
             categorical_config = (
                 CategoricalOutputConfig.model_validate(output_config) if output_type == "categorical" else None
@@ -678,19 +615,26 @@ def call_llm_judge(
             if allows_na:
                 questions["applicable"] = NoulQuestion(
                     instructions=(
-                        "Do these evaluation criteria apply to this input? Answer true when the criteria can be "
-                        "evaluated, even if they are not met. Answer false only when they are not relevant.\n\n"
-                        + prompt
+                        "Can this input be evaluated according to the evaluation instructions below? Answer false "
+                        "when those instructions require N/A, when essential context or evidence is missing, or "
+                        "when the criteria are irrelevant. Answer true when enough information is present to "
+                        "evaluate them, even if the result would be a fail. Do not invent missing facts.\n\n" + prompt
                     )
                 )
-            decision_result = DecisionClient.evaluate(
-                api_key=provider_key.encrypted_config.get("api_key", "") if provider_key else "",
-                base_url=base_url,
-                path="decisions" if provider == "openrouter" else "systemone",
-                model=model,
-                state=user_prompt,
-                questions=questions,
-            )
+            api_key = provider_key.encrypted_config.get("api_key", "") if provider_key else ""
+            if provider == "openai":
+                decision_result = OpenAIDecisionAdapter().evaluate(
+                    api_key=api_key, model=model, state=user_prompt, questions=questions
+                )
+            else:
+                decision_result = DecisionClient.evaluate(
+                    api_key=api_key,
+                    base_url=base_url,
+                    path="decisions" if provider == "openrouter" else "systemone",
+                    model=model,
+                    state=user_prompt,
+                    questions=questions,
+                )
             applicable = True
             if allows_na:
                 applicability_answer = decision_result.answers["applicable"]
@@ -739,13 +683,16 @@ def call_llm_judge(
                 if not isinstance(verdict_answer, NoulAnswer):
                     raise StructuredOutputParseError("The endpoint returned an invalid verdict answer.")
                 probability = verdict_answer.probability
+                configured_threshold = BooleanOutputConfig.model_validate(output_config).decision_threshold
+                # Zero is a valid cutoff.
+                threshold = configured_threshold if configured_threshold is not None else 0.5
                 parsed = (
                     BooleanWithNAEvalResult(
                         reasoning="",
-                        outcome="not_applicable" if not applicable else "pass" if probability >= 0.5 else "fail",
+                        outcome="not_applicable" if not applicable else "pass" if probability >= threshold else "fail",
                     )
                     if allows_na
-                    else BooleanEvalResult(reasoning="", verdict=probability >= 0.5)
+                    else BooleanEvalResult(reasoning="", verdict=probability >= threshold)
                 )
             response = CompletionResponse(
                 content="",
@@ -758,15 +705,49 @@ def call_llm_judge(
                 ),
             )
         else:
-            response = client.complete(
-                CompletionRequest(
-                    model=model,
-                    system=system_prompt,
-                    messages=[{"role": "user", "content": user_prompt}],
-                    provider=provider,
-                    response_format=response_format,
-                )
+            content = (
+                attachment_prompt.attachments.content(attachment_prompt.text, provider, model)
+                if attachment_prompt
+                else user_prompt
             )
+            sent_attachments = isinstance(content, list) and any(isinstance(part, AttachmentPart) for part in content)
+            request = CompletionRequest(
+                model=model,
+                system=system_prompt,
+                messages=[{"role": "user", "content": content}],
+                provider=provider,
+                response_format=response_format,
+                reasoning_level=evaluation["evaluation_config"].get("reasoning_level"),
+            )
+            status: int | None = None
+            try:
+                response = client.complete(request)
+            except Exception as e:
+                status = _attachment_rejection_status(e) if sent_attachments else None
+                if status is None:
+                    raise
+            # Handle the rejection outside the except: the provider's error can quote a presigned link, and
+            # an active exception reaches the logs through capture_exception and chains onto a retry failure.
+            if status is not None:
+                # A model without image or PDF input, or a link the provider could not download.
+                # Grade the plain transcript rather than skip the run.
+                context = {
+                    "evaluation_id": evaluation["id"],
+                    "team_id": evaluation["team_id"],
+                    "provider": provider,
+                    "model": model,
+                    "status": status,
+                    "sent_types": sorted({part.mime_type for part in content if isinstance(part, AttachmentPart)}),
+                }
+                logger.warning("judge_attachments_rejected", **context)
+                if not is_byok:
+                    # On a PostHog key this can mean broken presigned links or a refused PDF, so keep it visible.
+                    capture_exception(
+                        JudgeAttachmentsRejectedError(f"Provider rejected judge attachments ({status})"), context
+                    )
+                # Without the note a judge reads the transcript's [image] or [file] and guesses what it shows.
+                retry_prompt = f"{_ATTACHMENTS_NOT_SENT_NOTE}\n\n{user_prompt}"
+                response = client.complete(replace(request, messages=[{"role": "user", "content": retry_prompt}]))
     except (DecisionEndpointBlockedError, ProviderConfigurationError) as e:
         increment_user_errors("endpoint_blocked", provider=provider)
         return terminal_user_error_result(
@@ -786,13 +767,23 @@ def call_llm_judge(
             skip_reason="request_rejected",
         )
     except RetryableRateLimitError as e:
-        increment_errors("rate_limit", provider=provider)
+        retry_delay = timedelta(seconds=e.retry_after) if e.retry_after is not None else None
+        last = is_last_attempt(retry_delay) if backfill else _is_last_judge_attempt()
+        # Decision endpoints raise this error for outages too (408, 503, 529). Only a 429 on the
+        # customer's own key is a limit that the customer sets and PostHog cannot act on.
+        customer_limited = is_byok and e.status == 429
+        if customer_limited:
+            if last and not backfill:
+                increment_user_errors("rate_limit_retries_exhausted", provider=provider)
+                return _build_rate_limit_skip_result(e, allows_na=allows_na, output_type=output_type)
+        else:
+            increment_errors("rate_limit", provider=provider)
         # A retry usually gets through, so only an outage that outlasts every attempt reaches error tracking.
-        error_class = ApplicationError if _is_last_judge_attempt() else NonReportableApplicationError
+        error_class = ApplicationError if last and not customer_limited else NonReportableApplicationError
         raise error_class(
             str(e),
             {"error_type": "provider_unavailable", "provider": provider},
-            next_retry_delay=timedelta(seconds=e.retry_after) if e.retry_after is not None else None,
+            next_retry_delay=retry_delay,
         ) from e
     except AuthenticationError:
         if is_byok:
@@ -873,19 +864,13 @@ def call_llm_judge(
             {"error_type": "model_not_found", "provider": provider, "model": model},
             non_retryable=True,
         )
-    except UnsupportedModelError:
-        # A failed chat call can populate a cold catalogue; a disabled flag must not disable the evaluation.
-        if provider == "openrouter" and not openrouter_enabled and model in (decision_model_ids(refresh=False) or ()):
-            return build_skipped_evaluation_result(
-                output_type=output_type,
-                allows_na=allows_na,
-                reasoning="Decision model evaluations are not available for this project.",
-                skip_reason="system_one_unavailable",
-            )
+    except UnsupportedModelError as e:
         increment_user_errors("model_not_supported", provider=provider)
         return terminal_user_error_result(
             spec=require_user_error_spec("model_not_supported", is_byok=is_byok),
-            message=f"Model '{model}' does not support chat completions. Choose a chat model.",
+            message=str(e)
+            if isinstance(e, ClaudeDeploymentOnAzureOpenAIError)
+            else f"Model '{model}' does not support chat completions. Choose a chat model.",
             allows_na=allows_na,
             output_type=output_type,
             provider=provider,
@@ -950,7 +935,7 @@ def call_llm_judge(
         )
 
     except ProviderHostUnresolvedError as e:
-        if not _is_last_judge_attempt():
+        if not _is_last_judge_attempt(backfill):
             increment_errors("connection_error", provider=provider)
             raise TransientJudgeError(str(e)) from e
         # The host did not resolve on any attempt, so the base URL is probably wrong. A failed
@@ -979,6 +964,13 @@ def call_llm_judge(
         raise
 
     except Exception as e:
+        status = getattr(e, "status_code", None)
+        if not isinstance(status, int):
+            status = getattr(e, "code", None)
+        # boffin: Leave exhausted provider outages reportable through the worker interceptor.
+        if isinstance(status, int) and 500 <= status < 600 and not is_last_attempt():
+            increment_errors(type(e).__name__, provider=provider)
+            raise TransientJudgeError(str(e)) from e
         rejected_status = _rejected_request_status(e)
         # On a PostHog key a rejection is our bug, so it falls through to error tracking below.
         if rejected_status is not None and is_byok:

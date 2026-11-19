@@ -20,6 +20,9 @@ from posthog.hogql.type_system import infer_function_return_type
             ast.IntegerType(nullable=True),
         ),
         ("quantileExact", [ast.FloatType(nullable=False)], ast.FloatType(nullable=False)),
+        ("log10", [ast.IntegerType(nullable=True)], ast.FloatType(nullable=True)),
+        ("sqrt", [ast.FloatType(nullable=False)], ast.FloatType(nullable=False)),
+        ("ln", [ast.StringType(nullable=False)], ast.UnknownType(unanalyzable=True)),
         (
             "medianExactHighIf",
             [ast.IntegerType(nullable=False), ast.BooleanType(nullable=True)],

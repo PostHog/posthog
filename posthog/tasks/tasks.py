@@ -13,7 +13,7 @@ from django.db.models import Model
 from django.utils import timezone
 
 import requests
-from celery import shared_task
+from celery import Task, shared_task
 from clickhouse_driver.errors import UnknownPacketFromServerError
 from prometheus_client import Counter, Gauge
 from redis import Redis
@@ -25,7 +25,7 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import is_cloud, is_hobby
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable
 from posthog.exceptions import ClickHouseAtCapacity, QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
@@ -33,7 +33,7 @@ from posthog.metrics import pushed_metrics_registry
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.person_db_router import PersonDBRouter
 from posthog.ph_client import get_regional_ph_client
-from posthog.redis import get_client
+from posthog.redis import get_celery_broker_client, get_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
@@ -119,6 +119,33 @@ STALE_LOCAL_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
 )
 
 
+@shared_task(
+    ignore_result=True,
+    soft_time_limit=120,
+    time_limit=150,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+)
+@skip_team_scope_audit
+def store_pinned_recording_metadata(team_id: int, session_ids: list[str]) -> None:
+    """Store start_time and retention on pinned recordings so collection counts drop them once they expire."""
+    from posthog.models import Team
+    from posthog.session_recordings.models.session_recording import SessionRecording
+    from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+
+    team = Team.objects.get(pk=team_id)
+    found = SessionReplayEvents().get_session_timestamps(session_ids, team)
+    for recording in SessionRecording.objects.filter(
+        team_id=team_id, session_id__in=list(found), start_time__isnull=True
+    ):
+        timestamps = found[recording.session_id]
+        recording.start_time = timestamps.min_timestamp
+        # Match the 30-day default ClickHouse applies to recordings with no stored retention
+        recording.retention_period_days = timestamps.retention_period_days or 30
+        recording.save(update_fields=["start_time", "retention_period_days"])
+
+
 @shared_task(ignore_result=True)
 def delete_expired_exported_assets() -> None:
     from products.exports.backend.models.exported_asset import ExportedAsset
@@ -135,6 +162,15 @@ def fail_stuck_video_exports() -> None:
     indistinguishable from a render still in progress.
     """
     from products.exports.backend.stuck_exports import fail_stuck_video_exports as run_sweep
+
+    run_sweep()
+
+
+@shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
+@skip_team_scope_audit
+def delete_scheduled_event_definitions() -> None:
+    """Delete event definitions whose ingestion was stopped, once nothing can recreate them."""
+    from posthog.tasks.event_definitions import delete_scheduled_event_definitions as run_sweep
 
     run_sweep()
 
@@ -425,17 +461,22 @@ def _process_query_task_failure(
     if isinstance(exc, APIException):
         # User-safe message (e.g. ClickHouseAtCapacity's "try again later" copy)
         query_status.error_message = str(exc.detail)
+        codes = exc.get_codes()
+        if isinstance(codes, str):
+            query_status.error_code = codes
+    elif isinstance(exc, ConcurrencyLimitExceeded):
+        query_status.error_code = ClickHouseAtCapacity.default_code
     query_status.end_time = datetime.datetime.now(datetime.UTC)
     manager.store_query_status(query_status)
 
 
 @shared_task(
+    bind=True,
     ignore_result=True,
     queue=CeleryQueue.ANALYTICS_QUERIES.value,
     acks_late=True,
     autoretry_for=(
         # Important: Only retry for things that might be okay on the next try
-        ClickHouseAtCapacity,
         ConcurrencyLimitExceeded,
         QueryRanConcurrently,
     ),
@@ -450,10 +491,11 @@ def _process_query_task_failure(
 @limit_concurrency(150, limit_name="global")  # Do not go above what CH can handle (max_concurrent_queries)
 @limit_concurrency(
     10,
-    key=lambda *args, **kwargs: kwargs.get("team_id") or args[0],
+    key=lambda *args, **kwargs: kwargs.get("team_id") or args[1],
     limit_name="per_team",
 )  # Do not run too many queries at once for the same team
 def process_query_task(
+    self: Task,
     team_id: int,
     user_id: Optional[int],
     query_id: str,
@@ -477,16 +519,22 @@ def process_query_task(
     if is_query_service:
         tag_queries(chargeable=1)
 
-    execute_process_query(
-        team_id=team_id,
-        user_id=user_id,
-        query_id=query_id,
-        query_json=query_json,
-        limit_context=limit_context,
-        is_query_service=is_query_service,
-        analytics_props=analytics_props,
-        sharing_configuration_id=sharing_configuration_id,
-    )
+    try:
+        execute_process_query(
+            team_id=team_id,
+            user_id=user_id,
+            query_id=query_id,
+            query_json=query_json,
+            limit_context=limit_context,
+            is_query_service=is_query_service,
+            analytics_props=analytics_props,
+            sharing_configuration_id=sharing_configuration_id,
+        )
+    except ClickHouseAtCapacity as exc:
+        # A remote capacity failure can arrive after other shards have done expensive work.
+        if self.request.retries >= 4:
+            raise
+        raise self.retry(exc=exc, countdown=exc.wait)
 
 
 @shared_task(ignore_result=True)
@@ -798,7 +846,7 @@ def redis_celery_queue_depth() -> None:
             )
 
             for queue in CeleryQueue:
-                llen = get_client().llen(queue.value)
+                llen = get_celery_broker_client().llen(queue.value)
                 celery_task_queue_depth_gauge.labels(queue_name=queue.value).set(llen)
 
     except:
@@ -898,6 +946,38 @@ def capture_task_run_state_metrics() -> None:
         capture_exception(err)
 
 
+@shared_task(ignore_result=True, queue=CeleryQueue.STATS.value)
+@skip_team_scope_audit
+def capture_task_status_shadow_metrics() -> None:
+    from products.tasks.backend.facade import api as tasks_facade
+
+    try:
+        with pushed_metrics_registry("tasks_status_shadow") as registry:
+            mismatches_gauge = Gauge(
+                "posthog_tasks_status_shadow_mismatches",
+                "Tasks whose stored status differs from the status derived from their latest run.",
+                registry=registry,
+                labelnames=["stored_status", "derived_status"],
+            )
+            for row in tasks_facade.collect_task_status_mismatches():
+                mismatches_gauge.labels(stored_status=row.stored_status, derived_status=row.derived_status).set(
+                    row.count
+                )
+            repaired_gauge = Gauge(
+                "posthog_tasks_status_shadow_repaired",
+                "Tasks whose stored status was repaired from their latest run in the last pass.",
+                registry=registry,
+                labelnames=["stored_status", "derived_status"],
+            )
+            for row in tasks_facade.repair_task_status_mismatches():
+                repaired_gauge.labels(stored_status=row.stored_status, derived_status=row.derived_status).set(row.count)
+    except OperationalError as err:
+        logger.warning("capture_task_status_shadow_metrics_transient_db_error", exception=err)
+    except Exception as err:
+        logger.exception("capture_task_status_shadow_metrics", exception=err)
+        capture_exception(err)
+
+
 @shared_task(ignore_result=True)
 def update_event_partitions() -> None:
     with connection.cursor() as cursor:
@@ -927,11 +1007,15 @@ class Polling:
     _SINGLETON_REDIS_KEY = "POLL_QUERY_PERFORMANCE_SINGLETON_REDIS_KEY"
     NANOSECONDS_IN_SECOND = int(1e9)
     TIME_BETWEEN_RUNS_SECONDS = 2
+    # Hobby only needs the query heartbeat, which lives QueryStatusManager.HEARTBEAT_TTL_SECONDS, not second-by-second progress.
+    # Stays below ASSUME_TASK_DEAD_SECONDS, or start_poll_query_performance would restart a healthy loop.
+    HOBBY_TIME_BETWEEN_RUNS_SECONDS = 10
     SOFT_TIME_LIMIT_SECONDS = 10
     HARD_TIME_LIMIT_SECONDS = 12
     ASSUME_TASK_DEAD_SECONDS = 14  # the time after which we start a new task
 
     TIME_BETWEEN_RUNS_NANOSECONDS = NANOSECONDS_IN_SECOND * TIME_BETWEEN_RUNS_SECONDS
+    HOBBY_TIME_BETWEEN_RUNS_NANOSECONDS = NANOSECONDS_IN_SECOND * HOBBY_TIME_BETWEEN_RUNS_SECONDS
     ASSUME_TASK_DEAD_NANOSECONDS = NANOSECONDS_IN_SECOND * ASSUME_TASK_DEAD_SECONDS
 
     @staticmethod
@@ -958,6 +1042,9 @@ class Polling:
     time_limit=Polling.HARD_TIME_LIMIT_SECONDS,
 )
 def poll_query_performance(last_known_run_time_ns: int) -> None:
+    time_between_runs_ns = (
+        Polling.HOBBY_TIME_BETWEEN_RUNS_NANOSECONDS if is_hobby() else Polling.TIME_BETWEEN_RUNS_NANOSECONDS
+    )
     start_time_ns = time.time_ns()
 
     try:
@@ -973,14 +1060,14 @@ def poll_query_performance(last_known_run_time_ns: int) -> None:
         logger.exception("Poll query performance failed", error=e)
 
     elapsed_ns = time.time_ns() - start_time_ns
-    if elapsed_ns > Polling.TIME_BETWEEN_RUNS_NANOSECONDS:
+    if elapsed_ns > time_between_runs_ns:
         # right again right away if more than time_between_runs has elapsed
         poll_query_performance.delay(start_time_ns)
     else:
         # delay until time_between_runs has elapsed
         poll_query_performance.apply_async(
             args=[start_time_ns],
-            countdown=((Polling.TIME_BETWEEN_RUNS_NANOSECONDS - elapsed_ns) / Polling.NANOSECONDS_IN_SECOND),
+            countdown=((time_between_runs_ns - elapsed_ns) / Polling.NANOSECONDS_IN_SECOND),
         )
 
 
@@ -1020,8 +1107,10 @@ def calculate_decide_usage() -> None:
     ph_client = get_regional_ph_client()
 
     if ph_client:
-        capture_decide_usage_for_all_teams(ph_client)
-        ph_client.shutdown()
+        try:
+            capture_decide_usage_for_all_teams(ph_client)
+        finally:
+            ph_client.shutdown()
 
 
 @shared_task(ignore_result=True)
@@ -1061,6 +1150,20 @@ def sync_all_organization_available_product_features() -> None:
     )
 
     sync_all_organization_available_product_features()
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=30, retry_backoff_max=600, max_retries=5)
+def report_upcoming_events_deletions() -> None:
+    from posthog.models.events_plan_deletion import report_upcoming_deletions
+
+    report_upcoming_deletions()
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=30, retry_backoff_max=600, max_retries=5)
+def report_events_retention_shortened(organization_id: str, notice: dict[str, object]) -> None:
+    from posthog.models.events_plan_deletion import report_retention_shortened
+
+    report_retention_shortened(UUID(organization_id), notice)
 
 
 @shared_task(ignore_result=False, track_started=True, max_retries=0)
@@ -1354,11 +1457,21 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         "Seconds between checkpoint timestamp and current time",
         registry=self.metrics_registry,
     )
+    checkpoint_timestamp_gauge = Gauge(
+        "posthog_feature_flag_last_called_at_sync_checkpoint_timestamp_seconds",
+        "Unix time of the checkpoint the sync wrote to Redis",
+        registry=self.metrics_registry,
+    )
 
     run_failed = False
 
     try:
         redis_client = get_client()
+
+        def save_checkpoint(checkpoint: datetime) -> None:
+            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint.isoformat())
+            checkpoint_lag_gauge.set((timezone.now() - checkpoint).total_seconds())
+            checkpoint_timestamp_gauge.set(checkpoint.timestamp())
 
         # Get last sync timestamp from Redis or use lookback. A Redis error on this read propagates so
         # that Celery retries the run. The lookback fallback would rescan up to
@@ -1482,7 +1595,14 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                         "current_sync_timestamp": chunk_end_ts,
                         "limit": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT,
                     },
-                    settings={"max_execution_time": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS},
+                    settings={
+                        "max_execution_time": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS,
+                        # When every replica of a shard lags past max_replica_delay_for_distributed_queries,
+                        # the default fallback reads a stale replica and returns a result with rows missing.
+                        # The checkpoint would then move past those rows. With the fallback off, ClickHouse
+                        # fails the chunk, so the checkpoint stops before it.
+                        "fallback_to_stale_replicas_for_distributed_queries": 0,
+                    },
                 )
             except Exception as e:
                 # Transient errors are what autoretry_for is for. ClickHouseAtCapacity in
@@ -1557,13 +1677,12 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         if not merged_results:
             # Advance the checkpoint even when no results, so the next run starts from the
             # end of the window that was read instead of rescanning it
-            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
+            save_checkpoint(checkpoint_timestamp)
 
             # Emit metrics for no-results case
             updated_count_gauge.set(0)
             events_processed_gauge.set(0)
             clickhouse_results_gauge.set(0)
-            checkpoint_lag_gauge.set((timezone.now() - checkpoint_timestamp).total_seconds())
 
             logger.info(
                 "Feature flag sync completed with no events",
@@ -1581,7 +1700,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 flag_updates[(team_id, flag_key)] = ts
 
         if not flag_updates:
-            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
+            save_checkpoint(checkpoint_timestamp)
             logger.info(
                 "Feature flag sync: no valid timestamps to update",
                 chunks_processed=len(chunks),
@@ -1589,7 +1708,6 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             clickhouse_results_gauge.set(total_clickhouse_results)
             updated_count_gauge.set(0)
             events_processed_gauge.set(0)
-            checkpoint_lag_gauge.set((timezone.now() - checkpoint_timestamp).total_seconds())
             return
 
         # Fetch flags matching any (team_id, key) combination from updates.
@@ -1632,17 +1750,15 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 raise
 
         # Set final checkpoint to the end of the last window that was read successfully
-        redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
+        save_checkpoint(checkpoint_timestamp)
 
         duration = (timezone.now() - start_time).total_seconds()
         processed_events = sum(count for _ts, count in merged_results.values())
 
         # Emit metrics for successful completion
-        checkpoint_lag_seconds = (timezone.now() - checkpoint_timestamp).total_seconds()
         updated_count_gauge.set(updated_count)
         events_processed_gauge.set(processed_events)
         clickhouse_results_gauge.set(total_clickhouse_results)
-        checkpoint_lag_gauge.set(checkpoint_lag_seconds)
 
         logger.info(
             "Feature flag sync completed",
@@ -1793,30 +1909,37 @@ def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14)
         )
 
 
-@shared_task(ignore_result=True)
+# Registered under the previous name, so messages queued by the previous deploy still run.
+@shared_task(ignore_result=True, name="posthog.tasks.tasks.sync_user_product_lists_for_new_team")
 @skip_team_scope_audit
-def sync_user_product_lists_for_new_team(team_id: int) -> None:
+def star_default_products_for_new_team(team_id: int) -> None:
     """
-    Sync UserProductList for all users who have access to a new team.
+    Star the default products for all users who have access to a new team.
     Called during project creation to avoid request timeouts for large organizations.
     """
-    from posthog.models.file_system.user_product_list import add_default_products_for_user
+    from posthog.models.file_system.starred_products import star_default_products
     from posthog.models.team import Team
 
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
-        logger.info("sync_user_product_lists_for_new_team: Team not found, skipping", team_id=team_id)
+        logger.info("star_default_products_for_new_team: Team not found, skipping", team_id=team_id)
+        return
+
+    # Environments of a project share its sidebar stars. Seeding a new environment would restore
+    # defaults that users of the project already removed.
+    if Team.objects.filter(project_id=team.project_id).exclude(id=team.id).exists():
+        logger.info("star_default_products_for_new_team: Team is a new environment, skipping", team_id=team_id)
         return
 
     users = list(team.all_users_with_access())
     logger.info(
-        "sync_user_product_lists_for_new_team: Starting sync",
+        "star_default_products_for_new_team: Starting",
         team_id=team_id,
         user_count=len(users),
     )
 
     for user in users:
-        add_default_products_for_user(user, team)
+        star_default_products(user, team)
 
-    logger.info("sync_user_product_lists_for_new_team: Completed", team_id=team_id)
+    logger.info("star_default_products_for_new_team: Completed", team_id=team_id)

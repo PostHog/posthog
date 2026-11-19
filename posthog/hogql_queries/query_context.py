@@ -40,14 +40,21 @@ class QueryContext(ABC):
         self.timings = timings or HogQLTimings()
         self.limit_context = limit_context or LimitContext.QUERY
         self.modifiers = create_default_modifiers_for_team(team, modifiers)
-        self.hogql_context = HogQLContext(
+        self.hogql_context = self._build_hogql_context()
+        self.now = now or datetime.now()
+
+    def set_user(self, user: Optional[User]) -> None:
+        self.user = user
+        self.hogql_context = self._build_hogql_context()
+
+    def _build_hogql_context(self) -> HogQLContext:
+        return HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
             timings=self.timings,
             modifiers=self.modifiers,
-            user=user,
+            user=self.user,
         )
-        self.now = now or datetime.now()
 
 
 class QueryContextProtocol(Protocol):

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 
 import {
     IconArrowRight,
@@ -15,7 +15,6 @@ import {
 
 import { linkToLogic } from 'lib/components/FileSystem/LinkTo/linkToLogic'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -35,6 +34,7 @@ import {
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { pluralize } from 'lib/utils/strings'
 import { openDeleteGroupTypeDialog } from 'scenes/settings/environment/GroupAnalyticsConfig'
 import { groupAnalyticsConfigLogic } from 'scenes/settings/environment/groupAnalyticsConfigLogic'
@@ -44,7 +44,6 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { NewMenu } from '../../menus/NewMenu'
 import { panelLayoutLogic } from '../../panelLayoutLogic'
-import { customProductsLogic } from '../customProductsLogic'
 import { getSidebarProduct } from '../defaultTree'
 import { projectTreeDataLogic } from '../projectTreeDataLogic'
 import { projectTreeLogic } from '../projectTreeLogic'
@@ -52,7 +51,11 @@ import { joinPath, splitPath } from '../utils'
 import { BrowserLikeMenuItems } from './BrowserLikeMenuItems'
 import { DashboardsMenuItems } from './DashboardsMenuItems'
 import { ProductAnalyticsMenuItems } from './ProductAnalyticsMenuItems'
-import { SessionReplayMenuItems } from './SessionReplayMenuItems'
+
+// The submenu pulls in the replay playlist and saved filter logics, and it renders only when the replay menu opens.
+const SessionReplayMenuItems = lazyWithRetry(() =>
+    import('./SessionReplayMenuItems').then(({ SessionReplayMenuItems }) => ({ default: SessionReplayMenuItems }))
+)
 
 interface MenuItemsProps {
     item: TreeDataItem
@@ -76,12 +79,10 @@ export function MenuItems({
     showSelectMenuOption = true,
 }: MenuItemsProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
-    const { shortcutNonFolderPaths, shortcutData, shortcutEntryIdMap, shortcutDataLoading } =
-        useValues(projectTreeDataLogic)
+    const { shortcutData, shortcutEntryIdMap, shortcutDataLoading } = useValues(projectTreeDataLogic)
     const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
     const { groupTypes } = useValues(groupAnalyticsConfigLogic)
     const { deleteGroupType } = useActions(groupAnalyticsConfigLogic)
-    const { enabledProductPaths: customProductsSelectedPaths } = useValues(customProductsLogic)
     const { dockOpen, terminalEnabled } = useValues(terminalDockLogic)
     const { openInTerminal } = useActions(terminalDockLogic)
     const { location } = useValues(router)
@@ -103,7 +104,6 @@ export function MenuItems({
     } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
     const { openLinkToModal } = useActions(linkToLogic)
-    const { setProductEnabled } = useActions(customProductsLogic)
 
     const { resetPanelLayout } = useActions(panelLayoutLogic)
 
@@ -120,9 +120,7 @@ export function MenuItems({
 
     // Show product menu items if the item is a product, or a starred link to one
     const showProductMenuItems =
-        root === 'products://' ||
-        root === 'custom-products://' ||
-        (root === 'shortcuts://' && !!getSidebarProduct(item.record?.href))
+        root === 'products://' || (root === 'shortcuts://' && !!getSidebarProduct(item.record?.href))
 
     // Note: renderMenuItems() is called often, so we're using custom components to isolate logic and network requests
     const productMenu =
@@ -137,7 +135,7 @@ export function MenuItems({
                 <MenuSeparator />
             </>
         ) : showProductMenuItems && item.name === 'Session replay' ? (
-            <>
+            <Suspense fallback={null}>
                 <SessionReplayMenuItems
                     MenuItem={MenuItem}
                     MenuSub={MenuSub}
@@ -148,7 +146,7 @@ export function MenuItems({
                     onLinkClick={(keyboardAction) => resetPanelLayout(keyboardAction ?? false)}
                 />
                 <MenuSeparator />
-            </>
+            </Suspense>
         ) : showProductMenuItems && item.name === 'Dashboards' ? (
             <>
                 <DashboardsMenuItems
@@ -164,7 +162,6 @@ export function MenuItems({
             </>
         ) : null
 
-    const isSimpleSidepanelEnabled = useFeatureFlag('SIMPLE_SIDEPANEL')
     const isItemAFolder = item.record?.type === 'folder'
     const isStarredFolder = isItemAFolder && item.id.startsWith('shortcuts://') && !!item.record?.ref
     const newMenuItem = isStarredFolder ? { ...item, record: { ...item.record, path: item.record?.ref } } : item
@@ -176,7 +173,6 @@ export function MenuItems({
         (root === 'project://' || item.record?.protocol === 'project://' || isStarredFolder) &&
         typeof terminalFolder === 'string'
     const itemShortcutPath = joinPath([splitPath(item.record?.path).pop() ?? 'Unnamed'])
-    const isItemAlreadyInShortcut = !isItemAFolder && shortcutNonFolderPaths.has(itemShortcutPath)
     const shortcutId =
         shortcutEntryIdMap.get(item.id) ??
         shortcutData.find((entry) =>
@@ -232,7 +228,6 @@ export function MenuItems({
                         MenuItem={MenuItem}
                         resetPanelLayout={resetPanelLayout}
                     />
-                    {!isSimpleSidepanelEnabled && <MenuSeparator />}
                 </>
             ) : null}
 
@@ -289,71 +284,6 @@ export function MenuItems({
                     <MenuSeparator />
                 </>
             ) : null}
-            {!isSimpleSidepanelEnabled && item.record?.path ? (
-                (root === 'shortcuts://' || root === 'custom-products://') &&
-                (item.id.startsWith('shortcuts://') || item.id.startsWith('shortcuts/')) ? (
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            if (item.record) {
-                                deleteShortcut(item.record?.id)
-                            }
-                        }}
-                        data-attr="tree-item-menu-remove-from-shortcuts-button"
-                    >
-                        <ButtonPrimitive menuItem variant="danger" forceVariant>
-                            <IconStar className="size-4 text-inherit" /> Remove from starred
-                        </ButtonPrimitive>
-                    </MenuItem>
-                ) : isItemAlreadyInShortcut ? (
-                    <MenuItem asChild disabled={true} data-attr="tree-item-menu-add-to-shortcuts-disabled-button">
-                        <ButtonPrimitive menuItem disabled={true}>
-                            <IconStar className="size-4 text-tertiary" /> Already starred
-                        </ButtonPrimitive>
-                    </MenuItem>
-                ) : root !== 'custom-products://' ? (
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            if (item.record) {
-                                addShortcutItem(item.record as FileSystemEntry)
-                            }
-                        }}
-                        data-attr="tree-item-menu-add-to-shortcuts-button"
-                    >
-                        <ButtonPrimitive menuItem>
-                            <IconStar className="size-4 text-tertiary" /> Add to starred
-                        </ButtonPrimitive>
-                    </MenuItem>
-                ) : null
-            ) : null}
-
-            {root === 'custom-products://' && !item.id.startsWith('shortcuts://') ? (
-                <MenuItem
-                    asChild
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        setProductEnabled(item.record!.path as string, false)
-                    }}
-                >
-                    <ButtonPrimitive menuItem>Remove from sidebar panel</ButtonPrimitive>
-                </MenuItem>
-            ) : root === 'products://' &&
-              item.record?.path &&
-              !customProductsSelectedPaths.has(item.record?.path as string) ? (
-                <MenuItem
-                    asChild
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        setProductEnabled(item.record!.path as string, true)
-                    }}
-                >
-                    <ButtonPrimitive menuItem>Add to sidebar panel</ButtonPrimitive>
-                </MenuItem>
-            ) : null}
-
             {item.id.startsWith('project/') || item.id.startsWith('project://') ? (
                 <MenuItem
                     asChild
@@ -503,7 +433,7 @@ export function MenuItems({
                     <ButtonPrimitive menuItem>Delete group type</ButtonPrimitive>
                 </MenuItem>
             ) : null}
-            {isSimpleSidepanelEnabled && item.record?.path && (shortcutId || root !== 'custom-products://') ? (
+            {item.record?.path ? (
                 <>
                     {(!isItemAFolder || !shortcutEntryIdMap.has(item.id) || checkedItemCountNumeric > 0) && (
                         <MenuSeparator />

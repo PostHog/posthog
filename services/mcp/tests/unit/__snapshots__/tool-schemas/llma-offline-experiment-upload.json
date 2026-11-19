@@ -72,6 +72,18 @@
                         "description": "Caller-generated UUID for one input/output execution. Reuse for exact retries.",
                         "type": "string"
                     },
+                    "model_version": {
+                        "anyOf": [
+                            {
+                                "maxLength": 255,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Model used for this item. Omitted or null values inherit the experiment's model."
+                    },
                     "payload": {
                         "additionalProperties": false,
                         "description": "Optional input/output payload, up to 1 MiB and 32 JSON levels. Omission, {} and null properties differ.",
@@ -197,6 +209,10 @@
             "description": "One to 1,000 unique item/scorer-version results. The entire request commits atomically.",
             "items": {
                 "properties": {
+                    "calculate": {
+                        "description": "Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include all pinned input results in this request, or use credentials with evaluation:read and llm_analytics:read to reuse stored inputs. Project secret keys must include all inputs in the request. For reported scorers, omit this flag or set false and supply the result.",
+                        "type": "boolean"
+                    },
                     "error_code": {
                         "anyOf": [
                             {
@@ -284,6 +300,7 @@
                         "type": "string"
                     },
                     "status": {
+                        "default": "ok",
                         "description": "Outcome of this scorer execution.\n\n* `ok` - OK\n* `error` - Error\n* `skipped` - Skipped\n* `not_applicable` - Not applicable",
                         "enum": ["ok", "error", "skipped", "not_applicable"],
                         "type": "string"
@@ -308,10 +325,10 @@
                                 "type": "null"
                             }
                         ],
-                        "description": "Required for ok: finite number, boolean, or distinct category keys matching the scorer version."
+                        "description": "Required for an ok reported result: finite number, boolean, or distinct category keys matching the scorer version. Omit when calculate is true."
                     }
                 },
-                "required": ["item_id", "scorer_version_id", "status"],
+                "required": ["item_id", "scorer_version_id"],
                 "type": "object"
             },
             "maxItems": 1000,

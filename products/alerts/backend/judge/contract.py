@@ -22,15 +22,37 @@ if TYPE_CHECKING:
 
 AnomalyKind = Literal["spike", "drop", "flatline", "trend_break", "level_shift", "pattern_change", "none"]
 
-DEFAULT_CONFIDENCE_THRESHOLD = 0.7
-
-# Enough history for the model to see a weekly shape at any cadence, while bounding
-# what one check can send. Caps the configured window.
+# Bounds what one check can send, whatever lookback the interval asks for.
 MAX_PROMPT_POINTS = 400
 
 # Bound on model calls in flight per process. The evaluate activity runs AI checks on a
 # dedicated executor of this size, so a check there never waits on the judge's own slot.
 MAX_CONCURRENT_MODEL_CALLS = 8
+
+
+# What the alert's owner reads on a check the judge could not reach a verdict for. The raw
+# transport error can carry an internal detail, so the check history and the error email show
+# this instead, and the code is what lets it past the serializer's allowlist. The wording names
+# the outcome and not a cause: the same error also covers a rollout lookup that returned nothing,
+# a worker with no free model-call slot, and a model reply the judge could not read.
+LLM_DETECTOR_UNAVAILABLE_ERROR_CODE = "llm_detector_unavailable"
+LLM_DETECTOR_UNAVAILABLE_MESSAGE = (
+    "The AI detector could not complete this check. The alert is still on and the next check tries again."
+)
+
+
+# Lets a paused check's owner-facing message past the serializer's allowlist.
+LLM_DETECTOR_PAUSED_ERROR_CODE = "llm_detector_paused"
+
+# The forecast detector's errors. Each code names one outcome, and its message is written for the
+# alert's owner, so the raw gateway error never reaches the check history or the error email.
+FORECAST_DETECTOR_UNAVAILABLE_ERROR_CODE = "forecast_detector_unavailable"
+FORECAST_DETECTOR_UNAVAILABLE_MESSAGE = (
+    "The forecast detector could not complete this check. The alert is still on and the next check tries again."
+)
+FORECAST_DETECTOR_PAUSED_ERROR_CODE = "forecast_detector_paused"
+FORECAST_DETECTOR_REJECTED_ERROR_CODE = "forecast_detector_rejected"
+FORECAST_DETECTOR_NOT_CONFIGURED_ERROR_CODE = "forecast_detector_not_configured"
 
 
 class LLMDetectorError(Exception):
@@ -43,25 +65,90 @@ class LLMDetectorError(Exception):
 
 
 class LLMDetectorUnavailableError(LLMDetectorError):
-    """A transport failure, timeout, or unusable model output. Worth retrying."""
+    """A transport failure, timeout, or unusable model output. Worth retrying.
+
+    Once the retries run out, the check records ``owner_message`` under ``error_code``, because
+    the raw error is not written for the alert's owner.
+    """
+
+    error_code = LLM_DETECTOR_UNAVAILABLE_ERROR_CODE
+    owner_message = LLM_DETECTOR_UNAVAILABLE_MESSAGE
 
 
 class LLMDetectorMisconfiguredError(LLMDetectorError):
     """The judge cannot run as configured, so retrying cannot help.
 
-    The creator is missing, AI data processing consent is withdrawn, or the rollout is disabled.
+    The creator is missing, so a person must recreate the alert, and the alert is disabled.
     """
 
 
-# What the alert's owner reads on a check the judge could not reach a verdict for. The raw
-# transport error can carry an internal detail, so the check history and the error email show
-# this instead, and the code is what lets it past the serializer's allowlist. The wording names
-# the outcome and not a cause: the same error also covers a rollout lookup that returned nothing,
-# a worker with no free model-call slot, and a model reply the judge could not read.
-LLM_DETECTOR_UNAVAILABLE_ERROR_CODE = "llm_detector_unavailable"
-LLM_DETECTOR_UNAVAILABLE_MESSAGE = (
-    "The AI detector could not complete this check. The alert is still on and the next check tries again."
+class LLMDetectorPausedError(LLMDetectorError):
+    """The judge will not call the model now, but the alert is still configured correctly.
+
+    The rollout is off for the creator, AI data processing consent is withdrawn, or the
+    organization has no AI credits left. Retrying cannot help until that changes. Disabling the
+    alert would make its owner turn it on again by hand, so the check errors and the alert stays on.
+    The message is written for the alert's owner, and the check records it under ``error_code``.
+    """
+
+    error_code = LLM_DETECTOR_PAUSED_ERROR_CODE
+
+
+class ForecastDetectorUnavailableError(LLMDetectorUnavailableError):
+    """The forecast gateway was not reached, timed out, failed, or answered with a body it could not read."""
+
+    error_code = FORECAST_DETECTOR_UNAVAILABLE_ERROR_CODE
+    owner_message = FORECAST_DETECTOR_UNAVAILABLE_MESSAGE
+
+
+class ForecastDetectorMisconfiguredError(LLMDetectorMisconfiguredError):
+    """The forecast detector has no creator to check the rollout for."""
+
+
+class ForecastDetectorPausedError(LLMDetectorPausedError):
+    """The rollout is off for the creator, or the gateway refused the project with a 402 or 403."""
+
+    error_code = FORECAST_DETECTOR_PAUSED_ERROR_CODE
+
+
+class ForecastDetectorRejectedError(LLMDetectorPausedError):
+    """The gateway refused the request for a reason that a retry of the same request cannot fix."""
+
+    error_code = FORECAST_DETECTOR_REJECTED_ERROR_CODE
+
+
+class ForecastDetectorNotConfiguredError(LLMDetectorPausedError):
+    """This deployment has no usable forecast gateway, so no call was made."""
+
+    error_code = FORECAST_DETECTOR_NOT_CONFIGURED_ERROR_CODE
+
+
+# Every unavailable error by class name. A check that ran out of retries knows only the name of
+# its last error, and records that class's owner message.
+UNAVAILABLE_ERRORS_BY_NAME: dict[str, type[LLMDetectorUnavailableError]] = {
+    error.__name__: error for error in (LLMDetectorUnavailableError, ForecastDetectorUnavailableError)
+}
+
+# The codes whose message the alert's owner reads as written. A paused check names a cause the owner
+# can act on. An unavailable check names no cause, so the error email adds that the owner cannot fix it.
+DETECTOR_UNAVAILABLE_ERROR_CODES = frozenset(error.error_code for error in UNAVAILABLE_ERRORS_BY_NAME.values())
+DETECTOR_PAUSED_ERROR_CODES = frozenset(
+    {
+        LLM_DETECTOR_PAUSED_ERROR_CODE,
+        FORECAST_DETECTOR_PAUSED_ERROR_CODE,
+        FORECAST_DETECTOR_REJECTED_ERROR_CODE,
+        FORECAST_DETECTOR_NOT_CONFIGURED_ERROR_CODE,
+    }
 )
+
+
+@frozen
+class EarlierFlag:
+    """A point that an earlier check of the same alert fired on, with the reason it gave."""
+
+    date: str
+    # Model output from that check. Untrusted, because it can echo series labels.
+    rationale: str
 
 
 @frozen
@@ -77,6 +164,8 @@ class SeriesContext:
     insight_name: str = ""
     # The alert author's free text describing what counts as unusual. Untrusted input.
     instructions: str = ""
+    # Points that earlier AI checks of this alert fired on. Empty for a new alert.
+    earlier_flags: tuple[EarlierFlag, ...] = ()
 
 
 @frozen
@@ -97,58 +186,34 @@ class JudgeAttribution:
 
 @frozen
 class SeriesJudgment:
-    """A judge's answer about one series, after the alert's own rules are applied.
+    """A judge's answer about the latest point of one series.
 
-    ``fires`` is the alert-level outcome: the model's verdict gated by the configured
-    confidence and, for a live check, by whether the latest point was the one flagged.
-    ``score`` is folded into the anomaly direction (``confidence`` for an anomaly,
-    ``1 - confidence`` for an all-clear) so the threshold gate and the history chart read
-    every detector on one scale; the raw verdict rides along because that fold cannot say
-    which way the model voted.
+    ``fires`` is the model's verdict on the latest point, with the earlier points as its history.
     """
 
     fires: bool
-    verdict_is_anomaly: bool
-    # The model's confidence in whichever verdict it gave. Uncalibrated, and never a probability.
-    confidence: float
     kind: AnomalyKind
     rationale: str
     model: str
-    score: float
-    triggered_indices: tuple[int, ...]
-    all_scores: tuple[float | None, ...]
-    below_threshold: bool = False
-    latest_point_not_flagged: bool = False
 
     def persisted_metadata(self) -> dict[str, Any]:
-        """The slice of the judgment worth keeping on the check for a person to read later."""
-        metadata: dict[str, Any] = {
-            "rationale": self.rationale,
-            "kind": self.kind,
-            "verdict_is_anomaly": self.verdict_is_anomaly,
-            "confidence": self.confidence,
-        }
-        if self.latest_point_not_flagged:
-            metadata["latest_point_not_flagged"] = True
-        return metadata
+        """The slice of the judgment worth keeping on the check for a person to read later.
+
+        The model is kept because an alert's model can change, and the history shows which one made each verdict.
+        """
+        return {"rationale": self.rationale, "kind": self.kind, "model": self.model}
 
 
 class SeriesJudge(Protocol):
     """A judge scores a series it understands, at a cost, on someone's behalf.
 
-    Either method returns None when the series is too short to judge, in which case no
-    call was made. A failure to reach a verdict raises ``LLMDetectorError``; a judge never
-    reports "no anomaly" because it could not ask.
+    It returns None when the series is too short to judge, in which case no call was made.
+    A failure to reach a verdict raises ``LLMDetectorError``; a judge never reports "no
+    anomaly" because it could not ask.
     """
 
     def judge_latest(
         self, data: np.ndarray, *, series: SeriesContext, attribution: JudgeAttribution
     ) -> SeriesJudgment | None:
         """Judge whether the final point is anomalous, with the rest as its history."""
-        ...
-
-    def judge_every_point(
-        self, data: np.ndarray, *, series: SeriesContext, attribution: JudgeAttribution
-    ) -> SeriesJudgment | None:
-        """Judge every point against the points before it, for a preview over history."""
         ...

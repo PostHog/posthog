@@ -20,21 +20,24 @@ describe("resolveGatewayAuth", () => {
     expect(auth).toEqual({
       baseUrl: getLlmGatewayUrl("us"),
       apiKey: "pha_static",
+      headers: {},
     });
   });
 
-  it("uses an explicit gateway override", async () => {
+  it("uses an explicit gateway override and carries its attribution headers", async () => {
     const auth = await resolveGatewayAuth(
       {
         region: "us",
         apiKey: "proxy-key",
         baseUrl: "http://127.0.0.1:1234",
+        headers: { "X-PostHog-Task-Run-Id": "run-1" },
       },
       fakeCtx(undefined),
     );
     expect(auth).toEqual({
       baseUrl: "http://127.0.0.1:1234",
       apiKey: "proxy-key",
+      headers: { "X-PostHog-Task-Run-Id": "run-1" },
     });
   });
 
@@ -46,6 +49,7 @@ describe("resolveGatewayAuth", () => {
     expect(auth).toEqual({
       baseUrl: getLlmGatewayUrl("eu"),
       apiKey: "pha_from_registry",
+      headers: {},
     });
   });
 
@@ -73,6 +77,7 @@ describe("tryResolveGatewayAuth", () => {
     expect(auth).toEqual({
       baseUrl: getLlmGatewayUrl("us"),
       apiKey: "pha_static",
+      headers: {},
     });
   });
 });

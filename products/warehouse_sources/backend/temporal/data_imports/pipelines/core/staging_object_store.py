@@ -48,6 +48,15 @@ def is_object_store_configuration_error(error: BaseException) -> bool:
     return isinstance(error, OSError) and any(needle in str(error) for needle in PERMANENT_OBJECT_STORE_ERRORS)
 
 
+def is_transient_staged_error(error: BaseException) -> bool:
+    """True when a staged-file operation failed on an object-store blip that a fresh attempt clears."""
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
+        is_transient_object_store_error,
+    )
+
+    return not is_object_store_configuration_error(error) and is_transient_object_store_error(error)
+
+
 async def _aretry_staged_operation(
     operation: Callable[[], Coroutine[Any, Any, T]], *, verb: str, path: str, logger: FilteringBoundLogger
 ) -> T:
@@ -103,3 +112,15 @@ async def aretry_staged_read(
     and produces no rows, so a retried open can't duplicate anything a prior attempt already sent.
     """
     return await _aretry_staged_operation(operation, verb="open", path=path, logger=logger)
+
+
+async def aretry_staged_delete(
+    operation: Callable[[], Coroutine[Any, Any, None]], *, path: str, logger: FilteringBoundLogger
+) -> None:
+    """Delete one staged file, retrying a transient object-store failure with backoff.
+
+    Pass a zero-arg callable that produces the awaitable, not the awaitable itself, so a retry can
+    reissue the delete. Safe to retry: DeleteObject is idempotent, and a staged file is only ever
+    deleted after it has already been fully consumed.
+    """
+    await _aretry_staged_operation(operation, verb="delete", path=path, logger=logger)

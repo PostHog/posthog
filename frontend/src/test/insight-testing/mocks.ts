@@ -95,7 +95,6 @@ function buildTrendsResponse(series: SeriesData[], opts: { formulaLabels?: strin
                 templateRows.map((s) => {
                     const data = s.data.map((v) => v * (formulaIdx + 1))
                     return {
-                        action: null,
                         order: formulaIdx,
                         label,
                         count: data.reduce((a, b) => a + b, 0),
@@ -113,21 +112,10 @@ function buildTrendsResponse(series: SeriesData[], opts: { formulaLabels?: strin
     }
     return {
         results: series.map((s, i) => {
-            // Breakdown/compare rows carry their parent series' identity (event name and
-            // order), like the real runner. Plain rows keep their own label as the entity
-            // name so fixtures can model several distinct series under one canned event.
+            // Breakdown/compare rows carry their parent series' order, like the real runner.
             const isChildRow = s.compare || s.breakdown_value != null
             const seriesOrder = isChildRow ? (s.seriesIndex ?? 0) : i
-            const entityName = (isChildRow ? s.eventName : undefined) ?? s.label
             return {
-                action: isFormula
-                    ? null
-                    : {
-                          id: `$${entityName.toLowerCase().replace(/\s+/g, '_')}`,
-                          type: 'events',
-                          name: entityName,
-                          order: seriesOrder,
-                      },
                 order: isFormula ? 0 : seriesOrder,
                 label: s.label,
                 count: s.data.reduce((a, b) => a + b, 0),
@@ -150,17 +138,11 @@ function buildStickinessResponse(series: SeriesData[]): TrendsQueryResponse {
     return {
         results: series.map((s, i) => {
             const buckets = s.data.length
-            // Compare current/previous and breakdown rows share their series' identity, mirroring the real runner.
+            // Compare current/previous and breakdown rows share their series' order, mirroring the real runner.
             const isChildRow = s.compare || s.breakdown_value != null
             const seriesOrder = isChildRow ? (s.seriesIndex ?? 0) : i
-            const entityName = (isChildRow ? s.eventName : undefined) ?? s.label
             return {
-                action: {
-                    id: `$${entityName.toLowerCase().replace(/\s+/g, '_')}`,
-                    type: 'events',
-                    name: entityName,
-                    order: seriesOrder,
-                },
+                order: seriesOrder,
                 label: s.label,
                 count: s.data.reduce((a, b) => a + b, 0),
                 aggregated_value: s.data.reduce((a, b) => a + b, 0),
@@ -236,10 +218,10 @@ function resolveSeriesData(query: QueryBody): SeriesData[] {
         if (isCompare) {
             const compareSeries = lookupCompareSeries(eventName)
             if (compareSeries) {
-                return compareSeries.map((row) => ({ ...row, seriesIndex, eventName }))
+                return compareSeries.map((row) => ({ ...row, seriesIndex }))
             }
         }
-        return lookupSeries(eventName, breakdownProp ?? undefined).map((row) => ({ ...row, seriesIndex, eventName }))
+        return lookupSeries(eventName, breakdownProp ?? undefined).map((row) => ({ ...row, seriesIndex }))
     })
 }
 

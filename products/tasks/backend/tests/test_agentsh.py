@@ -1,5 +1,7 @@
 import os
+import re
 import shlex
+import base64
 import logging
 import tempfile
 import subprocess
@@ -26,7 +28,7 @@ from products.tasks.backend.logic.services.agentsh import (
 )
 
 
-class TestGenerateConfigYaml(TestCase):
+class TestGenerateConfigYaml(SimpleTestCase):
     def test_has_ptrace_enabled_with_full_trace(self):
         config = yaml.safe_load(generate_config_yaml())
         self.assertTrue(config["sandbox"]["ptrace"]["enabled"])
@@ -402,6 +404,7 @@ class TestEnvWrapper(SimpleTestCase):
             wrapper_file = Path(temp_dir) / "wrapper.sh"
             env_file.write_bytes(
                 b"SAFE_BASE=kept\x00NODE_OPTIONS=--require=/tmp/payload.js\x00GITHUB_TOKEN=ghs_snapshot\x00"
+                b"JWT_PUBLIC_KEY=-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\x00"
             )
             github_env_file.write_bytes(b"GITHUB_TOKEN=ghs_fresh\x00GH_TOKEN=ghs_fresh\x00IGNORED=unsafe\x00")
             oauth_env_file.write_bytes(b"POSTHOG_PERSONAL_API_KEY=oauth_fresh\x00IGNORED=unsafe\x00")
@@ -413,8 +416,8 @@ class TestEnvWrapper(SimpleTestCase):
                     str(wrapper_file),
                     "bash",
                     "-c",
-                    'printf "%s|%s|%s|%s|%s" "$SAFE_BASE" "$GH_TOKEN" "$GITHUB_TOKEN" '
-                    '"$POSTHOG_PERSONAL_API_KEY" "${NODE_OPTIONS:-}"',
+                    'printf "%s|%s|%s|%s|%s|%s" "$SAFE_BASE" "$GH_TOKEN" "$GITHUB_TOKEN" '
+                    '"$POSTHOG_PERSONAL_API_KEY" "${NODE_OPTIONS:-}" "$JWT_PUBLIC_KEY"',
                 ],
                 check=True,
                 capture_output=True,
@@ -422,7 +425,10 @@ class TestEnvWrapper(SimpleTestCase):
                 env={"PATH": os.environ["PATH"], "NODE_OPTIONS": "--require=/tmp/inherited.js"},
             )
 
-            self.assertEqual(result.stdout, "kept|ghs_fresh|ghs_fresh|oauth_fresh|")
+            self.assertEqual(
+                result.stdout,
+                "kept|ghs_fresh|ghs_fresh|oauth_fresh||-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----",
+            )
 
     def test_wrapper_does_not_set_proxy_vars(self):
         wrapper = generate_env_wrapper()
@@ -525,7 +531,7 @@ class TestBashEnvScript(SimpleTestCase):
             self.assertNotEqual(result.returncode, 0)
 
 
-class TestBuildAuditQueryCommand(TestCase):
+class TestBuildAuditQueryCommand(SimpleTestCase):
     def test_references_audit_db(self):
         cmd = build_audit_query_command()
         self.assertIn(AGENTSH_AUDIT_DB, cmd)
@@ -545,7 +551,7 @@ class TestBuildAuditQueryCommand(TestCase):
         self.assertTrue(any(part.startswith("SELECT ts_unix_ns") for part in parts))
 
 
-class TestBuildExecPrefix(TestCase):
+class TestBuildExecPrefix(SimpleTestCase):
     def test_returns_correct_format(self):
         self.assertEqual(
             build_exec_prefix(),
@@ -636,16 +642,21 @@ class TestModalSandboxAgentShWrapping(TestCase):
         )
 
         def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
+            encoded_script = re.search(r"printf %s ([A-Za-z0-9+/=]+) \| base64 -d", command)
+            if encoded_script:
+                command = base64.b64decode(encoded_script.group(1)).decode()
             if "--taskId" in command:
                 launched.append(command)
+                return ExecutionResult(stdout="", stderr="", exit_code=0)
+            if AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX in command:
+                return ExecutionResult(stdout=markers, stderr="", exit_code=0)
+            if ENV_DISABLE_BUNDLED_SKILLS in command:
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
             if "chmod" in command:  # gh shim install
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
             if command.startswith("bash /tmp/posthog-launch-preparation-"):
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
-            self.assertIn(ENV_DISABLE_BUNDLED_SKILLS, command)
-            self.assertIn("grep -q autoPublish", command)
-            return ExecutionResult(stdout=markers, stderr="", exit_code=0)
+            raise AssertionError(f"Unexpected sandbox command: {command}")
 
         sandbox: ModalSandbox | DockerSandbox
         if provider == "modal":

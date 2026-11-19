@@ -1,6 +1,9 @@
 from typing import Any, cast
 
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import (
+    ObjectDoesNotExist,
+    ValidationError as DjangoValidationError,
+)
 from django.db.models import Q
 
 from rest_framework import exceptions, serializers, status, viewsets
@@ -24,6 +27,11 @@ from posthog.models.resource_transfer.types import ResourceTransferKey
 from posthog.models.resource_transfer.visitors import ResourceTransferVisitor
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.querysets import can_filter_queryset, filter_queryset
+from products.authorization.backend.presentation.resources import resource_for_object
 
 
 class ResourceTransferRequestSerializer(serializers.Serializer):
@@ -112,11 +120,12 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     try:
                         dest_model = cast(Any, dest_visitor.get_model())
                         dest_resource = dest_model.objects.get(pk=dest_pk)
-                        entry["suggested_substitution"] = {
-                            "resource_kind": dest_kind,
-                            "resource_id": str(dest_pk),
-                            "display_name": dest_visitor.get_display_name(dest_resource),
-                        }
+                        if _can_view_destination_object(dest_resource, destination_team, Subject(user_id=user.pk)):
+                            entry["suggested_substitution"] = {
+                                "resource_kind": dest_kind,
+                                "resource_id": str(dest_pk),
+                                "display_name": dest_visitor.get_display_name(dest_resource),
+                            }
                     except ObjectDoesNotExist:
                         pass
 
@@ -145,14 +154,14 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise exceptions.ValidationError(str(e))
         dag = dag_sort_duplication_graph(graph)
 
-        self._check_access_controls(user, source_team, destination_team, dag)
-
         for sub in data["substitutions"]:
             if sub["source_resource_kind"] != sub["destination_resource_kind"]:
                 raise exceptions.ValidationError(
                     f"Substitution kind mismatch: cannot substitute {sub['source_resource_kind']} "
                     f"with {sub['destination_resource_kind']}"
                 )
+
+        self._check_access_controls(user, source_team, destination_team, dag, data["substitutions"])
 
         substitution_pairs: list[tuple[ResourceTransferKey, ResourceTransferKey]] = [
             (
@@ -230,14 +239,24 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         model = visitor.get_model()
 
+        qs = cast(Any, model).objects.filter(team=team)
+
         resource_type = model_to_resource(model)
         if resource_type is not None:
-            ac = UserAccessControl(user=user, team=team)
-            if not ac.check_access_level_for_resource(resource_type, required_level="viewer"):
+            resource = Resource(type=ResourceType(resource_type), project_id=team.pk)
+            subject = Subject(user_id=user.pk)
+            if not authorization.check(resource=resource, action=Action.VIEW, subject=subject):
                 raise exceptions.PermissionDenied(
                     f"You do not have read access to {visitor.kind} resources in this project"
                 )
-        qs = cast(Any, model).objects.filter(team=team)
+            # Org admins have implicit access to these resource types, as on the list endpoints
+            include_all_if_admin = resource_type in ("project", "dashboard", "feature_flag")
+            if can_filter_queryset(model):
+                qs = filter_queryset(qs, resource=resource, subject=subject, include_all_if_admin=include_all_if_admin)
+            else:
+                qs = UserAccessControl(user=user, team=team).filter_queryset_by_access_level(
+                    qs, include_all_if_admin=include_all_if_admin, resource=resource_type
+                )
 
         query = data.get("q", "").strip()
         if query:
@@ -265,8 +284,11 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except Team.DoesNotExist:
             raise exceptions.ValidationError(f"Team {team_id} not found in this organization")
 
-        uac = UserAccessControl(user=cast(User, self.request.user), team=team)
-        if not uac.check_access_level_for_object(team, required_level="member"):
+        if not authorization.check(
+            resource=Resource.project(team.pk),
+            action=Action.VIEW,
+            subject=Subject(user_id=cast(User, self.request.user).pk),
+        ):
             raise exceptions.PermissionDenied("You don't have access to this project.")
 
         return team
@@ -291,14 +313,15 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         source_team: Team,
         destination_team: Team,
         dag: tuple[ResourceTransferVertex, ...],
+        substitutions: list[dict[str, Any]] | None = None,
     ) -> None:
         """
         Walk the DAG and verify the user has read access on every resource in the
         source team and write access for every mutable resource type in the
-        destination team.
+        destination team. Also verify read access on every existing destination
+        resource named as a substitution.
         """
-        source_ac = UserAccessControl(user=user, team=source_team)
-        dest_ac = UserAccessControl(user=user, team=destination_team)
+        subject = Subject(user_id=user.pk)
 
         dest_resource_types_checked: set[str] = set()
 
@@ -311,17 +334,53 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             if resource_type is None:
                 continue
 
-            if not source_ac.check_access_level_for_object(vertex.source_resource, required_level="viewer"):
+            if not authorization.check(
+                resource=resource_for_object(vertex.source_resource, team=source_team),
+                action=Action.VIEW,
+                subject=subject,
+            ):
                 raise exceptions.PermissionDenied(
                     f"You do not have read access to {visitor.kind} {vertex.primary_key} in the source project"
                 )
 
             if resource_type not in dest_resource_types_checked:
-                if not dest_ac.check_access_level_for_resource(resource_type, required_level="editor"):
+                if not authorization.check(
+                    resource=Resource(type=ResourceType(resource_type), project_id=destination_team.pk),
+                    action=Action.EDIT,
+                    subject=subject,
+                ):
                     raise exceptions.PermissionDenied(
                         f"You do not have write access to {visitor.kind} resources in the destination project"
                     )
                 dest_resource_types_checked.add(resource_type)
+
+        for sub in substitutions or []:
+            dest_visitor = ResourceTransferVisitor.get_visitor(sub["destination_resource_kind"])
+            if dest_visitor is None:
+                continue
+            try:
+                dest_resource = (
+                    cast(Any, dest_visitor.get_model()).objects.filter(pk=sub["destination_resource_id"]).first()
+                )
+            except (ValueError, TypeError, DjangoValidationError):
+                raise exceptions.ValidationError(f"Invalid {dest_visitor.kind} id: {sub['destination_resource_id']}")
+            # duplicate_resource_to_new_team rejects a missing or foreign substitution with a 400
+            if dest_resource is None or dest_visitor.get_resource_team(dest_resource).pk != destination_team.pk:
+                continue
+            if not _can_view_destination_object(dest_resource, destination_team, subject):
+                raise exceptions.PermissionDenied(
+                    f"You do not have read access to {dest_visitor.kind} {sub['destination_resource_id']} "
+                    "in the destination project"
+                )
+
+
+def _can_view_destination_object(resource: Any, destination_team: Team, subject: Subject) -> bool:
+    # A model without an access control resource, such as a dashboard tile, has no rules to deny it.
+    if model_to_resource(resource) is None:
+        return True
+    return authorization.check(
+        resource=resource_for_object(resource, team=destination_team), action=Action.VIEW, subject=subject
+    )
 
 
 def _is_immutable(resource: Any) -> bool:

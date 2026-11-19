@@ -4,7 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from hogli_commands.product.maturity import _count_tach_depends_on, score_facade
+from hogli_commands.product.isolation import FacadeClassImport, IsolationStatus, UnapprovedWiringClass
+from hogli_commands.product.maturity import _count_tach_depends_on, _isolated_tests_state, _seal_token, score_facade
+from hogli_commands.product.wiring_interfaces import WiringVerdict
 
 
 class TestCountTachDependsOn:
@@ -42,3 +44,46 @@ class TestScoreFacade:
         (presentation / "views.py").write_text("from products.demo.backend.facade import api\n")
 
         assert score_facade(tmp_path).score == 100
+
+
+class TestSealState:
+    @pytest.mark.parametrize(
+        "facade_leaks, unapproved_wiring, skip_withheld_reason, expected_token, expected_state",
+        [
+            ((), (), None, "ready", "READY"),
+            ((FacadeClassImport("models.py", "Thing", "backend/models.py"),), (), None, "cls:1", "BLOCKED"),
+            (
+                (),
+                (UnapprovedWiringClass("tasks.py", "Job", "backend/tasks.py", WiringVerdict.UNAPPROVED),),
+                None,
+                "cls:1",
+                "BLOCKED",
+            ),
+            ((), (), "core enforces its decisions", "held", "WITHHELD"),
+        ],
+        ids=["clean_facade", "facade_hands_out_model", "unapproved_wiring_class", "skip_withheld_by_decision"],
+    )
+    def test_sealed_product_is_ready_only_without_blocking_classes(
+        self,
+        facade_leaks: tuple[FacadeClassImport, ...],
+        unapproved_wiring: tuple[UnapprovedWiringClass, ...],
+        skip_withheld_reason: str | None,
+        expected_token: str,
+        expected_state: str,
+    ) -> None:
+        status = IsolationStatus(
+            name="demo",
+            has_facade_contracts=True,
+            has_real_facade=True,
+            has_tach_interface=True,
+            has_legacy_leaks=False,
+            bypass_entries=(),
+            has_contract_check_script=False,
+            has_narrowed_turbo=False,
+            facade_leaks=facade_leaks,
+            unapproved_wiring=unapproved_wiring,
+            skip_withheld_reason=skip_withheld_reason,
+        )
+
+        assert _seal_token(status) == expected_token
+        assert _isolated_tests_state(status)[0] == expected_state

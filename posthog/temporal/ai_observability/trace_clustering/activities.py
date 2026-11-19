@@ -18,9 +18,10 @@ import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.team import Team
-from posthog.temporal.ai_observability.team_discovery import get_min_traces_override
+from posthog.temporal.ai_observability.retries import is_last_attempt
 from posthog.temporal.ai_observability.trace_clustering import constants
 from posthog.temporal.ai_observability.trace_clustering.clustering import (
     calculate_distances_to_cluster_means,
@@ -48,7 +49,10 @@ from posthog.temporal.ai_observability.trace_clustering.models import (
     GenerateLabelsActivityOutputs,
     TraceSummary,
 )
+from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.temporal.common.heartbeat import Heartbeater
+
+from products.ai_observability.backend.facade.clustering_runtime import require_current_job
 
 logger = structlog.get_logger(__name__)
 
@@ -74,8 +78,26 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         base_run_id = f"{base_run_id}_{inputs.job_id}"
     clustering_run_id = f"{base_run_id}_{inputs.run_label}" if inputs.run_label else base_run_id
 
-    team = Team.objects.get(id=inputs.team_id)
+    # The coordinator can run a team after it is deleted, so skip the run instead of failing it.
+    try:
+        team = Team.objects.get(
+            id=inputs.team_id, clustering_config__enabled=True, organization__is_ai_data_processing_approved=True
+        )
+    except Team.DoesNotExist:
+        logger.info("Team not eligible for clustering, skipping run", team_id=inputs.team_id)
+        return ClusteringComputeResult(
+            clustering_run_id=clustering_run_id,
+            items=[],
+            labels=[],
+            centroids=[],
+            distances=[],
+            coords_2d=[],
+            centroid_coords_2d=[],
+            probabilities=[],
+            analysis_level=inputs.analysis_level,
+        )
 
+    job_scope = require_current_job(inputs.team_id, inputs.job_id, inputs.job_scope)
     item_ids, embeddings_map, batch_run_ids_map = fetch_item_embeddings_for_clustering(
         team=team,
         window_start=window_start,
@@ -83,6 +105,7 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         max_samples=inputs.max_samples,
         analysis_level=inputs.analysis_level,
         job_id=inputs.job_id if inputs.job_id else None,
+        job_scope=job_scope,
     )
 
     logger.info(
@@ -91,9 +114,8 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         analysis_level=inputs.analysis_level,
     )
 
-    # Need enough items for UMAP (n_neighbors default=15) and meaningful clusters.
-    # A per-team override lets low-volume teams opt below the global minimum.
-    min_traces = get_min_traces_override(inputs.team_id) or constants.MIN_TRACES_FOR_CLUSTERING
+    # UMAP and HDBSCAN still need a small number of samples to produce a usable projection.
+    min_traces = constants.MIN_TRACES_FOR_CLUSTERING
     if len(item_ids) < min_traces:
         logger.warning(
             "Not enough items for clustering",
@@ -292,27 +314,36 @@ async def perform_clustering_compute_activity(inputs: ClusteringActivityInputs) 
     async with Heartbeater():
         try:
             return await asyncio.to_thread(_perform_clustering_compute, inputs)
-        except ClickHouseAtCapacity as e:
-            # The shared ClickHouse pool is saturated. Retrying immediately would only add load,
-            # so back off with jitter to give the pool room to recover before the next attempt.
+        except (ClickHouseAtCapacity, ConcurrencyLimitExceeded) as e:
+            # ClickHouse is saturated, or our own limiter holds no free slot for the query. Retrying
+            # immediately would only add load, so back off with jitter to give the pool room to recover.
             backoff = random.uniform(
-                constants.CLICKHOUSE_AT_CAPACITY_BACKOFF_MIN.total_seconds(),
-                constants.CLICKHOUSE_AT_CAPACITY_BACKOFF_MAX.total_seconds(),
+                constants.QUERY_CAPACITY_BACKOFF_MIN.total_seconds(),
+                constants.QUERY_CAPACITY_BACKOFF_MAX.total_seconds(),
             )
             logger.warning(
-                "clustering_compute_clickhouse_at_capacity",
+                "clustering_compute_query_capacity_exhausted",
                 team_id=inputs.team_id,
                 analysis_level=inputs.analysis_level,
+                error_type=type(e).__name__,
                 backoff_seconds=round(backoff, 1),
             )
-            raise ApplicationError(
-                "ClickHouse at capacity while fetching embeddings for clustering",
-                type="ClickHouseAtCapacity",
-                next_retry_delay=timedelta(seconds=backoff),
+            # The retry usually gets through, so only a saturation that outlasts every attempt reaches error tracking.
+            next_retry_delay = timedelta(seconds=backoff)
+            error_class = (
+                ApplicationError
+                if is_last_attempt(next_retry_delay=next_retry_delay)
+                else NonReportableApplicationError
+            )
+            raise error_class(
+                "No ClickHouse query capacity while fetching embeddings for clustering",
+                type=type(e).__name__,
+                next_retry_delay=next_retry_delay,
             ) from e
 
 
 def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLabelsActivityOutputs:
+    require_current_job(inputs.team_id, inputs.clustering_job_id, inputs.job_scope)
     """LLM labeling implementation called by the activity.
 
     Uses a LangGraph agent that can iteratively explore cluster structure
@@ -361,6 +392,7 @@ async def generate_cluster_labels_activity(inputs: GenerateLabelsActivityInputs)
 
 
 def _emit_cluster_events(inputs: EmitEventsActivityInputs) -> ClusteringResult:
+    require_current_job(inputs.team_id, inputs.job_id, inputs.job_scope)
     """Event emission implementation called by the activity."""
     clusters = emit_cluster_events(
         team_id=inputs.team_id,

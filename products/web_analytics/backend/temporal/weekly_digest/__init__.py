@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from products.web_analytics.backend.temporal.weekly_digest.activities import (
     get_org_batch_page,
     push_wa_digest_metrics_activity,
@@ -10,7 +12,7 @@ from products.web_analytics.backend.temporal.weekly_digest.workflows import (
 )
 
 WORKFLOWS = [WAWeeklyDigestWorkflow, WAWeeklyDigestTestWorkflow]
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     get_org_batch_page,
     run_wa_digest_batch,
     push_wa_digest_metrics_activity,

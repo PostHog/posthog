@@ -11,6 +11,7 @@ It uses terms from [backfill overview](backfill-overview.md) and [backfill coord
 The processor may still be holding tiles behind the fence, and reconcile may not have re-told downstream yet.
 A run is complete for a cohort only when **every one of the 64 processor partitions** has finished reconciling that cohort for this run.
 Each partition proves it by producing a `reconcile_complete` marker.
+A partition that cannot certify the run says so with a `reconcile_withheld` marker instead, and the seeder supersedes that cohort's participation.
 
 Completion is split three ways:
 
@@ -30,8 +31,12 @@ sequenceDiagram
     S->>M: record the marker topic's start positions
     S->>K: one reconcile request per cohort per partition
     S->>PG: record request offsets and dispatch epoch
-    P->>M: reconcile_complete (cohort, run, partition)
-    S->>M: watcher folds markers into per-cohort bitmaps
+    alt the partition can certify the run
+        P->>M: reconcile_complete (cohort, run, partition)
+    else the catalog or the partition's slice rules it out
+        P->>M: reconcile_withheld (cohort, run, partition, reason)
+    end
+    S->>M: watcher folds markers into per-cohort bitmaps, supersedes withheld cohorts
     opt a cohort is short
         S->>K: read the processor's committed seed offsets
         S->>M: capture the marker topic's ends, read up to them
@@ -90,6 +95,16 @@ When a cohort reaches 64 of 64, the watcher writes its bits to Postgres at once 
 That write records the bits only.
 The observation pass, below, decides when the participation is marked complete.
 
+A `reconcile_withheld` marker is a final answer for its cohort, so it needs no settlement proof.
+The watcher supersedes the participation, with an error naming the partition and the reason.
+The first withheld marker of a cohort decides the error.
+A withheld marker from a partition that already certified the cohort is ignored, because a later refusal cannot revoke that certificate.
+A participation that already completed or carries a readiness stamp is left alone.
+For `partial_coverage`, the error also names the instant the partition's history begins, which is the boundary a [disaster-recovery run](backfill-overview.md) needs.
+
+The supersede rides the same transaction that persists the bits and the watcher's read positions.
+A restarted watcher resumes from the persisted positions, so a verdict persisted any later would be skipped.
+
 ## Deciding the outcome
 
 When every active participation of the run has all 64 bits, the next observation pass marks them all **complete**, and no further check is needed.
@@ -101,7 +116,8 @@ It proves that in two steps.
 1. **Liveness.**
    The processor's seed consumer must have committed past every reconcile request on all 64 partitions.
    The processor produces a partition's marker, and waits for its acknowledgment, before it lets that request's offset be committed.
-   A request the processor discarded, or skipped because reconcile is disabled, is committed with no marker.
+   A request the processor withholds is committed only after its withheld marker is acknowledged, too.
+   Only a request skipped because reconcile is disabled is committed with no marker.
    So after this point every marker of the dispatch is already on the marker topic.
 2. **Read to the end.**
    The seeder records the marker topic's current end, and waits until the watcher has read that far.
@@ -115,7 +131,8 @@ Each short participation gets one of these outcomes:
 | Markers missing, and the cohort's current shape hash for this kind still equals the pinned one | Retryable shortfall: an error is recorded, and the participation stays open |
 | Markers missing, and this kind's shape hash moved or cannot be read, or the cohort is deleted  | Superseded                                                                  |
 
-Missing markers with an unchanged hash usually mean the processor discarded or skipped the request, for example because reconcile was disabled on it.
+Missing markers with an unchanged hash usually mean the processor skipped the request because reconcile was disabled on it.
+A withheld cohort is never short: its participation is superseded before the run settles, so the finalizer finishes the run without it.
 An edit that moved only the other kind's hash also leaves this kind's hash unchanged and gives a retryable shortfall.
 A composition-only edit that owes this kind a repair run is different: Django supersedes the participation when the edit commits, so the seeder never settles it.
 For a behavioral participation, that is any composition-only edit on a cohort with a hashed behavioral leaf.
@@ -161,6 +178,7 @@ UPDATE posthog_cohort
 SET <stamp> = now()
 WHERE id = <cohort> AND team_id = <team>
   AND <kind shape hash> = <hash pinned on the participation>
+  AND realtime_enabled_at <= <the run's created_at>
   AND <stamp> IS NULL
 ```
 
@@ -170,10 +188,15 @@ together with marking the participation `stamped_at` in the same transaction.
 - A composition edit moves no kind hash, so before the update the finalizer also compares the pinned filters with the current filters.
   If the edit owes a repair run of this kind, or either definition cannot be parsed, the stamp is refused and the participation superseded.
 - A participation that was ever superseded never stamps, even if the definition was later edited back to the pinned one.
+- A cohort whose realtime is off never stamps, and the participation is superseded.
+  Neither does a run created before realtime was last turned on, whose seeds can predate a time when nothing maintained the membership.
+  Turning realtime off clears the stamps under the same row lock but supersedes the cohort's runs only after it commits, and that supersede can fail, so this check is what refuses those runs.
 - If the stamp is already set and the hash still matches, the participation is ratified without changing the timestamp.
 
 Stamps are written once.
-A stamp is cleared only by a save that invalidates its kind, and only while the cohort is realtime, not static and not deleted, on an allowlisted team.
+A stamp is cleared by a save that invalidates its kind, while the cohort is realtime, not static and not deleted, on an allowlisted team.
+Turning realtime on or off clears all of the cohort's stamps, because nothing maintains the membership of a cohort that is off.
+The cohort API's edit leaves the switch and the stamps out of its save, so an edit that read the row before a stamp, a turn-on or a turn-off cannot write the old values back.
 
 Keying the stamp on the kind's own shape hash, not on the whole definition, means a person-only leaf edit does not invalidate a still-valid behavioral backfill, and the reverse.
 A structural edit can still owe both kinds a run.
@@ -193,7 +216,7 @@ Person readiness may be enabled only once every region's flags service runs that
 
 ### In Django
 
-`Cohort.is_flag_compatible` is true when the cohort is realtime and **every** stamp its filters need is set, and they need at least one:
+`Cohort.is_flag_compatible` is true when the cohort is realtime, realtime is on for it, and **every** stamp its filters need is set, and they need at least one:
 
 - a behavioral leaf needs the events stamp,
 - a person leaf needs the person stamp,
@@ -201,18 +224,29 @@ Person readiness may be enabled only once every region's flags service runs that
 
 A `person_metadata` leaf makes a cohort non-realtime in the first place, so such a cohort is never compatible.
 A cohort made only of references needs no stamp, so it is never compatible either.
+On a team whose access row is at `processing` or `off` and that is not on `REALTIME_COHORT_TEAM_ALLOWLIST`, no stamp counts, even one from before the grant, so its cohorts are never compatible.
+A team with no row and not on the env list still counts the stamps it had before the levels existed, and `realtime_cohort_team_access enable` clears them before it grants the team.
 
-The flag API accepts a cohort with event-based criteria, or one that depends on such a cohort, only when the realtime targeting rollout flag is on for the user and every such cohort is flag-compatible.
-The same rollout flag lets the flag editor's cohort picker list these cohorts.
+The realtime cohorts gate (`is_realtime_cohort_flag_targeting_enabled`) is open for a team whose access row is `serving`, and for a team on `REALTIME_COHORT_TEAM_ALLOWLIST` when the realtime targeting rollout flag is on for the user.
+That list also holds load-test teams, which is why the flag still decides there.
+The flag API accepts a cohort with event-based criteria, or one that depends on such a cohort, only when the gate is open and every such cohort is flag-compatible.
+The same gate lets the flag editor's cohort picker list these cohorts, and the team's `realtime_cohorts` field tells the frontend about it.
+Under each condition set, the flag editor lists the cohorts the set targets that flags can't target yet, and turns realtime on for an `off` one through the cohort API's `realtime` action, the same action the cohort page calls.
+For a team inside the gate, that field also carries how many of the project's cohorts hold a slot and the plan's slot limit, and it carries nulls for every other team.
 
-Behind the same rollout flag, for allowlisted teams, the cohort API's `realtime` field reports one state per cohort that has event or person criteria: `static`, `person_properties`, `daily`, `building`, `rebuilding`, `ready`, or `needs_attention`.
+Behind the same gate, for teams at the `serving` level, the cohort API's `realtime` field reports one state per cohort that has event or person criteria: `static`, `person_properties`, `daily`, `off`, `building`, `rebuilding`, `ready`, or `needs_attention`.
+`off` is a cohort with event criteria that could be realtime and that nobody turned realtime on for.
+An `off` cohort whose criteria look back further than the [plan's history limit](definitions-and-eligibility.md#plan-limits) carries `reason: history_over_limit`, because it can't be turned on.
+A `daily` cohort whose criteria look back further than `REALTIME_COHORT_MAX_HISTORY_DAYS` carries it too.
+Both carry the plan's limit in `history_limit_days`, because that is the limit a person can raise.
+A `needs_attention` cohort carries `reason: too_large_to_build` when the save path refused its behavioral run on the scan limit, see [backfill coordination](backfill-coordination.md#when-things-go-wrong).
 
 ### In the feature flags service
 
 The Rust flags service reads cohorts from the flags cache, or from Postgres through a short-lived cache when the flags cache has none.
 It routes a cohort to the membership table when all of these hold:
 
-- the team is in `REALTIME_COHORT_EVALUATION_TEAM_IDS`,
+- the team is in `REALTIME_COHORT_EVALUATION_TEAM_IDS`, or its team access row is at `serving`,
 - the cohort's type is `realtime`, or the legacy `behavioral` type,
 - its `condition_type` marks a behavioral or lifecycle condition,
 - its stamps satisfy the configured stamp policy.
@@ -238,6 +272,7 @@ And Django can accept a flag that Rust then evaluates dynamically, for example w
 - **It does not mean complete history.**
   A person stamp covers persons updated since the run's horizon.
   A behavioral stamp covers history only up to the seeder's lookback cap.
+  Django keeps a cohort that looks back further off realtime when its criteria are saved, unless `REALTIME_COHORT_MAX_HISTORY_DAYS` is set above that cap.
 - **It does not cover leaving the realtime set.**
   The finalizer does not check whether the cohort was deleted, made static or stopped being realtime while the run was in flight.
 

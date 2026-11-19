@@ -15,6 +15,7 @@ import type { SignalPreviewApi, SignalViewApi } from 'products/today/frontend/ge
 import { TodaySignalDestination, previewOpen, shownPreview, signalDestination } from './todayEvidence'
 import { TodayEvidenceDetail } from './TodayEvidenceDetail'
 import { TodayIcon } from './TodayIcon'
+import { TodayMarkedText } from './TodayMarkedText'
 import { shortDate } from './todayProse'
 import { todayReportLogic } from './todayReportLogic'
 import { sourceStyle } from './todaySignalReports'
@@ -146,7 +147,13 @@ export function TodayReportSignalRow({ reportId, signal }: { reportId: string; s
             >
                 <ItemContent className="min-w-0">
                     <ItemTitle className={cn('font-normal text-foreground', !expanded && 'line-clamp-2')}>
-                        {expanded ? signal.lead : signal.headline}
+                        <TodayMarkedText
+                            markdown={expanded ? signal.lead : signal.headline}
+                            marked={[]}
+                            keyClauses={[]}
+                            reportId={reportId}
+                            plainLinks
+                        />
                     </ItemTitle>
                     {phoneLayout && !expanded && <PhoneRowMeta signal={signal} sourceLabel={sourceLabel} />}
                 </ItemContent>

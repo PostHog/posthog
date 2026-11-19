@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -262,9 +263,16 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
+	addr := ":" + port
+
+	listener, err := newListener(ctx, addr)
+	if err != nil {
+		e.Logger.Fatal(err)
+	}
+	e.Listener = listener
 
 	go func() {
-		if err := e.Start(":" + port); err != nil && err != http.ErrServerClosed {
+		if err := e.Start(addr); err != nil && err != http.ErrServerClosed {
 			e.Logger.Fatal(err)
 		}
 	}()
@@ -281,6 +289,16 @@ func main() {
 		log.Printf("HTTP server shutdown error: %v", err)
 	}
 	log.Println("HTTP server stopped")
+}
+
+// newListener returns a TCP listener with Multipath TCP off. Unlike the go.mod
+// directive, this also wins over a GODEBUG, go.work or //go:debug override.
+func newListener(ctx context.Context, addr string) (net.Listener, error) {
+	var lc net.ListenConfig
+	lc.SetMultipathTCP(false)
+	// Echo set a 3 minute keep-alive on connections from its own listener.
+	lc.KeepAlive = 3 * time.Minute
+	return lc.Listen(ctx, "tcp", addr)
 }
 
 func createNotificationConsumer(

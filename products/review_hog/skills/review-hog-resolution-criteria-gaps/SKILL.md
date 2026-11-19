@@ -1,10 +1,8 @@
 ---
 name: review-hog-resolution-criteria-gaps
 description: >
-  Gaps fix profile for PostHog Review's resolution stage: the default resolution criteria, narrowed
-  to fix only real gaps. Fixes reachable should_fix and must_fix bugs and missing pieces the PR
-  needs; leaves typos, nits, wording, stale docs and style to the author as open threads. Select it
-  when the author wants the fixer to take only the important work.
+  Fixes should-fix and must-fix bugs and missing functionality. Leaves wording, documentation,
+  and style suggestions to the author.
 metadata:
   owner_team: review_hog
   skill_type: resolution_criteria

@@ -9,6 +9,7 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Team, User
 
 from products.review_hog.backend.facade.reviews import (
@@ -51,7 +52,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         body: dict[str, str] = {"pr_url": pr_url}
         if run_mode is not None:
             body["run_mode"] = run_mode
-        return self.client.post(f"/api/projects/{self.team.id}/review_hog/reviews/trigger/", body, format="json")
+        return self.client.post(f"/api/projects/{self.team.id}/code_review/reviews/trigger/", body, format="json")
 
     @time_machine.travel("2026-10-10T12:00:00Z", tick=False)
     @patch(_META, return_value=_pr_meta())
@@ -85,7 +86,9 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
                 "resolve_skip_reason": "owner_not_opted_in",
             },
         )
-        mock_access.assert_called_once_with(self.team.id, "PostHog/posthog.com")
+        mock_access.assert_called_once_with(
+            self.team.id, "PostHog/posthog.com", source="review_hog", priority=Priority.CRITICAL
+        )
         mock_start.assert_called_once_with(
             pr_url="https://github.com/PostHog/posthog.com/pull/123",
             team_id=self.team.id,
@@ -208,7 +211,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
     def test_comment_facade_gates_on_the_commented_environment_not_its_parent(self, mock_start):
         environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Environment")
         with patch(
-            "products.review_hog.backend.facade.reviews.posthog_feature_flag_enabled",
+            "products.review_hog.backend.requested_reviews.posthog_feature_flag_enabled",
             side_effect=lambda *_args, team_id, **_kwargs: team_id == self.team.id,
         ):
             outcome = request_pr_review_from_comment(
@@ -473,7 +476,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         for method, path, data in endpoints:
             with self.subTest(method=method, path=path, data=data):
                 response = getattr(self.client, method)(
-                    f"/api/projects/{self.team.id}/review_hog/{path}", data, format="json"
+                    f"/api/projects/{self.team.id}/code_review/{path}", data, format="json"
                 )
                 self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
 

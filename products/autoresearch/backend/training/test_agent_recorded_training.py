@@ -20,6 +20,7 @@ from products.autoresearch.backend.models import (
 )
 from products.autoresearch.backend.presentation.views.serializers import (
     AGENT_DESCRIPTION_MAX_LENGTH,
+    HEADLINE_MAX_LENGTH,
     ITERATION_SUMMARY_MAX_LENGTH,
     MODEL_SPEC_MAX_BYTES,
     NEXT_STEP_MAX_LENGTH,
@@ -80,6 +81,7 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
         recipe: dict[str, Any] | None = None,
         runs_url: str | None = None,
         summary: str | None = None,
+        headline: str | None = None,
     ) -> Any:
         return self.client.post(
             f"{runs_url or self.runs_url}/{run_id}/iterations/",
@@ -91,6 +93,7 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
                 "holdout_score": holdout,
                 "agent_description": "test iteration",
                 **({"summary": summary} if summary is not None else {}),
+                **({"headline": headline} if headline is not None else {}),
             },
             format="json",
         )
@@ -101,6 +104,7 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
         data = resp.json()
         assert data["status"] == "running"
         assert data["iteration_budget"] == 7
+        assert data["kickoff_reason"] == "manual"
         run = AutoresearchTrainingRun.objects.get(pk=data["id"], team_id=self.team.pk)
         assert run.pipeline.pk == self.pipeline.pk
         assert run.started_at is not None
@@ -341,6 +345,35 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
         assert listed_run["reader_summary"] == data["reader_summary"]
         assert listed_run["iterations"][0]["summary"] == "Recent visits helped."
 
+    @parameterized.expand(
+        [
+            ("stored", "Moved training cutoffs to midnight", "Moved training cutoffs to midnight"),
+            (
+                "trimmed_and_capped",
+                "  Coding-task activity\nbecame the strongest signal " + "x" * HEADLINE_MAX_LENGTH,
+                ("Coding-task activity became the strongest signal " + "x" * HEADLINE_MAX_LENGTH)[:HEADLINE_MAX_LENGTH],
+            ),
+            ("missing", None, None),
+        ]
+    )
+    def test_headline_round_trips_on_iteration_and_run(
+        self, _name: str, headline: str | None, expected: str | None
+    ) -> None:
+        run_id = self._open_run()
+        recorded = self._record(run_id, number=0, status_value="kept", holdout=0.8, headline=headline)
+        assert recorded.status_code == status.HTTP_201_CREATED, recorded.json()
+        assert recorded.json()["headline"] == expected
+        resp = self.client.post(
+            f"{self.runs_url}/{run_id}/complete/",
+            {"headline": headline} if headline is not None else {},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        assert resp.json()["headline"] == expected
+        listed_run = next(r for r in self.client.get(f"{self.runs_url}/").json()["results"] if r["id"] == run_id)
+        assert listed_run["headline"] == expected
+        assert listed_run["iterations"][0]["headline"] == expected
+
     def test_complete_that_loses_the_race_to_failure_is_refused(self):
         run_id = self._open_run()
         self._record(run_id, number=0)
@@ -393,6 +426,64 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
             role=AutoresearchModel.Role.CHAMPION,
             holdout_score=0.81,
         ).exists()
+
+    @patch("products.autoresearch.backend.training.stop.tasks_cancellation")
+    @patch("products.autoresearch.backend.training.stop.tasks_facade.get_task_run")
+    def test_stop_fails_the_run_cancels_its_sandbox_and_promotes_nothing(
+        self, get_task_run: MagicMock, cancellation: MagicMock
+    ):
+        run_id = self._open_run()
+        self._record(run_id, number=0, status_value="kept", holdout=0.81)
+        task_run_id, task_id = UUID(int=1), UUID(int=2)
+        AutoresearchTrainingRun.objects.filter(pk=run_id, team_id=self.team.pk).update(task_run_id=task_run_id)
+        AutoresearchPipeline.objects.filter(pk=self.pipeline.pk).update(
+            status=AutoresearchPipeline.Status.BOOTSTRAPPING
+        )
+        get_task_run.return_value = MagicMock(id=task_run_id, task_id=task_id)
+        cancellation.cancel_task_run.return_value = ("accepted", None)
+
+        resp = self.client.post(f"{self.runs_url}/{run_id}/stop/", format="json")
+
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        assert resp.json()["status"] == "failed"
+        cancel_args = cancellation.cancel_task_run.call_args
+        assert cancel_args.args[:3] == (task_run_id, task_id, self.team.pk)
+        assert cancel_args.kwargs["requested_by_user_id"] == self.user.pk
+        self.pipeline.refresh_from_db()
+        assert self.pipeline.status == AutoresearchPipeline.Status.DRAFT
+
+        # The agent's late complete and the cancelled TaskRun's receiver both find a closed run.
+        assert self.client.post(f"{self.runs_url}/{run_id}/complete/", {}, format="json").status_code == 400
+        handle_task_run_completed(
+            MagicMock(
+                id=task_run_id,
+                team_id=self.team.pk,
+                status=TaskRunModel.Status.CANCELLED,
+                state={"autoresearch_training_run_id": run_id},
+                error_message="Cancelled",
+            )
+        )
+        run = AutoresearchTrainingRun.objects.get(pk=run_id, team_id=self.team.pk)
+        assert run.status == AutoresearchTrainingRun.Status.FAILED
+        assert "stopped" in run.error
+        assert not AutoresearchModel.objects.filter(pipeline=self.pipeline).exists()
+
+        again = self.client.post(f"{self.runs_url}/{run_id}/stop/", format="json")
+        assert again.status_code == status.HTTP_400_BAD_REQUEST
+        assert cancellation.cancel_task_run.call_count == 1
+
+    def test_training_agent_cannot_stop_a_run(self):
+        run_id = self._open_run()
+        token = MagicMock(sandbox_task_id=None)
+        views = "products.autoresearch.backend.presentation.views.views"
+        with (
+            patch(f"{views}.is_sandbox_origin_request", return_value=True),
+            patch(f"{views}.get_oauth_access_token", return_value=token),
+        ):
+            resp = self.client.post(f"{self.runs_url}/{run_id}/stop/", format="json")
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+        run = AutoresearchTrainingRun.objects.get(pk=run_id, team_id=self.team.pk)
+        assert run.status == AutoresearchTrainingRun.Status.RUNNING
 
     def test_cross_team_isolation(self):
         other_org = Organization.objects.create(name="Other")
@@ -459,6 +550,13 @@ class TestTrainingRunHistory(TeamScopedTestMixin, APIBaseTest):
         )
         self._flag_patcher.start()
         self.addCleanup(self._flag_patcher.stop)
+        # Each completed run promotes its draft to live, and some tests promote more pipelines than the default cap.
+        limits_patcher = patch(
+            "products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload",
+            return_value={"default_team_config": {"max_live_pipelines": 10}},
+        )
+        limits_patcher.start()
+        self.addCleanup(limits_patcher.stop)
         self.pipeline = AutoresearchPipeline.objects.create(
             team=self.team, created_by=self.user, name="Main", target_event="downloaded_file", horizon_days=30
         )

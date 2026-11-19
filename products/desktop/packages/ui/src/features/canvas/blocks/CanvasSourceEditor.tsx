@@ -262,10 +262,15 @@ function handleKey(
   if (key === "Escape") {
     const drag = activeSourceDrag();
     if (drag) drag.end(false);
-    else {
-      actions.select(null);
-      postToCanvasEditor({ type: "canvas-edit-deselect" });
-    }
+    else postToCanvasEditor({ type: "canvas-edit-escape" });
+    return;
+  }
+  if (key === "Enter") {
+    prevent?.();
+    postToCanvasEditor({
+      type: "canvas-edit-enter",
+      shiftKey: data.shiftKey === true,
+    });
     return;
   }
   if (mod && key.toLowerCase() === "z") {

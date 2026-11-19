@@ -13,11 +13,13 @@ import {
     EnsembleDetectorConfig,
     EnsembleOperator,
     EnsembleSubDetectorConfig,
+    ForecastDetectorConfig,
     HBOSDetectorConfig,
     IQRDetectorConfig,
     IsolationForestDetectorConfig,
     KNNDetectorConfig,
     LLMDetectorConfig,
+    LLMDetectorModel,
     LOFDetectorConfig,
     MADDetectorConfig,
     OCSVMDetectorConfig,
@@ -29,13 +31,14 @@ import {
 
 import {
     DEFAULT_ANOMALY_DETECTION_THRESHOLD,
-    DEFAULT_LLM_DETECTION_CONFIDENCE,
-    DEFAULT_LLM_DETECTOR_WINDOW,
-    MAX_LLM_DETECTOR_WINDOW,
+    DEFAULT_LLM_DETECTOR_MODEL,
+    LLM_DETECTOR_MODEL_LABELS,
     getDefaultLLMDetectorConfig,
     getDefaultZScoreDetectorConfig,
     getDefaultWindow,
 } from '../logic/detectorConfigDefaults'
+import { getDefaultForecastDetectorConfig } from '../logic/forecastRules'
+import { ForecastConfig } from './ForecastConfig'
 
 interface DetectorSelectorProps {
     value: DetectorConfig | null
@@ -43,6 +46,8 @@ interface DetectorSelectorProps {
     calculationInterval?: AlertCalculationInterval
     /** Show the AI detector option. Off until the alerts-llm-detector flag is on for the account. */
     llmDetectorEnabled?: boolean
+    /** Show the forecast detector option. Off until the alerts-forecast-detector flag is on for the account. */
+    forecastDetectorEnabled?: boolean
     /** The insight has a breakdown. The AI detector judges one series, so it is hidden here. */
     hasBreakdown?: boolean
 }
@@ -52,7 +57,7 @@ const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }>
         value: DetectorType.LLM,
         label: 'AI judgment',
         tooltip:
-            'Shows the recent series to an AI model and asks whether anything looks wrong. Pick this when you want to watch a metric without choosing a statistical method, or when what counts as odd is easier to describe than to measure.',
+            "Shows the recent series to an AI model and asks whether anything looks wrong. Pick this when you want to watch a metric without choosing a statistical method, or when what counts as odd is easier to describe than to measure. Each check uses your organization's AI credits.",
     },
     {
         value: DetectorType.COPOD,
@@ -71,6 +76,12 @@ const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }>
         label: 'Ensemble',
         tooltip:
             'Combine multiple detectors with AND/OR logic. Use AND to reduce false alarms (all detectors must agree) or OR to catch a wider range of anomalies (any detector flags).',
+    },
+    {
+        value: DetectorType.FORECAST,
+        label: 'Forecast',
+        tooltip:
+            'Forecasts each value from the values before it, and fires when the actual value falls outside the expected range. Pick this for metrics with a trend or a weekly pattern. Set separate rules for spikes and drops.',
     },
     {
         value: DetectorType.HBOS,
@@ -139,9 +150,11 @@ const MAX_LLM_INSTRUCTIONS_CHARS = 2000
 
 const SINGLE_DETECTOR_OPTIONS = DETECTOR_OPTIONS.filter((o) => o.value !== 'ensemble')
 
-// Every check of an ensemble scores every sub-detector, so one AI sub-detector would mean a
-// model call on every check. Left out until there's a budget model for it.
-const ENSEMBLE_SUB_DETECTOR_OPTIONS = SINGLE_DETECTOR_OPTIONS.filter((o) => o.value !== DetectorType.LLM)
+// Every check of an ensemble scores every sub-detector, so an AI or forecast sub-detector would
+// mean a model call on every check. Left out until there's a budget model for it.
+const ENSEMBLE_SUB_DETECTOR_OPTIONS = SINGLE_DETECTOR_OPTIONS.filter(
+    (o) => o.value !== DetectorType.LLM && o.value !== DetectorType.FORECAST
+)
 
 function getDefaultSingleConfigs(window: number): Record<string, SingleDetectorConfig> {
     return {
@@ -153,7 +166,8 @@ function getDefaultSingleConfigs(window: number): Record<string, SingleDetectorC
             preprocessing: { diffs_n: 1 },
         },
         iqr: { type: 'iqr', multiplier: 1.5, window },
-        llm: getDefaultLLMDetectorConfig(window),
+        llm: getDefaultLLMDetectorConfig(),
+        forecast: getDefaultForecastDetectorConfig(),
         threshold: { type: 'threshold' },
         ecod: { type: 'ecod', threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD, window },
         copod: { type: 'copod', threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD, window },
@@ -234,17 +248,26 @@ export function DetectorSelector({
     onChange,
     calculationInterval,
     llmDetectorEnabled = false,
+    forecastDetectorEnabled = false,
     hasBreakdown = false,
 }: DetectorSelectorProps): JSX.Element {
     const selectedType = getSelectedType(value)
     const defaultWindow = getDefaultWindow(calculationInterval)
     const defaultConfigs = getDefaultSingleConfigs(defaultWindow)
-    // An alert already saved with the AI detector keeps showing it even if the flag is turned
-    // off, so its own type never disappears from the picker it is selected in.
-    const llmAllowed = llmDetectorEnabled && !hasBreakdown && calculationInterval !== AlertCalculationInterval.REAL_TIME
-    const detectorOptions = DETECTOR_OPTIONS.filter(
-        (o) => o.value !== DetectorType.LLM || llmAllowed || selectedType === DetectorType.LLM
-    )
+    // An alert already saved with the AI or forecast detector keeps showing it even if the flag is
+    // turned off, so its own type never disappears from the picker it is selected in.
+    const isRealTime = calculationInterval === AlertCalculationInterval.REAL_TIME
+    const llmAllowed = llmDetectorEnabled && !hasBreakdown && !isRealTime
+    const forecastAllowed = forecastDetectorEnabled && !isRealTime
+    const detectorOptions = DETECTOR_OPTIONS.filter((o) => {
+        if (o.value === DetectorType.LLM) {
+            return llmAllowed || selectedType === DetectorType.LLM
+        }
+        if (o.value === DetectorType.FORECAST) {
+            return forecastAllowed || selectedType === DetectorType.FORECAST
+        }
+        return true
+    })
 
     const handleTypeChange = (type: string | null): void => {
         if (!type) {
@@ -312,7 +335,7 @@ function EnsembleConfig({
 
     const getEnsembleDefault = (type: string): EnsembleSubDetectorConfig => {
         const defaultConfig = defaults[type]
-        return defaultConfig && defaultConfig.type !== DetectorType.LLM
+        return defaultConfig && defaultConfig.type !== DetectorType.LLM && defaultConfig.type !== DetectorType.FORECAST
             ? defaultConfig
             : getDefaultZScoreDetectorConfig(getDefaultWindow(calculationInterval))
     }
@@ -401,7 +424,7 @@ function EnsembleConfig({
                     <SingleDetectorConfigSection
                         config={detector}
                         onChange={(updated) => {
-                            if (updated.type !== DetectorType.LLM) {
+                            if (updated.type !== DetectorType.LLM && updated.type !== DetectorType.FORECAST) {
                                 handleDetectorChange(index, updated)
                             }
                         }}
@@ -516,12 +539,12 @@ function SingleDetectorConfigSection({
                 <LLMConfig
                     config={config as LLMDetectorConfig}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
-                    calculationInterval={calculationInterval}
                 />
             )}
-            {/* The AI detector reads the series as it is, so it has no preprocessing to configure:
-                differencing or smoothing would hide the shape it is meant to judge. */}
-            {config.type !== 'llm' && (
+            {config.type === 'forecast' && <ForecastConfig config={config} onChange={onChange} />}
+            {/* The AI and forecast detectors read the series as it is, so they have no preprocessing to
+                configure: differencing or smoothing would hide the shape they are meant to read. */}
+            {config.type !== 'llm' && config.type !== 'forecast' && (
                 <PreprocessingSection
                     config={config}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
@@ -534,14 +557,28 @@ function SingleDetectorConfigSection({
 function LLMConfig({
     config,
     onChange,
-    calculationInterval,
 }: {
     config: LLMDetectorConfig
     onChange: (config: DetectorConfig) => void
-    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
+            <div>
+                <Label
+                    text="Model"
+                    tooltip="The AI model that checks this alert. Models can disagree about the same chart, so changing the model can change when the alert fires."
+                />
+                <LemonSelect<LLMDetectorModel>
+                    data-attr="alertForm-detector-llm-model"
+                    value={config.model ?? DEFAULT_LLM_DETECTOR_MODEL}
+                    onChange={(model) => onChange({ ...config, model })}
+                    options={(Object.keys(LLM_DETECTOR_MODEL_LABELS) as LLMDetectorModel[]).map((model) => ({
+                        value: model,
+                        label: LLM_DETECTOR_MODEL_LABELS[model],
+                    }))}
+                    size="small"
+                />
+            </div>
             <div>
                 <Label
                     text="What counts as unusual?"
@@ -557,37 +594,10 @@ function LLMConfig({
                     placeholder='For example: "Only tell me about drops" or "Weekends are always quiet, ignore that"'
                 />
             </div>
-            <div>
-                <Label
-                    text="Confidence to alert"
-                    tooltip="How sure the model has to be before you get an alert (0-1). Higher values mean fewer alerts."
-                />
-                <LemonInput
-                    aria-label="Confidence to alert"
-                    type="number"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={config.threshold ?? DEFAULT_LLM_DETECTION_CONFIDENCE}
-                    onChange={(val) =>
-                        onChange({
-                            ...config,
-                            threshold: val == null ? DEFAULT_LLM_DETECTION_CONFIDENCE : parseFloat(String(val)),
-                        })
-                    }
-                />
-            </div>
-            <WindowSizeInput
-                config={config}
-                onChange={onChange}
-                calculationInterval={calculationInterval}
-                max={MAX_LLM_DETECTOR_WINDOW}
-                defaultWindow={DEFAULT_LLM_DETECTOR_WINDOW}
-                tooltip="How many recent data points the model is shown. Larger gives it more history to compare against, and costs more per check."
-            />
             <p className="text-xs text-muted">
-                Each check sends the recent values and a chart of them to an AI model, which is slower and costs more
-                than the statistical detectors.
+                Each check asks an AI model whether the latest value is unusual, given its recent history and the points
+                this alert flagged before. Each check and each simulation uses your organization's AI credits, and
+                checks are slower than with the statistical detectors.
             </p>
         </div>
     )
@@ -606,7 +616,9 @@ function AnomalyThresholdInput({ value, onChange }: { value: number; onChange: (
                 max={0.99}
                 step={0.05}
                 value={value}
-                onChange={(val) => onChange(val ? parseFloat(String(val)) : DEFAULT_ANOMALY_DETECTION_THRESHOLD)}
+                onChange={(val) =>
+                    onChange(val === undefined || Number.isNaN(val) ? DEFAULT_ANOMALY_DETECTION_THRESHOLD : val)
+                }
             />
         </div>
     )
@@ -897,27 +909,23 @@ function WindowSizeInput({
     config,
     onChange,
     calculationInterval,
-    max = 1000,
-    defaultWindow,
-    tooltip = 'Number of historical data points used to calculate the baseline. Larger = more stable, smaller = more responsive.',
 }: {
     config: { window?: number }
     onChange: (config: SingleDetectorConfig) => void
     calculationInterval?: AlertCalculationInterval
-    max?: number
-    defaultWindow?: number
-    /** Override when the window does not describe a training baseline (the AI detector reads the points). */
-    tooltip?: string
 }): JSX.Element {
-    const defWindow = defaultWindow ?? getDefaultWindow(calculationInterval)
+    const defWindow = getDefaultWindow(calculationInterval)
     return (
         <div>
-            <Label text="Window size" tooltip={tooltip} />
+            <Label
+                text="Window size"
+                tooltip="Number of historical data points used to calculate the baseline. Larger = more stable, smaller = more responsive."
+            />
             <LemonInput
                 aria-label="Window size"
                 type="number"
                 min={5}
-                max={max}
+                max={1000}
                 step={5}
                 value={config.window ?? defWindow}
                 onChange={(val) =>
@@ -935,8 +943,8 @@ function PreprocessingSection({
     config,
     onChange,
 }: {
-    // The AI detector has no preprocessing to configure, so it never reaches this section.
-    config: Exclude<SingleDetectorConfig, LLMDetectorConfig>
+    // The AI and forecast detectors have no preprocessing to configure, so they never reach this section.
+    config: Exclude<SingleDetectorConfig, LLMDetectorConfig | ForecastDetectorConfig>
     onChange: (config: SingleDetectorConfig) => void
 }): JSX.Element {
     const preprocessing = config.preprocessing ?? {}

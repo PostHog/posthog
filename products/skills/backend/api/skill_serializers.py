@@ -12,7 +12,14 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
 
-from ..marketplace.packaging import DEFAULT_BUNDLE_SKILLS, MAX_BUNDLE_SKILLS, SPEC_DESCRIPTION_MAX_LENGTH
+from ..activity_logging import log_skill_activity
+from ..marketplace.packaging import (
+    DEFAULT_BUNDLE_SKILLS,
+    MAX_BUNDLE_SKILLS,
+    MCP_MAX_SKILL_BYTES,
+    MCP_MAX_SKILL_FILES,
+    SPEC_DESCRIPTION_MAX_LENGTH,
+)
 from ..models.skills import MAX_SKILL_CATEGORY_LENGTH, LLMSkill, LLMSkillFile, category_for_skill_name
 from .community_publish_services import (
     DISPLAY_NAME_PATTERN,
@@ -22,6 +29,7 @@ from .community_publish_services import (
     OPTIONAL_GITHUB_HANDLE_PATTERN,
 )
 from .community_skill_serializers import CommunitySkillScoutConfigSerializer
+from .skill_manifest import SkillUnservableReason
 from .skill_services import (
     MAX_SKILL_NAME_LENGTH,
     RESERVED_SKILL_NAMES,
@@ -32,6 +40,7 @@ from .skill_services import (
     compute_spec_problems,
     normalize_skill_file_path,
     resolve_owner_users,
+    resolve_skill_metadata,
     resolve_skill_owners,
     seed_skill_owner,
     set_skill_owners,
@@ -213,7 +222,7 @@ class LLMSkillSearchQuerySerializer(serializers.Serializer):
         min_length=1,
         max_length=200,
         trim_whitespace=True,
-        help_text="Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.",
+        help_text="Case-insensitive text to search for in ordinary skills. Names, descriptions, and file paths match any substring. Bodies and Markdown file contents match whole words and word prefixes.",
     )
 
 
@@ -790,9 +799,18 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
         help_text="User UUIDs to set as the skill's owners. Each must be a member of this project. "
         "Defaults to the creating user when omitted; pass an empty list to create with no owners.",
     )
+    version_description = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_blank=True,
+        help_text="Optional note on where this skill came from, such as written from scratch or ported from "
+        "another skill. Stored on version 1 and shown in the version history.",
+    )
 
     class Meta(LLMSkillSerializer.Meta):
-        read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f not in ("files", "owners")]
+        read_only_fields = [
+            f for f in LLMSkillSerializer.Meta.read_only_fields if f not in ("files", "owners", "version_description")
+        ]
         extra_kwargs = {
             **LLMSkillSerializer.Meta.extra_kwargs,
             "name": {
@@ -804,11 +822,15 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
     def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return _validate_files(value)
 
+    def validate_version_description(self, value: str) -> str | None:
+        return value.strip() or None
+
     def create(self, validated_data: dict[str, Any]) -> LLMSkill:
         request = self.context["request"]
         team = self.context["get_team"]()
         files = validated_data.pop("files", None)
         owner_uuids = validated_data.pop("owners", None)
+        validated_data["metadata"] = resolve_skill_metadata(validated_data.get("metadata"), None)
 
         with transaction.atomic():
             # `category` is read-only on the serializer, so it can never arrive in validated_data —
@@ -832,6 +854,9 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
                         for f in files
                     ]
                 )
+            log_skill_activity(
+                team=team, user=request.user, item_id=str(skill.pk), skill_name=skill.name, activity="created"
+            )
             # `is not None`, not truthiness: an explicit empty list means "create with no owners"
             # and must not fall through to the creator-owns default (matching the update path).
             if owner_uuids is not None:
@@ -842,7 +867,7 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
                         {"owners": f"User '{err.user_uuid}' is not a member of this project."},
                         code="invalid_owner",
                     )
-                set_skill_owners(team, skill.name, owner_users)
+                set_skill_owners(team, skill.name, owner_users, acting_user=request.user)
             else:
                 # Creator owns by default — durable, not reconstructed from version history.
                 seed_skill_owner(team, skill.name, request.user)
@@ -943,6 +968,59 @@ class LLMSkillMarkdownSerializer(serializers.Serializer):
             "The frontmatter block of content as a JSON object. Equal to yaml.safe_load of that block, "
             "so a listing can carry the same fields the file carries."
         )
+    )
+
+
+class LLMSkillManifestListQuerySerializer(LLMSkillListQuerySerializer):
+    exclude_category = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text='Leave out skills in this exact category, e.g. "scout" to skip Signals scouts. An empty string '
+        "leaves out uncategorized skills.",
+    )
+
+
+class LLMSkillManifestResourceSerializer(serializers.Serializer):
+    path = serializers.CharField(
+        help_text="Path of the file relative to the skill directory. SKILL.md for the rendered skill file."
+    )
+    sha256 = serializers.CharField(
+        allow_null=True,
+        help_text="Bare hex SHA-256 of the exact bytes served for this file, without a 'sha256:' prefix. "
+        "Null on rows written before digests were stamped.",
+    )
+    size = serializers.IntegerField(
+        allow_null=True,
+        help_text="Byte length of the exact bytes served for this file, encoded as UTF-8. "
+        "Null on rows written before digests were stamped.",
+    )
+    content_type = serializers.CharField(help_text="MIME type of the file, e.g. text/markdown.")
+
+
+class LLMSkillManifestSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Name of the skill, which is also its directory name.")
+    version = serializers.IntegerField(help_text="Version of the skill that this manifest describes.")
+    frontmatter = SkillFrontmatterField(
+        help_text="The frontmatter of the served SKILL.md as a JSON object, equal to the frontmatter field of the "
+        "skill-md endpoint for the same version."
+    )
+    resources = LLMSkillManifestResourceSerializer(
+        many=True,
+        help_text="Every file of the skill exactly once: SKILL.md first, then the bundled files sorted by path.",
+    )
+    file_count = serializers.IntegerField(help_text="Number of entries in resources, SKILL.md included.")
+    total_size = serializers.IntegerField(
+        help_text="Sum of every resource size in bytes. A resource with a null size counts as zero."
+    )
+    servable = serializers.BooleanField(
+        help_text="Whether an MCP server may serve this skill. False when unservable_reasons is not empty."
+    )
+    unservable_reasons = serializers.ListField(
+        child=serializers.ChoiceField(choices=SkillUnservableReason.choices),
+        help_text="Why the skill must not be served, one code per reason. too_many_files: more than "
+        f"{MCP_MAX_SKILL_FILES} files. too_large: more than {MCP_MAX_SKILL_BYTES} bytes in total. digest_missing: "
+        "a stored digest or size is null. spec_problems: the skill fails the Agent Skills spec check, see "
+        "spec_problems on the skill.",
     )
 
 

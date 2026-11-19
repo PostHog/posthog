@@ -13,9 +13,12 @@ import {
     LemonSegmentedButton,
     LemonSkeleton,
     LemonSwitch,
+    Link,
 } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { ImageSize } from 'lib/components/ImageSize/ImageSize'
+import { imageSizeError } from 'lib/components/ImageSize/imageSizeUtils'
 import { TEMPLATE_LINK_HEADING, TEMPLATE_LINK_PII_WARNING } from 'lib/components/Sharing/templateLinkMessages'
 import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
@@ -27,19 +30,21 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { getAccessControlDisabledReason, pluralizeResource } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
-import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
+import { isDataTableNode, isDataVisualizationNode, isInsightVizNode } from '~/queries/schema/node-guards'
 import { AnyResponseType, Node } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, InsightShortId, InsightModel } from '~/types'
 import { InsightType } from '~/types'
+
+import type { ImageSizeApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { SharePasswordsTable } from './SharePasswordsTable'
@@ -118,6 +123,7 @@ export function SharingModalContent({
     const {
         whitelabelAvailable,
         accessControlAvailable,
+        canManagePublicSharing,
         sharingConfiguration,
         sharingConfigurationLoading,
         showPreview,
@@ -125,8 +131,9 @@ export function SharingModalContent({
         iframeProperties,
         shareLink,
         sharingAllowed,
+        linkSize,
     } = useValues(sharingLogic(logicProps))
-    const { setIsEnabled, setPasswordRequired, togglePreview, setSharingSettingsValue } = useActions(
+    const { setIsEnabled, setPasswordRequired, togglePreview, setSharingSettingsValue, setLinkSize } = useActions(
         sharingLogic(logicProps)
     )
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -144,6 +151,7 @@ export function SharingModalContent({
     const renderQuerySnippet = renderQueryUrl
         ? createRenderQuerySnippet({
               renderQueryUrl,
+              size: linkSize,
               iframeId: getRenderQueryIframeId(insightShortId),
               cachedResults,
               query: insight?.query,
@@ -237,21 +245,40 @@ export function SharingModalContent({
                         <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-secondary">
                             Public sharing
                         </h4>
-                        {!sharingAllowed ? (
-                            <LemonBanner type="warning">Public sharing is disabled for this organization.</LemonBanner>
-                        ) : (
-                            <LemonSwitch
-                                id="sharing-switch"
-                                label={`Share ${resource} publicly`}
-                                checked={sharingConfiguration.enabled}
-                                data-attr="sharing-switch"
-                                onChange={(active) => setIsEnabled(active)}
-                                bordered
-                                fullWidth
-                                loading={sharingConfigurationLoading}
-                                disabledReason={sharingManageDisabledReason}
-                            />
-                        )}
+                        {sharingAllowed &&
+                            accessControlAvailable &&
+                            sharingConfiguration.has_relevant_access_controls && (
+                                <LemonBanner type="warning" className="mb-3">
+                                    <p className="mb-0">
+                                        {`Anyone with the public link can view this ${resource} and its data, including people outside your organization. Access controls do not apply when viewing public ${pluralizeResource(getResourceType(dashboardId, insightShortId, recordingId, notebookShortId))}.`}
+                                    </p>
+                                    {canManagePublicSharing && (
+                                        <p className="mt-2 mb-0">
+                                            <Link
+                                                to={urls.settings('organization-security')}
+                                                data-attr="sharing-public-sharing-settings"
+                                            >
+                                                Disable public sharing for your organization
+                                            </Link>
+                                        </p>
+                                    )}
+                                </LemonBanner>
+                            )}
+                        <LemonSwitch
+                            id="sharing-switch"
+                            label={`Share ${resource} publicly`}
+                            checked={sharingAllowed && sharingConfiguration.enabled}
+                            data-attr="sharing-switch"
+                            onChange={(active) => setIsEnabled(active)}
+                            bordered
+                            fullWidth
+                            loading={sharingConfigurationLoading}
+                            disabledReason={
+                                !sharingAllowed
+                                    ? 'Public sharing is disabled for this organization.'
+                                    : sharingManageDisabledReason
+                            }
+                        />
 
                         {sharingAllowed && sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <div className="mt-2 flex flex-col gap-2">
@@ -297,6 +324,7 @@ export function SharingModalContent({
                                 )}
                                 <LemonButton
                                     data-attr="sharing-link-button"
+                                    disabledReason={imageSizeError(linkSize)}
                                     type="primary"
                                     onClick={() => {
                                         // TRICKY: there's a chance this was sending useless errors to error tracking
@@ -443,6 +471,13 @@ export function SharingModalContent({
                                     )}
                                 </div>
 
+                                {(dashboardId || insightShortId) && (
+                                    <ImageSize
+                                        value={linkSize}
+                                        onChange={setLinkSize}
+                                        description="Sets the size of this link and embed. Leave width blank to fill the available space. Tall content remains scrollable."
+                                    />
+                                )}
                                 {previewIframe && (
                                     <div className="rounded border">
                                         <LemonButton
@@ -454,7 +489,7 @@ export function SharingModalContent({
                                             {showPreview && !iframeLoaded ? <Spinner className="ml-2" /> : null}
                                         </LemonButton>
                                         {showPreview && (
-                                            <div className="SharingPreview border-t">
+                                            <div className="SharingPreview border-t overflow-auto">
                                                 <iframe
                                                     className="block"
                                                     {...iframeProperties}
@@ -537,11 +572,13 @@ function getRenderQueryIframeId(insightShortId?: InsightShortId): string {
 function createRenderQuerySnippet({
     renderQueryUrl,
     iframeId,
+    size,
     cachedResults,
     query,
 }: {
     renderQueryUrl: string
     iframeId: string
+    size: ImageSizeApi
     cachedResults: AnyResponseType | Partial<InsightModel> | null | undefined
     query: Node | null | undefined
 }): string {
@@ -551,7 +588,7 @@ function createRenderQuerySnippet({
     const escapedResults = escapeScriptJson(serializedResults)
     const escapedQuery = escapeScriptJson(serializedQuery)
 
-    return `<iframe id="${iframeId}" title="PostHog embedded query" src="${renderQueryUrl}" style="width: 100%; height: 600px; border: 0;" loading="lazy"></iframe>
+    return `<iframe id="${iframeId}" title="PostHog embedded query" src="${renderQueryUrl}" style="width: ${!imageSizeError(size) && size.width ? `${size.width}px` : '100%'}; height: ${!imageSizeError(size) && size.height ? size.height : 600}px; border: 0;" loading="lazy"></iframe>
 <script>
   (function () {
     const iframe = document.getElementById('${iframeId}')

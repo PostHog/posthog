@@ -2,15 +2,19 @@ from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import User
+
+from products.mcp_store.backend.facade.api import resolve_member_tool_states
 from products.mcp_store.backend.models import (
     MCPGatewayServer,
     MCPServerInstallation,
     MCPServerInstallationTool,
     MCPToolPolicy,
 )
-from products.mcp_store.backend.policy import SYNC_DEFAULT_APPROVAL_STATE
+from products.mcp_store.backend.policy import SYNC_DEFAULT_APPROVAL_STATE, GatewayCaller, PolicyContext
 
 
 class TestMCPGatewayToolPoliciesAPI(APIBaseTest):
@@ -150,3 +154,43 @@ class TestMCPGatewayToolPoliciesAPI(APIBaseTest):
         row = self._member_row(server)
         assert row["policy_state"] == "approved"
         assert row["decided_by"] == "scope"
+
+    @parameterized.expand(
+        [
+            (f"{entry_point}_{caller}_{legacy_state}", entry_point, caller == "owner", legacy_state, expected)
+            for entry_point in ("policy_context", "facade", "facade_unlinked")
+            for caller, legacy_state, expected in (
+                ("owner", "approved", "approved"),
+                ("teammate", "approved", "needs_approval"),
+                ("teammate", "do_not_use", "do_not_use"),
+            )
+        ]
+    )
+    def test_shared_installation_teammates_keep_owner_restrictions_but_not_approvals(
+        self, _name: str, entry_point: str, caller_is_owner: bool, legacy_state: str, expected: str
+    ) -> None:
+        server, installation = self._server_with_tool("shared", legacy_state=legacy_state)
+        installation.scope = "shared"
+        installation.save(update_fields=["scope"])
+        caller = (
+            self.user if caller_is_owner else User.objects.create_and_join(self.organization, "mate@example.com", None)
+        )
+
+        if entry_point == "policy_context":
+            state = (
+                PolicyContext(
+                    team_id=self.team.id,
+                    caller=GatewayCaller(kind="member", user_id=caller.id),
+                    gateway_server=server,
+                    installation=installation,
+                )
+                .resolve("search_items")
+                .state
+            )
+        else:
+            gateway_server_id = server.id if entry_point == "facade" else None
+            state = resolve_member_tool_states(str(installation.id), self.team.id, gateway_server_id, caller.id)[
+                "search_items"
+            ]
+
+        assert state == expected

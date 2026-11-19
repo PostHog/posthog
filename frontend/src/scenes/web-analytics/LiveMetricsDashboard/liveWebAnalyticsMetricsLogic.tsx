@@ -14,11 +14,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { CATEGORY_LABELS } from 'lib/utils/botDetection'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
+import { parseDateInTimezone } from 'lib/utils/datetime'
 import { isAbortedRequest } from 'lib/utils/requests'
 import { hashCodeForString } from 'lib/utils/strings'
 import { deduplicateEvents } from 'scenes/activity/live/deduplicateEvents'
 import { teamLogic } from 'scenes/teamLogic'
-import { ProductTab, WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
+import { ProductTab, WEB_ANALYTICS_DEFAULT_QUERY_TAGS, isContentAutopilotEnabled } from 'scenes/web-analytics/common'
 import { isLiveStreamFilter, webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
@@ -274,7 +275,7 @@ export interface liveWebAnalyticsMetricsLogicMeta {
         hasActiveFilters: (liveFilters: WebAnalyticsPropertyFilter[], shouldFilterTestAccounts: boolean) => boolean
         hasBotQueryError: (botQueryStatus: BotQueryStatus) => boolean
         isBotLoading: (botQueryStatus: BotQueryStatus) => boolean
-        shouldLoadBots: (featureFlags: FeatureFlagsSet) => boolean
+        shouldLoadBots: (featureFlags: FeatureFlagsSet, productTab: ProductTab) => boolean
     }
 }
 
@@ -669,8 +670,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (botQueryStatus: BotQueryStatus): boolean => botQueryStatus === 'loading',
         ],
         shouldLoadBots: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS],
+            (s) => [s.featureFlags, s.productTab],
+            (featureFlags: FeatureFlagsSet, productTab: ProductTab): boolean =>
+                // The Bots tab inside AI visibility has its own flag; the Live tab's bot tiles keep the old one.
+                productTab === ProductTab.BOT_ANALYTICS
+                    ? isContentAutopilotEnabled(featureFlags)
+                    : !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS],
         ],
     }),
     listeners(({ actions, values, cache }) => ({
@@ -769,7 +774,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 addUserDataToBuckets(data.usersPageviews, bucketMap)
                 addBreakdownDataToBuckets(data.device, bucketMap, (b) => b.devices)
                 addBreakdownDataToBuckets(data.browser, bucketMap, (b) => b.browsers)
-                addPathDataToBuckets(data.paths, bucketMap)
+                addPathDataToBuckets(data.paths, bucketMap, values.currentTeam?.timezone ?? 'UTC')
                 addReferrerDataToBuckets(data.referrer, bucketMap)
                 addGeoDataToBuckets(data.geo, bucketMap)
                 addCityDataToBuckets(data.city, bucketMap)
@@ -1596,14 +1601,17 @@ const addBreakdownDataToBuckets = (
 
 const addPathDataToBuckets = (
     pathsResponse: TrendsQueryResponse | null,
-    bucketMap: Map<number, SlidingWindowBucket>
+    bucketMap: Map<number, SlidingWindowBucket>,
+    timezone: string
 ): void => {
     if (!pathsResponse) {
         return
     }
     for (const result of pathsResponse.results) {
         for (let i = 0; i < result.data.length; i++) {
-            const timestamp = Date.parse(result.action.days[i])
+            // The trends runner writes `days` as wall-clock times in the project timezone, while the other live
+            // queries key buckets by instant.
+            const timestamp = parseDateInTimezone(result.days[i], timezone).valueOf()
             const bucket = getOrCreateBucket(bucketMap, timestamp)
 
             const path = result.breakdown_value

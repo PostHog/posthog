@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from datetime import timedelta
 
-from django.db.models import Count, IntegerField, Max, Value
+from django.db.models import IntegerField, Max, Value
 from django.db.models.functions import Coalesce, Greatest
 from django.utils import timezone
 
@@ -9,16 +9,15 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
-from posthog.schema_enums import AlertState
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.alerts.backend.models import AlertConfiguration
-from products.exports.backend.models.subscription import SubscriptionDelivery
+from products.alerts.backend.facade.api import list_errored_alerts
 from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.config import MAX_ITEMS_PER_DETECTOR, STUCK_REFRESH_ATTEMPTS
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, SourceItemKind
 from products.pulse.backend.urls import insight_url, subscription_url
+from products.subscriptions.backend.facade.api import failed_delivery_counts
 
 logger = structlog.get_logger(__name__)
 
@@ -74,22 +73,10 @@ class ResourceHealthSource:
     ) -> list[SourceItem]:
         # Deliberately current-state, not period-bounded: an alert that started erroring before
         # the period is still broken now. Dismissal suppression is the off-switch.
-        viewable_insights = user_access_control.filter_queryset_by_access_level(
-            Insight.objects.filter(team=team, deleted=False)
-        )
-        alerts = (
-            AlertConfiguration.objects.filter(
-                team=team,
-                enabled=True,
-                state=AlertState.ERRORED,
-                insight_id__in=viewable_insights.values("id"),
-            )
-            .select_related("insight")
-            .order_by("-created_at")[:MAX_ITEMS_PER_DETECTOR]
-        )
+        alerts = list_errored_alerts(team, user_access_control, limit=MAX_ITEMS_PER_DETECTOR)
         items: list[SourceItem] = []
         for alert in alerts:
-            label = alert.name or alert.insight.name or alert.insight.derived_name or str(alert.id)
+            label = alert.name or alert.insight_name or str(alert.id)
             metrics: dict[str, float | int | str] = {}
             if alert.last_checked_at:
                 metrics["last_checked_at"] = alert.last_checked_at.isoformat()
@@ -104,7 +91,7 @@ class ResourceHealthSource:
                     ref=str(alert.id),
                     label=label,
                     # Alerts are managed from the insight they watch.
-                    url=insight_url(team.id, alert.insight.short_id),
+                    url=insight_url(team.id, alert.insight_short_id),
                     metrics=metrics,
                 )
             )
@@ -114,32 +101,14 @@ class ResourceHealthSource:
         self, team: Team, lookback_days: int, user_access_control: UserAccessControl
     ) -> list[SourceItem]:
         since = timezone.now() - timedelta(days=lookback_days)
-        rows = (
-            SubscriptionDelivery.objects.filter(
-                team=team,
-                status=SubscriptionDelivery.Status.FAILED,
-                created_at__gte=since,
-                subscription__deleted=False,
-            )
-            .values(
-                "subscription_id",
-                "subscription__title",
-                "subscription__prompt",
-            )
-            .annotate(failed_deliveries=Count("id"), last_failed_at=Max("created_at"))
-            .order_by("-failed_deliveries")[:MAX_ITEMS_PER_DETECTOR]
-        )
+        rows = failed_delivery_counts(team_id=team.id, since=since, limit=MAX_ITEMS_PER_DETECTOR)
         items: list[SourceItem] = []
         for row in rows:
             # Prefer the subscription's own name; fall back to a prompt snippet (AI-prompt subs need
             # not be titled) before the bare id.
-            label = (
-                row["subscription__title"]
-                or (row["subscription__prompt"] or "").strip()[:60]
-                or f"Subscription {row['subscription_id']}"
-            )
-            count = row["failed_deliveries"]
-            url = subscription_url(team.id, row["subscription_id"])
+            label = row.title or (row.prompt or "").strip()[:60] or f"Subscription {row.subscription_id}"
+            count = row.failed_deliveries
+            url = subscription_url(team.id, row.subscription_id)
             items.append(
                 self._health_item(
                     title=f"Subscription '{label}' failed to deliver {count} time{'s' if count != 1 else ''}",
@@ -149,12 +118,12 @@ class ResourceHealthSource:
                         "its recipients are not receiving their reports."
                     ),
                     ref_type=EvidenceType.SUBSCRIPTION,
-                    ref=str(row["subscription_id"]),
+                    ref=str(row.subscription_id),
                     label=label,
                     url=url,
                     metrics={
                         "failed_deliveries": count,
-                        "last_failed_at": row["last_failed_at"].isoformat(),
+                        "last_failed_at": row.last_failed_at.isoformat(),
                     },
                 )
             )

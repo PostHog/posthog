@@ -1,8 +1,10 @@
-import { browserSupportsWebAuthnAutofill, startAuthentication } from '@simplewebauthn/browser'
+import { browserSupportsWebAuthnAutofill, startAuthentication, WebAuthnAbortService } from '@simplewebauthn/browser'
 import { expectLogic } from 'kea-test-utils'
 
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { loginLogic } from 'scenes/authentication/auth/loginLogic'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
+import { getPendingVerification } from 'scenes/authentication/shared/verificationCode'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -10,6 +12,7 @@ import { initKeaTests } from '~/test/init'
 jest.mock('@simplewebauthn/browser', () => ({
     startAuthentication: jest.fn(),
     browserSupportsWebAuthnAutofill: jest.fn(),
+    WebAuthnAbortService: { cancelCeremony: jest.fn() },
 }))
 
 // isWebKitBrowser() reads navigator.vendor: "Apple Computer, Inc." on WebKit, "Google Inc." on Chromium.
@@ -156,6 +159,168 @@ describe('passkeyLogic', () => {
             expect(onSuccess).toHaveBeenCalledTimes(1)
             expect(apiStatusLogic.values.timeSensitiveAuthenticationRequired).toBe(false)
             expect(logic.values.isReauth).toBe(false)
+        })
+    })
+
+    describe('cancelled by a password login', () => {
+        let logic: ReturnType<typeof passkeyLogic.build>
+        let completeHandler: jest.Mock
+
+        beforeEach(() => {
+            completeHandler = jest.fn(() => [200, { success: true }])
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/webauthn/login/begin/': () => [
+                        200,
+                        {
+                            challenge: 'abc',
+                            timeout: 60000,
+                            rpId: 'localhost',
+                            allowCredentials: [],
+                            userVerification: 'required',
+                        },
+                    ],
+                    '/api/webauthn/login/complete/': completeHandler,
+                },
+            })
+            initKeaTests()
+            logic = passkeyLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            jest.clearAllMocks()
+        })
+
+        it.each([
+            ['while the challenge loads', false],
+            ['while the passkey prompt is open', true],
+        ])('closes the passkey sign-in without an error %s', async (_, cancelDuringPrompt) => {
+            ;(startAuthentication as jest.Mock).mockImplementation(
+                () =>
+                    new Promise((_resolve, reject) => {
+                        ;(WebAuthnAbortService.cancelCeremony as jest.Mock).mockImplementation(() =>
+                            reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+                        )
+                        if (cancelDuringPrompt) {
+                            logic.actions.cancelPasskeyLogin()
+                        }
+                    })
+            )
+
+            logic.actions.beginPasskeyLogin()
+            if (!cancelDuringPrompt) {
+                logic.actions.cancelPasskeyLogin()
+            }
+            await expectLogic(logic)
+                .toDispatchActions(['passkeyAuthenticationCancelled', 'startPasskeyAuthenticationSuccess'])
+                .toFinishAllListeners()
+
+            expect(startAuthentication).toHaveBeenCalledTimes(cancelDuringPrompt ? 1 : 0)
+            expect(WebAuthnAbortService.cancelCeremony).toHaveBeenCalledTimes(cancelDuringPrompt ? 1 : 0)
+            expect(completeHandler).not.toHaveBeenCalled()
+            expect(loginLogic.values.generalError).toBeNull()
+            expect(logic.values.isLoading).toBe(false)
+        })
+    })
+
+    describe('SSO-enforced account', () => {
+        let logic: ReturnType<typeof passkeyLogic.build>
+
+        beforeEach(() => {
+            ;(startAuthentication as jest.Mock).mockResolvedValue({ id: 'cred-1', response: {} })
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/webauthn/login/begin/': () => [
+                        200,
+                        {
+                            challenge: 'abc',
+                            timeout: 60000,
+                            rpId: 'localhost',
+                            allowCredentials: [],
+                            userVerification: 'required',
+                        },
+                    ],
+                    '/api/webauthn/login/complete/': () => [
+                        400,
+                        {
+                            error: 'You can only login with SSO for this account.',
+                            code: 'sso_enforced',
+                            sso_enforcement: 'google-oauth2',
+                            email: 'user@example.com',
+                        },
+                    ],
+                    '/api/login/precheck': () => [200, { sso_enforcement: 'google-oauth2', saml_available: false }],
+                },
+            })
+            initKeaTests()
+            logic = passkeyLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            jest.clearAllMocks()
+        })
+
+        it('names the required provider and runs the precheck for the returned email', async () => {
+            logic.actions.beginPasskeyLogin()
+            await expectLogic(loginLogic).toDispatchActions(['precheckSuccess'])
+
+            expect(loginLogic.values.generalError).toEqual({
+                code: 'passkey_error',
+                detail: 'Your organization requires you to log in with Google.',
+            })
+            expect(loginLogic.values.login.email).toBe('user@example.com')
+            expect(loginLogic.values.precheckResponse).toMatchObject({
+                email: 'user@example.com',
+                sso_enforcement: 'google-oauth2',
+            })
+        })
+    })
+    describe('unverified account', () => {
+        let logic: ReturnType<typeof passkeyLogic.build>
+
+        beforeEach(() => {
+            ;(startAuthentication as jest.Mock).mockResolvedValue({ id: 'cred-1', response: {} })
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/webauthn/login/begin/': () => [
+                        200,
+                        {
+                            challenge: 'abc',
+                            timeout: 60000,
+                            rpId: 'localhost',
+                            allowCredentials: [],
+                            userVerification: 'required',
+                        },
+                    ],
+                    '/api/webauthn/login/complete/': () => [
+                        401,
+                        { code: 'verify_email_pending', detail: 'user-uuid', extra: { inbox_provider: 'gmail' } },
+                    ],
+                },
+            })
+            initKeaTests()
+            logic = passkeyLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            sessionStorage.clear()
+            jest.clearAllMocks()
+        })
+
+        it('keeps the inbox provider for the verify email page', async () => {
+            logic.actions.beginPasskeyLogin()
+            await expectLogic(logic).toDispatchActions(['startPasskeyAuthenticationFailure'])
+
+            expect(getPendingVerification('user-uuid')).toEqual({ email: null, inboxProvider: 'gmail' })
         })
     })
 })

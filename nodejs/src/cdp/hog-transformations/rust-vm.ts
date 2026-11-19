@@ -1,5 +1,6 @@
 import { createHash } from 'crypto'
 
+import { MmdbSource } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 
 import { KNOWN_BOT_IP_LIST, KNOWN_BOT_UA_LIST } from './bots/bots'
@@ -15,14 +16,16 @@ import { KNOWN_BOT_IP_LIST, KNOWN_BOT_UA_LIST } from './bots/bots'
 export const RUST_MAX_STEPS = 1_000_000
 
 // Error formats that mean "the Rust VM can't run this program" rather than "the program failed".
-// All three are contracts with the Rust side, pinned by tests there — don't change one without the
-// other: the binding's ext_fns fail unimplemented host functions with the `unsupported_ext_fn:`
-// prefix (rust/common/hogvm/node/src/ext_fns.rs `unsupported()`); the hogvm crate reports calls to
-// functions it doesn't know at all as `Unknown function <name>` and unresolvable global chains as
-// `Unknown Global <chain>`.
+// All four are contracts with the Rust side, pinned by tests there, so change both sides together:
+// the binding's ext_fns fail unimplemented host functions with the `unsupported_ext_fn:` prefix
+// (rust/common/hogvm/node/src/ext_fns.rs `unsupported()`); the hogvm crate reports calls to
+// functions it doesn't know at all as `Unknown function <name>`, unresolvable global chains as
+// `Unknown Global <chain>`, and an opcode or input shape it has no implementation for as
+// `Not implemented: <what>`.
 export const UNSUPPORTED_EXT_FN_ERROR = 'unsupported_ext_fn:'
 export const UNKNOWN_FUNCTION_ERROR_PREFIX = 'Unknown function '
 export const UNKNOWN_GLOBAL_ERROR_PREFIX = 'Unknown Global '
+export const NOT_IMPLEMENTED_ERROR_PREFIX = 'Not implemented: '
 
 // A batch event whose globals couldn't cross the napi boundary (e.g. NaN/Infinity) never
 // executed; like a boundary throw on the sync path, that event falls back to the Node VM
@@ -38,7 +41,8 @@ export function isUnsupportedByRustVm(error: string): boolean {
     return (
         error.includes(UNSUPPORTED_EXT_FN_ERROR) ||
         error.startsWith(UNKNOWN_FUNCTION_ERROR_PREFIX) ||
-        error.startsWith(UNKNOWN_GLOBAL_ERROR_PREFIX)
+        error.startsWith(UNKNOWN_GLOBAL_ERROR_PREFIX) ||
+        error.startsWith(NOT_IMPLEMENTED_ERROR_PREFIX)
     )
 }
 
@@ -98,14 +102,14 @@ let cachedModule: HogvmNodeModule | null | undefined = undefined
  * Returns null when the addon isn't built for this environment. `options` only take effect on the
  * first call in the process — later callers always get the module as first configured.
  */
-export function loadHogvmNodeModule(options: { mmdbPath: string }): HogvmNodeModule | null {
+export function loadHogvmNodeModule(options: { mmdb: MmdbSource }): HogvmNodeModule | null {
     if (cachedModule !== undefined) {
         return cachedModule
     }
     try {
         const module_: HogvmNodeModule = require('@posthog/hogvm-node')
         module_.init({
-            mmdbPath: options.mmdbPath,
+            mmdbPath: options.mmdb.kind === 'file' ? options.mmdb.path : undefined,
             knownBotUaList: KNOWN_BOT_UA_LIST,
             knownBotIpList: KNOWN_BOT_IP_LIST,
         })

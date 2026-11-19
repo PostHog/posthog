@@ -1,11 +1,11 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.dbrouter import ReplicaRouter
 from posthog.models.team import Team
 from posthog.models.user import User
 
 
-class TestReplicaRouter(BaseTest):
+class TestReplicaRouter(SimpleTestCase):
     def test_opted_in_models_are_replica_routed(self) -> None:
         router = ReplicaRouter(["User"])
 

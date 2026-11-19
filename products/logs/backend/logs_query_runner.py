@@ -1,6 +1,7 @@
 import json
 import base64
 import datetime as dt
+from functools import cached_property
 from typing import TYPE_CHECKING, cast
 from zoneinfo import ZoneInfo
 
@@ -12,6 +13,7 @@ from posthog.schema import (
     LogPropertyFilterType,
     LogsQuery,
     LogsQueryResponse,
+    PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyGroupsMode,
     PropertyOperator,
@@ -21,13 +23,17 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import get_lowercase_index_hint, operator_is_negative, property_to_expr
+from posthog.hogql.property import (
+    get_lowercase_index_hint,
+    negative_operator_complement,
+    operator_is_negative,
+    property_to_expr,
+)
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS, get_distinct_ids_for_subquery
 from posthog.models.person.util import get_person_by_pk_or_uuid
 from posthog.personhog_client.caller_tag import personhog_caller_tag
@@ -148,18 +154,8 @@ def _generate_resource_attribute_filters(
     for filter in resource_attribute_filters:
         attribute_type = "resource" if filter.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE else "log"
         if is_negative_filter:
-            # invert the negative filter back to the positive equivalent
-            # we invert the IN logic instead
-            filter.operator = {
-                PropertyOperator.IS_NOT: PropertyOperator.EXACT,
-                PropertyOperator.NOT_ICONTAINS: PropertyOperator.ICONTAINS,
-                PropertyOperator.NOT_STARTS_WITH: PropertyOperator.STARTS_WITH,
-                PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
-                PropertyOperator.NOT_REGEX: PropertyOperator.REGEX,
-                PropertyOperator.IS_NOT_SET: PropertyOperator.IS_SET,
-                PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
-                PropertyOperator.NOT_IN: PropertyOperator.IN_,
-            }.get(filter.operator, filter.operator)
+            # The subquery matches the positive form. The outer NOT IN excludes the matching resources.
+            filter.operator = negative_operator_complement(filter.operator)
 
         if filter.operator == PropertyOperator.IS_SET:
             converted_exprs.append(
@@ -260,8 +256,19 @@ def _validated_attribute_group(group: PropertyGroupFilterValue) -> PropertyGroup
         raise QueryError("Nested filter groups in logs queries must contain at least one filter")
     for leaf in group.values:
         if not isinstance(leaf, LogPropertyFilter) or leaf.type != LogPropertyFilterType.LOG_ATTRIBUTE:
-            raise QueryError("Nested filter groups in logs queries support only log_attribute filters")
+            leaf_type = "nested group" if isinstance(leaf, PropertyGroupFilterValue) else f"{leaf.type} filter"
+            raise QueryError(
+                f"Nested filter groups in logs queries support only log_attribute filters, not a {leaf_type}. "
+                "Move that filter out of the nested group."
+            )
     return group
+
+
+def validate_nested_filter_groups(filter_group: PropertyGroupFilter) -> None:
+    for property_group in filter_group.values:
+        for nested_group in property_group.values:
+            if isinstance(nested_group, PropertyGroupFilterValue):
+                _validated_attribute_group(nested_group)
 
 
 class LogsFilterBuilder:
@@ -761,13 +768,14 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
     def validate_query_runner_access(self, user: "User") -> bool:
         # LogsQuery is registered in get_query_runner solely for server-side CSV export.
         # The export runs via ExportedAsset + Celery and attributes the read to the export
-        # owner (LimitContext.EXPORT), which must be allowed through. Block everything else —
-        # i.e. user-initiated queries via the generic /api/projects/:id/query/ endpoint —
-        # until the LogsQuery schema is stable and ready to be a public API.
-        if self.limit_context == LimitContext.EXPORT:
-            return True
+        # owner (LimitContext.EXPORT). That owner still needs viewer access to logs, the same
+        # access the logs API asks for. Block everything else, i.e. user-initiated queries via
+        # the generic /api/projects/:id/query/ endpoint, until the LogsQuery schema is stable
+        # and ready to be a public API.
+        from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 
-        from products.access_control.backend.facade.user_access_control import UserAccessControlError
+        if self.limit_context == LimitContext.EXPORT:
+            return UserAccessControl(user=user, team=self.team).assert_access_level_for_resource("logs", "viewer")
 
         raise UserAccessControlError("logs", "viewer")
 

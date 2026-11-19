@@ -1,4 +1,4 @@
-import type { PhaiViewMode } from './maxGlobalLogic'
+import type { PhaiViewMode } from '~/layout/ai/aiPanelIds'
 
 export interface AiSceneViewInput {
     /** The task `/ai?task=` selects, if any. */

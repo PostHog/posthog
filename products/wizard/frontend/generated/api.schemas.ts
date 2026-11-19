@@ -7,6 +7,152 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface WizardInstallStartRequestApi {
+    /**
+     * GitHub repository to set up, in owner/name format. The project's GitHub connection must have access to it.
+     * @maxLength 255
+     */
+    repository: string
+    /**
+     * Branch to start from and to open the pull request against. Defaults to the repository's default branch.
+     * @maxLength 255
+     */
+    branch?: string
+    /**
+     * Unique key for this request. A retry with the same key returns the same run instead of starting another.
+     * @maxLength 255
+     */
+    idempotency_key?: string
+}
+
+/**
+ * * `created` - created
+ * * `running` - running
+ * * `completed` - completed
+ * * `failed` - failed
+ * * `cancelled` - cancelled
+ */
+export type WizardRunStatusEnumApi = (typeof WizardRunStatusEnumApi)[keyof typeof WizardRunStatusEnumApi]
+
+export const WizardRunStatusEnumApi = {
+    Created: 'created',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+export interface WizardInstallStartApi {
+    /** ID of the setup run. Pass it to the status endpoint. */
+    readonly run_id: string
+    /** Current lifecycle status of the setup run.
+     *
+     * * `created` - created
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `cancelled` - cancelled */
+    readonly status: WizardRunStatusEnumApi
+    /** PostHog page where the user can follow their setup runs. */
+    readonly url: string
+}
+
+export interface WizardRunErrorApi {
+    /** Error category. */
+    readonly type: string
+    /** Machine-readable error code. */
+    readonly code: string
+    /** What happened and how to continue. */
+    readonly detail: string
+    /**
+     * Request field associated with the error, when available.
+     * @nullable
+     */
+    readonly attr: string | null
+}
+
+/**
+ * * `dispatching` - dispatching
+ * * `provisioning` - provisioning
+ * * `preparing_workspace` - preparing_workspace
+ * * `executing_wizard` - executing_wizard
+ * * `creating_artifacts` - creating_artifacts
+ */
+export type WizardRunStageEnumApi = (typeof WizardRunStageEnumApi)[keyof typeof WizardRunStageEnumApi]
+
+export const WizardRunStageEnumApi = {
+    Dispatching: 'dispatching',
+    Provisioning: 'provisioning',
+    PreparingWorkspace: 'preparing_workspace',
+    ExecutingWizard: 'executing_wizard',
+    CreatingArtifacts: 'creating_artifacts',
+} as const
+
+/**
+ * * `created` - created
+ * * `running` - running
+ * * `completed` - completed
+ * * `failed` - failed
+ */
+export type WizardTaskStatusEnumApi = (typeof WizardTaskStatusEnumApi)[keyof typeof WizardTaskStatusEnumApi]
+
+export const WizardTaskStatusEnumApi = {
+    Created: 'created',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface WizardInstallTaskApi {
+    /** Task the setup agent planned. */
+    readonly name: string
+    /** Current task status reported by the setup agent.
+     *
+     * * `created` - created
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed */
+    readonly status: WizardTaskStatusEnumApi
+}
+
+export interface WizardInstallStatusApi {
+    /** Lifecycle status of the setup run. created and running mean it is still in progress.
+     *
+     * * `created` - created
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `cancelled` - cancelled */
+    readonly status: WizardRunStatusEnumApi
+    /** Step the setup run is on while it is in progress, or null otherwise.
+     *
+     * * `dispatching` - dispatching
+     * * `provisioning` - provisioning
+     * * `preparing_workspace` - preparing_workspace
+     * * `executing_wizard` - executing_wizard
+     * * `creating_artifacts` - creating_artifacts */
+    readonly stage: WizardRunStageEnumApi | null
+    /**
+     * Machine-readable failure reason, or null if the run has not failed.
+     * @nullable
+     */
+    readonly error_code: string | null
+    /**
+     * Failure explanation, or null if the run has not failed.
+     * @nullable
+     */
+    readonly error_message: string | null
+    /**
+     * Pull request with the setup changes, or null until the run opens one.
+     * @nullable
+     */
+    readonly pull_request_url: string | null
+    /** Tasks the setup agent planned, in order. */
+    readonly tasks: readonly WizardInstallTaskApi[]
+    /** What happens next, in a sentence to relay to the user. */
+    readonly next_step: string
+}
+
 /**
  * * `local` - local
  * * `cloud` - cloud
@@ -97,40 +243,6 @@ export interface GitRepositoryWorkspaceApi {
 }
 
 export type WizardWorkspaceApi = LocalFolderWorkspaceApi | GitRepositoryWorkspaceApi
-
-/**
- * * `created` - created
- * * `running` - running
- * * `completed` - completed
- * * `failed` - failed
- * * `cancelled` - cancelled
- */
-export type WizardRunStatusEnumApi = (typeof WizardRunStatusEnumApi)[keyof typeof WizardRunStatusEnumApi]
-
-export const WizardRunStatusEnumApi = {
-    Created: 'created',
-    Running: 'running',
-    Completed: 'completed',
-    Failed: 'failed',
-    Cancelled: 'cancelled',
-} as const
-
-/**
- * * `dispatching` - dispatching
- * * `provisioning` - provisioning
- * * `preparing_workspace` - preparing_workspace
- * * `executing_wizard` - executing_wizard
- * * `creating_artifacts` - creating_artifacts
- */
-export type WizardRunStageEnumApi = (typeof WizardRunStageEnumApi)[keyof typeof WizardRunStageEnumApi]
-
-export const WizardRunStageEnumApi = {
-    Dispatching: 'dispatching',
-    Provisioning: 'provisioning',
-    PreparingWorkspace: 'preparing_workspace',
-    ExecutingWizard: 'executing_wizard',
-    CreatingArtifacts: 'creating_artifacts',
-} as const
 
 export interface WizardRunApi {
     /** Unique ID of the Wizard run. */
@@ -234,20 +346,6 @@ export interface WizardRunCreateRequestApi {
     wizard_version?: string
 }
 
-export interface WizardRunErrorApi {
-    /** Error category. */
-    readonly type: string
-    /** Machine-readable error code. */
-    readonly code: string
-    /** What happened and how to continue. */
-    readonly detail: string
-    /**
-     * Request field associated with the error, when available.
-     * @nullable
-     */
-    readonly attr: string | null
-}
-
 /**
  * * `completed` - completed
  * * `failed` - failed
@@ -330,6 +428,22 @@ export const WizardRunPullRequestArtifactApiArtifactType = {
     PullRequest: 'pull_request',
 } as const
 
+/**
+ * * `open` - open
+ * * `draft` - draft
+ * * `merged` - merged
+ * * `closed` - closed
+ */
+export type WizardPullRequestStateEnumApi =
+    (typeof WizardPullRequestStateEnumApi)[keyof typeof WizardPullRequestStateEnumApi]
+
+export const WizardPullRequestStateEnumApi = {
+    Open: 'open',
+    Draft: 'draft',
+    Merged: 'merged',
+    Closed: 'closed',
+} as const
+
 export interface WizardRunPullRequestArtifactApi {
     /** Unique ID of the run artifact. */
     readonly id: string
@@ -353,6 +467,23 @@ export interface WizardRunPullRequestArtifactApi {
     readonly base_branch: string
     /** Time when the artifact was stored. */
     readonly created_at: string
+    /** Last known state of the pull request on GitHub. Null when no state has been recorded.
+     *
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed */
+    readonly state: WizardPullRequestStateEnumApi | null
+    /**
+     * Time when the pull request was merged, if it was.
+     * @nullable
+     */
+    readonly merged_at: string | null
+    /**
+     * Time when the pull request was closed or merged. Null while it is open.
+     * @nullable
+     */
+    readonly closed_at: string | null
 }
 
 export type WizardRunArtifactApi = WizardRunGitDiffArtifactApi | WizardRunPullRequestArtifactApi
@@ -365,21 +496,6 @@ export interface PaginatedWizardRunArtifactListApi {
     previous?: string | null
     results: WizardRunArtifactApi[]
 }
-
-/**
- * * `created` - created
- * * `running` - running
- * * `completed` - completed
- * * `failed` - failed
- */
-export type WizardTaskStatusEnumApi = (typeof WizardTaskStatusEnumApi)[keyof typeof WizardTaskStatusEnumApi]
-
-export const WizardTaskStatusEnumApi = {
-    Created: 'created',
-    Running: 'running',
-    Completed: 'completed',
-    Failed: 'failed',
-} as const
 
 export interface WizardRunTaskApi {
     /** Task name, unique within this run. */
@@ -438,6 +554,89 @@ export interface UpdateWizardRunTaskApi {
 export interface UpdateWizardRunTaskListApi {
     /** Complete task snapshot. An empty list clears the run's tasks. */
     tasks: UpdateWizardRunTaskApi[]
+}
+
+export interface WizardScanSignalApi {
+    /**
+     * Where the wizard found the tool, such as `npm`, `pypi`, `env_key` or `script_host`.
+     * @maxLength 32
+     */
+    source: string
+    /**
+     * The package name, `.env` key name or script host that matched. Never a `.env` value.
+     * @maxLength 255
+     */
+    name: string
+    /**
+     * Path of the file the signal came from, relative to the scanned directory.
+     * @maxLength 512
+     * @nullable
+     */
+    file?: string | null
+}
+
+export interface WizardScanToolApi {
+    /**
+     * The tool's kind in the wizard tool catalog, such as `Stripe` or `Amplitude`.
+     * @maxLength 64
+     */
+    kind: string
+    /**
+     * The signals that matched this tool.
+     * @maxItems 50
+     */
+    signals: WizardScanSignalApi[]
+}
+
+export interface RecordWizardScanRequestApi {
+    /**
+     * The wizard run that made the scan.
+     * @maxLength 255
+     */
+    session_id: string
+    /**
+     * The wizard program that scanned, such as `posthog-integration` or `warehouse-source`.
+     * @maxLength 50
+     */
+    program: string
+    /**
+     * Version of the wizard that made the scan.
+     * @maxLength 32
+     */
+    wizard_version: string
+    /**
+     * sha256 hex digest that identifies the scanned repository without naming it.
+     * @maxLength 64
+     * @pattern ^[0-9a-f]{64}$
+     */
+    workspace_fingerprint: string
+    /** When the wizard scanned the codebase. */
+    scanned_at: string
+    /**
+     * Every tool the scan found. An empty list is a scan that found nothing.
+     * @maxItems 300
+     */
+    tools: WizardScanToolApi[]
+    /** False when the scan could not read the whole workspace. Tools it did not find are then kept. */
+    complete?: boolean
+}
+
+export interface WizardScanResultApi {
+    /** ID of the stored scan. */
+    id: string
+    /** False when this session had already reported its scan, so nothing changed. */
+    created: boolean
+}
+
+export interface WizardDetectedWarehouseSourceApi {
+    /** The tool's kind in the wizard tool catalog, such as `Stripe`. */
+    kind: string
+    /** The data warehouse source type that imports this tool's data, such as `Stripe` or `Postgres`. */
+    warehouse_source_type: string
+    /** When a wizard scan first found the tool. */
+    first_seen_at: string
+    /** When a wizard scan last found the tool. */
+    last_seen_at: string
 }
 
 /**
@@ -622,6 +821,96 @@ export interface UpsertWizardSessionRequestApi {
 }
 
 /**
+ * * `Redshift` - Redshift
+ * * `Snowflake` - Snowflake
+ * * `BigQuery` - BigQuery
+ * * `Postgres` - Postgres
+ * * `Databricks` - Databricks
+ * * `AzureBlob` - Azure Blob
+ * * `S3` - S3
+ * * `MotherDuck` - MotherDuck
+ */
+export type UserCreatableDestinationTypeEnumApi =
+    (typeof UserCreatableDestinationTypeEnumApi)[keyof typeof UserCreatableDestinationTypeEnumApi]
+
+export const UserCreatableDestinationTypeEnumApi = {
+    Redshift: 'Redshift',
+    Snowflake: 'Snowflake',
+    BigQuery: 'BigQuery',
+    Postgres: 'Postgres',
+    Databricks: 'Databricks',
+    AzureBlob: 'AzureBlob',
+    S3: 'S3',
+    MotherDuck: 'MotherDuck',
+} as const
+
+/**
+ * * `in-cli` - In the terminal
+ * * `deep-link` - In the app
+ */
+export type WizardSetupModeEnumApi = (typeof WizardSetupModeEnumApi)[keyof typeof WizardSetupModeEnumApi]
+
+export const WizardSetupModeEnumApi = {
+    InCli: 'in-cli',
+    DeepLink: 'deep-link',
+} as const
+
+/**
+ * Package names keyed by ecosystem, such as `npm`, `pypi` or `maven`.
+ */
+export type WizardCatalogToolSignalsApiPackages = { [key: string]: string[] }
+
+export interface WizardCatalogToolSignalsApi {
+    /** Anchored regexes matched against `.env` key names. Values are never read. */
+    env_key_patterns: string[]
+    /** Hosts matched against script URLs. A host also matches its subdomains. */
+    script_hosts: string[]
+    /** Package names keyed by ecosystem, such as `npm`, `pypi` or `maven`. */
+    packages: WizardCatalogToolSignalsApiPackages
+}
+
+export interface WizardCatalogToolApi {
+    /** Unique tool identifier, such as `Stripe` or `Hotjar`. */
+    kind: string
+    /** Human-readable tool name. */
+    label: string
+    /**
+     * Data warehouse source type the tool imports as, or null for a tool with no warehouse source.
+     * @nullable
+     */
+    warehouse_source_type: string | null
+    /** Warehouse destination PostHog can send data to when the tool is that warehouse, or null for any other tool.
+     *
+     * * `Redshift` - Redshift
+     * * `Snowflake` - Snowflake
+     * * `BigQuery` - BigQuery
+     * * `Postgres` - Postgres
+     * * `Databricks` - Databricks
+     * * `AzureBlob` - Azure Blob
+     * * `S3` - S3
+     * * `MotherDuck` - MotherDuck */
+    warehouse_destination_type: UserCreatableDestinationTypeEnumApi | null
+    /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
+     *
+     * * `in-cli` - In the terminal
+     * * `deep-link` - In the app */
+    wizard_setup_mode: WizardSetupModeEnumApi | null
+    /** PostHog products this tool is an alternative to. */
+    alternative_to: string[]
+    /** Kinds that reach the same data through a more specific source. When one of them also matches, the wizard drops this tool. */
+    superseded_by: string[]
+    /** How the wizard detects the tool in a codebase. */
+    signals: WizardCatalogToolSignalsApi
+}
+
+export interface WizardToolCatalogApi {
+    /** Bumped when the shape changes in a way an older wizard cannot read. */
+    schema_version: number
+    /** Every tool the wizard can detect. */
+    tools: WizardCatalogToolApi[]
+}
+
+/**
  * * `git_diff` - git_diff
  */
 export type WizardRunGitDiffArtifactArtifactTypeEnumApi =
@@ -644,6 +933,7 @@ export const WizardRunPullRequestArtifactArtifactTypeEnumApi = {
 export type WizardRegistryListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -658,7 +948,12 @@ export type WizardRunsListParams = {
      */
     created_after?: string
     /**
+     * Only return runs created by this user.
+     */
+    created_by_id?: number
+    /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -684,6 +979,7 @@ export const WizardRunsListStatusItem = {
 export type WizardRunsArtifactsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -692,10 +988,17 @@ export type WizardRunsArtifactsListParams = {
     offset?: number
 }
 
+export type WizardScansDetectedSourcesRetrieveParams = {
+    /**
+     * Only return sources a scan found at or after this time, such as the start of a wizard run.
+     */
+    seen_since?: string
+}
+
 export type WizardSessionsListParams = {
     /**
      * Maximum number of sessions to return.
-     * @minimum 0
+     * @minimum 1
      * @maximum 200
      */
     limit?: number

@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
 
@@ -48,16 +49,22 @@ from products.alerts.backend.evaluation.delay import (
     apply_evaluation_delay,
     validate_evaluation_delay,
 )
+from products.alerts.backend.facade.contracts import MovedAlertCheck
+from products.alerts.backend.forecast import scorer as forecast_scorer
+from products.alerts.backend.forecast.access import FORECAST_DETECTOR_NO_CREATOR_MESSAGE
+from products.alerts.backend.forecast.rules import ForecastComparison, breach_detail
 from products.alerts.backend.judge import (
+    EarlierFlag,
     JudgeAttribution,
     LLMDetectorMisconfiguredError,
     SeriesContext,
     SeriesJudge,
     SeriesJudgment,
 )
+from products.alerts.backend.judge.contract import ForecastDetectorMisconfiguredError
 from products.alerts.backend.judge.llm import LLMSeriesJudge, prompt_window
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -68,6 +75,7 @@ def extract_detector_series(
     detector_config: dict[str, Any],
     execution_mode: ExecutionMode,
     *,
+    cache_age_seconds: int | None = None,
     series_index: int = 0,
     date_from: str | None = None,
     user: Optional[User] = None,
@@ -81,7 +89,8 @@ def extract_detector_series(
     ``empty_query_result=True``; rows that exist but are too short to score are dropped, also leaving
     an empty series list, but with the flag False — the two cases evaluate to 0 and None respectively.
     """
-    min_samples = _compute_min_samples_for_detector(detector_config) + 1 + evaluation_delay_intervals
+    interval_value = query.interval.value if query.interval else None
+    min_samples = _compute_min_samples_for_detector(detector_config, interval_value) + 1 + evaluation_delay_intervals
     is_non_time_series = _is_non_time_series_trend(query)
     already_complete = query_excludes_incomplete_periods(query)
     has_breakdown = _has_breakdown(query)
@@ -99,7 +108,12 @@ def extract_detector_series(
         filters_override = _date_range_override_for_detector(query, min_samples)
 
     calculation_result = calculate_for_query_based_insight(
-        insight, team=team, execution_mode=execution_mode, user=user, filters_override=filters_override
+        insight,
+        team=team,
+        execution_mode=execution_mode,
+        cache_age_seconds=cache_age_seconds,
+        user=user,
+        filters_override=filters_override,
     )
 
     if calculation_result.result is None:
@@ -183,7 +197,8 @@ def _effective_date_range(result: ExtractionResult, detector_config: dict[str, A
     holds, so the saved range would describe a shorter span than the points beside it. The AI
     judge is shown only its trailing window, so its description covers that window alone.
     """
-    shown = prompt_window(detector_config) if is_llm_detector_config(detector_config) else None
+    interval = result.interval_type.value if result.interval_type else None
+    shown = prompt_window(interval) if is_llm_detector_config(detector_config) else None
     for series in result.series:
         dates = [point.date for point in series.points if point.date]
         if shown is not None:
@@ -200,6 +215,7 @@ def _series_context(
     insight: Insight | None,
     interval: str | None,
     metric_description: str,
+    earlier_flags: tuple[EarlierFlag, ...] = (),
 ) -> SeriesContext:
     """What the judge reads about the series that the values array cannot carry."""
     return SeriesContext(
@@ -209,13 +225,96 @@ def _series_context(
         metric_description=metric_description,
         insight_name=(insight.name or "") if insight is not None else "",
         instructions=str(detector_config.get("instructions") or ""),
+        earlier_flags=earlier_flags,
     )
 
 
+# More checks than the longest lookback has points, so every point the model is shown can
+# carry its flag.
+MAX_EARLIER_CHECKS = 500
+
+
+def _earlier_flags(alert: AlertConfiguration) -> tuple[EarlierFlag, ...]:
+    """The points that earlier AI checks of this alert fired on, with the reason each check gave.
+
+    Statistical checks and errored checks are left out: only an AI verdict has a reason the
+    model can read. When two checks fired on the same date, the newer reason wins.
+
+    After the platform takes the alert over, its checks come from the platform's history.
+    """
+    moved_at = alert.platform_owned_since
+    own_checks = AlertCheck.objects.filter(
+        alert_configuration_id=alert.id,
+        error__isnull=True,
+        triggered_metadata__detector_type=DetectorType.LLM.value,
+        triggered_dates__isnull=False,
+    )
+    if moved_at is not None:
+        own_checks = own_checks.filter(created_at__lt=moved_at)
+    fired: list[tuple[Any, Any]] = list(
+        own_checks.order_by("-created_at").values_list("triggered_dates", "triggered_metadata")[:MAX_EARLIER_CHECKS]
+    )
+    if moved_at is not None:
+        # The platform's checks are all newer than the alert's own, so they go first.
+        fired = [
+            *(
+                (list(check.triggered_dates), check.triggered_metadata)
+                for check in _platform_fired_checks(alert, moved_at)
+            ),
+            *fired,
+        ][:MAX_EARLIER_CHECKS]
+
+    by_date: dict[str, str] = {}
+    for triggered_dates, metadata in fired:
+        rationale = str((metadata or {}).get("rationale") or "")
+        for date in triggered_dates if isinstance(triggered_dates, list) else []:
+            if isinstance(date, str):
+                by_date.setdefault(date, rationale)
+    return tuple(EarlierFlag(date=date, rationale=rationale) for date, rationale in sorted(by_date.items()))
+
+
+def _saved_alert_flags(team: Team, alert_id: Any) -> tuple[EarlierFlag, ...]:
+    alert = AlertConfiguration.objects.filter(team_id=team.id, id=alert_id).first()
+    if alert is None:
+        # Imported here for the same reason as `_platform_fired_checks`'s import.
+        from products.alerts.backend.platform_insight_alert import native_insight_alert_view  # noqa: PLC0415
+
+        view = native_insight_alert_view(team.id, alert_id)
+        alert = AlertConfiguration.from_platform_view(view, team_id=team.id) if view is not None else None
+    return _earlier_flags(alert) if alert is not None else ()
+
+
+def _platform_fired_checks(alert: AlertConfiguration, moved_at: datetime) -> list[MovedAlertCheck]:
+    """The AI checks of a moved alert that fired, newest first."""
+    # Imported here because the platform reads import the evaluation package this module is part of.
+    from products.alerts.backend.platform_alert_reads import moved_alert_fired_checks  # noqa: PLC0415
+
+    checks = moved_alert_fired_checks(
+        team_id=alert.team_id,
+        moved_at={alert.id: moved_at},
+        not_before=None,
+        limit=MAX_EARLIER_CHECKS,
+        ai_verdicts_only=True,
+    ).get(alert.id, ())
+    return [
+        check
+        for check in checks
+        if check.error_message is None
+        and (check.triggered_metadata or {}).get("detector_type") == DetectorType.LLM.value
+    ]
+
+
 def _judge_attribution(
-    *, team: Team | None, user: User | None, evaluation_id: str | None, is_agent_billable: bool
+    *,
+    team: Team | None,
+    user: User | None,
+    evaluation_id: str | None,
+    is_agent_billable: bool,
+    detector_type: str = DetectorType.LLM.value,
 ) -> JudgeAttribution:
     """Who the judge's charged call runs as. Refused loudly when there is no one to attribute it to."""
+    if (team is None or user is None) and detector_type == DetectorType.FORECAST.value:
+        raise ForecastDetectorMisconfiguredError(FORECAST_DETECTOR_NO_CREATOR_MESSAGE)
     if team is None or user is None:
         raise LLMDetectorMisconfiguredError(
             "The AI detector needs a project and a user to attribute its model calls to. This "
@@ -244,15 +343,17 @@ class _ScoredSeries:
     breach_suffix: str
 
 
-def _detection_from_judgment(judgment: SeriesJudgment | None) -> DetectionResult | None:
-    """The judgment on the shape the rest of the evaluation reads. None is a series too short to judge."""
+def _detection_from_judgment(judgment: SeriesJudgment | None, *, length: int) -> DetectionResult | None:
+    """The judgment on the shape the rest of the evaluation reads. None is a series too short to judge.
+
+    The judge has no score. A verdict flags the latest point only.
+    """
     if judgment is None:
         return None
     return DetectionResult(
         is_anomaly=judgment.fires,
-        score=judgment.score,
-        triggered_indices=list(judgment.triggered_indices),
-        all_scores=list(judgment.all_scores),
+        score=None,
+        triggered_indices=[length - 1] if judgment.fires else [],
     )
 
 
@@ -279,22 +380,36 @@ def _score_series(
     series_context: SeriesContext,
     attribution: Callable[[], JudgeAttribution],
 ) -> _ScoredSeries:
-    """Score one series with whatever its config names: a registry detector, or the AI judge.
+    """Score one series with whatever its config names: a registry detector, the AI judge, or the forecast.
 
-    ``attribution`` is resolved only on the judge path, so an alert with no creator still
-    evaluates on a statistical detector and only fails when a charged call would need someone
-    to run as.
+    ``attribution`` is resolved only on the judge and forecast paths, so an alert with no creator
+    still evaluates on a statistical detector and only fails when a gateway call would need someone
+    to run as. The judge and the forecast score the latest point only, so ``every_point`` applies
+    to a registry detector alone.
     """
     data = np.array([p.value for p in series.points])
     detector_type_str = detector_config.get("type", "zscore")
+    if detector_type_str == DetectorType.FORECAST.value:
+        comparison = forecast_scorer.score_latest(data, detector_config, attribution=attribution())
+        if comparison is None:
+            return _ScoredSeries(data=data, detection=None, persisted_metadata={}, breach_suffix="")
+        return _ScoredSeries(
+            data=data,
+            # A forecast has no score. Its verdict flags the latest point only.
+            detection=DetectionResult(
+                is_anomaly=comparison.fires,
+                score=None,
+                triggered_indices=[len(data) - 1] if comparison.fires else [],
+            ),
+            persisted_metadata=comparison.persisted_metadata(),
+            breach_suffix=f": {breach_detail(comparison)}",
+        )
     if detector_type_str == DetectorType.LLM.value:
-        judge = _series_judge(detector_config)
-        judge_method = judge.judge_every_point if every_point else judge.judge_latest
-        judgment = judge_method(data, series=series_context, attribution=attribution())
+        judgment = _series_judge(detector_config).judge_latest(data, series=series_context, attribution=attribution())
         rationale = judgment.rationale.strip() if judgment is not None else ""
         return _ScoredSeries(
             data=data,
-            detection=_detection_from_judgment(judgment),
+            detection=_detection_from_judgment(judgment, length=len(data)),
             persisted_metadata=judgment.persisted_metadata() if judgment is not None else {},
             breach_suffix=f". {rationale}" if rationale else "",
         )
@@ -310,16 +425,13 @@ def _score_series(
 
 # The breach message a person reads names the detector. Every statistical type is already
 # a recognizable name; "llm" is not something the alert editor ever calls it.
-_DETECTOR_DISPLAY_NAMES = {DetectorType.LLM.value: "AI"}
+_DETECTOR_DISPLAY_NAMES = {DetectorType.LLM.value: "AI", DetectorType.FORECAST.value: "forecast"}
 
 
 def _anomaly_breach(label: str, scored: _ScoredSeries, detector_type_str: str) -> str:
     current_value = float(scored.data[-1])
     score = scored.detection.score if scored.detection is not None else None
-    # The model's number is its own stated confidence, not a calibrated probability, so
-    # the message must not present it as one.
-    score_label = "model confidence" if detector_type_str == DetectorType.LLM.value else "anomaly probability"
-    score_str = f" ({score_label}: {score:.0%})" if score is not None else ""
+    score_str = f" (anomaly probability: {score:.0%})" if score is not None else ""
     name = _DETECTOR_DISPLAY_NAMES.get(detector_type_str, detector_type_str)
     return (
         f"Anomaly detected in {label}: value {current_value:.2f}{score_str} using {name} detector{scored.breach_suffix}"
@@ -355,6 +467,7 @@ def evaluate_with_detector(
     metric_description = _metric_description(
         insight, series_index, _effective_date_range(result, detector_config), alert_config
     )
+    earlier_flags = _earlier_flags(alert) if alert is not None and detector_type_str == DetectorType.LLM.value else ()
 
     def score(series: ComparableSeries) -> _ScoredSeries:
         return _score_series(
@@ -362,13 +475,19 @@ def evaluate_with_detector(
             detector_config,
             every_point=False,
             series_context=_series_context(
-                series, detector_config, insight=insight, interval=interval_value, metric_description=metric_description
+                series,
+                detector_config,
+                insight=insight,
+                interval=interval_value,
+                metric_description=metric_description,
+                earlier_flags=earlier_flags,
             ),
             attribution=lambda: _judge_attribution(
                 team=insight.team if insight is not None else None,
                 user=alert.created_by if alert is not None else None,
                 evaluation_id=evaluation_id,
                 is_agent_billable=True,
+                detector_type=detector_type_str,
             ),
         )
 
@@ -383,8 +502,10 @@ def evaluate_with_detector(
                     triggered_points=scored.detection.triggered_indices or None,
                     triggered_dates=_triggered_dates(s, scored.detection.triggered_indices or []) or None,
                     interval=interval_value,
+                    # series_index stays the breakdown position, which the alert chart reads.
                     triggered_metadata={
                         **_check_provenance(insight, bd_index, detector_type_str),
+                        "breakdown_label": s.label,
                         **scored.persisted_metadata,
                     },
                 )
@@ -428,7 +549,12 @@ class TrendsDetectorExtractor:
     """
 
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: Any,
+        execution_mode: ExecutionMode,
+        cache_age_seconds: int | None = None,
     ) -> ExtractionResult:
         detector_config = alert.detector_config
         if not detector_config:
@@ -441,6 +567,7 @@ class TrendsDetectorExtractor:
             trends_query,
             detector_config,
             execution_mode,
+            cache_age_seconds=cache_age_seconds,
             series_index=series_index,
             user=alert.created_by,
             evaluation_delay_intervals=alert.evaluation_delay_intervals,
@@ -477,8 +604,14 @@ def simulate_detector_on_insight(
     score: bool = True,
     is_agent_billable: bool = True,
     evaluation_delay_intervals: int = 0,
+    alert_id: Any = None,
 ) -> dict[str, Any]:
     """Run a detector over historical insight data for chart visualization. Read-only (no AlertCheck).
+
+    A statistical detector scores every point. The AI detector makes one live check of the
+    latest point, and reads the earlier flags of ``alert_id`` when the alert is saved. The forecast
+    detector scores every point with a rolling one-step forecast, and returns the forecast of each point
+    so the chart can draw the expected range.
 
     ``score=False`` returns the extracted series with no scores: for a caller that only wants
     the points, such as the investigation agent's chart, and must not pay for a model call.
@@ -504,6 +637,7 @@ def simulate_detector_on_insight(
     # module's extractor classes — importing the registry at module load would cycle.
     from products.alerts.backend.evaluation.dispatcher import (  # noqa: PLC0415 — breaks dispatcher↔detector import cycle
         DETECTOR_EXTRACTORS,
+        owner_sql_errors,
     )
 
     extractor = DETECTOR_EXTRACTORS.get(kind)
@@ -520,7 +654,8 @@ def simulate_detector_on_insight(
         config=config,
         evaluation_delay_intervals=evaluation_delay_intervals,
     )
-    result, interval_value = extractor.simulate(insight, query, ctx)
+    with owner_sql_errors(query):
+        result, interval_value = extractor.simulate(insight, query, ctx)
     interval_metadata = (
         {
             "evaluation_delay_intervals": result.evaluated_interval.delay,
@@ -555,14 +690,33 @@ def simulate_detector_on_insight(
         user=user,
         score=score,
         is_agent_billable=is_agent_billable,
+        earlier_flags=_saved_alert_flags(team, alert_id)
+        if score and alert_id is not None and detector_type_str == DetectorType.LLM.value
+        else (),
     )
 
+    if result.is_breakdown and detector_type_str == DetectorType.LLM.value:
+        # One model call per breakdown value is the cost profile the saved-alert path
+        # refuses; the preview must refuse it before the first call, not after the last.
+        raise ValueError("The AI detector does not support breakdown insights yet.")
+
+    scored_series = result.series if result.is_breakdown else result.series[:1]
+    if score and detector_type_str == DetectorType.FORECAST.value:
+        sims = _forecast_sims(
+            scored_series,
+            detector_config,
+            attribution=_judge_attribution(
+                team=insight.team,
+                user=user,
+                evaluation_id=None,
+                is_agent_billable=is_agent_billable,
+                detector_type=detector_type_str,
+            ),
+        )
+    else:
+        sims = [_sim_from_series(s, detector_config, detector_type_str, sim_context) for s in scored_series]
+
     if result.is_breakdown:
-        if detector_type_str == DetectorType.LLM.value:
-            # One model call per breakdown value is the cost profile the saved-alert path
-            # refuses; the preview must refuse it before the first call, not after the last.
-            raise ValueError("The AI detector does not support breakdown insights yet.")
-        breakdown_sims = [_sim_from_series(s, detector_config, detector_type_str, sim_context) for s in result.series]
         return {
             "data": [],
             "dates": [],
@@ -570,13 +724,13 @@ def simulate_detector_on_insight(
             "triggered_indices": [],
             "triggered_dates": [],
             "interval": interval_value,
-            "total_points": sum(sim["total_points"] for sim in breakdown_sims),
-            "anomaly_count": sum(sim["anomaly_count"] for sim in breakdown_sims),
-            "breakdown_results": breakdown_sims,
+            "total_points": sum(sim["total_points"] for sim in sims),
+            "anomaly_count": sum(sim["anomaly_count"] for sim in sims),
+            "breakdown_results": sims,
             **interval_metadata,
         }
 
-    sim = _sim_from_series(result.series[0], detector_config, detector_type_str, sim_context)
+    sim = sims[0]
     sim.pop("label", None)
     return {**sim, "interval": interval_value, **interval_metadata}
 
@@ -595,6 +749,7 @@ class _SimulationSeriesContext:
     user: User | None
     score: bool = True
     is_agent_billable: bool = True
+    earlier_flags: tuple[EarlierFlag, ...] = ()
 
 
 def _sim_from_series(
@@ -603,9 +758,14 @@ def _sim_from_series(
     detector_type_str: str,
     sim_context: _SimulationSeriesContext,
 ) -> dict[str, Any]:
-    """Score a single extracted series over every point and shape it for the simulation chart."""
+    """Score a single extracted series and shape it for the simulation chart.
+
+    A statistical detector scores every point. The AI judge judges only the latest point, the
+    same way a live check does.
+    """
+    persisted_metadata: dict[str, Any] = {}
     if sim_context.score:
-        detection = _score_series(
+        scored = _score_series(
             series,
             detector_config,
             every_point=True,
@@ -615,6 +775,7 @@ def _sim_from_series(
                 insight=sim_context.insight,
                 interval=sim_context.interval,
                 metric_description=sim_context.metric_description,
+                earlier_flags=sim_context.earlier_flags,
             ),
             attribution=lambda: _judge_attribution(
                 team=sim_context.insight.team,
@@ -622,11 +783,20 @@ def _sim_from_series(
                 evaluation_id=None,
                 is_agent_billable=sim_context.is_agent_billable,
             ),
-        ).detection
+        )
+        detection = scored.detection
+        persisted_metadata = scored.persisted_metadata
     else:
         detection = None
-    if detection is None:
-        detection = DetectionResult(is_anomaly=False)
+    return _shaped_sim(series, detection or DetectionResult(is_anomaly=False), detector_type_str, persisted_metadata)
+
+
+def _shaped_sim(
+    series: ComparableSeries,
+    detection: DetectionResult,
+    detector_type_str: str,
+    persisted_metadata: dict[str, Any],
+) -> dict[str, Any]:
     triggered = detection.triggered_indices or []
     scores = detection.all_scores if detection.all_scores else [None] * len(series.points)
 
@@ -645,4 +815,46 @@ def _sim_from_series(
     sub_scores = _extract_sub_detector_scores(detector_type_str, detection)
     if sub_scores:
         sim["sub_detector_scores"] = sub_scores
+    if "rationale" in persisted_metadata:
+        sim["rationale"] = persisted_metadata["rationale"]
+        sim["kind"] = persisted_metadata.get("kind")
     return sim
+
+
+def _forecast_sims(
+    series: list[ComparableSeries], detector_config: dict[str, Any], *, attribution: JudgeAttribution
+) -> list[dict[str, Any]]:
+    """Score every point of each series with a rolling forecast, and shape each for the simulation chart.
+
+    All the series share one batched forecast call. Each sim carries the forecast of each point, so the
+    chart can draw the expected value and the range, and mark the side that fired.
+    """
+    rolling = forecast_scorer.score_every_point(
+        [np.array([point.value for point in s.points]) for s in series], detector_config, attribution=attribution
+    )
+    sims: list[dict[str, Any]] = []
+    for s, comparisons in zip(series, rolling.comparisons, strict=True):
+        triggered = [index for index, comparison in enumerate(comparisons) if comparison and comparison.fires]
+        sim = _shaped_sim(
+            s,
+            # A forecast has no score.
+            DetectionResult(is_anomaly=bool(triggered), triggered_indices=triggered),
+            DetectorType.FORECAST.value,
+            {},
+        )
+        sim["forecast"] = {
+            "lower_quantile": rolling.levels.lower,
+            "upper_quantile": rolling.levels.upper,
+            **_forecast_points(comparisons),
+        }
+        sims.append(sim)
+    return sims
+
+
+def _forecast_points(comparisons: tuple[ForecastComparison | None, ...]) -> dict[str, list[Any]]:
+    return {
+        "expected": [comparison.expected if comparison else None for comparison in comparisons],
+        "lower": [comparison.lower if comparison else None for comparison in comparisons],
+        "upper": [comparison.upper if comparison else None for comparison in comparisons],
+        "fired_side": [comparison.side if comparison else None for comparison in comparisons],
+    }

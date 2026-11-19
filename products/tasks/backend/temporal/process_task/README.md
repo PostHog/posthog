@@ -54,7 +54,7 @@ For combined task creation, run-start responses, and MCP tools, see [Create task
 
 ### PostHog API
 
-`backend/presentation/views/api.py` (thin viewsets) over `backend/facade/api.py` (behavior) — every user-triggered cloud launch path, including prewarming, checks server-side PostHog Desktop access before provisioning or activating a run. Composer prewarming carries the complete ordered repository selection, so single- and multi-repository submissions can reuse only a matching sandbox. A terminal task can also prewarm a successor through `POST .../tasks/{id}/warm/`; the source run must remain the task's latest terminal run, and the normal `run` request activates that successor with `resume_from_run_id`. Runtime, model, branch, permission mode, and sandbox configuration must match; reasoning effort may change and is applied before the warmed agent's first turn. Full-filesystem resume snapshots bundle their agent binary, so prewarming probes for the deferred-resume capability and falls back to a fresh sandbox when an old snapshot lacks it. `TaskViewSet.run` creates a `TaskRun` (status=QUEUED) and starts the Temporal workflow. `TaskRunViewSet.partial_update` handles status transitions and signals the Temporal workflow on terminal statuses via `signal_workflow_completion`. `TaskRunViewSet.cancel` (`POST .../runs/{id}/cancel/`) is the user-facing kill switch: `cancel_task_run` interrupts the in-flight agent turn, signals `complete_task("cancelled")` so the workflow snapshots the session and tears down the sandbox, and falls back to finalizing the run directly when no workflow is running.
+`backend/presentation/views/api.py` (thin viewsets) over `backend/facade/api.py` (behavior) — every user-triggered cloud launch path, including prewarming, checks server-side PostHog Desktop access before provisioning or activating a run. Composer prewarming carries the complete ordered repository selection, so single- and multi-repository submissions can reuse only a matching sandbox. A terminal task can also prewarm a successor through `POST .../tasks/{id}/warm/`; the source run must remain the task's latest terminal run, and the normal `run` request activates that successor with `resume_from_run_id`. Runtime, model, branch, permission mode, and sandbox configuration must match; reasoning effort may change and is applied before the warmed agent's first turn. Repository snapshots bundle their agent binary, so prewarming probes for the deferred-resume capability and falls back to a fresh sandbox when an old snapshot lacks it. `TaskViewSet.run` creates a `TaskRun` (status=QUEUED) and starts the Temporal workflow. `TaskRunViewSet.partial_update` handles status transitions and signals the Temporal workflow on terminal statuses via `signal_workflow_completion`. `TaskRunViewSet.cancel` (`POST .../runs/{id}/cancel/`) is the user-facing kill switch: `cancel_task_run` interrupts the in-flight agent turn, signals `complete_task("cancelled")` so the workflow snapshots the session and tears down the sandbox, and falls back to finalizing the run directly when no workflow is running.
 
 ### Temporal workflow
 
@@ -76,12 +76,26 @@ detector (`[TMPRL1101]`). Two mechanisms bound this:
 - The relay coalesces streamed `agent_message_chunk` deltas into one `agent_text_delta` signal
   per second (and at turn/tool boundaries), rather than one signal per chunk — see
   `TEXT_DELTA_FLUSH_INTERVAL_SECONDS` in `activities/relay_sandbox_events.py`.
-- When enabled, the workflow calls `continue_as_new` from a clean idle point once its history is
+- The workflow calls `continue_as_new` from a clean idle point once its history is
   large (Temporal's `is_continue_as_new_suggested()`, or `TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD`
-  events), re-attaching to the same running sandbox instead of re-provisioning. It's off by
-  default and toggled per-org by the `tasks-cloud-run-continue-as-new` feature flag; `TASKS_CONTINUE_AS_NEW_ENABLED`
-  force-enables it (local E2E / emergency on). The enable decision is captured at workflow start,
-  so in-flight runs and the trigger stay deterministic across replay.
+  events), re-attaching to the same running sandbox instead of re-provisioning. The enable decision
+  is captured at workflow start, so histories recorded with it off keep replaying deterministically.
+
+#### Agent memory
+
+Claude Code writes auto memory to `~/.claude/projects/<slug>/memory/`.
+agent-server links that directory to `/tmp/workspace/.posthog/agent-state/claude/projects`, so it lives in the sandbox and is lost at teardown.
+The workflow keeps it per project and user in object storage, one object per file, at `tasks/agent-memory/<team_id>/<user_id>/claude/<slug>/<filename>`.
+Memory does not cross projects, even for the same repository.
+
+- **Restore** runs inside `create_sandbox_for_repository`, before any agent-server launch, for every run mode and prewarmed sandboxes. It runs only into a sandbox without a valid baseline file. A sandbox resumed from a snapshot, or a rotation replacement, already has one: its files and baseline describe edits no persist has saved yet, so restore leaves it alone (outcome `snapshot_baseline_kept`) and the next persist diffs against that baseline. In a fresh sandbox, restore lists storage, writes an empty baseline, replaces each stored slug with the stored files, and records each file in `/tmp/workspace/.posthog/agent-memory/baseline.json` (MD5, size and mtime) as soon as it is written, so a failed write or the deadline never leaves a restored file untracked. A storage listing failure leaves no baseline. Restore stops after 60 seconds, checked before every remote call.
+- **Persist** (`persist_agent_memory`) runs only for interactive runs: after agent turns (turns that end during a persist coalesce into one trailing persist), before the TTL-rotation snapshot, and at teardown before the resume snapshot. It compares the sandbox with the baseline. A file whose size and mtime match the baseline is not read. A slug with no added, changed or removed file is not touched in storage, so a sandbox cannot overwrite memory that another sandbox saved for a slug it never changed. Writes are last-writer-wins per file. The baseline is saved after each slug, so an uploaded file is never left untracked; a refused baseline write fails the activity so Temporal retries it. A new slug is skipped when the baseline already tracks 50 slugs, rather than uploaded without a baseline entry.
+- A stored file is deleted only when the baseline had it and the sandbox no longer lists it. A missing or malformed baseline means writes only. An empty memory directory, or a baseline slug whose directory is gone, persists an empty file set, so deleting the last file propagates.
+- A persist skips the upload when the content MD5 matches the stored single-part ETag. Transient storage and sandbox failures raise so Temporal retries the activity. The rotation waits for an in-flight per-turn persist and runs its own persist only within the time left before sandbox expiry minus five minutes kept for the deadline snapshot. If the rotation persist fails, the run stays on its current sandbox.
+- Slugs, filenames and sizes are validated in `logic/services/agent_memory.py`: regular `.md` files only, judged by the POSIX mode (symlinks, directories, FIFOs, sockets and devices are skipped), 256 KiB per file, 2 MiB and 200 files per slug, 50 slugs per user. The agent can rewrite the baseline, so persist counts the slug and per-slug file caps against storage, not the baseline. Restore and persist list at most 50 × 200 keys; a longer listing makes restore incomplete (`listing_truncated`) and persist add no new slug. Sandbox directory listings are bounded the same way inside the sandbox (50 slugs, 1,000 entries per slug directory, 200 per memory directory), and a truncated directory is skipped, never read as deletions.
+- Backends without file listing (hogland) record the `unsupported` outcome and skip both directions.
+- Every restore and persist captures a product event for the memory owner, `agent_memory_restored` and `agent_memory_persisted`, with the outcome, file counts, duration and one `skipped_<reason>` property per skip reason, so cap hits (`file_too_large`, `slug_too_large`, `slug_file_limit`, `slug_limit`) are visible per user. The same counts feed the `tasks_agent_memory_*` metrics.
+- Gating: the `tasks-persist-agent-memory` flag, evaluated for the run's user and organization at context load, and the task creator driving the run. Runs that never receive personal state get neither restore nor persist: the same `receives_personal_state` rule that keeps personal instructions out of PostHog Workflow runs (team resources), scouts and signal reports. `receives_agent_memory` also excludes team-controlled origins (onboarding, HogDesk, workflows, signals), which any project member can drive. A follow-up from anyone other than the creator locks the sandbox: the workflow stops persisting and waits for a running persist before the message is delivered, then `send_followup_to_sandbox` stamps `agent_memory_locked` in run state (a key the sandbox cannot change through the run API), across continue-as-new. A successor run that resumes the snapshot inherits the lock and starts with memory off. A declined steer does not lock. A persist is also skipped (`actor_changed`) when the run state is locked, the latest follow-up with a known actor came from someone else (a follow-up without an actor keeps the previous one), or the run's recorded Slack actor is someone else. Memory already restored into a sandbox stays readable by whoever drives the run, and notes Claude writes after the lock are never saved. The workflow commands sit behind the `persist-agent-memory-2026-11` patch.
 
 ### Temporal client
 
@@ -164,7 +178,6 @@ Desktop and the command endpoint check this owner before sending a token.
 Sandbox credentials cannot select subscription billing or inherit it from a resumed run.
 The response uses the authenticated `/command/` proxy, with redirects blocked and a five-second request timeout.
 Subscription runs always use direct event ingest so the request can reach Desktop before session readiness.
-The separate event-ingest rollout flag does not control this path.
 The request metadata can be replayed through the durable event stream; the token is never included in that stream, task state, logs, or analytics.
 If no token arrives within 120 seconds, the run fails with setup instructions.
 
@@ -179,7 +192,7 @@ Subscription runs do not reuse prewarmed sessions, because those processes have 
 ### ChatGPT subscription access tokens
 
 A run created with `codex_model_access: "own-subscription"` uses the user's ChatGPT plan for model usage.
-The `posthog-code-codex-own-subscription-cloud` flag controls rollout, and the run must use the Codex runtime.
+The run must use the Codex runtime. PostHog AI v2 access controls the web subscription settings and billing picker.
 Owner recording and the owner check on `/command/` match the Claude path.
 No ChatGPT token travels through the credential relay. Desktop reads the local `auth.json` at connect time and uploads its tokens to PostHog. It deletes that file after acceptance if cleanup succeeds. A failed upload or cleanup can leave the file behind. Cloud runs do not use that local file.
 
@@ -235,17 +248,17 @@ Desktop and backend use the same flag; a stale client cannot bypass the backend 
 
 ## Sandbox providers
 
-|                   | DockerSandbox                                                  | ModalSandbox                                                          |
-| ----------------- | -------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Use case          | Local development                                              | Production                                                            |
-| Internal port     | 47821                                                          | 8080                                                                  |
-| Host port         | Dynamically assigned                                           | N/A (cloud-routed)                                                    |
-| Isolation         | Standard Docker container                                      | gVisor kernel-level sandboxing                                        |
-| Auth              | No token needed                                                | Modal connect token                                                   |
-| Image source      | Local Dockerfile build                                         | `ghcr.io/posthog/posthog-sandbox-base`                                |
-| Snapshots         | Docker commit/tag                                              | Modal `snapshot_filesystem()`                                         |
-| URL rewriting     | Auto (`localhost` → `host.docker.internal`, `:8010` → `:8000`) | None (uses `SANDBOX_API_URL` or ngrok)                                |
-| `SANDBOX_API_URL` | Not needed (auto-transform handles it)                         | Only for local dev with Modal (ngrok URL); production uses `SITE_URL` |
+|                   | DockerSandbox                                                  | ModalSandbox                                                                                         |
+| ----------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Use case          | Local development                                              | Production                                                                                           |
+| Internal port     | 47821                                                          | 8080                                                                                                 |
+| Host port         | Dynamically assigned                                           | N/A (cloud-routed)                                                                                   |
+| Isolation         | Standard Docker container                                      | gVisor kernel-level sandboxing                                                                       |
+| Auth              | No token needed                                                | Modal connect token                                                                                  |
+| Image source      | Local Dockerfile build                                         | `ghcr.io/posthog/posthog-sandbox-base`                                                               |
+| Snapshots         | Docker commit/tag                                              | Modal `snapshot_directory()` for resume; `snapshot_filesystem()` for repository and published images |
+| URL rewriting     | Auto (`localhost` → `host.docker.internal`, `:8010` → `:8000`) | None (uses `SANDBOX_API_URL` or ngrok)                                                               |
+| `SANDBOX_API_URL` | Not needed (auto-transform handles it)                         | Only for local dev with Modal (ngrok URL); production uses `SITE_URL`                                |
 
 ### Local development with Docker
 

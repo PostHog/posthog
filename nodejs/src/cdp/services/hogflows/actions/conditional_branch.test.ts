@@ -4,14 +4,16 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
-import { CohortMembershipRepository } from '~/cdp/services/cohorts/cohort-membership-repository'
-import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { CohortMembershipRepository, StoredCohortMembership } from '~/cdp/services/cohorts/cohort-membership-repository'
+import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '~/cdp/types'
+import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 
 import { findActionById, findActionByType } from '../hogflow-utils'
 import {
     ConditionalBranchHandler,
     checkConditions,
+    counterHogflowRecheckWake,
     counterHogflowRekeyWake,
     counterHogflowWaitAdvancedAtMaxWait,
     counterHogflowWaitPersonRefreshFailed,
@@ -28,6 +30,9 @@ const personRefreshFailedCount = async (): Promise<number> =>
 
 const rekeyWakeCount = async (outcome: 'advanced' | 'reparked'): Promise<number> =>
     (await counterHogflowRekeyWake.get()).values.find((v) => v.labels.outcome === outcome)?.value ?? 0
+
+const recheckWakeCount = async (outcome: 'advanced' | 'reparked'): Promise<number> =>
+    (await counterHogflowRecheckWake.get()).values.find((v) => v.labels.outcome === outcome)?.value ?? 0
 
 describe('action.conditional_branch', () => {
     let invocation: CyclotronJobInvocationHogFlow
@@ -197,6 +202,10 @@ describe('action.conditional_branch', () => {
                 }
                 return Promise.resolve(this.memberCohortIds)
             }
+
+            getCohortMembership(): Promise<StoredCohortMembership | null> {
+                return Promise.reject(new Error('not used by branches'))
+            }
         }
 
         // Same shape the Python serializer emits: the authored properties plus compiled bytecode.
@@ -295,10 +304,95 @@ describe('action.conditional_branch', () => {
             expect(repository.calls).toEqual([])
         })
 
-        it('propagates a lookup failure instead of routing on a made-up answer', async () => {
+        it.each([
+            [0, 10],
+            [1, 60],
+        ])('retries a failed lookup after %s earlier failures in %ss instead of routing', async (earlier, delay) => {
             const repository = new FakeCohortMembershipRepository([], new Error('lookup timed out'))
+            invocation.state.currentAction!.cohortLookupAttempts = earlier || undefined
+            action.config.conditions = [{ filters: cohortConditionFilters('inCohort') }]
+
+            const result = await new ConditionalBranchHandler(repository).execute({
+                invocation,
+                action,
+                result: createInvocationResult(invocation),
+            })
+
+            expect(result.nextAction).toBeUndefined()
+            expect(result.scheduledAt).toEqual(DateTime.now().plus({ seconds: delay }))
+            expect(invocation.state.currentAction!.cohortLookupAttempts).toBe(earlier + 1)
+            expect(invocation.state.currentAction!.cohortLookupFailed).toBeUndefined()
+        })
+
+        it('marks the step failed and throws once every lookup attempt failed', async () => {
+            const repository = new FakeCohortMembershipRepository([], new Error('lookup timed out'))
+            invocation.state.currentAction!.cohortLookupAttempts = 2
 
             await expect(executeWithRepository(repository, 'inCohort')).rejects.toThrow('lookup timed out')
+            expect(invocation.state.currentAction!.cohortLookupFailed).toBe(true)
+        })
+    })
+
+    describe('person property the dequeue read does not have', () => {
+        const CHROME = { id: 'person_id', name: 'John Doe', url: '', properties: { $browser: 'Chrome' } }
+        let stepResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
+
+        const execute = async (
+            loadPersonProperties: CyclotronJobInvocationHogFlow['loadPersonProperties']
+        ): Promise<HogFlowAction | undefined> => {
+            action.config.conditions = [
+                {
+                    filters: {
+                        bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
+                        properties: [{ key: '$browser', type: 'person', value: 'Chrome', operator: 'exact' }],
+                    },
+                },
+                { filters: HOG_FILTERS_EXAMPLES.no_filters.filters },
+            ]
+            invocation.loadPersonProperties = loadPersonProperties
+            const handler = new ConditionalBranchHandler({
+                getMemberCohortIds: () => Promise.resolve([]),
+                getCohortMembership: () => Promise.resolve(null),
+            })
+
+            stepResult = createInvocationResult(invocation)
+            const result = await handler.execute({ invocation, action, result: stepResult })
+            return result.nextAction
+        }
+
+        const loaded = (
+            person: typeof CHROME
+        ): Awaited<ReturnType<NonNullable<CyclotronJobInvocationHogFlow['loadPersonProperties']>>> => ({
+            person,
+            filterGlobals: convertToHogFunctionFilterGlobal({
+                event: invocation.state.event,
+                person,
+                groups: {},
+                variables: {},
+            }),
+        })
+
+        it('routes on the property once it is loaded', async () => {
+            const nextAction = await execute(() => Promise.resolve(loaded(CHROME)))
+
+            expect(nextAction).toEqual(findActionById(invocation.hogFlow, 'condition_1'))
+            expect(stepResult.invocation.person).toEqual(CHROME)
+        })
+
+        it('routes on the person it has when that person already has the property', async () => {
+            const safari = { ...CHROME, properties: { $browser: 'Safari' } }
+            invocation.person = safari
+            invocation.filterGlobals = loaded(safari).filterGlobals
+
+            const nextAction = await execute(() => Promise.resolve(loaded(CHROME)))
+
+            expect(nextAction).toEqual(findActionById(invocation.hogFlow, 'condition_2'))
+        })
+
+        it('routes on the person it has when the load fails', async () => {
+            const nextAction = await execute(() => Promise.reject(new Error('person read failed')))
+
+            expect(nextAction).toEqual(findActionById(invocation.hogFlow, 'condition_2'))
         })
     })
 
@@ -350,9 +444,11 @@ describe('action.conditional_branch', () => {
             }
             const stubCohortMembershipRepository: CohortMembershipRepository = {
                 getMemberCohortIds: () => Promise.resolve([]),
+                getCohortMembership: () => Promise.resolve(null),
             }
             handler = new ConditionalBranchHandler(stubCohortMembershipRepository)
             counterHogflowWaitAdvancedAtMaxWait.reset()
+            counterHogflowRecheckWake.reset()
             counterHogflowRekeyWake.reset()
             counterHogflowWaitPersonRefreshFailed.reset()
         })
@@ -564,6 +660,49 @@ describe('action.conditional_branch', () => {
             })
 
             expect(await lateAdvanceCount()).toBe(0)
+        })
+
+        it('advances a recheck wake, consumes the flag, and does not count it as a missed wake', async () => {
+            // The matcher could not decide this condition and woke the job so the worker would. The
+            // worker's globals make it match, so the wake did its job.
+            waitAction.config.condition = {
+                filters: {
+                    bytecode: ['_H', 1, 32, 'test', 32, 'event', 1, 1, 11],
+                    events: [{ id: 'test', name: 'test', type: 'events', order: 0 }],
+                },
+            }
+            waitInvocation.state.currentAction!.startedAtTimestamp = DateTime.utc().minus({ hours: 5 }).toMillis()
+            waitInvocation.state.currentAction!.parkedMaxWaitDuration = '4h'
+            waitAction.config.max_wait_duration = '4h'
+            waitInvocation.state.currentAction!.recheckWake = true
+
+            const result = await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            expect(result.nextAction).toEqual(findActionById(waitInvocation.hogFlow, 'matched_target'))
+            expect(await recheckWakeCount('advanced')).toBe(1)
+            expect(waitInvocation.state.currentAction!.recheckWake).toBe(false)
+            // The matcher woke this run, so it is not a wake the streams missed.
+            expect(await lateAdvanceCount()).toBe(0)
+        })
+
+        it('re-parks a recheck wake that still does not match, and consumes the flag', async () => {
+            // The default condition does not match, so the worker re-parks and the wake was wasted.
+            waitInvocation.state.currentAction!.recheckWake = true
+
+            const result = await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            expect(result.scheduledAt).toBeDefined()
+            expect(await recheckWakeCount('reparked')).toBe(1)
+            expect(await recheckWakeCount('advanced')).toBe(0)
+            expect(waitInvocation.state.currentAction!.recheckWake).toBe(false)
         })
 
         it('records a rekey wake as advanced and consumes the one-shot flag when the merge makes the condition match', async () => {

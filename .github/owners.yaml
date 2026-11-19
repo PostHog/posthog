@@ -3,10 +3,32 @@ owners: []
 rules:
     - match: ['/CODEOWNERS', '/actions/']
       owners: team-devex
+    - match: ['/scripts/deltalite_selection.py', '/scripts/test_deltalite_selection.py']
+      owners: team-devex
+    - match: ['/scripts/check_call_assertions.py', '/scripts/test_check_call_assertions.py']
+      owners: team-devex
+    - match: ['/scripts/check-new-events-schema-targets.py', '/scripts/test_check_new_events_schema_targets.py']
+      owners: team-devex
+    - match: ['/scripts/hoglint_shadow.py', '/scripts/test_hoglint_shadow.py', '/scripts/fixtures/hoglint-shadow/']
+      owners: team-devex
+    - match: ['/scripts/verify-storybook-new-stories.sh', '/scripts/verify-storybook-new-stories.test.mjs']
+      owners: team-devex
+    - match: '/scripts/storybook-sequencer.test.js'
+      owners: team-devex
     - match: '/auto-assign-labels.json'
       owners: team-feature-flags
     - match: ['/dependabot.yml', '/pull_request_template.md', '/workflows/']
       owners: team-devex
+    # The dependency proof decides which bot updates stamphog may approve on its own. The prover
+    # itself is in tools/change-prover, which its own owners.yaml marks sensitive.
+    - match:
+          - '/workflows/dependency-proof.yml'
+          - '/workflows/dependency-proof-trigger.yml'
+          - '/actions/setup-uv/'
+      owners: team-devex
+      sensitive: true
+    - match: '/shared-image-releases.yaml'
+      owners: [team-devex, team-data-stack, batch-exports, team-growth, team-apm]
     - match: '/workflows/cd-llm-analytics-image.yml'
       owners: [team-devex, team-ai-observability]
     - match:
@@ -25,9 +47,12 @@ rules:
           - '/workflows/ci-llm-gateway.yml'
           - '/workflows/llm-gateway-cd.yml'
           - '/workflows/update-ai-costs.yml'
+          - '/workflows/update-ai-costs-stale-alert.yml'
       owners: [team-devex, team-agent-infrastructure]
+    - match: ['/workflows/ci-llm-gateway.yml', '/workflows/llm-gateway-cd.yml']
+      sensitive: true
     - match:
           - '/workflows/ci-agent-proxy.yml'
           - '/workflows/cd-agent-proxy-image.yml'
-          - '/workflows/cd-tasks-golden-snapshot.yml'
       owners: team-agent-infrastructure
+      sensitive: true

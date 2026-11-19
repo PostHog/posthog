@@ -32,6 +32,7 @@ class ExperimentSubmission:
 @frozen
 class ItemSubmission:
     id: UUID
+    model_version: str | None = None
     case_key: str | None = None
     trial: str | None = None
     dataset_item_identifier: str | None = None
@@ -46,6 +47,7 @@ class ResultSubmission:
     item_id: UUID
     scorer_version_id: UUID
     status: ResultStatus
+    calculate: bool = False
     value: ResultValue | None = None
     error_code: str | None = None
     evaluator_trace_id: str | None = None

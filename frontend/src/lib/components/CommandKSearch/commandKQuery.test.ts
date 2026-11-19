@@ -1,4 +1,5 @@
 import {
+    FILTER_DEFINITIONS,
     FilterKey,
     QueryChip,
     ValueOption,
@@ -116,6 +117,17 @@ describe('commandKQuery', () => {
         expect(resolved.filters).toHaveLength(filterCount)
     })
 
+    test.each(
+        FILTER_DEFINITIONS.filter((definition) => definition.example).flatMap(({ key, example }) => [
+            { text: `${key}:${example}`, key, negated: false },
+            { text: `-${key}:${example}`, key, negated: true },
+        ])
+    )("resolves the input hint's $text to a filter", ({ text, key, negated }) => {
+        const resolved = resolveQuery(text, [], OPTIONS)
+        expect(resolved.filters).toEqual([expect.objectContaining({ key, negated })])
+        expect(resolved.freeText).toBe('')
+    })
+
     test.each([
         ['typed space after a valid value', 'is:insight', 10, 'is:insight ', 11, 'is:insight', 'space'],
         ['typed space inside an open quote', 'createdBy:"Ada', 14, 'createdBy:"Ada ', 15, null, null],
@@ -141,7 +153,7 @@ describe('commandKQuery', () => {
         }
     )
 
-    test('ask AI text includes chips as typed text', () => {
+    test('copied text includes chips as typed text', () => {
         expect(queryAsText(' revenue ', [chip('is', 'dashboard', true)])).toBe('-is:dashboard revenue')
     })
 

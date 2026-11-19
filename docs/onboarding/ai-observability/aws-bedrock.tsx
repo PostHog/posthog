@@ -1,7 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { PROSE_LANGUAGE, StepDefinition } from '../steps'
-import { getOtelSessionIdStep } from './_snippets/otel-session-id'
+import { getOtelRequestContextStep } from './_snippets/otel-request-context'
 
 export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
@@ -24,14 +24,14 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install boto3 opentelemetry-instrumentation-botocore opentelemetry-sdk "posthog[otel]"
+                                    pip install boto3 opentelemetry-instrumentation-botocore opentelemetry-sdk "posthog[otel]~=8.0"
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @aws-sdk/client-bedrock-runtime @opentelemetry/instrumentation-aws-sdk @opentelemetry/sdk-node @opentelemetry/resources @posthog/ai
+                                    npm install @aws-sdk/client-bedrock-runtime @opentelemetry/instrumentation-aws-sdk @opentelemetry/sdk-node @opentelemetry/resources @posthog/ai@8
                                 `,
                             },
                             {
@@ -191,9 +191,10 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
 
                     <Blockquote>
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, omit the `posthog_distinct_id`. See
-                            our docs on [anonymous vs identified
-                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                            **Note:** To capture LLM events anonymously, omit the `posthog.distinct_id` resource
+                            attribute and don't set a distinct ID in the PostHog context. See our docs on [anonymous vs
+                            identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn
+                            more.
                         </Markdown>
                     </Blockquote>
 
@@ -207,7 +208,7 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                 </>
             ),
         },
-        getOtelSessionIdStep(ctx, { languages: ['Python', 'Node'] }),
+        getOtelRequestContextStep(ctx, { languages: ['Python', 'Node'] }),
     ]
 }
 

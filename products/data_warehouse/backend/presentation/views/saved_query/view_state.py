@@ -3,6 +3,8 @@
 from datetime import datetime
 from typing import Any, cast
 
+from django.db.models import OuterRef, Subquery
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -12,10 +14,18 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, serialize_fields
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.dataclasses import frozen
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.data_modeling.backend.facade.api import get_incremental_config
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataWarehouseSavedQuery,
+    ViewColumnSource,
+    ViewEngineDialect,
+    ViewEngineTarget,
+)
 
 from . import rendered_node_states, sync_cadence, view_description
 
@@ -31,27 +41,98 @@ class SavedQuerySuspensionSerializer(serializers.Serializer):
     job_id = serializers.CharField(help_text="Materialization job that tripped suspension.")
 
 
+class ViewCapabilitySerializer(serializers.Serializer):
+    available = serializers.BooleanField(help_text="Whether the view supports this.")
+    reason = serializers.CharField(
+        allow_null=True, help_text="Why the view does not support this, written for the user. Null when available."
+    )
+
+
+class ViewEngineCapabilitiesSerializer(serializers.Serializer):
+    materialize = ViewCapabilitySerializer(
+        source="can_materialize", help_text="Whether the view can be materialized, run or scheduled."
+    )
+    lineage = ViewCapabilitySerializer(
+        source="has_lineage", help_text="Whether the view has lineage and a node in the data modeling DAG."
+    )
+    referenceable_from_clickhouse = ViewCapabilitySerializer(
+        help_text="Whether HogQL queries on ClickHouse can read from this view by name."
+    )
+    column_source = serializers.ChoiceField(
+        choices=ViewColumnSource.choices,
+        help_text="Where the view's column types come from: a ClickHouse probe of the query, or the types "
+        "the client sends from its last run.",
+    )
+
+
+class ViewEngineSerializer(serializers.Serializer):
+    target = serializers.ChoiceField(
+        choices=ViewEngineTarget.choices,
+        help_text="The engine that runs this view: ClickHouse, hosted Trino, or a direct connection.",
+    )
+    dialect = serializers.ChoiceField(
+        choices=ViewEngineDialect.choices,
+        help_text="Whether the view stores HogQL or raw SQL for its engine.",
+    )
+    connection_id = serializers.CharField(
+        allow_null=True, help_text="The direct connection that runs this view. Null for any other engine."
+    )
+    capabilities = ViewEngineCapabilitiesSerializer(
+        source="*", help_text="What the rest of the product can do with this view."
+    )
+
+
+VIEW_ENGINE_HELP_TEXT = "The engine that runs this view, and what the product can do with it."
+
+
+@frozen
+class ServingRun:
+    status: str
+    last_run_at: datetime
+    error: str | None
+
+
+SERVING_RUN_FIELDS = ("status", "last_run_at", "error")
+
+
+def serving_run_annotations() -> dict[str, Subquery]:
+    return {
+        f"serving_run_{field}": Subquery(
+            DataModelingJob.objects.filter(saved_query_id=OuterRef("pk"), engine=DataModelingJobEngine.CLICKHOUSE)
+            .order_by("-last_run_at")
+            .values(field)[:1]
+        )
+        for field in SERVING_RUN_FIELDS
+    }
+
+
+def _load_serving_run(view: DataWarehouseSavedQuery) -> None:
+    run = (
+        DataModelingJob.objects.filter(saved_query_id=view.id, engine=DataModelingJobEngine.CLICKHOUSE)
+        .order_by("-last_run_at")
+        .values(*SERVING_RUN_FIELDS)
+        .first()
+    )
+    for field in SERVING_RUN_FIELDS:
+        setattr(view, f"serving_run_{field}", run[field] if run else None)
+
+
 class DataWarehouseSavedQuerySerializerMixin:
     """Shared methods for DataWarehouseSavedQuery serializers.
 
     This mixin is intended to be used with serializers.ModelSerializer subclasses.
     """
 
-    def _serving_run(self, view: DataWarehouseSavedQuery) -> DataModelingJob | None:
+    def _serving_run(self, view: DataWarehouseSavedQuery) -> ServingRun | None:
         """The newest materialization run that serves this view, or None if it has never run.
 
         Prefers the prefetched job so a list of views costs one query. Falls back to a lookup for
         the detail route, which has no prefetch.
         """
-        try:
-            jobs = view.jobs  # type: ignore[attr-defined]
-            return jobs[0] if jobs else None
-        except AttributeError:
-            return (
-                DataModelingJob.objects.filter(saved_query_id=view.id, engine=DataModelingJobEngine.CLICKHOUSE)
-                .order_by("-last_run_at")
-                .first()
-            )
+        if not hasattr(view, "serving_run_status"):
+            _load_serving_run(view)
+        annotated_run = {field: getattr(view, f"serving_run_{field}") for field in SERVING_RUN_FIELDS}
+        return ServingRun(**annotated_run) if annotated_run["status"] is not None else None
 
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
@@ -65,10 +146,11 @@ class DataWarehouseSavedQuerySerializerMixin:
             return view.status if view.status in STATUSES_STILL_WRITTEN else None
         # Modified means "edited and not materialized since", which no run can express. A run that
         # happened after the edit answers it, so the column only wins while the edit is the newer fact.
+        query_updated_at = view.query_updated_at or view.updated_at
         edited_since_the_run = (
             view.status == DataWarehouseSavedQuery.Status.MODIFIED
-            and view.updated_at is not None
-            and view.updated_at > run.last_run_at
+            and query_updated_at is not None
+            and query_updated_at > run.last_run_at
         )
         return view.status if edited_since_the_run else run.status
 
@@ -168,6 +250,7 @@ class DataWarehouseSavedQueryMinimalSerializer(
         help_text="Whether this view is set up to update incrementally. A run can still rebuild the "
         "whole table, for example on the first run or after the query changes.",
     )
+    engine = ViewEngineSerializer(read_only=True, help_text=VIEW_ENGINE_HELP_TEXT)
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -193,5 +276,6 @@ class DataWarehouseSavedQueryMinimalSerializer(
             "is_test",
             "expires_at",
             "user_access_level",
+            "engine",
         ]
         read_only_fields = fields

@@ -1,14 +1,9 @@
-{% load static %}
 <!DOCTYPE html>
 <html>
     <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Message preferences</title>
-        {# Compiled from the Tailwind classes in this directory, including the ones the inline #}
-        {# script below builds as strings. Run `pnpm --filter=@posthog/frontend #}
-        {# build:message-preferences` after changing a class in either place. #}
-        <link rel="stylesheet" href="{% static 'message-preferences.css' %}" />
+        {% include "message_preferences/_head.html" %}
+        {# The inline script below builds Tailwind classes as strings. Rebuild the stylesheet #}
+        {# after changing one of those too. #}
     </head>
     <body>
         {% block content %}
@@ -17,40 +12,22 @@
                     <div class="bg-white shadow-xl rounded-xl p-8 mb-12">
                         <h1 class="text-2xl font-bold text-gray-900 mb-2">Message preferences for {{ recipient.identifier|escape }}</h1>
                         <p class="text-gray-600 text-base mb-8">Choose which emails you'd like to receive. Changes are saved automatically.</p>
-                        <form id="preferences-form" class="space-y-6">
+                        <form id="preferences-form"
+                              class="group space-y-6"
+                              {% if all_marketing_opted_out %}data-all-off{% endif %}>
                             {% csrf_token %}
                             <input type="hidden" name="token" value="{{ token }}" />
+                            {% if categories %}
+                                <p id="all-marketing-off-note"
+                                   class="text-sm text-gray-600"
+                                   {% if not all_marketing_opted_out %}hidden{% endif %}>
+                                    These topics are off because all marketing communications are off. Turn all marketing communications back on below to restore your topic choices.
+                                </p>
+                            {% endif %}
                             {% for category in categories %}
-                                {% if forloop.last %}
-                                    <hr class="border-gray-200" />
-                                {% endif %}
-                                <div class="bg-gray-50 rounded-lg p-6 transition-all duration-200 hover:shadow-md">
-                                    <div class="flex items-start justify-between gap-4">
-                                        <div class="flex-1 min-w-0">
-                                            <h3 class="text-lg font-medium text-gray-900">{{ category.name }}</h3>
-                                            <p class="text-sm text-gray-500 mt-1">{{ category.description }}</p>
-                                        </div>
-                                        <div class="flex flex-col items-end flex-shrink-0 w-40">
-                                            <div class="relative inline-block w-12 select-none">
-                                                <input type="checkbox"
-                                                       name="{{ category.id }}"
-                                                       id="{{ category.id }}"
-                                                       {% if category.status != "OPTED_OUT" %}checked{% endif %}
-                                                       class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-full checked:bg-blue-500" />
-                                                <label for="{{ category.id }}"
-                                                       class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer">
-                                                </label>
-                                            </div>
-                                            <span class="text-xs font-medium mt-1 text-right {% if category.status != 'OPTED_OUT' %}text-green-700{% else %}text-gray-500{% endif %}"
-                                                  data-status-for="{{ category.id }}">
-                                                {% if category.status != "OPTED_OUT" %}Subscribed{% else %}Not subscribed{% endif %}
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
+                                {% include "message_preferences/_subscription_card.html" with category=category is_topic=True %}
                             {% endfor %}
                             {% if email_tracking_consent_enabled %}
-                                <hr class="border-gray-200" />
                                 <div class="bg-gray-50 rounded-lg p-6 transition-all duration-200 hover:shadow-md">
                                     <div class="flex items-start justify-between gap-4">
                                         <div class="flex-1 min-w-0">
@@ -62,6 +39,7 @@
                                                 <input type="checkbox"
                                                        name="$email_tracking"
                                                        id="email-tracking-toggle"
+                                                       aria-label="Open and click tracking"
                                                        data-on-label="Tracking allowed"
                                                        data-off-label="Tracking off"
                                                        {% if email_tracking_allowed %}checked{% endif %}
@@ -78,6 +56,8 @@
                                     </div>
                                 </div>
                             {% endif %}
+                            <hr class="border-gray-200" />
+                            {% include "message_preferences/_subscription_card.html" with category=all_marketing is_topic=False %}
                         </form>
                     </div>
                 </div>
@@ -85,6 +65,9 @@
             <script nonce="{{ request.csp_nonce }}">
             document.addEventListener('DOMContentLoaded', function () {
                 const toggles = document.querySelectorAll('.toggle-checkbox')
+                const allMarketingToggle = document.getElementById('{{ all_marketing.id }}')
+                const topicToggles = document.querySelectorAll('[data-topic]')
+                const allMarketingOffNote = document.getElementById('all-marketing-off-note')
 
                 function updateStatusLabel(toggle, text, colorClass) {
                     const statusLabel = document.querySelector('[data-status-for="' + toggle.name + '"]')
@@ -98,6 +81,27 @@
                     return toggle.checked
                         ? (toggle.dataset.onLabel || 'Subscribed')
                         : (toggle.dataset.offLabel || 'Not subscribed')
+                }
+
+                function showStatus(toggle) {
+                    updateStatusLabel(toggle, statusLabelText(toggle), toggle.checked ? 'text-green-700' : 'text-gray-500')
+                }
+
+                function showTopicsForAllMarketing() {
+                    const allOff = !allMarketingToggle.checked
+                    allMarketingToggle.form.toggleAttribute('data-all-off', allOff)
+                    if (allMarketingOffNote) allMarketingOffNote.hidden = !allOff
+                    topicToggles.forEach((topic) => {
+                        topic.disabled = allOff
+                        topic.checked = !allOff && topic.dataset.savedStatus !== 'OPTED_OUT'
+                        allOff ? topic.setAttribute('aria-describedby', allMarketingOffNote.id) : topic.removeAttribute('aria-describedby')
+                        showStatus(topic)
+                    })
+                }
+
+                // A topic shows off while all marketing is off, so it posts the recipient's choice, not what it shows
+                function submittedChoice(toggle) {
+                    return toggle.hasAttribute('data-topic') ? toggle.dataset.savedStatus !== 'OPTED_OUT' : toggle.checked
                 }
 
                 function showToast(message, isError) {
@@ -129,7 +133,7 @@
                         if (toggle.name === '$email_tracking' && toggle !== changedToggle) {
                             return
                         }
-                        formData.append('preferences[]', `${toggle.name}:${toggle.checked}`)
+                        formData.append('preferences[]', `${toggle.name}:${submittedChoice(toggle)}`)
                     })
 
                     try {
@@ -147,12 +151,17 @@
                         }
 
                         toggles.forEach(t => { t.defaultChecked = t.checked })
-                        updateStatusLabel(changedToggle, statusLabelText(changedToggle), changedToggle.checked ? 'text-green-700' : 'text-gray-500')
+                        showStatus(changedToggle)
                         showToast('Preferences updated successfully', false)
                     } catch (error) {
                         // Revert the toggle on failure
-                        changedToggle.checked = !changedToggle.checked
-                        updateStatusLabel(changedToggle, statusLabelText(changedToggle), changedToggle.checked ? 'text-green-700' : 'text-gray-500')
+                        if (changedToggle.hasAttribute('data-topic')) {
+                            changedToggle.dataset.savedStatus = changedToggle.dataset.savedStatus === 'OPTED_OUT' ? 'OPTED_IN' : 'OPTED_OUT'
+                        } else {
+                            changedToggle.checked = !changedToggle.checked
+                        }
+                        showTopicsForAllMarketing()
+                        showStatus(changedToggle)
                         showToast(error.message || 'Failed to update preferences', true)
                     }
                 }
@@ -163,6 +172,8 @@
                         card.style.transform = 'scale(1.02)'
                         setTimeout(() => { card.style.transform = 'scale(1)' }, 200)
 
+                        if (this.hasAttribute('data-topic')) this.dataset.savedStatus = this.checked ? 'OPTED_IN' : 'OPTED_OUT'
+                        if (this === allMarketingToggle) showTopicsForAllMarketing()
                         savePreferences(this)
                     })
                 })

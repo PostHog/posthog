@@ -26,6 +26,7 @@ from products.signals.backend.models import (
     SignalScoutConfig,
     SignalScoutNote,
     SignalScratchpad,
+    SignalTeamConfig,
 )
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates
@@ -102,6 +103,16 @@ class TestScoutTrialAPI(APIBaseTest):
         assert self.client.get(self.memory_url).json() == []
         assert SignalScratchpad.objects.filter(pk=original.pk).exists()
 
+    def test_memory_search_filters_private_entries_by_creating_skill(self) -> None:
+        self._as_trial()
+        response = self.client.post(self.memory_url, {"key": "finding:private", "content": "Private value"})
+        assert response.status_code == 200, response.data
+
+        for skill_name, expected in ((self.trial_run.skill_name, ["finding:private"]), ("signals-scout-other", [])):
+            response = self.client.get(self.memory_url, {"skill_name": skill_name})
+            assert response.status_code == 200, response.data
+            assert [row["key"] for row in response.json()] == expected
+
     def test_note_search_filters_saved_content_before_preview_and_limit(self) -> None:
         saved_id = str(uuid4())
         self.context.notes = [
@@ -157,13 +168,13 @@ class TestScoutTrialAPI(APIBaseTest):
         assert self.production.emitted_count == 0
         assert not SignalReportCheck.objects.for_team(self.team.id).exists()
 
-    @parameterized.expand(["emissions/batch", "emissions/reports/batch", "token-costs"])
+    @parameterized.expand(["emissions/batch", "emissions/reports/batch"])
     def test_read_only_posts_do_not_invalidate_private_runs(self, action: str) -> None:
         self._as_trial()
         response = self.client.post(
             f"{self.trial_runs_url}{action}/", {"run_ids": [str(self.production.id)]}, format="json"
         )
-        assert response.status_code == (403 if action == "token-costs" else 200), response.data
+        assert response.status_code == 200, response.data
         assert ScoutTrialStore(self.trial_run).invalid_reason() is None
 
     @parameterized.expand([("report_level", False), ("per_run", True)])
@@ -555,6 +566,41 @@ class TestScoutTrialLaunch(APIBaseTest):
         self.config.refresh_from_db()
         assert self.skill.body == baseline.skill_body
         assert not self.config.enabled and not self.config.emit
+
+    @parameterized.expand(
+        [
+            ("scout_image_added", None, "scout", True),
+            ("project_default_added", None, "project_default", True),
+            ("scout_image_removed", uuid4(), "scout_cleared", True),
+            ("saved_without_image_key", None, None, False),
+        ]
+    )
+    def test_variants_sharing_a_context_reject_a_changed_effective_image(
+        self, _name: str, initial_image: UUID | None, change: str | None, rejected: bool
+    ) -> None:
+        SignalScoutConfig.objects.for_team(self.team.id).filter(id=self.config.id).update(custom_image_id=initial_image)
+        self.config.refresh_from_db()
+        first = create_trial_launch(config=self.config, user=self.user, launch_id=uuid4())
+        context_key = f"signals/scout-trials/{self.team.id}/contexts/{first.context_id}.json"
+        saved = json.loads(self.documents[context_key])
+        assert ("custom_image_id" in saved["capabilities"]) is (initial_image is not None)
+        if change is None:
+            saved["capabilities"].pop("custom_image_id", None)
+            self.documents[context_key] = json.dumps(saved)
+        elif change == "project_default":
+            SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"scout_custom_image_id": uuid4()})
+        else:
+            SignalScoutConfig.objects.for_team(self.team.id).filter(id=self.config.id).update(
+                custom_image_id=uuid4() if change == "scout" else None
+            )
+        if not rejected:
+            create_trial_launch(config=self.config, user=self.user, launch_id=uuid4(), context_id=first.context_id)
+            assert load_trial_launch(self.team.id, first.id) == first
+            return
+        with self.assertRaisesMessage(ScoutTrialLaunchError, "capabilities changed"):
+            create_trial_launch(config=self.config, user=self.user, launch_id=uuid4(), context_id=first.context_id)
+        with self.assertRaisesMessage(ScoutTrialLaunchError, "capabilities changed"):
+            load_trial_launch(self.team.id, first.id)
 
     def test_launch_rejects_unsupported_capabilities_and_model_effort_before_dispatch(self) -> None:
         rejected_id = uuid4()

@@ -3,6 +3,7 @@ import React from 'react'
 import { IconAI } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
+import { BrandMarkLabel } from 'lib/components/BrandMark/BrandMarkLabel'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { ExplainCSPViolationButton } from 'lib/components/LLMButton/ExplainCSPViolationButton'
 import { Sparkline } from 'lib/components/Sparkline'
@@ -10,9 +11,11 @@ import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRec
 
 import { LightErrorBoundary } from '~/layout/ErrorBoundary/ErrorBoundary'
 
+import { imageDimension, imageSource } from './image'
+
 // NB!!! Sync this list with posthog/hogql/hogqlx.py
 // These tags only get the `key` and `children` attributes.
-const HOGQLX_TAGS_NO_ATTRIBUTES = [
+export const HOGQLX_TAGS_NO_ATTRIBUTES = [
     'em',
     'strong',
     'span',
@@ -56,6 +59,16 @@ export function parseHogQLX(value: any): any {
         return object
     }
     return value.map((v) => parseHogQLX(v))
+}
+
+function primitiveString(value: unknown): string | null {
+    if (value == null) {
+        return ''
+    }
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        return String(value)
+    }
+    return null
 }
 
 export function renderHogQLX(value: any): JSX.Element {
@@ -123,6 +136,32 @@ export function renderHogQLX(value: any): JSX.Element {
                         className="inline-block"
                     />
                 </LightErrorBoundary>
+            )
+        } else if (tag === 'BrandMarkLabel') {
+            const label = primitiveString(rest.label)
+            if (label === null) {
+                return <></>
+            }
+            return (
+                <LightErrorBoundary>
+                    <BrandMarkLabel label={label} mark={primitiveString(rest.mark) ?? ''} />
+                </LightErrorBoundary>
+            )
+        } else if (tag === 'img') {
+            const src = imageSource(rest.src)
+            const alt = typeof rest.alt === 'string' ? rest.alt : ''
+            if (!src) {
+                return <>{alt}</>
+            }
+            return (
+                <img
+                    src={src}
+                    alt={alt}
+                    style={{ width: imageDimension(rest.width), height: imageDimension(rest.height) }}
+                    className="inline-block max-w-full object-contain align-middle"
+                    loading="lazy"
+                    decoding="async"
+                />
             )
         } else if (tag === 'a') {
             const { href, children, source, target } = rest

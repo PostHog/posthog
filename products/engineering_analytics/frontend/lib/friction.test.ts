@@ -26,7 +26,7 @@ describe('pullRequestFrictionFacts', () => {
             { ...QUIET, master_red_count: 2, kickout_count: 1, push_count: 3, ci_wait_seconds: [600, 1200] },
             // pluralize joins the count and the noun with a non-breaking space.
             [
-                ['queue', 'Kicked out of the merge queue', '1'],
+                ['queue', 'Failed merge queue attempts', '1'],
                 ['ci', 'Red, the default branch was failing', '2'],
                 ['ci', 'CI running', '30m over 3\u00a0pushes'],
                 ['rework', 'Extra pushes that ran CI', '2'],

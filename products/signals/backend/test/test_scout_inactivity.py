@@ -214,6 +214,8 @@ class TestScoutInactivitySweep(BaseTest):
             # `resolved` includes the GitHub webhook's resolve-on-merge, which is how a merged PR
             # counts as consumption even when the merge never touched the app.
             ("resolved_status", None, SignalReport.Status.RESOLVED, None),
+            ("monitoring_status", None, SignalReport.Status.MONITORING, None),
+            ("closed_status", None, SignalReport.Status.CLOSED, None),
             # Reading is consumption: a report someone opens (or rates) is not a report nobody
             # wanted, even when they never resolve or dismiss it.
             ("view_action", None, None, SignalReportAction.ActionType.VIEW),
@@ -329,12 +331,18 @@ class TestScoutInactivitySweep(BaseTest):
         assert outcome.warned == []
         assert self._reload().status == SignalScoutConfig.Status.ACTIVE
 
-    def test_a_slack_routed_scout_is_not_judged_on_report_consumption(self) -> None:
-        # Slack output is consumed in Slack, where no evidence flows back, so the unconsumed
+    @parameterized.expand(
+        [
+            ("slack_routed", {"slack": {"integration_id": 1, "channel": "C123"}}),
+            ("kept_out_of_inbox", {"inbox": False, "webhook": {"hog_function_id": "hog-fn-1"}}),
+        ]
+    )
+    def test_a_scout_read_outside_the_inbox_is_not_judged_on_report_consumption(
+        self, _name: str, output_destinations: dict
+    ) -> None:
+        # This output is read outside the inbox, where no evidence flows back, so the unconsumed
         # verdict cannot be trusted for these scouts.
-        SignalScoutConfig.all_teams.filter(pk=self.config.pk).update(
-            output_destinations={"slack": {"integration_id": 1, "channel": "C123"}}
-        )
+        SignalScoutConfig.all_teams.filter(pk=self.config.pk).update(output_destinations=output_destinations)
         self._emitting_runs(self._report())
 
         outcome = sweep_inactive_scouts(now=self.now)

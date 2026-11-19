@@ -16,13 +16,18 @@ from products.tasks.backend.logic.services import sandbox as sandbox_module
 from products.tasks.backend.logic.services.agent_server_launcher import (
     AGENT_SERVER_LAUNCH_CAPABILITIES,
     AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX,
+    AgentServerPreflight,
 )
 from products.tasks.backend.logic.services.docker_sandbox import (
     DockerSandbox,
     _base_dockerfile_path,
     _pinned_agent_version,
 )
-from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS, ENV_LOCAL_SKILLS_HOST_PATH
+from products.tasks.backend.logic.services.local_skills import (
+    ENV_DISABLE_BUNDLED_SKILLS,
+    ENV_EVAL_SKILLS_MANIFEST,
+    ENV_LOCAL_SKILLS_HOST_PATH,
+)
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     SandboxConfig,
@@ -223,13 +228,24 @@ class TestDockerSandboxUnit:
         assert "c2VjcmV0" not in redacted
         assert "<redacted>" in redacted
 
-    def test_redact_sandbox_command_hides_github_clone_token(self) -> None:
-        command = "git clone https://x-access-token:github-secret@github.com/PostHog/posthog.git"
+    @pytest.mark.parametrize(
+        "clone_url, expected",
+        [
+            (
+                "https://x-access-token:clone-secret@github.com/PostHog/posthog.git",
+                "https://x-access-token:<redacted>@github.com/PostHog/posthog.git",
+            ),
+            (
+                "https://oauth2:clone-secret@gitlab.com/acme/platform/api.git",
+                "https://oauth2:<redacted>@gitlab.com/acme/platform/api.git",
+            ),
+        ],
+    )
+    def test_redact_sandbox_command_hides_clone_token(self, clone_url: str, expected: str) -> None:
+        redacted = redact_sandbox_command(f"git clone {clone_url}")
 
-        redacted = redact_sandbox_command(command)
-
-        assert "github-secret" not in redacted
-        assert "https://x-access-token:<redacted>@github.com/PostHog/posthog.git" in redacted
+        assert "clone-secret" not in redacted
+        assert expected in redacted
 
     @pytest.mark.parametrize("name", ("GITHUB_TOKEN", "POSTHOG_WIZARD_API_KEY"))
     def test_redact_sandbox_command_hides_worker_credentials(self, name: str) -> None:
@@ -305,6 +321,7 @@ class TestDockerSandboxUnit:
             environment_variables={
                 "LLM_GATEWAY_URL": "http://localhost:13308",
                 "POSTHOG_API_URL": "http://localhost:8000",
+                "AI_GATEWAY_URL": "http://127.0.0.1:8080",
                 "POSTHOG_PROJECT_ID": "1",
             },
         )
@@ -318,6 +335,7 @@ class TestDockerSandboxUnit:
         env_args = " ".join(docker_args)
         assert "LLM_GATEWAY_URL=http://host.docker.internal:13308" in env_args
         assert "POSTHOG_API_URL=http://host.docker.internal:8000" in env_args
+        assert "AI_GATEWAY_URL=http://host.docker.internal:8080" in env_args
         assert "POSTHOG_PROJECT_ID=1" in env_args
 
     @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")
@@ -480,6 +498,40 @@ class TestDockerSandboxUnit:
                 assert expected_in_command in command
                 if not_expected_in_command:
                     assert not_expected_in_command not in command
+
+    @pytest.mark.parametrize(
+        "repository, tokens, expected_url, expected_parent, expected_dir",
+        [
+            (
+                "PostHog/posthog",
+                {"github_token": "gh-token"},
+                "https://x-access-token:gh-token@github.com/posthog/posthog.git",
+                "/tmp/workspace/repos/posthog",
+                "posthog",
+            ),
+            (
+                "Acme/Platform/API",
+                {"gitlab_token": "gl-token"},
+                "https://oauth2:gl-token@gitlab.com/acme/platform/api.git",
+                "/tmp/workspace/repos/acme/platform",
+                "api",
+            ),
+        ],
+        ids=["github", "gitlab_nested_group"],
+    )
+    def test_clone_repository_remote_and_path(self, repository, tokens, expected_url, expected_parent, expected_dir):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                sandbox.clone_repository(repository, **tokens)
+                command = mock_execute.call_args[0][0]
+
+        assert f"cd {shlex.quote(expected_parent)} &&" in command
+        assert f"{shlex.quote(expected_url)} {shlex.quote(expected_dir)} &&" in command
 
     def test_clone_repository_branch_flag(self):
         sandbox = DockerSandbox.__new__(DockerSandbox)
@@ -657,6 +709,38 @@ class TestDockerSandboxUnit:
         assert f"-v {tmp_path}:/tmp/workspace/repos/posthog/posthog" in args_str
 
     @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")
+    @pytest.mark.parametrize("strict", [False, True])
+    def test_create_mounts_local_skills_for_all_agent_discovery_paths(
+        self, mock_run: MagicMock, tmp_path: Path, strict: bool
+    ) -> None:
+        mock_run.return_value = MagicMock(stdout="abc123container", returncode=0)
+        skill_dir = tmp_path / "example-skill"
+        skill_dir.mkdir()
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    ENV_LOCAL_SKILLS_HOST_PATH: str(tmp_path),
+                    **(
+                        {ENV_EVAL_SKILLS_MANIFEST: "manifest.json", "POSTHOG_DESKTOP_SKILLS": "local"} if strict else {}
+                    ),
+                },
+            ),
+            patch.object(DockerSandbox, "_get_image", return_value="posthog-sandbox-base"),
+        ):
+            DockerSandbox.create(SandboxConfig(name="test-sandbox"))
+
+        docker_args = mock_run.call_args_list[-1][0][0]
+        for discovery_path in (
+            "/scripts/plugins/posthog/skills",
+            "/root/.claude/skills",
+            "/root/.agents/skills",
+        ):
+            expected = f"{tmp_path}:{discovery_path}:ro" if strict else f"{skill_dir}:{discovery_path}/example-skill:ro"
+            assert expected in docker_args
+
+    @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")
     def test_create_skips_local_skill_mounts_when_bundled_skills_disabled(self, mock_run, tmp_path) -> None:
         mock_run.return_value = MagicMock(stdout="abc123container", returncode=0)
         skill_dir = tmp_path / "sample-skill"
@@ -697,6 +781,23 @@ class TestDockerSandboxUnit:
             index for index, command in enumerate(commands) if "./node_modules/.bin/agent-server" in command
         )
         assert clear_index < launch_index
+
+    def test_start_agent_server_rejects_unverified_skills_before_reusing_a_server(self) -> None:
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        with (
+            patch.object(sandbox, "_validate_agent_server_launch"),
+            patch.object(
+                sandbox,
+                "_agent_server_preflight",
+                return_value=AgentServerPreflight(reused=True, capabilities=frozenset()),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.agent_server_launcher.verify_eval_skills",
+                side_effect=RuntimeError("Snapshot mismatch"),
+            ),
+            pytest.raises(RuntimeError, match="Snapshot mismatch"),
+        ):
+            sandbox.start_agent_server(None, "task", "run")
 
     def test_start_agent_server_without_domains_skips_agentsh(self):
         sandbox = DockerSandbox.__new__(DockerSandbox)
@@ -902,37 +1003,6 @@ class TestDockerSandboxUnit:
             assert expected_env in command
         else:
             assert "POSTHOG_CODE_FAST_MODE" not in command
-
-    @pytest.mark.parametrize(
-        "keep_stream_open, expected_env_present",
-        [
-            (True, True),
-            (False, False),
-        ],
-    )
-    def test_start_agent_server_keep_stream_open_env(self, keep_stream_open, expected_env_present):
-        sandbox = DockerSandbox.__new__(DockerSandbox)
-        sandbox._container_id = "abc123"
-        sandbox.id = "abc123"
-        sandbox.config = SandboxConfig(name="test")
-        sandbox._host_port = 12345
-
-        with patch.object(sandbox, "is_running", return_value=True):
-            with patch.object(sandbox, "execute") as mock_execute:
-                mock_execute.return_value = ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
-                sandbox.start_agent_server(
-                    "posthog/posthog",
-                    "task-123",
-                    "run-456",
-                    "background",
-                    event_ingest_keep_stream_open=keep_stream_open,
-                )
-
-        command = _agent_server_launch_command(mock_execute)
-        if expected_env_present:
-            assert "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN=true" in command
-        else:
-            assert "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN" not in command
 
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")

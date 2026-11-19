@@ -5,7 +5,8 @@ import { AssistantTool } from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
 import { ErrorTrackingFiltersWidget } from 'products/error_tracking/frontend/posthogAi/ErrorTrackingFiltersWidget'
-import { MessageTemplate, RecordingsWidget } from 'products/posthog_ai/frontend/api/primitives'
+import { RecordingsWidget } from 'products/posthog_ai/frontend/api/dataWidgets'
+import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
 
 import { isDangerousOperationResponse, normalizeDangerousOperationResponse } from '../approvalOperationUtils'
 import { DangerousOperationApprovalCard } from '../DangerousOperationApprovalCard'

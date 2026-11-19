@@ -83,6 +83,9 @@ function makeSource(overrides: Partial<KnowledgeSource> = {}): KnowledgeSource {
         file_content_type: '',
         file_size_bytes: null,
         always_include: false,
+        library_ids: [],
+        cited_run_count: 0,
+        last_cited_at: null,
         ...overrides,
     }
 }
@@ -97,6 +100,7 @@ describe('BusinessKnowledgeScene', () => {
             setSearchTerm: jest.fn(),
             setSourceTypeFilter: jest.fn(),
             setAddedByFilter: jest.fn(),
+            setLibraryScope: jest.fn(),
             push: jest.fn(),
         })
         ;(useValues as jest.Mock).mockReturnValue({
@@ -108,6 +112,8 @@ describe('BusinessKnowledgeScene', () => {
             searchTerm: '',
             sourceTypeFilter: 'all',
             addedByFilter: 'all',
+            libraries: [],
+            libraryScope: 'all',
         })
     })
 
@@ -135,6 +141,8 @@ describe('BusinessKnowledgeScene', () => {
             searchTerm: '',
             sourceTypeFilter: 'all',
             addedByFilter: 'all',
+            libraries: [],
+            libraryScope: 'all',
         })
         render(<BusinessKnowledgeScene />)
 

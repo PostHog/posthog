@@ -1,21 +1,30 @@
 import type { OfflineHistoryPointApi, ScoreDefinitionApi, ScoreDefinitionVersionApi } from '../generated/api.schemas'
 
 export const OFFLINE_STORY_DEFINITION: ScoreDefinitionApi = {
+    tags: [],
     id: '10000000-0000-4000-8000-000000000001',
+    short_name: '',
     name: 'Answer relevance',
     description: 'Relevance to the question, scored from 0 to 5.',
     kind: 'numeric',
     archived: false,
     current_version: 2,
+    calculation: 'reported',
+    composition: null,
+    input_scorers: [],
+    dependent_composite_count: 0,
     current_version_id: '20000000-0000-4000-8000-000000000002',
     config: { min: 0, max: 5 },
     created_by: null,
     created_at: '2026-01-01T10:00:00Z',
+    updated_by: null,
     updated_at: null,
     team: 1,
 }
 
 export const OFFLINE_STORY_VERSION: ScoreDefinitionVersionApi = {
+    calculation: 'reported',
+    composition: null,
     id: OFFLINE_STORY_DEFINITION.current_version_id!,
     definition_id: OFFLINE_STORY_DEFINITION.id,
     version: 2,
@@ -28,11 +37,13 @@ export const OFFLINE_STORY_VERSION: ScoreDefinitionVersionApi = {
 export function makeOfflineHistoryPoint(index: number, mean: number | null = 4.2): OfflineHistoryPointApi {
     return {
         experiment: {
+            tags: [],
             id: `30000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
             name: `Answer evaluation ${index}`,
             run_source: index % 2 === 0 ? 'ci' : 'local',
             status: 'completed',
             started_at: `2026-01-${String(index).padStart(2, '0')}T10:00:00Z`,
+            created_by: null,
             created_at: '2026-01-20T12:00:00Z',
             finished_at: '2026-01-20T12:05:00Z',
             expected_item_count: 100,
@@ -53,11 +64,14 @@ export function makeOfflineHistoryPoint(index: number, mean: number | null = 4.2
         },
         summary: {
             scorer: {
+                calculation: 'reported',
+                composition: null,
                 id: OFFLINE_STORY_VERSION.id,
                 definition_id: OFFLINE_STORY_DEFINITION.id,
                 version: 2,
                 kind: 'numeric',
                 name: OFFLINE_STORY_DEFINITION.name,
+                short_name: OFFLINE_STORY_DEFINITION.short_name,
                 description: OFFLINE_STORY_DEFINITION.description,
                 archived: false,
                 config: OFFLINE_STORY_DEFINITION.config,
@@ -66,6 +80,7 @@ export function makeOfflineHistoryPoint(index: number, mean: number | null = 4.2
             result_count: 97,
             status_counts: { ok: mean === null ? 0 : 92, error: mean === null ? 94 : 2, skipped: 2, not_applicable: 1 },
             missing_result_count: 3,
+            not_requested_count: 0,
             distinct_case_count: 50,
             items_with_case_key_count: 100,
             items_without_case_key_count: 0,

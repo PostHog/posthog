@@ -21,6 +21,12 @@ def pin_today_utc(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(core, "today_utc", lambda: TODAY)
 
 
+@pytest.fixture
+def batch_exports_product(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "products" / "batch_exports").mkdir(parents=True)
+    monkeypatch.setattr(core, "REPO_ROOT", tmp_path)
+
+
 def make_entry(**overrides: Any) -> core.Entry:
     defaults: dict[str, Any] = {
         "id": "posthog/api/test/test_foo.py::TestFoo::test_bar",
@@ -111,6 +117,7 @@ def test_selector_matches(selector: str, test_id: str, expected: bool) -> None:
         ("anything at all", "some-future-runner", True),  # unadapted runner: not validated
     ],
 )
+@pytest.mark.usefixtures("batch_exports_product")
 def test_validate_selector_by_runner(selector: str, runner: str, valid: bool) -> None:
     assert (core.validate_selector(selector, runner) is None) is valid
 
@@ -437,6 +444,7 @@ def test_list_shows_status(runner: CliRunner, tmp_path: Path) -> None:
         ([raw_entry(id="product:batch_exports")], 1, "dashed product name"),
     ],
 )
+@pytest.mark.usefixtures("batch_exports_product")
 def test_check(
     runner: CliRunner, tmp_path: Path, entries: list[dict[str, Any]], expected_exit: int, expected_fragment: str
 ) -> None:

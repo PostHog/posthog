@@ -340,7 +340,7 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
         self.assertIsInstance(runner._callback_handlers[0], MaxCallbackHandler)
 
 
-class TestSubagentCallbackHandler(BaseTest):
+class TestSubagentCallbackHandler(SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.mock_client = Mock()

@@ -4,8 +4,8 @@ import { formatCurrency } from 'lib/utils/currency'
 import { formatDurationMilliseconds, humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, percentage, significantDecimalPlaces } from 'lib/utils/numbers'
 
+import { isInsightVizNode, isTrendsQuery } from '~/queries/schema/node-guards'
 import { CurrencyCode, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, PropertyMathType } from '~/types'
 
 import type { ReportMetricApi, SignalReportMetricSnapshotsApi } from 'products/signals/frontend/generated/api.schemas'
@@ -85,7 +85,8 @@ export interface ReportMetricValueParts {
 
 export function formatReportMetricParts(
     metric: ReportMetricFormatting,
-    value: number | null | undefined
+    value: number | null | undefined,
+    precision?: 'exact'
 ): ReportMetricValueParts | null {
     if (value === null || value === undefined || !Number.isFinite(value)) {
         return null
@@ -93,6 +94,16 @@ export function formatReportMetricParts(
 
     const valueFormat = metric.value_format ?? 'number'
     const unit = metric.unit ?? null
+
+    if (precision === 'exact') {
+        if (valueFormat === 'percentage' || valueFormat === 'percentage_scaled') {
+            return {
+                value: `${valueFormat === 'percentage_scaled' ? value * 100 : value}%`,
+                unit: unit === '%' ? null : unit,
+            }
+        }
+        return { value: String(value), unit }
+    }
 
     switch (valueFormat) {
         case 'count':
@@ -126,9 +137,10 @@ export function formatReportMetricParts(
 
 export function formatReportMetricValue(
     metric: ReportMetricFormatting,
-    value: number | null | undefined
+    value: number | null | undefined,
+    precision?: 'exact'
 ): string | null {
-    const parts = formatReportMetricParts(metric, value)
+    const parts = formatReportMetricParts(metric, value, precision)
     return parts ? withUnit(parts.value, parts.unit) : null
 }
 
@@ -289,6 +301,28 @@ export function reportMetricUnitWord(metric: Pick<ReportMetricApi, 'kind' | 'uni
     }
 }
 
+const ROW_COMPACT_FROM = 10_000
+const ROW_COMPACT_FORMAT = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 })
+
+/** The row figure sits in a fixed column, so a large value shortens to `38.1M`. The tooltip has the exact value. */
+function rowNumber(value: number, maximumFractionDigits: number): string {
+    return Math.abs(value) >= ROW_COMPACT_FROM
+        ? ROW_COMPACT_FORMAT.format(value)
+        : humanFriendlyNumber(value, maximumFractionDigits)
+}
+
+function rowCurrency(value: number, currency: CurrencyCode): string {
+    const magnitude = Math.abs(value)
+    // Cents only matter on small amounts; `$1,200.00` does not fit the column.
+    const options: Intl.NumberFormatOptions =
+        magnitude >= ROW_COMPACT_FROM
+            ? { notation: 'compact', minimumFractionDigits: 0, maximumFractionDigits: 1 }
+            : magnitude >= 100
+              ? { minimumFractionDigits: 0, maximumFractionDigits: 0 }
+              : {}
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency, ...options }).format(value)
+}
+
 export function reportMetricRowParts(
     metric: Pick<ReportMetricApi, 'kind' | 'unit' | 'value_format'>,
     value: number | null | undefined
@@ -303,7 +337,7 @@ export function reportMetricRowParts(
 
     switch (valueFormat) {
         case 'count':
-            return { value: humanFriendlyNumber(numericValue, 0), unit }
+            return { value: rowNumber(numericValue, 0), unit }
         case 'percentage':
             return { value: percentage(numericValue / 100, significantDecimalPlaces(numericValue)), unit }
         case 'percentage_scaled':
@@ -311,15 +345,15 @@ export function reportMetricRowParts(
         // The row stacks the unit word under the figure, so a duration stays a plain number in its own
         // unit. A composed `4m 47s` would collide with the `seconds` word below it.
         case 'duration':
-            return { value: humanFriendlyNumber(numericValue, significantDecimalPlaces(numericValue)), unit }
+            return { value: rowNumber(numericValue, significantDecimalPlaces(numericValue)), unit }
         case 'currency': {
             const currency = metric.unit?.trim() ?? null
             return isCurrencyCode(currency)
-                ? { value: formatCurrency(numericValue, currency), unit }
-                : { value: humanFriendlyNumber(numericValue, 2), unit }
+                ? { value: rowCurrency(numericValue, currency), unit }
+                : { value: rowNumber(numericValue, 2), unit }
         }
         case 'number':
-            return { value: humanFriendlyNumber(numericValue, significantDecimalPlaces(numericValue)), unit }
+            return { value: rowNumber(numericValue, significantDecimalPlaces(numericValue)), unit }
     }
 }
 
@@ -404,6 +438,13 @@ export function reportNeedsMetricRefresh(report: { metrics?: ReportMetricApi[] }
     })
 }
 
+function sameLabels(a: readonly string[] | null | undefined, b: readonly string[] | null | undefined): boolean {
+    if (!a || !b) {
+        return !a === !b
+    }
+    return a.length === b.length && a.every((label, index) => label === b[index])
+}
+
 function sameSeries(a: number[] | null | undefined, b: number[] | null | undefined): boolean {
     if (!a || !b) {
         return !a === !b
@@ -432,12 +473,19 @@ export function mergeReportMetricSnapshots<T extends { id: string; metrics?: Rep
             !snapshot ||
             (snapshot.value === metric.value &&
                 snapshot.value_at === metric.value_at &&
-                sameSeries(snapshot.series, metric.series))
+                sameSeries(snapshot.series, metric.series) &&
+                sameLabels(snapshot.series_buckets, metric.series_buckets))
         ) {
             return metric
         }
         changed = true
-        return { ...metric, value: snapshot.value, value_at: snapshot.value_at, series: snapshot.series }
+        return {
+            ...metric,
+            value: snapshot.value,
+            value_at: snapshot.value_at,
+            series: snapshot.series,
+            series_buckets: snapshot.series_buckets,
+        }
     })
     return changed ? { ...report, metrics } : report
 }

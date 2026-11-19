@@ -1,6 +1,6 @@
 import { MultipleSurveyQuestion, Survey, SurveyAppearance, SurveyQuestion, SurveyQuestionType } from '~/types'
 
-import { NewSurvey, TRANSLATION_NEEDED_PLACEHOLDER } from './constants'
+import { INTRO_SCREEN_TEXT_FIELDS, NewSurvey, TRANSLATION_NEEDED_PLACEHOLDER } from './constants'
 
 // Respondents are shown choices in their own language and submit the translated text, so a
 // translated choice has to map back to its base-language choice (matched by position) to be
@@ -60,6 +60,11 @@ export function getSurveyWithTranslatedContent<TSurvey extends Survey | NewSurve
     }
     if (translation.thankYouMessageCloseButtonText) {
         appearanceUpdates.thankYouMessageCloseButtonText = translation.thankYouMessageCloseButtonText
+    }
+    for (const field of INTRO_SCREEN_TEXT_FIELDS) {
+        if (translation[field]) {
+            appearanceUpdates[field] = translation[field]
+        }
     }
     if (translation.submitButtonText) {
         appearanceUpdates.submitButtonText = translation.submitButtonText

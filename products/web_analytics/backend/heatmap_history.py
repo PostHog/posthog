@@ -1,4 +1,5 @@
 import json
+import asyncio
 import hashlib
 from datetime import UTC, date, datetime, time, timedelta
 from io import BytesIO
@@ -35,6 +36,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
     PageHttpStatusError,
     _classify_failure,
     _resolve_widths,
+    is_retryable_failure,
     render_page,
 )
 from products.web_analytics.backend.temporal.page_history.types import (
@@ -52,6 +54,7 @@ HEATMAPS_PAGE_HISTORY_FLAG = "heatmaps-page-history"
 HEATMAP_HISTORY_PREFERRED_WIDTH = 1024
 HEATMAP_HISTORY_RETENTION = timedelta(days=90)
 HEATMAP_HISTORY_MANUAL_COOLDOWN = timedelta(minutes=10)
+HEATMAP_HISTORY_DISPATCH_TIMEOUT = timedelta(seconds=10)
 HEATMAP_HISTORY_REQUEST_TIMEOUT = timedelta(minutes=30)
 HEATMAP_HISTORY_TEAM_DAILY_CAP = 100
 HEATMAP_HISTORY_GLOBAL_DAILY_CAP = 5000
@@ -164,14 +167,17 @@ def defer_to_next_day(heatmap: SavedHeatmap, day: CaptureDay) -> None:
 
 
 async def start_capture_workflow(request: HeatmapCaptureRequest) -> None:
-    client = await async_connect()
-    await client.start_workflow(
-        CAPTURE_WORKFLOW_NAME,
-        CaptureInputs(team_id=request.team_id, request_id=str(request.id)),
-        id=capture_workflow_id(str(request.id)),
-        task_queue=settings.WEB_ANALYTICS_TASK_QUEUE,
-        execution_timeout=max(request.deadline - timezone.now(), timedelta(seconds=1)),
-    )
+    async def start() -> None:
+        client = await async_connect()
+        await client.start_workflow(
+            CAPTURE_WORKFLOW_NAME,
+            CaptureInputs(team_id=request.team_id, request_id=str(request.id)),
+            id=capture_workflow_id(str(request.id)),
+            task_queue=settings.WEB_ANALYTICS_TASK_QUEUE,
+            execution_timeout=max(request.deadline - timezone.now(), timedelta(seconds=1)),
+        )
+
+    await asyncio.wait_for(start(), timeout=HEATMAP_HISTORY_DISPATCH_TIMEOUT.total_seconds())
 
 
 class HeatmapHistoryService:
@@ -495,17 +501,17 @@ class HeatmapHistoryService:
                 except Exception:
                     logger.warning("heatmap_history.thumbnail_write_failed", exc_info=True)
                     thumbnail = None
-        except BrowserlessPermanentError as error:
-            return RenderOutcome(
-                failure_cause=_classify_failure(error),
-                page_status=error.status_code if isinstance(error, PageHttpStatusError) else None,
-            )
         except Exception as error:
-            if not final_attempt and timezone.now() + RENDER_RETRY_DELAY < request.deadline:
+            if (
+                is_retryable_failure(error)
+                and not final_attempt
+                and timezone.now() + RENDER_RETRY_DELAY < request.deadline
+            ):
                 raise
             return RenderOutcome(
                 failure_cause="storage_write_failed"
                 if isinstance(error, ObjectStorageError)
-                else _classify_failure(error)
+                else _classify_failure(error),
+                page_status=error.status_code if isinstance(error, PageHttpStatusError) else None,
             )
         return RenderOutcome(has_thumbnail=thumbnail is not None)

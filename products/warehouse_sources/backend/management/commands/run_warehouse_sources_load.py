@@ -7,6 +7,7 @@ import structlog
 
 from posthog.product_db_migrations import collect_unapplied_product_migrations, configured_product_databases
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
+from posthog.temporal.common.internal_logs import InternalLogsSink
 from posthog.temporal.common.logger import configure_logger
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
@@ -58,6 +59,7 @@ def build_consumer_config(options: dict) -> ConsumerConfig:
         "max_attempts": options["max_attempts"],
         "health_port": options["health_port"],
         "health_timeout_seconds": options["health_timeout"],
+        "stall_dump_after_seconds": options["health_timeout"],
         "stuck_batch_timeout_seconds": options["stuck_batch_timeout"] or None,
     }
     if options.get("poll_timeout") is not None:
@@ -101,8 +103,10 @@ async def _run_consumer(
     loop = asyncio.get_running_loop()
     pools = LoaderThreadPools(pool_sizes)
     pools.install(loop)
+    internal_logs = InternalLogsSink.from_settings()
+    stop_log_producer = None
     try:
-        configure_logger(loop=loop)
+        stop_log_producer = configure_logger(loop=loop, internal_logs=internal_logs)
         consumer = BatchConsumer(
             config=config,
             process_batch=partial(process_batch, executor=pools.group_executor),
@@ -113,6 +117,8 @@ async def _run_consumer(
         )
         await consumer.run()
     finally:
+        if internal_logs is not None and stop_log_producer is not None:
+            await stop_log_producer()
         pools.shutdown()
 
 

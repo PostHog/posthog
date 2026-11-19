@@ -21,12 +21,14 @@ They are sized for roughly one scrape per event a person triggers, and are meant
 The default reserve ladder applies, and `firecrawl_request` defaults to `NORMAL`.
 Domain research for Tasks (`products/tasks/backend/facade/domain_research.py`) scrapes on `NORMAL`.
 The AI-enrichment label tools (`products/growth/backend/enrichment/tools.py`) search and scrape on `BATCH`.
+The CIMD provisioning partner review (`posthog/temporal/cimd_provisioning_review/research.py`) scrapes one homepage and runs two searches per review on `BATCH`.
 Nothing in this domain runs `CRITICAL`, because what gets scraped comes from user-supplied input and callers can do without the scrape.
 
 ## Rate-limit headers
 
 Firecrawl documents no rate-limit status headers, so the domain declares no gauges.
 A 429 carries `Retry-After`, and the caller owns the retry.
+`FirecrawlScrapeFailed` and `FirecrawlSearchFailed` carry Firecrawl's HTTP status in `status_code` when it answered with an error, so a caller can tell a retryable 429 or 5xx from a failed page.
 The counter is `firecrawl_api_requests_total`, labeled `account, method, endpoint, status_code, source`.
 
 ## Auth
@@ -37,7 +39,7 @@ An instance without one makes no request at all: `scrape` and `search` raise `Fi
 ## Typed client
 
 Callers use `client.py` rather than `firecrawl_request`.
-`scrape(url, source=...)` returns a `FirecrawlScrape` (markdown, summary, page title, description, status code, credits used).
+`scrape(url, source=...)` returns a `FirecrawlScrape` (final URL after redirects, markdown, summary, page title, description, status code, credits used).
 It raises `FirecrawlScrapeFailed` when Firecrawl answers with anything but a successful scrape, including a 200 that carries `success: false`.
 `search(query, source=...)` returns a `FirecrawlSearch` of web results and raises `FirecrawlSearchFailed` on the same conditions.
 It rejects a `limit` above `MAX_SEARCH_LIMIT` or a query above `MAX_SEARCH_QUERY_CHARS` before any call.
@@ -48,3 +50,4 @@ Only `POST /v2/scrape` and `POST /v2/search` are wired up.
 - [Rate limits](https://docs.firecrawl.dev/rate-limits): per-minute limits by plan for `/scrape` and `/search`.
 - [Errors](https://docs.firecrawl.dev/api-reference/errors): `Retry-After` on a 429, and no rate-limit status headers.
 - [Billing](https://docs.firecrawl.dev/billing): one credit per scrape, two credits per ten search results.
+- [Scrape](https://docs.firecrawl.dev/api-reference/endpoint/scrape): `metadata.url` is the final URL after redirects, and `metadata.sourceURL` is the requested URL.

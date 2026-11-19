@@ -19,6 +19,8 @@ interface TaskRunEventStreamSenderConfig {
   maxBufferedEvents?: number;
   flushDelayMs?: number;
   retryDelayMs?: number;
+  maxRetryDelayMs?: number;
+  random?: () => number;
   requestTimeoutMs?: number;
   stopTimeoutMs?: number;
   maxEventBytes?: number;
@@ -34,6 +36,7 @@ interface EventEnvelope {
 }
 
 interface IngestResponse {
+  code?: unknown;
   last_accepted_seq?: unknown;
 }
 
@@ -54,6 +57,7 @@ const DEFAULT_MAX_STREAM_BYTES = 4_000_000;
 const DEFAULT_MAX_EVENT_BYTES = 900_000;
 const DEFAULT_FLUSH_DELAY_MS = 0;
 const DEFAULT_RETRY_DELAY_MS = 1_000;
+const DEFAULT_MAX_RETRY_DELAY_MS = 30_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const DEFAULT_STOP_TIMEOUT_MS = 30_000;
 const DEFAULT_STREAM_WINDOW_MS = 5 * 60 * 1_000;
@@ -107,6 +111,8 @@ export class TaskRunEventStreamSender {
   private readonly maxEventBytes: number;
   private readonly flushDelayMs: number;
   private readonly retryDelayMs: number;
+  private readonly maxRetryDelayMs: number;
+  private readonly random: () => number;
   private readonly requestTimeoutMs: number;
   private readonly stopTimeoutMs: number;
   private readonly streamWindowMs: number;
@@ -127,6 +133,7 @@ export class TaskRunEventStreamSender {
   private transportCompleted = false;
   private droppedBeforeSequenceCount = 0;
   private bufferRevision = 0;
+  private consecutiveFailures = 0;
 
   constructor(private readonly config: TaskRunEventStreamSenderConfig) {
     const usingProxy = Boolean(config.eventIngestBaseUrl);
@@ -151,6 +158,8 @@ export class TaskRunEventStreamSender {
     this.maxEventBytes = config.maxEventBytes ?? DEFAULT_MAX_EVENT_BYTES;
     this.flushDelayMs = config.flushDelayMs ?? DEFAULT_FLUSH_DELAY_MS;
     this.retryDelayMs = config.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+    this.maxRetryDelayMs = config.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
+    this.random = config.random ?? Math.random;
     this.requestTimeoutMs =
       config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.stopTimeoutMs = config.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS;
@@ -202,6 +211,20 @@ export class TaskRunEventStreamSender {
     }, delayMs);
   }
 
+  private scheduleRetry(): void {
+    if (this.flushTimer || this.flushPromise || this.stopped) return;
+    this.scheduleFlush(this.nextRetryDelayMs());
+  }
+
+  private nextRetryDelayMs(): number {
+    const ceiling = Math.min(
+      this.retryDelayMs * 2 ** this.consecutiveFailures,
+      this.maxRetryDelayMs,
+    );
+    this.consecutiveFailures += 1;
+    return ceiling / 2 + this.random() * (ceiling / 2);
+  }
+
   private async drainForStop(complete: boolean): Promise<void> {
     const startedAtMs = Date.now();
     const deadlineAtMs = startedAtMs + this.stopTimeoutMs;
@@ -212,6 +235,7 @@ export class TaskRunEventStreamSender {
 
       try {
         await this.flush();
+        if (this.transportCompleted) return;
         if (complete) {
           await this.writeCompletionLine();
         }
@@ -230,6 +254,7 @@ export class TaskRunEventStreamSender {
         );
       }
 
+      if (this.transportCompleted) return;
       const madeProgress =
         this.bufferedEvents.length < previousLength ||
         this.bufferRevision !== previousRevision;
@@ -273,7 +298,9 @@ export class TaskRunEventStreamSender {
       );
       await this.abortActiveStream();
       if (!this.stopped) {
-        this.scheduleFlush(this.retryDelayMs);
+        // scheduleFlush ignores the retry timer while flushPromise is set.
+        this.flushPromise = null;
+        this.scheduleRetry();
       }
       return false;
     } finally {
@@ -446,7 +473,7 @@ export class TaskRunEventStreamSender {
         this.describeError(error),
       );
       if (!this.stopped && this.bufferedEvents.length > 0) {
-        this.scheduleFlush(this.retryDelayMs);
+        this.scheduleRetry();
       }
     }
   }
@@ -472,7 +499,7 @@ export class TaskRunEventStreamSender {
       );
     }
     if (!this.stopped && this.bufferedEvents.length > 0) {
-      this.scheduleFlush(this.retryDelayMs);
+      this.scheduleRetry();
     }
   }
 
@@ -525,6 +552,7 @@ export class TaskRunEventStreamSender {
 
     await this.applyIngestResponse(response, "Event ingest stream");
     this.sequenceSynced = true;
+    this.consecutiveFailures = 0;
     this.config.logger.debug("Task run event ingest stream delivered", {
       durationMs: Date.now() - stream.startedAtMs,
       sentBytes: stream.sentBytes,
@@ -708,7 +736,19 @@ export class TaskRunEventStreamSender {
     }
 
     try {
-      return { parsed: JSON.parse(text) as IngestResponse, text };
+      const parsed = JSON.parse(text) as IngestResponse;
+      if (
+        response.status === 403 &&
+        parsed?.code === "stream_generation_mismatch"
+      ) {
+        this.stopped = true;
+        this.transportCompleted = true;
+        this.bufferedEvents = [];
+        if (this.flushTimer) clearTimeout(this.flushTimer);
+        this.flushTimer = null;
+        await this.abortActiveStream();
+      }
+      return { parsed, text };
     } catch {
       return { parsed: null, text };
     }

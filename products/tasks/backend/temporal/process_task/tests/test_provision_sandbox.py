@@ -6,15 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from products.tasks.backend.constants import TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG
 from products.tasks.backend.exceptions import SandboxNetworkPolicyError, TaskInvalidStateError
-from products.tasks.backend.logic.services.sandbox import (
-    ExecutionResult,
-    SandboxConfig,
-    SandboxTemplate,
-    needs_full_history,
-)
-from products.tasks.backend.models import Task
+from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
     CheckoutBranchInSandboxInput,
@@ -24,7 +17,6 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
     _build_environment_variables,
     _build_sandbox_tags,
     _effective_sandbox_template,
-    _is_blobless_signals_clone_enabled,
     _requested_sandbox_template,
     _to_modal_domain_allowlist,
     checkout_branch_in_sandbox,
@@ -34,8 +26,8 @@ _PROVISION = "products.tasks.backend.temporal.process_task.activities.provision_
 
 
 @pytest.fixture(autouse=True)
-def mock_gateway_accounting() -> Iterator[None]:
-    with patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"):
+def mock_gateway_routing() -> Iterator[None]:
+    with patch(f"{_PROVISION}.run_gateway_env_vars", return_value={}):
         yield
 
 
@@ -81,21 +73,43 @@ def _prepared(**overrides) -> PrepareSandboxForRepositoryOutput:
 _WORKFLOW_ID = "review-pr:42:posthog/posthog:7-sandbox"
 
 
-def _build_tags(*args, **kwargs):
+def _build_tags(
+    ctx: TaskProcessingContext,
+    prepared: PrepareSandboxForRepositoryOutput,
+    use_vm_sandbox: bool,
+    *,
+    workflow_id: str | None = _WORKFLOW_ID,
+) -> dict[str, str]:
     with patch(f"{_PROVISION}.activity") as mock_activity:
-        mock_activity.info.return_value = MagicMock(workflow_id=_WORKFLOW_ID)
-        return _build_sandbox_tags(*args, **kwargs)
+        mock_activity.info.return_value = MagicMock(workflow_id=workflow_id)
+        return _build_sandbox_tags(ctx, prepared, use_vm_sandbox)
 
 
-def test_build_sandbox_tags_includes_all_identifiers():
-    tags = _build_tags(_context(), _prepared(), use_vm_sandbox=False)
+@pytest.mark.parametrize(
+    ("workflow_prefix", "expected_label"),
+    [
+        ("task-processing", "task-processing"),
+        ("review-pr:42:example/demo:7:validation-c3", "review-pr-42-example-demo-7-validation-c3"),
+        ("scheduled.daily_report", "scheduled.daily_report"),
+        ("review-pr:42:example/" + "r" * 80 + ":7:validation", "review-pr-42-example-" + "r" * 42),
+    ],
+)
+def test_build_sandbox_tags_includes_all_identifiers(workflow_prefix: str, expected_label: str) -> None:
+    task_id = "00000000-0000-4000-8000-000000000001"
+    run_id = "00000000-0000-4000-8000-000000000002"
+    tags = _build_tags(
+        _context(task_id=task_id, run_id=run_id),
+        _prepared(),
+        use_vm_sandbox=False,
+        workflow_id=f"{workflow_prefix}-{task_id}-{run_id}",
+    )
 
     assert tags == {
-        "task_id": "task-123",
-        "task_run_id": "run-456",
+        "task_id": task_id,
+        "task_run_id": run_id,
         "origin_product": "error_tracking",
         "team_id": "42",
-        "workflow_id": _WORKFLOW_ID,
+        "workflow_label": expected_label,
         "image_source": "base_image",
         "sandbox_runtime": "gvisor",
     }
@@ -116,45 +130,11 @@ def test_build_sandbox_tags_reflects_image_source(image_source):
 
 
 def test_build_sandbox_tags_drops_none_values():
-    tags = _build_tags(_context(origin_product=None), _prepared(), use_vm_sandbox=False)
+    tags = _build_tags(_context(origin_product=None), _prepared(), use_vm_sandbox=False, workflow_id=None)
 
     assert "origin_product" not in tags
+    assert "workflow_label" not in tags
     assert all(isinstance(value, str) for value in tags.values())
-
-
-@pytest.mark.parametrize(
-    ("origin_product", "flag_result", "expected"),
-    [
-        (Task.OriginProduct.SIGNAL_REPORT, True, True),
-        (Task.OriginProduct.SIGNAL_REPORT, False, False),
-        (Task.OriginProduct.SIGNALS_SCOUT, True, True),
-        (Task.OriginProduct.SIGNALS_SCOUT, False, False),
-        (Task.OriginProduct.ERROR_TRACKING, True, False),
-        (Task.OriginProduct.USER_CREATED, True, False),
-    ],
-)
-def test_blobless_clone_only_applies_to_enabled_signal_tasks(mocker, origin_product, flag_result, expected):
-    feature_enabled = mocker.patch(f"{_PROVISION}.posthoganalytics.feature_enabled", return_value=flag_result)
-
-    assert _is_blobless_signals_clone_enabled(_context(origin_product=origin_product)) is expected
-
-    if needs_full_history(origin_product):
-        feature_enabled.assert_called_once_with(
-            TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG,
-            distinct_id="distinct-id",
-            groups={"organization": "org-uuid"},
-            group_properties={"organization": {"id": "org-uuid"}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    else:
-        feature_enabled.assert_not_called()
-
-
-def test_blobless_clone_fails_closed_when_flag_evaluation_fails(mocker):
-    mocker.patch(f"{_PROVISION}.posthoganalytics.feature_enabled", side_effect=RuntimeError("unavailable"))
-
-    assert _is_blobless_signals_clone_enabled(_context(origin_product=Task.OriginProduct.SIGNAL_REPORT)) is False
 
 
 # All four SANDBOX_*_URL settings are pinned: they feed the enforced allowlist
@@ -312,24 +292,6 @@ def test_restricted_vm_rejects_invalid_legacy_context() -> None:
 @patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})
 @patch(f"{_PROVISION}.get_sandbox_jwt_public_key", return_value="pub")
 @patch(f"{_PROVISION}.get_sandbox_api_url", return_value="https://api.example")
-@override_settings(
-    SANDBOX_AI_GATEWAY_URL="https://ai-gateway.us.posthog.com",
-    SANDBOX_AI_GATEWAY_PRODUCTS="signals_scout",
-)
-def test_build_environment_variables_injects_ai_gateway_pair(_api, _jwt, _git):
-    # Pins this site's wiring of the shared helper: the conjunction itself is
-    # tested in test_utils.py, but deleting the update() call here would merge
-    # green without this assertion and Modal-provisioned sandboxes would
-    # silently stay on the legacy gateway.
-    env = _build_environment_variables(_context(), MagicMock(), "", "access-token")
-
-    assert env["AI_GATEWAY_URL"] == "https://ai-gateway.us.posthog.com"
-    assert env["AI_GATEWAY_PRODUCTS"] == "signals_scout"
-
-
-@patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})
-@patch(f"{_PROVISION}.get_sandbox_jwt_public_key", return_value="pub")
-@patch(f"{_PROVISION}.get_sandbox_api_url", return_value="https://api.example")
 @pytest.mark.parametrize(
     "state, expected_resume_run_id, expected_idle",
     [
@@ -471,6 +433,7 @@ def test_build_environment_variables_omits_otel_env_when_flag_disabled(_api, _jw
 @patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})
 @patch(f"{_PROVISION}.get_sandbox_jwt_public_key", return_value="pub")
 @patch(f"{_PROVISION}.get_sandbox_api_url", return_value="https://api.example")
+@override_settings(SANDBOX_LLM_GATEWAY_URL="https://gateway.us.posthog.com")
 def test_build_environment_variables_forwards_run_context_to_token_minting(_api, _jwt, _git):
     """The fresh-provisioning path must forward team, origin, stage, and internal
     into token minting; a dropped kwarg silently degrades every fresh run to the
@@ -485,6 +448,7 @@ def test_build_environment_variables_forwards_run_context_to_token_minting(_api,
         out = _build_environment_variables(ctx, task, "", "access-token")
     env.assert_called_once_with(ctx, task)
     assert out["AI_GATEWAY_TOKEN"] == "phe"
+    assert "LLM_GATEWAY_URL" not in out
 
 
 @pytest.mark.parametrize(

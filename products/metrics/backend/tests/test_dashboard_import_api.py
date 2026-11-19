@@ -33,7 +33,7 @@ CATALOG = [
 ]
 
 
-def _grafana(*exprs: str) -> str:
+def _grafana(*exprs: str, templating: list[dict[str, Any]] | None = None) -> str:
     panels: list[dict[str, Any]] = [
         {"id": 1, "type": "row", "title": "Orders", "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1}}
     ]
@@ -48,7 +48,10 @@ def _grafana(*exprs: str) -> str:
                 "targets": [{"refId": "A", "expr": expr}],
             }
         )
-    return json.dumps({"title": "Orders", "time": {"from": "now-6h"}, "panels": panels})
+    dashboard: dict[str, Any] = {"title": "Orders", "time": {"from": "now-6h"}, "panels": panels}
+    if templating:
+        dashboard["templating"] = {"list": templating}
+    return json.dumps(dashboard)
 
 
 def _png() -> str:
@@ -67,7 +70,7 @@ class TestDashboardImportAPI(APIBaseTest):
         self.enterContext(
             patch("posthoganalytics.feature_enabled", side_effect=lambda key, *args, **kwargs: key in self.flags)
         )
-        self.enterContext(override_settings(SNUFFLE_APM_URL="http://snuffle.test"))
+        self.enterContext(override_settings(SNUFFLE_METRICS_URL="http://snuffle.test"))
         self.workflow = self.enterContext(patch(WORKFLOW))
         self.storage = self.enterContext(patch(f"{IMPORTER}.object_storage"))
         self.enterContext(
@@ -99,24 +102,73 @@ class TestDashboardImportAPI(APIBaseTest):
             run.save(update_fields=["status", "output"])
         delay.assert_called_once_with(self.team.id, import_id)
 
-    def test_imports_matching_panels_at_once_without_an_agent(self) -> None:
-        body = self._start(source="grafana", grafana_json=_grafana("sum(rate(orders_total[$__rate_interval]))"))
+    @parameterized.expand(
+        [
+            ("no_variables", "sum(rate(orders_total[$__rate_interval]))", None, "sum(rate(orders_total))", {}),
+            (
+                "live_variable",
+                'sum(rate(orders_total{job="$job"}[$__rate_interval]))',
+                [{"name": "job", "type": "custom", "query": "api,web", "current": {"text": "api", "value": "api"}}],
+                'sum(rate(orders_total{job="$job"}))',
+                {
+                    "metricVariables": [
+                        {
+                            "name": "job",
+                            "source": "custom",
+                            "customValues": ["api", "web"],
+                            "current": {"values": ["api"]},
+                        }
+                    ]
+                },
+            ),
+        ]
+    )
+    def test_imports_matching_panels_at_once_without_an_agent(
+        self,
+        _name: str,
+        expr: str,
+        templating: list[dict[str, Any]] | None,
+        promql: str,
+        variable_filters: dict[str, Any],
+    ) -> None:
+        with patch(f"{IMPORTER}.report_user_action") as report:
+            body = self._start(source="grafana", grafana_json=_grafana(expr, templating=templating))
+
+        started, finished = report.call_args_list
+        assert started.args[1] == "metrics dashboard import started"
+        assert "$update_person_last_seen_at" not in started.args[2]
+        assert finished.args[1] == "metrics dashboard import finished"
+        assert finished.args[2]["$update_person_last_seen_at"] is False
+        assert finished.args[0].distinct_id == self.user.distinct_id
 
         assert (body["id"], body["status"], body["error"]) == (None, "completed", None)
         assert body["summary"] == {"total": 2, "imported": 2, "approximated": 0, "failed": 0, "skipped": 0}
+        assert "$job" not in self.smoke_run.call_args.args[1]
         dashboard = Dashboard.objects.get(id=body["dashboard_id"])
-        assert (dashboard.name, dashboard.filters) == ("Orders", {"date_from": "-6h"})
+        assert (dashboard.name, dashboard.filters) == ("Orders", {"date_from": "-6h", **variable_filters})
         tiles = sorted(DashboardTile.objects.filter(dashboard=dashboard), key=lambda tile: tile.layouts["sm"]["y"])
         assert tiles[0].text is not None and tiles[0].text.body == "## Orders"
         assert tiles[1].insight is not None and tiles[1].insight.query == {
             "kind": "MetricsQuery",
             "language": "promql",
-            "promql": "sum(rate(orders_total))",
+            "promql": promql,
             "clauses": [],
             "display": {"type": "line"},
         }
         assert tiles[1].layouts == {"sm": {"x": 0, "y": 1, "w": 6, "h": 3}}
         self.workflow.assert_not_called()
+
+    def test_hides_the_description_of_imported_panels_that_have_one(self) -> None:
+        grafana = json.loads(_grafana("sum(rate(orders_total[5m]))", "sum(orders_total)"))
+        grafana["panels"][1]["description"] = "Orders per second."
+
+        body = self._start(source="grafana", grafana_json=json.dumps(grafana))
+
+        tiles = DashboardTile.objects.filter(dashboard_id=body["dashboard_id"], insight__isnull=False)
+        assert {(tile.insight.name if tile.insight else None, tile.show_description) for tile in tiles} == {
+            ("Panel 2", False),
+            ("Panel 3", None),
+        }
 
     def test_starts_a_read_only_agent_for_panels_it_cannot_match(self) -> None:
         body = self._start(
@@ -128,6 +180,7 @@ class TestDashboardImportAPI(APIBaseTest):
         task = Task.objects.get(id=body["id"])
         run = TaskRun.objects.get(task=task)
         assert (task.origin_product, task.internal, task.repository) == (Task.OriginProduct.METRICS_IMPORT, True, None)
+        assert task.profile == "metrics.dashboard_import"
         assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == AGENT_MCP_SCOPES
         assert "docs-search" in run.state["mcp_exclude_tools"]
         assert {artifact["name"] for artifact in run.artifacts} == {"brief.json", "grafana-dashboard.json"}
@@ -165,7 +218,14 @@ class TestDashboardImportAPI(APIBaseTest):
             ],
         }
 
-        self._finish_run(started["id"], run_status=TaskRun.Status.COMPLETED, output=answer)
+        with patch(f"{IMPORTER}.ph_scoped_capture") as scoped_capture:
+            self._finish_run(started["id"], run_status=TaskRun.Status.COMPLETED, output=answer)
+        capture = scoped_capture.return_value.__enter__.return_value
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["event"] == "metrics dashboard import finished"
+        assert capture.call_args.kwargs["distinct_id"] == str(self.user.distinct_id)
+        assert capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
+
         first = self.client.get(f"{self.url}{started['id']}/").json()
         second = self.client.get(f"{self.url}{started['id']}/").json()
 
@@ -183,6 +243,29 @@ class TestDashboardImportAPI(APIBaseTest):
         assert Dashboard.objects.get(id=first["dashboard_id"]).description == ""
         assert DashboardTile.objects.filter(dashboard_id=first["dashboard_id"]).count() == 3
         self.storage.delete.assert_called()
+
+    def test_an_agent_panel_without_variable_references_says_so(self) -> None:
+        templating = [{"name": "job", "type": "custom", "query": "api,web", "current": {"value": "api"}}]
+        started = self._start(
+            source="grafana", grafana_json=_grafana('rate(payments_total{job="$job"}[5m])', templating=templating)
+        )
+        answer = {
+            "dashboard_name": "Orders",
+            "panels": [
+                {
+                    "key": "p2",
+                    "title": "Payments",
+                    "outcome": "approximated",
+                    "reason": "Uses orders_total.",
+                    "query": {"language": "promql", "promql": 'sum(rate(orders_total{job="api"}))'},
+                }
+            ],
+        }
+
+        self._finish_run(started["id"], run_status=TaskRun.Status.COMPLETED, output=answer)
+        body = self.client.get(f"{self.url}{started['id']}/").json()
+
+        assert "keeps the saved values" in body["panels"][1]["reason"]
 
     @parameterized.expand(
         [

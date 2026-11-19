@@ -293,6 +293,8 @@ def _probe_app_metrics(specs: tuple[DataSourceSpec, ...], teams: list[Team], win
     """Every `app_metrics2`-backed product, in one query.
 
     That table is already a per-team, per-product activity ledger sorted on `team_id` first.
+    `retention_byte_days` rows are excluded: the logs consumer dates them at future billing
+    months, so they would make a project look live long after its ingestion stopped.
     """
     products_by_app_source = {spec.app_metrics_source: spec.product for spec in specs if spec.app_metrics_source}
     if not products_by_app_source:
@@ -309,6 +311,7 @@ def _probe_app_metrics(specs: tuple[DataSourceSpec, ...], teams: list[Team], win
             FROM app_metrics2
             WHERE team_id IN %(team_ids)s
               AND app_source IN %(app_sources)s
+              AND metric_name != 'retention_byte_days'
               AND timestamp >= %(cutoff)s
               AND timestamp <= %(horizon)s
             GROUP BY team_id, app_source

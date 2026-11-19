@@ -9,9 +9,15 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ActivityLogPaginatedResponseApi,
     CohortApi,
+    CohortCalculationHistoryResponseApi,
     CohortPersonsResponseApi,
+    CohortRealtimeRequestApi,
     CohortUsedInResponseApi,
+    CohortUsedInWorkflowsBlockApi,
+    CohortsActivityRetrieveParams,
+    CohortsCalculationHistoryRetrieveParams,
     CohortsListParams,
     CohortsPersonsRetrieveParams,
     CohortsStaffListParams,
@@ -19,6 +25,7 @@ import type {
     PatchedAddPersonsToStaticCohortRequestApi,
     PatchedCohortApi,
     PatchedRemovePersonRequestApi,
+    RealtimeCohortsJoinStateApi,
     StaffCohortLookupResponseApi,
     StaffCohortRecalculateApi,
     StaffCohortRecalculateResponseApi,
@@ -234,12 +241,33 @@ export const cohortsDestroy = async (projectId: string, id: number, options?: Re
     })
 }
 
-export const getCohortsActivityRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/cohorts/${id}/activity/`
+export const getCohortsActivityRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: CohortsActivityRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/cohorts/${id}/activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/cohorts/${id}/activity/`
 }
 
-export const cohortsActivityRetrieve = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getCohortsActivityRetrieveUrl(projectId, id), {
+export const cohortsActivityRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: CohortsActivityRetrieveParams,
+    options?: RequestInit
+): Promise<ActivityLogPaginatedResponseApi> => {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getCohortsActivityRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -263,19 +291,57 @@ export const cohortsAddPersonsToStaticCohortPartialUpdate = async (
     })
 }
 
-export const getCohortsCalculationHistoryRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/cohorts/${id}/calculation_history/`
+export const getCohortsBlockingWorkflowsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/cohorts/${id}/blocking_workflows/`
+}
+
+/**
+ * Active workflows that block deleting this cohort or editing it so it stops updating in real time.
+ */
+export const cohortsBlockingWorkflowsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<CohortUsedInWorkflowsBlockApi> => {
+    return apiMutator<CohortUsedInWorkflowsBlockApi>(getCohortsBlockingWorkflowsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCohortsCalculationHistoryRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: CohortsCalculationHistoryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/cohorts/${id}/calculation_history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/cohorts/${id}/calculation_history/`
 }
 
 export const cohortsCalculationHistoryRetrieve = async (
     projectId: string,
     id: number,
+    params?: CohortsCalculationHistoryRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getCohortsCalculationHistoryRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<CohortCalculationHistoryResponseApi> => {
+    return apiMutator<CohortCalculationHistoryResponseApi>(
+        getCohortsCalculationHistoryRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getCohortsPersonsRetrieveUrl = (projectId: string, id: number, params?: CohortsPersonsRetrieveParams) => {
@@ -303,6 +369,27 @@ export const cohortsPersonsRetrieve = async (
     return apiMutator<CohortPersonsResponseApi>(getCohortsPersonsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCohortsRealtimeCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/cohorts/${id}/realtime/`
+}
+
+/**
+ * Turn realtime on or off for a cohort. Turning it on also turns it on for every realtime cohort it includes as criteria, and PostHog prepares them from past events before feature flags can target them.
+ */
+export const cohortsRealtimeCreate = async (
+    projectId: string,
+    id: number,
+    cohortRealtimeRequestApi: CohortRealtimeRequestApi,
+    options?: RequestInit
+): Promise<CohortApi> => {
+    return apiMutator<CohortApi>(getCohortsRealtimeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(cohortRealtimeRequestApi),
     })
 }
 
@@ -347,5 +434,39 @@ export const cohortsAllActivityRetrieve = async (projectId: string, options?: Re
     return apiMutator<void>(getCohortsAllActivityRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getRealtimeCohortsJoinRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/realtime_cohorts/join/`
+}
+
+/**
+ * Where this project stands in joining the realtime cohorts beta.
+ */
+export const realtimeCohortsJoinRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<RealtimeCohortsJoinStateApi> => {
+    return apiMutator<RealtimeCohortsJoinStateApi>(getRealtimeCohortsJoinRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getRealtimeCohortsJoinCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/realtime_cohorts/join/`
+}
+
+/**
+ * Join the realtime cohorts beta for this project when it can join by itself, and return where it stands. A repeated call starts nothing more.
+ */
+export const realtimeCohortsJoinCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<RealtimeCohortsJoinStateApi> => {
+    return apiMutator<RealtimeCohortsJoinStateApi>(getRealtimeCohortsJoinCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }

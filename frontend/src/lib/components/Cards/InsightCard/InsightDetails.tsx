@@ -30,11 +30,30 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { dateFilterToText } from 'lib/utils/dateFilters'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
+import { everyWarehouseSeriesReadsFlagCalls } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { humanizePathsEventTypes, hasUnsupportedBreakdownForDataWarehouseTrends } from 'scenes/insights/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 import { urls } from 'scenes/urls'
 
+import { getCompareFilter, getInterval } from '~/queries/schema/node-accessors'
+import {
+    isActionsNode,
+    isAnyDataWarehouseNode,
+    isDataTableNodeWithHogQLQuery,
+    isDataVisualizationNode,
+    isEventsNode,
+    isFunnelsQuery,
+    isHogQLQuery,
+    isInsightQueryWithBreakdown,
+    isInsightQueryWithSeries,
+    isInsightVizNode,
+    isLifecycleQuery,
+    isPathsQuery,
+    isPathsV2Query,
+    isRetentionQuery,
+    isTrendsQuery,
+    hasBreakdownFilter,
+} from '~/queries/schema/node-guards'
 import {
     AnyEntityNode,
     BreakdownFilter,
@@ -57,26 +76,6 @@ import {
     TileFilters,
 } from '~/queries/schema/schema-general'
 import {
-    getCompareFilter,
-    getInterval,
-    isActionsNode,
-    isAnyDataWarehouseNode,
-    isDataTableNodeWithHogQLQuery,
-    isDataVisualizationNode,
-    isEventsNode,
-    isFunnelsQuery,
-    isHogQLQuery,
-    isInsightQueryWithBreakdown,
-    isInsightQueryWithSeries,
-    isInsightVizNode,
-    isLifecycleQuery,
-    isPathsQuery,
-    isPathsV2Query,
-    isRetentionQuery,
-    isTrendsQuery,
-    hasBreakdownFilter,
-} from '~/queries/utils'
-import {
     AnyPropertyFilter,
     BaseMathType,
     FilterLogicalOperator,
@@ -85,6 +84,7 @@ import {
     UserBasicType,
 } from '~/types'
 
+import { BreakdownTag } from 'products/product_analytics/frontend/insights/editor/filters/BreakdownFilter/BreakdownTag'
 import { journeysSummaryParts } from 'products/product_analytics/frontend/insights/journeys/journeysSummary'
 import {
     MathCategory,
@@ -787,6 +787,8 @@ export const InsightDetails = React.memo(
         )
         const overrideBreakdownFilter = overrideBreakdown?.breakdownFilter
         const hasPropertyOverrides = propertyGroups.length > 0
+        const ignoresPropertyOverrides =
+            hasDataWarehouseSeries && isInsightVizNode(query) && !everyWarehouseSeriesReadsFlagCalls(query.source)
         const hasIgnoredBreakdownOverrides =
             isInsightVizNode(query) &&
             isTrendsQuery(query.source) &&
@@ -817,7 +819,7 @@ export const InsightDetails = React.memo(
                                 override={dateOverride}
                             />
                         )}
-                        {hasDataWarehouseSeries && hasPropertyOverrides ? (
+                        {ignoresPropertyOverrides && hasPropertyOverrides ? (
                             <PropertiesIgnoredWarning />
                         ) : (
                             <PropertiesSummary

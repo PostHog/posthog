@@ -73,18 +73,23 @@ class TestEmailDrafts(APIBaseTest):
             ("cohort", ""),
         ]
     )
-    @patch(f"{SERVICE}._draft_flag_enabled", return_value=False)
-    def test_returns_the_source_template_when_ai_drafts_are_off(self, source: str, subject: str, _flag) -> None:
+    def test_returns_the_source_template_when_ai_drafts_are_off(self, source: str, subject: str) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
         response = self._draft(source)
 
         assert response.status_code == 200, response.json()
         body = response.json()
-        assert (body["subject"], body["generated_by"], body["template_reason"]) == (subject, "template", "flag_off")
+        assert (body["subject"], body["generated_by"], body["template_reason"]) == (
+            subject,
+            "template",
+            "ai_not_approved",
+        )
         assert (body["html"] == "") == (source == "cohort")
 
-    @patch(f"{SERVICE}._draft_flag_enabled", return_value=True)
     @patch(f"{SERVICE}.build_ai_gateway_anthropic_client")
-    def test_model_draft_is_escaped_and_carries_the_source_as_data(self, build_client, _flag) -> None:
+    def test_model_draft_is_escaped_and_carries_the_source_as_data(self, build_client) -> None:
         client = _model_reply(
             {
                 "subject": "Dark mode is here",
@@ -116,10 +121,9 @@ class TestEmailDrafts(APIBaseTest):
             ("rate_limited", {"denied": True}),
         ]
     )
-    @patch(f"{SERVICE}._draft_flag_enabled", return_value=True)
     @patch(f"{SERVICE}.build_ai_gateway_anthropic_client")
     @patch(f"{SERVICE}.consume")
-    def test_falls_back_to_the_template(self, reason: str, case: dict, consume, build_client, _flag) -> None:
+    def test_falls_back_to_the_template(self, reason: str, case: dict, consume, build_client) -> None:
         self.organization.is_ai_data_processing_approved = case.get("approved", True)
         self.organization.save()
         consume.return_value = BucketDecision(
@@ -172,8 +176,8 @@ class TestEmailDrafts(APIBaseTest):
             ("cohort", "cohort"),
         ]
     )
-    @patch(f"{SERVICE}._draft_flag_enabled", return_value=False)
-    def test_a_source_restricted_for_this_member_is_forbidden(self, source: str, resource: str, _flag) -> None:
+    def test_a_source_restricted_for_this_member_is_forbidden(self, source: str, resource: str) -> None:
+        self.organization.is_ai_data_processing_approved = False
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -199,8 +203,9 @@ class TestEmailDrafts(APIBaseTest):
             (["hog_flow:write", "early_access_feature:read"], 200),
         ]
     )
-    @patch(f"{SERVICE}._draft_flag_enabled", return_value=False)
-    def test_a_scoped_key_needs_read_access_to_the_source(self, scopes: list[str], status: int, _flag) -> None:
+    def test_a_scoped_key_needs_read_access_to_the_source(self, scopes: list[str], status: int) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
         key = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
 

@@ -8,7 +8,7 @@ use crate::config::Config;
 /// ingestion group so inspection can never touch production offsets.
 pub const INSPECTOR_GROUP_ID: &str = "ingestion-control-plane-inspector";
 
-fn base_client_config(config: &Config) -> ClientConfig {
+pub fn base_client_config(config: &Config) -> ClientConfig {
     let mut cfg = ClientConfig::new();
     cfg.set("bootstrap.servers", &config.kafka_hosts);
     // Certificate verification is disabled against MSK across the whole

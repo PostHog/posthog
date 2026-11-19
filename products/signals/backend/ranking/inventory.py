@@ -18,6 +18,8 @@ BORN_VISIBLE_STATUSES = (
     SignalReport.Status.PENDING_INPUT,
     SignalReport.Status.IN_PROGRESS,
     SignalReport.Status.RESOLVED,
+    SignalReport.Status.CLOSED,
+    SignalReport.Status.MONITORING,
 )
 
 # Inventory a user can still act on, which the sweep scores. A resolved report stays in the spine

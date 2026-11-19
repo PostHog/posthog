@@ -1,7 +1,6 @@
 import pytest
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.cdp.backend.templates.klaviyo.template_klaviyo import (
     template_event as klaviyo_event,
     template_user as klaviyo_user,

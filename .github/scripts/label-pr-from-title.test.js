@@ -12,6 +12,8 @@ const {
     parseType,
     docsLabelApplies,
     labelsForTitle,
+    labelsForFiles,
+    staleLabels,
     loadRules,
     isFlagsLowHangingFruitCandidate,
     isFlagsLowHangingFruit,
@@ -84,6 +86,172 @@ test('labelsForTitle', async (t) => {
     }
 })
 
+const PATH_RULES = [
+    {
+        scopes: ['agent'],
+        paths: ['packages/agent/', 'bin/start-agent', 'posthog/*agent_root*', 'products/**/*agent_any*'],
+        labels: ['feature/agent-infra'],
+    },
+    {
+        paths: ['services/sized/', 'nodejs/src/ingestion/pipelines/ai/costs/providers/'],
+        minLines: 10,
+        minFiles: 3,
+        labels: ['feature/sized'],
+    },
+]
+
+const changed = (filename, additions, deletions = 0) => ({ filename, status: 'modified', additions, deletions })
+
+const LABELS_FOR_FILES_CASES = [
+    {
+        files: [changed('services/sized/a.py', 9)],
+        expected: [],
+        description: 'a sized rule with one file under the line minimum',
+    },
+    {
+        files: [changed('services/sized/a.py', 10)],
+        expected: ['feature/sized'],
+        description: 'a sized rule with one file at the line minimum',
+    },
+    {
+        files: [changed('services/sized/a.py', 4, 6)],
+        expected: ['feature/sized'],
+        description: 'a sized rule counts deletions toward the line minimum',
+    },
+    {
+        files: [changed('services/sized/a.py', 5), changed('services/sized/b.py', 5)],
+        expected: ['feature/sized'],
+        description: 'a sized rule adds up lines across matching files',
+    },
+    {
+        files: [changed('services/sized/a.py', 1), changed('services/sized/b.py', 1), changed('services/sized/c.py', 1)],
+        expected: ['feature/sized'],
+        description: 'a sized rule with few lines across the file minimum',
+    },
+    {
+        files: [changed('services/sized/a.py', 2), changed('posthog/api/survey.py', 500)],
+        expected: [],
+        description: 'a sized rule ignores lines outside its paths',
+    },
+    {
+        files: [changed('services/sized/pyproject.toml', 2), changed('services/sized/uv.lock', 40)],
+        expected: [],
+        description: 'a sized rule ignores lockfile lines',
+    },
+    {
+        files: [
+            changed('services/sized/a.py', 2),
+            changed('nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts', 80),
+        ],
+        expected: [],
+        description: 'a sized rule ignores generated file lines',
+    },
+    {
+        files: [
+            { filename: 'posthog/api/survey.py', status: 'modified' },
+            { filename: 'packages/agent/src/run.ts', status: 'modified' },
+        ],
+        expected: ['feature/agent-infra'],
+        description: 'one of several files under a path prefix',
+    },
+    {
+        files: [{ filename: 'elsewhere/run.ts', previous_filename: 'packages/agent/src/run.ts', status: 'renamed' }],
+        expected: ['feature/agent-infra'],
+        description: 'a rename out of a path prefix',
+    },
+    {
+        files: [{ filename: 'elsewhere/run.ts', previous_filename: 'packages/agent/src/run.ts', status: 'copied' }],
+        expected: [],
+        description: 'a copy from a path prefix',
+    },
+    {
+        files: [{ filename: 'packages/agentic/run.ts', status: 'modified' }],
+        expected: [],
+        description: 'a sibling directory that starts with the same name',
+    },
+    {
+        files: [{ filename: 'bin/start-agent-old', status: 'modified' }],
+        expected: [],
+        description: 'a longer name than an exact file path',
+    },
+    {
+        files: [{ filename: 'posthog/x_agent_root.py', status: 'modified' }],
+        expected: ['feature/agent-infra'],
+        description: 'a single star inside one segment',
+    },
+    {
+        files: [{ filename: 'posthog/storage/x_agent_root.py', status: 'modified' }],
+        expected: [],
+        description: 'a single star does not cross directories',
+    },
+    {
+        files: [{ filename: 'products/a/b/x_agent_any.py', status: 'modified' }],
+        expected: ['feature/agent-infra'],
+        description: 'a double star crosses directories',
+    },
+    {
+        files: [{ filename: 'products/x_agent_any.py', status: 'modified' }],
+        expected: ['feature/agent-infra'],
+        description: 'a double star matches zero directories',
+    },
+    { files: [], expected: [], description: 'no files' },
+]
+
+test('labelsForFiles', async (t) => {
+    for (const { files, expected, description } of LABELS_FOR_FILES_CASES) {
+        await t.test(description, () => {
+            assert.deepEqual(labelsForFiles(files, PATH_RULES), expected)
+        })
+    }
+})
+
+const labelEvent = (event, name, login) => ({ event, label: { name }, actor: { login } })
+
+const STALE_LABELS_CASES = [
+    {
+        events: [labelEvent('labeled', 'feature/agent-infra', 'github-actions[bot]')],
+        wanted: [],
+        expected: ['feature/agent-infra'],
+        description: 'a label this workflow added that no longer matches',
+    },
+    {
+        events: [labelEvent('labeled', 'feature/agent-infra', 'github-actions[bot]')],
+        wanted: ['feature/agent-infra'],
+        expected: [],
+        description: 'a label this workflow added that still matches',
+    },
+    {
+        events: [labelEvent('labeled', 'feature/agent-infra', 'someuser')],
+        wanted: [],
+        expected: [],
+        description: 'a label a person added',
+    },
+    {
+        events: [
+            labelEvent('labeled', 'feature/agent-infra', 'github-actions[bot]'),
+            labelEvent('unlabeled', 'feature/agent-infra', 'someuser'),
+            labelEvent('labeled', 'feature/agent-infra', 'someuser'),
+        ],
+        wanted: [],
+        expected: [],
+        description: 'a label a person added back after this workflow added it',
+    },
+    {
+        events: [labelEvent('labeled', 'docs', 'github-actions[bot]')],
+        wanted: [],
+        expected: [],
+        description: 'a label this workflow added that no rule maps to',
+    },
+]
+
+test('staleLabels', async (t) => {
+    for (const { events, wanted, expected, description } of STALE_LABELS_CASES) {
+        await t.test(description, () => {
+            assert.deepEqual(staleLabels(events, wanted, PATH_RULES), expected)
+        })
+    }
+})
+
 const PARSE_TYPE_CASES = [
     { title: 'docs: add guide', expected: 'docs', description: 'type with no scope' },
     { title: 'docs(internal): x', expected: 'docs', description: 'type with scope' },
@@ -125,6 +293,10 @@ test('the shipped config loads into well-formed rules', () => {
     for (const rule of rules) {
         assert.ok(Array.isArray(rule.scopes) && rule.scopes.length > 0, 'rule missing scopes')
         assert.ok(Array.isArray(rule.labels) && rule.labels.length > 0, 'rule missing labels')
+        assert.ok(
+            (rule.paths || []).every((prefix) => typeof prefix === 'string' && prefix && !prefix.startsWith('/')),
+            'rule paths must be relative to the repo root'
+        )
     }
 })
 
@@ -160,6 +332,7 @@ for (const scope of ['desktop', 'canvas']) {
 }
 
 for (const scope of [
+    'agent',
     'tasks',
     'tasks-agent',
     'agent-proxy',
@@ -174,6 +347,21 @@ for (const scope of [
         const labels = labelsForTitle(`feat(${scope}): x`, loadRules())
         assert.ok(labels.includes('feature/agent-infra'), `${scope} scope does not map to feature/agent-infra`)
         assert.ok(!labels.includes('feature/desktop'), `${scope} scope still maps to feature/desktop`)
+    })
+}
+
+for (const filename of [
+    'nodejs/src/ingestion/pipelines/ai/costs/providers/manual-providers.ts',
+    'packages/agent/src/run.ts',
+    'posthog/migrations/1225_team_llm_gateway_overspend_allowance_usd.py',
+    'posthog/tasks/team_llm_gateway_quota.py',
+    'products/tasks/backend/api.py',
+    'services/agent-proxy/src/main.rs',
+    'services/llm-gateway/src/app.py',
+]) {
+    test(`the shipped config maps a change to ${filename} to the agent infra label`, () => {
+        const labels = labelsForFiles([changed(filename, 10)], loadRules())
+        assert.ok(labels.includes('feature/agent-infra'), `${filename} does not map to feature/agent-infra`)
     })
 }
 
@@ -329,12 +517,12 @@ const FLAGS_LOW_HANGING_FRUIT_CASES = [
     {
         files: [...generatedFiles(98), file('a.tsx', 10)],
         expected: true,
-        description: 'generated files below a full page do not count',
+        description: 'generated files below the file limit do not count',
     },
     {
         files: [...generatedFiles(99), file('a.tsx', 10)],
         expected: false,
-        description: 'a full page withholds the label, because later pages go unchecked',
+        description: 'the file limit withholds the label, even when most files are generated',
     },
 ]
 

@@ -11,6 +11,7 @@ import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
+import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationType } from '~/types'
 
@@ -19,10 +20,11 @@ import { userLogic } from './userLogic'
 
 /** Mirrors `ALLOWED_WHILE_BLOCKED` in `posthog/middleware.py`. Change one and change the other. */
 const ALLOWED_WHILE_BLOCKED: Record<string, string[]> = {
-    '/organization-pending-deletion': ['/organization-pending-deletion', '/signup/'],
+    '/organization-pending-deletion': ['/organization-pending-deletion', '/signup/', '/agentic/authorize'],
     '/organization-deactivated': [
         '/organization-deactivated',
         '/signup/',
+        '/agentic/authorize',
         '/organization/billing',
         '/billing/authorization_status',
     ],
@@ -69,6 +71,8 @@ export type OrganizationUpdatePayload = Partial<
         | 'allow_publicly_shared_resources'
         | 'default_role_id'
         | 'default_anonymize_ips'
+        | 'ip_restrictions'
+        | 'ip_restrictions_enabled'
     >
 >
 
@@ -403,10 +407,20 @@ export const organizationLogic = kea<organizationLogicType>([
         },
         createOrganizationSuccess: () => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
+            // Drops ?modal=create-organization from the current entry, so Back from onboarding can't reopen the dialog
+            globalModalsLogic.findMounted()?.actions.hideCreateOrganizationModal()
             window.location.href = urls.onboarding()
         },
-        updateOrganizationSuccess: () => {
-            lemonToast.success('Organization updated successfully!')
+        updateOrganizationSuccess: ({ currentOrganization, payload }) => {
+            if (
+                currentOrganization?.ip_restrictions_warning &&
+                payload &&
+                ('ip_restrictions' in payload || 'ip_restrictions_enabled' in payload)
+            ) {
+                lemonToast.warning(currentOrganization.ip_restrictions_warning)
+            } else {
+                lemonToast.success('Organization updated successfully!')
+            }
         },
         updateOrganizationFailure: ({ error, errorObject }: { error: string; errorObject?: unknown }) => {
             const apiError = errorObject as ApiError | undefined

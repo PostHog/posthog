@@ -3,6 +3,7 @@ import { dayjs } from 'lib/dayjs'
 import type { EvaluationBackfillApi } from '../generated/api.schemas'
 import {
     backfillCoveredCount,
+    backfillIsWaitingForProgress,
     backfillLateArrivalCount,
     backfillLiveCoveredCount,
     backfillRangeDateFormat,
@@ -22,6 +23,55 @@ function backfill(overrides: Partial<EvaluationBackfillApi> = {}): EvaluationBac
 }
 
 describe('backfillConditions', () => {
+    it.each([
+        ['a running backfill with no reported progress', {}, true],
+        ['a legacy backfill with no reported progress', { completed_count: null }, true],
+        ['a backfill with dispatched evaluations', { dispatched_count: 1 }, false],
+        ['a backfill skipping already handled units', { skipped_count: 1 }, false],
+        ['a backfill with completed evaluations', { completed_count: 1 }, false],
+        ['a backfill with skipped evaluations', { evaluation_skipped_count: 1 }, false],
+        ['a backfill with failed evaluations', { failed_count: 1 }, false],
+        ['a completed backfill', { status: 'completed' }, false],
+        ['a cancelled backfill', { status: 'cancelled' }, false],
+        ['an interrupted backfill', { status: 'interrupted' }, false],
+    ] satisfies [string, Partial<EvaluationBackfillApi>, boolean][])(
+        'identifies whether %s is waiting for progress',
+        (_name, overrides, expected) => {
+            expect(
+                backfillIsWaitingForProgress(
+                    backfill({
+                        status: 'running',
+                        dispatched_count: 0,
+                        skipped_count: 0,
+                        completed_count: 0,
+                        evaluation_skipped_count: 0,
+                        failed_count: 0,
+                        remaining_count: null,
+                        ...overrides,
+                    })
+                )
+            ).toBe(expected)
+        }
+    )
+
+    it.each([
+        ['running', null, 4, 0],
+        ['completed', 2, 6, 2],
+    ] as const)(
+        'counts finished outcomes without treating failed executions as covered while %s',
+        (status, remaining, covered, liveCovered) => {
+            const run = backfill({
+                status,
+                completed_count: 2,
+                evaluation_skipped_count: 1,
+                skipped_count: 1,
+                dispatched_count: 5,
+                failed_count: 2,
+                remaining_count: remaining,
+            })
+            expect([backfillCoveredCount(run), backfillLiveCoveredCount(run)]).toEqual([covered, liveCovered])
+        }
+    )
     it.each([
         [undefined, '100% sampled'],
         [100, '100% sampled'],

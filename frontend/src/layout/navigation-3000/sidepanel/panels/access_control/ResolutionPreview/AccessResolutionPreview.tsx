@@ -59,13 +59,14 @@ function urlForChangeObject(change: ResolutionChange): string | null {
         return null
     }
     // Same link rules as the object rules table on the access control settings page
-    return objectRuleUrl({
+    const url = objectRuleUrl({
         resource: change.resource as APIScopeObject,
         resource_id: change.object_id,
         name: change.object_name ?? change.object_id,
         short_id: change.object_short_id,
         access_level: change.proposed.access_level as AccessControlLevel,
     })
+    return url ? urls.project(change.project_id, url) : null
 }
 
 function SubjectCell({ change }: { change: ResolutionChange }): JSX.Element {
@@ -206,11 +207,11 @@ export function AccessResolutionPreview(): JSX.Element {
         {
             key: 'actions',
             width: 0,
-            render: () => (
+            render: (_, change) => (
                 <LemonButton
                     size="small"
                     icon={<IconGear />}
-                    to={urls.settings('environment-access-control')}
+                    to={urls.project(change.project_id, urls.settings('environment-access-control'))}
                     tooltip="Edit resource access settings"
                     data-attr="access-resolution-edit-resource"
                 />

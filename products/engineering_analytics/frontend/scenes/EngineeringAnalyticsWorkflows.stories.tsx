@@ -115,11 +115,11 @@ type Story = StoryObj<typeof meta>
 
 export const WorkflowList: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalyticsWorkflows() },
+    parameters: { pageUrl: urls.engineeringAnalyticsWorkflows('PostHog/posthog') },
 }
 
 // The scope hydrates from the URL, so this opens on the merge-queue group.
 export const WorkflowListScopedToMergeQueue: Story = {
     render: () => <App />,
-    parameters: { pageUrl: `${urls.engineeringAnalyticsWorkflows()}?run_scope=merge_queue` },
+    parameters: { pageUrl: `${urls.engineeringAnalyticsWorkflows('PostHog/posthog')}?run_scope=merge_queue` },
 }

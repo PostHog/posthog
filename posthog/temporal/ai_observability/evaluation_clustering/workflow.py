@@ -1,12 +1,14 @@
 """Per-job workflows for evaluation clustering (Stage A sampler + Stage B clustering stub)."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import structlog
 import temporalio.exceptions
 from temporalio import workflow
 
+from posthog.dataclasses import frozen
 from posthog.temporal.ai_observability.evaluation_clustering.constants import (
+    CLUSTERING_MAX_SAMPLES,
     CLUSTERING_WORKFLOW_NAME,
     SAMPLER_ACTIVITY_HEARTBEAT,
     SAMPLER_ACTIVITY_RETRY_POLICY,
@@ -30,7 +32,21 @@ from posthog.temporal.ai_observability.trace_clustering.metrics import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.ai_observability.backend.facade.clustering_runtime import scope_key
+
 logger = structlog.get_logger(__name__)
+
+
+@frozen
+class SamplerWindow:
+    start: str
+    end: str
+
+
+def sampler_window(now: datetime) -> SamplerWindow:
+    end = now - timedelta(minutes=SAMPLER_WINDOW_OFFSET_MINUTES)
+    start = end - timedelta(minutes=SAMPLER_WINDOW_MINUTES)
+    return SamplerWindow(start=start.strftime("%Y-%m-%dT%H:%M:%SZ"), end=end.strftime("%Y-%m-%dT%H:%M:%SZ"))
 
 
 @workflow.defn(name=SAMPLER_WORKFLOW_NAME)
@@ -55,15 +71,12 @@ class AIObservabilityEvaluationSamplerWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: SamplerWorkflowInputs) -> SamplerWorkflowResult:
-        now = workflow.now()
         if inputs.window_start and inputs.window_end:
             window_start = inputs.window_start
             window_end = inputs.window_end
         else:
-            window_end_dt = now - timedelta(minutes=SAMPLER_WINDOW_OFFSET_MINUTES)
-            window_start_dt = window_end_dt - timedelta(minutes=SAMPLER_WINDOW_MINUTES)
-            window_start = window_start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-            window_end = window_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            window = sampler_window(workflow.now())
+            window_start, window_end = window.start, window.end
 
         max_samples = inputs.max_samples or SAMPLER_MAX_SAMPLES_PER_JOB
 
@@ -77,6 +90,7 @@ class AIObservabilityEvaluationSamplerWorkflow(PostHogWorkflow):
                 window_end=window_end,
                 max_samples=max_samples,
                 event_filters=inputs.event_filters,
+                job_scope=scope_key("evaluation", inputs.event_filters) if inputs.job_id else "",
             ),
             start_to_close_timeout=SAMPLER_ACTIVITY_TIMEOUT,
             schedule_to_close_timeout=SAMPLER_ACTIVITY_SCHEDULE_TO_CLOSE,
@@ -174,6 +188,8 @@ class AIObservabilityEvaluationClusteringWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 job_id=inputs.job_id,
                 job_name=inputs.job_name,
+                max_samples=inputs.max_samples if inputs.max_samples is not None else CLUSTERING_MAX_SAMPLES,
+                job_scope=scope_key("evaluation", inputs.event_filters) if inputs.job_id else "",
                 window_start=window_start,
                 window_end=window_end,
             ),
@@ -235,6 +251,7 @@ class AIObservabilityEvaluationClusteringWorkflow(PostHogWorkflow):
                 session_id=f"{trace_id}:session",
                 clustering_run_id=compute_result.clustering_run_id,
                 clustering_job_id=inputs.job_id,
+                job_scope=scope_key("evaluation", inputs.event_filters) if inputs.job_id else "",
             ),
             start_to_close_timeout=LLM_ACTIVITY_TIMEOUT,
             schedule_to_close_timeout=LLM_SCHEDULE_TO_CLOSE_TIMEOUT,
@@ -282,6 +299,7 @@ class AIObservabilityEvaluationClusteringWorkflow(PostHogWorkflow):
                 eval_metadata=metadata_result.metadata,
                 job_id=inputs.job_id,
                 job_name=inputs.job_name,
+                job_scope=scope_key("evaluation", inputs.event_filters) if inputs.job_id else "",
                 cluster_metrics=cluster_metrics,
             ),
             start_to_close_timeout=EMIT_ACTIVITY_TIMEOUT,

@@ -9,7 +9,13 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.event_definition_generators.python import PythonGenerator
-from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
+
+from products.event_definitions.backend.models import (
+    EventDefinition,
+    EventSchema,
+    SchemaPropertyGroup,
+    SchemaPropertyGroupProperty,
+)
 
 
 class TestPythonGenerator(APIBaseTest):
@@ -492,7 +498,7 @@ strict = false
 
             # Install posthog SDK and mypy in the venv
             install_result = subprocess.run(
-                [str(venv_pip), "install", "posthog", "mypy"],
+                [str(venv_pip), "install", "posthog<8", "mypy"],
                 capture_output=True,
                 text=True,
                 timeout=120,

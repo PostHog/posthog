@@ -11,11 +11,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
     MongoDBSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import DATABASE_NAME_REQUIRED_ERROR
+from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
+    DATABASE_NAME_REQUIRED_ERROR,
+    UNSUPPORTED_FILE_OPTION_ERROR,
+    UnsupportedConnectionOptionError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import (
     _DNS_RESOLUTION_FAILURE_MARKERS,
     _MONGO_AUTHENTICATION_FAILED_MESSAGE,
     _MONGO_CONNECT_FAILED_MESSAGE,
+    _MONGO_GSSAPI_UNSUPPORTED_MESSAGE,
     _MONGO_HOST_UNRESOLVED_MESSAGE,
     _MONGO_INVALID_CONNECTION_STRING_MESSAGE,
     _MONGO_NO_COLLECTIONS_MESSAGE,
@@ -23,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.so
     _MONGO_SERVER_TOO_OLD_MESSAGE,
     _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
     _MONGO_UNREACHABLE_MESSAGE,
+    _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
     MongoDBSource,
 )
 
@@ -211,6 +217,13 @@ class TestMongoValidateCredentialsErrorTrackingNoise:
                 False,
             ),
             (
+                # pymongo's fixed message when authMechanism=GSSAPI is set but the optional
+                # pykerberos/winkerberos package isn't installed.
+                ConfigurationError('The "kerberos" module must be installed to use GSSAPI authentication.'),
+                _MONGO_GSSAPI_UNSUPPORTED_MESSAGE,
+                False,
+            ),
+            (
                 # An unrecognized ConfigurationError still falls back to capturing, same as any
                 # other unexpected exception.
                 ConfigurationError("some-unrecognized-configuration-problem"),
@@ -218,6 +231,11 @@ class TestMongoValidateCredentialsErrorTrackingNoise:
                 True,
             ),
             (Exception("some-internal-driver-detail"), _MONGO_CONNECT_FAILED_MESSAGE, True),
+            (
+                UnsupportedConnectionOptionError(UNSUPPORTED_FILE_OPTION_ERROR),
+                _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
+                False,
+            ),
         ],
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.capture_exception")

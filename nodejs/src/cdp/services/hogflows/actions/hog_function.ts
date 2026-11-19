@@ -14,34 +14,58 @@ import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFlowInvocationContext,
+    MessageOptOutRecord,
     MinimalLogEntry,
 } from '../../../types'
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
+import { isLiquidRenderTimeout } from '../../hog-inputs.service'
+import { EmailSkipReason, EmailStatusService } from '../../messaging/email-status.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
-import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
+import { FrequencyCapCheck, RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
-import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
+import { loadMissingPersonProperties, personPropertiesInTemplates } from '../hogflow-person-property-usage'
+import { isSensitiveMessage } from '../hogflow-sensitivity'
+import { actionIdForLogging, aiTaskLogToken, findContinueAction } from '../hogflow-utils'
 import { observeMissingVariableReferences } from '../hogflow-variable-usage'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
+
+const OPT_OUT_OF_MESSAGES_TEMPLATE_ID = 'template-posthog-opt-out-of-messages'
+
+/** The run's recorded opt-outs after a step that succeeded, adding the one an "Opt out of messages" step made. */
+export function messageOptOutsAfterStep(
+    optOuts: MessageOptOutRecord[] | undefined,
+    templateId: string,
+    inputs: Record<string, unknown> | undefined
+): MessageOptOutRecord[] | undefined {
+    if (
+        templateId !== OPT_OUT_OF_MESSAGES_TEMPLATE_ID ||
+        typeof inputs?.identifier !== 'string' ||
+        typeof inputs.category_id !== 'string'
+    ) {
+        return optOuts
+    }
+    return [...(optOuts ?? []), { identifier: inputs.identifier.trim(), categoryId: inputs.category_id }]
+}
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
 type HogFlowActionBillingType = 'fetch' | 'email' | 'push' | 'sms'
 
 const WORKFLOW_USAGE_KEYS = {
-    fetch: 'workflow_billable_invocations',
-    email: 'workflow_emails_sent',
-    push: 'workflow_push_sent',
-    sms: 'workflow_sms_sent',
+    fetch: ['workflow_billable_invocations'],
+    email: ['workflow_emails_sent'],
+    push: ['workflow_push_sent', 'workflow_billable_invocations'],
+    sms: ['workflow_sms_sent'],
 } as const
 
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
 type AwaitingResume = NonNullable<NonNullable<HogFlowInvocationContext['currentAction']>['awaitingResume']>
 
-// A template parks the step by returning `{ ..., 'await': { 'max_wait': '190m', 'label': 'task' } }`.
-type AwaitRequest = { maxWait: Duration; label: string }
+// A template parks the step by returning `{ ..., 'await': { 'max_wait': '190m', 'label': 'task' } }`. When the
+// job already finished, `'result': {...}` in the request hands over its answer as a wake would, without parking.
+type AwaitRequest = { maxWait: Duration; label: string; settled: Record<string, unknown> | null }
 
 const AWAIT_DURATION_REGEX = /^(\d*\.?\d+)([dhms])$/
 const SECONDS_PER_UNIT: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1 }
@@ -56,7 +80,11 @@ const parseAwaitRequest = (execResult: unknown): AwaitRequest | null => {
     if (typeof request !== 'object') {
         throw new Error(`await must be an object, got ${typeof request}`)
     }
-    const { max_wait: maxWait, label } = request as { max_wait?: unknown; label?: unknown }
+    const {
+        max_wait: maxWait,
+        label,
+        result: settled,
+    } = request as { max_wait?: unknown; label?: unknown; result?: unknown }
     const match = typeof maxWait === 'string' ? AWAIT_DURATION_REGEX.exec(maxWait) : null
     if (!match) {
         throw new Error(`await.max_wait must be a duration like '190m' or '2h', got ${JSON.stringify(maxWait)}`)
@@ -65,6 +93,10 @@ const parseAwaitRequest = (execResult: unknown): AwaitRequest | null => {
     return {
         maxWait: requested > AWAIT_MAX_WAIT_CEILING ? AWAIT_MAX_WAIT_CEILING : requested,
         label: typeof label === 'string' && label ? label : 'run',
+        settled:
+            settled && typeof settled === 'object' && !Array.isArray(settled)
+                ? (settled as Record<string, unknown>)
+                : null,
     }
 }
 
@@ -77,10 +109,43 @@ const readWarnings = (resumeResult: unknown): string[] => {
 }
 
 // Unlabelled: how often a step degrades fleet-wide. Which flow and field goes to the warn log.
+export const RENDER_TIMEOUT_RETRY_DELAYS_SECONDS = [10, 60, 300]
+
+// Only 'failed' loses the message.
+const counterHogflowRenderTimeout = new Counter({
+    name: 'cdp_hogflow_render_timeout_total',
+    help: 'Workflow steps whose inputs ran out of render time, by outcome.',
+    labelNames: ['outcome'],
+})
+// Exported at 0 from startup, so a failure before the pod's first scrape still counts.
+for (const outcome of ['retried', 'failed']) {
+    counterHogflowRenderTimeout.inc({ outcome }, 0)
+}
+
 const counterAwaitedStepResumedWithWarnings = new Counter({
     name: 'cdp_hogflow_awaited_step_resumed_with_warnings',
     help: 'A parked step resumed and continued, but the product that ran the job reported a warning.',
 })
+
+// The product that ran the job reports what went wrong short of failing it, such as
+// an agent whose output misses a field. The step continues; the author reads the log.
+const logStepWarnings = (
+    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+    action: Action,
+    stepResult: unknown
+): void => {
+    const warnings = readWarnings(stepResult)
+    if (warnings.length > 0) {
+        counterAwaitedStepResumedWithWarnings.inc()
+    }
+    for (const warning of warnings) {
+        result.logs.push({
+            level: 'warn',
+            timestamp: DateTime.now(),
+            message: `${actionIdForLogging(action)} ${warning}`,
+        })
+    }
+}
 
 const counterAwaitedStepStaleResume = new Counter({
     name: 'cdp_hogflow_awaited_step_stale_resume',
@@ -114,6 +179,9 @@ export class HogFunctionHandler implements ActionHandler {
         private recipientPreferencesService: RecipientPreferencesService,
         private emailValidationService: EmailValidationService,
         private hogFlowActionBillingType: HogFlowActionBillingType,
+        // Required, so that a caller which builds an email handler without it fails to compile. The
+        // handlers for other channels pass null.
+        private emailStatusService: EmailStatusService | null,
         private usageReporter?: Pick<CdpUsageReporterService, 'reportBillableInvocation'>,
         private options: { awaitedStepsEnabled?: boolean } = {}
     ) {}
@@ -133,11 +201,42 @@ export class HogFunctionHandler implements ActionHandler {
 
         // Inputs are rendered once, on fresh entry into the action (continuations reuse the
         // rendered state in hogFunctionState) - so this also fires at most once per step per run
-        if (!invocation.state.currentAction?.hogFunctionState) {
+        if (
+            !invocation.state.currentAction?.hogFunctionState &&
+            !invocation.state.currentAction?.frequencyCapHoldDeadlineAt &&
+            !invocation.state.currentAction?.renderTimeoutAttempts
+        ) {
             observeMissingVariableReferences(invocation, action, result)
         }
+        // A hold wake and a render retry render the inputs again, so they need the property too.
+        if (!invocation.state.currentAction?.hogFunctionState) {
+            await loadMissingPersonProperties(invocation, result, () =>
+                personPropertiesInTemplates(action.config as { inputs?: unknown; mappings?: unknown })
+            )
+        }
 
-        const functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
+        const wokeFromHold =
+            !!invocation.state.currentAction?.frequencyCapHoldDeadlineAt &&
+            !invocation.state.currentAction?.hogFunctionState
+        let functionResult: Awaited<ReturnType<HogFunctionHandler['executeHogFunction']>>
+        try {
+            functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
+        } catch (error) {
+            if (isLiquidRenderTimeout(error) && !hogExecutorOptions?.isTest) {
+                return retryOrFailRenderTimeout(invocation, action, result, error)
+            }
+            throw error
+        }
+        if (invocation.state.currentAction) {
+            delete invocation.state.currentAction.renderTimeoutAttempts
+        }
+
+        if (functionResult.emailSendResult) {
+            result.emailSendResult = functionResult.emailSendResult
+        }
+        if (functionResult.parked) {
+            result.parked = true
+        }
 
         // Add all logs
         functionResult.logs.forEach((log: MinimalLogEntry) => {
@@ -158,9 +257,30 @@ export class HogFunctionHandler implements ActionHandler {
         result.metrics = [...result.metrics, ...functionResult.metrics]
         result.messageAssets = [...result.messageAssets, ...functionResult.messageAssets]
 
+        if (functionResult.frequencyCapHold) {
+            result.invocation.state.currentAction!.frequencyCapHoldDeadlineAt =
+                functionResult.frequencyCapHold.deadlineAt
+            return { scheduledAt: functionResult.frequencyCapHold.until }
+        }
+
+        // Pairs with message_frequency_cap_held, so a run can tell how many people are still held.
+        if (wokeFromHold) {
+            result.metrics.push({
+                team_id: invocation.teamId,
+                app_source_id: invocation.parentRunId ?? invocation.hogFlow.id,
+                instance_id: action.id,
+                metric_kind: 'other',
+                metric_name: 'message_frequency_cap_hold_ended',
+                count: 1,
+            })
+        }
+
         if (!functionResult.finished) {
             // Set the state of the function result on the substate of the flow for the next execution
-            result.invocation.state.currentAction!.hogFunctionState = functionResult.invocation.state
+            result.invocation.state.currentAction!.hogFunctionState = {
+                ...functionResult.invocation.state,
+                ...(isSensitiveMessage(functionResult.invocation) ? { sensitive: true } : {}),
+            }
             // Preserve queue routing and parameters from the function result
             result.invocation.queue = functionResult.invocation.queue
             result.invocation.queuePriority = functionResult.invocation.queuePriority
@@ -185,21 +305,32 @@ export class HogFunctionHandler implements ActionHandler {
             }
         }
 
+        if (!functionResult.error) {
+            result.invocation.state.messageOptOuts = messageOptOutsAfterStep(
+                result.invocation.state.messageOptOuts,
+                action.config.template_id,
+                functionResult.invocation.state.globals?.inputs
+            )
+        }
+
         // Add billable_invocation metric only if the function actually executed (not skipped)
         if (!functionResult.skipped) {
-            // A step that does not send leaves this undefined and bills as before.
-            if (functionResult.deliveredToRecipient !== false) {
+            if (this.isBillable(functionResult)) {
                 trackHogFlowBillableInvocation(result, {
                     invocation: functionResult.invocation,
                     billingMetricType: this.hogFlowActionBillingType,
                 })
 
-                // actionStepCount holds across a retry of this step but changes on a loop revisit.
-                this.usageReporter?.reportBillableInvocation({
-                    teamId: invocation.teamId,
-                    usageKey: WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType],
-                    recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
-                })
+                if (!hogExecutorOptions?.isTest || !hogExecutorOptions.functions) {
+                    // actionStepCount holds across a retry of this step but changes on a loop revisit.
+                    for (const usageKey of WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType]) {
+                        this.usageReporter?.reportBillableInvocation({
+                            teamId: invocation.teamId,
+                            usageKey,
+                            recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
+                        })
+                    }
+                }
             }
 
             // Re-pin the attribution version to the one that actually sent. Live edits reach runs
@@ -207,7 +338,9 @@ export class HogFunctionHandler implements ActionHandler {
             // published — and the conversion belongs to the version whose message the person
             // received, which is also the version `email_sent` was counted under. Leaving the
             // run-start stamp here would split a rate across two versions.
-            if (this.hogFlowActionBillingType === 'email' || this.hogFlowActionBillingType === 'push') {
+            if (this.hogFlowActionBillingType === 'email') {
+                result.invocation.state.flowVersion = functionResult.invocation.state.renderedWorkflowVersion
+            } else if (this.hogFlowActionBillingType === 'push') {
                 result.invocation.state.flowVersion = invocation.hogFlow.version
             }
         }
@@ -224,6 +357,21 @@ export class HogFunctionHandler implements ActionHandler {
                     timestamp: DateTime.now(),
                     message: `${actionIdForLogging(action)} Ignored the template's wait request: ${(error as Error).message}`,
                 })
+            }
+        }
+        if (awaitRequest?.settled) {
+            const { await: _await, ...dispatch } = functionResult.execResult as Record<string, unknown>
+            // Read before sizing, which can drop the warnings themselves.
+            logStepWarnings(result, action, awaitRequest.settled)
+            // Sized like a woken step's answer, so it fits the variables the run already holds.
+            return {
+                nextAction: findContinueAction(invocation),
+                result: capWorkflowStepResult(
+                    { ...dispatch, status: 'completed' },
+                    awaitRequest.settled,
+                    result.invocation.state.variables ?? {},
+                    action.output_variable
+                ),
             }
         }
         if (awaitRequest) {
@@ -243,6 +391,13 @@ export class HogFunctionHandler implements ActionHandler {
             result: functionResult.error ? undefined : functionResult.execResult,
             error: functionResult.error,
         }
+    }
+
+    private isBillable(functionResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>): boolean {
+        if (this.hogFlowActionBillingType === 'email') {
+            return functionResult.emailSendResult?.status === 'accepted'
+        }
+        return functionResult.deliveredToRecipient !== false
     }
 
     private parkForAwaitedRun(
@@ -270,10 +425,12 @@ export class HogFunctionHandler implements ActionHandler {
             label: awaitRequest.label,
             parkedAt: DateTime.now().toISO()!,
         }
+        // The stored variable only links the task when it holds the whole result, so link it here too.
+        const taskToken = aiTaskLogToken(action, dispatch)
         result.logs.push({
             level: 'info',
             timestamp: DateTime.now(),
-            message: `${actionIdForLogging(action)} Waiting for the ${awaitRequest.label} to finish (up to ${humanDuration(awaitRequest.maxWait)})`,
+            message: `${actionIdForLogging(action)} Waiting for the ${awaitRequest.label} to finish (up to ${humanDuration(awaitRequest.maxWait)})${taskToken ? ` ${taskToken}` : ''}`,
         })
         // Stored now so a step that later fails still leaves the ids for `on_error: continue`.
         return { scheduledAt: deadline, result: dispatch }
@@ -308,19 +465,7 @@ export class HogFunctionHandler implements ActionHandler {
                 timestamp: DateTime.now(),
                 message: `${actionIdForLogging(action)} The ${label} finished`,
             })
-            // The product that ran the job reports what went wrong short of failing it, such as
-            // an agent whose output misses a field. The step continues; the author reads the log.
-            const warnings = readWarnings(resume.result)
-            if (warnings.length > 0) {
-                counterAwaitedStepResumedWithWarnings.inc()
-            }
-            for (const warning of warnings) {
-                result.logs.push({
-                    level: 'warn',
-                    timestamp: DateTime.now(),
-                    message: `${actionIdForLogging(action)} ${warning}`,
-                })
-            }
+            logStepWarnings(result, action, resume.result)
             return {
                 nextAction: findContinueAction(invocation),
                 result: payload,
@@ -339,15 +484,37 @@ export class HogFunctionHandler implements ActionHandler {
         return { scheduledAt: deadline }
     }
 
+    // These checks skip the send before the email service runs, so the email's status is recorded here.
+    private recordSkippedEmail(
+        invocation: CyclotronJobInvocationHogFunction,
+        action: Action,
+        reason: EmailSkipReason,
+        hogExecutorOptions?: HogExecutorExecuteAsyncOptions
+    ): void {
+        if (action.type === 'function_email') {
+            this.emailStatusService?.queueSkippedSend(invocation, reason, hogExecutorOptions?.isTest ?? false)
+        }
+    }
+
     private async executeHogFunction(
         invocation: CyclotronJobInvocationHogFlow,
         action: Action,
         hogExecutorOptions?: HogExecutorExecuteAsyncOptions
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> & { skipped?: boolean }> {
+    ): Promise<
+        CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> & {
+            skipped?: boolean
+            frequencyCapHold?: FrequencyCapHold
+        }
+    > {
         const hogFunction = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
             () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config, action.name)
         )
+        // A send that started protected stays protected through its retries, even if protection is turned off
+        // before the retry runs: the queued message was rendered under protection.
+        if (invocation.state.currentAction?.hogFunctionState?.sensitive) {
+            hogFunction.metadata = { ...hogFunction.metadata, sensitive: true }
+        }
         const hogFunctionInvocation = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false },
             () =>
@@ -361,7 +528,12 @@ export class HogFunctionHandler implements ActionHandler {
 
         const skipReason = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.recipientPreferences', sendException: false },
-            () => this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)
+            () =>
+                this.recipientPreferencesService.shouldSkipAction(
+                    hogFunctionInvocation,
+                    action,
+                    invocation.state.messageOptOuts
+                )
         )
         if (skipReason) {
             // Suppression and opt-out both short-circuit the send, but a customer reading the run
@@ -372,22 +544,27 @@ export class HogFunctionHandler implements ActionHandler {
                 skipReason === 'suppressed'
                     ? `Skipping send: recipient is on the suppression list.`
                     : `Recipient has opted out, skipping message delivery.`
-            const metrics =
-                skipReason === 'suppressed'
-                    ? [
-                          {
-                              team_id: hogFunctionInvocation.teamId,
-                              app_source_id: hogFunctionInvocation.functionId,
-                              instance_id: action.id,
-                              metric_kind: 'email' as const,
-                              metric_name: 'email_suppressed' as const,
-                              count: 1,
-                          },
-                      ]
-                    : []
+            const metrics = [
+                {
+                    team_id: hogFunctionInvocation.teamId,
+                    app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
+                    instance_id: action.id,
+                    metric_kind: 'email' as const,
+                    metric_name:
+                        skipReason === 'suppressed' ? ('email_suppressed' as const) : ('email_opted_out' as const),
+                    count: 1,
+                },
+            ]
+            this.recordSkippedEmail(
+                hogFunctionInvocation,
+                action,
+                skipReason === 'suppressed' ? 'recipient_suppressed' : 'recipient_opted_out',
+                hogExecutorOptions
+            )
             return {
                 finished: true,
                 skipped: true,
+                emailSendResult: action.type === 'function_email' ? { status: 'skipped', reason: message } : undefined,
                 invocation: hogFunctionInvocation,
                 logs: [{ level: 'info', timestamp: DateTime.now(), message }],
                 metrics,
@@ -406,15 +583,17 @@ export class HogFunctionHandler implements ActionHandler {
             () => this.emailValidationService.getSkipReason(hogFunctionInvocation, action)
         )
         if (emailSkipReason) {
+            this.recordSkippedEmail(hogFunctionInvocation, action, 'recipient_unreachable', hogExecutorOptions)
             return {
                 finished: true,
                 skipped: true,
+                emailSendResult: { status: 'skipped', reason: emailSkipReason },
                 invocation: hogFunctionInvocation,
                 logs: [{ level: 'info', timestamp: DateTime.now(), message: emailSkipReason }],
                 metrics: [
                     {
                         team_id: hogFunctionInvocation.teamId,
-                        app_source_id: hogFunctionInvocation.functionId,
+                        app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
                         instance_id: action.id,
                         metric_kind: 'email',
                         metric_name: 'email_bounce_prevented',
@@ -430,10 +609,47 @@ export class HogFunctionHandler implements ActionHandler {
 
         // This check runs last because it also records the send against the cap. If it ran before the
         // opt-out, suppression or bounce checks, a send that one of them skips would still use a slot.
-        if (
-            !hogExecutorOptions?.isTest &&
-            (await this.recipientPreferencesService.isFrequencyCapped(hogFunctionInvocation, action))
-        ) {
+        // A held send that wakes after its hold ended is skipped before the check, so it never claims a slot late.
+        const holdExpired = frequencyCapHoldExpired(invocation)
+        const frequencyCap =
+            hogExecutorOptions?.isTest || holdExpired
+                ? ({ capped: false } as const)
+                : await this.recipientPreferencesService.checkFrequencyCap(hogFunctionInvocation, action)
+        if (holdExpired || frequencyCap.capped) {
+            const hold = frequencyCap.capped ? frequencyCapHold(invocation, frequencyCap) : null
+            if (hold) {
+                return {
+                    finished: false,
+                    invocation: hogFunctionInvocation,
+                    frequencyCapHold: hold,
+                    logs: [
+                        {
+                            level: 'info',
+                            timestamp: DateTime.now(),
+                            // Worded apart from the skip line, which the metrics drill-down finds by 'reached the frequency cap'.
+                            message: `Holding send until ${hold.until.toUTC().toISO()}: the recipient is at the frequency cap.`,
+                        },
+                    ],
+                    // Counted once per held send, not on every wake that finds the cap still full.
+                    metrics: hold.firstHold
+                        ? [
+                              {
+                                  team_id: hogFunctionInvocation.teamId,
+                                  app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
+                                  instance_id: action.id,
+                                  metric_kind: 'other',
+                                  metric_name: 'message_frequency_cap_held',
+                                  count: 1,
+                              },
+                          ]
+                        : [],
+                    capturedPostHogEvents: [],
+                    warehouseWebhookPayloads: [],
+                    messageAssets: [],
+                    conversionWatchers: [],
+                }
+            }
+            this.recordSkippedEmail(hogFunctionInvocation, action, 'frequency_capped', hogExecutorOptions)
             return {
                 finished: true,
                 skipped: true,
@@ -442,7 +658,9 @@ export class HogFunctionHandler implements ActionHandler {
                     {
                         level: 'info',
                         timestamp: DateTime.now(),
-                        message: 'Skipping send: recipient reached the frequency cap.',
+                        message: invocation.state.currentAction?.frequencyCapHoldDeadlineAt
+                            ? 'Skipping send: recipient reached the frequency cap, and no slot opened before the hold ended.'
+                            : 'Skipping send: recipient reached the frequency cap.',
                     },
                 ],
                 metrics: [
@@ -466,4 +684,69 @@ export class HogFunctionHandler implements ActionHandler {
             this.hogFlowFunctionsService.executeWithAsyncFunctions(hogFunctionInvocation, hogExecutorOptions)
         )
     }
+}
+
+// Re-running is safe: nothing is sent or counted against a cap before the inputs render.
+function retryOrFailRenderTimeout(
+    invocation: CyclotronJobInvocationHogFlow,
+    action: Action,
+    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+    error: unknown
+): ActionHandlerResult {
+    const currentAction = invocation.state.currentAction
+    const failedAttempts = (currentAction?.renderTimeoutAttempts ?? 0) + 1
+    const retryDelaySeconds = RENDER_TIMEOUT_RETRY_DELAYS_SECONDS[failedAttempts - 1]
+
+    if (currentAction && retryDelaySeconds !== undefined) {
+        currentAction.renderTimeoutAttempts = failedAttempts
+        counterHogflowRenderTimeout.labels('retried').inc()
+        result.logs.push({
+            level: 'warn',
+            timestamp: DateTime.now(),
+            message: `${actionIdForLogging(action)} ${(error as Error).message}. Retrying in ${retryDelaySeconds}s`,
+        })
+        return { scheduledAt: DateTime.now().plus({ seconds: retryDelaySeconds }) }
+    }
+
+    counterHogflowRenderTimeout.labels('failed').inc()
+    throw error
+}
+
+type FrequencyCapHold = { until: DateTime; deadlineAt: string; firstHold: boolean }
+
+// Up to a minute of spread, so held sends for one person that wait on the same slot don't all wake at once.
+const FREQUENCY_CAP_HOLD_JITTER_MS = 60_000
+function frequencyCapHoldExpired(invocation: CyclotronJobInvocationHogFlow): boolean {
+    const currentAction = invocation.state.currentAction
+    // A continuation on the email queue already claimed its slot before the deadline, so the email queue
+    // delaying it past the deadline must not drop it.
+    if (!currentAction?.frequencyCapHoldDeadlineAt || currentAction.hogFunctionState) {
+        return false
+    }
+    return DateTime.now() >= DateTime.fromISO(currentAction.frequencyCapHoldDeadlineAt)
+}
+
+/** When the team holds capped messages and the hold has not ended, returns when to check the cap again. */
+function frequencyCapHold(
+    invocation: CyclotronJobInvocationHogFlow,
+    cap: Extract<FrequencyCapCheck, { capped: true }>
+): FrequencyCapHold | null {
+    // A continuation on the email queue carries a pending send that a hold would drop, so it skips as before.
+    if (!cap.holdHours || invocation.state.currentAction?.hogFunctionState) {
+        return null
+    }
+    const now = DateTime.now()
+    const startedDeadline = invocation.state.currentAction?.frequencyCapHoldDeadlineAt
+    const deadline = startedDeadline ? DateTime.fromISO(startedDeadline) : now.plus({ hours: cap.holdHours })
+    // No slot frees before the hold ends, so waiting cannot help.
+    if (cap.nextSlotAt >= deadline.toMillis()) {
+        return null
+    }
+    // Wake after the slot frees but before the deadline, which the next wake enforces strictly.
+    const jitterMs = Math.min(
+        Math.floor(Math.random() * FREQUENCY_CAP_HOLD_JITTER_MS),
+        Math.floor((deadline.toMillis() - cap.nextSlotAt) / 2)
+    )
+    const until = DateTime.max(now, DateTime.fromMillis(cap.nextSlotAt + jitterMs))
+    return { until, deadlineAt: deadline.toISO()!, firstHold: !startedDeadline }
 }

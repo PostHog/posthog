@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "node_id": {
+            "description": "Stable identifier of the generated widget node.",
+            "type": "string"
+        },
+        "short_id": {
+            "description": "The notebook's short_id from its URL or notebooks-list, not its UUID id.",
+            "type": "string"
+        }
+    },
+    "required": ["node_id", "short_id"],
+    "type": "object"
+}

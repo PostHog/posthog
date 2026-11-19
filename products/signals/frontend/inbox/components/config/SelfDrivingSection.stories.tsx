@@ -1,7 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { useStorybookMocks } from '~/mocks/browser'
 
 import { SettingsSection } from '../tabs/SettingsSection'
@@ -20,6 +18,8 @@ interface CardState {
     myThreshold?: string | null
     /** Repositories that branch from somewhere other than their default branch. */
     baseBranches?: Record<string, string>
+    /** Extra repositories implementation tasks can also write to. */
+    implementationRepositories?: string[]
     dailyLimit?: number | null
     reportsToday?: number
     /** Personal opt-in to being added as a GitHub assignee on the implementation PR. */
@@ -45,6 +45,7 @@ function useAutonomyMocks({
     projectThreshold = 'P2',
     myThreshold = null,
     baseBranches = {},
+    implementationRepositories = [],
     dailyLimit = null,
     reportsToday = 0,
     githubAssign = false,
@@ -63,6 +64,7 @@ function useAutonomyMocks({
                 autostart_enabled: enabled,
                 default_autostart_priority: projectThreshold,
                 autostart_base_branches: baseBranches,
+                implementation_repositories: implementationRepositories,
                 issue_tracking_integration: issueTrackingIntegration,
                 issue_tracking_config: issueTrackingConfig,
                 max_reports_per_day: dailyLimit,
@@ -124,23 +126,18 @@ export default meta
 
 type Story = StoryObj
 
-const REDESIGN = { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN] }
-
 // The Settings tab at full width: controls sit right of their labels.
 export const SettingsTab: Story = {
-    parameters: REDESIGN,
     render: () => <SettingsCard width="wide" dailyLimit={10} reportsToday={3} />,
 }
 
 // The Settings tab in a narrow scene: wide controls wrap below their labels, nothing clips.
 export const SettingsTabNarrow: Story = {
-    parameters: REDESIGN,
     render: () => <SettingsCard width="narrow" dailyLimit={10} reportsToday={3} />,
 }
 
 // A repository that branches from `develop`: the override list and the Add override button render under Base branches.
 export const SettingsTabBaseBranches: Story = {
-    parameters: REDESIGN,
     render: () => (
         <SettingsCard
             width="wide"
@@ -152,13 +149,22 @@ export const SettingsTabBaseBranches: Story = {
 
 // GitHub disconnected after an override was saved: the override stays readable and removable, the picker hides.
 export const SettingsTabBaseBranchesWithoutGitHub: Story = {
-    parameters: REDESIGN,
     render: () => <SettingsCard width="wide" baseBranches={{ 'posthog/posthog.com': 'develop' }} />,
+}
+
+// An assets repository every implementation task can also write to: the list and the Add repository button render.
+export const SettingsTabExtraRepositories: Story = {
+    render: () => (
+        <SettingsCard
+            width="wide"
+            integrations={[GITHUB_INTEGRATION]}
+            implementationRepositories={['posthog/pr-assets']}
+        />
+    ),
 }
 
 // A Jira tracker with a saved project: the target reads as text with a Change button, and no picker mounts.
 export const SettingsTabIssueTrackerJira: Story = {
-    parameters: REDESIGN,
     render: () => (
         <SettingsCard
             width="wide"
@@ -173,13 +179,11 @@ export const SettingsTabIssueTrackerJira: Story = {
 
 // The PR label turned on with a name of the team's own: the name input renders under the row.
 export const SettingsTabPullRequestLabel: Story = {
-    parameters: REDESIGN,
     render: () => <SettingsCard width="wide" prLabelEnabled prLabel="agent-pr" />,
 }
 
 // Master switch off in the Settings tab: the project threshold hides. Base branches and your own threshold stay.
 export const SettingsTabDisabled: Story = {
-    parameters: REDESIGN,
     render: () => <SettingsCard width="wide" enabled={false} />,
 }
 

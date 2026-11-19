@@ -3,12 +3,20 @@ from posthog.api.routing import RouterRegistry
 import products.logs.backend.presentation.views.api as logs
 from products.logs.backend.presentation.views.anomalies_api import LogsAnomalyScanViewSet
 from products.logs.backend.presentation.views.loki_api import LokiQueryViewSet
+from products.logs.backend.presentation.views.natural_language_api import LogsNaturalLanguageQueryViewSet
+from products.logs.backend.presentation.views.signing_secret_api import LogsSigningSecretViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(r"logs", logs.LogsViewSet, "project_logs", ["team_id"])
     routers.projects.register(r"logs/anomalies", LogsAnomalyScanViewSet, "project_logs_anomalies", ["team_id"])
     routers.projects.register(r"logs/loki", LokiQueryViewSet, "project_logs_loki", ["team_id"])
+    routers.projects.register(
+        r"logs/natural_language_query",
+        LogsNaturalLanguageQueryViewSet,
+        "project_logs_natural_language_query",
+        ["team_id"],
+    )
     routers.projects.register(r"logs/alerts", logs.LogsAlertViewSet, "project_logs_alerts", ["team_id"])
     routers.projects.register(
         r"logs/sampling_rules", logs.LogsSamplingRuleViewSet, "project_logs_sampling_rules", ["team_id"]
@@ -22,4 +30,7 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(r"logs/views", logs.LogsViewViewSet, "project_logs_views", ["team_id"])
     routers.projects.register(
         r"logs/explainLogWithAI", logs.LogExplainViewSet, "project_logs_explain_with_ai", ["team_id"]
+    )
+    routers.projects.register(
+        r"logs/signing_secret", LogsSigningSecretViewSet, "project_logs_signing_secret", ["team_id"]
     )

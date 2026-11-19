@@ -10,6 +10,8 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
 
+from posthog.models.organization import OrganizationMembership
+
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
@@ -22,8 +24,25 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 
+_MW = "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse"
+
 
 class TestDataWarehouseAPI(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("data_status", "managed-warehouse-data-status/"),
+            ("source_schemas", "managed-warehouse-source-schemas/?source_id=00000000-0000-0000-0000-000000000000"),
+        ]
+    )
+    def test_overview_endpoints_require_a_managed_warehouse_flag(self, _name: str, path: str) -> None:
+        with patch(
+            "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.is_enabled",
+            return_value=False,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/{path}")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     @parameterized.expand(
         [
             ("onboarded", True, True),
@@ -57,6 +76,63 @@ class TestDataWarehouseAPI(APIBaseTest):
             ensure_tables.assert_called_once_with(self.team.id, self.organization.id)
         else:
             ensure_tables.assert_not_called()
+
+    @parameterized.expand([("trino", "trino"), ("duckdb", "duckdb")])
+    def test_warehouse_status_presents_the_connection_for_the_variant(self, _name: str, variant: str) -> None:
+        views = "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse"
+        pgwire = {"host": "my-warehouse.dw.example.com", "port": 5432, "database": "ducklake", "username": "root"}
+        trino_status = {
+            "state": "ready",
+            "ready_at": "2026-09-01T12:00:00Z",
+            "connection": {
+                "host": "my-warehouse.dw.example.com",
+                "port": 443,
+                "catalog": "org_my_warehouse",
+                "username": "root",
+            },
+        }
+        with (
+            patch(f"{views}.status_for", return_value=Response({"state": "ready", "connection": pgwire}, status=200)),
+            patch(f"{views}.team_backfill_state", return_value={"has_backfill": True, "table_suffix": "prod"}),
+            patch(f"{views}.team_onboarding_state", return_value={"team_onboarded": True, "schema_name": "prod"}),
+            patch(f"{views}.ensure_direct_connection_tables"),
+            patch(f"{views}.data_ops_variant", return_value=variant),
+            patch(f"{views}.trino_status_for", return_value=trino_status) as mock_trino_status,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/warehouse_status/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        if variant == "trino":
+            self.assertIsNone(body["connection"])
+            self.assertEqual(body["trino"], trino_status)
+            mock_trino_status.assert_called_once_with(self.organization.id)
+        else:
+            self.assertEqual(body["connection"], pgwire)
+            self.assertIsNone(body["trino"])
+            mock_trino_status.assert_not_called()
+
+    def test_warehouse_status_skips_the_trino_read_until_the_warehouse_is_ready(self) -> None:
+        views = "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse"
+        pgwire = {"host": "my-warehouse.dw.example.com", "port": 5432, "database": "ducklake", "username": "root"}
+        with (
+            patch(
+                f"{views}.status_for",
+                return_value=Response({"state": "provisioning", "connection": pgwire}, status=200),
+            ),
+            patch(f"{views}.team_backfill_state", return_value={"has_backfill": False, "table_suffix": None}),
+            patch(f"{views}.team_onboarding_state", return_value={"team_onboarded": False, "schema_name": None}),
+            patch(f"{views}.ensure_direct_connection_tables"),
+            patch(f"{views}.data_ops_variant", return_value="trino"),
+            patch(f"{views}.trino_status_for") as mock_trino_status,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/warehouse_status/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertIsNone(body["connection"])
+        self.assertIsNone(body["trino"])
+        mock_trino_status.assert_not_called()
 
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.execute_hogql_query")
     def test_property_values_returns_results_with_cache_control(self, mock_execute_hogql_query):
@@ -454,7 +530,7 @@ class TestDataWarehouseAPI(APIBaseTest):
             finished_at=timezone.now(),
         )
 
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(11):
             response = self.client.get(f"{endpoint}?days=1")
             data = response.json()
 
@@ -490,7 +566,7 @@ class TestDataWarehouseAPI(APIBaseTest):
             finished_at=timezone.now() - timedelta(days=10),
         )
 
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(11):
             response = self.client.get(f"{endpoint}?days=30")
             data = response.json()
 
@@ -596,7 +672,7 @@ class TestDataWarehouseAPI(APIBaseTest):
         )
         DataModelingJob.objects.filter(pk=modeling_job.pk).update(created_at=today_start + timedelta(hours=4))
 
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(11):
             response = self.client.get(f"{endpoint}?days=7")
             data = response.json()
 
@@ -1020,6 +1096,73 @@ class TestDataHealthIssuesPersonalAPIKey(APIBaseTest):
         value = self.create_personal_api_key_with_scopes(scopes)
         response = self._get(value)
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+
+class TestHoglakeCredentialsPersonalAPIKeyScopes(APIBaseTest):
+    """GET and POST /hoglake_credentials share one route, and DRF gives the POST the GET's
+    action kwargs. The viewset's dangerously_get_required_scopes splits them, so a read-only
+    key can list but not mint a credential."""
+
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _call(self, method: str, value: str):
+        return getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/data_warehouse/hoglake_credentials/",
+            {"name": "laptop", "scope": "read"},
+            content_type="application/json",
+            headers={"authorization": f"Bearer {value}"},
+        )
+
+    @patch(f"{_MW}.list_hoglake_credentials", return_value=Response({"hoglake_credentials": []}))
+    @patch(f"{_MW}.create_hoglake_credential", return_value=Response({"client_id": "hlc_0"}, status=201))
+    def test_read_key_lists_but_cannot_create(self, create, list_):
+        value = self.create_personal_api_key_with_scopes(["warehouse_view:read"])
+
+        assert self._call("get", value).status_code == status.HTTP_200_OK
+        assert self._call("post", value).status_code == status.HTTP_403_FORBIDDEN
+        create.assert_not_called()
+
+    @patch(f"{_MW}.create_hoglake_credential", return_value=Response({"client_id": "hlc_0"}, status=201))
+    def test_write_key_creates(self, create):
+        value = self.create_personal_api_key_with_scopes(["warehouse_view:write"])
+
+        assert self._call("post", value).status_code == status.HTTP_201_CREATED
+        create.assert_called_once()
+
+
+class TestMyHoglakeCredentialsPersonalAPIKeyScopes(APIBaseTest):
+    """GET and POST /my_hoglake_credentials share one route, like /hoglake_credentials."""
+
+    CONFIG_AUTO_LOGIN = False
+
+    def _call(self, method: str, value: str):
+        return getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/data_warehouse/my_hoglake_credentials/",
+            {"name": "laptop", "scope": "read", "team_ids": [self.team.id]},
+            content_type="application/json",
+            headers={"authorization": f"Bearer {value}"},
+        )
+
+    @patch(f"{_MW}.list_my_hoglake_credentials", return_value=Response({"hoglake_credentials": []}))
+    @patch(f"{_MW}.create_my_hoglake_credential", return_value=Response({"client_id": "hlc_0"}, status=201))
+    def test_read_key_lists_but_cannot_create(self, create, list_):
+        value = self.create_personal_api_key_with_scopes(["warehouse_view:read"])
+
+        assert self._call("get", value).status_code == status.HTTP_200_OK
+        assert self._call("post", value).status_code == status.HTTP_403_FORBIDDEN
+        create.assert_not_called()
+
+    @patch(f"{_MW}.create_my_hoglake_credential", return_value=Response({"client_id": "hlc_0"}, status=201))
+    def test_write_key_creates(self, create):
+        value = self.create_personal_api_key_with_scopes(["warehouse_view:write"])
+
+        assert self._call("post", value).status_code == status.HTTP_201_CREATED
+        create.assert_called_once()
 
 
 class TestDataHealthIssuesReadsTheNewestRun(APIBaseTest):

@@ -1,21 +1,30 @@
-import { createClient, createRouterTransport } from '@connectrpc/connect'
+import { Code, ConnectError, createClient, createRouterTransport } from '@connectrpc/connect'
 
 import {
     GetDistinctIdsForPersonsRequest,
+    GetOrCreatePersonsByDistinctIdsRequest,
     GetPersonsByDistinctIdsRequest,
     MergePersonsRequest,
     PersonHogIdentity,
 } from '~/common/generated/personhog/personhog/identity/v1/identity_pb'
+import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 
 import { DistinctIdKey, PersonhogIdentityOperations } from './identity'
 import { createIdentityClients } from './identity-clients'
 
 describe('PersonhogIdentityOperations', () => {
-    it('refuses a merge timeout that would kill every merge client-side', () => {
-        expect(() => createIdentityClients({} as never, { mergeTimeoutMs: 0 })).toThrow('PERSONHOG_MERGE_TIMEOUT_MS')
-    })
+    it.each([
+        ['merge', {}, { mergeTimeoutMs: 0 }, 'PERSONHOG_MERGE_TIMEOUT_MS'],
+        ['request', { timeoutMs: 0 }, {}, 'PERSONHOG_IDENTITY_TIMEOUT_MS'],
+    ])(
+        'refuses a zero %s timeout, which would kill or unbound every call client-side',
+        (_name, config, options, key) => {
+            expect(() => createIdentityClients(config as never, options)).toThrow(key)
+        }
+    )
 
     function makeOps(handlers: {
+        getOrCreatePersonsByDistinctIds?: jest.Mock
         getPersonsByDistinctIds?: jest.Mock
         getDistinctIdsForPersons?: jest.Mock
         mergePersons?: jest.Mock
@@ -23,7 +32,8 @@ describe('PersonhogIdentityOperations', () => {
         const transport = createRouterTransport(({ service }) => {
             service(PersonHogIdentity, {
                 getOrCreatePersonByDistinctId: jest.fn(() => ({ person: undefined, created: false })),
-                getOrCreatePersonsByDistinctIds: jest.fn(() => ({ results: [] })),
+                getOrCreatePersonsByDistinctIds:
+                    handlers.getOrCreatePersonsByDistinctIds ?? jest.fn(() => ({ results: [] })),
                 getPersonsByDistinctIds: handlers.getPersonsByDistinctIds ?? jest.fn(() => ({ results: [] })),
                 getDistinctIdsForPersons:
                     handlers.getDistinctIdsForPersons ?? jest.fn(() => ({ personDistinctIds: [] })),
@@ -179,5 +189,48 @@ describe('PersonhogIdentityOperations', () => {
 
         expect(handler).toHaveBeenCalledTimes(2)
         expect(Object.keys(byPerson)).toHaveLength(251)
+    })
+
+    it('decodes each batch get-or-create entry: created, found, refused, oversized, uncoded, empty', async () => {
+        const person = {
+            id: 7n,
+            uuid: 'uuid-7',
+            teamId: 1n,
+            properties: new TextEncoder().encode('{"k":1}'),
+            createdAt: 3_600_000n,
+            version: 1n,
+            isIdentified: false,
+        }
+        const handler = jest.fn((_req: GetOrCreatePersonsByDistinctIdsRequest) => ({
+            results: [
+                { teamId: 1n, distinctId: 'created', person, created: true },
+                { teamId: 1n, distinctId: 'found', person, created: false },
+                { teamId: 1n, distinctId: 'refused', created: false, error: 'Aborted: concurrent identity operation' },
+                { teamId: 1n, distinctId: 'oversized', created: false, error: 'InvalidArgument: over the size limit' },
+                { teamId: 1n, distinctId: 'uncoded', created: false, error: 'connection reset' },
+                { teamId: 1n, distinctId: 'empty', created: false },
+            ],
+        }))
+        const ops = makeOps({ getOrCreatePersonsByDistinctIds: handler })
+
+        const entries = ['created', 'found', 'refused', 'oversized', 'uncoded', 'empty'].map((distinctId) => ({
+            teamId: 1,
+            distinctId,
+            eventName: '$pageview',
+            createdAtMs: 0,
+        }))
+        const results = await ops.getOrCreatePersonsByDistinctIds(entries, 'tag')
+
+        expect(handler.mock.calls[0][0].entries.map((e) => e.distinctId)).toEqual(entries.map((e) => e.distinctId))
+        expect(results[0]).toMatchObject({
+            distinctId: 'created',
+            outcome: { created: true, person: { properties: { k: 1 } } },
+        })
+        expect(results[1]).toMatchObject({ distinctId: 'found', outcome: { created: false, person: { id: '7' } } })
+        expect(results[2].error).toBeInstanceOf(ConnectError)
+        expect((results[2].error as ConnectError).code).toBe(Code.Aborted)
+        expect(results[3].error).toBeInstanceOf(PersonPropertiesSizeViolationError)
+        expect(results[4].error).toMatchObject({ code: Code.Unknown, rawMessage: 'connection reset' })
+        expect(results[5].error?.message).toContain('returned no person for team 1 distinct_id empty')
     })
 })

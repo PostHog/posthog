@@ -124,6 +124,12 @@ def assert_stats_describe_files(uri: str) -> None:
                 assert min(values) == lo, (path, col)
 
 
+def without_null_counts(stats: dict, columns: set[str]) -> dict:
+    if "nullCount" not in stats:
+        return stats
+    return {**stats, "nullCount": {c: n for c, n in stats["nullCount"].items() if c not in columns}}
+
+
 def compact_both(src: str, tmp: Path, **deltalite_kwargs) -> tuple[str, str, dict, dict]:
     import deltalite
 
@@ -155,9 +161,12 @@ def assert_parity(src: str, rs: str, dl: str, rs_metrics: dict, dl_stats: dict) 
 
     assert_stats_describe_files(dl)
     # Where each partition ends as one file, both writers saw the same rows, so the
-    # order-independent statistics must agree exactly.
-    stats_rs = dict(add_stats(rs))
-    stats_dl = dict(add_stats(dl))
+    # order-independent statistics must agree exactly. deltalake 1.6.3 optimize.compact
+    # writes no nullCount for list columns, so those entries are left out of the comparison.
+    # assert_stats_describe_files above still checks deltalite's list nullCount.
+    list_columns = {f.name for f in deltalake.DeltaTable(rs).to_pyarrow_table().schema if pa.types.is_list(f.type)}
+    stats_rs = {p: without_null_counts(s, list_columns) for p, s in add_stats(rs)}
+    stats_dl = {p: without_null_counts(s, list_columns) for p, s in add_stats(dl)}
     by_part_rs = live_stats(rs)
     by_part_dl = live_stats(dl)
     for part, files in by_part_dl.items():

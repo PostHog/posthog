@@ -8,7 +8,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import FeatureFlagGroupType
 
 from posthog.exceptions_capture import capture_exception
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
@@ -295,7 +295,7 @@ class CreateFeatureFlagTool(MaxTool):
 
             flag = await create_flag_through_facade()
 
-            flag_url = f"/project/{self._team.project_id}/feature_flags/{flag.id}"
+            flag_url = f"/project/{self._team.project_id}/feature-flags/{flag.id}"
             targeting_info = self._format_targeting_info(flag_schema, group_type_display_name)
             contexts_info = (
                 f" with evaluation contexts: {', '.join(evaluation_contexts)}" if evaluation_contexts else ""
@@ -325,7 +325,7 @@ class CreateFeatureFlagTool(MaxTool):
 
                     existing = await get_existing_flag()
                     if existing:
-                        flag_url = f"/project/{self._team.project_id}/feature_flags/{existing.id}"
+                        flag_url = f"/project/{self._team.project_id}/feature-flags/{existing.id}"
                         return (
                             f"A feature flag with key '{flag_schema.key}' already exists. You can view it at {flag_url}",
                             {"flag_id": existing.id},

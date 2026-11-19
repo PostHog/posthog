@@ -1,27 +1,15 @@
 import { useState } from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ActionFilter as ActionFilterComponent } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { isEventsSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
-import {
-    ActionsNode,
-    ConversionGoalFilter,
-    DataWarehouseNode,
-    EventsNode,
-    NodeKind,
-} from '~/queries/schema/schema-general'
-import { isDataWarehouseNode } from '~/queries/utils'
-import {
-    ConversionGoalSchema,
-    DISTINCT_ID_FIELD_SCHEMA_FIELD,
-    TIMESTAMP_FIELD_SCHEMA_FIELD,
-    UTM_CAMPAIGN_NAME_SCHEMA_FIELD,
-    UTM_SOURCE_NAME_SCHEMA_FIELD,
-} from '~/taxonomy/marketingAnalytics'
+import { ConversionGoalFilter } from '~/queries/schema/schema-general'
 import { conversionGoalPopoverFields } from '~/taxonomy/taxonomy'
-import { ActionFilter, BaseMathType, AnyDataWarehouseFilter, EntityTypes, FilterType, PropertyMathType } from '~/types'
+import { BaseMathType, ChartDisplayCategory, PropertyMathType } from '~/types'
+
+import { conversionGoalToSeries, seriesToConversionGoal } from '../../logic/utils'
 
 interface ConversionGoalDropdownProps {
     value: ConversionGoalFilter
@@ -38,53 +26,17 @@ export function ConversionGoalDropdown({
 }: ConversionGoalDropdownProps): JSX.Element {
     const [error, setError] = useState<string | null>(null)
 
-    // Create a proper ActionFilter-compatible filter object
-    const currentFilter = {
-        events:
-            value.kind === NodeKind.EventsNode && !hasDataWarehouseType(value)
-                ? [
-                      {
-                          ...value,
-                          type: 'events',
-                          id: (value as EventsNode).event || '',
-                          math: value.math || BaseMathType.TotalCount,
-                      },
-                  ]
-                : [],
-        actions:
-            value.kind === NodeKind.ActionsNode
-                ? [
-                      {
-                          ...value,
-                          type: 'actions',
-                          id: (value as ActionsNode).id || '',
-                          math: value.math || BaseMathType.TotalCount,
-                      },
-                  ]
-                : [],
-        data_warehouse:
-            value.kind === NodeKind.DataWarehouseNode || hasDataWarehouseType(value)
-                ? [
-                      {
-                          ...value,
-                          type: 'data_warehouse',
-                          id: isDataWarehouseNode(value) ? value.table_name : (value as any).table_name || '',
-                          math: value.math || BaseMathType.TotalCount,
-                      },
-                  ]
-                : [],
-    }
-
     return (
         <div>
-            <ActionFilterComponent
+            <SeriesActionFilter
                 bordered
                 allowedMathTypes={[BaseMathType.TotalCount, BaseMathType.UniqueUsers, PropertyMathType.Sum]}
-                filters={currentFilter}
+                series={conversionGoalToSeries(value)}
+                trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                 mathAvailability={MathAvailability.All}
-                setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
+                onChange={(series) => {
                     // Check if user is trying to select "All Events"
-                    if (events?.[0]?.id === null || events?.[0]?.id === '') {
+                    if (isEventsSeriesNode(series[0]) && !series[0].event) {
                         setError('`All events` cannot be used as a conversion goal. Please select a specific event.')
                         return
                     }
@@ -92,83 +44,10 @@ export function ConversionGoalDropdown({
                     // Clear any previous errors
                     setError(null)
 
-                    const series = actionsAndEventsToSeries(
-                        {
-                            actions: actions as ActionFilter[] | undefined,
-                            events: events as ActionFilter[] | undefined,
-                            data_warehouse: data_warehouse as AnyDataWarehouseFilter[] | undefined,
-                        },
-                        true,
-                        MathAvailability.All
-                    )
-
-                    const firstSerie = series[0] || value
-
-                    const newFilter: ConversionGoalFilter = {
-                        ...value,
-                        ...firstSerie,
-                        // Preserve the existing schema to keep UTM mappings
-                        schema_map: {
-                            ...value.schema_map,
-                        },
-                        properties: firstSerie?.properties || [], // if we clear the filter we need the properties to be set to an empty array
+                    const goal = seriesToConversionGoal(value, series)
+                    if (goal) {
+                        onChange(goal)
                     }
-
-                    // Clean up ActionsNode: remove event field and ensure id is a number
-                    if (newFilter.kind === NodeKind.ActionsNode) {
-                        if ('event' in newFilter) {
-                            delete (newFilter as any).event
-                        }
-                        // Ensure id is a number for ActionsNode (actions always have numeric IDs)
-                        if ('id' in newFilter) {
-                            const numId = parseInt(String((newFilter as any).id), 10)
-                            if (!isNaN(numId)) {
-                                ;(newFilter as any).id = numId
-                            }
-                        }
-                    }
-
-                    // Clean up EventsNode: remove id field (EventsNode uses event, not id)
-                    if (newFilter.kind === NodeKind.EventsNode) {
-                        if ('id' in newFilter) {
-                            delete (newFilter as any).id
-                        }
-                    }
-
-                    // Override the schema with the schema from the data warehouse
-                    if (data_warehouse?.[0]?.type === EntityTypes.DATA_WAREHOUSE) {
-                        const dwNode = data_warehouse[0] as AnyDataWarehouseFilter &
-                            Record<ConversionGoalSchema, string> &
-                            Partial<Pick<DataWarehouseNode, 'id_field' | 'dw_source_type'>>
-                        const schema = dwNode
-                        const overrideSchema: Record<ConversionGoalSchema, string> = {
-                            utm_campaign_name: schema[UTM_CAMPAIGN_NAME_SCHEMA_FIELD],
-                            utm_source_name: schema[UTM_SOURCE_NAME_SCHEMA_FIELD],
-                            timestamp_field: schema[TIMESTAMP_FIELD_SCHEMA_FIELD],
-                            distinct_id_field: schema[DISTINCT_ID_FIELD_SCHEMA_FIELD],
-                        }
-                        newFilter.schema_map = overrideSchema
-
-                        // Cast to DataWarehouseNode for type safety
-                        const dwFilter = newFilter as DataWarehouseNode & ConversionGoalFilter
-                        // Remove the event field that causes validation to fail
-                        if ('event' in dwFilter) {
-                            delete (dwFilter as any).event
-                        }
-
-                        dwFilter.kind = NodeKind.DataWarehouseNode
-
-                        // Set all required ConversionGoalFilter3 fields
-                        dwFilter.id = dwNode.table_name || String(dwNode.id) || ''
-                        dwFilter.id_field = dwNode.id_field || schema[DISTINCT_ID_FIELD_SCHEMA_FIELD] || 'id'
-                        dwFilter.distinct_id_field =
-                            dwNode.distinct_id_field || schema[DISTINCT_ID_FIELD_SCHEMA_FIELD] || 'distinct_id'
-                        dwFilter.table_name = dwNode.table_name || ''
-                        dwFilter.timestamp_field =
-                            dwNode.timestamp_field || schema[TIMESTAMP_FIELD_SCHEMA_FIELD] || 'timestamp'
-                        dwFilter.dw_source_type = dwNode.dw_source_type
-                    }
-                    onChange(newFilter)
                 }}
                 typeKey={typeKey}
                 showSeriesIndicator={false}
@@ -189,9 +68,4 @@ export function ConversionGoalDropdown({
             {error && <div className="text-danger mt-2 text-sm">{error}</div>}
         </div>
     )
-}
-
-// Helper function to check if value has data warehouse type field
-function hasDataWarehouseType(val: ConversionGoalFilter): boolean {
-    return 'type' in val && (val as any).type === 'data_warehouse'
 }

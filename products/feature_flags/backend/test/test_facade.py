@@ -1,5 +1,6 @@
 from copy import deepcopy
 from typing import Any
+from uuid import UUID
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -15,6 +16,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, flag_payload_codec
 from products.feature_flags.backend.facade.api import (
     _redact_unchanged_encrypted_payloads,
@@ -41,8 +43,18 @@ from products.feature_flags.backend.facade.filters import (
     set_holdout,
     set_release_condition_rollout,
     strip_group_cohort_restriction,
+    without_payloads,
 )
-from products.feature_flags.backend.facade.rules import ExperimentRuleConfig, HoldoutRef, experiment_rule_from_filters
+from products.feature_flags.backend.facade.rules import (
+    ExperimentRuleConfig,
+    ExperimentRuleError,
+    HoldoutRef,
+    experiment_rule_from_filters,
+    experiment_rule_from_snapshot,
+    experiment_rule_ids,
+    experiment_rule_snapshot,
+    same_rule_id,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, build_scheduled_change_serializer_data
 
 
@@ -79,18 +91,33 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
         assert flag.archived is True
         assert flag.active is False
 
-    def test_flag_disable_requires_approval_reflects_policy(self):
-        assert flag_disable_requires_approval(self.team) is False
+    @parameterized.expand(
+        [
+            ("no_policy", False, False, None, False),
+            ("flag_policy_on_a_standalone_flag", False, False, "feature_flag.disable", True),
+            ("flag_policy_on_an_experiment_flag_before_scoping", True, False, "feature_flag.disable", True),
+            ("pause_policy_on_an_experiment_flag_after_scoping", True, True, "experiment.pause", True),
+            ("flag_policy_on_an_experiment_flag_after_scoping", True, True, "feature_flag.disable", False),
+        ]
+    )
+    def test_flag_disable_requires_approval_reads_the_governing_policy(
+        self, _name: str, owned_by_experiment: bool, scoped_by_owner: bool, action_key: str | None, expected: bool
+    ) -> None:
+        flag = self._create_flag(active=True)
+        if owned_by_experiment:
+            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="Owner")
+        if action_key is not None:
+            ApprovalPolicy.objects.create(
+                organization=self.organization,
+                team=self.team,
+                action_key=action_key,
+                conditions={},
+                approver_config={"quorum": 1, "users": [self.user.id]},
+                created_by=self.user,
+            )
 
-        ApprovalPolicy.objects.create(
-            organization=self.organization,
-            team=self.team,
-            action_key="feature_flag.disable",
-            conditions={},
-            approver_config={"quorum": 1, "users": [self.user.id]},
-            created_by=self.user,
-        )
-        assert flag_disable_requires_approval(self.team) is True
+        with patch("products.approvals.backend.coverage.scope_by_owner_enabled", return_value=scoped_by_owner):
+            assert flag_disable_requires_approval(flag.id, team=self.team) is expected
 
     def test_archive_active_flag_without_disable_is_rejected(self):
         flag = self._create_flag(active=True)
@@ -1084,6 +1111,154 @@ class TestExperimentRuleFromFilters:
         assert exc_info.value.config_format.kind == expected_kind
 
 
+EXPERIMENT_RULE_ID = "d3e4f5a6-b7c8-4d9e-a0f1-2b3c4d5e6f70"
+RELEASE_RULE_ID = "3f3b7a9e-8f2e-4f4b-9c7d-2a1e5b6c8d90"
+
+
+def _v2_document(**experiment_rule_overrides: Any) -> dict[str, Any]:
+    return {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "off",
+        "aggregation_group_type_index": 1,
+        "rules": [
+            {"id": RELEASE_RULE_ID, "rule_type": "targeted_release", "targeting": {"properties": []}, "value": "on"},
+            {
+                "id": EXPERIMENT_RULE_ID,
+                "rule_type": "experiment",
+                "targeting": {"properties": [{"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}]},
+                "paused": False,
+                "rollout_percentage": 80,
+                "on_rollout_miss": "continue",
+                "assignment_algorithm": "sha1_60_v1",
+                "seed": "7c9e6f82-1a2b-4c3d-9e8f-5a6b7c8d9e0f",
+                "variants": [
+                    {"key": "control", "weight": 33.34, "value": "off"},
+                    {"key": "test", "weight": 66.66, "value": "off"},
+                ],
+                "holdout": {"seed": "holdout-seed", "exclusion_percentage": 5},
+                **experiment_rule_overrides,
+            },
+        ],
+    }
+
+
+def _snapshot(document: dict[str, Any] | None = None, rule_id: str = EXPERIMENT_RULE_ID) -> dict[str, Any]:
+    return experiment_rule_snapshot(document or _v2_document(), rule_id, flag_id=7, flag_key="checkout", flag_version=3)
+
+
+class TestExperimentRuleSnapshot:
+    def test_snapshot_holds_the_rule_as_stored_and_the_flag_context(self) -> None:
+        document = _v2_document()
+
+        snapshot = _snapshot(document)
+
+        assert snapshot == {
+            "flag": {
+                "id": 7,
+                "key": "checkout",
+                "version": 3,
+                "return_type": "string",
+                "default_value": "off",
+                "aggregation_group_type_index": 1,
+            },
+            "rule": document["rules"][1],
+        }
+        assert snapshot["rule"] is not document["rules"][1]
+
+    def test_rule_config_reads_weights_as_the_split_and_the_rule_local_holdout(self) -> None:
+        assert experiment_rule_from_snapshot(_snapshot()) == ExperimentRuleConfig(
+            variants=[
+                {"key": "control", "rollout_percentage": 33.34},
+                {"key": "test", "rollout_percentage": 66.66},
+            ],
+            rollout_percentage=80,
+            assign_variant_by=1,
+            holdout=HoldoutRef(id=None, exclusion_percentage=5),
+            rule_id=EXPERIMENT_RULE_ID,
+            flag_key="checkout",
+        )
+
+    def test_rule_ids_lists_the_experiment_rules_only(self) -> None:
+        assert experiment_rule_ids(_v2_document()) == [EXPERIMENT_RULE_ID]
+
+    @parameterized.expand(
+        [
+            ("unknown_rule", "00000000-0000-4000-8000-000000000000", "has no rule with the ID"),
+            ("rule_of_another_type", RELEASE_RULE_ID, "is not an experiment rule"),
+            ("not_a_uuid", "checkout", "has no rule with the ID"),
+        ]
+    )
+    def test_snapshot_refuses_a_rule_that_is_not_an_experiment_rule_of_the_document(
+        self, _name: str, rule_id: str, message: str
+    ) -> None:
+        with pytest.raises(ExperimentRuleError, match=message):
+            _snapshot(rule_id=rule_id)
+
+    @parameterized.expand(
+        [
+            ("one_variant", {"variants": [{"key": "control", "weight": 100, "value": "off"}]}),
+            (
+                "variant_without_weight",
+                {"variants": [{"key": "control", "value": "off"}, {"key": "test", "value": "on"}]},
+            ),
+            ("variant_with_boolean_weight", {"variants": [{"key": "a", "weight": True}, {"key": "b", "weight": 50}]}),
+            ("variant_without_key", {"variants": [{"weight": 50}, {"key": "b", "weight": 50}]}),
+            ("no_rollout_percentage", {"rollout_percentage": None}),
+            ("holdout_without_percentage", {"holdout": {"seed": "holdout-seed"}}),
+        ]
+    )
+    def test_snapshot_refuses_a_rule_it_cannot_read_in_full(self, _name: str, overrides: dict[str, Any]) -> None:
+        with pytest.raises(ExperimentRuleError):
+            _snapshot(_v2_document(**overrides))
+
+    @parameterized.expand(
+        [
+            ("none", None),
+            ("not_an_object", "snapshot"),
+            ("no_rule", {"flag": {}}),
+            ("no_flag", {"rule": {"id": EXPERIMENT_RULE_ID, "rule_type": "experiment"}}),
+            (
+                "rule_of_another_type",
+                {"flag": {}, "rule": {"id": RELEASE_RULE_ID, "rule_type": "targeted_release", "value": "on"}},
+            ),
+            (
+                "aggregation_that_is_no_index",
+                {**_snapshot(), "flag": {**_snapshot()["flag"], "aggregation_group_type_index": "1"}},
+            ),
+            ("no_flag_key", {**_snapshot(), "flag": {**_snapshot()["flag"], "key": None}}),
+        ]
+    )
+    def test_reader_refuses_a_snapshot_that_is_not_one(self, _name: str, snapshot: object) -> None:
+        with pytest.raises(ExperimentRuleError):
+            experiment_rule_from_snapshot(snapshot)
+
+    @parameterized.expand(
+        [
+            ("v1_document", {"groups": [{"properties": [], "rollout_percentage": 40}]}, "v1"),
+            ("unsupported_document", {"version": 3, "rules": []}, "unsupported"),
+        ]
+    )
+    def test_only_a_config_version_2_document_has_rules(self, _name: str, filters: dict, expected_kind: str) -> None:
+        for read in (experiment_rule_ids, lambda document: _snapshot(document)):
+            with pytest.raises(ConfigFormatError) as exc_info:
+                read(filters)
+            assert exc_info.value.config_format.kind == expected_kind
+
+    @parameterized.expand(
+        [
+            ("same_spelling", EXPERIMENT_RULE_ID, EXPERIMENT_RULE_ID, True),
+            ("upper_case", EXPERIMENT_RULE_ID, EXPERIMENT_RULE_ID.upper(), True),
+            ("uuid_object", EXPERIMENT_RULE_ID, UUID(EXPERIMENT_RULE_ID), True),
+            ("other_rule", EXPERIMENT_RULE_ID, RELEASE_RULE_ID, False),
+            ("not_a_uuid", "checkout", "checkout", False),
+            ("none", None, EXPERIMENT_RULE_ID, False),
+        ]
+    )
+    def test_same_rule_id(self, _name: str, stored: object, wanted: object, expected: bool) -> None:
+        assert same_rule_id(stored, wanted) is expected
+
+
 V1_GROUPS = [{"properties": [], "rollout_percentage": 40}]
 UNSUPPORTED_DOCUMENTS = [
     ("v2_document", {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}),
@@ -1114,6 +1289,7 @@ class TestModelAccessorsRequireV1:
             flag.get_payload("true")
         assert flag.is_eligible_for_experiment is False
         assert flag.get_analytics_metadata() == {
+            "feature_flag_id": flag.id,
             "created_at": flag.created_at,
             "config_format": "v2" if filters.get("version") == 2 else "unsupported",
         }
@@ -1153,6 +1329,50 @@ class TestModelAccessorsRequireV1:
         assert flag.has_feature_enrollment is enrolled
         assert flag.get_payload("a") == (filters.get("payloads") or {}).get("a")
         assert flag.get_analytics_metadata()["groups_count"] == len(conditions)
+
+
+class TestAnalyticsMetadataRecordsRolloutAndIdentity:
+    @parameterized.expand(
+        [
+            ("absent", [{"properties": []}], [None], False),
+            ("explicit_null", [{"properties": [], "rollout_percentage": None}], [None], False),
+            ("zero", [{"properties": [], "rollout_percentage": 0}], [0], False),
+            ("fifty", [{"properties": [], "rollout_percentage": 50}], [50], True),
+            ("hundred", [{"properties": [], "rollout_percentage": 100}], [100], True),
+        ]
+    )
+    def test_each_condition_reports_its_stored_rollout(self, _name, groups, expected, expected_has_rollout):
+        metadata = FeatureFlag(filters={"groups": groups}).get_analytics_metadata()
+        assert metadata["condition_rollout_percentages"] == expected
+        assert metadata["has_rollout_percentage"] is expected_has_rollout
+
+    def test_absent_and_zero_stay_distinct(self):
+        absent = FeatureFlag(filters={"groups": [{"properties": []}]}).get_analytics_metadata()
+        zero = FeatureFlag(filters={"groups": [{"properties": [], "rollout_percentage": 0}]}).get_analytics_metadata()
+        assert absent["condition_rollout_percentages"] == [None]
+        assert zero["condition_rollout_percentages"] == [0]
+        assert absent["has_rollout_percentage"] == zero["has_rollout_percentage"]
+
+    def test_rollouts_keep_condition_order(self):
+        groups = [
+            {"properties": [], "rollout_percentage": 100},
+            {"properties": [], "rollout_percentage": 0},
+            {"properties": []},
+        ]
+        metadata = FeatureFlag(filters={"groups": groups}).get_analytics_metadata()
+        assert metadata["condition_rollout_percentages"] == [100, 0, None]
+
+    def test_metadata_carries_the_flag_id(self):
+        flag = FeatureFlag(filters={"groups": V1_GROUPS})
+        flag.id = 4321
+        assert flag.get_analytics_metadata()["feature_flag_id"] == 4321
+
+    def test_unreadable_config_still_reports_the_flag_id(self):
+        flag = FeatureFlag(filters={"version": 2})
+        flag.id = 99
+        metadata = flag.get_analytics_metadata()
+        assert metadata["feature_flag_id"] == 99
+        assert metadata["config_format"] == "v2"
 
 
 class TestGetCohortIdsReadsEitherFormat:
@@ -1206,6 +1426,7 @@ TRANSFORMS = [
     ("set_release_condition_rollout", lambda filters: set_release_condition_rollout(filters, 0, 10)),
     ("_leads_with_unconditional_rollout", _leads_with_unconditional_rollout),
     ("roll_out_to_everyone", roll_out_to_everyone),
+    ("without_payloads", without_payloads),
 ]
 
 

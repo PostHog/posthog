@@ -106,6 +106,27 @@ pub async fn insert_new_team_in_redis(
     Ok(team)
 }
 
+/// v1 filters that the typed decoder rejects and Python's builder reads. The property filter
+/// has no `"type"` key. `PropertyFilter` requires one.
+pub fn unparseable_v1_filters() -> Value {
+    json!({"groups": [{
+        "properties": [{"key": "email", "value": "a@example.com"}],
+        "rollout_percentage": 100
+    }]})
+}
+
+/// A cached flag that the serving read cannot deserialize, because of its filters.
+pub fn unparseable_flag_json(id: i32, key: &str, team_id: i32) -> Value {
+    json!({
+        "id": id,
+        "key": key,
+        "team_id": team_id,
+        "active": true,
+        "deleted": false,
+        "filters": unparseable_v1_filters()
+    })
+}
+
 /// Write flags to the hypercache key for `team_id` in Redis.
 /// Auto-generates single-stage `evaluation_metadata` with no transitive-dependency
 /// information (all flags in one stage, `transitive_deps[id] = []` for each flag).
@@ -316,17 +337,30 @@ pub fn dummy_s3_client() -> Arc<dyn common_hypercache::S3Client + Send + Sync> {
 }
 
 pub async fn insert_v1_v2_and_unsupported_flags(context: &TestContext, team_id: i32) {
-    for (key, filters) in [
-        (
-            "v1-flag",
-            json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
-        ),
-        (
-            "v2-flag",
-            json!({"version": 2, "return_type": "boolean", "default_value": false, "rules": []}),
-        ),
-        ("v3-flag", json!({"version": 3})),
-    ] {
+    insert_active_flags(
+        context,
+        team_id,
+        [
+            (
+                "v1-flag",
+                json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
+            ),
+            (
+                "v2-flag",
+                json!({"version": 2, "return_type": "boolean", "default_value": false, "rules": []}),
+            ),
+            ("v3-flag", json!({"version": 3})),
+        ],
+    )
+    .await;
+}
+
+pub async fn insert_active_flags(
+    context: &TestContext,
+    team_id: i32,
+    flags: impl IntoIterator<Item = (&str, Value)>,
+) {
+    for (key, filters) in flags {
         context
             .insert_flag(
                 team_id,
@@ -971,10 +1005,9 @@ pub async fn insert_person_for_team_in_pg(
         r#"
         WITH inserted_person AS (
             INSERT INTO posthog_person (
-                created_at, properties, properties_last_updated_at,
-                properties_last_operation, team_id, is_user_id, is_identified, uuid, version
+                created_at, properties, team_id, is_user_id, is_identified, uuid, version
             )
-            VALUES ('2023-04-05', $1, '{}', '{}', $2, NULL, true, $3, 0)
+            VALUES ('2023-04-05', $1, $2, NULL, true, $3, 0)
             RETURNING id
         )
         INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
@@ -1335,6 +1368,7 @@ pub fn flag_list_with_metadata_and_filter(
         dependency_stages: stages,
         flags_with_missing_deps,
         transitive_deps,
+        ..Default::default()
     });
 
     FeatureFlagList {
@@ -1810,8 +1844,22 @@ impl TestContext {
         label: &str,
         scopes: Option<Vec<&str>>,
     ) -> Result<(String, String), Error> {
-        let key_id = format!("test_psk_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let raw_key = format!("phs_{}", &uuid::Uuid::new_v4().to_string()[..12]);
+        self.create_project_secret_api_key_with_value(team_id, label, scopes, &raw_key)
+            .await
+    }
+
+    /// Same, but hashing a caller-provided token value — e.g. a mirror row holding a
+    /// team's legacy secret token, as the backfill migration writes them.
+    pub async fn create_project_secret_api_key_with_value(
+        &self,
+        team_id: i32,
+        label: &str,
+        scopes: Option<Vec<&str>>,
+        raw_key: &str,
+    ) -> Result<(String, String), Error> {
+        let key_id = format!("test_psk_{}", &uuid::Uuid::new_v4().to_string()[..8]);
+        let raw_key = raw_key.to_string();
 
         let secure_value = crate::api::auth::hash_token_value(&raw_key);
         let mask_value = format!("...{}", &raw_key[raw_key.len().saturating_sub(5)..]);
@@ -1838,8 +1886,9 @@ impl TestContext {
         Ok((key_id, raw_key))
     }
 
-    /// Creates a team with both public token and secret API token
-    /// Optionally accepts a backup secret token
+    /// Creates a team with a public token, a secret token and an optional backup, plus the
+    /// PSAK mirror row for each secret, as the #63111 backfill does. Don't insert another
+    /// PSAK with the same raw token: `secure_value` is unique.
     pub async fn create_team_with_secret_token(
         &self,
         public_token: Option<&str>,
@@ -1931,7 +1980,45 @@ impl TestContext {
         // Insert group type mappings
         insert_team_group_mappings(self.persons_writer.clone(), &team).await?;
 
+        // The #63111 backfill state every real team has: legacy secret tokens
+        // authenticate only through their PSAK mirror rows.
+        self.create_project_secret_api_key_with_value(
+            team.id,
+            "Migrated legacy secret API key",
+            Some(vec!["feature_flag:read", "support_ticket:read"]),
+            &secret_token,
+        )
+        .await?;
+        if let Some(ref backup) = backup_secret_token {
+            self.create_project_secret_api_key_with_value(
+                team.id,
+                "Migrated legacy key (backup)",
+                Some(vec!["feature_flag:read", "support_ticket:read"]),
+                backup,
+            )
+            .await?;
+        }
+
         Ok((team, secret_token, backup_secret_token))
+    }
+
+    /// Removes a token's PSAK mirror rows, leaving the team as one whose legacy token
+    /// was never backfilled (or was leak-revoked).
+    pub async fn delete_project_secret_api_keys_for_token(
+        &self,
+        team_id: i32,
+        raw_key: &str,
+    ) -> Result<(), Error> {
+        let secure_value = crate::api::auth::hash_token_value(raw_key);
+        let mut conn = self.non_persons_writer.get_connection().await?;
+        sqlx::query(
+            "DELETE FROM posthog_projectsecretapikey WHERE team_id = $1 AND secure_value = $2",
+        )
+        .bind(team_id)
+        .bind(&secure_value)
+        .execute(&mut *conn)
+        .await?;
+        Ok(())
     }
 
     /// Populates the HyperCache with flag definitions for flag_definitions endpoint
@@ -2010,6 +2097,19 @@ impl TestContext {
             .await
     }
 
+    /// Populate cache for a team with the given flags payload and an ETag.
+    pub async fn populate_cache_for_team_with_flags_and_etag(
+        &self,
+        team_id: i32,
+        flags_data: serde_json::Value,
+        etag: &str,
+    ) -> Result<(), Error> {
+        self.populate_cache_for_team_with_flags(team_id, flags_data)
+            .await?;
+        let redis_client = setup_redis_client(Some(self.config.redis_url.clone())).await;
+        self.set_etag_for_team(redis_client, team_id, etag).await
+    }
+
     /// Populate cache for a team and store an ETag alongside it, on the given Redis.
     /// The ETag is stored at `{cache_key}:etag` using pickle serialization,
     /// matching Django's HyperCache behavior.
@@ -2021,7 +2121,15 @@ impl TestContext {
     ) -> Result<(), Error> {
         self.populate_flag_definitions_cache(redis_client.clone(), team_id)
             .await?;
+        self.set_etag_for_team(redis_client, team_id, etag).await
+    }
 
+    async fn set_etag_for_team(
+        &self,
+        redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+        team_id: i32,
+        etag: &str,
+    ) -> Result<(), Error> {
         let etag_key =
             format!("posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag");
         let pickled_etag =

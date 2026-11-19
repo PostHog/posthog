@@ -1,6 +1,5 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
 import { useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
@@ -13,25 +12,25 @@ import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import {
-    AvailableFeature,
-    SurveyAppearance,
-    SurveyPosition,
-    SurveyQuestionBranchingType,
-    SurveyQuestionType,
-} from '~/types'
+import { AvailableFeature, SurveyAppearance, SurveyPosition, SurveyQuestionType } from '~/types'
+
+import { reportSurveyThemeSelected } from 'products/surveys/frontend/surveyUsage'
 
 import {
+    INTRO_SCREEN_PAGE_INDEX,
     NewSurvey,
     SurveyTheme,
     WEB_SAFE_FONTS,
     defaultSurveyAppearance,
     getMatchingSurveyThemeId,
 } from '../../constants'
+import { useSiteThemeCard } from '../../survey-appearance/SiteThemeCard'
 import { SurveyBehaviorOptions } from '../../survey-appearance/SurveyBehaviorOptions'
 import { SurveyAppearancePreview } from '../../SurveyAppearancePreview'
 import { surveyLogic } from '../../surveyLogic'
+import { getNextPreviewPageIndex } from '../../surveyPreviewNavigation'
 import { surveysLogic } from '../../surveysLogic'
+import { getFirstPreviewPageIndex } from '../../utils'
 import { ColorInput } from '../ColorInput'
 import { SurveyThemeSelector } from '../SurveyThemeSelector'
 
@@ -63,9 +62,17 @@ export function AppearanceStep(): JSX.Element {
     }
 
     const handleThemeSelect = (theme: SurveyTheme): void => {
+        reportSurveyThemeSelected(survey, theme.id)
         setSelectedThemeId(theme.id)
         onAppearanceChange(theme.appearance)
     }
+
+    const siteThemeCard = useSiteThemeCard({
+        survey,
+        appearance,
+        onSelectTheme: handleThemeSelect,
+        disabled: !surveysStylingAvailable,
+    })
 
     const previewSurvey: NewSurvey = {
         ...survey,
@@ -73,6 +80,7 @@ export function AppearanceStep(): JSX.Element {
     } as NewSurvey
 
     const totalPreviewPages = survey.questions.length + (appearance.displayThankYouMessage ? 1 : 0)
+    const minPreviewIndex = getFirstPreviewPageIndex(survey)
 
     return (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
@@ -96,6 +104,7 @@ export function AppearanceStep(): JSX.Element {
                     selectedThemeId={selectedThemeId}
                     onSelectTheme={handleThemeSelect}
                     disabled={!surveysStylingAvailable}
+                    leadingCard={siteThemeCard}
                 />
 
                 {/* Color customization */}
@@ -179,7 +188,6 @@ export function AppearanceStep(): JSX.Element {
                         onAppearanceChange={onAppearanceChange}
                         hasBranchingLogic={hasBranchingLogic}
                         deleteBranchingLogic={deleteBranchingLogic}
-                        onTranslationsChange={(translations) => setSurveyValue('translations', translations)}
                     />
                 </GuidedWizardSection>
 
@@ -272,31 +280,30 @@ export function AppearanceStep(): JSX.Element {
                             survey={previewSurvey}
                             previewPageIndex={previewPageIndex}
                             onPreviewSubmit={(response) => {
-                                const next = getNextSurveyStep(previewSurvey, previewPageIndex, response)
-                                if (next === SurveyQuestionBranchingType.End && !appearance.displayThankYouMessage) {
-                                    return
+                                const nextPageIndex = getNextPreviewPageIndex(previewSurvey, previewPageIndex, response)
+                                if (nextPageIndex !== null) {
+                                    setPreviewPageIndex(nextPageIndex)
                                 }
-                                setPreviewPageIndex(
-                                    next === SurveyQuestionBranchingType.End ? survey.questions.length : next
-                                )
                             }}
                         />
                     </div>
 
                     {/* Preview navigation */}
-                    {totalPreviewPages > 1 && (
+                    {(totalPreviewPages > 1 || appearance.displayIntroScreen) && (
                         <div className="flex items-center justify-center gap-2">
                             <LemonButton
                                 type="secondary"
                                 size="small"
                                 icon={<IconChevronLeft />}
-                                onClick={() => setPreviewPageIndex(Math.max(0, previewPageIndex - 1))}
-                                disabledReason={previewPageIndex === 0 ? 'First question' : undefined}
+                                onClick={() => setPreviewPageIndex(Math.max(minPreviewIndex, previewPageIndex - 1))}
+                                disabledReason={previewPageIndex <= minPreviewIndex ? 'First screen' : undefined}
                             />
                             <span className="text-muted text-sm min-w-[80px] text-center">
-                                {previewPageIndex < survey.questions.length
-                                    ? `${previewPageIndex + 1} of ${survey.questions.length}`
-                                    : 'Thank you'}
+                                {previewPageIndex === INTRO_SCREEN_PAGE_INDEX
+                                    ? 'Intro'
+                                    : previewPageIndex < survey.questions.length
+                                      ? `${previewPageIndex + 1} of ${survey.questions.length}`
+                                      : 'Thank you'}
                             </span>
                             <LemonButton
                                 type="secondary"

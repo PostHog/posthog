@@ -1,11 +1,12 @@
 use sqlx::Row;
 
-/// Per-team error-tracking rate-limit configuration, loaded from
-/// `posthog_errortrackingsettings`. Two independent limits, matching the Node.js
-/// limiter: a per-issue cap and a project-wide (team) cap. A `None` value for a
-/// limit means that limit is disabled for the team.
+/// Per-team error-tracking settings loaded from `posthog_errortrackingsettings`.
+/// The adaptive preference shares the cached read with two manual limits.
+/// Those limits match the Node.js per-issue and project-wide caps; a missing
+/// value disables that limit for the team.
 #[derive(Debug, Clone, Default)]
 pub struct RateLimitSettings {
+    pub adaptive_ingestion_enabled: bool,
     pub project_value: Option<i32>,
     pub project_bucket_minutes: Option<i32>,
     pub per_issue_value: Option<i32>,
@@ -48,7 +49,7 @@ impl RateLimitSettings {
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
         let row = sqlx::query(
-            "SELECT project_rate_limit_value, project_rate_limit_bucket_size_minutes, \
+            "SELECT adaptive_ingestion_enabled, project_rate_limit_value, project_rate_limit_bucket_size_minutes, \
                     per_issue_rate_limit_value, per_issue_rate_limit_bucket_size_minutes \
              FROM posthog_errortrackingsettings WHERE team_id = $1",
         )
@@ -58,6 +59,7 @@ impl RateLimitSettings {
 
         row.map(|r| {
             Ok(Self {
+                adaptive_ingestion_enabled: r.try_get("adaptive_ingestion_enabled")?,
                 project_value: r.try_get("project_rate_limit_value")?,
                 project_bucket_minutes: r.try_get("project_rate_limit_bucket_size_minutes")?,
                 per_issue_value: r.try_get("per_issue_rate_limit_value")?,
@@ -70,6 +72,8 @@ impl RateLimitSettings {
 
 #[cfg(test)]
 mod tests {
+    use sqlx::PgPool;
+
     use super::*;
 
     #[test]
@@ -92,6 +96,7 @@ mod tests {
             project_bucket_minutes: Some(2),
             per_issue_value: Some(60),
             per_issue_bucket_minutes: None, // defaults to 60 minutes
+            adaptive_ingestion_enabled: false,
         };
 
         let project = s.project().unwrap();
@@ -101,5 +106,44 @@ mod tests {
         let per_issue = s.per_issue().unwrap();
         assert_eq!(per_issue.max, 60.0);
         assert!((per_issue.rate - (60.0 / 3600.0)).abs() < 1e-9);
+    }
+
+    #[sqlx::test]
+    async fn loads_adaptive_preference_with_manual_limits(db: PgPool) {
+        sqlx::query(
+            "CREATE TABLE posthog_errortrackingsettings (\
+                team_id INT PRIMARY KEY, adaptive_ingestion_enabled BOOLEAN NOT NULL, \
+                project_rate_limit_value INT, project_rate_limit_bucket_size_minutes INT, \
+                per_issue_rate_limit_value INT, per_issue_rate_limit_bucket_size_minutes INT)",
+        )
+        .execute(&db)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO posthog_errortrackingsettings \
+                (team_id, adaptive_ingestion_enabled, project_rate_limit_value) \
+                VALUES (7, TRUE, 120), (8, FALSE, 120)",
+        )
+        .execute(&db)
+        .await
+        .unwrap();
+
+        let enabled = RateLimitSettings::load_for_team(&db, 7)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(enabled.adaptive_ingestion_enabled);
+        assert_eq!(enabled.project().unwrap().max, 120.0);
+
+        let disabled = RateLimitSettings::load_for_team(&db, 8)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!disabled.adaptive_ingestion_enabled);
+        assert_eq!(disabled.project().unwrap().max, 120.0);
+        assert!(RateLimitSettings::load_for_team(&db, 9)
+            .await
+            .unwrap()
+            .is_none());
     }
 }

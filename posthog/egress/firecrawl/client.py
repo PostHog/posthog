@@ -51,12 +51,21 @@ class FirecrawlNotConfigured(Exception):
     deployments run without one, so callers must treat this as a normal degraded path."""
 
 
-class FirecrawlScrapeFailed(Exception):
+class _FirecrawlCallFailed(Exception):
+    """``status_code`` is Firecrawl's own HTTP status when it answered with an error, so a caller
+    can retry a 429 or 5xx and treat the rest as a failure of the page or query."""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class FirecrawlScrapeFailed(_FirecrawlCallFailed):
     """Firecrawl was reached but did not return a usable scrape (HTTP error, ``success: false``,
     or a body that does not match the documented shape)."""
 
 
-class FirecrawlSearchFailed(Exception):
+class FirecrawlSearchFailed(_FirecrawlCallFailed):
     """Firecrawl was reached but did not return a usable search (HTTP error, ``success: false``,
     or a body that does not match the documented shape)."""
 
@@ -67,6 +76,7 @@ class FirecrawlScrape:
     were requested, and a page can render without a title or description."""
 
     url: str
+    final_url: str | None = None
     markdown: str | None = None
     summary: str | None = None
     title: str | None = None
@@ -127,12 +137,12 @@ class _SuccessfulBody:
     data: Mapping[str, object]
 
 
-def _successful_body(response: requests.Response, subject: str, error: type[Exception]) -> _SuccessfulBody:
+def _successful_body(response: requests.Response, subject: str, error: type[_FirecrawlCallFailed]) -> _SuccessfulBody:
     """Return the top-level payload and its ``data`` object, or raise ``error`` when Firecrawl did
     not answer with a successful body."""
     if not response.ok:
         # The body can carry the scraped page, so keep it out of the exception that gets logged.
-        raise error(f"{subject} returned HTTP {response.status_code}")
+        raise error(f"{subject} returned HTTP {response.status_code}", status_code=response.status_code)
 
     try:
         body: object = response.json()
@@ -207,6 +217,7 @@ def scrape(
     metadata = _as_mapping(data.get("metadata")) or {}
     return FirecrawlScrape(
         url=url,
+        final_url=_as_str(metadata.get("url")),
         markdown=_as_str(data.get("markdown")),
         summary=_as_str(data.get("summary")),
         title=_as_str(metadata.get("title")),

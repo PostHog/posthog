@@ -4,16 +4,11 @@ Shared enums for the dashboards product.
 ``DashboardAccessMethod`` labels how a dashboard render was reached. It lives in the facade
 rather than in ``backend/access.py`` because the insight API tags its own cache metrics with
 it, and a data type that crosses the product boundary belongs here.
-
-``RestrictionLevel`` and ``PrivilegeLevel`` are the collaboration levels the ``Dashboard`` model
-stores and every caller compares against. They are defined here for the same reason: the insight
-API reports an insight's effective levels and gates dashboard edits on ``CAN_EDIT``. The model
-keeps ``Dashboard.RestrictionLevel`` / ``Dashboard.PrivilegeLevel`` as aliases of these.
 """
 
 from enum import StrEnum
 
-from posthog.enums import LabeledIntEnum
+from posthog.enums import LabeledStrEnum
 
 
 class DashboardAccessMethod(StrEnum):
@@ -23,18 +18,30 @@ class DashboardAccessMethod(StrEnum):
     API = "api"
 
 
-class RestrictionLevel(LabeledIntEnum):
-    """Collaboration restriction level (which is a dashboard setting). Sync with PrivilegeLevel."""
+class DashboardCreationMode(LabeledStrEnum):
+    """How a dashboard came to exist. Mirrors `Dashboard.CreationMode`."""
 
-    EVERYONE_IN_PROJECT_CAN_EDIT = 21, "Everyone in the project can edit"
-    ONLY_COLLABORATORS_CAN_EDIT = (
-        37,
-        "Only those invited to this dashboard can edit",
-    )
+    DEFAULT = "default", "Default"
+    TEMPLATE = "template", "Template"
+    DUPLICATE = "duplicate", "Duplicate"
+    UNLISTED = "unlisted", "Unlisted (product-embedded)"
 
 
-class PrivilegeLevel(LabeledIntEnum):
-    """Collaboration privilege level (which is a user property). Sync with RestrictionLevel."""
+# A plain StrEnum, not a LabeledStrEnum: only the stored values cross the boundary, and the OpenAPI
+# build names a component after every labeled enum it finds.
+class DashboardTemplateScope(StrEnum):
+    """Who can use a dashboard template. Mirrors `DashboardTemplate.Scope`."""
 
-    CAN_VIEW = 21, "Can view dashboard"
-    CAN_EDIT = 37, "Can edit dashboard"
+    ONLY_TEAM = "team"
+    ORGANIZATION = "organization"
+    GLOBAL = "global"
+    FEATURE_FLAG = "feature_flag"
+
+
+class DashboardUsageCount(StrEnum):
+    """Which dashboards the usage report counts for each team."""
+
+    ALL = "all"
+    FROM_TEMPLATE = "from_template"
+    SHARED = "shared"
+    TAGGED = "tagged"

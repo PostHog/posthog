@@ -6,8 +6,8 @@ import { useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
 
 import { flattenSeriesRows } from './metricsReduce'
-import { thresholdColor } from './metricsThresholds'
-import { formatMetricValue } from './metricsUnits'
+import { thresholdColorToken } from './metricsThresholds'
+import { metricValuesFormatter } from './metricsUnits'
 import type { MetricsPanelProps } from './registry'
 import { resolveReducer } from './registry'
 
@@ -36,11 +36,22 @@ export function BarGaugePanel({ series, display, fallbackName }: MetricsPanelPro
                 color: getColorVar(FALLBACK_COLOR),
                 // Per-bar threshold colors.
                 bars: rows.map((row) => ({
-                    color: getColorVar(thresholdColor(row.values[reducer] ?? null, display.thresholds, FALLBACK_COLOR)),
+                    color: getColorVar(
+                        thresholdColorToken(row.values[reducer] ?? null, display.thresholds, FALLBACK_COLOR)
+                    ),
                 })),
             },
         ],
         [rows, reducer, fallbackName, display.thresholds]
+    )
+    // `MetricsPanel` gives every series the same resolved unit, so the first row speaks for the chart.
+    const formatValue = useMemo(
+        () =>
+            metricValuesFormatter(
+                rows[0]?.series.unit ?? undefined,
+                rows.map((row) => row.values[reducer] ?? 0)
+            ),
+        [rows, reducer]
     )
     const labels = useMemo(
         () =>
@@ -70,7 +81,7 @@ export function BarGaugePanel({ series, display, fallbackName }: MetricsPanelPro
                     if (!row) {
                         return null
                     }
-                    return <span>{formatMetricValue(row.values[reducer] ?? 0, row.series.unit ?? undefined)}</span>
+                    return <span>{formatValue(row.values[reducer] ?? 0)}</span>
                 }}
             />
         </div>

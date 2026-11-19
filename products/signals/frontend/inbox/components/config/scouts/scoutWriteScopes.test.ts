@@ -1,6 +1,11 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { filterVisibleScoutWriteScopeRows, offeredScoutWriteScopes, scoutWriteScopeLabels } from './scoutWriteScopes'
+import {
+    filterVisibleScoutWriteScopeRows,
+    offeredScoutWriteScopes,
+    scoutWriteScopeLabels,
+    scoutWriteScopesBeyondDefault,
+} from './scoutWriteScopes'
 
 describe('scoutWriteScopes', () => {
     it('labels only the scopes the picker offers', () => {
@@ -9,19 +14,48 @@ describe('scoutWriteScopes', () => {
         expect(
             scoutWriteScopeLabels([
                 'insight:write',
+                'notebook:write',
                 'llm_skill:write',
                 'dashboard:write',
                 'replay_scanner:write',
                 'customer_task:write',
+                'account_note:write',
+                'ticket:write',
                 'cohort:write',
             ])
-        ).toEqual(['Dashboards', 'Insights', 'Customer tasks', 'Skills', 'Replay vision scanners'])
+        ).toEqual([
+            'Notebooks',
+            'Dashboards',
+            'Insights',
+            'Account notes',
+            'Customer tasks',
+            'Skills',
+            'Replay vision scanners',
+            'Support tickets',
+        ])
+    })
+
+    it('leaves the default grant out of what sets a scout apart', () => {
+        // Nearly every scout holds notebooks, so a roster chip for it would mark every row.
+        expect(scoutWriteScopesBeyondDefault(['notebook:write'])).toEqual([])
+        expect(scoutWriteScopesBeyondDefault(['notebook:write', 'dashboard:write'])).toEqual(['dashboard:write'])
     })
 
     it('drops a stored scope the picker has no row for', () => {
         // Carrying it into a save would get the whole update rejected, with no switch to clear it.
         expect(offeredScoutWriteScopes(['cohort:write', 'alert:write'])).toEqual(['alert:write'])
     })
+
+    it.each([
+        [{}, false],
+        [{ [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true }, true],
+    ])(
+        'shows the account notes row only behind the Customer analytics notes flag (flags %o)',
+        (featureFlags, shown) => {
+            const scopes = filterVisibleScoutWriteScopeRows(featureFlags).map((row) => row.scope)
+            expect(scopes.includes('account_note:write')).toBe(shown)
+        }
+    )
 
     it.each([
         [{}, false],

@@ -58,6 +58,7 @@ const CAMPAIGN_PROPERTIES = new Set([
     'qclid',
     'sccid',
     'oppref', // openai ads
+    'bfcid', // freebuff
 ])
 
 // Session and page tracking properties

@@ -4,6 +4,8 @@ from uuid import UUID
 
 import pytest
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
@@ -623,6 +625,24 @@ class TestHogQLTypeSystem:
             ast.StringType(nullable=False),
         )
 
+    @parameterized.expand(
+        [
+            ("Float32", ast.FloatType(nullable=False)),
+            ("Nullable(UInt8)", ast.IntegerType(nullable=True)),
+        ]
+    )
+    def test_resolver_infers_trino_json_extract_keys_and_values_clickhouse_type(
+        self, type_name: str, value_type: ast.ConstantType
+    ) -> None:
+        self._assert_first_column_type(
+            f"SELECT JSONExtractKeysAndValues('{{\"a\": 1}}', '{type_name}')",
+            ast.ArrayType(
+                nullable=False,
+                item_type=ast.TupleType(nullable=False, item_types=[ast.StringType(nullable=False), value_type]),
+            ),
+            dialect="trino",
+        )
+
     def test_resolver_infers_json_helper_function_types(self) -> None:
         self._assert_first_column_type("SELECT JSONHas('{\"num\": 42}', 'num')", ast.IntegerType(nullable=False))
         self._assert_first_column_type(
@@ -884,6 +904,8 @@ class TestHogQLTypeSystem:
     def test_resolver_infers_common_string_function_types(self) -> None:
         self._assert_first_column_type("SELECT base64Encode('test')", ast.StringType(nullable=False))
         self._assert_first_column_type("SELECT hex(unhex('DEADBEEF'))", ast.StringType(nullable=False))
+        self._assert_first_column_type("SELECT sha1('abc')", ast.StringType(nullable=False))
+        self._assert_first_column_type("SELECT sha1(toNullableString('abc'))", ast.StringType(nullable=True))
         self._assert_first_column_type(
             "SELECT splitByChar('.', '1.2.3')",
             ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),

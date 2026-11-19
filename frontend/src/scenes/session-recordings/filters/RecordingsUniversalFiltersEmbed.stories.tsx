@@ -92,6 +92,14 @@ export const ScannerCrossSell: Story = {
     },
 }
 
+// The entry point experiment's control arm: the button that opens the wizard, with no popover.
+export const ScannerCrossSellControl: Story = {
+    parameters: {
+        ...ScannerCrossSell.parameters,
+        featureFlags: { [FEATURE_FLAGS.VISION_ENTRYPOINT_REPLAY_FILTERS_POPOVER]: 'control' },
+    },
+}
+
 const withPageFilter = (values: Record<string, any>[]): Record<string, any> => ({
     pageUrl: combineUrl(urls.replay(), {
         showFilters: true,

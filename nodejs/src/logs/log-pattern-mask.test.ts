@@ -39,6 +39,8 @@ describe('log-pattern-mask', () => {
             ['httpdate', 'expires Mon, 02 Jan 2026 03:04:05 GMT now', 'expires <TIMESTAMP> now'],
             ['syslogtime', 'Jan  2 03:04:05 host sshd: accepted', '<TIMESTAMP> host sshd: accepted'],
             ['id', 'charging cus_Qz4WmTb7Kx9pLr now', 'charging <ID> now'],
+            ['stripeid', 'charging cus_QzWmTbKxRpLvNa now', 'charging <ID> now'],
+            ['snakenum', 'folder team_190219 ready', 'folder team_<N> ready'],
             ['uuid', 'request 0f2d6faf-07e3-4cff-bf47-7efa1024aee2 failed', 'request <UUID> failed'],
             ['email', 'user alice@example.com rejected', 'user <EMAIL> rejected'],
             ['hex0x', 'fault at 0xdeadBEEF handler', 'fault at <HEX> handler'],
@@ -61,6 +63,53 @@ describe('log-pattern-mask', () => {
                 'a lowercase uuid behind a prefix stays a uuid, because the id rule needs an uppercase letter',
                 'job_0f2d6faf-07e3-4cff-bf47-7efa1024aee2 queued',
                 'job_<UUID> queued',
+            ],
+            [
+                'a uuid at the end of a digit chain stays a uuid, so its tail cannot leak',
+                'export job_1234_01905063-07e3-4cff-bf47-7efa1024aee2 done',
+                'export job_<N>_<UUID> done',
+            ],
+            [
+                'an uppercase uuid at the end of a digit chain stays a uuid',
+                'export job_1234_01905063-07E3-4CFF-BF47-7EFA1024AEE2 done',
+                'export job_<N>_<UUID> done',
+            ],
+            [
+                'digits glued to a uuid at the end of a digit chain mask with it',
+                'copy x_1234_123456789012-07e3-4cff-bf47-7efa1024aee2 done',
+                'copy x_<N>_<UUID> done',
+            ],
+            [
+                'a hex run glued to a uuid at the end of a digit chain masks with it',
+                'copy x_1234_ab12cd34ef-07e3-4cff-bf47-7efa1024aee2 done',
+                'copy x_<N>_<UUID> done',
+            ],
+            [
+                'a short digit run before a uuid stays literal',
+                'copy v_12_01905063-07e3-4cff-bf47-7efa1024aee2 done',
+                'copy v_12_<UUID> done',
+            ],
+            [
+                'digits glued to the front of a uuid mask with it, not as a stranded number',
+                'copy x_123456789012-07e3-4cff-bf47-7efa1024aee2 done',
+                'copy x_<UUID> done',
+            ],
+            [
+                'a hex run glued to the front of a uuid masks with it',
+                'copy x_1234abcdef01-07e3-4cff-bf47-7efa1024aee2 done',
+                'copy x_<UUID> done',
+            ],
+            [
+                'a uuid behind an underscore whose first group is all digits stays a uuid, not a number',
+                'job_12345678-07e3-4cff-bf47-7efa1024aee2 queued',
+                'job_<UUID> queued',
+            ],
+            ['an email whose local part ends in digits stays an email', 'ops_12345@example.com sent', '<EMAIL> sent'],
+            ['digits after an underscore inside an id stay with the id', 'key_1234Ab9 rotated', '<ID> rotated'],
+            [
+                'an underscore-joined host label keeps its host mask',
+                'dial shard_1234.example.com now',
+                'dial shard_<N>.<HOST> now',
             ],
             ['dotted quad stays an ip, not a host', 'from 10.0.0.1 now', 'from <IP> now'],
             ['host in a url masks whole', 'GET https://api.example.io/v2/users', 'GET https://<HOST>/v2/users'],
@@ -159,11 +208,80 @@ describe('log-pattern-mask', () => {
                 'GET /v1/entitlements/active_entitlements?limit=100',
                 'GET /v1/entitlements/active_entitlements?limit=<N>',
             ],
-            ['a body of digits only', 'folder team_123456 ready', 'folder team_123456 ready'],
+            ['a body of digits only', 'folder team_123456 ready', 'folder team_<N> ready'],
             ['a body of lowercase and digits', 'repo repo_0a1b2c3d synced', 'repo repo_0a1b2c3d synced'],
             ['a body of letters but no digit', 'saw ref_QzWmTbKx once', 'saw ref_QzWmTbKx once'],
             ['a prefix past the cap', 'saw verylongprefix_Zq8xTv2wPn once', 'saw verylongprefix_Zq8xTv2wPn once'],
         ])('id does not claim %s', (_name, input, expected) => {
+            expect(maskString(input).masked).toEqual(expected)
+        })
+
+        it.each([
+            ['a 24-letter subscription id', 'renewed sub_QzWmTbKxRpLvNaQzWmTbKxRp ok', 'renewed <ID> ok'],
+            ['an all-uppercase id', 'charging cus_UGCOPIHBEGXJIF now', 'charging <ID> now'],
+            [
+                'an id inside a url path',
+                'GET /v1/customers/cus_TjuwpGlQcCSDCk/payment_methods',
+                'GET /v1/customers/<ID>/payment_methods',
+            ],
+            [
+                'a PascalCase name of exactly 14 letters, a known limit',
+                'calling sub_PaymentMethods now',
+                'calling <ID> now',
+            ],
+        ])('stripeid masks %s', (_name, input, expected) => {
+            expect(maskString(input).masked).toEqual(expected)
+        })
+
+        it.each([
+            ['a snake_case word', 'reading sub_categorization now', 'reading sub_categorization now'],
+            [
+                'a prefix glued to a longer word',
+                'saw stripe_cus_QzWmTbKxRpLvNa once',
+                'saw stripe_cus_QzWmTbKxRpLvNa once',
+            ],
+            ['another Stripe prefix, payment intent', 'saw pi_QzWmTbKxRpLvNa once', 'saw pi_QzWmTbKxRpLvNa once'],
+            ['another Stripe prefix, charge', 'saw ch_QzWmTbKxRpLvNa once', 'saw ch_QzWmTbKxRpLvNa once'],
+        ])('stripeid does not claim %s', (_name, input, expected) => {
+            expect(maskString(input).masked).toEqual(expected)
+        })
+
+        it.each([
+            [
+                'a ClickHouse part name whole, merge level included',
+                'No active replica has part 202610_4682747_4682751_2 or covering part',
+                'No active replica has part <N>_<N> or covering part',
+            ],
+            ['a dated backup suffix', 'restored db_20260425_112424 from backup', 'restored db_<N> from backup'],
+            ['a long query id', 'running hubspot_sync__query_1792084441 now', 'running hubspot_sync__query_<N> now'],
+            ['a year after an underscore, as num masks a bare year', 'report daily_2026 sent', 'report daily_<N> sent'],
+            ['a nanosecond epoch', 'flushed batch_1792084441123456789 ok', 'flushed batch_<N> ok'],
+            [
+                'a 4-digit vendor error code, as num masks its hyphen form',
+                'failed with ERR_ACME_3200',
+                'failed with ERR_ACME_<N>',
+            ],
+        ])('snakenum masks %s', (_name, input, expected) => {
+            expect(maskString(input).masked).toEqual(expected)
+        })
+
+        it.each([
+            ['an architecture', 'built for x86_64 linux', 'built for x86_64 linux'],
+            ['a key size', 'cipher aes_256 enabled', 'cipher aes_256 enabled'],
+            ['a dimension pair', 'resize scale_200_200 done', 'resize scale_200_200 done'],
+            ['an ordinal', 'parsed line_1 of input', 'parsed line_1 of input'],
+            ['digits running into letters', 'waited tick_1234ms total', 'waited tick_1234ms total'],
+            [
+                'digits running into a snake_case word',
+                'opened team_190219_stripe folder',
+                'opened team_190219_stripe folder',
+            ],
+            [
+                'a hex group of an underscore-joined uuid, which ends in a letter',
+                'copying team_01a1116e_7b83_0000_0ed6_45f0bfe69515 now',
+                'copying team_01a1116e_7b83_0000_0ed6_45f0bfe69515 now',
+            ],
+        ])('snakenum does not claim %s', (_name, input, expected) => {
             expect(maskString(input).masked).toEqual(expected)
         })
 
@@ -225,7 +343,10 @@ describe('log-pattern-mask', () => {
                 httpdate: 0,
                 syslogtime: 0,
                 id: 0,
+                stripeid: 0,
+                snakeuuid: 0,
                 uuid: 0,
+                snakenum: 0,
                 email: 2,
                 host: 1,
                 hex0x: 0,
@@ -369,6 +490,8 @@ describe('log-pattern-mask', () => {
             'checksum deadbeefdeadbeef00 verified',
             'built sha a3f9c1d2 from 1724495000',
             'charging cus_Qz4WmTb7Kx9pLr for org_01ABCDEF23GHJK45MNPQRS67',
+            'renewing sub_QzWmTbKxRpLvNa for team_190219 job_12345678-07e3-4cff-bf47-7efa1024aee2',
+            'export job_1234_01905063-07e3-4cff-bf47-7efa1024aee2 done',
             '{"10.0.0.1":1,"10.0.0.2":2}',
             ...MESSAGE_KEYS.map((key) => JSON.stringify({ [key]: 'served 3 requests', level: 'info' })),
             '{"msg":"loses 2","message":"wins 1"}',
@@ -403,6 +526,7 @@ describe('log-pattern-mask', () => {
             3: 'd7b045b1054244d1',
             4: '357baaab19f622df',
             5: '130ce70d5eeff09e',
+            6: '9cb90c3c0ef4135a',
         }
 
         /**
@@ -467,6 +591,167 @@ describe('log-pattern-mask', () => {
         })
     })
 
+    describe('property sweeps', () => {
+        // Seeded, so a failing input reproduces.
+        const mulberry32 = (seed: number) => (): number => {
+            seed = (seed + 0x6d2b79f5) | 0
+            let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+            t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+        }
+        const pick = <T>(rand: () => number, items: readonly T[]): T => items[Math.floor(rand() * items.length)]
+        const chars = (rand: () => number, alphabet: string, min: number, max: number): string =>
+            Array.from({ length: min + Math.floor(rand() * (max - min + 1)) }, () => pick(rand, [...alphabet])).join('')
+        const LOWER = 'abcdefghijklmnopqrstuvwxyz'
+        const UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+        const DIGITS = '0123456789'
+
+        const sequentialChain = (input: string): string =>
+            MASK_RULES.reduce((acc, rule) => acc.replace(new RE2(rule.pattern, 'g'), rule.replacement), input)
+
+        // `notBefore` and `notAfter` skip joins where `id`, `email`, `host`, `hex0x` and `hex` already
+        // disagree with the chain in v5, so the sweeps test only the new rules.
+        type Fragment = { text: string; notBefore: string; notAfter?: string }
+        const fragment = (rand: () => number): Fragment =>
+            pick(rand, [
+                () => ({ text: '2026-08-24T10:20:45.123Z', notBefore: '' }),
+                () => ({ text: 'I0827 11:39:40.307946', notBefore: '' }),
+                () => ({ text: `${chars(rand, LOWER, 1, 3)}@example.com`, notBefore: '.-' }),
+                () => ({
+                    text: `${chars(rand, LOWER, 2, 6)}_${chars(rand, UPPER, 1, 1)}${chars(rand, LOWER + DIGITS, 3, 8)}9`,
+                    notBefore: '-',
+                }),
+                () => ({ text: `cus_${chars(rand, UPPER, 1, 1)}${chars(rand, LOWER + UPPER, 13, 13)}`, notBefore: '' }),
+                () => ({ text: `sub_${chars(rand, UPPER, 1, 1)}${chars(rand, LOWER + UPPER, 23, 23)}`, notBefore: '' }),
+                () => {
+                    const hex = pick(rand, ['0123456789abcdef', '0123456789ABCDEF', DIGITS])
+                    const uuid = [8, 4, 4, 4, 12].map((length) => chars(rand, hex, length, length)).join('-')
+                    const glued = chars(rand, DIGITS + 'abcdef', 0, 6)
+                    const chain = pick(rand, [
+                        '',
+                        `_${chars(rand, DIGITS, 4, 8)}`,
+                        `_${chars(rand, DIGITS, 4, 8)}_${chars(rand, DIGITS, 1, 4)}`,
+                    ])
+                    return {
+                        text: glued || chain ? `${chars(rand, LOWER, 1, 4)}${chain}_${glued}${uuid}` : uuid,
+                        notBefore: '',
+                    }
+                },
+                () => ({ text: `${chars(rand, LOWER, 1, 4)}.example.io`, notBefore: '', notAfter: '.-' }),
+                () => ({ text: '0xdeadbeef', notBefore: '_' }),
+                () => ({ text: 'deadbeefdeadbeef00', notBefore: '' }),
+                () => ({ text: '10.0.0.1', notBefore: '' }),
+                () => ({ text: chars(rand, DIGITS, 1, 20), notBefore: '' }),
+                () => ({ text: `${chars(rand, LOWER, 1, 8)}_${chars(rand, DIGITS, 1, 20)}`, notBefore: '' }),
+                () => ({
+                    text: [6, 4 + Math.floor(rand() * 5), 4 + Math.floor(rand() * 5), 1 + Math.floor(rand() * 3)]
+                        .map((length) => chars(rand, DIGITS, length, length))
+                        .join('_'),
+                    notBefore: '',
+                }),
+                () => ({ text: chars(rand, LOWER, 1, 8), notBefore: '' }),
+            ])()
+
+        const SEPARATORS = [' ', '_', '/', '-', '.', ':', '=', ',']
+        const line = (rand: () => number): string => {
+            let previous = fragment(rand)
+            let out = previous.text
+            for (let i = 1 + Math.floor(rand() * 5); i > 0; i--) {
+                const next = fragment(rand)
+                const allowed = SEPARATORS.filter(
+                    (separator) => !previous.notBefore.includes(separator) && !(next.notAfter ?? '').includes(separator)
+                )
+                out += pick(rand, allowed) + next.text
+                previous = next
+            }
+            return out
+        }
+
+        it('masks every generated line the same in one pass as rule by rule', () => {
+            const rand = mulberry32(20261016)
+            const mismatches: string[] = []
+            for (let i = 0; i < 5000 && mismatches.length < 5; i++) {
+                const input = line(rand)
+                if (maskString(input).masked !== sequentialChain(input)) {
+                    mismatches.push(input)
+                }
+            }
+            expect(mismatches).toEqual([])
+        })
+
+        it('leaves every masked line unchanged when masked again', () => {
+            const rand = mulberry32(20261017)
+            const changed: string[] = []
+            for (let i = 0; i < 5000 && changed.length < 5; i++) {
+                const once = maskString(line(rand)).masked
+                if (maskString(once).masked !== once) {
+                    changed.push(once)
+                }
+            }
+            expect(changed).toEqual([])
+        })
+
+        it('never leaves part of a uuid visible, whatever is glued in front of it', () => {
+            const rand = mulberry32(20261020)
+            const leaked: string[] = []
+            for (let i = 0; i < 20000 && leaked.length < 5; i++) {
+                const hex = pick(rand, ['0123456789abcdef', '0123456789ABCDEF', DIGITS])
+                const groups = [8, 4, 4, 4, 12].map((length) => chars(rand, hex, length, length))
+                const prefix = Array.from({ length: Math.floor(rand() * 5) }, () =>
+                    pick(rand, [
+                        () => chars(rand, LOWER, 1, 6),
+                        () => `_${chars(rand, DIGITS, 1, 14)}`,
+                        () => `_${chars(rand, '0123456789abcdef', 1, 14)}`,
+                        () => chars(rand, DIGITS, 1, 14),
+                        () => chars(rand, '0123456789abcdef', 1, 14),
+                        () => pick(rand, [' ', '/', '.', ':', '=', ',', '_']),
+                    ])()
+                ).join('')
+                const input = `${prefix}${groups.join('-')} ok`
+                const masked = maskString(input).masked
+                if (groups.slice(1).some((group) => masked.includes(`${group}-`) || masked.includes(`-${group}`))) {
+                    leaked.push(input)
+                }
+            }
+            expect(leaked).toEqual([])
+        })
+
+        it('masks a digit run after an underscore only at 4 digits or more', () => {
+            const rand = mulberry32(20261018)
+            const wrong: string[] = []
+            for (let i = 0; i < 5000 && wrong.length < 5; i++) {
+                const word = chars(rand, LOWER, 1, 10)
+                const digits = chars(rand, DIGITS, 1, 20)
+                const after = pick(rand, [' ', '/', '-', '.', ':', ',', 'ms', '_stripe', 'a'])
+                const input = `x ${word}_${digits}${after} y`
+                const partOfName = /^[A-Za-z_]/.test(after)
+                const expected = digits.length >= 4 && !partOfName ? `x ${word}_<N>${after} y` : input
+                if (maskString(input).masked !== expected) {
+                    wrong.push(input)
+                }
+            }
+            expect(wrong).toEqual([])
+        })
+
+        it('masks a body of letters only behind cus_ or sub_, at 14 or 24 letters led by an uppercase letter', () => {
+            const rand = mulberry32(20261019)
+            const wrong: string[] = []
+            for (let i = 0; i < 5000 && wrong.length < 5; i++) {
+                const body = chars(rand, LOWER + UPPER, 8, 30)
+                const prefix = pick(rand, ['cus', 'sub', chars(rand, LOWER, 2, 4)])
+                const input = `x ${prefix}_${body} y`
+                const isId =
+                    ['cus', 'sub'].includes(prefix) &&
+                    (body.length === 14 || body.length === 24) &&
+                    UPPER.includes(body[0])
+                if (maskString(input).masked !== (isId ? 'x <ID> y' : input)) {
+                    wrong.push(input)
+                }
+            }
+            expect(wrong).toEqual([])
+        })
+    })
+
     describe('RE2 ratchet', () => {
         it.each(MASK_RULES.map((rule) => [rule.name, rule.pattern] as const))(
             'rule %s compiles under RE2 and uses no lookaround, backreference, or capture group',
@@ -506,6 +791,11 @@ describe('log-pattern-mask', () => {
             'trace_0A1B2C3D-4E5F-6789-ABCD-EF0123456789 started',
             // An id-shaped local part: `id` and `email` match at one offset, so the chain must run `email` first.
             'john_D2oe@example.com sent',
+            // `snakenum` starts before `uuid` here, so the chain must run `snakeuuid` ahead of both.
+            'job_12345678-07e3-4cff-bf47-7efa1024aee2 queued',
+            'export job_1234_01905063-07e3-4cff-bf47-7efa1024aee2 done',
+            'No active replica has part 202610_4682747_4682751_2 for ops_12345@example.com',
+            'GET /v1/customers/cus_TjuwpGlQcCSDCk then shard_1234.example.com then x86_64',
         ]
 
         it.each(corpus.map((line) => [line] as const))('%s', (line) => {

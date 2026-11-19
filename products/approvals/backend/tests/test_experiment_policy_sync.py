@@ -1,12 +1,13 @@
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.db import connection
 
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.models import Organization, Team
 
 from products.access_control.backend.models.role import Role
 from products.approvals.backend.experiment_policy_sync import _SYNC_LOCK_KEY, sync_experiment_policies
@@ -14,6 +15,14 @@ from products.approvals.backend.models import ApprovalPolicy
 
 
 class TestSyncExperimentPolicies(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        not_rolled_out = patch(
+            "products.approvals.backend.experiment_policy_sync.scope_by_owner_state", return_value=False
+        )
+        not_rolled_out.start()
+        self.addCleanup(not_rolled_out.stop)
+
     def _flag_policy(self, action_key: str, **overrides) -> ApprovalPolicy:
         fields = {
             "organization": self.organization,
@@ -113,3 +122,69 @@ class TestSyncExperimentPolicies(BaseTest):
         assert not ApprovalPolicy.objects.filter(action_key="experiment.launch").exists()
         sync_experiment_policies()
         assert self._mirror("experiment.launch", None)
+
+
+class TestSyncLeavesRolledOutOrganizationsAlone(BaseTest):
+    """An organization that evaluates policies by flag owner owns its experiment policies.
+
+    The sync must not touch them after that point. Overwriting one would silently revert an edit
+    the organization just gained the right to make, and the orphan sweep would delete an
+    experiment policy it created, both without anything failing.
+    """
+
+    def _policy(self, action_key: str, **overrides) -> ApprovalPolicy:
+        fields = {
+            "organization": self.organization,
+            "team": self.team,
+            "action_key": action_key,
+            "approver_config": {"quorum": 1, "users": [self.user.id]},
+            "created_by": self.user,
+            **overrides,
+        }
+        return ApprovalPolicy.objects.create(**fields)
+
+    def _rollout_state(self, state: bool | None):
+        return patch("products.approvals.backend.experiment_policy_sync.scope_by_owner_state", return_value=state)
+
+    @parameterized.expand([("rolled_out", True), ("rollout_unknown", None)])
+    def test_does_not_overwrite_an_edited_experiment_policy(self, _name: str, state: bool | None) -> None:
+        self._policy("feature_flag.update", approver_config={"quorum": 1, "users": [self.user.id]})
+        edited = self._policy("experiment.update", approver_config={"quorum": 3, "users": [self.user.id]})
+
+        with self._rollout_state(state):
+            sync_experiment_policies()
+
+        edited.refresh_from_db()
+        assert edited.approver_config["quorum"] == 3
+
+    @parameterized.expand([("rolled_out", True), ("rollout_unknown", None)])
+    def test_does_not_delete_an_experiment_policy_with_no_flag_policy(self, _name: str, state: bool | None) -> None:
+        own = self._policy("experiment.launch")
+
+        with self._rollout_state(state):
+            sync_experiment_policies()
+
+        assert ApprovalPolicy.objects.filter(id=own.id).exists()
+
+    def test_does_not_create_a_mirror(self) -> None:
+        self._policy("feature_flag.enable")
+
+        with self._rollout_state(True):
+            sync_experiment_policies()
+
+        assert not ApprovalPolicy.objects.filter(action_key="experiment.launch").exists()
+
+    def test_still_syncs_an_organization_that_is_not_rolled_out(self) -> None:
+        """The skip must be per organization, or one rollout would freeze everybody's mirrors."""
+        rolled_out = Organization.objects.create(name="Rolled out")
+        self._policy("feature_flag.enable")
+        self._policy("feature_flag.enable", organization=rolled_out, team=None)
+
+        with patch(
+            "products.approvals.backend.experiment_policy_sync.scope_by_owner_state",
+            side_effect=lambda organization: organization.id == rolled_out.id,
+        ):
+            sync_experiment_policies()
+
+        assert ApprovalPolicy.objects.filter(organization=self.organization, action_key="experiment.launch").exists()
+        assert not ApprovalPolicy.objects.filter(organization=rolled_out, action_key="experiment.launch").exists()

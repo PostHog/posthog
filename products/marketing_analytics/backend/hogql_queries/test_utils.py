@@ -10,7 +10,7 @@ from pydantic import (
 
 from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3
 
-from posthog.api.team import MarketingAnalyticsConversionGoalList
+from posthog.api.team.marketing_config import MarketingAnalyticsConversionGoalList
 
 from products.marketing_analytics.backend.hogql_queries.utils import convert_team_conversion_goals_to_objects
 

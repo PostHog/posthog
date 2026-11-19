@@ -11,14 +11,15 @@ export function Integration({
     kind,
     centered,
     children,
-}: PropsWithChildren<{ kind: IntegrationKind; centered?: boolean }>): JSX.Element {
+    integrationSuffix,
+}: PropsWithChildren<{ kind: IntegrationKind; centered?: boolean; integrationSuffix?: JSX.Element }>): JSX.Element {
     const integrations = useIntegrations(kind)
 
     return (
         <div className="flex flex-col">
             <div className="flex flex-col gap-y-2">
                 {integrations.map((integration) => (
-                    <IntegrationView key={integration.id} integration={integration} />
+                    <IntegrationView key={integration.id} integration={integration} suffix={integrationSuffix} />
                 ))}
                 <div className={cn('flex', centered && 'justify-center')}>{children}</div>
             </div>

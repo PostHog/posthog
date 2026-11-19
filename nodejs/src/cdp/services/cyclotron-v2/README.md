@@ -11,6 +11,30 @@ Run them with `rust/bin/migrate-cyclotron-node`.
 Single table `cyclotron_jobs` with a single `state` BYTEA column
 for all job payload data (mirrors how the Kafka backend serializes everything into one blob).
 
+## Keep rows small: no file or blob storage
+
+The cyclotron database is a queue.
+Rows are inserted, updated on every transition, and deleted soon after.
+PostgreSQL handles this churn well only while each row is small.
+
+Do not store large or variable-size payloads in this database.
+This applies to `cyclotron_jobs` and to any new table next to it,
+for example email attachments, rendered bodies, exports, or files from users.
+Put the bytes in object storage and keep only a key (and the metadata the worker needs) in the row.
+
+The reason:
+
+- PostgreSQL moves a large `BYTEA` or `TEXT` value out of line into the table's TOAST table, in chunks.
+  A delete does not give that space back. Only vacuum reclaims it.
+- Constant insert and delete of large rows bloats the table and its TOAST table,
+  and keeps autovacuum busy on the same database that serves dequeue.
+- Each large write also goes through the WAL, which adds write load and replication lag.
+- Dequeue, the janitor and every worker share this one database,
+  so bloat from one feature slows every queue.
+
+The `state` column is the only payload column.
+Keep it to what the next execution step needs to continue, not data that only passes through.
+
 ## Components
 
 ### Manager (producer)
@@ -33,6 +57,11 @@ Each dequeued job exposes an ack interface:
 - `retry({ delayMs?, state? })` — re-queue with optional delay and updated state
 - `cancel()` — mark canceled
 - `heartbeat()` — extend the lock to prevent the janitor from reclaiming the job
+
+Every release write (`ack`, `fail`, `reschedule`, `defer`, `cancel`) matches the row on `lock_id`, so a write from a worker that lost its claim changes nothing.
+With `CDP_CYCLOTRON_RELEASE_WRITE_RETRY` on, a release write that loses its Postgres connection runs once more on a fresh connection, within what is left of the heartbeat limit.
+Without the retry, a write whose connection drops before it commits leaves the job claimed until the janitor's stall reset, which then runs it a second time.
+`cdp_cyclotron_v2_release_write_retries_total` counts each retry by outcome.
 
 ### Janitor (standalone service)
 

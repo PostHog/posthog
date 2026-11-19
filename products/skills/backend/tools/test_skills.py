@@ -20,7 +20,7 @@ from products.skills.backend.tools.skills import (
     UpdateSkillArgs,
 )
 
-from ee.hogai.tool_errors import MaxToolFatalError
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 
 
 def _run(tool, **kwargs):
@@ -189,12 +189,14 @@ class TestCreateLLMSkillTool(BaseTest):
             files=[
                 {"path": "scripts/mandelbrot.py", "content": "print('m')", "content_type": "text/x-python"},
             ],
+            version_description="  Written from scratch.  ",
         )
 
         assert "make-fractals" in result
         assert "v1" in result
         skill = LLMSkill.objects.get(team=self.team, name="make-fractals", is_latest=True)
         assert skill.description == "Render fractals."
+        assert skill.version_description == "Written from scratch."
         assert skill.files.count() == 1
         first_file = skill.files.first()
         assert first_file is not None
@@ -267,16 +269,22 @@ class TestUpdateLLMSkillTool(BaseTest):
         assert "Do the better thing." in latest.body
         assert "Do a thing." not in latest.body
 
-    def test_version_conflict_raises(self):
+    @parameterized.expand(
+        [
+            ("version_conflict", 5, {"body": "new body"}, "modified"),
+            ("edit_not_found", 0, {"edits": [{"old": "Missing text.", "new": "x"}]}, "not found"),
+        ]
+    )
+    def test_input_errors_are_retryable(self, _name, version_offset, update_kwargs, expected_error):
         existing = self._create_skill()
         tool = UpdateLLMSkillTool(team=self.team, user=self.user)
 
-        with self.assertRaisesRegex(MaxToolFatalError, "modified"):
+        with self.assertRaisesRegex(MaxToolRetryableError, expected_error):
             _run(
                 tool,
                 skill_name="make-fractals",
-                base_version=existing.version + 5,
-                body="new body",
+                base_version=existing.version + version_offset,
+                **update_kwargs,
             )
 
     def test_body_and_edits_are_mutually_exclusive(self):
@@ -331,3 +339,10 @@ class TestSkillToolDescriptionCap(TestCase):
         with self.assertRaises(ValidationError):
             build("x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1))
         build("x" * SPEC_DESCRIPTION_MAX_LENGTH)
+
+    def test_create_version_description_capped_at_column_limit(self) -> None:
+        # create_skill writes the note straight to a 400-char column, so an over-long note must
+        # fail here rather than as a database error mid-tool-call.
+        with self.assertRaises(ValidationError):
+            CreateSkillArgs(name="my-skill", description="d", body="# Body", version_description="x" * 401)
+        CreateSkillArgs(name="my-skill", description="d", body="# Body", version_description="x" * 400)

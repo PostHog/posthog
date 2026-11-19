@@ -45,6 +45,8 @@ export const OBSERVATION_LIST_FILTER_KEYS: readonly (keyof VisionObservationsRet
     'session_id',
     'recording_subject',
     'labeled',
+    'watch_group',
+    'watch_category',
     'order_by',
 ]
 
@@ -67,6 +69,8 @@ export const OBSERVATION_LIST_URL_PARAM_KEYS = [
     'date_to',
     'backfill_id',
     'variant',
+    'watch_group',
+    'watch_category',
 ] as const
 
 export type ObservationsUrlParams = Partial<Record<(typeof OBSERVATION_LIST_URL_PARAM_KEYS)[number], string>>
@@ -309,27 +313,60 @@ const RETIRED_MODEL_NAMES: Record<string, string> = {
     'gemini-3.6-flash': 'Gemini 3.6 Flash',
 }
 
-export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = Object.values(ScannerModelEnumApi).map(
-    (value) => ({
-        value,
-        label: `${MODEL_NAMES[value]} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
-    })
-)
+export type ModelNaming = 'model' | 'tier' | 'effort'
 
-// Falls back to the raw id for models retired before they were named here.
-export function modelLabel(model: string | null | undefined): string {
-    if (!model) {
-        return '—'
-    }
-    return MODEL_OPTIONS.find((opt) => opt.value === model)?.label ?? RETIRED_MODEL_NAMES[model] ?? model
+// Names the `vision-model-tier-naming` test arms show in place of the Gemini names, so a tier can later
+// map to a different model, a mix of models, or an in-house model.
+const MODEL_NAMES_BY_NAMING: Record<Exclude<ModelNaming, 'model'>, Record<ScannerModelEnumApi, string>> = {
+    tier: {
+        [ScannerModelEnumApi.Gemini35FlashLite]: 'Lite',
+        [ScannerModelEnumApi.Gemini3FlashPreview]: 'Normal',
+        [ScannerModelEnumApi.Gemini38Flash]: 'Advanced',
+    },
+    effort: {
+        [ScannerModelEnumApi.Gemini35FlashLite]: 'Quick',
+        [ScannerModelEnumApi.Gemini3FlashPreview]: 'Normal',
+        [ScannerModelEnumApi.Gemini38Flash]: 'Max',
+    },
 }
 
-/** Plain model name without the price suffix, for surfaces that show the price separately. */
-export function modelName(model: string | null | undefined): string {
+const MODEL_FIELD_LABELS: Record<ModelNaming, string> = {
+    model: 'Model',
+    tier: 'Model tier',
+    effort: 'Effort',
+}
+
+/** The `vision-model-tier-naming` arms: `control` keeps the Gemini names, `model-tier` and `effort` hide them. */
+export function modelTierNaming(variant: string | boolean | undefined): { fieldLabel: string; naming: ModelNaming } {
+    const naming: ModelNaming = variant === 'model-tier' ? 'tier' : variant === 'effort' ? 'effort' : 'model'
+    return { fieldLabel: MODEL_FIELD_LABELS[naming], naming }
+}
+
+/** Plain model name without the price suffix, for surfaces that show the price separately. A test arm shows
+ * "Legacy" for a model it has no name for, because the raw id carries the Gemini name. */
+export function modelName(model: string | null | undefined, naming: ModelNaming = 'model'): string {
     if (!model) {
         return '—'
     }
+    if (naming !== 'model') {
+        return MODEL_NAMES_BY_NAMING[naming][model as ScannerModelEnumApi] ?? 'Legacy'
+    }
     return MODEL_NAMES[model as ScannerModelEnumApi] ?? RETIRED_MODEL_NAMES[model] ?? model
+}
+
+export function modelOptions(naming: ModelNaming = 'model'): { value: ScannerModelEnumApi; label: string }[] {
+    return Object.values(ScannerModelEnumApi).map((value) => ({
+        value,
+        label: `${modelName(value, naming)} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
+    }))
+}
+
+// Falls back to the raw id for models retired before they were named here.
+export function modelLabel(model: string | null | undefined, naming: ModelNaming = 'model'): string {
+    if (!model) {
+        return '—'
+    }
+    return modelOptions(naming).find((opt) => opt.value === model)?.label ?? modelName(model, naming)
 }
 
 /** Fallback name for a scanner the user never named, e.g. "Hedgebox classifier". */
@@ -352,18 +389,6 @@ export function scannerTypeLabel(scannerType: ScannerType | null | undefined): s
 
 // A plain-language description of what each scanner type produces per session, for people who don't yet
 // know the type names. Kept short so it reads as a chip subtitle / tooltip.
-const SCANNER_TYPE_OUTPUT_HINT: Record<ScannerType, string> = {
-    monitor: 'yes or no',
-    classifier: 'a category from a set you define',
-    scorer: 'a number score',
-    summarizer: 'a text summary',
-    experiment: 'a text summary per exposed session',
-}
-
-export function scannerTypeOutputHint(scannerType: ScannerType): string {
-    return SCANNER_TYPE_OUTPUT_HINT[scannerType]
-}
-
 /** Section label for a succeeded observation's primary output, shared by the detail page and the dock card. */
 export const SUCCEEDED_OUTPUT_LABEL: Record<ScannerType, string> = {
     classifier: 'Categories',
@@ -456,27 +481,6 @@ export type ScannerConfig =
     | ScorerScannerConfig
     | ExperimentScannerConfig
 
-export type SamplingMode = 'focused' | 'balanced' | 'comprehensive'
-
-// Ordered broadest to narrowest so the labels read as a ladder.
-export const SAMPLING_MODE_OPTIONS: { value: SamplingMode; label: string; description: string }[] = [
-    {
-        value: 'comprehensive',
-        label: 'All recordings',
-        description: 'Scans everything that matches your filters, whatever happens in the recording.',
-    },
-    {
-        value: 'balanced',
-        label: 'Medium and high activity recordings',
-        description: 'Skips recordings where almost nothing happens.',
-    },
-    {
-        value: 'focused',
-        label: 'High activity recordings only',
-        description: 'Scans just the busiest recordings. The fewest, and the most likely to be interesting.',
-    },
-]
-
 // hedgehog_config's nullable index-signature type trips DeepPartial and ProfilePicture; the UI never reads it.
 export type ScannerCreatedBy = Omit<UserBasicApi, 'hedgehog_config'>
 
@@ -490,7 +494,6 @@ export type BaseReplayScanner = Omit<
     > & {
         query: RecordingsQuery | null
         created_by: ScannerCreatedBy | null
-        sampling_mode: SamplingMode
         user_access_level: AccessControlLevel | null
     }
 

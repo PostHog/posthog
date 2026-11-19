@@ -89,6 +89,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -164,6 +165,10 @@ export interface SessionPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -517,6 +522,49 @@ export const LogsAlertDestinationTypeEnumApi = {
 } as const
 
 /**
+ * * `single` - Single
+ * * `by_result_labels` - By result labels
+ */
+export type GroupingModeEnumApi = (typeof GroupingModeEnumApi)[keyof typeof GroupingModeEnumApi]
+
+export const GroupingModeEnumApi = {
+    Single: 'single',
+    ByResultLabels: 'by_result_labels',
+} as const
+
+/**
+ * * `degrade_visible` - Degrade visible
+ */
+export type OnOverflowEnumApi = (typeof OnOverflowEnumApi)[keyof typeof OnOverflowEnumApi]
+
+export const OnOverflowEnumApi = {
+    DegradeVisible: 'degrade_visible',
+} as const
+
+/**
+ * How a logs alert splits its results into instances.
+ */
+export interface LogsAlertGroupingApi {
+    /** single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.
+     *
+     * * `single` - Single
+     * * `by_result_labels` - By result labels */
+    mode: GroupingModeEnumApi
+    /** Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message. */
+    keys?: string[]
+    /**
+     * Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.
+     * @minimum 1
+     * @maximum 100
+     */
+    max_instances?: number
+    /** What happens to groups past max_instances. degrade_visible names how many were left out.
+     *
+     * * `degrade_visible` - Degrade visible */
+    on_overflow?: OnOverflowEnumApi
+}
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -573,6 +621,16 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.
+ */
+export type LogsAlertConfigurationApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.
+ */
+export type LogsAlertConfigurationApiAnnotations = { [key: string]: string }
+
 export interface LogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
     readonly id: string
@@ -621,7 +679,7 @@ export interface LogsAlertConfigurationApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -650,14 +708,22 @@ export interface LogsAlertConfigurationApi {
     /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
     readonly consecutive_failures: number
     /**
-     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth. For an alert the alerts platform evaluates, sourced from the platform's check history.
      * @nullable
      */
     readonly last_error_message: string | null
-    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. For an alert the alerts platform evaluates, state changes come from the platform's check history instead. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
+    /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
+    grouping?: LogsAlertGroupingApi
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
+    labels?: LogsAlertConfigurationApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them. */
+    annotations?: LogsAlertConfigurationApiAnnotations
+    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, annotations, or a grouping other than single. */
+    readonly platform_owned: boolean
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
      * @nullable
@@ -681,6 +747,16 @@ export interface PaginatedLogsAlertConfigurationListApi {
     previous?: string | null
     results: LogsAlertConfigurationApi[]
 }
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.
+ */
+export type LogsAlertConfigurationDetailApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.
+ */
+export type LogsAlertConfigurationDetailApiAnnotations = { [key: string]: string }
 
 /**
  * * `critical` - critical
@@ -709,7 +785,13 @@ export const PagerDutyRegionEnumApi = {
 } as const
 
 export interface LogsAlertDestinationConfigApi {
+    /** The HogFunction IDs that delete this destination as a group. A destination moved off HogFunctions keeps the IDs it had, though those HogFunctions are deleted. */
     hog_function_ids: string[]
+    /**
+     * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead. A destination added with no HogFunctions has an empty `hog_function_ids`, and is deleted by this ID.
+     * @nullable
+     */
+    id: string | null
     /** Notification destination type.
      *
      * * `slack` - slack
@@ -719,8 +801,12 @@ export interface LogsAlertDestinationConfigApi {
     type: LogsAlertDestinationTypeEnumApi
     /** Whether every HogFunction in the group is enabled, so the destination notifies for all alert event kinds. This is the stored setting: a destination PostHog stopped delivering to after repeated failures still reads as true. */
     enabled: boolean
+    /** Whether any HogFunction in the group sends something other than the stock message, such as an edited body, headers, method or code. A customized destination sends exactly what its HogFunctions build. */
+    message_customized: boolean
     slack_workspace_id?: number
     slack_channel_id?: string
+    /** The Slack channel's name when the destination was added. Absent for older destinations. */
+    slack_channel_name?: string
     /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
     webhook_url?: string
     /** PagerDuty integration key reduced to its last four characters. */
@@ -791,7 +877,7 @@ export interface LogsAlertConfigurationDetailApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -820,14 +906,22 @@ export interface LogsAlertConfigurationDetailApi {
     /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
     readonly consecutive_failures: number
     /**
-     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth. For an alert the alerts platform evaluates, sourced from the platform's check history.
      * @nullable
      */
     readonly last_error_message: string | null
-    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. For an alert the alerts platform evaluates, state changes come from the platform's check history instead. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
+    /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
+    grouping?: LogsAlertGroupingApi
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
+    labels?: LogsAlertConfigurationDetailApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them. */
+    annotations?: LogsAlertConfigurationDetailApiAnnotations
+    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, annotations, or a grouping other than single. */
+    readonly platform_owned: boolean
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
      * @nullable
@@ -844,6 +938,16 @@ export interface LogsAlertConfigurationDetailApi {
     /** This alert's notification destinations, one entry per destination. Each carries the HogFunction IDs that delete it as a group, and its configuration with credential-bearing URL components removed. */
     readonly destinations: readonly LogsAlertDestinationConfigApi[]
 }
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.
+ */
+export type PatchedLogsAlertConfigurationApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.
+ */
+export type PatchedLogsAlertConfigurationApiAnnotations = { [key: string]: string }
 
 export interface PatchedLogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
@@ -893,7 +997,7 @@ export interface PatchedLogsAlertConfigurationApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -922,14 +1026,22 @@ export interface PatchedLogsAlertConfigurationApi {
     /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
     readonly consecutive_failures?: number
     /**
-     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth. For an alert the alerts platform evaluates, sourced from the platform's check history.
      * @nullable
      */
     readonly last_error_message?: string | null
-    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. For an alert the alerts platform evaluates, state changes come from the platform's check history instead. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline?: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types?: readonly LogsAlertDestinationTypeEnumApi[]
+    /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
+    grouping?: LogsAlertGroupingApi
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
+    labels?: PatchedLogsAlertConfigurationApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them. */
+    annotations?: PatchedLogsAlertConfigurationApiAnnotations
+    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, annotations, or a grouping other than single. */
+    readonly platform_owned?: boolean
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
      * @nullable
@@ -977,16 +1089,84 @@ export interface LogsAlertCreateDestinationApi {
     pagerduty_region?: PagerDutyRegionEnumApi
 }
 
+export interface LogsAlertCreatedDestinationResponseApi {
+    hog_function_ids: string[]
+    /**
+     * The new destination's ID on the alerts platform, the `id` that listing the alert's destinations shows. Delete the destination by passing it in `destination_ids`. Null when the alert is not on the alerts platform, in which case `hog_function_ids` identifies the destination.
+     * @nullable
+     */
+    id: string | null
+}
+
+export interface LogsAlertCustomizeDestinationApi {
+    /**
+     * The destination's `destinations[].id`. Use it for a destination with no HogFunctions.
+     * @nullable
+     */
+    destination_id?: string | null
+    /**
+     * The destination's `destinations[].hog_function_ids`, for a destination that has HogFunctions.
+     * @maxItems 100
+     */
+    hog_function_ids?: string[]
+}
+
 export interface LogsAlertDestinationResponseApi {
     hog_function_ids: string[]
 }
 
 export interface LogsAlertDeleteDestinationApi {
+    /** HogFunction IDs to delete as one atomic destination group. */
+    hog_function_ids?: string[]
     /**
-     * HogFunction IDs to delete as one atomic destination group.
+     * Destination IDs, from `destinations[].id`, to delete with their HogFunctions.
+     * @maxItems 100
+     */
+    destination_ids?: string[]
+}
+
+export interface LogsAlertResetDestinationApi {
+    /**
+     * Every HogFunction of the customized destination, from `destinations[].hog_function_ids`.
      * @minItems 1
+     * @maxItems 100
      */
     hog_function_ids: string[]
+}
+
+export interface LogsAlertResetDestinationResponseApi {
+    /** The destination's new ID on the alerts platform, which now sends it. */
+    id: string
+}
+
+/**
+ * * `native` - Native
+ * * `hog_function` - HogFunction
+ */
+export type DeliveryPathEnumApi = (typeof DeliveryPathEnumApi)[keyof typeof DeliveryPathEnumApi]
+
+export const DeliveryPathEnumApi = {
+    Native: 'native',
+    HogFunction: 'hog_function',
+} as const
+
+export interface LogsAlertDestinationSendApi {
+    /** The HogFunction the message was sent for. It names the lifecycle event that was sent. */
+    hog_function_id: string
+    /** When the send started. */
+    sent_at: string
+    /** Which delivery path sent it. `native` is the stock message sent by the alerts platform. `hog_function` is the destination's HogFunction.
+     *
+     * * `native` - Native
+     * * `hog_function` - HogFunction */
+    path: DeliveryPathEnumApi
+    /** Whether the destination accepted the message. */
+    succeeded: boolean
+    /**
+     * Why a `native` send failed. Null when it succeeded, and for a `hog_function` send, whose reason is in the HogFunction's own logs.
+     * @nullable
+     */
+    error: string | null
 }
 
 /**
@@ -998,6 +1178,7 @@ export interface LogsAlertDeleteDestinationApi {
  * * `unsnooze` - Unsnooze
  * * `threshold_change` - Threshold change
  * * `broken_config` - Broken config
+ * * `handback` - Handback
  */
 export type LogsAlertEventKindEnumApi = (typeof LogsAlertEventKindEnumApi)[keyof typeof LogsAlertEventKindEnumApi]
 
@@ -1010,6 +1191,7 @@ export const LogsAlertEventKindEnumApi = {
     Unsnooze: 'unsnooze',
     ThresholdChange: 'threshold_change',
     BrokenConfig: 'broken_config',
+    Handback: 'handback',
 } as const
 
 export interface LogsAlertEventApi {
@@ -1070,7 +1252,7 @@ export interface LogsAlertSimulateRequestApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minutes to wait after firing before sending another notification.
+     * Minimum minutes between notifications. A fire or resolve notification inside the cooldown is skipped. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -1618,6 +1800,26 @@ export interface _LogsAttributesResponseApi {
     count: number
 }
 
+export interface _LogsContextAttributeAnchorApi {
+    /** Log attribute key, e.g. "workflow_run_id". */
+    key: string
+    /** Exact attribute value to follow. */
+    value: string
+}
+
+export interface _LogsContextAnchorApi {
+    /** uuid of one log line. Needs `timestamp`. */
+    logUuid?: string
+    /** ISO 8601 timestamp of the `logUuid` log line. */
+    timestamp?: string
+    /** Trace id, 32 hex characters or base64. */
+    traceId?: string
+    /** Follow every log with this attribute value. */
+    attribute?: _LogsContextAttributeAnchorApi
+    /** ISO 8601 time hint. Required with `attribute`, used with `traceId` only when the trace has no spans. */
+    around?: string
+}
+
 /**
  * * `trace` - trace
  * * `debug` - debug
@@ -1626,9 +1828,9 @@ export interface _LogsAttributesResponseApi {
  * * `error` - error
  * * `fatal` - fatal
  */
-export type SeverityLevelsEnumApi = (typeof SeverityLevelsEnumApi)[keyof typeof SeverityLevelsEnumApi]
+export type LogsSeverityLevelEnumApi = (typeof LogsSeverityLevelEnumApi)[keyof typeof LogsSeverityLevelEnumApi]
 
-export const SeverityLevelsEnumApi = {
+export const LogsSeverityLevelEnumApi = {
     Trace: 'trace',
     Debug: 'debug',
     Info: 'info',
@@ -1637,11 +1839,205 @@ export const SeverityLevelsEnumApi = {
     Fatal: 'fatal',
 } as const
 
+/**
+ * * `spans` - Spans
+ */
+export type LogsContextIncludeEnumApi = (typeof LogsContextIncludeEnumApi)[keyof typeof LogsContextIncludeEnumApi]
+
+export const LogsContextIncludeEnumApi = {
+    Spans: 'spans',
+} as const
+
+export interface _LogsContextBodyApi {
+    /** Exactly one anchor: a log line, a trace, or an attribute value. */
+    anchor: _LogsContextAnchorApi
+    /** Time on each side of the anchor: "30s", "5m", "1h" (max 6h). Default 30s for a trace, 5m otherwise. */
+    padding?: string
+    /** Keep only these severities in the timeline. */
+    severityLevels?: LogsSeverityLevelEnumApi[]
+    /** Restrict the timeline to these services. Default: the trace's services, the log's service, or all. */
+    serviceNames?: string[]
+    /** "spans" adds spans_summary for a trace anchor. */
+    include?: LogsContextIncludeEnumApi[]
+    /**
+     * Maximum timeline rows.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /** `next_cursor` of a previous call with the same anchor. */
+    after?: string
+}
+
+export interface LogsContextRequestApi {
+    /** The context query. */
+    query: _LogsContextBodyApi
+}
+
+export interface LogsAgentWindowBoundsApi {
+    /** Window start, ISO 8601 UTC with a Z suffix (inclusive). */
+    from: string
+    /** Window end, ISO 8601 UTC with a Z suffix (exclusive). */
+    to: string
+}
+
+export interface LogsAgentWindowApi {
+    /** Absolute bounds the server used for the current window. */
+    current: LogsAgentWindowBoundsApi
+    /** Absolute bounds the server used for the baseline window, when there is one. */
+    baseline?: LogsAgentWindowBoundsApi
+    /** Always "UTC". */
+    timezone: string
+}
+
+/**
+ * * `trace` - Trace
+ * * `log` - Log
+ * * `attribute` - Attribute
+ */
+export type LogsContextAnchorTypeEnumApi =
+    (typeof LogsContextAnchorTypeEnumApi)[keyof typeof LogsContextAnchorTypeEnumApi]
+
+export const LogsContextAnchorTypeEnumApi = {
+    Trace: 'trace',
+    Log: 'log',
+    Attribute: 'attribute',
+} as const
+
+export interface _LogsContextAnchorSummaryApi {
+    /** The anchor kind.
+     *
+     * * `trace` - Trace
+     * * `log` - Log
+     * * `attribute` - Attribute */
+    type: LogsContextAnchorTypeEnumApi
+    /**
+     * Trace id (hex) of the anchor, when there is one.
+     * @nullable
+     */
+    trace_id: string | null
+    /** Reference time (UTC) that `t_offset_ms` counts from. */
+    timestamp: string
+    /**
+     * Trace start or first matching log (UTC).
+     * @nullable
+     */
+    start: string | null
+    /**
+     * Trace end or last matching log (UTC).
+     * @nullable
+     */
+    end: string | null
+    /**
+     * end - start in milliseconds.
+     * @nullable
+     */
+    duration_ms: number | null
+    /** Services of the anchor. */
+    services: string[]
+}
+
+export interface _LogsContextCorrelationKeyApi {
+    /** Id-like attribute of the anchor log. */
+    key: string
+    /** Its value on the anchor log. */
+    value: string
+    /** Logs in the window, any service, with this value. */
+    log_count: number
+}
+
+export interface _LogsContextTimelineRowApi {
+    /** Milliseconds from the anchor reference time. */
+    t_offset_ms: number
+    /** Log timestamp (UTC). */
+    timestamp: string
+    /** Service that emitted the line. */
+    service: string
+    /** Severity of the line. */
+    severity: string
+    /** Log body, cut to 300 characters. */
+    body: string
+    /** k=v attributes that differ from the anchor log, without noise keys. */
+    attrs: string
+    /** Log uuid, usable with `timestamp` as a log anchor. */
+    uuid: string
+}
+
+export interface _LogsContextSpanApi {
+    /** Span id (hex). */
+    span_id: string
+    /** Span name. */
+    name: string
+    /** Service of the span. */
+    service: string
+    /** Milliseconds from the trace start. */
+    start_offset_ms: number
+    /** Span duration in milliseconds. */
+    duration_ms: number
+    /** Duration not covered by child spans. */
+    self_time_ms: number
+    /** "error" or "ok". */
+    status: string
+}
+
+export interface _LogsContextSpansSummaryApi {
+    /** Spans read. */
+    span_count: number
+    /** True when the trace has more spans than were read. */
+    truncated: boolean
+    /** Services with spans in the trace. */
+    services: string[]
+    /** The root span, null when it never arrived. */
+    root: _LogsContextSpanApi | null
+    /** Up to 10 spans with an error status. */
+    error_spans: _LogsContextSpanApi[]
+    /** The 5 longest spans. */
+    slowest: _LogsContextSpanApi[]
+}
+
+/**
+ * Prefilled `query` object for that tool. Pass it as is or adjust it.
+ */
+export type LogsAgentNextCallApiQuery = { [key: string]: unknown }
+
+export interface LogsAgentNextCallApi {
+    /** MCP tool to call next, e.g. query-logs or logs-context. */
+    tool: string
+    /** One line on what the follow-up call answers. */
+    why: string
+    /** Prefilled `query` object for that tool. Pass it as is or adjust it. */
+    query: LogsAgentNextCallApiQuery
+}
+
+export interface LogsContextResponseApi {
+    /** Absolute UTC bounds the logs were read from. */
+    window: LogsAgentWindowApi
+    /** The resolved anchor. */
+    anchor: _LogsContextAnchorSummaryApi
+    /** Id-like attributes of the anchor log, with counts. */
+    correlation_keys: _LogsContextCorrelationKeyApi[]
+    /** Log lines, earliest first. */
+    timeline: _LogsContextTimelineRowApi[]
+    /** Set for a trace anchor with include ["spans"]. */
+    spans_summary: _LogsContextSpansSummaryApi | null
+    /** True when more rows exist past `limit`. */
+    truncated: boolean
+    /**
+     * Pass as `after` for the next page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Prefilled follow-up calls. */
+    next: LogsAgentNextCallApi[]
+    /** Caveats about the window. */
+    notes: string[]
+}
+
 export interface _LogsCountBodyApi {
     /** Date range for the count. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Filter by service names. */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies. */
@@ -1670,7 +2066,7 @@ export interface _LogsCountRangesBodyApi {
      */
     targetBuckets?: number
     /** Filter by log severity levels. Applied before bucketing. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Filter by service names. Applied before bucketing. */
     serviceNames?: string[]
     /** Full-text search across log bodies. Applied before bucketing. */
@@ -1739,7 +2135,7 @@ export interface _LogsFacetValuesBodyApi {
     /** Date range. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels (ignored when faceting on severity_text). */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Filter by service names (ignored when faceting on service_name). */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies. */
@@ -1775,6 +2171,7 @@ export interface _LogsFacetValuesResponseApi {
  * * `log` - log
  * * `resource` - resource
  * * `column` - column
+ * * `body` - body
  */
 export type LogsGroupBySourceEnumApi = (typeof LogsGroupBySourceEnumApi)[keyof typeof LogsGroupBySourceEnumApi]
 
@@ -1782,16 +2179,18 @@ export const LogsGroupBySourceEnumApi = {
     Log: 'log',
     Resource: 'resource',
     Column: 'column',
+    Body: 'body',
 } as const
 
 export interface _LogsGroupByDimensionApi {
-    /** The key this dimension groups by — an attribute key (e.g. "session_id", "service.name") or, when source is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". */
+    /** The key this dimension groups by — an attribute key (e.g. "session_id", "service.name"); when source is "column", one of the top-level log fields: "severity_level", "service_name", "trace_id", "span_id", "pattern" (the masked message template); when source is "body", a dot-separated JSON path into the log body (e.g. "fields.message"). */
     key: string
-    /** Where this dimension's key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields.
+    /** Where this dimension's key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields, "body" for a JSON path into the body.
      *
      * * `log` - log
      * * `resource` - resource
-     * * `column` - column */
+     * * `column` - column
+     * * `body` - body */
     source?: LogsGroupBySourceEnumApi
 }
 
@@ -1812,20 +2211,21 @@ export interface _LogsGroupByBodyApi {
     /** Date range to aggregate over. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels before grouping. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Restrict grouping to these service names. */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies before grouping. */
     searchTerm?: string
     /** Property filters applied before grouping. Same shape as the query-logs endpoint. */
     filterGroup?: _LogPropertyFilterApi[]
-    /** The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, when groupBySource is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". Ignored when groupBys is provided. */
+    /** The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, when groupBySource is "column", one of the top-level log fields: "severity_level", "service_name", "trace_id", "span_id", "pattern". Ignored when groupBys is provided. */
     groupBy?: string
-    /** Where the grouping key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields. Ignored when groupBys is provided.
+    /** Where the grouping key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields, "body" for a JSON path into the body. Ignored when groupBys is provided.
      *
      * * `log` - log
      * * `resource` - resource
-     * * `column` - column */
+     * * `column` - column
+     * * `body` - body */
     groupBySource?: LogsGroupBySourceEnumApi
     /**
      * Ordered group-by dimensions to combine (a group is one combination of per-dimension values), up to 4. Takes precedence over groupBy/groupBySource; one of the two must be provided.
@@ -1865,6 +2265,8 @@ export interface _LogsGroupByGroupApi {
     log_count: number
     /** Number of matching logs in this group at severity "error" or "fatal". */
     error_count: number
+    /** ISO 8601 timestamp of the earliest matching log in this group. */
+    first_seen?: string
     /** ISO 8601 timestamp of the most recent matching log in this group. */
     last_seen: string
 }
@@ -1897,7 +2299,8 @@ export interface _LogsImpactGroupKeyApi {
      *
      * * `log` - log
      * * `resource` - resource
-     * * `column` - column */
+     * * `column` - column
+     * * `body` - body */
     source: LogsGroupBySourceEnumApi
     /** The attribute key that carries the ID on most matching logs. */
     key: string
@@ -2027,11 +2430,120 @@ export interface PatchedLogsMetricRuleApi {
     readonly updated_at?: string | null
 }
 
+export interface _LogsNaturalLanguageDateRangeApi {
+    /**
+     * Start of the date range. Accepts ISO 8601 timestamps or relative formats such as -1h or -7d.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * End of the date range. Same format as date_from. Null means "now".
+     * @nullable
+     */
+    date_to?: string | null
+}
+
+export interface LogsNaturalLanguageQueryRequestApi {
+    /**
+     * The plain-language request, for example 'error logs from checkout in the last 2 hours'.
+     * @maxLength 500
+     */
+    query: string
+    /** The viewer's current date range. Used when the request names no time, and to scope the service and attribute lists the model may choose from. */
+    dateRange?: _LogsNaturalLanguageDateRangeApi
+}
+
+/**
+ * * `log` - Log
+ * * `log_attribute` - Log Attribute
+ * * `log_resource_attribute` - Log Resource Attribute
+ */
+export type LogsNaturalLanguageFilterTypeEnumApi =
+    (typeof LogsNaturalLanguageFilterTypeEnumApi)[keyof typeof LogsNaturalLanguageFilterTypeEnumApi]
+
+export const LogsNaturalLanguageFilterTypeEnumApi = {
+    Log: 'log',
+    LogAttribute: 'log_attribute',
+    LogResourceAttribute: 'log_resource_attribute',
+} as const
+
+export interface _LogsNaturalLanguageCandidateFilterApi {
+    /** Attribute key, or "message" for the log body text. */
+    key: string
+    /** "log" filters the log body. "log_attribute" and "log_resource_attribute" filter attributes.
+     *
+     * * `log` - Log
+     * * `log_attribute` - Log Attribute
+     * * `log_resource_attribute` - Log Resource Attribute */
+    type: LogsNaturalLanguageFilterTypeEnumApi
+    /** Property operator, for example exact, icontains or is_set. */
+    operator: string
+    /** A list of strings for exact and is_not, a string for text operators, absent for is_set. */
+    value?: unknown
+}
+
+export interface _LogsNaturalLanguageCandidateQueryApi {
+    /** Date range of this reading. */
+    dateRange: _LogsNaturalLanguageDateRangeApi
+    /** Severity levels to keep. Empty means all levels. */
+    severityLevels: LogsSeverityLevelEnumApi[]
+    /** Services to keep. Empty means all services. */
+    serviceNames: string[]
+    /** Attribute and message filters, combined with AND. */
+    filterGroup: _LogsNaturalLanguageCandidateFilterApi[]
+}
+
+export interface _LogsNaturalLanguageCandidateApi {
+    /** Short plain-language summary of this reading of the request. */
+    label: string
+    /** Viewer filters for this reading. */
+    query: _LogsNaturalLanguageCandidateQueryApi
+    /**
+     * How likely the decision model thinks this reading is. Null when not ranked.
+     * @nullable
+     */
+    probability: number | null
+}
+
+/**
+ * * `decision_model` - Decision Model
+ * * `proposal_order` - Proposal Order
+ */
+export type LogsNaturalLanguageRankedByEnumApi =
+    (typeof LogsNaturalLanguageRankedByEnumApi)[keyof typeof LogsNaturalLanguageRankedByEnumApi]
+
+export const LogsNaturalLanguageRankedByEnumApi = {
+    DecisionModel: 'decision_model',
+    ProposalOrder: 'proposal_order',
+} as const
+
+export interface LogsNaturalLanguageQueryResponseApi {
+    /** Readings of the request, best first. Can be empty. */
+    candidates: _LogsNaturalLanguageCandidateApi[]
+    /**
+     * The first candidate's probability from the decision model. Null when it did not rank them.
+     * @nullable
+     */
+    confidence: number | null
+    /** decision_model when Jev ranked the candidates, proposal_order when it was skipped.
+     *
+     * * `decision_model` - Decision Model
+     * * `proposal_order` - Proposal Order */
+    ranked_by: LogsNaturalLanguageRankedByEnumApi
+    /** Proposed readings dropped because they named a service or attribute key the project lacks. */
+    dropped_count: number
+}
+
+export interface _LogsNaturalLanguageErrorApi {
+    /** What went wrong. */
+    error: string
+}
+
 export interface _LogsPatternsBodyApi {
     /** Date range to mine patterns from. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels before mining. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Restrict mining to these service names. */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies before mining. */
@@ -2092,7 +2604,7 @@ export interface _LogPatternExampleApi {
 export type _LogPatternApiSeverityCounts = { [key: string]: number }
 
 export interface _LogPatternApi {
-    /** Log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Body mining masks <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. Stored patterns use the ingestion vocabulary instead: <N>, <TIMESTAMP>, <KLOGTIME>, <UUID>, <IP>, <HOST>, <HEX>, <ID>, <EMAIL>, <JSON_ARRAY>, and <JSON:keys> for a JSON body reduced to its key set. */
+    /** Log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Body mining masks <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. Stored patterns use the ingestion vocabulary instead: <N>, <TIMESTAMP>, <KLOGTIME>, <UUID>, <IP>, <HOST>, <HEX>, <ID>, <EMAIL>, <JSON_ARRAY>, and <JSON:keys> for a JSON body reduced to its key set. The largest <JSON:keys> groups are split by the message their bodies carry (such as fields.message), so a key set remains only for rows with no message field. */
     pattern: string
     /** Occurrences of this pattern within the sample. When `sampled` is true this is a sample count, not the full-window total — prefer `estimated_count` for display. */
     count: number
@@ -2126,10 +2638,10 @@ export interface _LogPatternApi {
      * @nullable
      */
     match_literal: string | null
-    /** Exact canonical members of a stored-pattern group. Filter pattern IN these values AND pattern_version equals this group's version. Empty for body mining. */
+    /** Exact canonical members of a stored-pattern group. Filter pattern IN these values AND pattern_version equals this group's version. Empty for body mining and for a JSON key-set group split by message, which pivots with match_regex. */
     match_patterns?: string[]
     /**
-     * Version required by match_patterns. Null for body mining.
+     * Version required by match_patterns. Null when match_patterns is empty.
      * @nullable
      */
     pattern_version?: number | null
@@ -2189,12 +2701,47 @@ export interface _LogsPatternsResponseApi {
     sparkline_buckets: _LogsPatternsSparklineBucketApi[]
 }
 
+export interface _LogsPatternsDiffBodyApi {
+    /** Date range to mine patterns from. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels before mining. */
+    severityLevels?: LogsSeverityLevelEnumApi[]
+    /** Restrict mining to these service names. */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies before mining. */
+    searchTerm?: string
+    /** Property filters applied before mining. Same shape as the query-logs endpoint. */
+    filterGroup?: _LogPropertyFilterApi[]
+    /** Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
+    /** Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
+    /**
+     * Return at most this many entries, most interesting first. Omit for all. Sets `truncated`.
+     * @minimum 1
+     * @maximum 500
+     * @nullable
+     */
+    limit?: number | null
+}
+
 export interface _LogsPatternsDiffRequestApi {
     /** The patterns query for the current (foreground) window: date range plus any severity/service/search/property filters. The same filters are applied to the baseline window. */
-    query: _LogsPatternsBodyApi
+    query: _LogsPatternsDiffBodyApi
     /** Baseline window to compare against. Omit to default to the current window shifted back exactly one week, which absorbs daily and weekly log-volume cycles. Pass an explicit range to compare against a specific period, e.g. pre-deploy or pre-incident. */
     baselineDateRange?: _DateRangeApi
 }
+
+/**
+ * * `stored_patterns` - Stored Patterns
+ * * `body_mining` - Body Mining
+ */
+export type PatternsDiffSourceEnumApi = (typeof PatternsDiffSourceEnumApi)[keyof typeof PatternsDiffSourceEnumApi]
+
+export const PatternsDiffSourceEnumApi = {
+    StoredPatterns: 'stored_patterns',
+    BodyMining: 'body_mining',
+} as const
 
 /**
  * * `new` - new
@@ -2213,6 +2760,15 @@ export const _LogPatternDiffEntryClassificationEnumApi = {
 } as const
 
 export interface _LogPatternDiffEntryApi {
+    /** The template with variable parts masked. */
+    masked_example: string
+    /** Up to 4 services with this pattern. */
+    services: string[]
+    /**
+     * Earliest 5-minute bucket (UTC) with this pattern, up to 14 days back. Null on body mining.
+     * @nullable
+     */
+    first_seen_ever: string | null
     /** "new": appears only in the current window and clears the novelty floor (at least ~1% volume share, or any error/fatal occurrences). "rate_shift": present in both windows with the per-second rate changed by at least 2x either way, backed by enough samples on both sides to trust the estimates. "gone": cleared the floor in the baseline but absent from the current window. "unchanged" means "no confident claim", not "provably identical" — sampled mining cannot prove a below-floor template is genuinely new or gone.
      *
      * * `new` - new
@@ -2287,6 +2843,26 @@ export interface _LogsPatternsDiffWindowApi {
 }
 
 export interface _LogsPatternsDiffResponseApi {
+    /** Absolute UTC bounds of the current and baseline windows. */
+    window: LogsAgentWindowApi
+    /** stored_patterns when both windows have ≥99% of rows on the same stored version, else body_mining.
+     *
+     * * `stored_patterns` - Stored Patterns
+     * * `body_mining` - Body Mining */
+    source: PatternsDiffSourceEnumApi
+    /**
+     * Stored pattern version, null for mining.
+     * @nullable
+     */
+    pattern_version: number | null
+    /** True on the body-mining fallback: counts are sample estimates. */
+    sampled: boolean
+    /** True when `limit` cut the entry list. */
+    truncated: boolean
+    /** Caveats that limit what the diff shows. */
+    notes: string[]
+    /** Prefilled query-logs calls for the top new or shifted patterns. */
+    next: LogsAgentNextCallApi[]
     /** Classified diff entries, most interesting first: "new" (by estimated count), then "rate_shift" (by shift magnitude), then "gone", then "unchanged". A pattern in the baseline is matched to the current window by literal-content fingerprint, so a placeholder widening between runs does not read as one pattern vanishing and another appearing. */
     entries: _LogPatternDiffEntryApi[]
     /** Mining metadata for the current window. */
@@ -2340,7 +2916,7 @@ export interface _LogsQueryBodyApi {
     /** Date range for the query. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Filter by service names. */
     serviceNames?: string[]
     /** Order results by timestamp.
@@ -2352,7 +2928,10 @@ export interface _LogsQueryBodyApi {
     searchTerm?: string
     /** Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND/OR groups. */
     filterGroup?: LogsFilterGroupInputApi
-    /** Max results (1-1000). */
+    /**
+     * Max results. Values above 2000 are capped at 2000.
+     * @minimum 1
+     */
     limit?: number
     /** Pagination cursor from previous response. */
     after?: string
@@ -2366,9 +2945,40 @@ export interface _LogsQueryBodyApi {
     sessionId?: string
 }
 
+/**
+ * * `initial_load` - initial_load
+ * * `filter_change` - filter_change
+ * * `filters_restored` - filters_restored
+ * * `sort_change` - sort_change
+ * * `column_change` - column_change
+ * * `scope_change` - scope_change
+ * * `refresh` - refresh
+ */
+export type LogsQueryTriggerEnumApi = (typeof LogsQueryTriggerEnumApi)[keyof typeof LogsQueryTriggerEnumApi]
+
+export const LogsQueryTriggerEnumApi = {
+    InitialLoad: 'initial_load',
+    FilterChange: 'filter_change',
+    FiltersRestored: 'filters_restored',
+    SortChange: 'sort_change',
+    ColumnChange: 'column_change',
+    ScopeChange: 'scope_change',
+    Refresh: 'refresh',
+} as const
+
 export interface _LogsQueryRequestApi {
     /** The logs query to execute. */
     query: _LogsQueryBodyApi
+    /** What caused the PostHog app to run this query. Used for usage analytics only, with no effect on results. API clients omit it.
+     *
+     * * `initial_load` - initial_load
+     * * `filter_change` - filter_change
+     * * `filters_restored` - filters_restored
+     * * `sort_change` - sort_change
+     * * `column_change` - column_change
+     * * `scope_change` - scope_change
+     * * `refresh` - refresh */
+    trigger?: LogsQueryTriggerEnumApi
 }
 
 /**
@@ -2573,6 +3183,11 @@ export interface LogsSamplingRuleApi {
     scope_attribute_filters?: LogsSamplingRuleApiScopeAttributeFiltersItem[]
     /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. Every group in `filter_group` must contain at least one filter — empty groups never match, so the rule would never apply. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
     config: unknown
+    /** Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces pipeline. Immutable after creation. Span rules support path_drop and rate_limit only.
+     *
+     * * `logs` - Logs
+     * * `spans` - Spans */
+    source?: LogsMetricRuleRecordSourceEnumApi
     /** Incremented on each update for worker cache coherency. */
     readonly version: number
     readonly created_by: number
@@ -2630,6 +3245,11 @@ export interface PatchedLogsSamplingRuleApi {
     scope_attribute_filters?: PatchedLogsSamplingRuleApiScopeAttributeFiltersItem[]
     /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. Every group in `filter_group` must contain at least one filter — empty groups never match, so the rule would never apply. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
     config?: unknown
+    /** Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces pipeline. Immutable after creation. Span rules support path_drop and rate_limit only.
+     *
+     * * `logs` - Logs
+     * * `spans` - Spans */
+    source?: LogsMetricRuleRecordSourceEnumApi
     /** Incremented on each update for worker cache coherency. */
     readonly version?: number
     readonly created_by?: number
@@ -2650,11 +3270,26 @@ export interface LogsSamplingRuleReorderApi {
     ordered_ids: string[]
 }
 
+/**
+ * * `none` - No baseline
+ * * `previous_period` - Previous period
+ * * `previous_day` - Same window a day earlier
+ * * `previous_week` - Same window a week earlier
+ */
+export type LogsCompareModeEnumApi = (typeof LogsCompareModeEnumApi)[keyof typeof LogsCompareModeEnumApi]
+
+export const LogsCompareModeEnumApi = {
+    None: 'none',
+    PreviousPeriod: 'previous_period',
+    PreviousDay: 'previous_day',
+    PreviousWeek: 'previous_week',
+} as const
+
 export interface _LogsServicesBodyApi {
     /** Date range for the services aggregation. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Restrict the aggregation to these service names. */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies. */
@@ -2666,12 +3301,47 @@ export interface _LogsServicesBodyApi {
     serviceNameSearch?: string
     /** Property filters for the query. */
     filterGroup?: _LogPropertyFilterApi[]
+    /**
+     * Deployment environment, matched without case against the first set resource attribute of deployment.environment.name, deployment.environment and env. "(none)" matches logs without one.
+     * @maxLength 200
+     */
+    environment?: string
+    /** Baseline window for per-service status: the window just before, the same window a day or a week earlier, or none. Silent services (logs in the baseline, none now) only appear with a baseline.
+     *
+     * * `none` - No baseline
+     * * `previous_period` - Previous period
+     * * `previous_day` - Same window a day earlier
+     * * `previous_week` - Same window a week earlier */
+    compare?: LogsCompareModeEnumApi
 }
 
 export interface _LogsServicesRequestApi {
     /** The services aggregation query to execute. */
     query: _LogsServicesBodyApi
+    /** Explicit baseline window. Takes precedence over `query.compare`. */
+    baselineDateRange?: _DateRangeApi
 }
+
+/**
+ * * `ok` - OK
+ * * `degraded` - Error rate 5% or more
+ * * `regressed` - Error rate worse than the baseline
+ * * `improved` - Error rate better than the baseline
+ * * `recovered` - No longer degraded
+ * * `new` - No logs in the baseline
+ * * `silent` - Logs stopped
+ */
+export type LogsServiceStatusEnumApi = (typeof LogsServiceStatusEnumApi)[keyof typeof LogsServiceStatusEnumApi]
+
+export const LogsServiceStatusEnumApi = {
+    Ok: 'ok',
+    Degraded: 'degraded',
+    Regressed: 'regressed',
+    Improved: 'improved',
+    Recovered: 'recovered',
+    New: 'new',
+    Silent: 'silent',
+} as const
 
 export interface _LogsServiceSeverityBreakdownApi {
     debug: number
@@ -2689,6 +3359,40 @@ export interface _LogsServiceActiveRuleApi {
 export interface _LogsServiceAggregateApi {
     /** Service name, or "(no value)" / "(no service)" placeholder for unset entries. */
     service_name: string
+    /** ok, degraded (error rate of 5% or more), regressed or improved (error rate up or down by 1 pp and 2x), recovered (back under 5%), new (no baseline logs) or silent (baseline logs, none in the window).
+     *
+     * * `ok` - OK
+     * * `degraded` - Error rate 5% or more
+     * * `regressed` - Error rate worse than the baseline
+     * * `improved` - Error rate better than the baseline
+     * * `recovered` - No longer degraded
+     * * `new` - No logs in the baseline
+     * * `silent` - Logs stopped */
+    status?: LogsServiceStatusEnumApi
+    /** Short reason for the status, e.g. "error rate 0.4% → 3.1%". */
+    reason?: string
+    /** Error rate in percent, rounded to 1 decimal. */
+    error_rate_pct?: number
+    /**
+     * Logs in the baseline. Null without one.
+     * @nullable
+     */
+    baseline_log_count?: number | null
+    /**
+     * Error rate change against the baseline, in percentage points.
+     * @nullable
+     */
+    error_rate_delta_pp?: number | null
+    /**
+     * Log volume change against the baseline, in percent.
+     * @nullable
+     */
+    log_count_change_pct?: number | null
+    /**
+     * Latest log time (UTC). From the rollup, and for silent services, the start of the last 5-minute bucket.
+     * @nullable
+     */
+    last_seen?: string | null
     /** Total log entries from this service in the window. */
     log_count: number
     /** Count of logs at severity "error" or "fatal". */
@@ -2710,11 +3414,73 @@ export interface _LogsServicesSparklineBucketApi {
     count: number
 }
 
+/**
+ * Service rows per status.
+ */
+export type _LogsServicesSummaryApiStatusCounts = { [key: string]: number }
+
 export interface _LogsServicesSummaryApi {
     /** Number of top services included in the volume_share aggregate (up to 5). */
     top_services_count: number
     /** Combined volume share (percent) of the top services by log_count. */
     top_services_volume_share_pct: number
+    /** Service rows per status. */
+    status_counts?: _LogsServicesSummaryApiStatusCounts
+    /** True when more services matched than `services` holds. */
+    truncated?: boolean
+}
+
+/**
+ * `from` and `to` of the queried window, ISO 8601 UTC.
+ */
+export type _LogsWindowApiCurrent = { [key: string]: string }
+
+/**
+ * `from` and `to` of the baseline. Absent without one.
+ */
+export type _LogsWindowApiBaseline = { [key: string]: string }
+
+export interface _LogsWindowApi {
+    /** `from` and `to` of the queried window, ISO 8601 UTC. */
+    current: _LogsWindowApiCurrent
+    /** `from` and `to` of the baseline. Absent without one. */
+    baseline?: _LogsWindowApiBaseline
+    /** Always UTC. */
+    timezone: string
+}
+
+/**
+ * * `rollup` - Rollup
+ * * `rollup+raw` - Rollup Raw
+ * * `raw` - Raw
+ */
+export type LogsServicesSourceEnumApi = (typeof LogsServicesSourceEnumApi)[keyof typeof LogsServicesSourceEnumApi]
+
+export const LogsServicesSourceEnumApi = {
+    Rollup: 'rollup',
+    RollupRaw: 'rollup+raw',
+    Raw: 'raw',
+} as const
+
+/**
+ * Prefilled `query` for that tool.
+ */
+export type _LogsNextStepApiQuery = { [key: string]: unknown }
+
+/**
+ * Prefilled sibling `baselineDateRange` argument, for tools that take one.
+ */
+export type _LogsNextStepApiBaselineDateRange = { [key: string]: unknown }
+
+export interface _LogsNextStepApi {
+    /** MCP tool to call next. */
+    tool: string
+    /** What the call answers. */
+    why: string
+    /** Prefilled `query` for that tool. */
+    query: _LogsNextStepApiQuery
+    /** Prefilled sibling `baselineDateRange` argument, for tools that take one. */
+    baselineDateRange?: _LogsNextStepApiBaselineDateRange
 }
 
 export interface _LogsServicesResponseApi {
@@ -2726,6 +3492,34 @@ export interface _LogsServicesResponseApi {
     total_services: number
     /** Roll-up stats for the Services tab header. */
     summary?: _LogsServicesSummaryApi
+    /** Absolute UTC bounds of the window and the baseline. */
+    window?: _LogsWindowApi
+    /** rollup: 5-minute rollup only. rollup+raw: rollup plus raw logs at unaligned window edges.
+     *
+     * * `rollup` - Rollup
+     * * `rollup+raw` - Rollup Raw
+     * * `raw` - Raw */
+    source?: LogsServicesSourceEnumApi
+    /** Prefilled follow-up calls for problem services. */
+    next?: _LogsNextStepApi[]
+}
+
+export interface LogsSigningSecretApi {
+    /**
+     * Raw secret that a server uses to sign log requests (HMAC). Null until one exists.
+     * @nullable
+     */
+    readonly secret: string | null
+    /**
+     * When the secret last changed, or null when no secret exists yet.
+     * @nullable
+     */
+    readonly updated_at: string | null
+    /**
+     * Until when the previous secret stays valid after a rotation, or null when no grace period is active.
+     * @nullable
+     */
+    readonly previous_secret_valid_until: string | null
 }
 
 /**
@@ -2754,7 +3548,7 @@ export interface _LogsSparklineBodyApi {
     /** Date range for the sparkline. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Filter by service names. */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies. */
@@ -2791,7 +3585,7 @@ export interface _LogsSparklineBucketApi {
     service?: string
     /** Number of log entries in the bucket. */
     count: number
-    /** Sum of uncompressed bytes for the bucket. */
+    /** Sum of uncompressed bytes for the bucket. Present only when sparklineRankBy is "bytes". */
     bytes_uncompressed?: number
 }
 
@@ -2938,6 +3732,15 @@ export type LogsAlertsListParams = {
     offset?: number
 }
 
+export type LogsAlertsDestinationsSendsListParams = {
+    /**
+     * HogFunction IDs of one destination group. IDs that are not this alert's are ignored.
+     * @minItems 1
+     * @maxItems 100
+     */
+    hog_function_ids: string[]
+}
+
 export type LogsAlertsEventsListParams = {
     /**
      * Number of results to return per page.
@@ -3061,7 +3864,22 @@ export type LogsSamplingRulesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Record source whose rules to list or reorder. Defaults to `logs`.
+     *
+     * * `logs` - Logs
+     * * `spans` - Spans
+     * @minLength 1
+     */
+    source?: LogsSamplingRulesListSource
 }
+
+export type LogsSamplingRulesListSource = (typeof LogsSamplingRulesListSource)[keyof typeof LogsSamplingRulesListSource]
+
+export const LogsSamplingRulesListSource = {
+    Logs: 'logs',
+    Spans: 'spans',
+} as const
 
 export type LogsSamplingRulesReorderCreateParams = {
     /**
@@ -3072,7 +3890,23 @@ export type LogsSamplingRulesReorderCreateParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Record source whose rules to list or reorder. Defaults to `logs`.
+     *
+     * * `logs` - Logs
+     * * `spans` - Spans
+     * @minLength 1
+     */
+    source?: LogsSamplingRulesReorderCreateSource
 }
+
+export type LogsSamplingRulesReorderCreateSource =
+    (typeof LogsSamplingRulesReorderCreateSource)[keyof typeof LogsSamplingRulesReorderCreateSource]
+
+export const LogsSamplingRulesReorderCreateSource = {
+    Logs: 'logs',
+    Spans: 'spans',
+} as const
 
 export type LogsValuesRetrieveParams = {
     /**
@@ -3101,8 +3935,7 @@ export type LogsValuesRetrieveParams = {
      */
     serviceNames?: string[]
     /**
-     * Search filter for attribute values
-     * @minLength 1
+     * Search filter for attribute values. Omit it or pass an empty string to list all values.
      */
     value?: string
 }
@@ -3125,3 +3958,36 @@ export type LogsViewsListParams = {
      */
     offset?: number
 }
+
+export type TasksRunsLogsRetrieveParams = {
+    /**
+     * With tail_bytes, end the window before this entry index, so a client can page back through older turns: pass the X-Log-Offset of the oldest page it holds.
+     * @minimum 0
+     */
+    before?: number
+    /**
+     * With tail_bytes, return every entry from this index to the end, with no preamble, so a client that holds the entries before it can catch up after a disconnect: pass the X-Log-Count of its last read. When those entries are too large, the response holds the latest turns as tail_bytes alone returns them, and X-Log-Offset is greater than start.
+     * @minimum 0
+     */
+    start?: number
+    /**
+     * Return only the latest turns of the log: the shortest suffix that starts at a user turn and holds at least this many bytes. The X-Log-Offset and X-Log-Count headers give the index of the first tail entry and the size of the full log. The slice starts with X-Log-Preamble earlier entries that still set run state, such as the run start, usage, mode, commands and open permission requests. X-Log-Turns-Before counts the user turns before the slice, so a client numbers turns the way the full log does.
+     * @minimum 1
+     */
+    tail_bytes?: number
+    /**
+     * 'full' returns every entry as stored. 'thread' drops the duplicate tool response copy in _meta.claudeCode.toolResponse and keeps only its decisionReason and message, for clients that render the conversation. It applies to the full log and to every slice.
+     *
+     * * `full` - full
+     * * `thread` - thread
+     * @minLength 1
+     */
+    view?: TasksRunsLogsRetrieveView
+}
+
+export type TasksRunsLogsRetrieveView = (typeof TasksRunsLogsRetrieveView)[keyof typeof TasksRunsLogsRetrieveView]
+
+export const TasksRunsLogsRetrieveView = {
+    Full: 'full',
+    Thread: 'thread',
+} as const

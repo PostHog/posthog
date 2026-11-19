@@ -1,11 +1,156 @@
+import { mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
+
+import { DateTime } from 'luxon'
+import { Pool } from 'pg'
+
+import {
+    APP_METRICS_OUTPUT,
+    HOG_INVOCATION_RESULTS_OUTPUT,
+    LOG_ENTRIES_OUTPUT,
+    MESSAGE_ASSETS_OUTPUT,
+} from '~/common/outputs'
+import { InternalCaptureService } from '~/common/services/internal-capture'
+import { parseJSON } from '~/common/utils/json-parse'
+import { TeamManager } from '~/common/utils/team-manager'
+import { UUIDT } from '~/common/utils/utils'
+import { createRecordingIngestionOutputs } from '~/tests/helpers/recording-ingestion-outputs'
+
+import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
+import { createHogExecutionGlobals } from '../_tests/fixtures'
+import { createExampleHogFlowInvocation } from '../_tests/fixtures-hogflows'
+import { EMAIL_STATUS_OUTPUT, WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT } from '../outputs/outputs'
 import { CyclotronJobInvocationResult } from '../types'
+import { createInvocationResult } from '../utils/invocation-utils'
 import { CapturedEventsService } from './captured-events/captured-events.service'
 import { ConversionWatchersService } from './conversion-watchers/conversion-watchers.service'
+import { TRANSACTIONAL_EMAIL_EVENT } from './hogflows/hogflow-sensitivity'
 import { InvocationResultsService } from './invocation-results.service'
+import { EmailStatusService } from './messaging/email-status.service'
 import { MessageAssetsService } from './messaging/message-assets.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './monitoring/hog-invocation-results.service'
 import { WarehouseWebhooksService } from './warehouse/warehouse-webhooks.service'
+
+const CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
+
+const team = { id: 2, api_token: 'phc_invocation_results_test' }
+
+const failedTransactionalEmailRun = (person: string): CyclotronJobInvocationResult => {
+    const hogFlow = new FixtureHogFlowBuilder().withTeamId(team.id).build()
+    const invocation = createExampleHogFlowInvocation(hogFlow, {
+        event: { ...createHogExecutionGlobals().event, event: TRANSACTIONAL_EMAIL_EVENT },
+    })
+    const now = DateTime.utc()
+    return createInvocationResult(
+        invocation,
+        {},
+        {
+            finished: true,
+            error: 'Template not found',
+            logs: [{ level: 'error', timestamp: now, message: 'Template not found' }],
+            capturedPostHogEvents: [
+                {
+                    team_id: team.id,
+                    event: 'workflow event',
+                    distinct_id: person,
+                    timestamp: now.toISO()!,
+                    properties: {},
+                },
+            ],
+            warehouseWebhookPayloads: [{ team_id: team.id, schema_id: `schema-${person}`, payload: { id: 1 } }],
+            messageAssets: [
+                {
+                    team_id: team.id,
+                    function_kind: 'hog_flow',
+                    function_id: hogFlow.id,
+                    parent_run_id: invocation.id,
+                    invocation_id: invocation.id,
+                    action_id: 'action-1',
+                    kind: 'email',
+                    distinct_id: person,
+                    person_id: 'person_id',
+                    recipient: 'person@example.com',
+                    subject: 'Hello',
+                    status: 'sent',
+                    sent_at: '2026-01-02 03:04:05.678000',
+                    version: '1',
+                    is_deleted: 0,
+                    html: '<p>Hello</p>',
+                },
+            ],
+            conversionWatchers: [
+                {
+                    id: new UUIDT().toString(),
+                    team_id: team.id,
+                    function_id: hogFlow.id,
+                    run_id: invocation.id,
+                    parent_run_id: null,
+                    distinct_id: person,
+                    person_id: null,
+                    flow_version: 1,
+                    goal: { events: [] },
+                    created_at: now.toJSDate(),
+                    expires_at: now.plus({ days: 1 }).toJSDate(),
+                },
+            ],
+        }
+    )
+}
+
+const realSinks = (): {
+    service: InvocationResultsService
+    delivered: (runs: CyclotronJobInvocationResult[]) => Promise<Record<string, unknown[]>>
+    cleanup: (runs: CyclotronJobInvocationResult[]) => Promise<void>
+} => {
+    const recording = createRecordingIngestionOutputs([
+        APP_METRICS_OUTPUT,
+        LOG_ENTRIES_OUTPUT,
+        HOG_INVOCATION_RESULTS_OUTPUT,
+        WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT,
+        MESSAGE_ASSETS_OUTPUT,
+        EMAIL_STATUS_OUTPUT,
+    ])
+    const outputs = recording.outputs as any
+    const teamManager = {
+        getTeam: (teamId: number) => Promise.resolve(teamId === team.id ? team : null),
+    } as unknown as TeamManager
+    const service = new InvocationResultsService(
+        new HogFunctionMonitoringService(outputs),
+        new HogInvocationResultsService(outputs, { HOG_INVOCATION_RESULTS_ENABLED: true }),
+        new WarehouseWebhooksService(outputs),
+        new CapturedEventsService(
+            new InternalCaptureService({ CAPTURE_INTERNAL_URL: 'http://capture.example.com/i/v0/e' }),
+            teamManager
+        ),
+        new MessageAssetsService(outputs),
+        new ConversionWatchersService(CYCLOTRON_DATABASE_URL),
+        new EmailStatusService(outputs, { EMAIL_STATUS_ENABLED: true })
+    )
+    const pool = new Pool({ connectionString: CYCLOTRON_DATABASE_URL })
+    const runIds = (runs: CyclotronJobInvocationResult[]): string[] => runs.map((run) => run.invocation.id)
+    const delivered = async (runs: CyclotronJobInvocationResult[]): Promise<Record<string, unknown[]>> => {
+        const watchers = await pool.query(
+            'SELECT run_id FROM conversion_watchers WHERE run_id = ANY($1) ORDER BY distinct_id',
+            [runIds(runs)]
+        )
+        return {
+            [APP_METRICS_OUTPUT]: recording.produced(APP_METRICS_OUTPUT),
+            [LOG_ENTRIES_OUTPUT]: recording.produced(LOG_ENTRIES_OUTPUT),
+            [HOG_INVOCATION_RESULTS_OUTPUT]: recording.produced(HOG_INVOCATION_RESULTS_OUTPUT),
+            [WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT]: recording.produced(WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT),
+            [MESSAGE_ASSETS_OUTPUT]: recording.produced(MESSAGE_ASSETS_OUTPUT),
+            [EMAIL_STATUS_OUTPUT]: recording.produced(EMAIL_STATUS_OUTPUT),
+            capture: mockInternalFetch.mock.calls.map(([, init]) => parseJSON(String(init?.body))),
+            conversion_watchers: watchers.rows,
+        }
+    }
+    const cleanup = async (runs: CyclotronJobInvocationResult[]): Promise<void> => {
+        await service.stop()
+        await pool.query('DELETE FROM conversion_watchers WHERE run_id = ANY($1)', [runIds(runs)])
+        await pool.end()
+    }
+    return { service, delivered, cleanup }
+}
 
 describe('InvocationResultsService', () => {
     let monitoringService: jest.Mocked<HogFunctionMonitoringService>
@@ -14,6 +159,7 @@ describe('InvocationResultsService', () => {
     let capturedEventsService: jest.Mocked<CapturedEventsService>
     let messageAssetsService: jest.Mocked<MessageAssetsService>
     let conversionWatchersService: jest.Mocked<ConversionWatchersService>
+    let emailStatusService: jest.Mocked<EmailStatusService>
     let service: InvocationResultsService
 
     const results = [
@@ -52,30 +198,43 @@ describe('InvocationResultsService', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<ConversionWatchersService>
 
+        emailStatusService = {
+            queueInvocationResults: jest.fn(),
+            flush: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<EmailStatusService>
+
         service = new InvocationResultsService(
             monitoringService,
             invocationResultsRowsService,
             warehouseWebhooksService,
             capturedEventsService,
             messageAssetsService,
-            conversionWatchersService
+            conversionWatchersService,
+            emailStatusService
         )
     })
 
     describe('queueInvocationResults', () => {
-        it('fans the same results out to all sub-services', async () => {
-            await service.queueInvocationResults(results)
+        it('delivers nothing through any sink until flush', async () => {
+            const { service: realService, delivered, cleanup } = realSinks()
+            const runs = [failedTransactionalEmailRun('person-a'), failedTransactionalEmailRun('person-b')]
 
-            expect(monitoringService.queueInvocationResults).toHaveBeenCalledTimes(1)
-            expect(monitoringService.queueInvocationResults).toHaveBeenCalledWith(results)
-            expect(invocationResultsRowsService.queueInvocationResults).toHaveBeenCalledTimes(1)
-            expect(invocationResultsRowsService.queueInvocationResults).toHaveBeenCalledWith(results)
-            expect(warehouseWebhooksService.queueInvocationResults).toHaveBeenCalledTimes(1)
-            expect(warehouseWebhooksService.queueInvocationResults).toHaveBeenCalledWith(results)
-            expect(capturedEventsService.queueInvocationResults).toHaveBeenCalledTimes(1)
-            expect(capturedEventsService.queueInvocationResults).toHaveBeenCalledWith(results)
-            expect(messageAssetsService.queueInvocationResults).toHaveBeenCalledTimes(1)
-            expect(messageAssetsService.queueInvocationResults).toHaveBeenCalledWith(results)
+            try {
+                await realService.queueInvocationResults(runs)
+
+                expect(await delivered(runs)).toEqual({
+                    [APP_METRICS_OUTPUT]: [],
+                    [LOG_ENTRIES_OUTPUT]: [],
+                    [HOG_INVOCATION_RESULTS_OUTPUT]: [],
+                    [WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT]: [],
+                    [MESSAGE_ASSETS_OUTPUT]: [],
+                    [EMAIL_STATUS_OUTPUT]: [],
+                    capture: [],
+                    conversion_watchers: [],
+                })
+            } finally {
+                await cleanup(runs)
+            }
         })
 
         it('awaits the captured-events service (which is async)', async () => {
@@ -106,14 +265,40 @@ describe('InvocationResultsService', () => {
     })
 
     describe('flush', () => {
-        it('flushes all sub-services', async () => {
-            await service.flush()
+        it('delivers every queued run through every sink', async () => {
+            const { service: realService, delivered, cleanup } = realSinks()
+            const runs = [failedTransactionalEmailRun('person-a'), failedTransactionalEmailRun('person-b')]
+            const eachRun = (records: (run: CyclotronJobInvocationResult) => object[]): unknown[] =>
+                runs.flatMap((run) => records(run).map((record) => expect.objectContaining(record)))
 
-            expect(monitoringService.flush).toHaveBeenCalledTimes(1)
-            expect(invocationResultsRowsService.flush).toHaveBeenCalledTimes(1)
-            expect(warehouseWebhooksService.flush).toHaveBeenCalledTimes(1)
-            expect(capturedEventsService.flush).toHaveBeenCalledTimes(1)
-            expect(messageAssetsService.flush).toHaveBeenCalledTimes(1)
+            try {
+                await realService.queueInvocationResults(runs)
+                await realService.flush()
+
+                expect(await delivered(runs)).toEqual({
+                    [APP_METRICS_OUTPUT]: eachRun((run) => [
+                        { app_source: 'hog_flow', app_source_id: run.invocation.functionId, metric_name: 'failed' },
+                        { app_source: 'hog_flow_version', metric_name: 'failed' },
+                    ]),
+                    [LOG_ENTRIES_OUTPUT]: eachRun((run) => [
+                        { instance_id: run.invocation.id, message: 'Template not found' },
+                    ]),
+                    [HOG_INVOCATION_RESULTS_OUTPUT]: eachRun((run) => [
+                        { invocation_id: run.invocation.id, status: 'failed' },
+                    ]),
+                    [WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT]: eachRun((run) => [
+                        { schema_id: run.warehouseWebhookPayloads[0].schema_id, payload: JSON.stringify({ id: 1 }) },
+                    ]),
+                    [MESSAGE_ASSETS_OUTPUT]: eachRun((run) => [{ invocation_id: run.invocation.id, subject: 'Hello' }]),
+                    [EMAIL_STATUS_OUTPUT]: eachRun((run) => [{ message_id: run.invocation.id, status: 'failed' }]),
+                    capture: eachRun((run) => [
+                        { api_key: team.api_token, distinct_id: run.capturedPostHogEvents[0].distinct_id },
+                    ]),
+                    conversion_watchers: eachRun((run) => [{ run_id: run.invocation.id }]),
+                })
+            } finally {
+                await cleanup(runs)
+            }
         })
 
         it('flushes all in parallel (all start before any finish)', async () => {

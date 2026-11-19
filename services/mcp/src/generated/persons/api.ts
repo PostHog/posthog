@@ -19,6 +19,8 @@ export const PersonsListParams = () => zod.object({
         ),
 })
 
+export const personsListQueryLimitMax = 1000
+
 export const personsListQueryPropertiesItemTypeDefault = `AND`
 export const personsListQueryPropertiesItemValuesItemOperatorDefault = `exact`
 export const personsListQueryPropertiesItemValuesItemTypeDefault = `event`
@@ -39,7 +41,7 @@ export const PersonsListQueryParams = () => zod.object({
         .describe(
             'Tag each search result with `matched_fields`, the searched fields the term was found in. A complete email address that exactly matches a distinct ID then returns that person first, followed by every person whose email or name property contains the address.'
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(personsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     properties: zod
         .array(
@@ -213,8 +215,14 @@ export const PersonsUpdatePropertyCreateQueryParams = () => zod.object({
 })
 
 export const PersonsUpdatePropertyCreateBody = () => zod.object({
-    key: zod.string().describe('The property key to set.'),
-    value: zod.unknown().describe('The property value. Can be a string, number, boolean, or object.'),
+    key: zod.string().optional().describe("The property key to set. Pair it with 'value' to set one property."),
+    value: zod.unknown().optional().describe('The property value. Can be a string, number, boolean, or object.'),
+    properties: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            "Property keys and values to set together, instead of 'key' and 'value'. One request sets up to 1000 properties and emits a single $set event."
+        ),
 })
 
 /**

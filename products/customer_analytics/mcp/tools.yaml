@@ -7,6 +7,24 @@ feature: customer_analytics
 url_prefix: /customer_analytics
 ui_apps: {}
 tools:
+    account-notes-list:
+        operation: account_notes_list
+        enabled: true
+        scopes:
+            - account_note:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List account notes across accounts
+        description: >
+            Notes (internal notebooks) across every Customer Analytics account the caller can read, newest modified
+            first. Each row carries `short_id`, `title`, `account_id`, `account_name`, `created_by` and `tags`. Filter
+            with `tags` (JSON-encoded array, any match), `account_id`, `created_by`, `assigned_to` and `search`; sort
+            with `ordering` (`last_modified_at`, `created_at`, `title`, `account_name`, `-` prefix for descending). Use
+            `accounts-notebooks-retrieve` with the row's `account_id` and `short_id` to read a note's content.
+        feature_flag: customer-analytics-csp
     account-relationship-definitions-create:
         operation: account_relationship_definitions_create
         enabled: true
@@ -148,6 +166,23 @@ tools:
             text for text. List or create definitions with `custom-property-definitions-list` and
             `custom-property-definitions-create`.
         feature_flag: customer-analytics-csp
+    accounts-custom-property-values-history:
+        operation: accounts_custom_property_values_history_retrieve
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List account custom property value history
+        description: >
+            List every value a Customer Analytics account has held for one custom property, oldest first. Use it to see
+            how a property such as MRR or plan changed over time. Each entry has the `value`, `set_at`, `replaced_at`
+            (when the next value replaced it), `is_current`, and `set_by_id`. Repeated sets of the same value count as
+            one entry. A cleared value has no recorded clear time. Pass the property's `definition` ID, found with
+            `custom-property-definitions-list`. Pass `since` (YYYY-MM-DD) to limit a long history to a time window. The
+            first entry is then the value in place on that date.
+        feature_flag: customer-analytics-csp
     accounts-custom-property-values-list:
         operation: accounts_custom_property_values_list
         enabled: true
@@ -163,7 +198,8 @@ tools:
             List the current custom property values for a single Customer Analytics account. Each result pairs a custom
             property definition (via `definition_id`) with the account's `value` for it — typed per the definition's
             display_type (string, number, boolean, or ISO-8601 datetime) — plus `created_at` and who set it. Only
-            current values are returned; superseded history is not. Resolve a `definition_id` to its name and type with
+            current values are returned. For the values a property held before, use
+            `accounts-custom-property-values-history`. Resolve a `definition_id` to its name and type with
             `custom-property-definitions-list` or `custom-property-definitions-retrieve`.
         feature_flag: customer-analytics-csp
     accounts-destroy:
@@ -245,7 +281,7 @@ tools:
         operation: accounts_notebooks_create
         enabled: true
         scopes:
-            - account:write
+            - account_note:write
         annotations:
             readOnly: false
             destructive: false
@@ -258,13 +294,15 @@ tools:
             fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content`
             (ProseMirror JSON) only if you already have a structured document; the server converts it into the same
             markdown notebook format. In most cases leave it unset and write Markdown in `text_content`. The notebook is
-            created with internal visibility so it does not appear in the global notebooks list.
+            created with internal visibility so it does not appear in the global notebooks list. Pass `tags` (array of
+            tag names, shared with account tags) to tag the note at creation time. A note a scout writes is also tagged
+            `scout` and `scout-<skill name>` by the server, so pass only topic tags.
         feature_flag: customer-analytics-csp
     accounts-notebooks-destroy:
         operation: accounts_notebooks_destroy
         enabled: true
         scopes:
-            - account:write
+            - account_note:write
         annotations:
             readOnly: false
             destructive: true
@@ -277,7 +315,7 @@ tools:
         operation: accounts_notebooks_list
         enabled: true
         scopes:
-            - account:read
+            - account_note:read
         annotations:
             readOnly: true
             destructive: false
@@ -285,14 +323,32 @@ tools:
         list: true
         title: List account notebooks
         description: >
-            List notebooks attached to a Customer Analytics account, ordered by most recently modified. Each result
-            includes the notebook `short_id`, `title`, `content`, and authorship metadata.
+            List notebooks attached to a Customer Analytics account, newest first by default. Each result includes the
+            notebook `short_id`, `title`, `content`, `tags` and authorship metadata. Pass `tags` (JSON-encoded array,
+            e.g. `["renewal","risk"]`) to keep notebooks carrying any of those tags, `created_by` (user IDs) to keep
+            notebooks by those authors, `search` for full text, and `ordering` (`title`, `created_at`,
+            `last_modified_at`, `created_by`, each with a `-` prefix for descending) to sort.
+        feature_flag: customer-analytics-csp
+    accounts-notebooks-partial-update:
+        operation: accounts_notebooks_partial_update
+        enabled: true
+        scopes:
+            - account_note:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update account notebook tags
+        description: >
+            Replace an account notebook's `tags` by its `short_id`. `tags` replaces the whole tag set, so read the
+            notebook first and send the full list to add one. The title and content are not edited here: a note's title
+            comes from its first line, so use `notebooks-partial-update` to change the content.
         feature_flag: customer-analytics-csp
     accounts-notebooks-retrieve:
         operation: accounts_notebooks_retrieve
         enabled: true
         scopes:
-            - account:read
+            - account_note:read
         annotations:
             readOnly: true
             destructive: false
@@ -400,9 +456,11 @@ tools:
             (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. These are
             the built-in fields only; a team's own typed attributes are custom properties and are not returned here.
             Call `custom-property-definitions-list` to see what the team tracks, then
-            `accounts-custom-property-values-list` for this account's values. To link a user to this account rather than
-            the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`;
-            tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).
+            `accounts-custom-property-values-list` for this account's values, or
+            `accounts-custom-property-values-history` to see how one changed over time. To link a user to this account
+            rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the
+            account `id`; tab is optional — one of notes/users/usage/spend, e.g.
+            `/customer_analytics/accounts/<id>/usage`).
         feature_flag: customer-analytics-csp
     accounts-summaries-list:
         operation: accounts_summaries_list
@@ -558,19 +616,20 @@ tools:
         list: true
         title: List custom property definitions
         description: >
-            List Customer Analytics custom property definitions for the project. A definition is the shape of a custom
-            attribute — its `name`, optional `description`, `display_type` (one of text, number, currency, percent,
-            date, datetime, boolean), `is_big_number` flag, and `target_type` (`account`, `person`, or `group`, with
-            `group_type_index` set for group targets). Definitions are team-scoped; for account targets, the value a
-            specific account holds is managed separately via the account custom property value tools. Group-target
-            definitions are only listed for callers holding the `group:read` scope. Use
-            `custom-property-definitions-retrieve` to fetch a single definition by id. To list or filter accounts by a
-            custom property value in bulk, take a definition `id` from this tool and query it via HogQL against
-            `system.accounts`, selecting ``custom_properties.values.`<definition_id>` `` (backtick-quote the id) and
-            filtering it `IS NOT NULL`. The per-account value tools return one account at a time; this HogQL path scales
-            to all accounts. Match a requested field against this project's definition names and descriptions rather
-            than assuming the same name or data type in every project. Use `custom-property-definitions-retrieve` when
-            you need source details or select options omitted from this compact list.
+            List the fields a team tracks on its Customer Analytics accounts, such as plan, revenue, or health. Call
+            this first for a question about an account's data, before metrics, SQL, events, or warehouse tables. A
+            definition is the shape of a custom attribute — its `name`, optional `description`, `display_type` (one of
+            text, number, currency, percent, date, datetime, boolean), `is_big_number` flag, and `target_type`
+            (`account`, `person`, or `group`, with `group_type_index` set for group targets). Definitions are
+            team-scoped; for account targets, the value a specific account holds is managed separately via the account
+            custom property value tools. Group-target definitions are only listed for callers holding the `group:read`
+            scope. Use `custom-property-definitions-retrieve` to fetch a single definition by id. To list or filter
+            accounts by a custom property value in bulk, take a definition `id` from this tool and query it via HogQL
+            against `system.accounts`, selecting ``custom_properties.values.`<definition_id>` `` (backtick-quote the id)
+            and filtering it `IS NOT NULL`. The per-account value tools return one account at a time; this HogQL path
+            scales to all accounts. Match a requested field against this project's definition names and descriptions
+            rather than assuming the same name or data type in every project. Use `custom-property-definitions-retrieve`
+            when you need source details or select options omitted from this compact list.
         feature_flag: customer-analytics-csp
         response:
             include:
@@ -1087,6 +1146,25 @@ tools:
             status, priority, account, evidence, and product area changes from one successful save. Account snapshots
             the caller cannot access are removed or redacted. HogQL `system.feature_request_history` exposes entry
             metadata and changed field names, but not before and after values.
+        feature_flag: customer-analytics-feature-requests
+    feature-requests-link-github-create:
+        operation: feature_requests_link_github_create
+        enabled: true
+        scopes:
+            - customer_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: feature-requests/{id}
+        title: Link feature request to GitHub issue
+        description: >
+            Link a Customer analytics feature request to one GitHub issue. Pass the request id, its current
+            `expected_version`, the id of a GitHub integration connected to the project, and the issue URL. Pull request
+            URLs are rejected, and a request can have only one linked issue. Link an issue only when it describes the
+            same customer problem and one feature would close both. The link syncs the issue state to the request: a
+            closed issue sets the status to completed or won't fix, and a reopened issue restores the earlier status.
+            The response contains the request with its `github_link` and the next version.
         feature_flag: customer-analytics-feature-requests
     feature-requests-list:
         operation: feature_requests_list

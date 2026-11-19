@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `_record_count` UInt64,
     `pattern` String,
     `pattern_version` UInt8,
+    `internal_source` LowCardinality(String) DEFAULT '',
     INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
     INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -105,11 +106,11 @@ CREATE OR REPLACE TABLE {database}.logs_distributed AS {database}.{table_name} E
 
 
 def WRITABLE_LOGS34_TABLE_SQL():
-    # The write path for the Kafka MV, hosted on the ingestion-events nodes: a Distributed table over
+    # The write path for the Kafka MV, hosted on the ingestion nodes: a Distributed table over
     # the logs cluster's `logs34`. The columns are spelled out (rather than `AS logs34`) because
-    # `logs34` is not local on the events nodes — only this Distributed front is. Keep the column list
+    # `logs34` is not local on the ingestion nodes — only this Distributed front is. Keep the column list
     # byte-identical to `LOGS34_TABLE_SQL` (indexes/projection are storage-only and omitted here).
-    # `CLICKHOUSE_LOGS_WRITE_CLUSTER`, not `CLICKHOUSE_LOGS_CLUSTER`: the events node reaches the logs
+    # `CLICKHOUSE_LOGS_WRITE_CLUSTER`, not `CLICKHOUSE_LOGS_CLUSTER`: the ingestion node reaches the logs
     # cluster under its own name, and the latter's default resolves to the data node from there.
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     return f"""
@@ -147,7 +148,8 @@ CREATE TABLE IF NOT EXISTS {db}.writable_logs34
     `_bytes_compressed` UInt64,
     `_record_count` UInt64,
     `pattern` String,
-    `pattern_version` UInt8
+    `pattern_version` UInt8,
+    `internal_source` LowCardinality(String) DEFAULT ''
 )
 ENGINE = {Distributed(data_table=TABLE_NAME, cluster=settings.CLICKHOUSE_LOGS_WRITE_CLUSTER)}
 SETTINGS background_insert_batch = 1
@@ -286,7 +288,7 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{KAFKA_TA
 ENGINE = {kafka_engine(topic=KAFKA_TOPIC, group=KAFKA_GROUP, serialization="Avro", named_collection=KAFKA_NAMED_COLLECTION)}
 SETTINGS
     kafka_skip_broken_messages = 100,
-    kafka_num_consumers = {kafka_num_consumers(8)},
+    kafka_num_consumers = {kafka_num_consumers(4)},
     kafka_poll_timeout_ms = 3000,
     kafka_poll_max_batch_size = 1000,
     kafka_thread_per_consumer = 1,
@@ -294,8 +296,17 @@ SETTINGS
 """
 
 
-def KAFKA_LOGS34_AVRO_MV_SELECT():
+# Migrations before 0361 pass `internal_source=False`, because the column does not exist yet on a
+# database that upgrades through them. 0361 adds it to every table and then rebuilds each view.
+_INTERNAL_SOURCE_TYPE = "    `internal_source` LowCardinality(String)"
+
+
+def KAFKA_LOGS34_AVRO_MV_SELECT(*, internal_source: bool = True):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    # The logs consumer removes any incoming `internal-source` header and sets it only on a batch whose signature it verified.
+    internal_source_column = (
+        ",\n    _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source" if internal_source else ""
+    )
     return f"""SELECT
     uuid,
     trace_id,
@@ -320,15 +331,15 @@ def KAFKA_LOGS34_AVRO_MV_SELECT():
     toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
     toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
     ifNull(pattern, '') AS pattern,
-    toUInt8(ifNull(pattern_version, 0)) AS pattern_version
+    toUInt8(ifNull(pattern_version, 0)) AS pattern_version{internal_source_column}
 FROM {db}.{KAFKA_TABLE_NAME}"""
 
 
-def KAFKA_LOGS34_AVRO_MV(to_table: str = TABLE_NAME):
+def KAFKA_LOGS34_AVRO_MV(to_table: str = TABLE_NAME, *, internal_source: bool = True):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     # `to_table` defaults to `logs34` so the historical migration 0280 (which creates this MV on the
-    # logs nodes, where `logs34` is local) keeps working when replayed. Migration 0305 passes
-    # `writable_logs34` — the Distributed(logs, posthog, logs34) table on the ingestion-events nodes —
+    # logs nodes, where `logs34` is local) keeps working when replayed. Migrations 0305, 0359 and 0361 pass
+    # `writable_logs34` — the Distributed(logs, posthog, logs34) table on the ingestion nodes —
     # because `logs34` itself is not local there.
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.{to_table}
@@ -356,40 +367,19 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.{to_tab
     `_bytes_uncompressed` Nullable(Int64),
     `_bytes_compressed` Nullable(Int64),
     `pattern` String,
-    `pattern_version` UInt8
+    `pattern_version` UInt8{"," + chr(10) + _INTERNAL_SOURCE_TYPE if internal_source else ""}
 )
-AS {KAFKA_LOGS34_AVRO_MV_SELECT()}
+AS {KAFKA_LOGS34_AVRO_MV_SELECT(internal_source=internal_source)}
 """
 
 
-def LOGS34_TO_VOLUME_BUCKETS_MV_SELECT():
-    db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
-    # Groups rows exactly like _rollup_sql in
-    # products/logs/backend/temporal/volume_tick/aggregation.py, which carries
-    # the reasoning for the environment fallback and severity lowercasing;
-    # `retention_days` is a measure folded into each group, not a dimension.
-    # The 300s grid literal is frozen into the DDL at migration time;
-    # BUCKET_SECONDS there must stay equal to it or the detector reads buckets
-    # this MV never writes.
-    #
-    # `retention_days` rounds the lifetime from the bucket to the raw expiry up
-    # to whole days, so event-time skew and bucket rounding cannot expire the
-    # rollup before its logs. Microseconds preserve fractional-second expiries.
-    # The 3650-day guard sits above the product's retention ceiling and bounds
-    # corrupt expiries. Max keeps mixed retentions as long as the latest expiry.
-    return f"""SELECT
-    team_id,
-    time_bucket,
-    service_name,
-    namespace,
-    environment,
-    severity_text,
-    maxSimpleState(retention_days) AS retention_days,
-    sumSimpleState(1) AS log_count
-FROM
-(
-    SELECT
-        team_id,
+# Bucket and series columns shared by the volume and pattern rollups, so their
+# series stay comparable one to one. They group rows exactly like _rollup_sql in
+# products/logs/backend/temporal/volume_tick/aggregation.py, which carries the
+# reasoning for the environment fallback and severity lowercasing. The 300s grid
+# literal is frozen into each MV's DDL at migration time; BUCKET_SECONDS there
+# must stay equal to it or the detector reads buckets these MVs never write.
+_LOGS34_SERIES_KEY_COLUMNS = """        team_id,
         toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
         service_name,
         if(
@@ -406,14 +396,43 @@ FROM
                 resource_attributes['env']
             )
         ) AS environment,
-        lower(severity_text) AS severity_text,
-        toUInt16(least(intDiv(greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0) + 86399999999, 86400000000), 3650)) AS retention_days
+        lower(severity_text) AS severity_text"""
+
+
+# `retention_days` is a measure folded into each rollup group, not a dimension.
+# It rounds the lifetime from the bucket to the raw expiry up to whole days, so
+# event-time skew and bucket rounding cannot expire the rollup before its logs.
+# Microseconds preserve fractional-second expiries. The 3650-day guard sits above
+# the product's retention ceiling and bounds corrupt expiries. Max keeps mixed
+# retentions as long as the latest expiry.
+_LOGS34_RETENTION_DAYS_COLUMN = """        toUInt16(least(intDiv(greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0) + 86399999999, 86400000000), 3650)) AS retention_days"""
+
+
+def LOGS34_TO_VOLUME_BUCKETS_MV_SELECT(*, internal_source: bool = True):
+    db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    outer = "\n    internal_source," if internal_source else ""
+    inner = "\n        internal_source," if internal_source else ""
+    group = ", internal_source" if internal_source else ""
+    return f"""SELECT
+    team_id,
+    time_bucket,
+    service_name,
+    namespace,
+    environment,
+    severity_text,{outer}
+    maxSimpleState(retention_days) AS retention_days,
+    sumSimpleState(1) AS log_count
+FROM
+(
+    SELECT
+{_LOGS34_SERIES_KEY_COLUMNS},{inner}
+{_LOGS34_RETENTION_DAYS_COLUMN}
     FROM {db}.{TABLE_NAME}
 )
-GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text"""
+GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text{group}"""
 
 
-def LOGS34_TO_VOLUME_BUCKETS_MV():
+def LOGS34_TO_VOLUME_BUCKETS_MV(*, internal_source: bool = True):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_volume_buckets TO {db}.logs_volume_buckets
@@ -423,11 +442,64 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_volume_buckets TO {db}.log
     `service_name` LowCardinality(String),
     `namespace` LowCardinality(String),
     `environment` LowCardinality(String),
-    `severity_text` LowCardinality(String),
+    `severity_text` LowCardinality(String),{chr(10) + _INTERNAL_SOURCE_TYPE + "," if internal_source else ""}
     `retention_days` SimpleAggregateFunction(max, UInt16),
     `log_count` SimpleAggregateFunction(sum, UInt64)
 )
-AS {LOGS34_TO_VOLUME_BUCKETS_MV_SELECT()}
+AS {LOGS34_TO_VOLUME_BUCKETS_MV_SELECT(internal_source=internal_source)}
+"""
+
+
+def LOGS34_TO_PATTERN_BUCKETS_MV_SELECT(*, internal_source: bool = True) -> str:
+    db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    outer = "\n    internal_source," if internal_source else ""
+    inner = "\n        internal_source," if internal_source else ""
+    group = ", internal_source" if internal_source else ""
+    # `pattern_version = 0` marks a row the ingestion consumer never stamped. Those
+    # rows would all collapse into one empty-pattern bucket per series, so they are
+    # dropped. The filter is on the version, not on `pattern != ''`, because a
+    # stamped empty body also yields an empty pattern, and that is a real shape.
+    return f"""SELECT
+    team_id,
+    time_bucket,
+    service_name,
+    namespace,
+    environment,
+    severity_text,
+    pattern_version,
+    pattern,{outer}
+    maxSimpleState(retention_days) AS retention_days,
+    sumSimpleState(1) AS log_count
+FROM
+(
+    SELECT
+{_LOGS34_SERIES_KEY_COLUMNS},
+        pattern_version,
+        pattern,{inner}
+{_LOGS34_RETENTION_DAYS_COLUMN}
+    FROM {db}.{TABLE_NAME}
+    WHERE pattern_version != 0
+)
+GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern{group}"""
+
+
+def LOGS34_TO_PATTERN_BUCKETS_MV(*, internal_source: bool = True) -> str:
+    db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_pattern_buckets TO {db}.logs_pattern_buckets
+(
+    `team_id` Int32,
+    `time_bucket` DateTime('UTC'),
+    `service_name` LowCardinality(String),
+    `namespace` LowCardinality(String),
+    `environment` LowCardinality(String),
+    `severity_text` LowCardinality(String),
+    `pattern_version` UInt8,
+    `pattern` String,{chr(10) + _INTERNAL_SOURCE_TYPE + "," if internal_source else ""}
+    `retention_days` SimpleAggregateFunction(max, UInt16),
+    `log_count` SimpleAggregateFunction(sum, UInt64)
+)
+AS {LOGS34_TO_PATTERN_BUCKETS_MV_SELECT(internal_source=internal_source)}
 """
 
 

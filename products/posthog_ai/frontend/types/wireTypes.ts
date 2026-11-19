@@ -30,6 +30,7 @@ export interface StoredLogEntry {
     type: 'notification'
     event_id?: string
     first_event_id?: string
+    covered_event_ids?: string[]
     /** Client-side ownership; the shared backend log payload stays unchanged. */
     source_run_id?: string
     timestamp?: string
@@ -72,11 +73,14 @@ export interface PermissionOption {
     kind: string
     /** `_meta.customInput === true` — the option accepts optional free-text feedback. */
     customInput?: boolean
+    hint?: string
+    _meta?: { customInput?: boolean; hint?: string }
 }
 
 /** Top-level permission frame hoisted onto the stream by the relay. */
 export interface PermissionRequestFrame {
     type: 'permission_request'
+    event_id?: string
     requestId?: string
     toolCallId?: string
     options?: PermissionOption[]

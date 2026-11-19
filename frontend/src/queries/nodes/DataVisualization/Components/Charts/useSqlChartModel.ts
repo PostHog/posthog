@@ -7,10 +7,14 @@ import {
     type TooltipConfig,
     type XAxisConfig,
     type ChartMargins,
+    type YAxisConfig,
+    type ValueDomain,
+    type BarsConfig,
 } from '@posthog/quill-charts'
 
 import { useChartTheme, useChartConfig } from 'lib/charts/hooks'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ChartDisplayType } from '~/types'
@@ -20,6 +24,7 @@ import {
     type BuildBarConfigArgs,
     type SqlLineSeriesMeta,
     buildSeries,
+    withCategoryBarColors,
     capYSeriesData,
     exceedsMaxSeries,
     warnTooManySeries,
@@ -34,7 +39,14 @@ export interface SqlChartModel<TConfig> {
 }
 
 export function useSqlChartModel<
-    TConfig extends { tooltip?: TooltipConfig; xAxis?: XAxisConfig; margins?: Partial<ChartMargins> },
+    TConfig extends {
+        tooltip?: TooltipConfig
+        xAxis?: XAxisConfig
+        yAxis?: YAxisConfig | YAxisConfig[]
+        valueDomain?: ValueDomain
+        bars?: BarsConfig
+        margins?: Partial<ChartMargins>
+    },
 >(
     {
         xData,
@@ -45,12 +57,16 @@ export function useSqlChartModel<
         goalLines,
         embedded,
         directPointClick,
+        labelFormatter,
         xAxis,
         margins,
+        valueDomain,
     }: SqlChartProps,
     buildConfig: (args: BuildBarConfigArgs) => TConfig
 ): SqlChartModel<TConfig> | null {
     const { timezone } = useValues(teamLogic)
+    const { getTheme } = useValues(dataThemeLogic)
+    const dataTheme = useMemo(() => getTheme(undefined), [getTheme])
 
     useEffect(() => {
         if (exceedsMaxSeries(yData, dashboardId)) {
@@ -60,12 +76,20 @@ export function useSqlChartModel<
 
     const ySeriesData = useMemo(() => capYSeriesData(yData), [yData])
 
-    const series = useMemo(
-        () => (ySeriesData ? buildSeries(ySeriesData, visualizationType) : []),
-        [ySeriesData, visualizationType]
-    )
-
     const theme = useChartTheme()
+
+    const series = useMemo(
+        () =>
+            withCategoryBarColors(
+                ySeriesData ? buildSeries(ySeriesData, visualizationType, chartSettings.showValuesOnSeries) : [],
+                xData?.data ?? [],
+                visualizationType,
+                chartSettings,
+                theme.colors,
+                dataTheme
+            ),
+        [ySeriesData, xData, visualizationType, chartSettings, theme.colors, dataTheme]
+    )
 
     const legendRenderItem = useChartLegendSeriesMenu({ surface: 'sql', seriesCount: series.length })
 
@@ -88,11 +112,58 @@ export function useSqlChartModel<
             legendRenderItem,
             embedded,
         })
+        const rawValuesByLabel = new Map(
+            xData.data.map((value) => [String(labelFormatter?.(value) ?? value ?? '[No value]'), value])
+        )
+        const formatLabel = labelFormatter
+            ? (value: string): string => {
+                  const raw =
+                      visualizationType === ChartDisplayType.ActionsBarValue
+                          ? xData.data[Number(value)]
+                          : rawValuesByLabel.has(value)
+                            ? rawValuesByLabel.get(value)!
+                            : value
+                  const label = labelFormatter(raw)
+                  return label === raw ? (config.tooltip?.labelFormatter?.(value) ?? label) : label
+              }
+            : undefined
         return {
             ...config,
+            ...(valueDomain
+                ? {
+                      valueDomain,
+                      ...(visualizationType === ChartDisplayType.ActionsBarValue
+                          ? {
+                                bars: {
+                                    ...config.bars,
+                                    valueDomain: {
+                                        ...config.bars?.valueDomain,
+                                        ...valueDomain,
+                                        include: [
+                                            ...(config.bars?.valueDomain?.include ?? []),
+                                            ...(valueDomain.include ?? []),
+                                        ],
+                                    },
+                                },
+                            }
+                          : {}),
+                      yAxis: Array.isArray(config.yAxis)
+                          ? config.yAxis.map((axis, index) =>
+                                index === 0 ? { ...axis, min: valueDomain.min, max: valueDomain.max } : axis
+                            )
+                          : { ...config.yAxis, min: valueDomain.min, max: valueDomain.max },
+                  }
+                : {}),
+            ...(formatLabel && visualizationType === ChartDisplayType.ActionsBarValue
+                ? { xTickFormatter: formatLabel }
+                : {}),
             xAxis: { ...config.xAxis, ...xAxis },
             margins: { ...config.margins, ...margins },
-            tooltip: { ...config.tooltip, resolveClickToNearestSeries: directPointClick },
+            tooltip: {
+                ...config.tooltip,
+                resolveClickToNearestSeries: directPointClick,
+                ...(formatLabel ? { labelFormatter: formatLabel } : {}),
+            },
         }
     }, [
         xData,
@@ -106,16 +177,18 @@ export function useSqlChartModel<
         legendRenderItem,
         embedded,
         directPointClick,
+        labelFormatter,
         xAxis,
         margins,
+        valueDomain,
     ])
 
     const labels = useMemo(
         () =>
             visualizationType === ChartDisplayType.ActionsBarValue
                 ? (xData?.data.map((_, index) => String(index)) ?? [])
-                : (xData?.data ?? []),
-        [visualizationType, xData]
+                : (xData?.data.map((value) => String(labelFormatter?.(value) ?? value ?? '[No value]')) ?? []),
+        [visualizationType, xData, labelFormatter]
     )
 
     if (!xData || !ySeriesData || series.length === 0 || !config) {

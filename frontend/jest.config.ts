@@ -89,8 +89,10 @@ function rootDirectories(): string[] {
         '<rootDir>/../products',
         '<rootDir>/../packages/quill/packages/charts/src',
         '<rootDir>/../packages/quill/packages/components/src',
+        '<rootDir>/../packages/quill/packages/tokens/src',
         '<rootDir>/../packages/llm-normalizer/src',
         '<rootDir>/../common/esbuilder',
+        '<rootDir>/../common/storybook/.storybook',
     ]
 }
 
@@ -154,6 +156,7 @@ const config: Config = {
         '^@posthog/replay-shared/(.*)$': '<rootDir>/../common/replay-shared/src/$1',
         '^@posthog/llm-normalizer$': '<rootDir>/../packages/llm-normalizer/src/index.ts',
         '^@posthog/llm-normalizer/(.*)$': '<rootDir>/../packages/llm-normalizer/src/$1',
+        '^@posthog/agent-contracts/(.*)$': '<rootDir>/../packages/agent/packages/agent-contracts/src/$1',
         '^@posthog/quill$': '<rootDir>/../packages/quill/packages/quill/src/index.ts',
         '^@posthog/quill-blocks$': '<rootDir>/../packages/quill/packages/blocks/src/index.ts',
         '^@posthog/quill-charts$': '<rootDir>/../packages/quill/packages/charts/src/index.ts',
@@ -175,6 +178,9 @@ const config: Config = {
     // A path to a custom resolver — strips the `browser` export condition for the MSW ecosystem
     // (whose Node subpaths are null under `browser`) without affecting any other package's resolution.
     resolver: '<rootDir>/jest.resolver.js',
+
+    // Runs `@sucrase/jest-plugin` on each file, so a change to the `transform` entry below must change it too.
+    dependencyExtractor: '<rootDir>/jest.dependencyExtractor.js',
 
     modulePaths: ['<rootDir>/'],
 
@@ -200,6 +206,7 @@ const config: Config = {
         '/products/[^/]+/frontend/e2e/',
         '/products/visual_review/cli/',
         '/products/desktop/',
+        '/products/mobile/',
     ],
 
     transform: {

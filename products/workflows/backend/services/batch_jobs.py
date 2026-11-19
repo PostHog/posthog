@@ -3,14 +3,30 @@ from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Exists, OuterRef, Q, Subquery
+from django.db import transaction
+from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
+import structlog
+from prometheus_client import Counter
+
+from posthog.exceptions_capture import capture_exception
+from posthog.plugins.plugin_server_api import get_hog_flow_in_flight_count, resume_hog_flow_batch_job
+
+from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.facade.contracts import WorkflowBatchJob, WorkflowBatchJobNotFound
 from products.workflows.backend.facade.enums import HogFlowBatchJobState, HogFlowScheduleStatus
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
+from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import (
+    batch_job_audience_filters,
+    dispatch_queued_no_resolver,
+)
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+from products.workflows.backend.services.batch_audience_cohorts import realtime_cohort_is_ready, sole_audience_cohort_id
+from products.workflows.backend.utils.batch_trigger_limit import resolve_batch_audience_limit
+
+logger = structlog.get_logger(__name__)
 
 
 def to_batch_job(job: HogFlowBatchJob) -> WorkflowBatchJob:
@@ -28,6 +44,7 @@ def to_batch_job(job: HogFlowBatchJob) -> WorkflowBatchJob:
 
 def create_batch_job(
     *,
+    batch_job_id: UUID,
     team_id: int,
     hog_flow_id: UUID,
     created_by_id: int,
@@ -37,6 +54,7 @@ def create_batch_job(
 ) -> WorkflowBatchJob:
     """Save the job row. Its post_save receiver dispatches the run to the plugin server."""
     job = HogFlowBatchJob.objects.create(
+        id=batch_job_id,
         team_id=team_id,
         hog_flow_id=hog_flow_id,
         created_by_id=created_by_id,
@@ -45,6 +63,35 @@ def create_batch_job(
         **({} if status is None else {"status": status}),
     )
     return to_batch_job(job)
+
+
+def batch_run_may_send_after_failed_dispatch(
+    *, team_id: int, hog_flow_id: UUID, batch_job_id: UUID, dispatch_error: BaseException
+) -> bool:
+    """Whether a run whose save raised may still send: its job was saved, and the dispatch may have queued it."""
+    saved = HogFlowBatchJob.objects.filter(id=batch_job_id, team_id=team_id, hog_flow_id=hog_flow_id).exists()
+    return saved and not dispatch_queued_no_resolver(dispatch_error)
+
+
+def rate_limit_change_unpaces_batch(*, team_id: int, hog_flow_id: UUID, current: object, new: object) -> bool:
+    """Whether replacing a workflow's sending rate limit could leave a batch run's raised audience unpaced.
+    The worker paces each send with the live rate limit, so the rate a raised cap relied on must hold
+    until the run's sends have left the queue."""
+    if new == current:
+        return False
+    if not HogFlowBatchJob.objects.filter(
+        team_id=team_id, hog_flow_id=hog_flow_id, max_audience_size__gt=resolve_batch_audience_limit(team_id).limit
+    ).exists():
+        return False
+    # The resolver completes a run once it enqueues the audience, and sends can wait behind delays, so only an
+    # empty queue ends the lock. An unknown count fails closed.
+    try:
+        response = get_hog_flow_in_flight_count(team_id=team_id, hog_flow_id=str(hog_flow_id))
+        response.raise_for_status()
+        return response.json().get("count") != 0
+    except Exception:
+        logger.warning("rate_limit_lock_in_flight_count_failed", hog_flow_id=str(hog_flow_id), exc_info=True)
+        return True
 
 
 def list_batch_jobs(*, team_id: int, hog_flow_id: UUID) -> list[WorkflowBatchJob]:
@@ -69,16 +116,38 @@ def set_batch_job_status(
     batch_job_id: UUID,
     status: HogFlowBatchJobState,
     from_statuses: Collection[HogFlowBatchJobState] | None = None,
-) -> None:
-    """Write the status. With from_statuses, only a job still in one of them changes."""
+) -> bool:
+    """Write the status and return whether a row changed. With from_statuses, only a job still in one of them changes."""
     jobs = HogFlowBatchJob.objects.filter(id=batch_job_id, team_id=team_id)
     if from_statuses is not None:
         jobs = jobs.filter(status__in=from_statuses)
     # `.update()` bypasses auto_now, so stamp updated_at explicitly.
-    jobs.update(status=status, updated_at=timezone.now())
+    updated = jobs.update(status=status, updated_at=timezone.now())
+    if updated and status in TERMINAL_BATCH_JOB_STATES:
+        _schedule_audience_snapshot_cleanup(team_id=team_id, batch_job_id=batch_job_id)
+    return bool(updated)
 
 
-def hog_flow_ids_with_broadcast_status(*, team_id: int, statuses: Collection[str]) -> list[UUID]:
+TERMINAL_BATCH_JOB_STATES = {
+    HogFlowBatchJobState.COMPLETED,
+    HogFlowBatchJobState.PARTIALLY_FAILED,
+    HogFlowBatchJobState.FAILED,
+    HogFlowBatchJobState.CANCELLED,
+}
+
+
+def _schedule_audience_snapshot_cleanup(*, team_id: int, batch_job_id: UUID) -> None:
+    # Only runs that resolved their audience up front have rows to drop.
+    if not HogFlowBatchJob.objects.filter(id=batch_job_id, team_id=team_id, audience_status__isnull=False).exists():
+        return
+    from products.workflows.backend.tasks.batch_jobs import (  # noqa: PLC0415 — the task module imports this service
+        delete_batch_job_audience_snapshot,
+    )
+
+    transaction.on_commit(lambda: delete_batch_job_audience_snapshot.delay(team_id, str(batch_job_id)), robust=True)
+
+
+def filter_by_broadcast_status(queryset: QuerySet[HogFlow], statuses: Collection[str]) -> QuerySet[HogFlow]:
     # The status a sender sees on a broadcast, derived the way the broadcasts UI derives it: from the
     # latest run and whether a schedule still has sends to come.
     latest_run_status = (
@@ -86,7 +155,7 @@ def hog_flow_ids_with_broadcast_status(*, team_id: int, statuses: Collection[str
         .order_by("-created_at")
         .values("status")[:1]
     )
-    queryset = HogFlow.objects.filter(team_id=team_id).annotate(
+    queryset = queryset.annotate(
         _latest_run_status=Subquery(latest_run_status),
         _has_pending_schedule=Exists(
             HogFlowSchedule.objects.filter(
@@ -104,11 +173,17 @@ def hog_flow_ids_with_broadcast_status(*, team_id: int, statuses: Collection[str
         "archived": Q(status=HogFlow.State.ARCHIVED),
         "sending": live & Q(_latest_run_status__in=running),
         "sent": live & Q(_latest_run_status=HogFlowBatchJobState.COMPLETED, _has_pending_schedule=False),
+        # Kept apart from failed, because a sender who sees Failed can resend and reach the same people twice.
+        "partially_sent": live
+        & Q(_latest_run_status=HogFlowBatchJobState.PARTIALLY_FAILED, _has_pending_schedule=False),
         "scheduled": live
         & (
             (
                 Q(_has_pending_schedule=True)
-                & (Q(_latest_run_status__isnull=True) | Q(_latest_run_status=HogFlowBatchJobState.COMPLETED))
+                & (
+                    Q(_latest_run_status__isnull=True)
+                    | Q(_latest_run_status__in=[HogFlowBatchJobState.COMPLETED, HogFlowBatchJobState.PARTIALLY_FAILED])
+                )
             )
             | (nothing_to_come & ~Q(origin_product="broadcasts"))
         ),
@@ -118,4 +193,86 @@ def hog_flow_ids_with_broadcast_status(*, team_id: int, statuses: Collection[str
     combined = Q()
     for broadcast_status in statuses:
         combined |= conditions[broadcast_status]
-    return list(queryset.filter(combined).values_list("id", flat=True))
+    return queryset.filter(combined)
+
+
+def hog_flow_ids_with_broadcast_status(*, team_id: int, statuses: Collection[str]) -> list[UUID]:
+    return list(
+        filter_by_broadcast_status(HogFlow.objects.filter(team_id=team_id), statuses).values_list("id", flat=True)
+    )
+
+
+def annotate_latest_send(queryset: QuerySet[HogFlow]) -> QuerySet[HogFlow]:
+    """Adds `_latest_send_at`: when the workflow's newest run that sent to anyone finished, or null."""
+    latest_send = (
+        HogFlowBatchJob.objects.filter(
+            team_id=OuterRef("team_id"),
+            hog_flow_id=OuterRef("pk"),
+            status__in=[HogFlowBatchJobState.COMPLETED, HogFlowBatchJobState.PARTIALLY_FAILED],
+        )
+        .order_by("-updated_at")
+        .values("updated_at")[:1]
+    )
+    return queryset.annotate(_latest_send_at=Subquery(latest_send))
+
+
+def delete_batch_jobs_for_teams(team_ids: Collection[int], batch_size: int = 1000) -> None:
+    jobs = HogFlowBatchJob.objects.filter(team_id__in=team_ids)
+    while batch_ids := list(jobs.values_list("id", flat=True)[:batch_size]):
+        jobs.filter(id__in=batch_ids).delete()
+
+
+REALTIME_COHORT_RESUMES = Counter(
+    "workflows_realtime_cohort_resume_total",
+    "Batch runs woken after their realtime cohort finished calculating, by the CDP API's outcome.",
+    labelnames=["outcome"],
+)
+
+
+def resume_batch_jobs_waiting_for_cohort(*, team_id: int, cohort_id: int) -> None:
+    """Wake the parked runs that wait for this realtime cohort, once it is ready.
+
+    Does nothing while the cohort still calculates. A run the CDP API confirms awake moves to queued.
+    Raises after trying every run if any resume failed, so the caller retries; a second resume of the
+    same run is a no-op.
+    """
+    cohort = Cohort.objects.filter(pk=cohort_id, team_id=team_id, deleted=False).select_related("team").first()
+    if cohort is None or not realtime_cohort_is_ready(cohort):
+        return
+    waiting = HogFlowBatchJob.objects.filter(
+        status=HogFlowBatchJobState.WAITING, team__project_id=cohort.team.project_id
+    ).select_related("team", "hog_flow")
+    errors: list[Exception] = []
+    for job in waiting.iterator(chunk_size=500):
+        # Each ready cohort scans the project's waiting runs, so a run that waits for another cohort is
+        # skipped before any cohort query.
+        filters = batch_job_audience_filters(job)
+        if str(sole_audience_cohort_id(filters)) != str(cohort_id):
+            continue
+        # A cohort edit during this loop clears the readiness stamps, so each run checks a fresh load. The run
+        # parked on this cohort, so an edit that drops its behavioral filters still resumes it once ready.
+        fresh_cohort = Cohort.objects.filter(pk=cohort_id, team_id=team_id, deleted=False).first()
+        if fresh_cohort is None or not realtime_cohort_is_ready(fresh_cohort):
+            continue
+        try:
+            response = resume_hog_flow_batch_job(
+                team_id=job.team_id, hog_flow_id=str(job.hog_flow_id), batch_job_id=str(job.id)
+            )
+            outcome = str(response.json().get("outcome", f"http_{response.status_code}"))
+        except Exception as error:
+            REALTIME_COHORT_RESUMES.labels(outcome="error").inc()
+            capture_exception(error)
+            errors.append(error)
+            continue
+        REALTIME_COHORT_RESUMES.labels(outcome=outcome).inc()
+        if outcome in ("resumed", "already_resumed"):
+            HogFlowBatchJob.objects.filter(pk=job.pk, status=HogFlowBatchJobState.WAITING).update(
+                status=HogFlowBatchJobState.QUEUED, updated_at=timezone.now()
+            )
+        elif outcome == "job_running" or response.status_code >= 500:
+            # The resolver is busy or the API failed, so a later attempt can still wake the run.
+            errors.append(RuntimeError(f"Batch run {job.id} was not resumed: {outcome}"))
+        else:
+            logger.warning("realtime_cohort_resume_not_delivered", batch_job_id=str(job.id), outcome=outcome)
+    if errors:
+        raise errors[0]

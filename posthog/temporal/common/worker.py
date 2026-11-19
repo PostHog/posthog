@@ -1,5 +1,6 @@
 import socket
 import typing
+import asyncio
 import datetime as dt
 import itertools
 import collections.abc
@@ -12,8 +13,16 @@ from prometheus_client import REGISTRY
 from temporalio.client import Plugin
 from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
-from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
+from temporalio.worker import (
+    Interceptor,
+    PollerBehaviorAutoscaling,
+    ResourceBasedSlotConfig,
+    UnsandboxedWorkflowRunner,
+    Worker,
+    WorkerTuner,
+)
 
+from posthog.dataclasses import frozen
 from posthog.temporal.ai_observability.eval_reports.metrics import (
     EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS,
     EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
@@ -32,12 +41,10 @@ from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.registration import combined_registration
+from posthog.temporal.common.shutdown import DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.common.utils import configure_asyncify_executor, shutdown_asyncify_executor
-from posthog.temporal.data_modeling.metrics import (
-    DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS,
-    DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
-)
 from posthog.temporal.mcp_analytics.intent_clustering.metrics import (
     MCPA_CLUSTERING_LATENCY_HISTOGRAM_BUCKETS,
     MCPA_CLUSTERING_LATENCY_HISTOGRAM_METRICS,
@@ -48,53 +55,9 @@ from posthog.temporal.session_replay.delete_recordings.metrics import (
     DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
     DeleteRecordingsMetricsInterceptor,
 )
-from posthog.temporal.session_replay.surfacing_scoring_sweep.metrics import (
-    SURFACING_SCORING_LATENCY_HISTOGRAM_BUCKETS,
-    SURFACING_SCORING_LATENCY_HISTOGRAM_METRICS,
-    SurfacingScoringMetricsInterceptor,
-)
 from posthog.temporal.usage_report.metrics import (
     USAGE_REPORTS_LATENCY_HISTOGRAM_BUCKETS,
     USAGE_REPORTS_LATENCY_HISTOGRAM_METRICS,
-)
-
-from products.alerts_platform.backend.facade.temporal import (
-    ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS,
-    ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS,
-    AlertsPlatformTelemetryInterceptor,
-)
-from products.batch_exports.backend.facade.temporal import BatchExportsMetricsInterceptor
-from products.experiments.backend.temporal.recalculation_metrics import (
-    EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
-    EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
-    EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS,
-    EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
-    EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_BUCKETS,
-    EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_METRICS,
-    ExperimentsRecalculationMetricsInterceptor,
-)
-from products.logs.backend.facade.temporal import (
-    LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS,
-    LOGS_ALERTING_COUNT_HISTOGRAM_METRICS,
-    LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS,
-    LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS,
-    LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_BUCKETS,
-    LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_METRICS,
-    LogsAlertingMetricsInterceptor,
-)
-from products.tasks.backend.facade.temporal import (
-    TASKS_LATENCY_HISTOGRAM_BUCKETS,
-    TASKS_LATENCY_HISTOGRAM_METRICS,
-    TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS,
-    TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS,
-    TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS,
-    TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS,
-    TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS,
-    TASKS_RUN_TOKENS_HISTOGRAM_METRICS,
-    TASKS_RUN_TURNS_HISTOGRAM_BUCKETS,
-    TASKS_RUN_TURNS_HISTOGRAM_METRICS,
-    TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS,
-    TASKS_SDK_LATENCY_HISTOGRAM_METRICS,
 )
 
 logger = get_write_only_logger()
@@ -180,18 +143,75 @@ ALL_INTERCEPTOR_CLASSES = [
     LivenessInterceptor,
     PostHogClientInterceptor,
     SloInterceptor,
-    AlertsPlatformTelemetryInterceptor,
-    BatchExportsMetricsInterceptor,
     DeleteRecordingsMetricsInterceptor,
-    SurfacingScoringMetricsInterceptor,
     EvalsMetricsInterceptor,
     SummarizationMetricsInterceptor,
     ClusteringMetricsInterceptor,
     MCPAClusteringMetricsInterceptor,
     EvalReportsMetricsInterceptor,
-    LogsAlertingMetricsInterceptor,
-    ExperimentsRecalculationMetricsInterceptor,
 ]
+
+
+def interceptor_classes() -> list[type[Interceptor]]:
+    return [*ALL_INTERCEPTOR_CLASSES, *combined_registration().interceptors]
+
+
+def with_declared_histograms(task_queue: str, core_buckets: dict[str, list[float]]) -> dict[str, list[float]]:
+    # Core's buckets win, so a product declaration cannot change the buckets of a core metric.
+    declared = {
+        histogram.metric_name: list(histogram.buckets)
+        for histogram in combined_registration().histograms
+        if histogram.applies_to(task_queue)
+    }
+    return declared | core_buckets
+
+
+def histogram_buckets_for_queue(task_queue: str) -> dict[str, list[float]]:
+    histogram_bucket_overrides: dict[str, list[float]] = (
+        dict(
+            zip(
+                BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(
+            zip(
+                BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(zip(EVALS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(EVALS_LATENCY_HISTOGRAM_BUCKETS)))
+        | dict(zip(SUMMARIZATION_LATENCY_HISTOGRAM_METRICS, itertools.repeat(SUMMARIZATION_LATENCY_HISTOGRAM_BUCKETS)))
+        | dict(zip(CLUSTERING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(CLUSTERING_LATENCY_HISTOGRAM_BUCKETS)))
+        | dict(
+            zip(
+                MCPA_CLUSTERING_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(MCPA_CLUSTERING_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(
+            zip(
+                EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(
+            zip(
+                DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(zip(USAGE_REPORTS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(USAGE_REPORTS_LATENCY_HISTOGRAM_BUCKETS)))
+        | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]}
+    )
+    return with_declared_histograms(task_queue, histogram_bucket_overrides)
+
+
+@frozen
+class ActivityWorkerConfig:
+    task_queue: str
+    activities: collections.abc.Sequence[typing.Callable]
+    max_concurrent_activities: int
 
 
 @dataclass(frozen=False)
@@ -200,23 +220,58 @@ class ManagedWorker:
 
     worker: Worker
     metrics_server: CombinedMetricsServer | None = None
+    activity_workers: tuple[Worker, ...] = ()
 
     async def run(self) -> None:
         if self.metrics_server:
             await self.metrics_server.start()
-        await self.worker.run()
+        if not self.activity_workers:
+            await self.worker.run()
+            return
+        # A failed poller must stop its siblings so the pod restarts with all queues served.
+        async with asyncio.TaskGroup() as group:
+            for worker in (self.worker, *self.activity_workers):
+                group.create_task(worker.run())
 
     def is_shutdown(self) -> bool:
-        return self.worker.is_shutdown
+        return all(worker.is_shutdown for worker in (self.worker, *self.activity_workers))
 
     async def shutdown(self) -> None:
-        await self.worker.shutdown()
+        await asyncio.gather(*(worker.shutdown() for worker in (self.worker, *self.activity_workers)))
         if self.metrics_server:
             await self.metrics_server.stop()
         shutdown_asyncify_executor()
 
 
 DEFAULT_MAX_CONCURRENT_TASKS = 50
+
+
+def max_heartbeat_throttle_interval() -> dt.timedelta:
+    """The SDK sends heartbeats every min(0.8 * heartbeat_timeout, this)."""
+    return dt.timedelta(seconds=settings.TEMPORAL_MAX_HEARTBEAT_THROTTLE_SECONDS)
+
+
+def build_poller_autoscaling(
+    task_type: str, minimum: int | None, maximum: int | None
+) -> PollerBehaviorAutoscaling | None:
+    """Return an autoscaling poller behavior, or None to keep the SDK default when maximum is unset."""
+    if maximum is None:
+        if minimum is not None:
+            logger.warning(
+                "poller_autoscaling_minimum_ignored",
+                task_type=task_type,
+                minimum=minimum,
+                reason="maximum is not set, so the SDK default poller behavior is used",
+            )
+        return None
+    effective_minimum = PollerBehaviorAutoscaling.minimum if minimum is None else minimum
+    if effective_minimum < 1:
+        raise ValueError(f"{task_type} poller autoscaling minimum must be at least 1, got {effective_minimum}")
+    if maximum < effective_minimum:
+        raise ValueError(
+            f"{task_type} poller autoscaling maximum ({maximum}) must be at least the minimum ({effective_minimum})"
+        )
+    return PollerBehaviorAutoscaling(minimum=effective_minimum, maximum=maximum, initial=effective_minimum)
 
 
 async def create_worker(
@@ -240,6 +295,7 @@ async def create_worker(
     activity_ramp_throttle: dt.timedelta | None = None,
     enable_combined_metrics_server: bool = True,
     enable_open_telemetry_plugin: bool = False,
+    activity_worker_configs: collections.abc.Sequence[ActivityWorkerConfig] = (),
 ) -> ManagedWorker:
     """Connect to Temporal server and return a ManagedWorker containing the Worker and metrics server.
 
@@ -273,6 +329,8 @@ async def create_worker(
         enable_combined_metrics_server: Whether to start the combined metrics server. Defaults to True.
             Set to False to disable the metrics server (useful when it causes GIL contention issues).
         enable_open_telemetry_plugin: Whether to trace execution with OTel spans. Requires initialize_otel.
+        activity_worker_configs: Additional activity queues with independent fixed concurrency limits,
+            sharing this process, client, metrics server, and shutdown lifecycle.
     """
 
     metrics_server: CombinedMetricsServer | None = None
@@ -292,128 +350,7 @@ async def create_worker(
         # Expose Temporal SDK metrics directly on the public metrics port.
         temporal_metrics_bind_address = f"0.0.0.0:{metrics_port}"
 
-    histogram_bucket_overrides: dict[str, list[float]] = (
-        dict(
-            zip(
-                BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(
-            zip(
-                BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(zip(EVALS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(EVALS_LATENCY_HISTOGRAM_BUCKETS)))
-        | dict(zip(SUMMARIZATION_LATENCY_HISTOGRAM_METRICS, itertools.repeat(SUMMARIZATION_LATENCY_HISTOGRAM_BUCKETS)))
-        | dict(zip(CLUSTERING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(CLUSTERING_LATENCY_HISTOGRAM_BUCKETS)))
-        | dict(
-            zip(
-                MCPA_CLUSTERING_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(MCPA_CLUSTERING_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(zip(TASKS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(TASKS_LATENCY_HISTOGRAM_BUCKETS)))
-        | dict(
-            zip(
-                TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS, itertools.repeat(TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS)
-            )
-        )
-        | dict(zip(TASKS_RUN_TOKENS_HISTOGRAM_METRICS, itertools.repeat(TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS)))
-        | dict(zip(TASKS_RUN_TURNS_HISTOGRAM_METRICS, itertools.repeat(TASKS_RUN_TURNS_HISTOGRAM_BUCKETS)))
-        | dict(
-            zip(TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS, itertools.repeat(TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS))
-        )
-        | dict(
-            zip(
-                EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(
-            zip(
-                DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(
-            zip(
-                SURFACING_SCORING_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(SURFACING_SCORING_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(
-            zip(
-                ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(zip(LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS)))
-        | dict(zip(LOGS_ALERTING_COUNT_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS)))
-        | dict(
-            zip(
-                LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_BUCKETS)
-            )
-        )
-        | dict(zip(USAGE_REPORTS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(USAGE_REPORTS_LATENCY_HISTOGRAM_BUCKETS)))
-        | dict(
-            zip(
-                EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(
-            zip(
-                EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
-                itertools.repeat(EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(
-            zip(
-                EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_METRICS,
-                itertools.repeat(EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_BUCKETS),
-            )
-        )
-        | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]}
-    )
-    if task_queue == settings.DATA_MODELING_TASK_QUEUE:
-        histogram_bucket_overrides |= dict(
-            zip(
-                DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-    if task_queue == settings.DATA_WAREHOUSE_TASK_QUEUE:
-        # Both metrics hold small counts. The default buckets are for latencies in milliseconds,
-        # which puts every count into the first bucket.
-        histogram_bucket_overrides |= {
-            "warehouse_pipeline_run_attempt": [1.0, 2.0, 3.0, 5.0, 9.0, 20.0, 50.0, 100.0, 200.0],
-            "warehouse_import_handoffs_per_run": [0.0, 1.0, 2.0, 3.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0],
-        }
-        # Recorded in seconds, from a hand-off at once to a run that holds the worker for hours.
-        histogram_bucket_overrides["warehouse_import_shutdown_handoff_delay_seconds"] = [
-            1.0,
-            5.0,
-            15.0,
-            30.0,
-            60.0,
-            90.0,
-            120.0,
-            300.0,
-            900.0,
-            1800.0,
-            3600.0,
-            7200.0,
-            21600.0,
-        ]
-    if task_queue == settings.TASKS_TASK_QUEUE:
-        histogram_bucket_overrides |= dict(
-            zip(
-                TASKS_SDK_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
+    histogram_bucket_overrides = histogram_buckets_for_queue(task_queue)
 
     runtime = Runtime(
         telemetry=TelemetryConfig(
@@ -450,13 +387,29 @@ async def create_worker(
         plugins=plugins,
     )
     supported_interceptors = [
-        interceptor() for interceptor in ALL_INTERCEPTOR_CLASSES if is_task_queue_supported(task_queue, interceptor)
+        interceptor() for interceptor in interceptor_classes() if is_task_queue_supported(task_queue, interceptor)
     ]
 
     # `activity_executor` below only serves sync activity functions, so `@asyncify` coroutines need their own.
     configure_asyncify_executor(
         min(max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS, settings.ASYNCIFY_MAX_WORKERS)
     )
+
+    poller_kwargs: dict[str, typing.Any] = {}
+    activity_poller_behavior = build_poller_autoscaling(
+        "activity",
+        settings.TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MIN,
+        settings.TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MAX,
+    )
+    if activity_poller_behavior is not None:
+        poller_kwargs["activity_task_poller_behavior"] = activity_poller_behavior
+    workflow_poller_behavior = build_poller_autoscaling(
+        "workflow",
+        settings.TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MIN,
+        settings.TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MAX,
+    )
+    if workflow_poller_behavior is not None:
+        poller_kwargs["workflow_task_poller_behavior"] = workflow_poller_behavior
 
     if target_memory_usage is not None:
         worker = Worker(
@@ -465,7 +418,7 @@ async def create_worker(
             workflows=workflows,
             activities=activities,
             workflow_runner=UnsandboxedWorkflowRunner(),
-            graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
+            graceful_shutdown_timeout=graceful_shutdown_timeout or DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT,
             interceptors=supported_interceptors,
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS),
             tuner=WorkerTuner.create_resource_based(
@@ -479,9 +432,8 @@ async def create_worker(
                     ramp_throttle=activity_ramp_throttle,
                 ),
             ),
-            # Worker will flush heartbeats every
-            # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
-            max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+            max_heartbeat_throttle_interval=max_heartbeat_throttle_interval(),
+            **poller_kwargs,
         )
     else:
         worker = Worker(
@@ -490,17 +442,34 @@ async def create_worker(
             workflows=workflows,
             activities=activities,
             workflow_runner=UnsandboxedWorkflowRunner(),
-            graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
+            graceful_shutdown_timeout=graceful_shutdown_timeout or DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT,
             interceptors=supported_interceptors,
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS),
             max_concurrent_activities=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS,
             max_concurrent_workflow_tasks=max_concurrent_workflow_tasks or DEFAULT_MAX_CONCURRENT_TASKS,
-            # Worker will flush heartbeats every
-            # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
-            max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+            max_heartbeat_throttle_interval=max_heartbeat_throttle_interval(),
+            **poller_kwargs,
         )
 
-    return ManagedWorker(worker=worker, metrics_server=metrics_server)
+    activity_workers = tuple(
+        Worker(
+            client,
+            task_queue=config.task_queue,
+            activities=config.activities,
+            max_concurrent_activities=config.max_concurrent_activities,
+            activity_executor=ThreadPoolExecutor(max_workers=config.max_concurrent_activities),
+            graceful_shutdown_timeout=graceful_shutdown_timeout or DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT,
+            interceptors=[
+                interceptor()
+                for interceptor in interceptor_classes()
+                if is_task_queue_supported(config.task_queue, interceptor)
+            ],
+            max_heartbeat_throttle_interval=max_heartbeat_throttle_interval(),
+            **poller_kwargs,
+        )
+        for config in activity_worker_configs
+    )
+    return ManagedWorker(worker=worker, metrics_server=metrics_server, activity_workers=activity_workers)
 
 
 def get_free_port() -> int:

@@ -12,14 +12,8 @@ import { NavProductTooltip } from './NavProductTooltip'
 import { productsItemName } from './productsCatalog'
 
 export function StarredProductsPicker(): JSX.Element {
-    const {
-        customizeProductGroups,
-        draftStarredPaths,
-        customizeSearch,
-        customizeSidebarMode,
-        customProducts,
-        appRecommendationsEnabled,
-    } = useValues(navProductsTabLogic)
+    const { customizeProductGroups, draftStarredPaths, customizeSearch, appRecommendationsEnabled } =
+        useValues(navProductsTabLogic)
     const { setDraftStarred, setCustomizeSearch, unselectAllStarred } = useActions(navProductsTabLogic)
     const { shortcutDataHasLoaded } = useValues(projectTreeDataLogic)
 
@@ -28,11 +22,7 @@ export function StarredProductsPicker(): JSX.Element {
             <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
                 <div>
                     <LemonLabel>Starred</LemonLabel>
-                    <p className="text-xs text-secondary mb-0">
-                        {customizeSidebarMode === 'starred-setup' && customProducts.length > 0
-                            ? 'Your custom products and existing stars are already picked.'
-                            : 'Star the products you want to see in your sidebar.'}
-                    </p>
+                    <p className="text-xs text-secondary mb-0">Star the products you want to see in your sidebar.</p>
                 </div>
                 {shortcutDataHasLoaded && (
                     <div className="flex items-center gap-2">
@@ -49,7 +39,7 @@ export function StarredProductsPicker(): JSX.Element {
                     </div>
                 )}
             </div>
-            {customizeSidebarMode === 'customize' && appRecommendationsEnabled && <JevProductSuggestions />}
+            {appRecommendationsEnabled && <JevProductSuggestions />}
             <LemonInput
                 type="search"
                 size="small"

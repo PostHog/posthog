@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
 import { ForwardingApiClient } from '@/lib/connection-forwarding'
-import { ExecCommandError, PostHogApiError } from '@/lib/errors'
+import { ExecCommandError, PostHogApiError, PostHogTransportError } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
 import executeSqlTool from '@/tools/posthogAiTools/executeSql'
 import { createConnectionCallTool } from '@/tools/posthogConnections/call'
@@ -103,6 +103,36 @@ describe('posthog connection forwarding', () => {
 
             expect(suppress).toHaveBeenCalledOnce()
             expect(shared.config.onPrivateResponse).toBeUndefined()
+        })
+
+        it('does not retry a forwarded read after its deadline', async () => {
+            vi.useFakeTimers()
+            vi.spyOn(console, 'error').mockImplementation(() => {})
+            const mockFetch = vi.fn(
+                (_url: string, init?: RequestInit) =>
+                    new Promise<Response>((_resolve, reject) => {
+                        init?.signal?.addEventListener('abort', () => reject(init.signal!.reason))
+                    })
+            )
+            vi.stubGlobal('fetch', mockFetch)
+            const forwarding = new ForwardingApiClient(
+                new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' }),
+                { connectionId: '99', localProjectId: '7', target: TARGET }
+            )
+
+            try {
+                const outcome = forwarding
+                    .request({ method: 'GET', path: '/api/projects/4242/insights/' })
+                    .catch((error) => error)
+                await vi.runAllTimersAsync()
+                const error = await outcome
+
+                expect(error).toBeInstanceOf(PostHogTransportError)
+                expect(error).toMatchObject({ timedOut: true, attempts: 1 })
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            } finally {
+                vi.useRealTimers()
+            }
         })
 
         it('rewrites a request into the forward endpoint and unwraps the target response', async () => {
@@ -213,27 +243,35 @@ describe('posthog connection forwarding', () => {
     })
 
     describe('posthog-connection-call', () => {
-        it('runs the named tool against the connected project id, not the local one', async () => {
-            // This is the promise the tool makes: the agent passes no project id and never resolves
-            // one. If the forwarded context leaked the local id, every call would hit the wrong project.
-            const request = createRequestMock({ status: 200, data: { results: [[1]] } })
-            const tool = createConnectionCallTool((name) => (name === 'execute-sql' ? fakeTool(name) : undefined))
+        // `integrations-list` returns the connection id as a number, so both forms must work.
+        it.each([
+            ['a string', '99'],
+            ['a number', 99],
+        ])(
+            'runs the named tool against the connected project id, not the local one, with the id as %s',
+            async (_case, connectionId) => {
+                // This is the promise the tool makes: the agent passes no project id and never resolves
+                // one. If the forwarded context leaked the local id, every call would hit the wrong project.
+                const request = createRequestMock({ status: 200, data: { results: [[1]] } })
+                const tool = createConnectionCallTool((name) => (name === 'execute-sql' ? fakeTool(name) : undefined))
+                expect(tool.schema.safeParse({ connection_id: connectionId, tool: 'execute-sql' }).success).toBe(true)
 
-            const result: any = await tool.handler(createContext(request), {
-                connection_id: '99',
-                tool: 'execute-sql',
-                arguments: { query: 'select 1 from events limit 5' },
-            })
+                const result: any = await tool.handler(createContext(request), {
+                    connection_id: connectionId,
+                    tool: 'execute-sql',
+                    arguments: { query: 'select 1 from events limit 5' },
+                })
 
-            const forwardCall = request.mock.calls.find(([opts]: any[]) => opts.path === FORWARD_PATH)
-            expect(forwardCall![0].body).toEqual({
-                method: 'POST',
-                path: 'api/projects/4242/query/',
-                data: { query: 'select 1 from events limit 5' },
-            })
-            expect(result.result).toEqual({ results: [[1]] })
-            expect(result.ran_in).toMatchObject({ project_id: 4242, region: 'EU' })
-        })
+                const forwardCall = request.mock.calls.find(([opts]: any[]) => opts.path === FORWARD_PATH)
+                expect(forwardCall![0].body).toEqual({
+                    method: 'POST',
+                    path: 'api/projects/4242/query/',
+                    data: { query: 'select 1 from events limit 5' },
+                })
+                expect(result.result).toEqual({ results: [[1]] })
+                expect(result.ran_in).toMatchObject({ project_id: 4242, region: 'EU' })
+            }
+        )
 
         it.each([
             ['an unknown tool name', 'no-such-tool'],

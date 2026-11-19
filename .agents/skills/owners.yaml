@@ -1,5 +1,13 @@
 version: 1
 owners: []
 rules:
-    - match: '/ingestion-*/'
+    - match:
+          - '/auditing-llm-gateway-parity/'
+          - '/finding-llm-gateway-migration-candidates/'
+          - '/migrating-llm-gateway-callers/'
+      owners: team-agent-infrastructure
+      sensitive: true
+    - match:
+          - '/ingestion-*/'
+          - '/building-on-capture-v1/'
       owners: team-ingestion

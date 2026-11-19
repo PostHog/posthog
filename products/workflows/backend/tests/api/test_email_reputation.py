@@ -3,6 +3,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -44,7 +45,6 @@ class TestEmailReputationAPI(APIBaseTest):
         query: str = "",
         aws_tenant: dict | None | Exception = None,
         isp_metrics: list | Exception | None = None,
-        isp_flag_enabled: bool = True,
     ) -> dict:
         provider = MagicMock()
         if isinstance(aws_tenant, Exception):
@@ -61,10 +61,6 @@ class TestEmailReputationAPI(APIBaseTest):
                 return_value=totals_by_source,
             ),
             patch("products.workflows.backend.services.email_health.SESProvider", return_value=provider),
-            patch(
-                "products.workflows.backend.presentation.views.hog_flow._isp_breakdown_enabled",
-                return_value=isp_flag_enabled,
-            ),
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation{query}")
         assert response.status_code == status.HTTP_200_OK
@@ -77,8 +73,8 @@ class TestEmailReputationAPI(APIBaseTest):
         allowance = data.pop("sending_allowance")
         assert allowance["tier"] == 0
         assert allowance["enforced"] is False
-        assert allowance["emails_sent_last_hour"] == 0
         assert allowance["emails_sent_last_day"] == 0
+        assert allowance["rate_limited_max_batch_audience"] is None
         assert data == {
             "aws": None,
             "reputation": None,
@@ -90,6 +86,20 @@ class TestEmailReputationAPI(APIBaseTest):
             "email_sending_suspended_at": None,
             "email_sending_suspension_reason": "",
         }
+
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE=0.5,
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS=7,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    def test_reputation_endpoint_reports_the_rate_limited_batch_ceiling(self):
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 2})
+        allowance = self._get_reputation({})["sending_allowance"]
+        assert allowance["max_batch_audience"] == 3000
+        assert allowance["rate_limited_max_batch_audience"] == 62 * 24 * 7
 
     @parameterized.expand(
         [
@@ -463,7 +473,6 @@ class TestEmailReputationAPI(APIBaseTest):
                 return_value={},
             ),
             patch("products.workflows.backend.services.email_health.SESProvider", return_value=provider),
-            patch("products.workflows.backend.presentation.views.hog_flow._isp_breakdown_enabled", return_value=True),
             patch("products.workflows.backend.services.email_health.cache.add", return_value=False),
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
@@ -471,28 +480,6 @@ class TestEmailReputationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["isps"] == []
         assert provider.get_identity_isp_metrics.call_count == 0
-
-    def test_reputation_endpoint_withholds_the_breakdown_without_the_feature_flag(self):
-        self._verify_sending_domain()
-
-        body = self._get_reputation(
-            {"src": {"email_sent": 100, "email_bounced_hard": 1}},
-            isp_metrics=[
-                IspSendingMetrics(
-                    isp="Gmail",
-                    emails_sent=90,
-                    delivery_rate=0.99,
-                    bounce_rate=0.01,
-                    transient_bounce_rate=0.0,
-                    complaint_rate=None,
-                    complaint_base=0,
-                )
-            ],
-            isp_flag_enabled=False,
-        )
-
-        assert body["isps"] == []
-        assert body["reputation"]["emails_sent"] == 100
 
 
 @pytest.mark.ee
@@ -553,8 +540,6 @@ class TestEmailReputationAccessControl(APIBaseTest):
                 return_value={str(flow.id): {"email_sent": 100, "email_bounced_hard": 5}},
             ),
             patch("products.workflows.backend.services.email_health.SESProvider", return_value=provider),
-            # Enabled, so what the assertion below tests is the access-control gate, not the flag.
-            patch("products.workflows.backend.presentation.views.hog_flow._isp_breakdown_enabled", return_value=True),
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
 

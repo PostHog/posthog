@@ -6,3 +6,6 @@ class EndpointsConfig(AppConfig):
     name = "products.endpoints.backend"
     label = "endpoints"
     verbose_name = "Endpoints (product)"
+
+    def ready(self) -> None:
+        from products.endpoints.backend import signals  # noqa: F401

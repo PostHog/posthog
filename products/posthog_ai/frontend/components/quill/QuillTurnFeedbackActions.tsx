@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useContext, useId } from 'react'
 
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
-import { Button, ChatMessageFooter, Input, Text, cn } from '@posthog/quill-primitives'
+import { Button, ChatMessageFooter, Input, Text } from '@posthog/quill-primitives'
 
 import { stripMarkdown } from 'lib/utils/markdown'
 
@@ -11,7 +11,7 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import type { TurnFeedbackActionsProps } from '../turnFeedbackTypes'
 import { TurnRevealContext } from '../TurnRevealContext'
 import { useTurnRating } from '../useTurnRating'
-import { footerRevealClass } from './footerReveal'
+import { footerRevealProps } from './footerReveal'
 import { QuillCopyButton, QuillFooterButton } from './QuillFooterButton'
 import { QuillFooterTimestamp } from './QuillFooterTimestamp'
 
@@ -32,9 +32,9 @@ export function QuillTurnFeedbackActions({
     return (
         <div className="flex flex-col gap-2">
             <ChatMessageFooter
-                className={cn(
-                    'min-h-5 items-center gap-1 ps-0',
-                    footerRevealClass(!!rating || turnHovered || (todayRailEnabled && phoneLayout))
+                {...footerRevealProps(
+                    !!rating || turnHovered || (todayRailEnabled && phoneLayout),
+                    'items-center gap-1 ps-0'
                 )}
             >
                 {timestamp !== undefined && <QuillFooterTimestamp time={timestamp} />}

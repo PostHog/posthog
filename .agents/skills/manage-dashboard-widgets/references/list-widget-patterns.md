@@ -36,7 +36,5 @@ Count failures never fail the tile (log + omit totals).
 ## Header title navigation
 
 - Catalog **`titleHref`** — product scene route (`urls.errorTracking()`, `urls.replay()`, …).
-- **`WidgetCardHeader`** wraps the title in `<Link>` when `titleHref` is set and **`isDashboardEditMode` is false** — do not gate on `showEditingControls` (editable dashboards keep editing chrome in view mode).
-- **`DashboardItems`** sets `isDashboardEditMode={dashboardMode === DashboardMode.Edit}` on `DashboardWidgetItem`.
-- Dashboard **layout edit mode** keeps the title plain text so header drag does not compete with navigation; ⋯ **View** still uses `titleHref`.
+- **`WidgetCardHeader`** wraps the title in `<Link>` whenever `titleHref` is set — do not gate on `showEditingControls`. The grid's drag `cancel` selector includes `a`, so a click on the title navigates instead of starting a drag.
 - Public placement: `titleHref` suppressed in `DashboardWidgetItem` (existing sharing rules).

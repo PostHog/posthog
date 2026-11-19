@@ -26,7 +26,8 @@ import {
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { fullName } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
+
+import { membersLogic } from '~/models/membersLogic'
 
 import { spaceSceneLogic } from './spaceSceneLogic'
 import { SpaceSettingsSection } from './SpaceSettingsSection'

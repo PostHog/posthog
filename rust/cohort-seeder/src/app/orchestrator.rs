@@ -6,6 +6,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+use cohort_core::filters::TeamId;
 use common_types::cohort::TeamAllowlist;
 use lifecycle::Handle;
 use metrics::{counter, gauge};
@@ -16,7 +17,7 @@ use tracing::{info, warn};
 
 use crate::clickhouse::person_scanner::PersonScanner;
 use crate::clickhouse::scanner::ChunkScanner;
-use crate::domain::{ClaimKind, RunId};
+use crate::domain::{ClaimCandidate, ClaimCandidates, ClaimKind, RunId, SlotLoad};
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
 use crate::observability::metrics::{
@@ -32,6 +33,7 @@ use super::completion::CompletionDriver;
 use super::execute::{
     execute_chunk, record_task_result, BreakerSignal, ChunkOutcome, ChunkTaskContext,
 };
+use super::newest_day::NewestDayIndexes;
 use super::person_execute::{execute_person_chunk, PersonChunkTaskContext};
 use super::person_plan::{plan_person_run, PersonPlanAttempt, PersonPlanRequest};
 use super::prepare::{refresh_runs, run_ids_of_kind, PreparedRun, RefreshOutcome};
@@ -54,14 +56,21 @@ pub struct PersonComponents {
     pub pacer: TilePacer,
 }
 
+/// The run a spawned task works for. A chunk task's claim slot counts against `team_id` and `kind`.
+struct InflightRun {
+    run_id: RunId,
+    team_id: TeamId,
+    kind: RunKind,
+}
+
 /// Which run each spawned task works for. Keyed by task id, so a panicked task, whose result carries
 /// no run, still leaves the map, and un-tracks only itself.
 #[derive(Default)]
-struct InflightTasks(HashMap<tokio::task::Id, RunId>);
+struct InflightTasks(HashMap<tokio::task::Id, InflightRun>);
 
 impl InflightTasks {
-    fn insert(&mut self, task_id: tokio::task::Id, run_id: RunId) {
-        self.0.insert(task_id, run_id);
+    fn insert(&mut self, task_id: tokio::task::Id, run: InflightRun) {
+        self.0.insert(task_id, run);
     }
 
     fn remove(&mut self, task_id: tokio::task::Id) {
@@ -69,7 +78,18 @@ impl InflightTasks {
     }
 
     fn has_run(&self, run_id: RunId) -> bool {
-        self.0.values().any(|inflight| *inflight == run_id)
+        self.0.values().any(|inflight| inflight.run_id == run_id)
+    }
+
+    /// Counts only the tasks of `kind`, because each kind has its own slot budget.
+    fn load_of(&self, kind: RunKind, team_id: TeamId, run_id: RunId) -> SlotLoad {
+        self.0
+            .values()
+            .filter(|inflight| inflight.kind == kind && inflight.team_id == team_id)
+            .fold(SlotLoad::default(), |load, inflight| SlotLoad {
+                team: load.team + 1,
+                run: load.run + u32::from(inflight.run_id == run_id),
+            })
     }
 }
 
@@ -101,6 +121,7 @@ impl PlanningState {
 struct ClaimState {
     inflight: InflightTasks,
     breakers: RunBreakers,
+    newest_day: NewestDayIndexes,
 }
 
 pub struct SeederOrchestrator {
@@ -160,6 +181,7 @@ impl SeederOrchestrator {
         let mut claims = ClaimState {
             inflight: InflightTasks::default(),
             breakers: RunBreakers::new(self.settings.breaker),
+            newest_day: NewestDayIndexes::new(self.settings.newest_day_index_max_entries),
         };
         let mut eligible_runs = HashMap::new();
         let mut reported_runs = HashSet::new();
@@ -234,6 +256,7 @@ impl SeederOrchestrator {
                     self.complete_trailing_runs(&eligible_runs).await;
                     claims.breakers.expire_idle(Instant::now());
                     publish_open_breakers(&eligible_runs, &claims.breakers);
+                    claims.newest_day.release_idle(&eligible_runs);
                     self.fill_claim_slots(
                         &eligible_runs,
                         &mut tasks,
@@ -366,8 +389,12 @@ impl SeederOrchestrator {
             if planning.len() >= MAX_CONCURRENT_PLANNING_SCANS || shutdown.is_cancelled() {
                 return;
             }
-            let run_id = request.run.run_id;
-            if state.inflight.has_run(run_id) || state.in_backoff(run_id) {
+            let run = InflightRun {
+                run_id: request.run.run_id,
+                team_id: request.run.team_id,
+                kind: RunKind::PersonProperty,
+            };
+            if state.inflight.has_run(run.run_id) || state.in_backoff(run.run_id) {
                 continue;
             }
             let handle = planning.spawn(plan_person_run(
@@ -378,7 +405,7 @@ impl SeederOrchestrator {
                 request,
                 shutdown.clone(),
             ));
-            state.inflight.insert(handle.id(), run_id);
+            state.inflight.insert(handle.id(), run);
         }
     }
 
@@ -448,9 +475,10 @@ impl SeederOrchestrator {
         }
     }
 
-    /// Claim work for whichever kind still has slot capacity. The claimable run-id set is
-    /// recomputed per claim from the remaining capacity, so a person chunk can never occupy a
-    /// behavioral slot (or vice versa) — the two budgets are independent by construction.
+    /// Claim work for whichever kind still has slot capacity. The candidate set is recomputed per
+    /// claim from the remaining capacity, so a person chunk can never occupy a behavioral slot (or
+    /// vice versa) — the two budgets are independent by construction. Each candidate's slot load is
+    /// recomputed per claim too, because every spawn adds a slot to its run and its team.
     async fn fill_claim_slots(
         &self,
         eligible_runs: &HashMap<RunId, PreparedRun>,
@@ -468,27 +496,31 @@ impl SeederOrchestrator {
                 person_tasks.len() < person_settings.max_concurrent_chunks.get()
             });
             let now = Instant::now();
-            let mut run_ids = Vec::with_capacity(eligible_runs.len());
+            let mut candidates = Vec::with_capacity(eligible_runs.len());
             for (run_id, prepared) in eligible_runs {
-                let has_room = match prepared {
-                    PreparedRun::Behavioral(_) => behavioral_room,
-                    PreparedRun::Person(_) => person_room,
+                let kind = prepared.kind();
+                let has_room = match kind {
+                    RunKind::Behavioral => behavioral_room,
+                    RunKind::PersonProperty => person_room,
                 };
                 let admitted = has_room
                     && claims
                         .breakers
                         .admits(*run_id, now, claims.inflight.has_run(*run_id));
                 if admitted {
-                    run_ids.push(*run_id);
+                    candidates.push(ClaimCandidate {
+                        run_id: *run_id,
+                        load: claims.inflight.load_of(kind, prepared.team_id(), *run_id),
+                    });
                 }
             }
-            if run_ids.is_empty() {
+            let Some(candidates) = ClaimCandidates::new(candidates) else {
                 return;
-            }
+            };
             let claim = match self
                 .store
                 .claim_next(
-                    &run_ids,
+                    &candidates,
                     &self.claimant,
                     self.settings.chunk_lease,
                     self.settings.max_chunk_attempts,
@@ -511,6 +543,11 @@ impl SeederOrchestrator {
                 }
                 continue;
             };
+            let inflight = InflightRun {
+                run_id: chunk_lease.run_id(),
+                team_id: prepared.team_id(),
+                kind: prepared.kind(),
+            };
             match prepared {
                 PreparedRun::Behavioral(prepared) => {
                     record_claim(kind, RunKind::Behavioral);
@@ -518,6 +555,7 @@ impl SeederOrchestrator {
                         chunk,
                         lease,
                         prepared: prepared.clone(),
+                        newest_day: claims.newest_day.for_run(&prepared.run),
                         store: self.store.clone(),
                         scanner: self.scanner.clone(),
                         producer: self.producer.clone(),
@@ -527,7 +565,7 @@ impl SeederOrchestrator {
                     };
                     let shutdown = shutdown.clone();
                     let task = tasks.spawn(async move { execute_chunk(ctx, shutdown).await });
-                    claims.inflight.insert(task.id(), chunk_lease.run_id());
+                    claims.inflight.insert(task.id(), inflight);
                 }
                 PreparedRun::Person(run) => {
                     // Unreachable while the gate is off: discovery never yields person runs then.
@@ -555,7 +593,7 @@ impl SeederOrchestrator {
                     let shutdown = shutdown.clone();
                     let task = person_tasks
                         .spawn(async move { execute_person_chunk(ctx, shutdown).await });
-                    claims.inflight.insert(task.id(), chunk_lease.run_id());
+                    claims.inflight.insert(task.id(), inflight);
                 }
             }
         }
@@ -652,5 +690,49 @@ mod tests {
         state.expire_backoffs();
 
         assert!(state.in_backoff(run_id));
+    }
+
+    /// Each kind has its own slot budget, so a team's person tasks must not push its behavioral
+    /// runs behind another team's.
+    #[tokio::test]
+    async fn slot_loads_count_only_tasks_of_the_same_kind() {
+        use RunKind::{Behavioral, PersonProperty};
+
+        let (team, other_team) = (TeamId(2), TeamId(3));
+        let [heavy, sibling, person, other] = [1, 2, 3, 4].map(|n| RunId(Uuid::from_u128(n)));
+        let held = [
+            (Behavioral, team, heavy),
+            (Behavioral, team, heavy),
+            (PersonProperty, team, person),
+            (Behavioral, other_team, other),
+        ];
+        let mut tasks = JoinSet::new();
+        let mut inflight = InflightTasks::default();
+        for (kind, team_id, run_id) in held {
+            let run = InflightRun {
+                run_id,
+                team_id,
+                kind,
+            };
+            inflight.insert(tasks.spawn(async {}).id(), run);
+        }
+
+        let cases = [
+            (Behavioral, team, heavy, (2, 2)),
+            (Behavioral, team, sibling, (2, 0)),
+            (PersonProperty, team, person, (1, 1)),
+            (Behavioral, other_team, other, (1, 1)),
+        ];
+        for (kind, team_id, run_id, (team_load, run_load)) in cases {
+            let expected = SlotLoad {
+                team: team_load,
+                run: run_load,
+            };
+            assert_eq!(
+                inflight.load_of(kind, team_id, run_id),
+                expected,
+                "{kind:?} load of {run_id:?} in {team_id:?}"
+            );
+        }
     }
 }

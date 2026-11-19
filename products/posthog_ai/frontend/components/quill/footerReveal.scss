@@ -1,0 +1,30 @@
+// A message footer that fades in on hover. It takes no space while hidden, unless it has `data-reserve-space`. It takes pointer input only once
+// the fade ends, so a pointer that passes over it on the way in does not open the timestamp popover early.
+.QuillFooterReveal {
+    --footer-fade: 150ms;
+
+    min-height: 1.25rem;
+    transition:
+        opacity var(--footer-fade),
+        pointer-events 0s var(--footer-fade) allow-discrete;
+
+    // Only a device that can hover can reveal it, so only there does it hide.
+    @media (hover: hover) {
+        &:not([data-revealed], :focus-within) {
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity var(--footer-fade);
+
+            &:not([data-reserve-space]) {
+                height: 0;
+                min-height: 0;
+                overflow: hidden;
+            }
+        }
+    }
+
+    // Always shown on a touch screen, so it needs room before the next message.
+    @media (hover: none) {
+        margin-bottom: 0.75rem;
+    }
+}

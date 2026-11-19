@@ -198,7 +198,7 @@ class TestSyncMetricLineage(BaseTest):
             task.delay.reset_mock()
 
             with self.captureOnCommitCallbacks(execute=True):
-                upsert_metric(team=self.team, user=self.user, name="mrr", description="what it counts")
+                upsert_metric(team=self.team, user=self.user, name="mrr", description="what it counts", overwrite=True)
 
             task.delay.assert_not_called()
 

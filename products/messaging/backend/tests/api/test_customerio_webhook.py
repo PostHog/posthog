@@ -6,7 +6,9 @@ import hashlib
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from posthog.auth import WebhookSignatureAuthentication
 from posthog.models.integration import Integration
+from posthog.test.authentication_checks import covers_authentication
 
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import (
@@ -15,6 +17,7 @@ from products.messaging.backend.models.message_preferences import (
     PreferenceStatus,
 )
 from products.messaging.backend.models.optout_sync_config import OptOutSyncConfig
+from products.messaging.backend.presentation.views.customerio_webhook import CustomerIOWebhookAuthentication
 
 
 class TestCustomerIOWebhook(APIBaseTest):
@@ -173,6 +176,7 @@ class TestCustomerIOWebhook(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(MessageRecipientPreference.objects.filter(team=self.team).count(), 0)
 
+    @covers_authentication(WebhookSignatureAuthentication, CustomerIOWebhookAuthentication)
     def test_hmac_auth_works_without_session(self):
         self.client.logout()
         body = {"metric": "unsubscribed", "data": {"email_address": "unauthed@example.com"}}

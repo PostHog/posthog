@@ -1,24 +1,15 @@
-"""Read the scoring inputs Clay still owns, off the organization group it writes.
+"""Read the ICP fit score's wizard input for one organization.
 
-The ICP score's revenue input has no first-party source, so while Clay runs in parallel we
-read its own group property back and score on it. That keeps our scores bit-comparable with
-Clay's on the orgs it also scores.
+The read is strict about failure: an unreachable group store or scan store raises, because
+scoring an org on inputs we failed to fetch would write a silently-too-low score. Callers
+degrade to writing firmographics without a score on a raise, and get another chance at the
+delayed recheck.
 
-The formula's third Clay-owned input, its GitHub profile lookup, is deliberately NOT read
-here: Clay never projects that column into PostHog at all (verified against live group and
-person writes), so product-role orgs score 3 rather than 6 until v-next substitutes a
-first-party signal.
-
-Every read is best-effort in coverage but strict about failure: an org Clay never processed
-simply has no properties (a real null, and Clay scored nothing for it either), whereas an
-unreachable group store raises. Scoring an org on inputs we failed to fetch would write a
-silently-too-low score, which is worse than writing none — so callers degrade to writing
-firmographics without a score on a raise, and get another chance at the delayed recheck.
-
+The wizard input is true when a stored codebase scan of any of the org's projects finds one of
+this module's LLM tool kinds, or when the organization group still carries the stamp older wizards set.
 """
 
 import dataclasses
-from typing import Any, Optional
 
 from django.conf import settings
 
@@ -29,52 +20,57 @@ from posthog.models.team import Team
 from posthog.utils import get_instance_region
 
 from products.growth.backend.enrichment.writer import ORGANIZATION_GROUP_TYPE
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.wizard.backend.facade import api as wizard_facade
 
-CLAY_EST_REVENUE_PROPERTY = "icp_est_revenue"
-CLAY_COMPANY_TYPE_PROPERTY = "icp_company_type"
+# Set by wizards before they reported scans to PostHog. Still read, so those orgs keep the input.
 WIZARD_AI_SDK_DETECTED_PROPERTY = "wizard_ai_sdk_detected"
+# Tool kinds from the wizard's scan that mean the org builds with LLMs. This list is the scoring
+# decision, so it lives here rather than in the wizard's tool catalog.
+LLM_TOOL_KINDS: frozenset[ExternalDataSourceType] = frozenset(
+    {
+        ExternalDataSourceType.ANTHROPIC,
+        ExternalDataSourceType.ASSEMBLYAI,
+        ExternalDataSourceType.BROWSERBASE,
+        ExternalDataSourceType.COHERE,
+        ExternalDataSourceType.DEEPGRAM,
+        ExternalDataSourceType.E2B,
+        ExternalDataSourceType.ELEVENLABS,
+        ExternalDataSourceType.FIRECRAWL,
+        ExternalDataSourceType.FIREWORKSAI,
+        ExternalDataSourceType.GROQ,
+        ExternalDataSourceType.HELICONE,
+        ExternalDataSourceType.HUGGINGFACE,
+        ExternalDataSourceType.LANGSMITH,
+        ExternalDataSourceType.LANGFUSE,
+        ExternalDataSourceType.LLAMACLOUD,
+        ExternalDataSourceType.MEM0,
+        ExternalDataSourceType.MISTRALAI,
+        ExternalDataSourceType.OPENAI,
+        ExternalDataSourceType.OPENROUTER,
+        ExternalDataSourceType.REPLICATE,
+        ExternalDataSourceType.TOGETHERAI,
+        ExternalDataSourceType.VELLUM,
+        ExternalDataSourceType.WEIGHTSANDBIASES,
+        ExternalDataSourceType.ZEP,
+    }
+)
 
 
 class OrganizationGroupTypeMissing(Exception):
     """The internal project has no `organization` group type — a config problem, not a null input."""
 
 
-@dataclasses.dataclass(frozen=True)
-class ClayBridgeInputs:
-    """Clay-owned score inputs for one org. All None when Clay never processed it."""
-
-    est_revenue: Optional[float] = None
-    # Presence of the company-type key, not its coerced value — Clay fills that column on
-    # essentially every row it writes, making raw key-presence a reliable ran/didn't-run signal.
-    clay_processed: bool = False
-
-
 @frozen
 class WizardBridgeInputs:
-    """The wizard's own AI-SDK detection stamp for one org. False when the wizard never reported it."""
+    """Whether the wizard found an LLM SDK in one org's code. False when it never scanned."""
 
     ai_sdk_detected: bool = False
 
 
 @frozen
 class OrganizationBridgeInputs:
-    clay: ClayBridgeInputs = dataclasses.field(default_factory=ClayBridgeInputs)
     wizard: WizardBridgeInputs = dataclasses.field(default_factory=WizardBridgeInputs)
-
-
-def _numeric(value: Any) -> Optional[float]:
-    # Clay writes this through capture, so it can arrive as a JSON number or a numeric string;
-    # JS would coerce either in a `>` comparison, Python would raise on the string.
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value.strip())
-        except ValueError:
-            return None
-    return None
 
 
 def _organization_group_type_index(team: Team) -> int:
@@ -87,9 +83,9 @@ def _organization_group_type_index(team: Team) -> int:
 
 
 def read_organization_bridge_inputs(*, organization_id: str) -> OrganizationBridgeInputs:
-    """Fetch score inputs from one organization-group read. Raises when the group store cannot be read."""
-    # Clay only ever wrote to the US internal project, so outside US there is nothing to read —
-    # skip the lookup entirely instead of querying a project the bridge never touched.
+    """Fetch score inputs for one org. Raises when the group store or the wizard's scan store cannot be read."""
+    # The organization group lives only in the US internal project, so outside US there is
+    # nothing to read.
     if get_instance_region() != "US":
         return OrganizationBridgeInputs()
     # The internal project the enrichment group properties are projected onto, and the same one
@@ -100,16 +96,11 @@ def read_organization_bridge_inputs(*, organization_id: str) -> OrganizationBrid
         group_type_index=_organization_group_type_index(team),
         group_key=organization_id,
     )
-    if group is None:
-        return OrganizationBridgeInputs()
-
-    properties = group.group_properties or {}
-    return OrganizationBridgeInputs(
-        clay=ClayBridgeInputs(
-            est_revenue=_numeric(properties.get(CLAY_EST_REVENUE_PROPERTY)),
-            clay_processed=CLAY_COMPANY_TYPE_PROPERTY in properties,
-        ),
-        wizard=WizardBridgeInputs(
-            ai_sdk_detected=properties.get(WIZARD_AI_SDK_DETECTED_PROPERTY) is True,
-        ),
+    properties = (group.group_properties or {}) if group is not None else {}
+    wizard = WizardBridgeInputs(
+        ai_sdk_detected=properties.get(WIZARD_AI_SDK_DETECTED_PROPERTY) is True
+        or wizard_facade.organization_has_detected_tool(
+            organization_id=organization_id, kinds=[kind.value for kind in LLM_TOOL_KINDS]
+        )
     )
+    return OrganizationBridgeInputs(wizard=wizard)

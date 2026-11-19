@@ -11,6 +11,10 @@ export const normalizeClause = (clause: BuilderClause): BuilderClause =>
         ? { ...clause, aggregation: 'sum', rangeFunction: clause.aggregation }
         : clause
 
+/** `count_rate` and `count_increase` apply rate or increase to a histogram's observation count, then sum the series. */
+export const countRangeFunction = (clause: BuilderClause): 'rate' | 'increase' | null =>
+    clause.aggregation === 'count_rate' ? 'rate' : clause.aggregation === 'count_increase' ? 'increase' : null
+
 /**
  * The result of a best-effort conversion. `value` is null when nothing usable came out.
  * Each issue names one part of the source that the target cannot express or that changes meaning.

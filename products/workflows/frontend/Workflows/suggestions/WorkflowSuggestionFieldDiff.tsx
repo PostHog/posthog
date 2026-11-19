@@ -28,6 +28,12 @@ const DIFF_OPTIONS: MonacoDiffEditorProps['options'] = {
     },
 }
 
+const diffSpinner = (
+    <div className="flex justify-center my-4">
+        <Spinner className="text-2xl" />
+    </div>
+)
+
 function InlineValue({ value, side }: { value: unknown; side: 'before' | 'after' }): JSX.Element {
     if (value === undefined) {
         return <span className="text-secondary italic">Not set</span>
@@ -122,7 +128,7 @@ export function WorkflowSuggestionFieldDiff({
             ) : (
                 <div ref={diffRef} className="border rounded overflow-hidden">
                     {inView ? (
-                        <Suspense fallback={<Spinner className="text-2xl mx-auto my-4" />}>
+                        <Suspense fallback={diffSpinner}>
                             <MonacoDiffEditor
                                 original={view.original}
                                 modified={view.modified}
@@ -133,7 +139,7 @@ export function WorkflowSuggestionFieldDiff({
                             />
                         </Suspense>
                     ) : (
-                        <Spinner className="text-2xl mx-auto my-4" />
+                        diffSpinner
                     )}
                 </div>
             )}

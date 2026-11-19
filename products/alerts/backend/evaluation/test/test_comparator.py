@@ -71,6 +71,12 @@ def test_unit_suffix_renders_in_breach_message():
     assert out.breaches is not None and len(out.breaches) == 1
     assert "(40.0%)" in out.breaches[0]
     assert "lower threshold (50.0%)" in out.breaches[0]
+    assert out.triggered_metadata is not None
+    assert out.triggered_metadata["breach_details"][0] == {
+        "observed": "40%",
+        "limit_label": "Lower limit",
+        "limit": "50%",
+    }
 
 
 @pytest.mark.parametrize(
@@ -103,6 +109,12 @@ def test_relative_value_computation(
     ]
     result = evaluate_threshold(_result(series), condition, _threshold(type_=threshold_type, upper=upper))
     assert result.value == expected_value
+    assert result.triggered_metadata is not None
+    detail = result.triggered_metadata["breach_details"][0]
+    assert detail["observed"] == f"{values[current_index]:g}"
+    assert detail["previous"] == f"{values[current_index - 1]:g}"
+    if values[current_index - 1] == 0 and threshold_type == InsightThresholdType.PERCENTAGE:
+        assert detail["change"] == "Not defined from zero"
     if expected_message is not None:
         assert result.breaches is not None and expected_message in result.breaches[0]
 
@@ -203,6 +215,8 @@ def test_framed_message_includes_series_and_interval():
     result = evaluate_threshold(_result(series, interval_type=IntervalType.DAY), ABSOLUTE, _threshold(lower=10))
     assert result.breaches is not None
     assert result.breaches[0] == "The insight value (US) for previous day (5.0) is less than lower threshold (10.0)"
+    assert result.triggered_metadata is not None
+    assert result.triggered_metadata["breach_details"][0]["group"] == "US"
 
 
 def test_unframed_message_uses_subject_without_interval_framing():

@@ -1,19 +1,19 @@
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { Suspense, useEffect } from 'react'
+import React, { Suspense, useContext, useEffect, useLayoutEffect, useState } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
 import { PostHogProvider } from '@posthog/react'
 
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
-import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
 import { OAuthCallback } from 'lib/oauth/OAuthCallback'
 import { oauthLogic } from 'lib/oauth/oauthLogic'
+import { createSceneRenderedMark, markBootPhase } from 'lib/utils/bootTiming'
 import { lazyWithRetry, retryImport } from 'lib/utils/retryImport'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
@@ -23,10 +23,13 @@ import { userLogic } from 'scenes/userLogic'
 import { AppLoadError } from '~/layout/AppLoadError'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { useThemedHtml } from '~/layout/useThemedHtml'
 
 import { AuthenticatedShellFallback } from './AuthenticatedShellFallback'
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 import { mountSupportRouter } from './mountSupportRouter'
+import { SceneContentFallback, SceneRenderedMarkContext } from './SceneContentFallback'
+import { useSceneContentReady } from './useSceneContentReady'
 
 const AuthenticatedShell = React.lazy(() => retryImport(() => import('./AuthenticatedShell')))
 
@@ -53,6 +56,19 @@ window.process = MOCK_NODE_PROCESS
  */
 function SceneAnimationRoot({ children }: { children: React.ReactNode }): JSX.Element {
     const ref = useCancelAnimationsOnUnmount<HTMLDivElement>()
+    const inheritedSceneRendered = useContext(SceneRenderedMarkContext)
+    const [ownSceneRendered] = useState(createSceneRenderedMark)
+    const sceneRendered = inheritedSceneRendered ?? ownSceneRendered
+    // For a logged-in user this sits inside the AuthenticatedShell Suspense boundary, so it runs when the scene
+    // commits, not when the shell fallback does. A scene behind ProductEmptyStateGate can still commit the
+    // gate's fallback first. A scene whose own Suspense shows a SceneContentFallback marks when its content commits.
+    useLayoutEffect(() => {
+        // Storybook owns the enclosing commit; sharing its tracker keeps nested holds visible to the runner.
+        if (!inheritedSceneRendered) {
+            sceneRendered.sceneCommitted()
+            return () => sceneRendered.sceneUncommitted()
+        }
+    }, [sceneRendered, inheritedSceneRendered])
     return (
         // `className="contents"` is load-bearing: the wrapper must take a DOM
         // node so the ref has something to attach to (we need an element to
@@ -60,7 +76,7 @@ function SceneAnimationRoot({ children }: { children: React.ReactNode }): JSX.El
         // transparent to layout. `display: contents` removes it from the box
         // tree so children render as if there's no wrapper.
         <div ref={ref} className="contents">
-            {children}
+            <SceneRenderedMarkContext.Provider value={sceneRendered}>{children}</SceneRenderedMarkContext.Provider>
         </div>
     )
 }
@@ -76,6 +92,7 @@ function KeaDevtoolsLoader(): JSX.Element | null {
 
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner, showingDevTools } = useValues(appLogic)
+    useSceneContentReady(!!showApp)
 
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(autofillReleaseLogic)
@@ -90,6 +107,8 @@ export function App(): JSX.Element | null {
     useEffect(() => mountSupportRouter().unmount, [])
 
     useThemedHtml()
+
+    useLayoutEffect(() => markBootPhase('app_first_render'), [])
 
     // A cloud OAuth redirect lands at /oauth/callback on the local origin. Render the exchange
     // screen here (oauthLogic's urlToAction performs the token exchange), before normal routing.
@@ -129,6 +148,10 @@ function AppScene(): JSX.Element | null {
         useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
+    useSceneContentReady(!!activeExportedScene?.component)
+
+    // App mounts this component on the first commit where appLogic's `showApp` is true.
+    useLayoutEffect(() => markBootPhase('app_ready', { logged_in: !!user }), [user])
 
     // Once we know the user is authenticated, kick off an idle prefetch of the
     // AuthenticatedShell chunk so the Suspense fallback rarely actually fires
@@ -169,7 +192,13 @@ function AppScene(): JSX.Element | null {
         // Scenes that declare an empty state are gated behind the product's
         // setup screen until the product has data (or the user skips).
         const resolvedNode = emptyState ? (
-            <Suspense fallback={<SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />}>
+            <Suspense
+                fallback={
+                    <SceneContentFallback>
+                        <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
+                    </SceneContentFallback>
+                }
+            >
                 <ProductEmptyStateGate emptyState={emptyState} params={activeSceneComponentParams}>
                     {sceneNode}
                 </ProductEmptyStateGate>
@@ -209,7 +238,13 @@ function AppScene(): JSX.Element | null {
 
     return (
         <ChunkLoadErrorBoundary fallback={(error) => <AppLoadError error={error} />}>
-            <Suspense fallback={<AuthenticatedShellFallback showSpinner={showingDelayedSpinner} />}>
+            <Suspense
+                fallback={
+                    <SceneContentFallback>
+                        <AuthenticatedShellFallback showSpinner={showingDelayedSpinner} />
+                    </SceneContentFallback>
+                }
+            >
                 <AuthenticatedShell>{wrappedSceneElement}</AuthenticatedShell>
             </Suspense>
         </ChunkLoadErrorBoundary>

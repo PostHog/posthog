@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "refresh": {
+            "default": false,
+            "description": "False starts the first 30-day analysis once. True requests a new 14-day analysis; use only after an explicit user request.",
+            "type": "boolean"
+        }
+    },
+    "type": "object"
+}

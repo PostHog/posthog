@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -197,7 +197,7 @@ export const DataQualityChecksDestroyParams = () => zod.object({
 })
 
 /**
- * Run this check now. Returns the suite run to poll for the report.
+ * Run this check now. Returns the suite run to poll for the report. Each caller can send 20 run requests a minute and 60 an hour, and each project 180 an hour, counted across this endpoint and POST data_quality_runs, whatever the response. To run every check on a subject, call POST data_quality_runs with subject_type and subject_uuid. That counts as one request.
  */
 export const DataQualityChecksRunCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data quality check.'),
@@ -273,7 +273,7 @@ export const DataQualityChecksSchedulePartialUpdateBody = () => zod
     .describe("Which subject's schedule to change, and what to change about it.")
 
 /**
- * Everything in this project you can author a check on, with each subject's columns.
+ * Everything in this project you can author a check on, with each subject's columns. Filter by subject_type or search, and page with limit and offset.
  */
 export const DataQualityChecksSubjectsListParams = () => zod.object({
     project_id: zod
@@ -282,3 +282,72 @@ export const DataQualityChecksSubjectsListParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+export const dataQualityChecksSubjectsListQueryIncludeColumnsDefault = true
+export const dataQualityChecksSubjectsListQueryLimitMax = 1000
+
+export const dataQualityChecksSubjectsListQueryOffsetDefault = 0
+export const dataQualityChecksSubjectsListQueryOffsetMin = 0
+
+export const DataQualityChecksSubjectsListQueryParams = () => zod.object({
+    include_columns: zod
+        .boolean()
+        .default(dataQualityChecksSubjectsListQueryIncludeColumnsDefault)
+        .describe(
+            'Set to false to return an empty columns map for every subject. Use it to find a subject id without reading every column schema.'
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(dataQualityChecksSubjectsListQueryLimitMax)
+        .optional()
+        .describe('Maximum number of subjects to return. Omit to return every match.'),
+    offset: zod
+        .number()
+        .min(dataQualityChecksSubjectsListQueryOffsetMin)
+        .default(dataQualityChecksSubjectsListQueryOffsetDefault)
+        .describe(
+            'Number of matching subjects to skip. Subjects are sorted by subject_type, then name. When a response has limit rows, call again with offset increased by limit to read the next page.'
+        ),
+    search: zod
+        .string()
+        .optional()
+        .describe('Return only subjects whose name or display name contains this text, ignoring case.'),
+    subject_type: zod
+        .enum(['table', 'view', 'metric', 'posthog_table'])
+        .optional()
+        .describe(
+            "Return only subjects of this kind: 'table', 'view', 'metric', or 'posthog_table'.\n\n\* `table` - table\n\* `view` - view\n\* `metric` - metric\n\* `posthog_table` - posthog_table"
+        ),
+})
+
+/**
+ * Run checks now: the ones named by check_ids, every enabled check on the subject named by subject_type and subject_uuid, or every enabled check in the project when neither is given. Returns the suite run to poll for the report. Each call counts as one run request, however many checks it runs and whatever the response. Each caller can send 20 run requests a minute and 60 an hour, and each project 180 an hour.
+ */
+export const DataQualityRunsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DataQualityRunsCreateBody = () => zod
+    .object({
+        check_ids: zod
+            .array(zod.string())
+            .optional()
+            .describe('Ids of the checks to run. Omit to run every enabled check in the project.'),
+        subject_type: zod
+            .enum(['table', 'view', 'metric', 'posthog_table'])
+            .describe('\* `table` - table\n\* `view` - view\n\* `metric` - metric\n\* `posthog_table` - posthog_table')
+            .optional()
+            .describe(
+                'Narrow the run to one subject. Pass subject_uuid with it. Ignored when check_ids is given.\n\n\* `table` - table\n\* `view` - view\n\* `metric` - metric\n\* `posthog_table` - posthog_table'
+            ),
+        subject_uuid: zod
+            .string()
+            .optional()
+            .describe('Id of the subject to run every enabled check on. Pass subject_type with it.'),
+    })
+    .describe('What to run in a project-wide suite run.')

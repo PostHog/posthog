@@ -1,6 +1,17 @@
+import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
 import { DataWarehouseTable } from '~/types'
 
-import { selfManagedTableFormErrors, selfManagedTableUpdatePayload } from './selfManagedSourceLogic'
+import {
+    selfManagedSourceLogic,
+    selfManagedTableFormErrors,
+    selfManagedTableUpdatePayload,
+} from './selfManagedSourceLogic'
 
 const validTable: Partial<DataWarehouseTable> = {
     name: 'stripe_invoices',
@@ -68,5 +79,44 @@ describe('selfManagedSourceLogic', () => {
                 ...(expectedCredential ? { credential: expectedCredential } : {}),
             })
         })
+    })
+
+    describe('table save failures', () => {
+        beforeEach(() => {
+            initKeaTests()
+            jest.spyOn(lemonToast, 'error').mockImplementation(() => ({ id: 'x' }) as any)
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        // A rejected CSV is a validation 400. It must toast the server message without filing an exception.
+        it.each([
+            { status: 400, reported: false },
+            { status: 500, reported: true },
+        ])(
+            'updateTable with a $status toasts the server message, reported: $reported',
+            async ({ status, reported }) => {
+                useMocks({
+                    get: { '/api/projects/:team_id/warehouse_tables/:id/': () => [200, validTable] },
+                    patch: {
+                        '/api/projects/:team_id/warehouse_tables/:id/': () => [
+                            status,
+                            { detail: 'Check the delimiter.' },
+                        ],
+                    },
+                })
+                const logic = selfManagedSourceLogic({ id: 'some-id' })
+                logic.mount()
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateTable({ ...validTable, format: 'CSVWithNames' })
+                }).toDispatchActions(['updateTableFailure'])
+
+                expect(lemonToast.error).toHaveBeenCalledWith(expect.stringContaining('Check the delimiter.'))
+                expect(posthog.captureException).toHaveBeenCalledTimes(reported ? 1 : 0)
+            }
+        )
     })
 })

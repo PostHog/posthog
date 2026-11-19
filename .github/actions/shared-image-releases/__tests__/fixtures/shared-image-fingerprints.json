@@ -1,0 +1,41 @@
+[
+  {
+    "paths": [
+      "worker/**",
+      {
+        "added|modified": "pyproject.toml"
+      },
+      "!worker/tests/**"
+    ],
+    "bytes": "{\"paths\":[\"worker/**\",{\"added|modified\":\"pyproject.toml\"},\"!worker/tests/**\"],\"version\":1}",
+    "sha256": "fd75debe212c992918bc814f86ddf444738cca4cac73335970c8173d19190d13"
+  },
+  {
+    "paths": [
+      {
+        "modified|added": [
+          "worker/**",
+          "uv.lock"
+        ]
+      },
+      "!worker/tests/**"
+    ],
+    "bytes": "{\"paths\":[{\"modified|added\":[\"worker/**\",\"uv.lock\"]},\"!worker/tests/**\"],\"version\":1}",
+    "sha256": "fc11f90bb335709d4cdd5e67c755d5600b13f11dd6199e2ee73deed1845b86ee"
+  },
+  {
+    "paths": [
+      "worker/café/**",
+      "worker/<a>&b/**"
+    ],
+    "bytes": "{\"paths\":[\"worker/café/**\",\"worker/<a>&b/**\"],\"version\":1}",
+    "sha256": "7bb9902a29f96742aa92c8ab9c0319c220b90f89b443e705fa5da79f07870992"
+  },
+  {
+    "paths": [
+      "worker/ separator/**"
+    ],
+    "bytes": "{\"paths\":[\"worker/ separator/**\"],\"version\":1}",
+    "sha256": "a4211863500afd6c87826784cb24e3ec873717ab50f23572815ae69624b84fa1"
+  }
+]

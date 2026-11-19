@@ -7,8 +7,13 @@ import {
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
+import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
+import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
+
+import { describeRepeat } from '../../SendCalendar/sendCalendarUtils'
+import { isOneTimeSchedule } from '../hogflows/steps/components/rrule-helpers'
 
 const nameOrLinkToWorkflow = (id?: string | null, name?: string | null): string | JSX.Element => {
     const displayName = name || '(empty string)'
@@ -103,6 +108,49 @@ function describeWorkflowItems(change: ActivityChange, itemType: 'action' | 'var
           )
 }
 
+interface ScheduleTiming {
+    rrule: string
+    starts_at: string
+    timezone: string
+}
+
+function describeScheduleTiming(timing: ScheduleTiming): string {
+    const start = dayjs(timing.starts_at).tz(timing.timezone || 'UTC')
+    if (isOneTimeSchedule(timing.rrule)) {
+        return `${start.format('MMM D, YYYY [at] h:mm A')} (${timing.timezone})`
+    }
+    const repeat = describeRepeat(timing)
+    return `${repeat.charAt(0).toLowerCase()}${repeat.slice(1)} at ${start.format('h:mm A')} (${timing.timezone})`
+}
+
+function describeScheduleChange(change: ActivityChange): JSX.Element {
+    const before = change.before as ScheduleTiming | null
+    const after = change.after as ScheduleTiming | null
+    if (change.action === 'created' && after) {
+        return (
+            <>
+                added a schedule: <strong>{describeScheduleTiming(after)}</strong>
+            </>
+        )
+    }
+    if (change.action === 'deleted' && before) {
+        return (
+            <>
+                removed a schedule: <strong>{describeScheduleTiming(before)}</strong>
+            </>
+        )
+    }
+    if (before && after) {
+        return (
+            <>
+                moved a schedule from <strong>{describeScheduleTiming(before)}</strong> to{' '}
+                <strong>{describeScheduleTiming(after)}</strong>
+            </>
+        )
+    }
+    return <>updated a schedule</>
+}
+
 function describeWorkflowField(change: ActivityChange): JSX.Element[] {
     switch (change.field) {
         case 'name':
@@ -119,6 +167,20 @@ function describeWorkflowField(change: ActivityChange): JSX.Element[] {
             return describeWorkflowItems(change, 'action')
         case 'variables':
             return describeWorkflowItems(change, 'variable')
+        case 'schedule':
+            return [describeScheduleChange(change)]
+        case 'tag':
+            return [
+                change.action === 'created' ? (
+                    <>
+                        added the tag <strong>{String(change.after)}</strong>
+                    </>
+                ) : (
+                    <>
+                        removed the tag <strong>{String(change.before)}</strong>
+                    </>
+                ),
+            ]
         default:
             return [<>updated {change.field}</>]
     }
@@ -165,6 +227,41 @@ function describeWorkflowUpdate(logItem: ActivityLogItem): HumanizedChange {
     }
 }
 
+const BATCH_RUN_VERBS: Partial<Record<string, { summary: string; description: string }>> = {
+    batch_run_started: { summary: 'Started', description: 'started' },
+    batch_run_stopped: { summary: 'Stopped', description: 'stopped' },
+}
+
+function describeBatchRun(
+    logItem: ActivityLogItem,
+    verbs: { summary: string; description: string },
+    objectNoun: string
+): HumanizedChange {
+    const workflowName = nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+    const context = logItem.detail.context
+    const audienceFilters = Array.isArray(context?.filters?.properties) ? context.filters.properties : []
+    return {
+        summary: activityLogSummary(logItem, `${verbs.summary} a batch run`, workflowName),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> {verbs.description} a batch run of the {objectNoun}:{' '}
+                {workflowName}
+            </>
+        ),
+        extendedDescription: context?.batch_job_id ? (
+            <div className="flex flex-col gap-2 items-start">
+                <span>Batch run {context.batch_job_id}</span>
+                {audienceFilters.length ? (
+                    <>
+                        <span className="text-muted">Job filters</span>
+                        <PropertyFiltersDisplay filters={audienceFilters} />
+                    </>
+                ) : null}
+            </div>
+        ) : undefined,
+    }
+}
+
 export function workflowActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'HogFlow') {
         console.error('Workflow describer received a non-HogFlow activity')
@@ -195,6 +292,20 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted the {objectNoun}: {logItem.detail.name}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'tested') {
+        const workflowName = nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)
+
+        return {
+            summary: activityLogSummary(logItem, `Tested a ${objectNoun} step with real requests`, workflowName),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> tested a step of the {objectNoun} with real requests:{' '}
+                    {workflowName}
                 </>
             ),
         }
@@ -295,6 +406,27 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
                 </>
             ),
         }
+    }
+
+    if (logItem.activity == 'converted_to_broadcast') {
+        return {
+            summary: activityLogSummary(
+                logItem,
+                'Moved to broadcasts',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> moved the {objectNoun} to broadcasts:{' '}
+                    {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
+    const batchRunVerbs = BATCH_RUN_VERBS[logItem.activity]
+    if (batchRunVerbs) {
+        return describeBatchRun(logItem, batchRunVerbs, objectNoun)
     }
 
     if (logItem.activity == 'updated' || logItem.activity == 'published') {

@@ -1,7 +1,6 @@
-from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args, get_s3_url
 
@@ -13,7 +12,7 @@ from posthog.settings.object_storage import (
 )
 
 
-class TestWebAnalyticsS3(BaseTest):
+class TestWebAnalyticsS3(SimpleTestCase):
     @patch("posthog.hogql.database.schema.web_analytics_s3.DEBUG", False)
     def test_get_s3_url_production_format(self):
         table_name = "web_stats_daily_export"

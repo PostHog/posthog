@@ -144,5 +144,6 @@ longer or shorter retention than the default, and the import does not read them.
 retention rules, logs that a longer rule would keep may still be skipped, and logs that a shorter
 rule covers may be dropped at intake without a warning.
 
-Records that are kept take their retention from when they were imported, not from their own
-timestamp, so they expire the configured number of retention days after the import finishes.
+Records that are kept expire the retention period after their own timestamp, not after the import,
+so the oldest records expire first. A record keeps the retention that applied when it was imported,
+so lowering retention after the import does not shorten it.

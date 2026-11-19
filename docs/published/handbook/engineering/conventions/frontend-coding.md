@@ -40,7 +40,7 @@ Hence the explicit separation between the data and view layers.
   - Reach for an existing design-system component (Lemon/quill) before hand-rolling markup — reuse is how new UI stays on-brand. When you genuinely need a custom component, build it from the system's tokens and primitives and match the surrounding scene's density; avoid the generic AI-generated look (purple gradients, glassmorphism, gradient text, icon-tile card grids, decorative motion).
   - Before building new UI, read a few comparable scenes or components and model yours on the ones that follow these conventions. The codebase contains legacy that predates them — an existing violation is not license to repeat it. Conventions outrank precedent, and compliant precedent outranks invention.
   - Extract a shared component once the same shape appears in several places and the call sites read as content, not markup. Keep new generics next to the feature that uses them, and promote to `lib/` only when a second feature needs them. Don't build wrappers with a single consumer, and don't add boolean variant props so one caller can switch half the component off — that's two components.
-  - Analytics overview cards in the LemonUI web app share `lib/components/AnalyticsMetricCard/AnalyticsMetricCard`. It wraps the chart library metric content with a consistent surface and loading, error, and empty states. Supply `data` and `theme` for a sparkline, `showChange` for comparisons, and `onClick` for a native button with a visible interaction cue. `selected` highlights a card that controls the displayed chart. Quill surfaces can compose `Metric` with `Card` instead.
+  - Analytics overview cards in the LemonUI web app share `lib/components/AnalyticsMetricCard/AnalyticsMetricCard`. It wraps the chart library metric content with a consistent surface and loading, error, and empty states. Supply `data` and `theme` for a sparkline, `showChange` for comparisons, and `onClick` for a native button with a navigation chevron. `selected` highlights a card that controls the displayed chart and removes the navigation chevron. The hover border and focus ring show that the card is interactive. For sample metrics, put `SampleDataTag` inside the card with `adornment`. Put the same tag in chart headers. Keep the cards outside `SampleDataState`, which animates its content. Quill surfaces can compose `Metric` with `Card` instead.
   - Interactive elements are real `<button>`/`<a>` elements (`LemonButton` renders one) — never `onClick` on a `<div>`.
   - With `focusBasedKeyboardNavigation` enabled, `LemonMenu` moves focus between its trigger and menu items with the arrow keys, including after the menu reopens. Custom triggers must forward `onFocus` and `onKeyDown` to preserve keyboard navigation and focus return.
   - Loading, empty, and error are three different screens. Never show an empty state from data that hasn't resolved yet — branch on the loading state first.
@@ -57,6 +57,7 @@ Hence the explicit separation between the data and view layers.
   - Logics mounted by React components through the view layer unmount when the component unmounts. Use `useAttachedLogic(dataNodeLogic(propsFromComponent), mySceneLogic())` to attach a logic to the scene's logic so it persists until the scene's logic is unmounted, surviving React component remounts.
   - You can control what's shown on the tab via the `breadcrumbs` selector in your scene's logic. The last breadcrumb controls the title and the icon, the one before that controls the back button. If there are more breadcrumbs, they will be ignored.
 - Kea
+  - In asynchronous loaders, call `breakpoint()` after each request and before error handlers read logic state or dispatch actions. This discards responses after unmount or a newer invocation.
   - It's worth repeating: think of the data flow. Then work to simplify it. Derive as much state as possible via selectors, update the source via cascading actions, and avoid complex loops where a value triggers a subscription which calls an action which changes the value which triggers the subscription, ...
   - Use `subscriptions` and `propsChanged` sparingly, only if you can't find any other way. These have a high chance of leading to messy, cyclic or slow data flows.
   - Try to write your code such that you only use `urlToAction` in your scene's logic (e.g. `insightSceneLogic`), and never deeper down in e.g. `propertyFilterLogic`.
@@ -73,7 +74,7 @@ Hence the explicit separation between the data and view layers.
   - Before adding a test, make sure it earns its place and sits as low on the test pyramid as it can — the value/cost rubric in [Backend coding conventions › Testing](backend-coding#testing) is language-agnostic.
   - Write [logic tests](https://keajs.org/docs/intro/testing) for all logic files.
   - [react testing library](https://testing-library.com/docs/react-testing-library/intro/) tests are particularly useful for components with complex interactions or to guide future humans or agents when they're changing components without full context of the uses and edge cases
-  - Add all new presentational elements and scenes to [our storybook](https://storybook.dev.posthog.dev/). Run `pnpm storybook` locally.
+  - Add all new presentational elements and scenes to [our storybook](https://storybook.dev.posthog.dev/). Run `pnpm storybook` locally. The [Storybook README](https://github.com/PostHog/posthog/blob/master/common/storybook/README.md) covers running it, writing stories, and mocking data.
   - In web Storybook play functions, import `within` and `waitFor` from `@testing-library/dom`. The preview configures their async timeout; `storybook/test` uses a separate default.
   - A story must render the same picture on every run. See [Deterministic stories](#deterministic-stories).
 
@@ -85,10 +86,8 @@ Every pattern below caused a real quarantine. Each one has a fix that removes th
 
 ##### What the runner already does
 
-`common/storybook/.storybook/test-runner.ts` turns off animations and transitions, makes lazy images eager and waits for them to decode, preloads fonts, waits for a known loader to disappear, waits for network idle, waits for every quill chart canvas to finish painting, and sets the theme on `body[theme]` before each snapshot.
+`common/storybook/.storybook/test-runner.ts` turns off animations and transitions, makes lazy images eager and waits for them to decode, preloads fonts, waits until no known loader is visible, waits for network idle, waits for every quill chart canvas to finish painting, and sets the theme on `body[theme]` before each snapshot.
 Do not add your own waits for these.
-The loader wait checks only the first element that matches a loader selector.
-When a story shows more than one loader, set `waitForSelector` to content that renders after the last one.
 The runner does not know when your own async content is done, when a timer changes the UI, or when a component measured itself at the wrong size.
 
 ##### Pin the clock

@@ -1,3 +1,5 @@
+import { MOCK_SECOND_BASIC_USER } from 'lib/api.mock'
+
 import type { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { HttpResponse } from 'msw'
@@ -6,6 +8,8 @@ import { useEffect, useState } from 'react'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
+
+import type { ReportPlanApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
     makeReport,
@@ -22,10 +26,11 @@ import {
 } from '../../__mocks__/inboxMocks'
 import { reportMetricQueryHandler, reportMetricsFixture } from '../../__mocks__/reportMetricMocks'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
-import { SignalReport, SignalReportStatus } from '../../types'
+import { SignalReport, SignalReportArtefact, SignalReportStatus } from '../../types'
 import { AgentRunDetail } from './AgentRunDetail'
+import { ArtefactLogList } from './ArtefactLogList'
 import { ReportDetail } from './ReportDetail'
-import { ReportDetailLegacy } from './ReportDetailLegacy'
+import { ReportNotesSection } from './ReportNotesSection'
 import { ReportStatusSection } from './ReportStatusSection'
 
 const mixedPrChecks = {
@@ -90,6 +95,7 @@ const successfulPrChecks = {
 
 const detailMocks = mswDecorator({
     get: {
+        '/api/projects/:id/signals/reports/:reportId/feedback_state/': { sentiment: null, note: '' },
         '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
             const reportId = req.params.reportId as string
             return [200, mockArtefacts(reportId)]
@@ -150,7 +156,7 @@ const detailMocks = mswDecorator({
             200,
             mockTaskRun(req.params.taskId as string, req.params.runId as string),
         ],
-        '/api/projects/:id/tasks/:taskId/runs/:runId/logs': () => new HttpResponse(mockRunLog()),
+        '/api/projects/:id/tasks/:taskId/runs/:runId/log_entries': () => new HttpResponse(mockRunLog()),
     },
     post: {
         '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
@@ -179,9 +185,8 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-06-11',
         featureFlags: {
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
-            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
         },
     },
     decorators: [detailMocks],
@@ -234,12 +239,96 @@ export const StatusBlock: Story = {
                 task_id: null,
                 agent: 'Build agent',
                 claimed_at: '2026-06-11T10:00:00Z',
+                responsible_user: null,
             },
         })
         return (
             <Frame>
                 <div className="w-[26rem] border border-primary bg-surface-primary p-5">
                     <ReportStatusSection report={report} onPriorityChange={setPriority} />
+                </div>
+            </Frame>
+        )
+    },
+}
+
+export const StatusBlockWithEditableDecisions: Story = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_EDITABLE_DECISIONS]: true },
+        testOptions: { snapshotBrowsers: [] },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/integrations/': {
+                    results: [
+                        { id: 1, kind: 'github', display_name: 'example-org', created_at: '2026-01-01T00:00:00Z' },
+                    ],
+                    next: null,
+                },
+                '/api/projects/:id/integrations/1/github_repos/': {
+                    repositories: [
+                        { id: 1, name: 'web-app', full_name: 'example-org/web-app' },
+                        { id: 2, name: 'api', full_name: 'example-org/api' },
+                        { id: 3, name: 'legacy', full_name: 'example-org/legacy', archived: true },
+                    ],
+                    has_more: false,
+                },
+            },
+        }),
+    ],
+    render: function RenderStatusBlockWithEditableDecisions() {
+        const [priority, setPriority] = useState<NonNullable<SignalReport['priority']>>('P1')
+        const [repository, setRepository] = useState('example-org/web-app')
+        const [actionability, setActionability] =
+            useState<NonNullable<SignalReport['actionability']>>('immediately_actionable')
+        const [alreadyAddressed, setAlreadyAddressed] = useState(false)
+        const report = makeReport({
+            status: SignalReportStatus.READY,
+            priority,
+            actionability,
+            already_addressed: alreadyAddressed,
+            repo_slug: repository,
+            pull_requests: [],
+        })
+        const agentJudgment = {
+            person: null,
+            agent: null,
+            setAt: '2026-06-09T09:00:00Z',
+            reason: 'The failing request path and the checkout handler are both named, and no open pull request covers them.',
+            previousValue: null,
+        }
+        return (
+            <Frame>
+                <div className="w-[26rem] border border-primary bg-surface-primary p-5">
+                    <ReportStatusSection
+                        report={report}
+                        onPriorityChange={setPriority}
+                        onRepositoryChange={setRepository}
+                        onActionabilityChange={(change) =>
+                            'actionability' in change
+                                ? setActionability(change.actionability)
+                                : setAlreadyAddressed(change.alreadyAddressed)
+                        }
+                        decisionAttributions={{
+                            repository: {
+                                person: null,
+                                agent: null,
+                                setAt: '2026-06-09T09:00:00Z',
+                                reason: 'The stack trace points at files under src/checkout/ in this repository.',
+                                previousValue: null,
+                            },
+                            priority: {
+                                person: { ...MOCK_SECOND_BASIC_USER, last_name: 'Dawson' },
+                                agent: null,
+                                setAt: '2026-06-10T08:00:00Z',
+                                reason: null,
+                                previousValue: 'P3',
+                            },
+                            actionability: agentJudgment,
+                            already_addressed: agentJudgment,
+                        }}
+                    />
                 </div>
             </Frame>
         )
@@ -256,9 +345,207 @@ export const Report: Story = {
 
 export const ReportReadyToImplement: Story = {
     decorators: [readyToImplementMocks],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION]: 'control' },
+    },
     render: () => (
         <Frame>
-            <ReportDetail report={reportTabReports[0]} />
+            <ReportDetail
+                report={{
+                    ...reportTabReports[0],
+                    summary: `${reportTabReports[0].summary}\n\n## Solution\n\nValidate each recipient before the form sends the invitation request. Show a field error for an empty email address.`,
+                }}
+            />
+        </Frame>
+    ),
+}
+
+export const ReportImplementButtonInHeader: Story = {
+    ...ReportReadyToImplement,
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION]: 'test' },
+        testOptions: { snapshotBrowsers: [] },
+    },
+}
+
+export const ReportViewTaskButtonInHeader: Story = {
+    ...ReportImplementButtonInHeader,
+    decorators: [],
+}
+
+export const ReportWithoutCodeAccess: Story = {
+    ...ReportReadyToImplement,
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.SELF_DRIVING_GITHUB_OPTIONAL]: true },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/integrations/': { results: [], next: null, count: 0 },
+                '/api/projects/:id/signals/onboarding/': {
+                    draft: null,
+                    completed_at: null,
+                    github_optional_available: true,
+                },
+                '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
+                    const results = mockArtefacts(req.params.reportId as string).results.filter(
+                        (artefact) => !['commit', 'suggested_reviewers', 'task_run'].includes(artefact.type)
+                    )
+                    return [200, { results, count: results.length }]
+                },
+            },
+        }),
+    ],
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={{
+                    ...reportTabReports[0],
+                    research_context: { mode: 'data_only', repository_status: 'no_integration' },
+                }}
+            />
+        </Frame>
+    ),
+}
+
+export const ReportClaimedByTeammate: Story = {
+    decorators: [readyToImplementMocks],
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={{
+                    ...reportTabReports[0],
+                    assignee: {
+                        claim_id: '019e64b8-0000-7000-8000-000000000098',
+                        kind: 'user',
+                        user: { id: 1, uuid: 'u-1', email: 'octo@example.com', first_name: 'Octo', last_name: 'Cat' },
+                        task_id: null,
+                        agent: null,
+                        claimed_at: '2026-06-10T10:00:00Z',
+                        responsible_user: {
+                            id: 1,
+                            uuid: 'u-1',
+                            email: 'octo@example.com',
+                            first_name: 'Octo',
+                            last_name: 'Cat',
+                        },
+                    },
+                }}
+            />
+        </Frame>
+    ),
+}
+
+const NOTES_REPORT_ID = reportTabReports[0].id
+const NOTES_ROLE_ID = '0190f3a1-7d2e-7c41-9a3b-5e6f7a8b9c0d'
+
+// The active note is still listed; the retired one is gone from the list, so its entry reads inactive.
+const reportNotesMocks = mswDecorator({
+    get: {
+        '/api/projects/:id/signals/scout/notes/': () => [
+            200,
+            [
+                {
+                    id: 'note-active',
+                    skill_name: 'signals-scout-checkout',
+                    content: `Note on inbox report \`${NOTES_REPORT_ID}\`:\n\nThe checkout flow is being rebuilt next month.`,
+                    created_at: '2026-06-10T09:00:00Z',
+                    expires_at: null,
+                    created_by_name: 'Octo Cat',
+                    origin: 'human',
+                },
+            ],
+        ],
+        '/api/projects/:id/signals/scout/configs/': () => [
+            200,
+            [{ id: 'config-checkout', skill_name: 'signals-scout-checkout', display_name: 'Checkout watcher' }],
+        ],
+        '/api/organizations/:organization_id/roles/': () => [
+            200,
+            { results: [{ id: NOTES_ROLE_ID, name: 'Checkout team', members: [] }], count: 1 },
+        ],
+    },
+})
+
+const NOTE_AUTHOR = { id: 1, uuid: 'u-1', distinct_id: 'u-1', email: 'octo@example.com', first_name: 'Octo' }
+
+const noteArtefacts: SignalReportArtefact[] = [
+    {
+        id: 'artefact-scout-note-active',
+        type: 'scout_note_left',
+        content: {
+            note: 'The checkout flow is being rebuilt next month. Focus on the new flow instead.',
+            skill_name: 'signals-scout-checkout',
+            scout_note_id: 'note-active',
+        },
+        created_at: '2026-06-10T09:00:00Z',
+        created_by: NOTE_AUTHOR,
+        actor_kind: 'user',
+    },
+    {
+        id: 'artefact-scout-note-retired',
+        type: 'scout_note_left',
+        content: { note: 'Anything under /legacy is out of scope.', skill_name: '', scout_note_id: 'note-retired' },
+        created_at: '2026-06-09T09:00:00Z',
+        created_by: NOTE_AUTHOR,
+        actor_kind: 'user',
+    },
+    {
+        id: 'artefact-note',
+        type: 'note',
+        content: {
+            note: `Support confirmed two more customers hit this on Monday. @member:${MOCK_SECOND_BASIC_USER.id} @role:${NOTES_ROLE_ID} can you take a look?`,
+        },
+        created_at: '2026-06-08T09:00:00Z',
+        created_by: NOTE_AUTHOR,
+        actor_kind: 'user',
+    },
+    {
+        id: 'artefact-agent-note',
+        type: 'note',
+        content: { note: 'Confirmed the validation gap reproduces on an empty recipient row.' },
+        created_at: '2026-06-07T09:00:00Z',
+        task_id: 'task-research',
+        actor_kind: 'task',
+    },
+]
+
+// The notes under the report body. The agent's note stays out of the list, and the retired note reads inactive.
+export const ReportNotes: Story = {
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.SIGNALS_REPORT_NOTE_MENTIONS]: true },
+    },
+    decorators: [
+        reportNotesMocks,
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports/:reportId/artefacts': () => [
+                    200,
+                    { results: noteArtefacts, count: noteArtefacts.length },
+                ],
+            },
+        }),
+    ],
+    render: () => (
+        <Frame>
+            <div className="w-full max-w-[44rem] border border-primary bg-surface-primary p-5">
+                <ReportNotesSection report={{ ...reportTabReports[0], scout_name: 'signals-scout-checkout' }} />
+            </div>
+        </Frame>
+    ),
+}
+
+// The activity log alone at rail width: in the full detail it sits collapsed below the snapshot's fold.
+export const ActivityNotes: Story = {
+    decorators: [reportNotesMocks],
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.SIGNALS_REPORT_NOTES]: true },
+    },
+    render: () => (
+        <Frame>
+            <div className="w-[26rem] border border-primary bg-surface-primary p-5">
+                <ArtefactLogList reportId={NOTES_REPORT_ID} artefacts={noteArtefacts} />
+            </div>
         </Frame>
     ),
 }
@@ -290,9 +577,8 @@ export const ReportWithFollowUpMetric: Story = {
     parameters: {
         mockDate: '2026-08-29',
         featureFlags: {
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
-            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
         },
     },
     render: () => (
@@ -322,18 +608,34 @@ export const ReportWithFollowUpMetricHidden: Story = {
     parameters: {
         mockDate: '2026-08-29',
         featureFlags: {
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
-            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: false,
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false,
         },
     },
 }
 
+export const ReportReadyToMonitor: Story = {
+    parameters: {
+        mockDate: '2026-08-29',
+        testOptions: { snapshotBrowsers: [] },
+    },
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    title: 'Creating an API key does nothing when validation fails',
+                    metrics: reportMetricsFixture.slice(0, 1),
+                    monitoring_started_at: null,
+                })}
+            />
+        </Frame>
+    ),
+}
+
 export const ReportFollowUpPending: Story = {
     parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-        },
+        featureFlags: {},
     },
     render: () => (
         <Frame>
@@ -358,6 +660,81 @@ export const ReportMinimal: Story = {
                     summary: null,
                     status: SignalReportStatus.CANDIDATE,
                     signal_count: 1,
+                })}
+            />
+        </Frame>
+    ),
+}
+
+const exportsPlan: ReportPlanApi = {
+    id: '019e64b8-0000-7000-8000-000000000201',
+    title: 'feat(exports): Make large exports reliable',
+    status: 'ready',
+    steps: [
+        {
+            id: '019e64b8-0000-7000-8000-000000000211',
+            title: 'feat(exports): Split large exports into chunks',
+            status: 'resolved',
+            depends_on: [],
+            implementation_pr_url: 'https://github.com/example/app/pull/41',
+            implementation_pr_state: 'merged',
+            suppression_source: null,
+        },
+        {
+            id: '019e64b8-0000-7000-8000-000000000212',
+            title: 'feat(exports): Retry failed chunks with backoff',
+            status: 'ready',
+            depends_on: ['019e64b8-0000-7000-8000-000000000211'],
+            implementation_pr_url: 'https://github.com/example/app/pull/42',
+            implementation_pr_state: 'open',
+            suppression_source: null,
+        },
+        {
+            id: '019e64b8-0000-7000-8000-000000000213',
+            title: 'feat(exports): Show export progress while it runs',
+            status: 'ready',
+            depends_on: ['019e64b8-0000-7000-8000-000000000212'],
+            implementation_pr_url: null,
+            implementation_pr_state: null,
+            suppression_source: null,
+        },
+    ],
+}
+
+export const ReportPlanStep: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    id: exportsPlan.steps[1].id,
+                    title: exportsPlan.steps[1].title,
+                    summary:
+                        'Retry a failed chunk up to three times with exponential backoff before the export fails. ' +
+                        'Keep the chunks that already succeeded.\n\n## Plan\n\n' +
+                        `This is layer 2 of 3 of the plan '${exportsPlan.title}'.`,
+                    priority: 'P2',
+                    actionability: 'immediately_actionable',
+                    plan: exportsPlan,
+                })}
+            />
+        </Frame>
+    ),
+}
+
+export const ReportPlan: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    id: exportsPlan.id,
+                    title: exportsPlan.title,
+                    summary:
+                        'Large exports time out and leave people without their data.\n\n## Problem\n\n' +
+                        'An export runs as one job, so one slow query fails the whole export.\n\n## Solution\n\n' +
+                        'Split exports into chunks, retry the chunks that fail, and show progress while it runs.',
+                    priority: 'P2',
+                    actionability: 'immediately_actionable',
+                    plan: exportsPlan,
                 })}
             />
         </Frame>
@@ -520,26 +897,6 @@ export const PullRequestInlineReview: Story = {
     render: () => (
         <Frame>
             <ReportDetail report={pullRequestReports[0]} />
-        </Frame>
-    ),
-}
-
-// The detail pages with the redesign flag off: summary on the left, evidence on the right, and the
-// "Files changed" tab for a report with a PR.
-export const ReportLegacy: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: false } },
-    render: () => (
-        <Frame>
-            <ReportDetailLegacy report={reportTabReports[0]} tab="reports" />
-        </Frame>
-    ),
-}
-
-export const PullRequestLegacy: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: false } },
-    render: () => (
-        <Frame>
-            <ReportDetailLegacy report={pullRequestReports[0]} tab="pulls" />
         </Frame>
     ),
 }

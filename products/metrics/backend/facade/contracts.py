@@ -28,6 +28,8 @@ from .enums import (
     DashboardImportPhase,
     DashboardImportSource,
     DashboardImportState,
+    DashboardTemplateSource,
+    DashboardTemplateStatus,
     FilterOp,
     MetricAggregation,
     MetricRangeFunction,
@@ -40,7 +42,18 @@ from .enums import (
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
 MAX_CLAUSES_PER_QUERY = 10
+DEFAULT_QUERY_COUNT_DAYS = 30
+MAX_QUERY_COUNT_DAYS = 90
+MAX_PROMQL_LENGTH = 8192
 MAX_SPARKLINE_BATCH_SIZE = 20
+
+
+class MetricQueryTooManyRowsError(ValueError):
+    """The query has more (time bucket, series) rows than the row budget allows.
+
+    A caller can retry with a coarser interval, because fewer buckets give fewer rows.
+    """
+
 
 # Private-alpha gate. Every read surface (viewset, query runner, MCP tools)
 # must check the same flag, or one of them becomes a bypass.
@@ -52,6 +65,42 @@ METRICS_ERROR_OVERLAYS_FEATURE_FLAG = "metrics-error-overlays"
 
 # Gates the Grafana and screenshot dashboard import, on top of METRICS_FEATURE_FLAG.
 METRICS_DASHBOARD_IMPORT_FEATURE_FLAG = "metrics-dashboard-import"
+
+# Gates the suggested dashboards menu, and the background analysis and AI generation for a team.
+METRICS_SUGGESTED_DASHBOARDS_FEATURE_FLAG = "metrics-suggested-dashboards"
+
+# Gates recording rules, on top of METRICS_FEATURE_FLAG. It gates both the API and the evaluation, so turning it
+# off for a project also stops the rules that project already has.
+METRICS_RECORDING_RULES_FEATURE_FLAG = "metrics-recording-rules"
+
+# Each rule runs one PromQL query a minute, one after another inside the team's evaluation budget.
+MAX_RECORDING_RULES_PER_TEAM = 20
+
+# Gates the metrics that the query computes from spans and logs, on top of METRICS_FEATURE_FLAG.
+METRICS_DERIVED_SERIES_FEATURE_FLAG = "metrics-derived-series"
+
+# Names under this prefix are computed from spans and logs at query time, never ingested.
+# Other products must not let users create metrics with this prefix.
+DERIVED_METRIC_PREFIX = "posthog.derived."
+
+# Labels an async MetricsQuery status with each source a derived metric reads, so retrieval can check access.
+# Stable wire identifier shared by query-status producers and readers. Renaming requires
+# a dual-read rollout and a drain of in-flight query statuses.
+DERIVED_SOURCE_QUERY_STATUS_LABEL_PREFIX = "metrics-derived-source:"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DerivedSeriesStatus:
+    """Whether a team can see series derived from its spans and logs."""
+
+    # The team sent spans or logs in the last day.
+    has_sources: bool
+    # Derived series are on for the team, which needs sources.
+    enabled: bool
+
+    def __post_init__(self) -> None:
+        if self.enabled and not self.has_sources:
+            raise ValueError("derived series need spans or logs")
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,12 +138,14 @@ class MetricQueryClause:
     metric_type: MetricType | None = None
     # Applied to each series before `aggregation` combines them.
     range_function: MetricRangeFunction | None = None
+    # Apdex threshold T for the derived apdex metric; None uses its default.
+    apdex_threshold_ms: float | None = None
 
     def __post_init__(self) -> None:
         if self.aggregation.is_raw and self.group_by:
             raise ValueError("group_by needs an aggregation; without one every series stays separate")
         if self.range_function is not None and self.aggregation.is_counter_function:
-            raise ValueError("range_function cannot combine with the legacy rate or increase aggregation")
+            raise ValueError(f"range_function cannot combine with the {self.aggregation} aggregation")
         if self.aggregation.needs_quantile:
             if self.quantile is None:
                 raise ValueError(f"{self.aggregation} requires a quantile")
@@ -102,6 +153,8 @@ class MetricQueryClause:
                 raise ValueError("quantile must be in (0, 1)")
         if not self.name:
             raise ValueError("clause name must be non-empty")
+        if self.apdex_threshold_ms is not None and not self.apdex_threshold_ms > 0:
+            raise ValueError("apdex threshold must be a positive number of milliseconds")
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +173,9 @@ class MetricQueryRequest:
     date_to: dt.datetime
     interval: str | None = None
     formula: str | None = None
+    # False leaves a bucket without data as a None point (a gap), so a mean over the points skips it.
+    # A formula needs aligned values, so it requires the zero fill.
+    zero_fill: bool = True
 
     def __post_init__(self) -> None:
         if not self.clauses:
@@ -128,9 +184,19 @@ class MetricQueryRequest:
             raise ValueError(f"at most {MAX_CLAUSES_PER_QUERY} clauses are allowed per query")
         if self.date_to <= self.date_from:
             raise ValueError("date_to must be after date_from")
+        if self.formula is not None and not self.zero_fill:
+            raise ValueError("a formula requires zero_fill")
         names = [c.name for c in self.clauses]
         if len(names) != len(set(names)):
             raise ValueError("clause names must be unique")
+
+
+@dataclass(frozen=True, slots=True)
+class MetricInstantWindow:
+    """The range an instant builder query reads: its value is the bucket that ends at `date_to`."""
+
+    date_from: dt.datetime
+    date_to: dt.datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,9 +220,16 @@ class MetricSeries:
     points: tuple[MetricPoint, ...]
     metric_name: str | None = None
     clause: str | None = None
-    # UCUM unit of the metric as ingested (e.g. "By", "ms"). Empty when the SDK
-    # did not set one. Set by `run_metric_query`, not by callers.
+    # UCUM unit of the values in `points` (e.g. "By", "ms", "ms/s"). It differs
+    # from the ingested unit when the clause transforms the values: COUNT has no
+    # unit and RATE is per second. Set by `run_metric_query`, not by callers.
     unit: str | None = None
+    # Bucket upper edges a histogram quantile was estimated from, merged over every
+    # point. The estimate can be anywhere between two edges. None for other aggregations.
+    histogram_bounds: tuple[float, ...] | None = None
+    # Most explicit bucket layouts merged into one point of a histogram quantile. Above 1, series
+    # with different buckets were combined. None for other aggregations.
+    histogram_layout_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +268,8 @@ class MetricAnomalyReport:
     onset_time: str | None
     top_movers: tuple[MetricAnomalyDimension, ...]
     series: MetricSeries
+    # Start of the trailing bucket that was still filling: plotted in `series`, left out of the stats.
+    partial_bucket_time: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -388,6 +463,21 @@ class MetricsOverview:
     services: tuple[MetricsServiceOverview, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class MetricQueryCount:
+    """How often queries read one metric of a team inside a window of days.
+
+    A query counts once for each metric that it selects, whatever the number of clauses or selectors that name it.
+    Builder, heatmap and PromQL queries count, from the app, alerts and the Prometheus API.
+    SQL mode queries do not count.
+    A PromQL selector that names no metric, such as `{__name__=~"http_.*"}`, counts nothing.
+    """
+
+    metric_name: str
+    query_count: int
+    last_queried_at: dt.datetime
+
+
 class DashboardImportError(ValueError):
     """A dashboard import cannot start or continue. The message is safe to show to the user."""
 
@@ -470,3 +560,96 @@ class PanelQueryCheckResult:
     valid: bool
     error: str | None = None
     notes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SuggestedDashboard:
+    """A dashboard from the bank that suits the metrics of a team."""
+
+    id: str
+    template_id: str
+    name: str
+    description: str
+    reason: str
+    panel_count: int
+    matched_metric_count: int
+    coverage: float
+    dashboard_id: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardTemplateRound:
+    """One check round of a generation: a picture of the preview dashboard, and what the model said about it."""
+
+    round: int
+    has_picture: bool
+    looks_good: bool | None = None
+    problems: tuple[str, ...] = ()
+    revised: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardTemplateSummary:
+    id: str
+    key: str
+    name: str
+    description: str
+    source: DashboardTemplateSource
+    status: DashboardTemplateStatus
+    metric_names: tuple[str, ...]
+    panel_titles: tuple[str, ...]
+    created_at: dt.datetime
+    suggestion_count: int = 0
+    source_team_id: int | None = None
+    preview_team_id: int | None = None
+    preview_dashboard_id: int | None = None
+    rounds: tuple[DashboardTemplateRound, ...] = ()
+    dropped_panels: tuple[str, ...] = ()
+    error: str | None = None
+    reviewed_by: str | None = None
+    reviewed_at: dt.datetime | None = None
+
+
+class SuggestedDashboardError(Exception):
+    """An action on a suggestion or a template failed. The message is safe to show."""
+
+
+class SuggestedDashboardNotFound(SuggestedDashboardError):
+    pass
+
+
+class PromQLQueryError(ValueError):
+    """A PromQL query that Snuffle rejected or could not run. The message is safe to show.
+
+    `transient` says the backend failed rather than the query, so the same query can succeed later.
+    """
+
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient
+
+
+@dataclass(frozen=True, slots=True)
+class RecordingRule:
+    """A PromQL query that is evaluated every minute and written back into the team's metrics as `metric_name`."""
+
+    id: str
+    metric_name: str
+    query: str
+    description: str
+    enabled: bool
+    created_at: dt.datetime
+    updated_at: dt.datetime
+    # The minute the rule last wrote. None until the first write.
+    last_evaluated_at: dt.datetime | None = None
+    last_series_count: int | None = None
+    # Why the last evaluation wrote nothing. Cleared by the next write.
+    last_error: str | None = None
+
+
+class RecordingRuleError(ValueError):
+    """A recording rule edit that cannot be saved. The message is safe to show."""
+
+
+class RecordingRuleNotFound(RecordingRuleError):
+    pass

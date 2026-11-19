@@ -52,13 +52,17 @@ const SOURCE_LABELS: Partial<Record<SourceKey, string>> = {
 
 const DATA_WAREHOUSE_SOURCES: Record<
   string,
-  { dwSourceType: string; requiredTable: string; recordKind: SourceType }
+  {
+    dwSourceType: string;
+    requiredTables: readonly string[];
+    recordKind: SourceType;
+  }
 > = Object.fromEntries(
   EXTERNAL_INBOX_SOURCES.map((s) => [
     s.product,
     {
       dwSourceType: s.dwSourceType,
-      requiredTable: s.requiredTables[0],
+      requiredTables: s.requiredTables,
       recordKind: s.recordKind,
     },
   ]),
@@ -208,32 +212,38 @@ export function useSignalSourceToggles() {
       const source = findExternalSource(product);
       if (!source?.schemas || !Array.isArray(source.schemas)) return;
 
-      const requiredSchema = source.schemas.find(
-        (s) => s.name.toLowerCase() === dwConfig.requiredTable,
-      );
-      if (!requiredSchema) return;
+      for (const table of dwConfig.requiredTables) {
+        const requiredSchema = source.schemas.find(
+          (s) => s.name.toLowerCase() === table.toLowerCase(),
+        );
+        if (!requiredSchema) continue;
 
-      // Issue-like records (issues, findings, feedback, reviews) get edited/closed after
-      // creation, so incremental append would miss updates — force a full refresh. Tickets
-      // are treated as append-only (matches the original Zendesk behavior).
-      if (sourceNeedsFullRefresh(dwConfig.recordKind as SignalRecordKind)) {
-        const syncType = requiredSchema.sync_type;
-        const needsUpdate =
-          !requiredSchema.should_sync || syncType !== "full_refresh";
+        // Issue-like records (issues, findings, feedback, reviews) get edited/closed after
+        // creation, so incremental append would miss updates — force a full refresh. Tickets
+        // are treated as append-only (matches the original Zendesk behavior).
+        if (sourceNeedsFullRefresh(dwConfig.recordKind as SignalRecordKind)) {
+          const syncType = requiredSchema.sync_type;
+          const needsUpdate =
+            !requiredSchema.should_sync || syncType !== "full_refresh";
 
-        if (needsUpdate) {
+          if (needsUpdate) {
+            await client.updateExternalDataSchema(
+              projectId,
+              requiredSchema.id,
+              {
+                should_sync: true,
+                sync_type: "full_refresh",
+              },
+            );
+          }
+          continue;
+        }
+
+        if (!requiredSchema.should_sync) {
           await client.updateExternalDataSchema(projectId, requiredSchema.id, {
             should_sync: true,
-            sync_type: "full_refresh",
           });
         }
-        return;
-      }
-
-      if (!requiredSchema.should_sync) {
-        await client.updateExternalDataSchema(projectId, requiredSchema.id, {
-          should_sync: true,
-        });
       }
     },
     [projectId, client, findExternalSource],

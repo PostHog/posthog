@@ -1,19 +1,32 @@
+import random
 import asyncio
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import aiohttp
+from limits.storage import MemoryStorage
+from limits.strategies import SlidingWindowCounterRateLimiter
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
-from posthog.egress.harmonic.limiter import HARMONIC_WINDOW_SECONDS
+from posthog.egress.harmonic.limiter import HARMONIC_ACCOUNT_KEY, HARMONIC_WINDOW_SECONDS
 from posthog.egress.harmonic.transport import HarmonicEgressBudgetExhausted
+from posthog.egress.limiter.backends import LimitsBackend
+from posthog.egress.limiter.outbound import OutboundRateLimiter
 from posthog.egress.limiter.policies import Priority
 
+from ee.billing.salesforce_enrichment.constants import (
+    HARMONIC_ACCOUNT_ENRICHMENT_QUERY,
+    HARMONIC_COMPANY_ENRICHMENT_QUERY,
+)
 from ee.billing.salesforce_enrichment.harmonic_client import (
+    _ENRICH_BUDGET_FRACTION,
     _ENRICH_MAX_ATTEMPTS,
     _ENRICH_MAX_CONCURRENT_LOOKUPS,
     AsyncHarmonicClient,
@@ -49,6 +62,7 @@ def _client(*, priority=Priority.NORMAL):
     client.api_key = "test-key"
     client.priority = priority
     client.source = "test"
+    client.query = HARMONIC_COMPANY_ENRICHMENT_QUERY
     client.session = MagicMock()
     return client
 
@@ -205,6 +219,28 @@ async def test_strict_sends_api_key_as_header_not_in_url_or_params_and_uses_clie
     assert call.kwargs["source"] == "billing_bulk"
 
 
+@parameterized.expand(
+    [
+        ("default_query", {}, HARMONIC_COMPANY_ENRICHMENT_QUERY, False),
+        ("query_argument", {"query": HARMONIC_ACCOUNT_ENRICHMENT_QUERY}, HARMONIC_ACCOUNT_ENRICHMENT_QUERY, True),
+    ]
+)
+@pytest.mark.asyncio
+async def test_strict_sends_the_query_the_client_was_built_with(
+    _name: str, kwargs: dict[str, Any], expected_query: str, fetches_socials: bool
+) -> None:
+    with override_settings(HARMONIC_API_KEY="test-key"):
+        client = AsyncHarmonicClient(**kwargs)
+    client.session = MagicMock()
+    mock_request = AsyncMock(side_effect=[_found({"name": "Example Corp"})])
+    with patch(HARMONIC_REQUEST, new=mock_request):
+        await client.enrich_company_by_domain_strict("example.com")
+
+    sent_query = mock_request.call_args.kwargs["json"]["query"]
+    assert sent_query == expected_query
+    assert ("socials" in sent_query) is fetches_socials
+
+
 @pytest.mark.asyncio
 async def test_non_strict_sends_api_key_as_header_not_in_url_or_params():
     mock_request = AsyncMock(side_effect=[_found({"name": "PostHog"})])
@@ -343,7 +379,7 @@ async def test_enrich_companies_batch_paces_once_per_request(mock_sleep, mock_pa
 @patch(MONOTONIC, new=lambda: 1000.0)
 @patch(ASYNCIO_SLEEP, new_callable=AsyncMock)
 @patch(ASYNCIO_TO_THREAD, new=_fake_to_thread)
-async def test_enrich_companies_batch_spaces_admissions_by_the_lane_interval_despite_headroom(mock_sleep, mock_pace):
+async def test_enrich_companies_batch_spaces_admissions_by_the_paced_interval_despite_headroom(mock_sleep, mock_pace):
     # pace_seconds reads the window, which does not yet hold the calls this batch admitted but has
     # not consumed, so headroom alone would let several admissions through at once.
     domains = ["a.com", "b.com", "c.com"]
@@ -354,10 +390,75 @@ async def test_enrich_companies_batch_spaces_admissions_by_the_lane_interval_des
     with patch(HARMONIC_REQUEST, new=mock_request):
         results = await client.enrich_companies_batch(domains)
 
+    paced_interval = 0.25 / _ENRICH_BUDGET_FRACTION
     assert results == [{"name": d} for d in domains]
-    assert [call.args[0] for call in mock_sleep.await_args_list] == [0.25, 0.25]
+    assert [call.args[0] for call in mock_sleep.await_args_list] == [paced_interval, paced_interval]
     wait_after = REGISTRY.get_sample_value("harmonic_api_admission_wait_seconds_sum", wait_labels) or 0.0
-    assert wait_after - wait_before == pytest.approx(0.5)
+    assert wait_after - wait_before == pytest.approx(2 * paced_interval)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "first_response",
+    [
+        pytest.param(_not_found(), id="miss"),
+        pytest.param(_http_500(), id="error"),
+        pytest.param(HarmonicEgressBudgetExhausted("shed"), id="shed"),
+    ],
+)
+async def test_enrich_companies_batch_paces_the_www_fallback_request(first_response: Any) -> None:
+    events: list[object] = []
+    responses = iter([first_response, _found({"name": "a.com"})])
+
+    def pace(priority: Priority) -> float:
+        events.append("pace")
+        return 0.0
+
+    async def sleep(seconds: float) -> None:
+        events.append(("sleep", seconds))
+
+    async def request(*args: Any, **kwargs: Any) -> MagicMock:
+        events.append("request")
+        response = next(responses)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    client = _client(priority=Priority.BATCH)
+    with (
+        patch(PACE_SECONDS_HARMONIC, new=pace),
+        patch(ADMISSION_INTERVAL_HARMONIC, new=lambda priority: 0.25),
+        patch(MONOTONIC, new=lambda: 1000.0),
+        patch(ASYNCIO_SLEEP, new=sleep),
+        patch(ASYNCIO_TO_THREAD, new=_fake_to_thread),
+        patch(HARMONIC_REQUEST, new=request),
+    ):
+        results = await client.enrich_companies_batch(["a.com"])
+
+    assert results == [{"name": "a.com"}]
+    paced_interval = pytest.approx(0.25 / _ENRICH_BUDGET_FRACTION)
+    assert events == ["pace", "request", "pace", ("sleep", paced_interval), "request"]
+
+
+def test_bulk_pacing_leaves_room_for_limiter_calls_that_drift_from_the_schedule() -> None:
+    rng = random.Random(0)
+    start = 1_000.0
+    clock = start
+    backend = LimitsBackend()
+    # A complete fake, so the storage timer thread never reads a bare mock while the patch goes in.
+    with patch("limits.storage.memory.time", new=SimpleNamespace(time=lambda: clock)):
+        backend._redis = SlidingWindowCounterRateLimiter(MemoryStorage())
+        limiter = OutboundRateLimiter(backend)
+        interval = (
+            limiter.admission_interval_seconds(HARMONIC_ACCOUNT_KEY, priority=Priority.BATCH) / _ENRICH_BUDGET_FRACTION
+        )
+        decision_times = sorted(start + i * interval + rng.uniform(0, 0.2) for i in range(int(60 / interval)))
+        grants = []
+        for decision_time in decision_times:
+            clock = decision_time
+            grants.append(limiter.consume_sync(HARMONIC_ACCOUNT_KEY, priority=Priority.BATCH, source="test"))
+
+    assert all(grants)
 
 
 @pytest.mark.asyncio

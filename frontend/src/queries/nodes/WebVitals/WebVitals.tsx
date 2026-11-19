@@ -58,20 +58,20 @@ export function WebVitals(props: {
     const webVitalsQueryResponse = responseLoading ? undefined : (response as WebVitalsQueryResponse | undefined)
 
     const INP = useMemo(
-        () => getMetric(webVitalsQueryResponse?.results, 'INP', webVitalsPercentile),
-        [webVitalsQueryResponse, webVitalsPercentile]
+        () => getMetric(webVitalsQueryResponse?.results, props.query.source, 'INP', webVitalsPercentile),
+        [webVitalsQueryResponse, props.query.source, webVitalsPercentile]
     )
     const LCP = useMemo(
-        () => getMetric(webVitalsQueryResponse?.results, 'LCP', webVitalsPercentile),
-        [webVitalsQueryResponse, webVitalsPercentile]
+        () => getMetric(webVitalsQueryResponse?.results, props.query.source, 'LCP', webVitalsPercentile),
+        [webVitalsQueryResponse, props.query.source, webVitalsPercentile]
     )
     const CLS = useMemo(
-        () => getMetric(webVitalsQueryResponse?.results, 'CLS', webVitalsPercentile),
-        [webVitalsQueryResponse, webVitalsPercentile]
+        () => getMetric(webVitalsQueryResponse?.results, props.query.source, 'CLS', webVitalsPercentile),
+        [webVitalsQueryResponse, props.query.source, webVitalsPercentile]
     )
     const FCP = useMemo(
-        () => getMetric(webVitalsQueryResponse?.results, 'FCP', webVitalsPercentile),
-        [webVitalsQueryResponse, webVitalsPercentile]
+        () => getMetric(webVitalsQueryResponse?.results, props.query.source, 'FCP', webVitalsPercentile),
+        [webVitalsQueryResponse, props.query.source, webVitalsPercentile]
     )
 
     return (
@@ -116,7 +116,11 @@ export function WebVitals(props: {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2">
-                <WebVitalsContent webVitalsQueryResponse={webVitalsQueryResponse} isLoading={responseLoading} />
+                <WebVitalsContent
+                    webVitalsQueryResponse={webVitalsQueryResponse}
+                    querySource={props.query.source}
+                    isLoading={responseLoading}
+                />
                 <div className="flex flex-col flex-1 bg-surface-primary rounded border p-4">
                     <Query
                         key={webVitalsTab}

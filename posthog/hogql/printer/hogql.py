@@ -63,10 +63,6 @@ class HogQLPrinter(BasePrinter):
         # name. So a native JSON key may keep a `%`, which `_print_identifier` refuses.
         keys = [quote_hogql_identifier(key) for key in node.keys]
         parts = [self.visit(node.expr)]
-        if node.access_type == "sub_object" and keys:
-            parts.append("^" + keys[0])
-            parts.extend(keys[1:])
-            return ".".join(parts)
         parts.extend(keys)
         return ".".join(parts)
 
@@ -119,6 +115,13 @@ class HogQLPrinter(BasePrinter):
 
     def _expands_placeholder_macros(self) -> bool:
         return False
+
+    def visit_call(self, node: ast.Call):
+        if node.name.lower() == "sha1":
+            connection_function = self._render_connection_supported_function(node)
+            if connection_function is not None:
+                return connection_function
+        return super().visit_call(node)
 
     def _render_connection_supported_function(self, node: ast.Call) -> str | None:
         if node.name.lower() in self._get_connection_supported_functions():

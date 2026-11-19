@@ -91,6 +91,10 @@ function getBuiltInPropertyValue(
     versionProperty: string | undefined
 ): unknown {
     const value = properties?.[property]
+    if (value === undefined || value === null || value === '') {
+        return undefined
+    }
+
     if (!versionProperty) {
         return value
     }

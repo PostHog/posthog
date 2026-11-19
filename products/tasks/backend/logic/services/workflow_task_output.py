@@ -4,7 +4,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-from posthog.cdp.workflow_step_resume import RESULT_BYTE_CAP, RESULT_STRING_CAP
+from products.cdp.backend.workflow_step_resume import RESULT_BYTE_CAP, RESULT_STRING_CAP
 
 OUTPUT_FIELD_TYPES = ("string", "number", "boolean")
 MAX_OUTPUT_FIELDS = 20

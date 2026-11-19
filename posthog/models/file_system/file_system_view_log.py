@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import heapq
 from collections.abc import Collection, Sequence
 from dataclasses import is_dataclass
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Optional, cast
+from zoneinfo import ZoneInfo
 
-from django.db import IntegrityError, models
-from django.db.models import Q, QuerySet
+from django.contrib.postgres.fields import ArrayField
+from django.db import IntegrityError, models, transaction
+from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
@@ -14,10 +17,22 @@ from django.utils import timezone
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.team import Team
 from posthog.models.utils import UUIDModel
 
 if TYPE_CHECKING:
     from posthog.models.user import User
+
+VIEW_DAYS_KEPT = 35
+FRECENCY_HALF_LIFE_DAYS = 14
+
+
+def view_days_score(view_days: Sequence[date], today: date) -> float:
+    return sum(
+        0.5 ** ((today - day).days / FRECENCY_HALF_LIFE_DAYS)
+        for day in set(view_days)
+        if 0 <= (today - day).days < VIEW_DAYS_KEPT
+    )
 
 
 class FileSystemViewLog(UUIDModel):
@@ -31,6 +46,7 @@ class FileSystemViewLog(UUIDModel):
     # so (team, user, type, ref) already identifies a view uniquely. The column only lets us
     # filter Recents to a single surface without joining back to FileSystem.
     surface = models.CharField(max_length=100, null=True, blank=True)
+    view_days = ArrayField(models.DateField(), null=True, blank=True)
 
     class Meta:
         indexes = [
@@ -90,17 +106,29 @@ def log_file_system_view(
         "ref": str(representation.ref),
     }
     surface = getattr(representation, "surface", DEFAULT_SURFACE)
+    team_timezone = Team.objects.filter(id=resolved_team_id).values_list("timezone", flat=True).first()
+    day = now.astimezone(ZoneInfo(team_timezone or "UTC")).date()
 
-    updated = FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now, surface=surface)
-
-    if updated:
+    if _record_view(update_kwargs, viewed_at=now, surface=surface, day=day):
         return
 
     try:
-        FileSystemViewLog.objects.create(viewed_at=now, surface=surface, **update_kwargs)
+        with transaction.atomic():
+            FileSystemViewLog.objects.create(viewed_at=now, surface=surface, view_days=[day], **update_kwargs)
     except IntegrityError:
         # Another request may have created the row after our update attempt.
-        FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now, surface=surface)
+        _record_view(update_kwargs, viewed_at=now, surface=surface, day=day)
+
+
+def _record_view(lookup: dict[str, object], *, viewed_at: datetime, surface: str, day: date) -> bool:
+    with transaction.atomic():
+        row = FileSystemViewLog.objects.select_for_update().filter(**lookup).values_list("id", "view_days").first()
+        if row is None:
+            return False
+        log_id, known_days = row
+        view_days = sorted({d for d in [*(known_days or []), day] if d > day - timedelta(days=VIEW_DAYS_KEPT)})
+        FileSystemViewLog.objects.filter(id=log_id).update(viewed_at=viewed_at, surface=surface, view_days=view_days)
+        return True
 
 
 def recent_view_logs(
@@ -140,6 +168,7 @@ def get_recent_file_system_items(
     exclude_types: Optional[Sequence[str]] = ("folder",),
     file_system_queryset: Optional[QuerySet[FileSystem]] = None,
     descending: bool = True,
+    frequent_on: date | None = None,
 ) -> list[FileSystem]:
     """Recently-viewed FileSystem rows for a user, newest first by default.
 
@@ -152,16 +181,38 @@ def get_recent_file_system_items(
     before the ``(type, ref)`` keys are matched. ``descending`` is threaded down to the view-log
     query so the ``limit`` slice picks the globally oldest/newest views, not a re-sorted page.
     """
-    log_rows = list(
-        recent_view_logs(
-            team_id=team_id,
-            user_id=user_id,
-            surface=surface,
-            exclude_types=exclude_types,
-            limit=limit,
-            descending=descending,
-        ).values_list("type", "ref", "viewed_at")
+    entries = (
+        (
+            file_system_queryset
+            if frequent_on is not None and file_system_queryset is not None
+            else FileSystem.objects.all()
+        )
+        .filter(surface_q(surface), team_id=team_id, type=OuterRef("type"), ref=OuterRef("ref"))
+        .exclude(shortcut=True)
     )
+    log_queryset = recent_view_logs(
+        team_id=team_id,
+        user_id=user_id,
+        surface=surface,
+        exclude_types=exclude_types,
+        descending=descending,
+    ).filter(Exists(entries))
+    if frequent_on is not None:
+        candidates = (
+            (row_type, row_ref, viewed_at, view_days_score(view_days or [], frequent_on))
+            for row_type, row_ref, viewed_at, view_days in log_queryset.filter(
+                viewed_at__gte=timezone.now() - timedelta(days=VIEW_DAYS_KEPT)
+            )
+            .values_list("type", "ref", "viewed_at", "view_days")
+            .iterator()
+            if len({day for day in view_days or [] if 0 <= (frequent_on - day).days < VIEW_DAYS_KEPT}) >= 2
+        )
+        ranked = heapq.nlargest(limit or 20, candidates, key=lambda row: (row[3], row[2], row[0], row[1]))
+        log_rows = [(row_type, row_ref, viewed_at) for row_type, row_ref, viewed_at, _ in ranked]
+    else:
+        if limit is not None:
+            log_queryset = log_queryset[:limit]
+        log_rows = list(log_queryset.values_list("type", "ref", "viewed_at"))
     if not log_rows:
         return []
 

@@ -1,6 +1,7 @@
 import typing
 from abc import ABC
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from functools import cached_property
 from math import ceil
 from time import perf_counter
 from typing import Any, Optional, Union
@@ -25,28 +26,42 @@ from posthog.schema import (
     WebGoalsQuery,
     WebNotableChangesQuery,
     WebOverviewQuery,
+    WebPageDirectoryQuery,
     WebPageURLSearchQuery,
     WebStatsTableQuery,
     WebVitalsPathBreakdownQuery,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import action_to_expr, apply_path_cleaning, get_property_type, property_to_expr
+from posthog.hogql.property import (
+    action_to_expr,
+    apply_path_cleaning,
+    get_property_key,
+    get_property_type,
+    property_to_expr,
+)
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
-from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
+from posthog.hogql_queries.query_runner import (
+    AnalyticsQueryResponseProtocol,
+    AnalyticsQueryRunner,
+    CacheKeyIgnoredField,
+)
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import User
-from posthog.models.filters.mixins.utils import cached_property
 
+from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import Action, ActionNotFound
 from products.web_analytics.backend.hogql_queries.first_pageview_attribution import first_pageview_session_filter_expr
 from products.web_analytics.backend.hogql_queries.first_pageview_flag import (
     evaluate_team_rollout_flag,
@@ -87,12 +102,18 @@ SESSION_ID_SET_MAX_MATCHING_SESSIONS = 10_000_000
 # kill switch live in the flag UI. The allowlist stays as the flag-independent base.
 SESSION_ID_SET_FEATURE_FLAG_KEY = "web-analytics-session-id-set"
 
+# Property filter types that resolve only to PostHog's built-in tables: events, sessions, persons,
+# elements and the cohort membership tables. A person property joined in from the warehouse has its
+# own type, `data_warehouse_person_property`, so a plain person filter never reads the warehouse.
+_POSTHOG_TABLE_PROPERTY_TYPES = frozenset({"event", "session", "person", "cohort", "element"})
+
 WebQueryNode = Union[
     WebOverviewQuery,
     WebStatsTableQuery,
     WebGoalsQuery,
     WebExternalClicksTableQuery,
     WebAgentAnalyticsQuery,
+    WebPageDirectoryQuery,
     WebBotsTableQuery,
     WebVitalsPathBreakdownQuery,
     WebPageURLSearchQuery,
@@ -110,11 +131,30 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     # SAMPLE clauses nor scale results.
     query: WebQueryNode
     query_type: type[WebQueryNode]
+    cache_key_ignored_fields = (CacheKeyIgnoredField(name="useWebAnalyticsPrecompute", when_value_in=(True,)),)
     bypass_warehouse_access_control: bool = False
+    # The oldest `computed_at` across every lazy precompute ensure that this runner served from.
+    # A response that combines several windows (current and compare periods) is only as fresh as its stalest window.
+    lazy_precompute_computed_at: Optional[datetime] = None
 
     def __init__(self, *args: Any, bypass_warehouse_access_control: bool = False, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.bypass_warehouse_access_control = bypass_warehouse_access_control
+
+    def record_lazy_precompute_computed_at(self, computed_at: datetime) -> None:
+        if self.lazy_precompute_computed_at is None or computed_at < self.lazy_precompute_computed_at:
+            self.lazy_precompute_computed_at = computed_at
+
+    def lazy_precompute_stale(self) -> Optional[bool]:
+        # The lazy modules mark serve-stale reads via tag_queries(precompute_stale=True)
+        # before executing the read; surfacing it on the response lets clients (and the
+        # frontend's 'query completed' telemetry) see it too. None when served fresh.
+        return True if get_query_tag_value("precompute_stale") else None
+
+    def lazy_precompute_computed_at_iso(self) -> Optional[str]:
+        if self.lazy_precompute_computed_at is None:
+            return None
+        return self.lazy_precompute_computed_at.astimezone(UTC).isoformat()
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
@@ -350,6 +390,7 @@ WHERE and(
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
+                **self._hogql_context_kwargs(),
             )
             matching = response.results[0][0] if response.results else None
             if matching is None:
@@ -536,17 +577,20 @@ WHERE and(
         return property_to_expr(properties, team=self.team, scope="event")
 
     @cached_property
+    def _conversion_goal_action(self) -> Optional[Action]:
+        goal = getattr(self.query, "conversionGoal", None)
+        if not isinstance(goal, ActionConversionGoal):
+            return None
+        try:
+            return get_action(action_id=int(goal.actionId), project_id=self.team.project_id)
+        except ActionNotFound:
+            raise QueryError(f"Conversion goal action with id={goal.actionId} not found in this project.")
+
+    @cached_property
     def conversion_goal_expr(self) -> Optional[ast.Expr]:
         if isinstance(self.query.conversionGoal, ActionConversionGoal):
-            try:
-                action = Action.objects.get(
-                    pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id
-                )
-            except Action.DoesNotExist:
-                raise QueryError(
-                    f"Conversion goal action with id={self.query.conversionGoal.actionId} not found in this project."
-                )
-            goal_expr = action_to_expr(action)
+            assert self._conversion_goal_action is not None
+            goal_expr = action_to_expr(self._conversion_goal_action)
         elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
             goal_expr = ast.CompareOperation(
                 left=ast.Field(chain=["events", "event"]),
@@ -741,6 +785,51 @@ WHERE and(
             return self.team.test_account_filters
         else:
             return []
+
+    @cached_property
+    def _reads_only_posthog_tables(self) -> bool:
+        # The full HogQL database loads every warehouse table, view and join, which costs seconds on
+        # teams with many warehouse sources.
+        if getattr(self.query, "includeRevenue", False):
+            return False
+        goal = getattr(self.query, "conversionGoal", None)
+        filters = [
+            *(getattr(self.query, "properties", None) or []),
+            *self._test_account_filters,
+            *((goal.properties or []) if goal is not None else []),
+        ]
+        if self._conversion_goal_action is not None:
+            for step in self._conversion_goal_action.steps:
+                filters.extend(step.properties or [])
+        if any(get_property_type(prop) not in _POSTHOG_TABLE_PROPERTY_TYPES for prop in filters):
+            return False
+        # A saved expression can add a custom field to sessions, and only the full database loads it.
+        session_fields = self._posthog_tables_database.get_table("sessions").fields
+        if any(
+            get_property_type(prop) == "session" and get_property_key(prop) not in session_fields for prop in filters
+        ):
+            return False
+        # The built-in-only database carries no per-user access control.
+        return not team_has_property_access_rules(team_id=self.team.pk)
+
+    @cached_property
+    def _posthog_tables_database(self) -> Database:
+        with self.timings.measure("build_posthog_tables_database"):
+            return Database.create_for_posthog_tables(self.team, modifiers=self.modifiers, timings=self.timings)
+
+    def _hogql_context_kwargs(self) -> dict[str, HogQLContext]:
+        """`execute_hogql_query` kwargs that reuse one built-in-only database when the query allows it.
+        Empty otherwise, so the executor builds the full database as before."""
+        if not self._reads_only_posthog_tables:
+            return {}
+        return {
+            "context": HogQLContext(
+                team_id=self.team.pk,
+                user=self.user,
+                database=self._posthog_tables_database,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+            )
+        }
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()

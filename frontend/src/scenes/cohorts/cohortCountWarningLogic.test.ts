@@ -376,7 +376,9 @@ describe('cohortCountWarningLogic', () => {
                 dataNodeLogicKey,
             })
             logic.mount()
-            await expectLogic(dataNodeLogic.findMounted({ key: dataNodeLogicKey })!).toFinishAllListeners()
+            await expectLogic(dataNodeLogic.findMounted({ key: dataNodeLogicKey })!)
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['loadDataFailure'])
 
             expect(logic.values.response).toEqual(expectedResponse)
         })

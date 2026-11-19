@@ -16,13 +16,13 @@ The stamphog product in [`products/stamphog/`](../../../stamphog/) runs `review_
 
 ## Verdicts
 
-| Verdict  | Meaning                                                                                                            |
-| -------- | ------------------------------------------------------------------------------------------------------------------ |
-| APPROVED | The gates passed and the reviewer found no showstoppers                                                            |
-| REFUSED  | A gate denied the PR (deny-list, size, bot author, pending migration check) or the reviewer found a concrete issue |
-| ESCALATE | Only a human can rule out a showstopper                                                                            |
-| WAIT     | No verdict yet: a reviewer bot or a CI check is pending                                                            |
-| ERROR    | The run could not produce a verdict                                                                                |
+| Verdict  | Meaning                                                                                                     |
+| -------- | ----------------------------------------------------------------------------------------------------------- |
+| APPROVED | The gates passed and the reviewer found no showstoppers                                                     |
+| REFUSED  | A gate denied the PR (deny-list, size, bot author, pending CI check) or the reviewer found a concrete issue |
+| ESCALATE | Only a human can rule out a showstopper                                                                     |
+| WAIT     | No verdict yet: a reviewer bot or a CI check is pending                                                     |
+| ERROR    | The run could not produce a verdict                                                                         |
 
 These are the values of `Pipeline.final_verdict`, which both entrypoints return.
 The nested LLM reviewer does not choose a verdict.
@@ -35,7 +35,7 @@ It reports facts in a fixed schema: the risky territory the diff enters, the rev
 
 Asked for a verdict directly, the model sees the same facts but does not apply this rule reliably, so the rule lives in code.
 
-`WAIT` means either that an allowlisted reviewer bot still had a review in flight (👀 reaction) after the polling budget, or that the `Migration risk` check had not reported yet.
+`WAIT` means either that an allowlisted reviewer bot still had a review in flight (👀 reaction) after the polling budget, or that a check named in the policy's `attestations` had not reported yet.
 Neither is a verdict on the PR, so the caller can retry unchanged.
 `ERROR` means the run failed before it could judge the PR: the LLM backend was unreachable through credentials, credit or an outage, the reviewer hit a non-retryable analysis failure such as its turn limit, or `review_pr.py` could not create the worktree for a stacked PR.
 It is never a judgment on the PR.
@@ -83,10 +83,11 @@ Deny-list (hard gate)
   │
   ▼
 Size ceiling (hard gate)
-  - >800 substantive lines or >30 substantive files → too large for auto-review
-    (limits derived from 90 days of denial outcomes: the friction cluster of
-    denied-yet-merged-unchanged PRs sits at 500-750 substantive lines, and past
-    ~800 the merged-unchanged rate collapses, so escalation is genuinely right)
+  - >1200 substantive lines or >50 substantive files → too large for auto-review
+    (limits derived from 60 days of size-gate denials and git history: the share
+    of merged PRs that get a follow-up fix on the same files within 14 days rises
+    gently up to ~1200 substantive lines and jumps past it, and people already
+    stamp PRs this size in Slack within minutes)
   - A folder's AGENT_APPROVALS.md can raise either ceiling for its own files,
     within the `overrides` contract in policy.yml (see "Policy files" below)
   - The whole PR still has to fit the most generous ceiling in play, so
@@ -97,7 +98,9 @@ Size ceiling (hard gate)
     snapshots (.snap/.ambr, __snapshots__/), images,
     `.lock`-extension files (e.g. `yarn.lock`), tests (test dirs and
     .test/.spec/_test files), and generated/ artifacts
-    (regenerated-artifact extensions only: .ts/.tsx/.js/.jsx/.json/.md/.snap/.pyi/.txt)
+    (regenerated-artifact extensions only: .ts/.tsx/.js/.jsx/.json/.md/.snap/.pyi/.txt),
+    and Drizzle Kit schema snapshots (`migrations/meta/NNNN_snapshot.json`; the migrator reads only
+    the SQL and `_journal.json`, which still count)
     don't count toward the ceiling, because they inflate diffs without adding review
     surface. Note: `pnpm-lock.yaml` and `package-lock.json` are not `.lock`-extension
     files and do count toward the ceiling. All files still count toward tier
@@ -123,6 +126,12 @@ Wait for in-flight bot reviews (skipped when gates already denied)
   - Human 👀 reactions are not waited on; the LLM refuses over them instead
   - If the wait refetched the PR, classification and gates re-run on the
     fresh data before the LLM sees it
+  - Hosted runs also get external reviewers' status for the head from the
+    server (`review_evidence` in the context, for example PostHog Review). Any
+    pending review is WAIT; each completed one against the current merge base
+    counts as a current-head review only when it skipped no changed file. Each
+    gets its own line in the assurance summary and the verdict, which says why
+    a review with skipped files does not count
   │
   ▼
 LLM Review
@@ -171,37 +180,61 @@ The repo root is resolved from the package's own location, never from the workin
 
 ### `policy.yml`
 
-Required, at `.stamphog/policy.yml`.
-The machine policy, loaded and validated by a strict loader: a malformed or incomplete file hard-fails at load rather than reviewing under a half-loaded policy.
+The machine policy is the engine's shipped [`defaults/policy.yml`](defaults/policy.yml) with the repository's optional `.stamphog/policy.yml` merged onto it (`merge_policy` in `policy.py`).
+Mappings merge key by key, a list the repository declares replaces the default's list, and an `extend_<name>` key appends to the inherited `<name>` list.
+A strict loader validates the merged document: a malformed or incomplete result hard-fails at load rather than reviewing under a half-loaded policy.
 
 Top-level sections:
 
-| Section       | What it declares                                                     |
-| ------------- | -------------------------------------------------------------------- |
-| `version`     | The policy schema version                                            |
-| `deny`        | The T2 categories and the title/path patterns that match them        |
-| `allow`       | The path patterns and extensions that make a PR eligible for T0      |
-| `size_gate`   | The global `max_lines` and `max_files` ceilings                      |
-| `tiers`       | The T1 sub-class thresholds                                          |
-| `overrides`   | The keys a folder file may override, and each key's ceiling          |
-| `familiarity` | The author-familiarity bands, a judgment input and never a gate      |
-| `ownership`   | The ownership sources that feed the reviewer's advisory team context |
+| Section           | What it declares                                                          |
+| ----------------- | ------------------------------------------------------------------------- |
+| `version`         | The policy schema version                                                 |
+| `deny`            | The T2 categories and the title/path patterns that match them             |
+| `deny_exceptions` | Optional per-pattern or category path exceptions without replacing `deny` |
+| `allow`           | The path patterns and extensions that make a PR eligible for T0           |
+| `size_gate`       | The global `max_lines` and `max_files` ceilings                           |
+| `tiers`           | The T1 sub-class thresholds                                               |
+| `overrides`       | The keys a folder file may override, and each key's ceiling               |
+| `familiarity`     | The author-familiarity bands, a judgment input and never a gate           |
+| `ownership`       | The ownership sources that feed the reviewer's advisory team context      |
+| `attestations`    | Optional CI checks that may lift deny categories for the files they prove |
+| `bot_authors`     | Optional bots whose PRs the hosted server may admit, by login and id      |
 
 A rule may carry a `rationale`.
 It records why the rule became what it is, which false positives drove an exclusion and when.
 Treat it as historical justification like a commit message, not as a claim about the present.
 
 The `deny` section must keep a `stamphog_policy` category matching the policy files and the engine itself.
-The loader hard-fails when the category or one of its required path patterns is missing.
-It checks the pattern sources only, so a policy that keeps the patterns but hollows them out, for example with a blanket `exempt_path_prefixes`, still loads.
-That is one more reason every edit to a policy file is a human-reviewed change.
+The loader hard-fails when the category or one of its required path patterns is missing, and when a repository's file drops a pattern the shipped default declares for it.
+It checks the pattern sources only, so every edit to a policy file stays a human-reviewed change.
 
 The loader rejects unknown top-level keys.
 The two exceptions are `digest` and `dismiss`, which a hosting server may declare and parse itself; the engine allows them and never reads them.
 
+`deny_exceptions` maps existing category names to non-empty lists of rules.
+Each rule requires `path_prefixes`, a non-empty list of literal repository-relative directory prefixes ending in `/`.
+Absolute paths, traversal, wildcards, regular expressions, and noncanonical prefixes fail validation.
+Optional `extensions` restricts the rule to a non-empty list of literal dot-prefixed file suffixes.
+Optional `keyword` restricts the exception to an existing literal pattern in `match.any` or `match.paths`; title-only patterns and arbitrary regular expressions are not accepted.
+Without `keyword`, the rule exempts every path pattern in that category within the selected paths.
+Rules combine their selectors with AND, and the rules within a category combine with OR.
+Prefix and extension comparisons ignore case.
+An absent or empty `deny_exceptions` mapping leaves matching unchanged.
+
+The matcher skips only matching patterns on matching files.
+Other keywords in the same category, other categories, and non-exempt files in a mixed PR still deny.
+Rename checks keep both real paths, so an exempt destination does not waive a protected source.
+Title scrutiny remains unchanged.
+When these exceptions lift a denial, classification requires `T1-agent` rather than the allow-list or test-only `T0` route.
+All remaining gates and the reviewer still apply.
+The loader rejects unknown rule fields and categories, malformed selectors, and every exception to `stamphog_policy`.
+A repository file containing only this section keeps the inherited `deny` rules, including future additions.
+A deny exception without `keyword` also suppresses the category's title scrutiny flag when it covers every changed file, so a connector fix that says "stripe" in its title is not flagged.
+See the [repository configuration example](../../README.md#deny-exceptions).
+
 ### `review-guidance.md`
 
-The trusted review-norms prose, injected into the reviewer's system prompt.
+The trusted review-norms prose, injected into the reviewer's system prompt: the repository's `.stamphog/review-guidance.md` when present, which replaces the shipped [`defaults/review-guidance.md`](defaults/review-guidance.md) as a whole, else that default.
 Ordinary markdown.
 Editing it changes the reviewer's behavior directly, so update it deliberately.
 
@@ -238,8 +271,8 @@ Resolution:
 Each scope's files are counted against that scope's own ceiling.
 A grant covers exactly the files that resolve to it, which is the nearest valid grant of that key on their chain, and nothing else.
 
-Example: with a folder ceiling of 50 files and a global ceiling of 20, a PR changing 30 files under that folder plus 19 files elsewhere passes, because each budget fits.
-Add a 21st global file and the PR is denied for the global budget, however much headroom the folder still has.
+Example: with a folder ceiling of 75 files and a global ceiling of 50, a PR changing 60 files under that folder plus 49 files elsewhere passes, because each budget fits.
+Add a 51st global file and the PR is denied for the global budget, however much headroom the folder still has.
 
 Files whose chain grants nothing count against the global budget, so splitting files across pseudo-scopes can never inflate the allowance.
 That covers a missing folder file, a prose-only file, and a file with only invalid grants.
@@ -250,9 +283,9 @@ A folder that raises only the line ceiling still counts its files against the on
 #### The roof bounds the whole PR
 
 Per-scope budgets alone would let a PR's total grow with the number of scopes it touches.
-A folder granting 1000 lines next to an 800-line global pool would allow 1800, and every further granting folder would add its own budget on top.
+A folder granting 1500 lines next to a 1200-line global pool would allow 2700, and every further granting folder would add its own budget on top.
 So each ceiling also carries a roof over the whole PR: the most generous ceiling in play for that key.
-A PR touching a folder that grants 1000 lines gets a 1000-line roof, whatever else it touches.
+A PR touching a folder that grants 1500 lines gets a 1500-line roof, whatever else it touches.
 
 The roof needs no separate number in `policy.yml`.
 Every grant is validated at or under the contract ceiling, and the global pool is always a scope, so the roof stays between the global default and the contract ceiling.
@@ -348,7 +381,13 @@ And the reviewer prompt must REFUSE on execution-bearing changes the scan can't 
 Manifest and lockfile pairing is per-ecosystem, from the `DEPENDENCY_ECOSYSTEMS` table in `gates.py`, which is the single source the deny patterns and helpers derive from.
 So a Cargo.lock bump hard-denies on its own but doesn't silence the scripts guard on an unrelated package.json edit in the same PR.
 
-A deny category may carry `exempt_path_prefixes`, for code that legitimately looks like a sensitive domain without touching one.
+A category's `match.edit_paths` patterns deny like `match.paths`, except for a file whose change only adds lines: a modified or new file with no deleted line.
+A rename, a copy, a deletion, a type change or a binary file always matches.
+A file that only `edit_paths` let through still gets an agent review, so it never rides the allow-list to a T0 approval.
+That PR's ownership is read at the merge base, so a rule it adds cannot make its author an owner of the code it changes.
+The deny-list gate message names the files that matched each category, so a refused author knows which change to look at.
+
+Code that legitimately looks like a sensitive domain without touching one gets a `deny_exceptions` rule. The removed `exempt_path_prefixes` key fails the load with a pointer to it.
 
 A deny category may also carry `exempt_author_teams`, a list of bare GitHub team slugs.
 It makes the category owner-only: the category does not deny a PR whose author is on one of the teams, and denies everyone else's, so stamphog approves those paths only for the team that owns them.
@@ -360,14 +399,35 @@ Bot authors are never on a team.
 The `stamphog_policy` category cannot carry the key, because a team that may approve policy edits could widen its own exemption.
 Unlike CODEOWNERS, the category only stops stamphog: any human approval still counts on GitHub.
 
-The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe).
-The check is the same signal humans see in the PR's Checks tab.
-See `migration_risk.py` for how the engine reads it.
+A deny category can be lifted by a CI check that the policy names under `attestations`.
+Each entry pins a check name to the GitHub App that publishes it, the categories it may lift, the paths it may lift them for, and optionally companion `sibling_files`.
+The check name and App identify the publisher, and the categories and paths are what the policy lets it lift.
+An entry may also say what the publisher runs from, in one of two ways, never both.
+`issuer` names a manifest the publisher owns, such as `tools/change-prover/issuer.yml`, whose single `paths` key lists the default-branch paths it runs from.
+A path that ends in `/` is a directory, pinned by its git tree id, and any other path is a file, pinned by its blob id.
+The manifest must cover itself, hold at most 32 unique plain paths, and stay under 16 KiB. A missing or invalid manifest makes the entry lift nothing.
+The manifest path must match a `stamphog_policy` path pattern, or the policy fails to load, because the manifest decides what a proof pins.
+`publisher_files` lists those paths in the policy itself instead.
+The check embeds the files it vouches for in a `<!-- stamphog:v1 ... -->` marker in its summary.
+The engine lifts only the listed files that are in the diff and match the entry's paths, by exact path, and only for the entry's categories.
+Those files still count toward every other deny category.
+A lifted file never rides the allow-list or the test-only route to a T0 approval, because an attestation lifts the deny, not the review.
+An entry may set `title`, a pattern for the PR titles its publisher posts a result for, such as `^Revert` for a revert proof.
+A PR whose title does not match never waits for that check.
+An entry that pins its publisher accepts only a result whose `blobs` hold every one of those paths, and only while the default branch still holds every object the result pins, so a proof made by an older publisher or under older rules lifts nothing.
+The shipped default names no attestation.
+This repository's `.stamphog/policy.yml` names `Migration risk` for the `migrations` category.
+The engine knows nothing about what a check proves. See `attestations.py` for the marker contract and the proof conditions.
 
-If the check hasn't reported yet, `review_local.py` returns `WAIT` rather than a verdict, because its caller can retry on the next push.
+If a check that could lift every deny hasn't reported yet, `review_local.py` returns `WAIT` rather than a verdict, because its caller can retry on the next push.
 `review_pr.py` has no such caller and returns `REFUSED` instead.
 The deny-list only matched because the engine could not tell a safe migration from a risky one, so a refusal would be a verdict on a race with CI rather than on the PR.
 A retry against the now-classified head commit reviews it properly.
+
+A bot named under `bot_authors` is refused unless the hosted server admitted it, which the context carries as `admitted_bot`.
+The engine checks that login against the policy again, keeps every gate, and adds `every_file_attested`.
+That gate refuses the PR unless an attestation that pins its publisher proved every file in it, because a bot carries no author trust for a file no such check covers.
+A pending attestation of that kind makes the gate wait like a deny.
 
 ### Ownership
 
@@ -376,6 +436,7 @@ The sources are declared in `policy.yml` under `ownership:` and read from the ch
 A file's owning teams are the union across all sources.
 A repo that vendors this directory does not need to vendor the resolver as well: add a pinned `owners-yaml` from PyPI to the script dependencies of `review_pr.py`.
 Pin the version, because a new release can change how paths resolve.
+A PR that only adds lines to an ownership file has its ownership read at the merge base, which needs an `owners-yaml` release newer than 0.3.0. With 0.3.0 that PR's review gets no ownership context, and every other review works as before.
 In this monorepo and in the review sandbox, the engine uses the resolver that ships beside it, so the two always match.
 Cross-team typo, test and comment fixes are fine, as are small well-tested behavioral fixes (T1a/T1b) with no outstanding reviewer concerns.
 API contract, data model, and larger behavioral changes get escalated.

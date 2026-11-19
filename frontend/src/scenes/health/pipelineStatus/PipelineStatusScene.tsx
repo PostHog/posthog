@@ -2,10 +2,13 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconBell, IconRefresh } from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -29,6 +32,11 @@ export function PipelineStatusScene(): JSX.Element {
     const { loadHealthIssues } = useActions(pipelineHealthLogic)
     const { filteredIssues, filteredIssueCount, isIssueDismissed } = useValues(pipelineStatusSceneLogic)
     const { dismissIssue, undismissIssue } = useActions(pipelineStatusSceneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const trackAlertsClick = (): void => {
+        posthog.capture('health_alerts_entry_point_clicked', { source: 'pipeline_status' })
+    }
 
     return (
         <SceneContent>
@@ -40,31 +48,53 @@ export function PipelineStatusScene(): JSX.Element {
                     type: 'pipeline_status',
                 }}
                 actions={
-                    <>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconBell className="size-4" />}
-                            to={urls.healthAlerts(['external_data_failure', 'materialized_view_failure'])}
-                            onClick={() => {
-                                posthog.capture('health_alerts_entry_point_clicked', {
-                                    source: 'pipeline_status',
-                                })
-                            }}
-                            tooltip="Subscribe to alerts when a pipeline fails"
-                        >
-                            Alerts
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            icon={<IconRefresh className="size-4" />}
-                            disabledReason={healthIssuesLoading ? 'Refreshing...' : undefined}
-                            onClick={() => loadHealthIssues()}
-                        >
-                            {healthIssuesLoading ? 'Refreshing...' : 'Refresh'}
-                        </LemonButton>
-                    </>
+                    todayRailNav ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                                variant="outline"
+                                render={
+                                    <LinkPrimitive
+                                        to={urls.healthAlerts(['external_data_failure', 'materialized_view_failure'])}
+                                    />
+                                }
+                                onClick={trackAlertsClick}
+                                tooltip="Subscribe to alerts when a pipeline fails"
+                            >
+                                <IconBell />
+                                Alerts
+                            </Button>
+                            <Button
+                                variant="primary"
+                                disabledReason={healthIssuesLoading ? 'Refreshing...' : undefined}
+                                onClick={() => loadHealthIssues()}
+                            >
+                                <IconRefresh />
+                                {healthIssuesLoading ? 'Refreshing...' : 'Refresh'}
+                            </Button>
+                        </div>
+                    ) : (
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconBell className="size-4" />}
+                                to={urls.healthAlerts(['external_data_failure', 'materialized_view_failure'])}
+                                onClick={trackAlertsClick}
+                                tooltip="Subscribe to alerts when a pipeline fails"
+                            >
+                                Alerts
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                icon={<IconRefresh className="size-4" />}
+                                disabledReason={healthIssuesLoading ? 'Refreshing...' : undefined}
+                                onClick={() => loadHealthIssues()}
+                            >
+                                {healthIssuesLoading ? 'Refreshing...' : 'Refresh'}
+                            </LemonButton>
+                        </>
+                    )
                 }
             />
 

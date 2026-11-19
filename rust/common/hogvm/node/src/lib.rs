@@ -10,7 +10,8 @@
 //! `isKnownBotIp`) mirror `nodejs/src/cdp/hog-transformations/transformation-functions.ts`; call
 //! `init` once with the mmdb path and bot lists before executing. A host function this binding
 //! can't support fails the execution with an `unsupported_ext_fn:<name>` error so the caller can
-//! fall back to the Node VM.
+//! fall back to the Node VM. A panic on the Rust side surfaces as a thrown error or a rejected
+//! promise, never an abort, so the caller can fall back for that too.
 
 // jemalloc: the interpreter's small-allocation churn was a measured ~33% of self-time under
 // glibc malloc. Not via `common_alloc`: node dlopens this cdylib after its other native modules,
@@ -24,6 +25,7 @@ mod exec;
 mod ext_fns;
 mod geoip;
 mod logs;
+mod user_agent;
 
 #[cfg(not(feature = "noop"))]
 use napi::bindgen_prelude::{AsyncTask, FromNapiValue};
@@ -56,6 +58,23 @@ pub fn init(options: InitOptions) -> NapiResult<()> {
     Ok(())
 }
 
+/// Run `f` and turn a panic into a napi error, which Node sees as a thrown error or a rejected
+/// promise and answers with a Node VM fallback. Left to unwind, a panic reaches napi's
+/// `extern "C"` wrapper or the libuv pool and aborts the whole ingestion worker.
+fn catching_panics<T>(f: impl FnOnce() -> T) -> NapiResult<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).map_err(|panic| {
+        let message = panic
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| panic.downcast_ref::<&str>().map(|s| (*s).to_string()))
+            .unwrap_or_default();
+        napi::Error::new(
+            napi::Status::GenericFailure,
+            format!("rust panic: {message}"),
+        )
+    })
+}
+
 #[napi(object)]
 pub struct ExecuteBatchOptions {
     /// Fan the batch out over a rayon thread pool instead of running sequentially.
@@ -82,12 +101,7 @@ impl Task for ExecuteBatchTask {
     fn compute(&mut self) -> NapiResult<Self::Output> {
         let tokens = std::mem::take(&mut self.tokens);
         let events = std::mem::take(&mut self.events);
-        Ok(run_batch_salvaged(
-            &tokens,
-            events,
-            self.parallel,
-            self.max_steps,
-        ))
+        catching_panics(|| run_batch_salvaged(&tokens, events, self.parallel, self.max_steps))
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> NapiResult<Self::JsValue> {
@@ -149,16 +163,18 @@ pub fn execute_sync(
     program: Value,
     globals: Value,
     options: Option<ExecuteSyncOptions>,
-) -> HogExecResult {
+) -> NapiResult<HogExecResult> {
     let tokens = match program {
         Value::Array(tokens) => tokens,
         _ => Vec::new(),
     };
     let max_steps = options.and_then(|o| o.max_steps).map(|m| m as usize);
-    run_batch(&tokens, std::slice::from_ref(&globals), false, max_steps)
-        .into_iter()
-        .next()
-        .expect("run_batch returns one result per event")
+    catching_panics(|| {
+        run_batch(&tokens, std::slice::from_ref(&globals), false, max_steps)
+            .into_iter()
+            .next()
+            .expect("run_batch returns one result per event")
+    })
 }
 
 // Programs registered by `registerProgram` are validated and token-decoded once and executed by
@@ -224,9 +240,9 @@ pub fn execute_registered_sync(
     handle: u32,
     globals: Value,
     options: Option<ExecuteSyncOptions>,
-) -> HogExecResult {
+) -> NapiResult<HogExecResult> {
     let max_steps = options.and_then(|o| o.max_steps).map(|m| m as usize);
-    match get_registered(handle) {
+    catching_panics(|| match get_registered(handle) {
         Ok(program) => {
             exec::run_batch_program(&program, std::slice::from_ref(&globals), false, max_steps)
                 .into_iter()
@@ -234,7 +250,7 @@ pub fn execute_registered_sync(
                 .expect("one result per event")
         }
         Err(e) => exec::error_result(&e, 0.0),
-    }
+    })
 }
 
 #[cfg(not(feature = "noop"))]
@@ -252,12 +268,9 @@ impl Task for ExecuteRegisteredBatchTask {
 
     fn compute(&mut self) -> NapiResult<Self::Output> {
         let events = std::mem::take(&mut self.events);
-        Ok(exec::run_batch_program_salvaged(
-            &self.program,
-            events,
-            self.parallel,
-            self.max_steps,
-        ))
+        catching_panics(|| {
+            exec::run_batch_program_salvaged(&self.program, events, self.parallel, self.max_steps)
+        })
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> NapiResult<Self::JsValue> {
@@ -317,6 +330,13 @@ mod tests {
     }
 
     #[test]
+    fn a_panic_becomes_a_napi_error_instead_of_unwinding_into_node() {
+        let error = catching_panics::<()>(|| panic!("boom {}", 1)).unwrap_err();
+        assert_eq!(error.reason, "rust panic: boom 1");
+        assert_eq!(catching_panics(|| 7).expect("no panic"), 7);
+    }
+
+    #[test]
     fn released_handles_are_reused_so_the_registry_stays_bounded() {
         let _guard = registry_guard();
         let first = register_program(program(1));
@@ -324,7 +344,7 @@ mod tests {
         let second = register_program(program(2));
         assert_eq!(first, second);
 
-        let result = execute_registered_sync(second, json!({}), None);
+        let result = execute_registered_sync(second, json!({}), None).expect("no panic");
         assert_eq!(result.error, None);
         assert_eq!(result.result, Some(json!(2)));
     }
@@ -335,7 +355,7 @@ mod tests {
         let handle = register_program(program(1));
         release_program(handle);
 
-        let result = execute_registered_sync(handle, json!({}), None);
+        let result = execute_registered_sync(handle, json!({}), None).expect("no panic");
         assert!(result.result.is_none());
         assert!(result
             .error
@@ -356,11 +376,15 @@ mod tests {
         assert_ne!(a, b);
 
         assert_eq!(
-            execute_registered_sync(a, json!({}), None).result,
+            execute_registered_sync(a, json!({}), None)
+                .expect("no panic")
+                .result,
             Some(json!(1))
         );
         assert_eq!(
-            execute_registered_sync(b, json!({}), None).result,
+            execute_registered_sync(b, json!({}), None)
+                .expect("no panic")
+                .result,
             Some(json!(2))
         );
     }

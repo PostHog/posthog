@@ -9,7 +9,7 @@
 // TaskRunRedisStream calls (XADD, XRANGE, XREVRANGE, XREAD, XLEN, GET, SET,
 // EXISTS, EXPIRE, DEL, WATCH, UNWATCH, MULTI/EXEC).
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 
 import { STREAM_COMPLETED_TTL_SECONDS, STREAM_WATCHED_TTL_SECONDS } from '@/lib/constants.js'
 import {
@@ -28,6 +28,7 @@ import {
     TaskRunStreamSequenceGap,
     TaskRunStreamAlreadyCompleted,
     TaskRunStreamCompletionSequenceMismatch,
+    TaskRunStreamGenerationMismatch,
 } from '@/lib/types.js'
 
 // ---------------------------------------------------------------------------
@@ -52,6 +53,21 @@ class FakeRedis {
     private _xaddCallCount = 0
     private _expireCallCount = 0
     private _xaddMaxlens: number[] = []
+
+    duplicate(): FakeRedis {
+        const connection = Object.create(this) as FakeRedis
+        connection._watchedKeys = new Set()
+        connection._watchDirty = false
+        return connection
+    }
+
+    on(): this {
+        return this
+    }
+
+    once(): this {
+        return this
+    }
 
     // Counters exposed for TTL/MAXLEN assertions
     get xaddCallCount(): number {
@@ -473,6 +489,43 @@ async function drainEntries(
 // ---------------------------------------------------------------------------
 
 describe('redis-stream', () => {
+    it.each([
+        { name: 'ingest', write: (stream: TaskRunRedisStream) => stream.writeEventWithSequence({ type: 'late' }, 1) },
+        { name: 'ingest completion', write: (stream: TaskRunRedisStream) => stream.markCompleteAfterSequence(0) },
+        { name: 'relay completion', write: (stream: TaskRunRedisStream) => stream.markComplete() },
+    ])('rejects a concurrent generation reset ($name)', async ({ write }) => {
+        const { redis, streamKey } = newStream()
+        const generationKey = `${streamKey}:generation`
+        await redis.set(generationKey, 'original')
+        const stream = new TaskRunRedisStream(streamKey, redis as unknown as import('ioredis').Redis, {
+            expectedGeneration: 'original',
+        })
+        const concurrentStream = new TaskRunRedisStream(streamKey, redis as unknown as import('ioredis').Redis, {
+            expectedGeneration: 'original',
+        })
+        const independentStream = new TaskRunRedisStream(
+            `${streamKey}:independent`,
+            redis as unknown as import('ioredis').Redis
+        )
+        let concurrentRequest: Promise<unknown> | undefined
+        const get = redis.get.bind(redis)
+        vi.spyOn(redis, 'get').mockImplementation(async (key) => {
+            const value = await get(key)
+            if (key === generationKey && value === 'original') {
+                await redis.set(generationKey, 'replacement')
+                redis._markKeyDirty(generationKey)
+                concurrentRequest = concurrentStream.markCompleteAfterSequence(0).catch((error: unknown) => error)
+                expect((await independentStream.writeEventWithSequence({ type: 'independent' }, 1)).accepted).toBe(true)
+            }
+            return value
+        })
+        await expect(write(stream)).rejects.toBeInstanceOf(TaskRunStreamGenerationMismatch)
+        expect(concurrentRequest).not.toBeUndefined()
+        expect(await concurrentRequest).toBeInstanceOf(TaskRunStreamGenerationMismatch)
+        expect(redis.getStreamEntries(streamKey)).toEqual([])
+        expect(await stream.getLastSequence()).toBe(0)
+        expect(await stream.isComplete()).toBe(false)
+    })
     // -----------------------------------------------------------------------
     // Key helpers
     // -----------------------------------------------------------------------

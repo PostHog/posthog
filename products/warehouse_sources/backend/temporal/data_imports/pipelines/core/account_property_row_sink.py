@@ -25,6 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.acc
     job_staged_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import delta_storage_options
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
+    aretry_staged_write,
+)
 
 # A sibling job prefix whose newest file is older than this is considered abandoned (its consumer
 # never ran, or gave up retrying) and is swept. Anything younger may belong to a consumer that is
@@ -52,6 +55,12 @@ _MISSING_OBJECT_ERROR_NEEDLES = (
 # pinned before the reset. Same queued-for-hours race as the vacuum case above, different delta-rs
 # entry point.
 _LOG_SEGMENT_VERSION_MISMATCH_NEEDLE = "not the same as the specified end version"
+
+# Re-reading "whatever is committed now" after the pinned version turns out stale can itself lose
+# the same race, if another materialize run lands in the narrow window before this read completes.
+# Retry that re-read a bounded number of times instead of surfacing a race that resolves itself a
+# moment later as an unhandled failure of the whole staging activity attempt.
+_MAX_STALE_VERSION_RETRIES = 2
 
 
 def _is_missing_object_error(error: BaseException) -> bool:
@@ -154,13 +163,18 @@ class AccountPropertyRowSink:
         await self.logger.adebug(
             f"Staging account-property chunk {chunk} ({len(columns)} cols) to {self._get_path_prefix()}"
         )
-        await asyncio.to_thread(
-            write_table,
-            projected,
-            f"{self._get_path_prefix()}/chunk_{chunk:06d}.parquet",
-            filesystem=self._get_fs(),
-            compression="zstd",
-            use_dictionary=True,
+        path = f"{self._get_path_prefix()}/chunk_{chunk:06d}.parquet"
+        await aretry_staged_write(
+            lambda: asyncio.to_thread(
+                write_table,
+                projected,
+                path,
+                filesystem=self._get_fs(),
+                compression="zstd",
+                use_dictionary=True,
+            ),
+            path=path,
+            logger=self.logger,
         )
 
     async def stage_delta_snapshot(self, table_uri: str, delta_version: int) -> bool:
@@ -171,6 +185,7 @@ class AccountPropertyRowSink:
         await self.clear()
         try:
             await self._stage_committed_files(table_uri, delta_version)
+            return True
         except (OSError, deltalake.exceptions.DeltaError) as error:
             if not _is_stale_pinned_version_error(error):
                 raise
@@ -183,13 +198,22 @@ class AccountPropertyRowSink:
             # never removes a file the current version still references, and a freshly reset table's
             # latest version is by definition still there, so this snapshot can't be pulled out from
             # under us the same way.
+            last_error: OSError | deltalake.exceptions.DeltaError = error
+
+        for _ in range(_MAX_STALE_VERSION_RETRIES):
             await self.logger.awarning(
-                f"Delta version {delta_version} was vacuumed or superseded before staging read it; "
+                "Delta version was vacuumed or superseded before staging read it; "
                 "re-staging the current committed snapshot instead"
             )
             await self.clear()
-            await self._stage_committed_files(table_uri, delta_version=None)
-        return True
+            try:
+                await self._stage_committed_files(table_uri, delta_version=None)
+                return True
+            except (OSError, deltalake.exceptions.DeltaError) as error:
+                if not _is_stale_pinned_version_error(error):
+                    raise
+                last_error = error
+        raise last_error
 
     async def _stage_committed_files(self, table_uri: str, delta_version: int | None) -> None:
         delta_table = await asyncio.to_thread(

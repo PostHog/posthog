@@ -6,6 +6,10 @@ from unittest import mock
 
 from posthog.egress.limiter.policies import Priority
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import (
     GithubAuthMethodConfig,
     GithubSourceConfig,
@@ -30,15 +34,9 @@ def _response() -> mock.Mock:
 
 def _run(surface: Callable[[GithubSource, str | None], object], api_version: str | None) -> list[dict[str, str]]:
     """Drive one non-sync surface and return the headers of every outgoing GitHub request."""
-    headers: list[dict[str, str]] = []
-
-    def record(*args: Any, **kwargs: Any) -> mock.Mock:
-        headers.append(kwargs["headers"])
-        return _response()
-
-    with mock.patch.object(github, "make_tracked_session", return_value=mock.Mock()):
-        with mock.patch.object(github, "github_request", side_effect=record):
-            surface(GithubSource(), api_version)
+    with scripted_network(lambda _request: ScriptedResponse(json=[])) as network:
+        surface(GithubSource(), api_version)
+    headers = [dict(request.headers) for request in network.requests_log]
     assert headers, "surface made no GitHub request"
     return headers
 
@@ -77,7 +75,7 @@ def test_non_sync_surfaces_send_resolved_api_version(
     surface: str, api_version: str | None, expected_header: str
 ) -> None:
     for headers in _run(_SURFACES[surface], api_version):
-        assert headers["X-GitHub-Api-Version"] == expected_header
+        assert headers["x-github-api-version"] == expected_header
 
 
 @pytest.mark.parametrize(

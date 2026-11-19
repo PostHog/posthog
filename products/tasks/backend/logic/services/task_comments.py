@@ -1,6 +1,7 @@
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from collections.abc import Callable, Sequence
 from datetime import datetime
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.db.models import Count, Q, QuerySet
@@ -94,10 +95,6 @@ def _artifact_names(*, team_id: int, task_id: UUID, artifact_ids: Sequence[str])
     return names
 
 
-def _is_state_event(comment: Comment) -> bool:
-    return _item_context(comment).get("threadState") in COMMENT_STATES
-
-
 def _encode_cursor(created_at: datetime, comment_id: UUID) -> str:
     return urlsafe_b64encode(f"{created_at.isoformat()}|{comment_id}".encode()).decode().rstrip("=")
 
@@ -164,6 +161,13 @@ def _canvas_comments(team_id: int, canvas_id: UUID) -> QuerySet[Comment]:
     )
 
 
+def _canvas_id_from_url(canvas_url: object) -> str:
+    # Read the id from the path only, so a query or fragment on the URL never becomes part of it.
+    if not isinstance(canvas_url, str):
+        return ""
+    return urlsplit(canvas_url).path.rstrip("/").rsplit("/", 1)[-1]
+
+
 def _canvas_names(*, team_id: int, task_id: UUID, canvas_ids: Sequence[str]) -> dict[str, str]:
     wanted = set(canvas_ids)
     names: dict[str, str] = {}
@@ -176,7 +180,7 @@ def _canvas_names(*, team_id: int, task_id: UUID, canvas_ids: Sequence[str]) -> 
         .values_list("payload", flat=True)[:CANVAS_EVENT_LIMIT]
     ):
         canvas_url = payload.get("canvas_url") if isinstance(payload, dict) else None
-        canvas_id = canvas_url.rstrip("/").rsplit("/", 1)[-1] if isinstance(canvas_url, str) else ""
+        canvas_id = _canvas_id_from_url(canvas_url)
         canvas_name = payload.get("canvas_name") if isinstance(payload, dict) else None
         if canvas_id in wanted and isinstance(canvas_name, str) and canvas_name:
             names.setdefault(canvas_id, canvas_name)
@@ -273,7 +277,7 @@ def list_artifacts(*, team_id: int, task_id: UUID) -> list[contracts.TaskArtifac
     ):
         canvas_url = payload.get("canvas_url") if isinstance(payload, dict) else None
         canvas_name = payload.get("canvas_name") if isinstance(payload, dict) else None
-        canvas_id = canvas_url.rstrip("/").rsplit("/", 1)[-1] if isinstance(canvas_url, str) else ""
+        canvas_id = _canvas_id_from_url(canvas_url)
         if canvas_id:
             artifacts.setdefault(
                 ("canvas", canvas_id),

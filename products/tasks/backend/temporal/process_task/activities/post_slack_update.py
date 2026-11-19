@@ -1,8 +1,11 @@
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from temporalio import activity
 
+from posthog.egress.github.transport import github_request
+from posthog.egress.limiter.policies import Priority
+from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
@@ -10,7 +13,15 @@ from products.tasks.backend.temporal.process_task.activities.update_task_run_sta
     TIMED_OUT_INACTIVITY_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
 )
-from products.tasks.backend.temporal.process_task.utils import is_bot_authorship_fallback
+from products.tasks.backend.temporal.process_task.utils import (
+    PrAuthorshipMode,
+    get_pr_authorship_mode,
+    get_sandbox_github_token,
+    is_bot_authorship_fallback,
+)
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
 
 logger = get_logger(__name__)
 
@@ -25,7 +36,22 @@ SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN = "connect_then_replan"
 SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN = "unblock_and_replan"
 SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
 SLACK_RECOVERY_STRATEGY_WAIT_FOR_SPEND_LIMIT = "wait_for_spend_limit"
+SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB = "reconnect_github"
 SLACK_SPEND_LIMIT_ERROR_FRAGMENT = "this agent run reached its spend limit"
+
+# Checked before the connect-then-replan markers, because a rejected personal credential needs
+# the person to authorize again rather than a re-plan against the connections already there.
+_RECONNECT_GITHUB_MARKERS = (
+    "github user integration for this run requires reauthorization",
+    "github user integration requires reauthorization",
+)
+
+_RECONNECT_GITHUB_CONNECT_LABEL = "Connect your GitHub in PostHog settings"
+_RECONNECT_GITHUB_PROMPT = (
+    "Your personal GitHub connection stopped working, so this run could not use it. "
+    "{connect} to authorize it again, or to connect it for the first time. "
+    "Then reply in this thread and I'll pick up the new credentials."
+)
 
 _CONNECT_THEN_REPLAN_MARKERS = (
     "not connected",
@@ -75,9 +101,19 @@ _RECOVERY_PROMPTS = {
     SLACK_RECOVERY_STRATEGY_WAIT_FOR_SPEND_LIMIT: (
         "Wait for this run's spend limit to reset before replying in the thread."
     ),
+    SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB: _RECONNECT_GITHUB_PROMPT.format(connect=_RECONNECT_GITHUB_CONNECT_LABEL),
 }
 
-SLACK_DENIAL_STOP_MESSAGE = "Stopped after the denied action — reply here to continue with a different approach."
+_NOT_STARTED_STAGES = ("Waking up the hedgehog", "Stretching the little legs", "Brewing the hedgehog's coffee")
+_QUEUED_STAGES = ("Waiting in line for a sandbox", "Queued behind other hedgehogs", "Saving a spot in the sandbox line")
+_IN_PROGRESS_STAGES = (
+    "Paws on the keyboard",
+    "Nose in the code",
+    "Digging through the code",
+    "Building, one quill at a time",
+)
+
+SLACK_DENIAL_STOP_MESSAGE = "Stopped, because you said no. Reply here to try a different way."
 
 
 @dataclass(frozen=False)
@@ -103,13 +139,15 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
         handler = SlackThreadHandler.for_run(context, task_run.id)
+        if handler.proactive_notifications_muted():
+            handler.delete_progress()
+            return
         # The buttons lead where the footer's link does.
         task_url = handler.reader_task_url()
         pr_url = (task_run.output or {}).get("pr_url")
 
         if input.sandbox_cleaned:
             if pr_url:
-                handler.update_reaction("hedgehog")
                 _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
             elif task_run.status == TaskRun.Status.CANCELLED:
                 _post_cancelled_once(task_run, handler)
@@ -118,7 +156,6 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             return
 
         if task_run.status == TaskRun.Status.COMPLETED:
-            handler.update_reaction("hedgehog")
             if _is_timed_out_completion(task_run):
                 handler.delete_progress()
                 return
@@ -137,7 +174,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
                 # so the thread reads as in-progress until it genuinely completes.
                 handler.update_reaction("eyes")
                 return
-            stage = _get_stage_from_status(task_run.status, task_run.stage)
+            stage = _get_stage_from_status(task_run.status, task_run.stage, str(task_run.id))
             handler.post_or_update_progress(stage, task_url)
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)
@@ -166,26 +203,62 @@ def _post_failure_or_timeout(task_run: Any, handler: Any, task_url: str | None) 
     still deserve an error card.
     """
     if _has_timeout_marker(task_run):
-        handler.update_reaction("hedgehog")
         handler.delete_progress()
         return
     error = task_run.error_message or "Unknown error"
     _post_error_once(task_run, handler, error, task_url)
 
 
-def _get_stage_from_status(status: str, stage: str | None = None) -> str:
+def _get_stage_from_status(status: str, stage: str | None = None, run_id: str | None = None) -> str:
     """Map task run status to human-readable stage. Uses the run's stage field when available."""
     if stage:
         return stage
 
+    from products.slack_app.backend.slack_thread import pick_variant
     from products.tasks.backend.models import TaskRun
 
-    status_map: dict[str, str] = {
-        TaskRun.Status.NOT_STARTED: "Starting up...",
-        TaskRun.Status.QUEUED: "Queued...",
-        TaskRun.Status.IN_PROGRESS: "In progress...",
+    status_map: dict[str, tuple[str, ...]] = {
+        TaskRun.Status.NOT_STARTED: _NOT_STARTED_STAGES,
+        TaskRun.Status.QUEUED: _QUEUED_STAGES,
+        TaskRun.Status.IN_PROGRESS: _IN_PROGRESS_STAGES,
     }
-    return status_map.get(status, "In progress...")
+    return pick_variant(status_map.get(status, _IN_PROGRESS_STAGES), run_id)
+
+
+def _repositoryless_pr_is_accessible(task_run: "TaskRun", pr_url: str) -> bool:
+    from products.tasks.backend.facade.api import _is_github_pull_request_url_for_repository
+
+    task = task_run.task
+    if task.repository or task.repositories or task.repository_integration_id is not None:
+        return False
+    parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
+    if parsed is None or not _is_github_pull_request_url_for_repository(pr_url, parsed.repository):
+        return False
+    token = get_sandbox_github_token(
+        task.github_integration_id,
+        run_id=str(task_run.id),
+        state=task_run.state,
+        task=task,
+        repository=parsed.repository,
+        team_id=task_run.team_id,
+    )
+    if not token:
+        return False
+    integration = (
+        task.github_integration if get_pr_authorship_mode(task, task_run.state) == PrAuthorshipMode.BOT else None
+    )
+    response = github_request(
+        "GET",
+        f"https://api.github.com/repos/{parsed.repository}/pulls/{parsed.number}",
+        headers={"Authorization": f"Bearer {token}"},
+        installation_id=integration.integration_id if integration is not None else None,
+        source="tasks_slack_pr",
+        priority=Priority.NORMAL,
+        endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+        timeout=10,
+        allow_redirects=False,
+    )
+    return response.status_code == 200
 
 
 def _post_pr_opened_notification_once(
@@ -194,23 +267,52 @@ def _post_pr_opened_notification_once(
     pr_url: str,
     task_url: str | None,
 ) -> None:
+    from products.signals.backend.facade.api import (
+        mark_report_slack_thread_pr_notified,
+        report_slack_thread_pr_notified,
+    )
     from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.tasks.backend.facade.api import _is_pull_request_url_for_task
     from products.tasks.backend.logic.services.slack_pr_cards import pr_card_reply_target
 
-    if _is_pr_opened_notified(task_run, pr_url):
+    mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
+    already_delivered = mapping is not None and report_slack_thread_pr_notified(
+        team_id=task_run.team_id,
+        slack_workspace_id=mapping.slack_workspace_id,
+        channel=mapping.channel,
+        thread_ts=mapping.thread_ts,
+        pr_url=pr_url,
+    )
+    if _is_pr_opened_notified(task_run, pr_url) or already_delivered:
+        if already_delivered and task_run.task.slack_notified_pr_url != pr_url:
+            task_run.task.mark_slack_pr_notified(pr_url)
         # Skip the repost but still clear any lingering progress marker.
         handler.delete_progress()
         return
+    if not _is_pull_request_url_for_task(pr_url, task_run.task) and not _repositoryless_pr_is_accessible(
+        task_run, pr_url
+    ):
+        logger.warning("post_slack_update_pr_url_not_allowed", run_id=str(task_run.id))
+        handler.delete_progress()
+        return
 
-    mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
-    handler.post_pr_opened(
+    delivered = handler.post_pr_opened(
         pr_url,
         task_url,
         reply_target_slack_user_id=pr_card_reply_target(task_run, mapping),
         bot_authored=_is_bot_authored_fallback(task_run),
     )
 
-    task_run.task.mark_slack_pr_notified(pr_url)
+    if delivered:
+        task_run.task.mark_slack_pr_notified(pr_url)
+        if mapping is not None:
+            mark_report_slack_thread_pr_notified(
+                team_id=task_run.team_id,
+                slack_workspace_id=mapping.slack_workspace_id,
+                channel=mapping.channel,
+                thread_ts=mapping.thread_ts,
+                pr_url=pr_url,
+            )
 
 
 def _is_bot_authored_fallback(task_run: Any) -> bool:
@@ -245,7 +347,7 @@ def _mark_terminal_notified(task_run: Any, status: str, error: str | None = None
         updates[SLACK_TERMINAL_NOTIFIED_ERROR_KEY] = error or ""
         recovery_strategy = _classify_failure_recovery(error or "")
         updates[SLACK_RECOVERY_STRATEGY_KEY] = recovery_strategy
-        updates[SLACK_RECOVERY_PROMPT_KEY] = _RECOVERY_PROMPTS[recovery_strategy]
+        updates[SLACK_RECOVERY_PROMPT_KEY] = _recovery_prompt(recovery_strategy, task_run.team_id)
     elif status == TaskRun.Status.CANCELLED:
         updates[SLACK_RECOVERY_STRATEGY_KEY] = SLACK_RECOVERY_STRATEGY_CANCELLED
         updates[SLACK_RECOVERY_PROMPT_KEY] = _RECOVERY_PROMPTS[SLACK_RECOVERY_STRATEGY_CANCELLED]
@@ -257,6 +359,8 @@ def _classify_failure_recovery(error: str) -> str:
     normalized = error.lower()
     if SLACK_SPEND_LIMIT_ERROR_FRAGMENT in normalized:
         return SLACK_RECOVERY_STRATEGY_WAIT_FOR_SPEND_LIMIT
+    if any(marker in normalized for marker in _RECONNECT_GITHUB_MARKERS):
+        return SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB
     if any(marker in normalized for marker in _CONNECT_THEN_REPLAN_MARKERS):
         return SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN
     if any(marker in normalized for marker in _UNBLOCK_AND_REPLAN_MARKERS):
@@ -264,8 +368,19 @@ def _classify_failure_recovery(error: str) -> str:
     return SLACK_RECOVERY_STRATEGY_RETRY
 
 
-def _failure_recovery_prompt(error: str) -> str:
-    return _RECOVERY_PROMPTS[_classify_failure_recovery(error)]
+def _failure_recovery_prompt(error: str, team_id: int | None = None) -> str:
+    return _recovery_prompt(_classify_failure_recovery(error), team_id)
+
+
+def _recovery_prompt(strategy: str, team_id: int | None) -> str:
+    if strategy == SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB and team_id is not None:
+        # The settings page offers Reconnect for a flagged connection and Connect when there is none,
+        # so a single link serves a person whose credentials expired and a person who never connected.
+        from products.slack_app.backend.services.slack_messages import personal_integrations_url
+
+        link = f"<{personal_integrations_url(team_id)}|{_RECONNECT_GITHUB_CONNECT_LABEL}>"
+        return _RECONNECT_GITHUB_PROMPT.format(connect=link)
+    return _RECOVERY_PROMPTS[strategy]
 
 
 def _is_suppressed_permission_rejection_error(task_run: Any, error: str) -> bool:
@@ -281,11 +396,10 @@ def _post_error_once(task_run: Any, handler: Any, error: str, task_url: str | No
         return
 
     if _is_suppressed_permission_rejection_error(task_run, error):
-        handler.update_reaction("hedgehog")
         handler.post_note(SLACK_DENIAL_STOP_MESSAGE)
     else:
         handler.update_reaction("x")
-        handler.post_error(error, task_url, recovery_hint=_failure_recovery_prompt(error))
+        handler.post_error(error, task_url, recovery_hint=_failure_recovery_prompt(error, task_run.team_id))
     _mark_terminal_notified(task_run, TaskRun.Status.FAILED, error)
 
 
@@ -296,7 +410,6 @@ def _post_cancelled_once(task_run: Any, handler: Any) -> None:
         handler.delete_progress()
         return
 
-    handler.update_reaction("hedgehog")
     handler.delete_progress()
     _mark_terminal_notified(task_run, TaskRun.Status.CANCELLED)
 

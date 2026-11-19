@@ -51,7 +51,7 @@ describe('featureFlagsStaffToolsLogic', () => {
 
     describe('team-admin deep link', () => {
         it('seeds and resolves a team from the team-admin deep link', async () => {
-            router.actions.push('/feature_flags/staff?team_id=5')
+            router.actions.push('/feature-flags/staff?team_id=5')
             await expectLogic(logic).toDispatchActions(['seedTeamFromDeepLink', 'searchTeams', 'searchTeamsSuccess'])
             await expectLogic(logic).toMatchValues({
                 selectedTeamIds: [5],
@@ -75,7 +75,7 @@ describe('featureFlagsStaffToolsLogic', () => {
                 },
             })
 
-            router.actions.push('/feature_flags/staff?team_id=5')
+            router.actions.push('/feature-flags/staff?team_id=5')
             await expectLogic(logic).toDispatchActions(['seedTeamFromDeepLink', 'loadCacheStatusSuccess'])
             await expectLogic(logic).toMatchValues({
                 cacheStatusByTeamId: {
@@ -89,12 +89,12 @@ describe('featureFlagsStaffToolsLogic', () => {
         })
 
         it('does not re-seed a team after it has been manually deselected', async () => {
-            router.actions.push('/feature_flags/staff?team_id=5')
+            router.actions.push('/feature-flags/staff?team_id=5')
             await expectLogic(logic).toDispatchActions(['seedTeamFromDeepLink', 'searchTeamsSuccess'])
 
             logic.actions.setSelectedTeamIds([])
             // Simulates urlToAction re-running with the same URL, e.g. browser back/forward.
-            router.actions.push('/feature_flags/staff?team_id=5')
+            router.actions.push('/feature-flags/staff?team_id=5')
 
             await expectLogic(logic).toMatchValues({ selectedTeamIds: [] })
         })
@@ -492,11 +492,11 @@ describe('featureFlagsStaffToolsLogic', () => {
                     [2, false, true, 3],
                     [1, false, false, 0],
                 ] as const
-            ).map(([currentMode, changed, leftAboveMode, experimentsOnFlagCalled], index) => ({
+            ).map(([currentMode, changed, leftAboveMode, experimentsNeedingFlagCalls], index) => ({
                 organization_id: `org-${index}`,
                 organization_name: `Org ${index}`,
                 team_count: 2,
-                running_experiments_on_feature_flag_called: experimentsOnFlagCalled,
+                running_experiments_needing_flag_calls_in_events: experimentsNeedingFlagCalls,
                 current_mode: currentMode,
                 target_mode: 1,
                 changed,
@@ -523,7 +523,7 @@ describe('featureFlagsStaffToolsLogic', () => {
             logic.actions.openFlagEvaluationsModeModal()
             await expectLogic(logic).toDispatchActions(['loadFlagEvaluationsModePreviewSuccess'])
             // Only a move to mode 2 stops these experiments, so the mode 1 preview warns about none.
-            expect(logic.values.flagEvaluationsModePreviewSummary?.experimentsLosingExposures).toBe(0)
+            expect(logic.values.flagEvaluationsModePreviewSummary?.experimentsNeedingFlagCallsInEvents).toBe(0)
             logic.actions.setFlagEvaluationsModeRequest({ mode: 2 })
             // A preview of the previous request must not stay on screen next to an Apply button
             // that sends the new one.
@@ -533,7 +533,7 @@ describe('featureFlagsStaffToolsLogic', () => {
                 organizationsChanged: 4,
                 organizationsLeftAboveMode: 1,
                 organizationsLoweredFromFlagEvaluationsOnly: 1,
-                experimentsLosingExposures: 2,
+                experimentsNeedingFlagCallsInEvents: 2,
             })
 
             // A selection change after the preview must not widen the write past what the preview showed.

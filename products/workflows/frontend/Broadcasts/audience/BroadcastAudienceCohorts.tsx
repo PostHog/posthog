@@ -40,20 +40,20 @@ function CohortMembers({ cohort }: { cohort: AudienceCohort }): JSX.Element {
 /** The cohorts in a broadcast's audience, each with its size and a link to the full cohort. */
 export function BroadcastAudienceCohorts(): JSX.Element | null {
     const { props } = useMountedLogic(broadcastWizardLogic)
-    const { cohortIds, audienceCohorts } = useValues(broadcastAudienceCohortsLogic(props))
+    const { includedCohortIds, audienceCohorts } = useValues(broadcastAudienceCohortsLogic(props))
 
-    if (cohortIds.length === 0) {
+    if (includedCohortIds.length === 0) {
         return null
     }
 
     return (
         <div className="flex flex-col gap-1" data-attr="broadcast-audience-cohorts">
-            {cohortIds.map((id) => {
+            {includedCohortIds.map((id) => {
                 const cohort = audienceCohorts[id]
                 return (
                     <div
                         key={id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded border bg-surface-primary px-3 py-2"
+                        className="flex items-start justify-between gap-2 rounded border bg-surface-primary px-3 py-2"
                     >
                         <div className="flex min-w-0 items-center gap-2">
                             <IconCohort className="shrink-0 text-lg text-secondary" />
@@ -78,15 +78,15 @@ export function BroadcastAudienceCohorts(): JSX.Element | null {
                             </div>
                         </div>
                         <LemonButton
-                            size="small"
-                            type="secondary"
+                            size="xsmall"
+                            className="shrink-0"
                             to={urls.cohort(id)}
                             targetBlank
-                            sideIcon={<IconOpenInNew />}
+                            icon={<IconOpenInNew />}
+                            tooltip="Open cohort"
+                            aria-label="Open cohort"
                             data-attr="broadcast-audience-open-cohort"
-                        >
-                            Open cohort
-                        </LemonButton>
+                        />
                     </div>
                 )
             })}

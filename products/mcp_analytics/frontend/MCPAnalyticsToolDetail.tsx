@@ -16,7 +16,6 @@ import {
     CardDescription,
     CardHeader,
     CardTitle,
-    Skeleton,
     Table,
     TableBody,
     TableCell,
@@ -24,6 +23,7 @@ import {
     TableHead,
     TableHeader,
     TableRow,
+    cn,
 } from '@posthog/quill-primitives'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
@@ -33,21 +33,26 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { formatPercentage } from 'lib/utils/numbers'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { MCPToolFailureOccurrenceItem } from '~/queries/schema/schema-general'
-import { SceneExport } from '~/scenes/sceneTypes'
+import { Scene, SceneExport } from '~/scenes/sceneTypes'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { ToolDetailIntentsSection } from './clustering/ToolDetailIntentsSection'
+import { dimWhileLoading } from './components/loadingFeedback'
 import { McpDateFilter } from './components/McpDateFilter'
 import { McpSharedFilters } from './components/McpSharedFilters'
+import { TableLoadingBar } from './components/TableLoadingBar'
+import { ChartSkeleton } from './dashboard/ChartSkeleton'
 import { formatMs, formatMsAsSeconds, formatNumber } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
 import { MetricTile } from './dashboard/MetricTile'
+import { SkeletonLine } from './dashboard/SkeletonLine'
 import {
     type DailyChartData,
     IntentCoverage,
@@ -101,7 +106,7 @@ function HarnessLogos({ labels }: { labels: string[] }): JSX.Element {
     return (
         <div className="flex items-center gap-1">
             {labels.map((category) => (
-                <HarnessLogo key={category} category={category} />
+                <HarnessLogo key={category} category={category} label={category} />
             ))}
         </div>
     )
@@ -121,6 +126,8 @@ const neighborColumns: ResultColumn[] = [
     { header: 'Tool', expand: true, render: (r) => <span className="font-mono">{String(r[0] ?? '')}</span> },
     { header: 'In same conversation', align: 'right', render: (r) => formatNumber(Number(r[1] ?? 0)) },
 ]
+
+const SKELETON_ROW_WIDTHS = ['70%', '50%', '85%', '40%']
 
 // Card-wrapped quill table matching the dashboard table cards.
 function ResultTable({
@@ -155,62 +162,78 @@ function ResultTable({
                     {action}
                 </CardHeader>
             )}
-            <Table fullWidth>
-                <TableHeader>
-                    <TableRow>
-                        {columns.map((col, i) => (
-                            <TableHead key={i} align={col.align} expand={col.expand} className={col.className}>
-                                {col.header}
-                            </TableHead>
-                        ))}
-                    </TableRow>
-                </TableHeader>
-                {loading && rows.length === 0 ? (
-                    <TableBody>
+            <div className="relative">
+                <Table fullWidth>
+                    <TableHeader>
                         <TableRow>
-                            <TableCell colSpan={columns.length}>
-                                <div className="space-y-2 py-1">
-                                    {Array.from({ length: 4 }).map((_, i) => (
-                                        <Skeleton key={i} className="h-3.5 w-full" />
-                                    ))}
-                                </div>
-                            </TableCell>
+                            {columns.map((col, i) => (
+                                <TableHead key={i} align={col.align} expand={col.expand} className={col.className}>
+                                    {col.header}
+                                </TableHead>
+                            ))}
                         </TableRow>
-                    </TableBody>
-                ) : rows.length === 0 ? (
-                    <TableEmpty className="py-6 text-secondary">{emptyMessage}</TableEmpty>
-                ) : (
-                    <TableBody>
-                        {rows.map((row, i) => (
-                            <TableRow
-                                key={i}
-                                className={onRowClick ? 'cursor-pointer hover:bg-fill-highlight-50' : undefined}
-                                onClick={onRowClick ? () => onRowClick(i) : undefined}
-                                // A bare <tr> isn't keyboard-operable — mirror the tracing tables'
-                                // pattern so the drill-down opens on Enter/Space too.
-                                role={onRowClick ? 'button' : undefined}
-                                tabIndex={onRowClick ? 0 : undefined}
-                                onKeyDown={
-                                    onRowClick
-                                        ? (e: React.KeyboardEvent) => {
-                                              if (e.key === 'Enter' || e.key === ' ') {
-                                                  e.preventDefault()
-                                                  onRowClick(i)
+                    </TableHeader>
+                    {loading && rows.length === 0 ? (
+                        <TableBody aria-busy>
+                            {SKELETON_ROW_WIDTHS.map((width, i) => (
+                                <TableRow key={i}>
+                                    {columns.map((col, j) => (
+                                        <TableCell
+                                            key={j}
+                                            align={col.align}
+                                            expand={col.expand}
+                                            className={col.className}
+                                        >
+                                            <SkeletonLine
+                                                className={col.align === 'right' ? 'ml-auto w-10' : undefined}
+                                                style={col.align === 'right' ? undefined : { width }}
+                                            />
+                                        </TableCell>
+                                    ))}
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    ) : rows.length === 0 ? (
+                        <TableEmpty className="py-6 text-secondary">{emptyMessage}</TableEmpty>
+                    ) : (
+                        <TableBody aria-busy={loading} className={dimWhileLoading(loading)}>
+                            {rows.map((row, i) => (
+                                <TableRow
+                                    key={i}
+                                    className={onRowClick ? 'cursor-pointer hover:bg-fill-highlight-50' : undefined}
+                                    onClick={onRowClick ? () => onRowClick(i) : undefined}
+                                    // A bare <tr> isn't keyboard-operable — mirror the tracing tables'
+                                    // pattern so the drill-down opens on Enter/Space too.
+                                    role={onRowClick ? 'button' : undefined}
+                                    tabIndex={onRowClick ? 0 : undefined}
+                                    onKeyDown={
+                                        onRowClick
+                                            ? (e: React.KeyboardEvent) => {
+                                                  if (e.key === 'Enter' || e.key === ' ') {
+                                                      e.preventDefault()
+                                                      onRowClick(i)
+                                                  }
                                               }
-                                          }
-                                        : undefined
-                                }
-                            >
-                                {columns.map((col, ci) => (
-                                    <TableCell key={ci} align={col.align} expand={col.expand} className={col.className}>
-                                        {col.render(row)}
-                                    </TableCell>
-                                ))}
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                )}
-            </Table>
+                                            : undefined
+                                    }
+                                >
+                                    {columns.map((col, ci) => (
+                                        <TableCell
+                                            key={ci}
+                                            align={col.align}
+                                            expand={col.expand}
+                                            className={col.className}
+                                        >
+                                            {col.render(row)}
+                                        </TableCell>
+                                    ))}
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    )}
+                </Table>
+                <TableLoadingBar loading={loading && rows.length > 0} />
+            </div>
         </Card>
     )
 }
@@ -347,6 +370,7 @@ function StatTiles({
                     key={tile.label}
                     {...tile}
                     loading={loading}
+                    hasValue={summary !== null}
                     labels={daily.labels}
                     interval={interval}
                     theme={theme}
@@ -359,6 +383,16 @@ function StatTiles({
     )
 }
 
+const INTENT_SOURCE_LABELS: Record<string, string> = {
+    context_parameter: 'Agent',
+    inferred: 'Inferred',
+}
+
+function intentSourceLabel(source: unknown): string {
+    const value = String(source ?? '')
+    return INTENT_SOURCE_LABELS[value] ?? value
+}
+
 function IntentCoverageTag({
     coverage,
     loading,
@@ -366,7 +400,7 @@ function IntentCoverageTag({
     coverage: IntentCoverage | null
     loading: boolean
 }): JSX.Element | null {
-    if (loading) {
+    if (loading && !coverage) {
         return <LemonSkeleton className="h-4 w-32" />
     }
     if (!coverage || !coverage.total) {
@@ -374,8 +408,8 @@ function IntentCoverageTag({
     }
     const pct = Math.round((coverage.with_intent / coverage.total) * 100)
     return (
-        <Tooltip title="Share of calls where $mcp_intent was captured. Inferred intents are server fallbacks; context_parameter intents come from the client.">
-            <span className="text-[11px] text-secondary">
+        <Tooltip title="Share of calls that recorded why the agent made them. Agent intents come from the agent itself. Inferred intents are a fallback your server derived when the agent gave none.">
+            <span aria-busy={loading} className={cn('text-[11px] text-secondary', dimWhileLoading(loading))}>
                 {formatNumber(coverage.with_intent)} of {formatNumber(coverage.total)} calls captured intent ({pct}%)
             </span>
         </Tooltip>
@@ -389,7 +423,7 @@ function DescriptionBlock({
     descriptions: { description: string; last_seen: string }[]
     loading: boolean
 }): JSX.Element | null {
-    if (loading) {
+    if (loading && !descriptions.length) {
         return <LemonSkeleton className="h-8 w-2/3 mt-2" />
     }
     if (!descriptions.length) {
@@ -397,7 +431,7 @@ function DescriptionBlock({
     }
     const [latest, ...older] = descriptions
     return (
-        <div className="flex flex-col gap-1 max-w-3xl">
+        <div aria-busy={loading} className={cn('flex flex-col gap-1 max-w-3xl', dimWhileLoading(loading))}>
             <span className="text-[11px] uppercase tracking-wider text-secondary">Description</span>
             <LemonMarkdown className="text-sm leading-snug line-clamp-3" lowKeyHeadings>
                 {latest.description}
@@ -486,19 +520,21 @@ function TrendChart({
             <div className="mb-1 px-2 pt-1 text-xs font-medium uppercase text-secondary">{title}</div>
             <div className="flex min-h-0 flex-1 flex-col">
                 {loading && labels.length === 0 ? (
-                    <Skeleton className="flex-1" />
+                    <ChartSkeleton kind="line" />
                 ) : labels.length === 0 ? (
                     <div className="flex flex-1 items-center justify-center text-[12px] text-secondary">
                         No data for the selected date range.
                     </div>
                 ) : (
-                    <TimeSeriesLineChart
-                        series={series}
-                        labels={labels}
-                        config={config}
-                        theme={theme}
-                        dataAttr={dataAttr}
-                    />
+                    <div aria-busy={loading} className={cn('flex min-h-0 flex-1 flex-col', dimWhileLoading(loading))}>
+                        <TimeSeriesLineChart
+                            series={series}
+                            labels={labels}
+                            config={config}
+                            theme={theme}
+                            dataAttr={dataAttr}
+                        />
+                    </div>
                 )}
             </div>
         </div>
@@ -561,7 +597,7 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
                 description={null}
                 resourceType={{ type: 'mcp_analytics' }}
                 forceBackTo={{
-                    name: 'Tool quality',
+                    name: sceneConfigurations[Scene.MCPAnalytics].name,
                     path: mcpToolQualityUrlWithDates(dateFilter, pinnedInterval),
                     key: 'mcp-analytics-tool-quality',
                 }}
@@ -631,6 +667,48 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
                         dataAttr="mcp-tool-detail-latency-chart"
                     />
                 </div>
+                <ResultTable
+                    title="Failures"
+                    description="Errored calls grouped by what went wrong. Numbers and IDs in error messages are masked so the same problem lands in one row. Click a row to see its calls."
+                    rows={failureBuckets.map((b) => [
+                        b.sample_message,
+                        b.message,
+                        b.occurrences,
+                        b.last_seen,
+                        b.harnesses,
+                    ])}
+                    loading={failureBucketsLoading}
+                    emptyMessage={`No errored calls for this tool (${dateRangeLabel}).`}
+                    onRowClick={(i) => selectFailure(failureBuckets[i] ?? null)}
+                    columns={[
+                        {
+                            header: 'Error',
+                            expand: true,
+                            render: (r) =>
+                                r[0] ? (
+                                    <span className="font-mono text-xs break-all line-clamp-2">{String(r[0])}</span>
+                                ) : (
+                                    <span className="text-muted text-xs">No error message captured</span>
+                                ),
+                        },
+                        {
+                            header: 'Type',
+                            render: (r) => (
+                                <span className="font-mono text-xs whitespace-nowrap">{String(r[1] ?? '')}</span>
+                            ),
+                        },
+                        {
+                            header: 'Calls',
+                            align: 'right',
+                            render: (r) => <span className="tabular-nums">{formatNumber(Number(r[2] ?? 0))}</span>,
+                        },
+                        { header: 'Last seen', render: (r) => <TZLabel time={String(r[3])} /> },
+                        {
+                            header: 'Harnesses',
+                            render: (r) => <HarnessLogos labels={(r[4] as string[]) ?? []} />,
+                        },
+                    ]}
+                />
             </div>
 
             <LemonDivider />
@@ -647,7 +725,7 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
                         columns={[
                             { header: 'When', render: (r) => <TZLabel time={String(r[0])} /> },
                             { header: 'Intent', expand: true, render: (r) => <span>{String(r[1] ?? '')}</span> },
-                            { header: 'Intent source', render: (r) => <span>{String(r[2] ?? '')}</span> },
+                            { header: 'Intent source', render: (r) => <span>{intentSourceLabel(r[2])}</span> },
                             { header: 'Harness', render: (r) => <span>{String(r[3] ?? '')}</span> },
                         ]}
                     />
@@ -770,36 +848,6 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
                 </div>
             </div>
 
-            <LemonDivider />
-
-            <div className="flex flex-col gap-3 px-4 pb-4">
-                <ResultTable
-                    title="Failures"
-                    description="Errored calls of this tool grouped by error type and HTTP status. Sourced from the $mcp_is_error flag on $mcp_tool_call events, the same source as the error rate above. Click a row to see individual occurrences."
-                    rows={failureBuckets.map((b) => [b.message, b.occurrences, b.last_seen, b.harnesses])}
-                    loading={failureBucketsLoading}
-                    emptyMessage="No errored calls recorded for this tool in the selected date range."
-                    onRowClick={(i) => selectFailure(failureBuckets[i] ?? null)}
-                    columns={[
-                        {
-                            header: 'Error type',
-                            expand: true,
-                            render: (r) => <span className="font-mono text-xs">{String(r[0] ?? '')}</span>,
-                        },
-                        {
-                            header: 'Occurrences',
-                            align: 'right',
-                            render: (r) => formatNumber(Number(r[1] ?? 0)),
-                        },
-                        { header: 'Last seen', render: (r) => <TZLabel time={String(r[2])} /> },
-                        {
-                            header: 'Harnesses',
-                            render: (r) => <HarnessLogos labels={(r[3] as string[]) ?? []} />,
-                        },
-                    ]}
-                />
-            </div>
-
             <FailureOccurrencesModal />
         </SceneContent>
     )
@@ -809,7 +857,7 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
 // copyable, paste-ready context block for handing to a coding agent.
 function FailureOccurrencesModal(): JSX.Element {
     const { searchParams } = useValues(router)
-    const { toolName, selectedFailure, failureOccurrences, failureOccurrencesLoading } =
+    const { toolName, selectedFailure, failureOccurrences, failureOccurrencesLoading, dateRangeLabel } =
         useValues(mcpAnalyticsToolDetailLogic)
     const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic)
 
@@ -833,13 +881,27 @@ function FailureOccurrencesModal(): JSX.Element {
                     Failures: <span className="font-mono">{selectedFailure?.message}</span>
                 </span>
             }
-            description="Most recent errored calls in this bucket (up to 50, last 7 days). Copy an occurrence's context to hand it to a coding agent."
+            description={`The most recent calls with this error, up to 50 (${dateRangeLabel}). Copy a call's context to hand it to a coding agent.`}
+            footer={
+                selectedFailure ? (
+                    <CreateFixTaskButton
+                        size="small"
+                        context={{
+                            toolName,
+                            errorType: selectedFailure.error_type,
+                            errorStatus: selectedFailure.error_status || undefined,
+                            errorMessage: selectedFailure.sample_message || undefined,
+                            timestamp: selectedFailure.last_seen,
+                        }}
+                    />
+                ) : null
+            }
             width={880}
         >
             <ResultTable
                 rows={failureOccurrences.map((o) => [o.timestamp, o.harness, o.error_message, o])}
                 loading={failureOccurrencesLoading}
-                emptyMessage="No occurrences found in the last 7 days."
+                emptyMessage={`No calls with this error (${dateRangeLabel}).`}
                 columns={[
                     { header: 'When', render: (r) => <TZLabel time={String(r[0])} /> },
                     { header: 'Harness', render: (r) => <span>{String(r[1] ?? '') || '—'}</span> },
@@ -852,7 +914,7 @@ function FailureOccurrencesModal(): JSX.Element {
                                     {String(r[2])}
                                 </span>
                             ) : (
-                                <Tooltip title="No $mcp_error_message on this event. Check that your MCP server sends it on failed tool calls.">
+                                <Tooltip title="No error message was captured for this call. Check that your MCP server sends one on failed tool calls.">
                                     <span className="text-muted text-xs whitespace-nowrap">
                                         Not captured <IconInfo />
                                     </span>

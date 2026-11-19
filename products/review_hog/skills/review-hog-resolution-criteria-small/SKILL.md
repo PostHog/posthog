@@ -1,10 +1,8 @@
 ---
 name: review-hog-resolution-criteria-small
 description: >
-  Small fix profile for PostHog Review's resolution stage: the default resolution criteria, narrowed
-  to fix only small, contained issues. Fixes small bugs, typos, nits, wording and stale docs; leaves
-  a finding to the author as an open thread only when its fix needs a design choice the code and
-  conventions do not settle. Select it when the author's own agent takes the big work.
+  Fixes small bugs, typos, wording, and outdated documentation. Leaves changes that need a design
+  decision to the author.
 metadata:
   owner_team: review_hog
   skill_type: resolution_criteria

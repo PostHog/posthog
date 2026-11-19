@@ -1,5 +1,5 @@
-use std::collections::VecDeque;
-use std::sync::Mutex;
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common_kafka::config::KafkaConfig;
@@ -11,10 +11,11 @@ use rdkafka::{Offset, TopicPartitionList};
 use tokio::sync::Semaphore;
 use tokio::time::timeout;
 
+use personhog_coordination::types::ClusterEndpoint;
 use personhog_proto::personhog::types::v1::Person;
 
 use crate::cache::{CachedPerson, DirtyMark, PersonCacheKey};
-use crate::warming::make_consumer;
+use crate::warming::{changelog_kafka, make_consumer};
 
 /// How long to wait before retrying a transiently failed fetch.
 const RETRY_BACKOFF: Duration = Duration::from_millis(100);
@@ -23,13 +24,15 @@ const RETRY_BACKOFF: Duration = Duration::from_millis(100);
 #[derive(Clone)]
 pub struct RecoveryConfig {
     pub kafka: KafkaConfig,
-    pub topic: String,
     pub pod_name: String,
     /// Overall deadline for one recovery, including transient-failure
     /// retries.
     pub recv_timeout: Duration,
     /// Number of pooled consumers, bounding concurrent recoveries.
     pub pool_size: usize,
+    /// The cluster the pool's startup consumers dial, which is the live
+    /// changelog's. `None` dials the `kafka` endpoint.
+    pub cluster: Option<Arc<ClusterEndpoint>>,
 }
 
 /// Classifies a failed fetch step for the retry loop: transient failures
@@ -73,10 +76,11 @@ enum FetchError {
 /// consumer while freeing its permit, eventually leaving permits with an
 /// empty pool.
 pub struct ChangelogRecovery {
-    topic: String,
     recv_timeout: Duration,
-    idle: Mutex<VecDeque<StreamConsumer>>,
+    idle: Mutex<HashMap<Option<Arc<ClusterEndpoint>>, VecDeque<StreamConsumer>>>,
     permits: Semaphore,
+    kafka: KafkaConfig,
+    group: String,
 }
 
 impl ChangelogRecovery {
@@ -85,18 +89,20 @@ impl ChangelogRecovery {
             return Err("recovery pool size must be at least 1".to_string());
         }
         let group = format!("personhog-leader-recovery-{pod}", pod = cfg.pod_name);
+        let startup_kafka = changelog_kafka(&cfg.kafka, cfg.cluster.as_deref());
         let mut idle = VecDeque::with_capacity(cfg.pool_size);
         for _ in 0..cfg.pool_size {
             idle.push_back(
-                make_consumer(&cfg.kafka, &group)
+                make_consumer(&startup_kafka, &group)
                     .map_err(|e| format!("create recovery consumer: {e}"))?,
             );
         }
         Ok(Self {
-            topic: cfg.topic,
             recv_timeout: cfg.recv_timeout,
-            idle: Mutex::new(idle),
+            idle: Mutex::new(HashMap::from([(cfg.cluster, idle)])),
             permits: Semaphore::new(cfg.pool_size),
+            kafka: cfg.kafka,
+            group,
         })
     }
 
@@ -106,7 +112,10 @@ impl ChangelogRecovery {
     /// tail), returns it to the idle deque, and only then releases the
     /// permit — so a slot never opens before its consumer is home, on
     /// every path including cancellation of the awaiting future.
-    async fn checkout(&self) -> Result<PooledConsumer<'_>, String> {
+    async fn checkout(
+        &self,
+        cluster: Option<&Arc<ClusterEndpoint>>,
+    ) -> Result<PooledConsumer<'_>, String> {
         let wait_start = Instant::now();
         let permit = self
             .permits
@@ -115,14 +124,29 @@ impl ChangelogRecovery {
             .map_err(|_| "recovery pool closed".to_string())?;
         histogram!("personhog_leader_recovery_pool_wait_ms")
             .record(wait_start.elapsed().as_secs_f64() * 1000.0);
-        let consumer = self
+        let idle = self
             .idle
             .lock()
             .expect("recovery pool lock poisoned")
-            .pop_front()
-            .expect("a permit guarantees an idle consumer");
+            .get_mut(&cluster.cloned())
+            .and_then(VecDeque::pop_front);
+        // The startup cluster's deque never runs dry under a permit, because at
+        // most pool_size consumers are out at once. Another cluster's deque
+        // fills as the consumers built for it come home.
+        let consumer = match idle {
+            Some(consumer) => consumer,
+            None => make_consumer(
+                &changelog_kafka(&self.kafka, cluster.map(Arc::as_ref)),
+                &self.group,
+            )
+            .map_err(|e| {
+                let name = cluster.map_or("the base endpoint", |c| c.name.as_str());
+                format!("create recovery consumer for {name}: {e}")
+            })?,
+        };
         Ok(PooledConsumer {
             pool: self,
+            cluster: cluster.cloned(),
             consumer: Some(consumer),
             _permit: permit,
         })
@@ -139,12 +163,13 @@ impl ChangelogRecovery {
         mark: &DirtyMark,
         expected: &PersonCacheKey,
     ) -> Result<CachedPerson, String> {
-        let partition = mark.partition;
+        let topic = &mark.stream.topic;
+        let partition = mark.stream.partition;
         let offset = mark.offset;
         let partition_i32 = i32::try_from(partition)
             .map_err(|_| format!("partition {partition} exceeds i32::MAX"))?;
 
-        let consumer = self.checkout().await?;
+        let consumer = self.checkout(mark.stream.cluster.as_ref()).await?;
 
         // Each attempt repositions with a fresh assign: it starts fetching
         // at the target immediately (repositioning a live stream via seek
@@ -154,7 +179,7 @@ impl ChangelogRecovery {
         let deadline = Instant::now() + self.recv_timeout;
         loop {
             let attempt = self
-                .attempt_fetch(&consumer, partition_i32, mark, expected, deadline)
+                .attempt_fetch(&consumer, topic, partition_i32, mark, expected, deadline)
                 .await;
             match attempt {
                 Ok(person) => return Ok(person),
@@ -180,13 +205,14 @@ impl ChangelogRecovery {
     async fn attempt_fetch(
         &self,
         consumer: &StreamConsumer,
+        topic: &str,
         partition_i32: i32,
         mark: &DirtyMark,
         expected: &PersonCacheKey,
         deadline: Instant,
     ) -> Result<CachedPerson, FetchError> {
         let mut tpl = TopicPartitionList::new();
-        tpl.add_partition_offset(&self.topic, partition_i32, Offset::Offset(mark.offset))
+        tpl.add_partition_offset(topic, partition_i32, Offset::Offset(mark.offset))
             .map_err(|e| FetchError::Permanent(format!("tpl add_partition_offset: {e}")))?;
         consumer
             .assign(&tpl)
@@ -201,7 +227,7 @@ impl ChangelogRecovery {
                 Err(_) => {
                     return Err(FetchError::Transient(format!(
                         "recovery timed out after {:?} seeking partition {} offset {offset}",
-                        self.recv_timeout, mark.partition
+                        self.recv_timeout, mark.stream.partition
                     )));
                 }
             };
@@ -233,6 +259,7 @@ impl ChangelogRecovery {
 /// field drops last).
 struct PooledConsumer<'a> {
     pool: &'a ChangelogRecovery,
+    cluster: Option<Arc<ClusterEndpoint>>,
     consumer: Option<StreamConsumer>,
     _permit: tokio::sync::SemaphorePermit<'a>,
 }
@@ -255,6 +282,8 @@ impl Drop for PooledConsumer<'_> {
             .idle
             .lock()
             .expect("recovery pool lock poisoned")
+            .entry(self.cluster.take())
+            .or_default()
             .push_back(consumer);
     }
 }

@@ -4,6 +4,7 @@ import {
     Sources,
     customState,
     devStackBadge,
+    devStackProgress,
     devStackState,
     fresh,
     imageNames,
@@ -145,6 +146,7 @@ export function ReleasePipeline({
                         selected={selected}
                         onSelect={onSelect}
                         badge={devStackBadge(sources)}
+                        progress={devStackProgress(sources)}
                     />
                     <span className="parallel-caption">Notebook and Streamlit build alongside the base.</span>
                 </div>

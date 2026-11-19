@@ -22,6 +22,16 @@ export function createPostHogHandlers(options: PostHogHandlersOptions = {}) {
   } = options;
 
   return [
+    http.post(
+      `${baseUrl}/api/projects/:projectId/context_layer/selection/prepare/`,
+      () =>
+        HttpResponse.json({
+          selection_id: "",
+          context: "",
+          mode: "disabled",
+          reason: "disabled",
+        }),
+    ),
     // GET local LLM gateway models - session initialization fetches these in the
     // background for command/model metadata.
     http.get("http://localhost:3308/:product/v1/models", () => {

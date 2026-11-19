@@ -75,11 +75,13 @@ describe('getSubscriptionAdvancedSettings', () => {
     it('lists only delivery settings that differ from the default flow', () => {
         expect(
             getSubscriptionAdvancedSettings({
+                resource_type: 'insight',
+                delivery_config: { image_size: { width: 1200, height: 630 } },
                 summary_enabled: true,
                 summary_prompt_guide: 'Prioritize activation changes',
                 send_test_now: false,
             })
-        ).toEqual(['Automatic AI summary', 'Custom AI summary context', 'No test delivery'])
+        ).toEqual(['Images: 1200 × 630 px', 'Automatic AI summary', 'Custom AI summary context', 'No test delivery'])
     })
 })
 
@@ -245,10 +247,13 @@ describe('AI subscription display options', () => {
         const subscription = {
             resource_type: resourceType,
             target_type: 'email',
-            delivery_config: { include_images: false },
+            delivery_config: { include_images: false, image_size: { width: 1200 } },
         } as SubscriptionType
 
         expect(coerceDeliveryConfigForScope(subscription, [])?.include_images).toBe(expected)
+        expect(coerceDeliveryConfigForScope(subscription, [])?.image_size).toEqual(
+            resourceType === 'ai_prompt' ? undefined : { width: 1200 }
+        )
     })
 
     it('keeps the other delivery options when it drops the AI ones', () => {
@@ -297,10 +302,10 @@ describe('Slack gallery delivery config', () => {
             false,
         ],
         [
-            'removes the flag for a prompt subscription',
+            'keeps the flag for a prompt subscription without files:write',
             subscription({ resource_type: 'ai_prompt' }),
-            [slackIntegration(7, 'files:write')],
-            false,
+            [slackIntegration(7, 'chat:write')],
+            true,
         ],
         ['removes the flag when the loaded integration is missing', subscription({}), [], false],
         ['preserves the flag while integrations are unresolved', subscription({}), null, true],

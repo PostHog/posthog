@@ -5,26 +5,40 @@ registers them on `settings.AUTORESEARCH_TASK_QUEUE`, which the
 temporal-worker-self-driving fleet polls.
 """
 
+from collections.abc import Callable
+
 from .workflows import (
     AutoresearchCoordinatorWorkflow,
     AutoresearchInferenceWorkflow,
+    AutoresearchPropertyCleanupWorkflow,
     AutoresearchValidationWorkflow,
+    activity_fail_cleanup_run,
+    activity_fail_lost_inference_runs,
     activity_kickoff_training,
     activity_load_active_pipelines,
+    activity_mark_daily_sweep,
+    activity_remove_person_property,
     activity_run_inference,
+    activity_run_shadow_scoring,
     activity_run_validation,
 )
 
 WORKFLOWS = [
     AutoresearchCoordinatorWorkflow,
     AutoresearchInferenceWorkflow,
+    AutoresearchPropertyCleanupWorkflow,
     AutoresearchValidationWorkflow,
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
+    activity_fail_cleanup_run,
+    activity_fail_lost_inference_runs,
     activity_kickoff_training,
     activity_load_active_pipelines,
+    activity_mark_daily_sweep,
+    activity_remove_person_property,
     activity_run_inference,
+    activity_run_shadow_scoring,
     activity_run_validation,
 ]
 
@@ -33,5 +47,6 @@ __all__ = [
     "WORKFLOWS",
     "AutoresearchCoordinatorWorkflow",
     "AutoresearchInferenceWorkflow",
+    "AutoresearchPropertyCleanupWorkflow",
     "AutoresearchValidationWorkflow",
 ]

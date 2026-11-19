@@ -1,24 +1,39 @@
-import { useActions } from 'kea'
+import { useValues } from 'kea'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { urls } from 'scenes/urls'
 
-import { NewMetricModal } from '../components/NewMetricModal'
-import { metricsLogic } from '../metricsLogic'
+import { catalogSetupLogic } from '../catalogSetupLogic'
+import { CopyAgentSetupPromptButton } from '../components/CopyAgentSetupPromptButton'
+import { SetupWithPostHogAIButton } from '../components/SetupWithPostHogAIButton'
 
-/**
- * Create button for the data catalog empty state. Metrics are created in a modal that
- * the scene normally renders, and the gate replaces the scene - so the empty state has
- * to render the modal itself or the button would open nothing.
- */
 export function DataCatalogPrimaryAction(): JSX.Element {
-    const { openNewMetricModal } = useActions(metricsLogic)
+    const { postHogAISetupAvailable } = useValues(catalogSetupLogic)
+
+    const defineFirstMetric = (
+        <LemonButton
+            type={postHogAISetupAvailable ? 'secondary' : 'primary'}
+            to={urls.dataCatalogNewMetric()}
+            data-attr="data-catalog-new-metric-button"
+        >
+            Define your first metric
+        </LemonButton>
+    )
 
     return (
-        <>
-            <LemonButton type="primary" onClick={openNewMetricModal} data-attr="data-catalog-new-metric-button">
-                Define your first metric
-            </LemonButton>
-            <NewMetricModal />
-        </>
+        <div className="flex flex-wrap items-center gap-2">
+            {postHogAISetupAvailable ? (
+                <>
+                    <SetupWithPostHogAIButton source="empty_state" />
+                    {defineFirstMetric}
+                    <CopyAgentSetupPromptButton source="empty_state" type="tertiary" />
+                </>
+            ) : (
+                <>
+                    {defineFirstMetric}
+                    <CopyAgentSetupPromptButton source="empty_state" />
+                </>
+            )}
+        </div>
     )
 }

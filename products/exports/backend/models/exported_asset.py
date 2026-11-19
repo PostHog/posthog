@@ -1,6 +1,6 @@
 import re
 import secrets
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
@@ -22,7 +22,9 @@ from posthog.models.utils import UUIDT
 from posthog.settings import DEBUG
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.utils import absolute_uri
+from posthog.utils import absolute_uri, validate_filters_override
+
+from products.exports.backend.facade.exporters import DATASET_EXPORT_KIND as DATASET_EXPORT_KIND
 
 logger = structlog.get_logger(__name__)
 
@@ -30,7 +32,6 @@ PUBLIC_ACCESS_TOKEN_EXP_DAYS = 365
 MAX_AGE_CONTENT = 86400  # 1 day
 EXPORTED_ASSET_PURPOSE_RENDER = "render"
 EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY = "subscription_delivery"
-DATASET_EXPORT_KIND = "dataset"
 
 _EXPIRY_DELETE_BATCH = 1000
 
@@ -80,6 +81,8 @@ class ExportedAsset(models.Model):
         GIF = "image/gif", "image/gif"
         JSON = "application/json", "application/json"
         JSONL = "application/x-ndjson", "application/x-ndjson"
+        # Not in SUPPORTED_FORMATS: only system writers store it, for posters too small to justify a PNG.
+        WEBP = "image/webp", "image/webp"
 
     SUPPORTED_FORMATS = [
         ExportFormat.PNG,
@@ -173,10 +176,14 @@ class ExportedAsset(models.Model):
 
     @classmethod
     def compute_expires_after(cls, export_format: str) -> datetime:
+        return cls.round_up_expiry(now() + cls.get_expiry_delta(export_format))
+
+    @staticmethod
+    def round_up_expiry(expiry: datetime) -> datetime:
         # Rounded up, because S3 rounds a lifecycle rule up to the next UTC midnight; rounding down
         # retires the row while the object it points at is still there.
-        expiry_datetime = now() + cls.get_expiry_delta(export_format) + timedelta(days=1)
-        return expiry_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
+        next_day = expiry.astimezone(UTC) + timedelta(days=1)
+        return next_day.replace(hour=0, minute=0, second=0, microsecond=0)
 
     @property
     def has_content(self):
@@ -222,12 +229,22 @@ class ExportedAsset(models.Model):
             return DATASET_EXPORT_KIND
         return "unknown"
 
+    def get_dashboard_filters(self) -> dict:
+        saved_filters = (self.dashboard.filters if self.dashboard else None) or {}
+        selected_filters = (self.export_context or {}).get("filters_override")
+        if selected_filters is None:
+            return saved_filters
+        validate_filters_override(selected_filters)
+        return {**saved_filters, **selected_filters}
+
+    @property
+    def export_kind(self) -> str | None:
+        kind = (self.export_context or {}).get("kind")
+        return kind if isinstance(kind, str) and kind else None
+
     @property
     def is_dataset_export(self) -> bool:
-        return (
-            self.export_format == self.ExportFormat.JSONL
-            and (self.export_context or {}).get("kind") == DATASET_EXPORT_KIND
-        )
+        return self.export_format == self.ExportFormat.JSONL and self.export_kind == DATASET_EXPORT_KIND
 
     @property
     def is_rasterized_export(self) -> bool:
@@ -246,6 +263,7 @@ class ExportedAsset(models.Model):
             "export_format": self.export_format,
             "dashboard_id": self.dashboard_id,
             "insight_id": self.insight_id,
+            "export_kind": self.export_kind,
             # Scanner-driven renders (replay_vision) report through the same pipeline; without this
             # flag their volume is indistinguishable from user exports in failure-rate comparisons.
             "is_system": bool(self.is_system),

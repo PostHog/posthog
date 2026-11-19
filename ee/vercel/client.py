@@ -319,6 +319,10 @@ class VercelAPIClient:
                 error_description=str(e),
             )
 
+    def get_installation_account(self, installation_id: str) -> dict[str, Any]:
+        response = self._request("GET", f"{self.base_url}/installations/{installation_id}/account")
+        return self._parse_json_response(response)
+
     def check_installation_active(self, installation_id: str) -> bool:
         """Check if a Vercel installation is still active.
 

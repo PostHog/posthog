@@ -1,10 +1,12 @@
-use common_database::{get_pool_with_config, PoolConfig};
 use personhog_replica::storage::{postgres::PostgresStorage, FullStorage};
 use rand::Rng;
 use sqlx::postgres::PgPool;
 use sqlx::{Postgres, Transaction};
 use std::sync::Arc;
 use uuid::Uuid;
+
+/// Ids per bulk chunk in test storage. It is small so that tests reach the multi-chunk path with few rows.
+pub const BULK_CHUNK_SIZE: usize = 50;
 
 fn random_team_id() -> i64 {
     rand::thread_rng().gen_range(1_000_000..100_000_000)
@@ -19,16 +21,17 @@ fn database_url() -> String {
         .unwrap_or_else(|_| "postgres://posthog:posthog@localhost:5432/posthog_persons".to_string())
 }
 
-fn storage_over(pool: PgPool) -> Arc<dyn FullStorage> {
+fn storage_over(pool: PgPool, hash_key_override_statement_timeout_ms: u64) -> Arc<dyn FullStorage> {
     // In tests, use the same pool for everything
     Arc::new(PostgresStorage::new(
         pool.clone(),
         pool.clone(),
         pool.clone(),
         pool,
-        50, // bulk_chunk_size — small so parallel path is exercised with fewer test rows
+        BULK_CHUNK_SIZE,
         5,  // bulk_max_concurrent_chunks
         12, // tombstoned_delete_max_rows, small enough that the clamp is observable
+        hash_key_override_statement_timeout_ms,
     ))
 }
 
@@ -44,7 +47,7 @@ impl TestContext {
         let pool = PgPool::connect(&database_url())
             .await
             .expect("Failed to connect to test database");
-        let storage = storage_over(pool.clone());
+        let storage = storage_over(pool.clone(), 4000);
         let team_id = random_team_id();
 
         Self {
@@ -54,16 +57,11 @@ impl TestContext {
         }
     }
 
-    pub fn storage_with_statement_timeout(statement_timeout_ms: u64) -> Arc<dyn FullStorage> {
-        let pool = get_pool_with_config(
-            &database_url(),
-            PoolConfig {
-                statement_timeout_ms: Some(statement_timeout_ms),
-                ..PoolConfig::default()
-            },
-        )
-        .expect("Failed to create test database pool");
-        storage_over(pool)
+    pub fn storage_with_hash_key_override_statement_timeout(
+        &self,
+        statement_timeout_ms: u64,
+    ) -> Arc<dyn FullStorage> {
+        storage_over(self.pool.clone(), statement_timeout_ms)
     }
 
     pub async fn insert_person(
@@ -86,9 +84,8 @@ impl TestContext {
 
         sqlx::query(
             r#"INSERT INTO posthog_person
-            (id, uuid, team_id, properties, properties_last_updated_at,
-             properties_last_operation, created_at, version, is_identified, is_user_id)
-            VALUES ($1, $2, $3, $4, '{}', '{}', NOW(), 0, false, NULL)
+            (id, uuid, team_id, properties, created_at, version, is_identified, is_user_id)
+            VALUES ($1, $2, $3, $4, NOW(), 0, false, NULL)
             ON CONFLICT DO NOTHING"#,
         )
         .bind(person_id)

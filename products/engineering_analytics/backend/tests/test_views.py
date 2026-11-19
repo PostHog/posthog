@@ -3,6 +3,8 @@ from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature
@@ -11,8 +13,10 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.models.access_control import AccessControl
 from products.engineering_analytics.backend.logic.sources import (
     TRUNK_MERGE_QUEUE_SCHEMA,
+    TRUNK_QUARANTINED_TESTS_SCHEMA,
     list_github_sources,
     resolve_trunk_merge_queue_table,
+    resolve_trunk_quarantined_tests_source,
 )
 from products.engineering_analytics.backend.logic.views import (
     ci_job_history,
@@ -27,6 +31,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     DEPOT_JOB_ATTEMPTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     TRUNK_QUARANTINED_TESTS_COLUMNS,
+    TRUNK_QUARANTINED_TESTS_V1_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
@@ -59,9 +64,6 @@ class TestListGithubSourcesAccessControl(BaseTest):
         self.organization.save()
 
     def test_none_resource_access_fails_closed_to_self_created_sources(self) -> None:
-        # A user with "none" resource access and no object grants must not enumerate the
-        # team's sources. The product surface relies on filter_queryset_by_access_level to
-        # fail closed here.
         mine = create_github_source(self.team, prefix="mine_", source_id="gh-mine")
         mine.created_by = self.user
         mine.save()
@@ -76,8 +78,8 @@ class TestListGithubSourcesAccessControl(BaseTest):
         )
         assert [source.id for source in visible] == [str(mine.id)]
 
-        # An explicit object grant survives the fail-closed guard. The filter counts only member
-        # and role rows as grants. A default ("everyone") object row does not count.
+        # The filter counts only member and role rows as grants. A default object row for everyone
+        # does not count.
         AccessControl.objects.create(
             team=self.team,
             resource="external_data_source",
@@ -91,9 +93,6 @@ class TestListGithubSourcesAccessControl(BaseTest):
         assert {source.id for source in visible} == {str(mine.id), str(theirs.id)}
 
     def test_trunk_resolver_denied_user_resolves_none(self) -> None:
-        # The trunk resolver feeds team-scoped HogQL that enforces no per-user ACL, so it must apply
-        # the same source RBAC as the GitHub path: a user denied every TrunkIo source resolves None
-        # (consumers degrade to the failed-gate proxy) instead of reading the queue table.
         source = create_trunk_source(self.team)
         table = create_warehouse_table_row(
             self.team, name="trunkprefix_trunk_io_merge_queue_pull_requests", source=source
@@ -108,11 +107,26 @@ class TestListGithubSourcesAccessControl(BaseTest):
         AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
         assert resolve_trunk_merge_queue_table(self.team, UserAccessControl(user=self.user, team=self.team)) is None
 
+    @parameterized.expand(
+        [
+            ("same_repo", {"repo_owner": "PostHog", "repo_name": "posthog"}, True),
+            ("legacy_without_repo_keys", {}, True),
+            ("other_repo", {"repo_owner": "PostHog", "repo_name": "posthog-js"}, False),
+        ]
+    )
+    def test_trunk_quarantine_resolver_never_serves_another_repos_source(
+        self, _name: str, job_inputs: dict[str, str], resolves: bool
+    ) -> None:
+        source = create_trunk_source(self.team, job_inputs=job_inputs)
+        table = create_warehouse_table_row(self.team, name="trunkprefix_quarantined_tests", source=source)
+        link_schema(self.team, source, name=TRUNK_QUARANTINED_TESTS_SCHEMA, table=table)
+
+        resolved = resolve_trunk_quarantined_tests_source(self.team, "posthog/posthog")
+
+        assert (resolved.table if resolved else None) == (table.name if resolves else None)
+
 
 class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
-    """The curated query builders, exercised as inline subqueries over real
-    warehouse tables."""
-
     def _create_table(self, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> str:
         return create_github_warehouse_table(self, base_name, columns, rows)
 
@@ -144,9 +158,8 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     "2026-01-13 10:00:00",
                     head_ref="trunk-merge/pr-10/cabec75e-5181-4429-aea5-0501a52d0688",
                 ),
-                # Same branch shape, ordinary author: branch names are contributor-controlled, so
-                # dropping on the shape alone would let anyone delete their own PR from every surface
-                # here (or someone else's runs onto a PR of their choosing).
+                # The same branch shape with an ordinary author. Branch names are contributor-controlled,
+                # so the shape alone must not drop a PR.
                 _pr_row(
                     14,
                     "mallory",
@@ -165,7 +178,6 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         )
 
         by_number = {row[0]: row for row in rows}
-        # merged human PR with labels and a head sha
         assert by_number[10][1:] == (
             "alice",
             False,
@@ -177,15 +189,13 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             "sha10",
             172800,
         )
-        # bot detection from the [bot] suffix (ClickHouse Bool comes back as 1/0)
+        # ClickHouse returns a Bool as 1 or 0.
         assert by_number[11][2] == 1
-        # open PR: state passthrough, draft flag, null duration
         assert by_number[12][6] == "open"
         assert by_number[12][7] == 1
         assert by_number[12][9] is None
-        # A merge-queue gate branch is a CI artifact, not a PR — dropped here so no PR surface
-        # (list, cards, medians) has to remember to exclude it. Only when the queue bot authored it:
-        # PR 14 wears the same branch shape but a human's name, and must survive.
+        # PR 13 is a merge-queue gate branch that the queue bot authored. PR 14 has the same branch
+        # shape but a human author.
         assert 13 not in by_number
         assert 14 in by_number
 
@@ -205,16 +215,13 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     "success",
                     "2026-01-26 10:00:00",
                     "2026-01-26 10:20:00",
-                    # A gate run's own association names the throwaway PR the queue opened (9001);
-                    # the branch names the PR being landed (44), which is the one every surface asks
-                    # about. Reading the association here loses the gate run from that PR's rollup
-                    # and cost, and files it under a PR no surface shows.
+                    # The association names the temporary PR the queue opened (9001). The branch
+                    # names the PR being landed (44).
                     pr_number=9001,
                     head_branch="trunk-merge/pr-44/cabec75e-5181-4429-aea5-0501a52d0688",
                     actor="trunk-io[bot]",
                 ),
-                # Same branch shape, ordinary actor. Branch names are contributor-controlled, so on
-                # the shape alone this would re-key a stranger's runs and CI cost onto PR 44.
+                # The same branch shape with an ordinary actor.
                 _run_row(
                     2005,
                     "CI",
@@ -236,17 +243,15 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             f"FROM ({workflow_runs.build_query(_github_runs(table_name))}) AS r ORDER BY id"
         )
 
-        # completed runs carry a duration; in-progress run has null duration and null conclusion
         assert rows[0][:6] == ("CI", "completed", "success", 1800, "PostHog", "posthog")
         assert rows[1][3] == 2700
         assert rows[2][:6] == ("Deploy", "in_progress", None, None, "PostHog", "posthog")
         assert rows[3][6:] == (44, 1)
-        # Spoofed shape without the queue actor: attribution stays on the run's own association.
         assert rows[4][6:] == (9002, 0)
 
     def test_depot_ci_attempts_read_as_runs_jobs_and_cost(self) -> None:
-        # Run 901 handed its commit to Depot, which ran it, so only Depot's run of that commit counts.
-        # Run 902 handed off a commit Depot never ran, so its relayed verdict is the only record of it.
+        # Run 901 handed its commit to Depot, which ran it, so only the Depot run of that commit counts.
+        # Run 902 handed off a commit that Depot never ran, so run 902 is the only record of it.
         runs_table = self._create_table(
             "github_workflow_runs",
             WORKFLOW_RUNS_COLUMNS,
@@ -271,6 +276,21 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     (906, "abc123", 101991, "failure", 2),
                     (907, "abc123", 101991, "success", 1),
                     (908, "abc123", 101991, "success", 2),
+                )
+            ]
+            # A merge-queue gate for PR 101991, tested through gate PR 101993, handed its commit to Depot.
+            + [
+                _run_row(
+                    909,
+                    "Backend CI",
+                    "gat123",
+                    "completed",
+                    "success",
+                    "2026-09-24 14:50:00",
+                    "2026-09-24 15:05:00",
+                    pr_number=101993,
+                    head_branch="trunk-merge/pr-101991/aaaa",
+                    actor="trunk-io[bot]",
                 )
             ],
         )
@@ -304,13 +324,20 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     completed="2026-09-01 14:02:00",
                 ),
                 _job_row(9083, 908, "Django Tests Pass", "success", head_sha="abc123", run_attempt=2),
+                _job_row(9091, 909, "Hand off backend tests to Depot CI", "success", head_sha="gat123"),
+                _job_row(9092, 909, "Django Tests Pass", "success", head_sha="gat123"),
             ],
         )
 
         prs_table = self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
-            [_pr_row(101991, "octocat", "open", 0, "2026-09-24T14:00:00Z", head_ref="feature/depot")],
+            [
+                _pr_row(101991, "octocat", "open", 0, "2026-09-24T14:00:00Z", head_ref="feature/depot"),
+                _pr_row(
+                    101993, "trunk-io[bot]", "open", 1, "2026-09-24T14:30:00Z", head_ref="trunk-merge/pr-101991/aaaa"
+                ),
+            ],
         )
 
         def attempt(
@@ -357,7 +384,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 "sandbox_id": "sandbox",
             }
 
-        # A workflow that is not the handed-off one shares shell 902's commit, which must not pair them.
+        # This workflow is not the handed-off one, but it shares the commit of run 902. The two must not pair.
         schedule: dict[str, Any] = {
             "run_id": "bbbbbbbbbb",
             "run_workflow_count": 2,
@@ -391,7 +418,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     job_id="t7m3xc4pzb",
                     display_name="",
                 ),
-                # A run with two workflows keys each one by its own id, so no join on the id fans out.
+                # A run with two workflows keys each workflow by its own id.
                 attempt(
                     "q28m5dl5rg",
                     1,
@@ -441,7 +468,26 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     workflow_status="failed",
                     job_key="ci-backend.yml:wait-for-handoff",
                 ),
-                # Synced before the source moved to another repository, so no read of this one keeps it.
+                *(
+                    attempt(
+                        attempt_id,
+                        1,
+                        "finished",
+                        "2026-09-24T14:52:00.000Z",
+                        "2026-09-24T14:53:00.000Z",
+                        job_id=job_id,
+                        run_id="7777777777",
+                        workflow_id="8888888888",
+                        ref="refs/pull/101993/merge",
+                        head_sha="gat123",
+                        job_key=job_key,
+                    )
+                    for attempt_id, job_id, job_key in (
+                        ("g7h8j9k0l1", "g1h2j3k4l5", "ci-backend.yml:wait-for-handoff"),
+                        ("g7h8j9k0l2", "g1h2j3k4l6", "ci-backend.yml:turbo-tests:matrix-38"),
+                    )
+                ),
+                # This attempt belongs to another repository, so no read of PostHog/posthog keeps it.
                 attempt(
                     "k3w9v2rq8b",
                     1,
@@ -472,6 +518,16 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             (908, "Backend CI", "success", 101991, "main", 900, "PostHog", 2),
             (80213453736890, "Backend CI on Depot", "success", 101991, "feature/depot", 600, "PostHog", 2),
             (101808620689656, "Backend CI on Depot", "failure", 101991, "feature/depot", 600, "PostHog", 1),
+            (
+                142532068965517,
+                "Backend CI on Depot",
+                "success",
+                101991,
+                "trunk-merge/pr-101991/aaaa",
+                600,
+                "PostHog",
+                1,
+            ),
             (223978965517241, "Monitor", "success", 0, "master", 600, "PostHog", 1),
             (244340689655172, "Timing", "failure", 0, "master", 600, "PostHog", 1),
         ]
@@ -487,6 +543,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             (908,),
             (80213453736890,),
             (101808620689656,),
+            (142532068965517,),
             (223978965517241,),
             (244340689655172,),
         ]
@@ -532,12 +589,77 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 "WHERE native_attempt_id = '3v4pbsqvfc'"
             ) == [("depot_ci", "427q556wmn", "6n4tghls33", "3v4pbsqvfc")]
 
+    @parameterized.expand(
+        [
+            ("queue_bot_gate_pr", "trunk-io[bot]", 101991, 1),
+            ("spoofed_branch_shape", "mallory", 117864, 0),
+        ]
+    )
+    def test_depot_merge_queue_gate_run_resolves_to_the_landed_pr(
+        self, _name: str, gate_pr_author: str, expected_pr_number: int, expected_is_merge_queue: int
+    ) -> None:
+        runs_table = self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(
+                    901, "Backend CI", "abc123", "completed", "success", "2026-09-24 14:50:00", "2026-09-24 15:05:00"
+                )
+            ],
+        )
+        prs_table = self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(
+                    117864,
+                    gate_pr_author,
+                    "open",
+                    1,
+                    "2026-09-24T14:00:00Z",
+                    head_ref="trunk-merge/pr-101991/1b92e8cf-acbf-4658-8071-4cf622123da8",
+                )
+            ],
+        )
+        depot_table = self._create_table(
+            "depot_job_attempts",
+            DEPOT_JOB_ATTEMPTS_COLUMNS,
+            [
+                {
+                    "run_id": "427q556wmn",
+                    "run_workflow_count": 1,
+                    "repo": "PostHog/posthog",
+                    "ref": "refs/pull/117864/merge",
+                    "head_sha": "abc123",
+                    "sha": "",
+                    "workflow_id": "6n4tghls33",
+                    "workflow_name": "Backend CI on Depot",
+                    "workflow_status": "failed",
+                    "workflow_created_at": "2026-09-24T14:51:17.948Z",
+                    "workflow_started_at": "2026-09-24T14:51:18.000Z",
+                    "workflow_finished_at": "2026-09-24T15:01:18.000Z",
+                    "job_id": "p4kd9tq2xs",
+                    "job_key": "ci-backend.yml:django-tests",
+                    "job_display_name": "Django Tests Pass on Depot",
+                    "attempt_id": "zf6sbbn2wh",
+                    "attempt": 1,
+                    "attempt_status": "failed",
+                    "attempt_started_at": "2026-09-24T14:53:00.000Z",
+                    "attempt_finished_at": "2026-09-24T14:55:00.000Z",
+                    "sandbox_id": "sandbox",
+                }
+            ],
+        )
+        depot = depot_ci.DepotJobAttempts(table=depot_table, repository="PostHog/posthog")
+        runs = depot_ci.with_depot_runs(runs_table, depot, prs_table, None)
+
+        assert self._select(
+            f"SELECT pr_number, is_merge_queue FROM ({workflow_runs.build_query(runs)}) AS r WHERE ci_engine = 'depot_ci'"
+        ) == [(expected_pr_number, expected_is_merge_queue)]
+
     def test_pull_requests_view_handles_null_user(self) -> None:
-        # The real source lands user as Nullable(String), NULL for a PR by a deleted GitHub account.
-        # JSONExtractString over a NULL Nullable returns NULL, so the builder must ifNull-guard it to
-        # '' — else author_handle/avatar_url come back NULL and the non-null Author contract 500s.
-        # Driven through an inline constant source (nullIf('', '') is a typed NULL) so it runs whether
-        # or not object storage is available.
+        # The source lands user as Nullable(String), and it is NULL for a PR by a deleted GitHub
+        # account. nullIf('', '') gives a typed NULL.
         head_json = '{"sha": "sha5"}'
         base_json = '{"repo": {"full_name": "PostHog/posthog"}}'
         raw = (
@@ -552,13 +674,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         assert rows[0] == ("", "", 0)
 
     def test_workflow_runs_view_handles_null_pull_requests(self) -> None:
-        # The real source lands pull_requests as Nullable(String), so it can be NULL (a run with no
-        # PR association). The builder's ifNull(pull_requests, '[]') guard must carry that NULL to
-        # pr_number = 0 (unattributed), never letting JSONExtractArrayRaw see a Nullable. ``actor``
-        # is Nullable the same way, and it gates the merge-queue branch parse — a NULL there must
-        # read as "not the queue", not poison the whole expression to NULL. Driven through an inline
-        # constant source (nullIf('', '') is a typed NULL) so it exercises the guards whether or not
-        # object storage is available — unlike the table-backed tests, which skip without it.
+        # The source lands pull_requests and actor as Nullable(String). nullIf('', '') gives a typed NULL.
         repo_json = '{"full_name": "PostHog/posthog"}'
         raw = (
             "(SELECT 1 AS id, 'CI' AS name, 'sha1' AS head_sha, "
@@ -574,18 +690,15 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         assert rows[0] == (0, "PostHog", "posthog", 0)
 
     def test_workflow_runs_view_attributes_only_own_repo_prs_and_falls_back_to_the_merge_commit(self) -> None:
-        # GitHub's pull_requests association lists every PR in the fork network sharing the run's
-        # head SHA, so a push to our default branch arrives carrying downstream forks' "sync from
-        # upstream" PRs. Taking the first entry unfiltered credited those runs to a stranger's PR
-        # number under our own owner/name. Only a base.repo.id matching the run's repository.id is
-        # ours; a push's real attribution is the (#NNNN) squash-merge suffix instead.
+        # GitHub lists every PR in the fork network that shares the head SHA, so only an entry whose
+        # base.repo.id is the run's repository.id counts.
         own, fork = "PostHog/posthog", "Mu-L/posthog-1"
         cases: list[tuple[str, str | None, str | None, int, int | None]] = [
             # (head_branch, pull_requests, commit message, expected pr_number, expected commit_pr_number)
             ("pr-branch", pr_association(42, base_repo=own), "feat: wip", 42, None),
-            # The real master-push shape: only foreign entries, so nothing is ours.
+            # A default-branch push that carries only foreign entries.
             ("master", pr_association(1379, 3, base_repo=fork), "feat: thing (#73832)", 0, 73832),
-            # A foreign entry listed FIRST must not shadow ours — position is what the old code used.
+            # A foreign entry is listed before the entry of the run's own repository.
             (
                 "pr-branch",
                 json.dumps([pr_association_entry(1379, base_repo=fork), pr_association_entry(42, base_repo=own)]),
@@ -621,20 +734,18 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         assert results == [(5000 + index, pr, commit_pr) for index, (_, _, _, pr, commit_pr) in enumerate(cases)]
 
     def test_workflow_runs_view_resolves_default_branch_pushes_through_the_merge_commit(self) -> None:
-        # A default-branch push carries no association of its own, so commit_pr_number is the only
-        # attribution it gets. The merged PR's merge_commit_sha IS that run's head SHA, which
-        # resolves landings the (#NNNN) message suffix can't, but it must be read only off a
-        # MERGED PR, since GitHub fills it on an open one with a throwaway test-merge commit.
+        # GitHub fills merge_commit_sha on an open PR with a temporary test-merge commit, so only a
+        # merged PR may attribute a run.
         own = "PostHog/posthog"
         cases: list[tuple[str, str, int | None]] = [
             # (head_sha, commit message, expected commit_pr_number)
-            # The case only the join serves: a merge-commit landing, no (#NNNN) in the subject.
+            # A merge-commit landing with no (#NNNN) in the subject.
             ("shaA", "fix: regenerate generated types", 101),
-            # An open PR's merge_commit_sha is a test merge, not a landing, so it must not attribute.
+            # The PR that carries this SHA is open.
             ("shaB", "chore: direct push", None),
-            # Join miss (no PR row for this SHA) still falls back to the message suffix.
+            # No PR row carries this SHA, so the message suffix applies.
             ("shaC", "feat: thing (#103)", 103),
-            # Several merged PRs sharing one merge commit stay ONE run row, not one per PR.
+            # Two merged PRs share this merge commit, and the run must stay one row.
             ("shaD", "feat: stacked landing (#104)", 104),
         ]
         prs = [
@@ -693,11 +804,6 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         assert results == [(6000 + index, expected) for index, (_, _, expected) in enumerate(cases)]
 
     def test_workflow_runs_view_tolerates_all_nullable_columns(self) -> None:
-        # Prod lands every column Nullable, so a single run can carry NULL across timestamps,
-        # repository, pull_requests and run_attempt at once (e.g. a barely-started run). Driven
-        # through a real warehouse table built from the shared (now fully-Nullable) schema — the
-        # exact prod shape — to prove the builder maps it instead of 500ing: NULL timestamps ->
-        # NULL duration, NULL repository -> empty owner/name, NULL pull_requests -> pr_number 0.
         sparse_run: dict[str, Any] = {
             "id": 4001,
             "name": "CI",
@@ -718,39 +824,57 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         )
         assert rows[0] == ("completed", None, None, "", "", 0, None)
 
-    def test_trunk_quarantined_tests_view_labels_runners_and_reconstructs_paths(self) -> None:
-        # Trunk overloads `parent` per uploader, and ownership is resolved from the source_path and
-        # crate this view reads out of it, so getting either wrong unattributes the whole board.
+    @parameterized.expand([("v1_shape", False), ("v2_shape", True)])
+    def test_trunk_quarantined_tests_view_labels_runners_and_reconstructs_paths(
+        self, _name: str, v2_shape: bool
+    ) -> None:
+        # Trunk overloads `parent` per uploader. A table keeps the v1 shape until its source moves
+        # to the v2 API and resyncs.
         table_name = self._create_table(
             "trunkio_quarantinedtests",
-            TRUNK_QUARANTINED_TESTS_COLUMNS,
+            TRUNK_QUARANTINED_TESTS_COLUMNS if v2_shape else TRUNK_QUARANTINED_TESTS_V1_COLUMNS,
             [
                 _quarantined_row(
                     file="posthog/api/test/test_person.py",
                     name="test_merge",
                     classname="posthog.api.test.test_person.TestPerson",
                     parent="pytest",
+                    v2_shape=v2_shape,
                 ),
                 _quarantined_row(
                     file="",
                     name="k3s_integration",
                     classname="personhog-coordination",
                     parent="personhog-coordination::k3s_integration",
+                    v2_shape=v2_shape,
                 ),
-                _quarantined_row(file="src/cdp/cdp.test.ts", name="routes", classname="", parent="src/cdp/cdp.test.ts"),
+                _quarantined_row(
+                    file="src/cdp/cdp.test.ts",
+                    name="routes",
+                    classname="",
+                    parent="src/cdp/cdp.test.ts",
+                    v2_shape=v2_shape,
+                ),
             ],
         )
-        rows = self._select(
-            f"SELECT runner, nodeid, source_path, crate FROM ({trunk_quarantined_tests.build_query(table_name)}) AS q "
-            "ORDER BY runner"
-        )
+        query = trunk_quarantined_tests.build_query(table_name, v2_shape=v2_shape)
+        rows = self._select(f"SELECT runner, nodeid, source_path, crate, trunk_url FROM ({query}) AS q ORDER BY runner")
+
+        def url(name: str) -> str | None:
+            return (
+                f"https://app.trunk.io/example/flaky-tests/collections/collection/tests/case-{name}"
+                if v2_shape
+                else None
+            )
+
         assert rows == [
-            ("jest", "src/cdp/cdp.test.ts::routes", "src/cdp/cdp.test.ts", ""),
+            ("jest", "src/cdp/cdp.test.ts::routes", "src/cdp/cdp.test.ts", "", url("routes")),
             (
                 "pytest",
                 "posthog/api/test/test_person.py::TestPerson::test_merge",
                 "posthog/api/test/test_person.py",
                 "",
+                url("test_merge"),
             ),
-            ("rust", "personhog-coordination::k3s_integration", "", "personhog-coordination"),
+            ("rust", "personhog-coordination::k3s_integration", "", "personhog-coordination", url("k3s_integration")),
         ]

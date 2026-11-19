@@ -13,7 +13,7 @@ Refresh runs *before* classification so that documents whose content changed
 during the refresh (reset to ``unknown``) get classified in the same pass —
 otherwise they'd be searchable as ``unknown`` until the next hourly run.
 
-Per-source refresh reuses the shipped, idempotent `logic.refresh_source`; the
+Per-source refresh reuses `logic.claim_refresh_source` + `execute_refresh_source`; the
 existing per-team advisory lock ("one PROCESSING source per team") plus the
 schedule's SKIP overlap policy prevent concurrent double-refresh, so there is
 no bespoke concurrency cap here.
@@ -28,9 +28,12 @@ from datetime import timedelta
 from typing import Any, TypeVar
 from uuid import UUID
 
+from django.conf import settings
+
 import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -51,8 +54,9 @@ from ..constants import (
     BK_EMBEDDING_RENDERING,
     MAX_URLS_PER_SOURCE,
     PENDING_EMBEDDING_SCAN_CAP,
+    REEMIT_EMBEDDING_SCAN_CAP,
 )
-from ..models import SafetyVerdict
+from ..models import KnowledgeSource, SafetyVerdict
 
 logger = structlog.get_logger(__name__)
 
@@ -74,12 +78,22 @@ REFRESH_COORDINATOR_WORKFLOW_V2 = "business-knowledge-refresh-coordinator-v2"
 class RefreshSourceInputs:
     team_id: int
     source_id: str
+    claim_id: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
 class IngestSourceInputs:
     team_id: int
     source_id: str
+    claim_id: str | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class ReleaseFailedSourceInputs:
+    team_id: int
+    source_id: str
+    discard_documents: bool
+    claim_id: str | None = None
 
 
 @activity.defn
@@ -96,14 +110,17 @@ async def classify_pending_documents_activity(exclude_ids: list[str] | None = No
     must not spend the hourly retry budget on the same page.
     """
 
-    def _list() -> list[logic.PendingDocument]:
+    def _list() -> tuple[list[logic.PendingDocument], bool]:
         parsed = [UUID(value) for value in exclude_ids] if exclude_ids else None
-        return logic.list_documents_pending_classification(exclude_ids=parsed)
+        return logic.load_documents_pending_classification(exclude_ids=parsed)
 
-    docs = await database_sync_to_async(_list, thread_sensitive=False)()
+    docs, has_more = await database_sync_to_async(_list, thread_sensitive=False)()
     tried_ids = [str(doc.document_id) for doc in docs]
     if not docs:
         return {"classified": 0, "unsafe": 0, "scanned": 0, "tried_ids": tried_ids}
+    recorded = bool(getattr(settings, "GEMINI_API_KEY", ""))
+    if recorded:
+        await database_sync_to_async(logic.record_classification_attempts, thread_sensitive=False)(docs)
     async with Heartbeater():
         results = await safety.classify_documents(docs)
         for result in results:
@@ -113,9 +130,19 @@ async def classify_pending_documents_activity(exclude_ids: list[str] | None = No
                 verdict=result.verdict,
                 reason=result.reason,
                 content_hash=result.content_hash,
+                attempt_already_recorded=recorded,
             )
     unsafe = sum(1 for r in results if r.verdict == SafetyVerdict.UNSAFE)
-    return {"classified": len(results), "unsafe": unsafe, "scanned": len(docs), "tried_ids": tried_ids}
+    return {
+        "classified": len(results),
+        "unsafe": unsafe,
+        "scanned": _chunk_scan_count(
+            returned=len(docs),
+            has_more=has_more,
+            cap=logic.PENDING_CLASSIFICATION_SCAN_CAP,
+        ),
+        "tried_ids": tried_ids,
+    }
 
 
 def _produce_document_chunks(doc: logic.DocumentToEmbed) -> None:
@@ -200,27 +227,51 @@ async def emit_pending_embeddings_activity() -> dict[str, Any]:
     One chunk, bounded by ``PENDING_EMBEDDING_SCAN_CAP``. The coordinator calls
     this again while the chunk comes back full and at least one doc was stamped.
     Per-doc failures are logged and skipped without stamping, so they stay
-    queued. A chunk that stamps nothing is not retried in this run.
+    queued. This chunk loads the next page past those failures so one document
+    cannot block the ones behind it. A chunk that stamps nothing stops.
     """
-    docs = await database_sync_to_async(logic.list_documents_pending_embedding, thread_sensitive=False)()
+    exclude: list[UUID] = []
     documents_embedded = 0
     chunks_emitted = 0
-    for doc in docs:
-        try:
-            written = await database_sync_to_async(_emit_one_document, thread_sensitive=False)(doc)
-        except Exception:
-            logger.exception(
-                "business_knowledge.embedding.emit_failed",
-                team_id=doc.team_id,
-                document_id=str(doc.document_id),
-            )
-            continue
-        documents_embedded += 1
-        chunks_emitted += written
+    scanned = 0
+    has_more = False
+
+    def _load() -> tuple[list[logic.DocumentToEmbed], bool]:
+        return logic.load_documents_pending_embedding(exclude_ids=exclude or None)
+
+    # A failing document stays first in id order. Skip it inside this chunk so
+    # the documents behind it still embed. Stop once a page makes progress.
+    for _ in range(PENDING_EMBEDDING_SCAN_CAP):
+        docs, has_more = await database_sync_to_async(_load, thread_sensitive=False)()
+        if not docs:
+            has_more = False
+            break
+        page_embedded = 0
+        for doc in docs:
+            try:
+                written = await database_sync_to_async(_emit_one_document, thread_sensitive=False)(doc)
+            except Exception:
+                logger.exception(
+                    "business_knowledge.embedding.emit_failed",
+                    team_id=doc.team_id,
+                    document_id=str(doc.document_id),
+                )
+                exclude.append(doc.document_id)
+                continue
+            page_embedded += 1
+            documents_embedded += 1
+            chunks_emitted += written
+        scanned += len(docs)
+        if page_embedded or not has_more:
+            break
     return {
         "documents_embedded": documents_embedded,
         "chunks_emitted": chunks_emitted,
-        "scanned": len(docs),
+        "scanned": _chunk_scan_count(
+            returned=scanned,
+            has_more=has_more and documents_embedded > 0,
+            cap=PENDING_EMBEDDING_SCAN_CAP,
+        ),
     }
 
 
@@ -236,23 +287,38 @@ async def refresh_aging_embeddings_activity() -> dict[str, Any]:
     timestamp=now() (the TTL is on the embedding row timestamp, so the stable
     created_at would not reset it) and re-stamps ``embeddings_emitted_at`` so the
     doc drops out of the refresh window for another cycle. Per-doc failures are
-    logged and skipped without re-stamping, so they retry on a later pass.
+    logged and skipped without re-stamping, so they retry on a later pass. This
+    pass loads the next page past those failures so one document cannot block
+    the ones behind it. A page that re-stamps at least one doc ends the pass.
     """
-    docs = await database_sync_to_async(logic.list_documents_for_embedding_refresh, thread_sensitive=False)()
+    exclude: list[UUID] = []
     documents_refreshed = 0
     chunks_reemitted = 0
-    for doc in docs:
-        try:
-            written = await database_sync_to_async(_reemit_one_document, thread_sensitive=False)(doc)
-        except Exception:
-            logger.exception(
-                "business_knowledge.embedding.refresh_failed",
-                team_id=doc.team_id,
-                document_id=str(doc.document_id),
-            )
-            continue
-        documents_refreshed += 1
-        chunks_reemitted += written
+
+    def _load() -> list[logic.DocumentToEmbed]:
+        return logic.list_documents_for_embedding_refresh(exclude_ids=exclude or None)
+
+    for _ in range(REEMIT_EMBEDDING_SCAN_CAP):
+        docs = await database_sync_to_async(_load, thread_sensitive=False)()
+        if not docs:
+            break
+        page_refreshed = 0
+        for doc in docs:
+            try:
+                written = await database_sync_to_async(_reemit_one_document, thread_sensitive=False)(doc)
+            except Exception:
+                logger.exception(
+                    "business_knowledge.embedding.refresh_failed",
+                    team_id=doc.team_id,
+                    document_id=str(doc.document_id),
+                )
+                exclude.append(doc.document_id)
+                continue
+            page_refreshed += 1
+            documents_refreshed += 1
+            chunks_reemitted += written
+        if page_refreshed:
+            break
     return {"documents_refreshed": documents_refreshed, "chunks_reemitted": chunks_reemitted}
 
 
@@ -376,6 +442,65 @@ def _crawl_activity_timeouts() -> tuple[timedelta, timedelta | None]:
     return timedelta(minutes=10), None
 
 
+def _parse_claim_id(claim_id: str | None) -> UUID | None:
+    return UUID(claim_id) if claim_id else None
+
+
+# Pre-patch histories never released failed sources and refreshed due sources in one activity; replay must match.
+_RELEASE_FAILED_SOURCE_PATCH = "bk-release-failed-source"
+
+
+async def _release_failed_source(inputs: ReleaseFailedSourceInputs) -> None:
+    if not workflow.patched(_RELEASE_FAILED_SOURCE_PATCH):
+        return
+    await workflow.execute_activity(
+        release_failed_source_activity,
+        inputs,
+        start_to_close_timeout=timedelta(minutes=2),
+        retry_policy=RetryPolicy(maximum_attempts=3),
+    )
+
+
+async def _refresh_due_source(
+    inputs: RefreshSourceInputs, *, start_to_close: timedelta, heartbeat: timedelta | None
+) -> dict[str, Any]:
+    if not workflow.patched(_RELEASE_FAILED_SOURCE_PATCH):
+        return await workflow.execute_activity(
+            refresh_knowledge_source_activity,
+            inputs,
+            start_to_close_timeout=start_to_close,
+            heartbeat_timeout=heartbeat,
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+    inputs = dataclasses.replace(inputs, claim_id=str(workflow.uuid4()))
+    claimed = await workflow.execute_activity(
+        claim_refresh_source_activity,
+        inputs,
+        start_to_close_timeout=timedelta(minutes=2),
+        retry_policy=RetryPolicy(maximum_attempts=3),
+    )
+    if claimed.get("status") != "ok":
+        return claimed
+    try:
+        return await workflow.execute_activity(
+            execute_refresh_knowledge_source_activity,
+            inputs,
+            start_to_close_timeout=start_to_close,
+            heartbeat_timeout=heartbeat,
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+    except ActivityError:
+        await _release_failed_source(
+            ReleaseFailedSourceInputs(
+                team_id=inputs.team_id,
+                source_id=inputs.source_id,
+                discard_documents=False,
+                claim_id=inputs.claim_id,
+            )
+        )
+        raise
+
+
 @activity.defn
 async def refresh_knowledge_source_activity(inputs: RefreshSourceInputs) -> dict[str, Any]:
     """
@@ -405,16 +530,39 @@ async def refresh_knowledge_source_activity(inputs: RefreshSourceInputs) -> dict
 
 
 @activity.defn
+async def claim_refresh_source_activity(inputs: RefreshSourceInputs) -> dict[str, Any]:
+    """
+    Claim half of a coordinator refresh. Its execute half then retries without
+    re-claiming, so the per-team busy check cannot skip a retry.
+    """
+    log = logger.bind(team_id=inputs.team_id, source_id=inputs.source_id)
+    try:
+        await database_sync_to_async(logic.claim_refresh_source, thread_sensitive=False)(
+            source_id=UUID(inputs.source_id),
+            team_id=inputs.team_id,
+            claim_id=_parse_claim_id(inputs.claim_id),
+        )
+    except logic.SourceBusyError:
+        return {"status": "skipped", "reason": "busy"}
+    except KnowledgeSource.DoesNotExist:
+        return {"status": "skipped", "reason": "missing"}
+    except (logic.InvalidUrlError, logic.QuotaExceededError) as exc:
+        log.info("business_knowledge.refresh.recorded_failure", error_type=type(exc).__name__)
+        return {"status": "error", "reason": type(exc).__name__}
+    return {"status": "ok"}
+
+
+@activity.defn
 async def execute_refresh_knowledge_source_activity(inputs: RefreshSourceInputs) -> dict[str, Any]:
     """
     Execute the fetch+rebuild half of a refresh for a source already claimed
-    PROCESSING. Used by the ad-hoc refresh workflow (user clicks "Re-fetch").
+    PROCESSING. Used by the ad-hoc refresh workflow (user clicks "Re-fetch") and the coordinator.
     """
     log = logger.bind(team_id=inputs.team_id, source_id=inputs.source_id)
     async with Heartbeater():
         try:
             await database_sync_to_async(logic.execute_refresh_source, thread_sensitive=False)(
-                source_id=UUID(inputs.source_id), team_id=inputs.team_id
+                source_id=UUID(inputs.source_id), team_id=inputs.team_id, claim_id=_parse_claim_id(inputs.claim_id)
             )
         except (
             logic.InvalidUrlError,
@@ -425,6 +573,22 @@ async def execute_refresh_knowledge_source_activity(inputs: RefreshSourceInputs)
             log.info("business_knowledge.refresh.recorded_failure", error_type=type(exc).__name__)
             return {"status": "error", "reason": type(exc).__name__}
         return {"status": "ok"}
+
+
+@activity.defn
+async def release_failed_source_activity(inputs: ReleaseFailedSourceInputs) -> None:
+    logger.warning(
+        "business_knowledge.processing.released_after_failure",
+        team_id=inputs.team_id,
+        source_id=inputs.source_id,
+        discard_documents=inputs.discard_documents,
+    )
+    await database_sync_to_async(logic.release_failed_source, thread_sensitive=False)(
+        source_id=UUID(inputs.source_id),
+        team_id=inputs.team_id,
+        claim_id=_parse_claim_id(inputs.claim_id),
+        discard_documents=inputs.discard_documents,
+    )
 
 
 @activity.defn
@@ -441,7 +605,7 @@ async def ingest_knowledge_source_activity(inputs: IngestSourceInputs) -> dict[s
     async with Heartbeater():
         try:
             await database_sync_to_async(logic.ingest_source, thread_sensitive=False)(
-                source_id=UUID(inputs.source_id), team_id=inputs.team_id
+                source_id=UUID(inputs.source_id), team_id=inputs.team_id, claim_id=_parse_claim_id(inputs.claim_id)
             )
         except (
             logic.InvalidUrlError,
@@ -459,13 +623,24 @@ class BusinessKnowledgeIngestSourceWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: IngestSourceInputs) -> dict[str, Any]:
         start_to_close, heartbeat = _crawl_activity_timeouts()
-        return await workflow.execute_activity(
-            ingest_knowledge_source_activity,
-            inputs,
-            start_to_close_timeout=start_to_close,
-            heartbeat_timeout=heartbeat,
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
+        try:
+            return await workflow.execute_activity(
+                ingest_knowledge_source_activity,
+                inputs,
+                start_to_close_timeout=start_to_close,
+                heartbeat_timeout=heartbeat,
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except ActivityError:
+            await _release_failed_source(
+                ReleaseFailedSourceInputs(
+                    team_id=inputs.team_id,
+                    source_id=inputs.source_id,
+                    discard_documents=True,
+                    claim_id=inputs.claim_id,
+                )
+            )
+            raise
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> IngestSourceInputs:
@@ -480,13 +655,24 @@ class BusinessKnowledgeRefreshSourceWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: RefreshSourceInputs) -> dict[str, Any]:
         start_to_close, heartbeat = _crawl_activity_timeouts()
-        return await workflow.execute_activity(
-            execute_refresh_knowledge_source_activity,
-            inputs,
-            start_to_close_timeout=start_to_close,
-            heartbeat_timeout=heartbeat,
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
+        try:
+            return await workflow.execute_activity(
+                execute_refresh_knowledge_source_activity,
+                inputs,
+                start_to_close_timeout=start_to_close,
+                heartbeat_timeout=heartbeat,
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except ActivityError:
+            await _release_failed_source(
+                ReleaseFailedSourceInputs(
+                    team_id=inputs.team_id,
+                    source_id=inputs.source_id,
+                    discard_documents=False,
+                    claim_id=inputs.claim_id,
+                )
+            )
+            raise
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> RefreshSourceInputs:
@@ -500,6 +686,18 @@ _ChunkT = TypeVar("_ChunkT")
 def _embed_chunk_has_more(batch: dict[str, int], *, chunk_size: int) -> bool:
     scanned = batch["scanned"]
     return scanned >= chunk_size and batch["documents_embedded"] > 0
+
+
+def _chunk_scan_count(*, returned: int, has_more: bool, cap: int) -> int:
+    """Report a full chunk when the byte budget cut the page short.
+
+    The drain stops on a short page. A page that still has documents behind it
+    has to look full, or those documents wait until the next hourly run.
+    An empty page stays empty so a bad `has_more` cannot loop the drain.
+    """
+    if has_more and returned > 0:
+        return cap
+    return returned
 
 
 @frozen
@@ -610,16 +808,7 @@ async def _run_refresh_coordinator(*, drain_index_queues: bool) -> dict[str, Any
     start_to_close, heartbeat = _crawl_activity_timeouts()
     for batch in _host_serialized_batches(due, MAX_CONCURRENT_REFRESHES):
         results = await asyncio.gather(
-            *(
-                workflow.execute_activity(
-                    refresh_knowledge_source_activity,
-                    inputs,
-                    start_to_close_timeout=start_to_close,
-                    heartbeat_timeout=heartbeat,
-                    retry_policy=RetryPolicy(maximum_attempts=2),
-                )
-                for inputs in batch
-            ),
+            *(_refresh_due_source(inputs, start_to_close=start_to_close, heartbeat=heartbeat) for inputs in batch),
             return_exceptions=True,
         )
         for result in results:

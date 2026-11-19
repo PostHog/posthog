@@ -1,5 +1,5 @@
 import type { ReplayObservationApi } from '../generated/api.schemas'
-import { dockObservations, observationClipboardText, scannerLabel } from './observation'
+import { observationClipboardText, scannerLabel } from './observation'
 
 function makeObservation(
     scannerType: string,
@@ -42,33 +42,6 @@ describe('observation utils', () => {
             },
         ])('$name', ({ obs, expected }) => {
             expect(observationClipboardText(obs)).toBe(expected)
-        })
-    })
-
-    describe('dockObservations', () => {
-        const obs = (
-            id: string,
-            scannerType: string,
-            status: ReplayObservationApi['status']
-        ): ReplayObservationApi => ({ ...makeObservation(scannerType, null, status), id })
-
-        // The dock is the only vision surface under the player, and a scan that settled without a
-        // result is exactly what a person needs it for: nothing else there says why none arrived.
-        // Succeeded scanner runs stay in the sidebar, so the dock does not restate what it already has.
-        it.each<[string, ReplayObservationApi[], string[]]>([
-            ['a summary is shown', [obs('s1', 'summarizer', 'succeeded')], ['s1']],
-            ['a failed summary is shown once, not twice', [obs('s1', 'summarizer', 'failed')], ['s1']],
-            ['a failed scanner is shown', [obs('m1', 'monitor', 'failed')], ['m1']],
-            ['an ineligible scanner is shown', [obs('m1', 'monitor', 'ineligible')], ['m1']],
-            ['a succeeded scanner stays in the sidebar', [obs('m1', 'monitor', 'succeeded')], []],
-            ['a running scanner stays in the sidebar', [obs('m1', 'monitor', 'running')], []],
-            [
-                'summaries come before scans that left no result',
-                [obs('m1', 'monitor', 'failed'), obs('s1', 'summarizer', 'succeeded')],
-                ['s1', 'm1'],
-            ],
-        ])('%s', (_, observations, expectedIds) => {
-            expect(dockObservations(observations).map((o) => o.id)).toEqual(expectedIds)
         })
     })
 

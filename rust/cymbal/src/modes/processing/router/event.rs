@@ -17,7 +17,7 @@ use crate::{
     error::UnhandledError,
     metric_consts::{
         ERRORS, PROCESS_BATCH_EVENTS, PROCESS_IN_FLIGHT, PROCESS_REQUESTS_TOTAL,
-        PROCESS_REQUEST_DURATION_SECONDS,
+        PROCESS_REQUEST_DURATION_MS,
     },
     stages::http_pipeline::HttpEventPipeline,
     types::{batch::Batch, event::AnyEvent, stage::Stage},
@@ -137,10 +137,9 @@ pub async fn process_events(
 
     let duration = started_at.elapsed();
     let duration_ms = duration.as_millis() as u64;
-    let duration_s = duration.as_secs_f64();
     let is_slow = duration_ms >= slow_log_threshold_ms;
 
-    metrics::histogram!(PROCESS_REQUEST_DURATION_SECONDS).record(duration_s);
+    metrics::histogram!(PROCESS_REQUEST_DURATION_MS).record(duration.as_secs_f64() * 1000.0);
 
     match &output {
         Ok(batch) => {

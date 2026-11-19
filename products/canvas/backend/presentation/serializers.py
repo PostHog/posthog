@@ -8,6 +8,8 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.canvas.backend.facade.api import (
     CANVAS_LAYOUT_SCHEMA_VERSION,
     GRID_COLUMN_CHOICES,
@@ -20,6 +22,7 @@ from products.canvas.backend.facade.api import (
     ConnectorKind,
     canvas_sdk_version,
     contract_limits,
+    editable_canvas_ids,
 )
 from products.canvas.backend.facade.contracts import CanvasBuildRecord, CanvasRecord
 from products.canvas.backend.facade.enums import (
@@ -41,7 +44,9 @@ _CANVAS_URL_HELP_TEXT = (
 
 def canvas_url(canvas: CanvasRecord) -> str:
     # The same shape the thread-message announcements use; the route deep-links
-    # into the desktop app and renders in the web app.
+    # into the desktop app and renders in the web app. This URL has no
+    # `/project/<id>/` prefix because released desktop apps read it, and their
+    # share link parser only matches `/code/canvas/<channel>/<canvas>`.
     return f"{settings.SITE_URL}/code/canvas/{canvas.channel_id}/{canvas.id}"
 
 
@@ -87,7 +92,7 @@ class CanvasComponentMetaSerializer(serializers.Serializer):
     )
 
 
-class CanvasSerializer(serializers.Serializer):
+class CanvasSerializer(UserAccessControlSerializerMixin, serializers.Serializer):
     """A canvas document. Version/build content hangs off the source and build endpoints."""
 
     id = serializers.UUIDField(read_only=True)
@@ -140,6 +145,35 @@ class CanvasSerializer(serializers.Serializer):
     @extend_schema_field(CanvasComponentMetaSerializer(allow_null=True))
     def get_component_meta(self, canvas: CanvasRecord) -> dict | None:
         return canvas.component_meta
+
+    def get_user_access_level(self, obj: CanvasRecord | ObjectAccessRef | models.Model) -> str | None:
+        if isinstance(obj, CanvasRecord):
+            obj = ObjectAccessRef(
+                resource="canvas", id=str(obj.id), team_id=obj.team_id, created_by_id=obj.created_by_id
+            )
+        level = super().get_user_access_level(obj)
+        if level == "editor" and isinstance(obj, ObjectAccessRef) and not self._can_edit(obj.id):
+            # The space rule narrows editing beyond the object-level grant, so don't offer edit controls that 404.
+            return "viewer"
+        return level
+
+    def _can_edit(self, canvas_id: str) -> bool:
+        """Whether the viewer may edit the canvas, answered for the whole page being serialised at once.
+
+        The answers stay on the view, so a list costs one query however many rows it holds.
+        """
+        view = self.context.get("view")
+        viewer_for = getattr(view, "_viewer", None)
+        if view is None or viewer_for is None:
+            return False
+        answers: dict[str, bool] = view.__dict__.setdefault("_canvas_edit_answers", {})
+        if canvas_id not in answers:
+            siblings = self.parent.instance if isinstance(self.parent, serializers.ListSerializer) else [self.instance]
+            batch = {canvas_id, *(str(row.id) for row in siblings or [] if isinstance(row, CanvasRecord))}
+            unanswered = batch - answers.keys()
+            editable = editable_canvas_ids(viewer_for(), unanswered)
+            answers.update({pending: pending in editable for pending in unanswered})
+        return answers[canvas_id]
 
 
 class CanvasCreateSerializer(serializers.Serializer):
@@ -252,6 +286,18 @@ class CanvasPostHogCapabilitiesSerializer(serializers.Serializer):
             "'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
         ),
     )
+    # Optional so projects published before ph.tools exist unchanged.
+    tools = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        required=False,
+        default=list,
+        max_length=32,
+        help_text=(
+            "PostHog MCP tools the canvas may run via ph.tools (e.g. 'feature-flag-get-definition', "
+            "'feature-flag-set-release-condition-rollout'). Each runs as the viewer; declaring one shows it in the "
+            "promote review."
+        ),
+    )
     agentRequests = serializers.BooleanField(required=False, default=False)
 
 
@@ -339,6 +385,7 @@ class CanvasSourceProjectSerializer(serializers.Serializer):
                 "captureEvents": [],
                 "state": [],
                 "actions": [],
+                "tools": [],
                 "agentRequests": False,
             },
             "network": {"origins": []},
@@ -1121,9 +1168,44 @@ class CanvasCapabilityWideningSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Action verbs the draft newly declares it may invoke via ph.actions.",
     )
+    tools_added = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="PostHog MCP tools the draft newly declares it may run via ph.tools.",
+    )
     connectors_added = CanvasConnectorDeclarationSerializer(
         many=True,
         help_text="Connector providers and tools the draft newly declares it may call via ph.connectors.",
+    )
+
+
+class CanvasCreatorRequiredCode(models.TextChoices):
+    CAPABILITY_WIDENING = "capability_widening_requires_creator", "Capability widening requires creator"
+    PINNED_VERSION = "pinned_version_requires_creator", "Pinned version requires creator"
+    PERMISSION_DENIED = "permission_denied", "Permission denied"
+
+
+class CanvasCreatorRequiredSerializer(serializers.Serializer):
+    """403 body for a change that only a creator can make: renaming or adding capabilities to a canvas,
+    or pinning a component version other than that component's live version."""
+
+    detail = serializers.CharField(help_text="Human-readable description of the refusal.")
+    code = serializers.ChoiceField(
+        choices=CanvasCreatorRequiredCode.choices,
+        help_text="`capability_widening_requires_creator`: the change adds capabilities and the caller did not "
+        "create the canvas. `pinned_version_requires_creator`: a grid layout pins a component version other than "
+        "that component's live version and the caller did not create that component. `permission_denied`: a "
+        "publish or edit supplied a name and the caller did not create the canvas.",
+    )
+    capability_widening = CanvasCapabilityWideningSerializer(
+        required=False,
+        help_text="Set for capability_widening_requires_creator. The capabilities the change adds, so the caller "
+        "can ask the canvas creator to publish them.",
+    )
+    components = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text="Set for pinned_version_requires_creator. IDs of the components whose placements must use the "
+        "live version or `latest` instead.",
     )
 
 
@@ -1140,16 +1222,40 @@ class CanvasActionDefinitionSerializer(serializers.Serializer):
     )
 
 
+class CanvasToolDefinitionSerializer(serializers.Serializer):
+    """One PostHog MCP tool a canvas may declare, as the host renders it before running it."""
+
+    name = serializers.CharField(help_text="MCP tool name, e.g. 'feature-flag-enable'.")
+    title = serializers.CharField(help_text="Human-readable tool title.")
+    summary = serializers.CharField(help_text="One line naming what the tool does.")
+    # The name shadows Field.read_only for mypy only: DRF moves declared fields off the class.
+    read_only = serializers.BooleanField(  # type: ignore[assignment]
+        help_text="True when the tool only reads. A canvas runs read-only tools with ph.tools.read, others with "
+        "ph.tools.call."
+    )
+    destructive = serializers.BooleanField(
+        help_text="True when the tool deletes or overwrites something; the host warns the viewer before it runs."
+    )
+
+
 class CanvasActionsResponseSerializer(serializers.Serializer):
-    """The action registry: every verb a canvas may declare and invoke."""
+    """The action registry: every verb and PostHog MCP tool a canvas may declare and invoke."""
 
     actions = CanvasActionDefinitionSerializer(many=True, help_text="Registered verbs, sorted by name.")
+    tools = CanvasToolDefinitionSerializer(
+        many=True,
+        help_text="PostHog MCP tools a canvas may declare in capabilities.posthog.tools, sorted by name. Read each "
+        "tool's input schema with the MCP `info` command.",
+    )
 
 
 class CanvasActionInvokeSerializer(serializers.Serializer):
     """Payload for invoking one action verb."""
 
-    verb = serializers.CharField(max_length=64, help_text="Registered verb to invoke, e.g. 'tasks.create'.")
+    # Untrimmed, so the scope check and the dispatch read the same verb.
+    verb = serializers.CharField(
+        max_length=64, trim_whitespace=False, help_text="Registered verb to invoke, e.g. 'tasks.create'."
+    )
     payload = serializers.DictField(
         required=False,
         default=dict,
@@ -1164,6 +1270,27 @@ class CanvasActionResultSerializer(serializers.Serializer):
     result = serializers.DictField(
         help_text="Verb-specific result, e.g. {'task_id': ...} for tasks.create.",
     )
+
+
+class CanvasToolInvokeSerializer(serializers.Serializer):
+    """Payload for running one PostHog MCP tool."""
+
+    # Untrimmed, so the scope check and the dispatch read the same name.
+    tool = serializers.CharField(
+        max_length=200, trim_whitespace=False, help_text="MCP tool to run, e.g. 'feature-flag-enable'."
+    )
+    arguments = serializers.DictField(
+        required=False,
+        default=dict,
+        help_text="The tool's input, exactly as an MCP client passes it.",
+    )
+
+
+class CanvasToolResultSerializer(serializers.Serializer):
+    """Result of one PostHog MCP tool run."""
+
+    tool = serializers.CharField(help_text="The tool that ran.")
+    result = serializers.DictField(help_text="The tool's JSON result.")
 
 
 class CanvasConnectorToolSerializer(serializers.Serializer):
@@ -1350,6 +1477,18 @@ class CanvasStateResponseSerializer(serializers.Serializer):
     entries = CanvasStateEntrySerializer(
         many=True,
         help_text="The canvas's shared entries plus the caller's own user-scoped entries.",
+    )
+    count = serializers.IntegerField(help_text="Number of entries in the whole selection, across all pages.")
+    next = serializers.URLField(
+        allow_null=True,
+        help_text=(
+            "URL of the next page, or null when complete. It pages the same way as this request: by cursor "
+            "when the request used a cursor, otherwise by offset."
+        ),
+    )
+    previous = serializers.URLField(
+        allow_null=True,
+        help_text="URL of the previous page by offset, or null on the first page and for a cursor request.",
     )
     next_offset = serializers.IntegerField(
         allow_null=True,

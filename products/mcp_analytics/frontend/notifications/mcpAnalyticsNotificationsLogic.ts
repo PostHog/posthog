@@ -15,7 +15,7 @@ const MCP_NOTIFICATION_LIST_LIMIT = 500
 const MCP_NOTIFICATION_SUB_TEMPLATE_IDS: HogFunctionSubTemplateIdType[] = ['mcp-tool-error']
 
 function getMCPNotificationFilterGroups(): CyclotronJobFiltersType[] {
-    return MCP_NOTIFICATION_SUB_TEMPLATE_IDS.map(getFiltersFromSubTemplateId).filter(
+    return MCP_NOTIFICATION_SUB_TEMPLATE_IDS.map((id) => getFiltersFromSubTemplateId(id)).filter(
         (filters): filters is CyclotronJobFiltersType => !!filters
     )
 }
@@ -168,7 +168,7 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
                     actions.setNotificationsTruncated(notificationsTruncated)
                     if (notificationsTruncated) {
                         lemonToast.warning(
-                            `Showing the first ${MCP_NOTIFICATION_LIST_LIMIT} notifications — manage the rest from the data pipelines page.`
+                            `Showing the first ${MCP_NOTIFICATION_LIST_LIMIT} notifications. Manage the rest from the data pipelines page.`
                         )
                     }
 

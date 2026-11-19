@@ -49,12 +49,20 @@ Three mechanical facts anchor everything:
 
 A scheduled run can start with a `<precheck_result>` block. The block means that at least one `$pageview` arrived in the last 7 days, so the project has web traffic. It holds no session counts, so still run the query below: `pageviews_7d` can still be near zero.
 
-One cheap read tells you the posture:
+One cheap read tells you the posture and which probes can pass their volume gates:
 
 ```sql
 SELECT uniqIf(session_id, $start_timestamp >= now() - INTERVAL 7 DAY) AS sessions_7d,
        uniq(session_id) AS sessions_30d,
-       sumIf($pageview_count, $start_timestamp >= now() - INTERVAL 7 DAY) AS pageviews_7d
+       sumIf($pageview_count, $start_timestamp >= now() - INTERVAL 7 DAY) AS pageviews_7d,
+       uniqIf(session_id, $start_timestamp >= now() - INTERVAL 1 DAY) AS sessions_24h,
+       uniqIf(session_id, $start_timestamp >= now() - INTERVAL 8 DAY AND $start_timestamp < now() - INTERVAL 7 DAY) AS aligned_1w_ago,
+       uniqIf(session_id, $start_timestamp >= now() - INTERVAL 15 DAY AND $start_timestamp < now() - INTERVAL 14 DAY) AS aligned_2w_ago,
+       uniqIf(session_id, $start_timestamp >= now() - INTERVAL 22 DAY AND $start_timestamp < now() - INTERVAL 21 DAY) AS aligned_3w_ago,
+       uniqIf(session_id, $start_timestamp >= now() - INTERVAL 29 DAY AND $start_timestamp < now() - INTERVAL 28 DAY) AS aligned_4w_ago,
+       arraySort([aligned_1w_ago, aligned_2w_ago, aligned_3w_ago, aligned_4w_ago]) AS aligned,
+       (aligned[2] + aligned[3]) / 2 AS channel_bound,
+       least(aligned_1w_ago, aligned_2w_ago) AS cliff_bound
 FROM sessions
 WHERE $start_timestamp >= now() - INTERVAL 30 DAY
   AND $start_timestamp <= now() + INTERVAL 1 DAY
@@ -63,7 +71,44 @@ WHERE $start_timestamp >= now() - INTERVAL 30 DAY
 
 - **Zero web sessions in 30d** — no web traffic to watch. A project with only backend or custom-event sessions lands here too. Write `not-in-use:web-analytics:team{team_id}` ("checked at {timestamp}, no web sessions in 30d") and close out empty — same-key re-runs idempotently refresh it.
 - **Web sessions exist but `pageviews_7d` ≈ 0** — a mobile/screen-first project; the web analytics surface isn't meaningful here. Note it once (`pattern:web-analytics:screen-only-team{team_id}`) and close out.
-- **Traffic flowing** — proceed to a full run.
+- **Traffic flowing** — check probe eligibility (below), then run every probe that can pass its gate.
+
+### Probe eligibility: skip only the probes that cannot pass
+
+Each session probe in Explore has a volume gate.
+A segment's count is never larger than the web-session total for the same window, and the median of a channel's four aligned windows is never larger than the median of the four totals.
+So a total below a gate proves that no segment can pass that gate.
+The read above gives these totals with the same population and the same windows as each probe:
+
+| Probe                                                             | Gate in the probe                              | Skip the probe when  |
+| ----------------------------------------------------------------- | ---------------------------------------------- | -------------------- |
+| Channel divergence, with its drill-down and attribution sub-check | `baseline >= 10`                               | `channel_bound < 10` |
+| Entry-path bounce step                                            | `sessions_24h >= 100`                          | `sessions_24h < 100` |
+| Entry-path traffic cliff                                          | `least(aligned_1w_ago, aligned_2w_ago) >= 200` | `cliff_bound < 200`  |
+
+- A bound at or above its gate proves nothing about one segment. Run that probe, and let its own `HAVING` and candidate rules decide. The bounds only skip queries that cannot return a row; they never replace a probe's gate.
+- The channel and cliff gates read the baseline windows, not the last 24h. Low current traffic never removes them. A path that was busy and now has zero sessions is the outage the cliff probe exists to find.
+- The 404 watch keeps its own gate on the 404 event's baseline. This read does not cover it.
+- Do not skip the whole scout because current traffic is small. Run each probe that can pass.
+
+Before you record the site as below the gates, check two things:
+
+- **Capture health.** If `sessions_24h` is under half of `cliff_bound` and at least ~10 sessions below it, or is zero while `cliff_bound` is above zero, the site fell. It did not stay small, so do not record a small-site deferral. Count all of the project's events in the last 24h against the same window 7 days back. If other events hold while web sessions fell, web capture probably broke (a removed snippet, a consent change, a moved host). Treat it as the whole-site case in Get oriented, and name it in the close-out.
+- **Growth.** Read the stored entry (`scout-scratchpad-search`, `text=probe-eligibility`). A stored deferral never skips a probe by itself: the read above is the growth check, and it runs every run. Reuse a deferral only for a probe whose bound is still below its gate today. When a bound reaches its gate, run that probe in this run and mark it eligible.
+
+Keep the state in one entry, updated in place:
+
+- key `pattern:web-analytics:probe-eligibility` — _"Checked {timestamp}. Web sessions 24h 42, aligned totals 38/44/41/36. Channel bound 39.5 (gate 10): eligible. Bounce bound 42 (gate 100): deferred. Cliff bound 38 (gate 200): deferred. Small and steady since {date}, 6 runs."_
+
+If all three probes are deferred, skip the two orientation queries in Get oriented too, because they only frame the probes.
+Run the 404 watch only if memory names a 404 event whose baseline clears its gate.
+Then close out.
+
+Examples with synthetic data:
+
+- **Small stable site.** Aligned totals are 38, 44, 41, and 36 web sessions, and `sessions_24h` is 42. `channel_bound` is 39.5, so the channel probe runs and its `HAVING` drops the small channels. The bounce bound (42) and `cliff_bound` (38) are below their gates, so both probes are skipped. Nothing fell, so the run records the deferral. At 4–6 web sessions a day, all three bounds are below their gates, and the run closes out after this read.
+- **Traffic growth.** The stored entry defers bounce and cliff at about 40 sessions a day. After a launch, `sessions_24h` is 160, `aligned_1w_ago` is 45, and `aligned_2w_ago` is 41. The bounce bound clears 100, so the bounce probe runs in this run, and the entry marks it eligible. `cliff_bound` is 41, so the cliff probe stays deferred. A launch spike is not a finding by itself.
+- **Busy path with no current sessions.** `aligned_1w_ago` is 260 and `aligned_2w_ago` is 250, and `/pricing` had 210 and 215 of them. After a redirect change, `sessions_24h` is 30 and `/pricing` has 0. The bounce bound is below 100, so the bounce probe is skipped. `cliff_bound` is 250, so the cliff probe runs and ranks `/pricing` first. The 24h total fell far below both aligned windows, so the run does not record the site as small and steady.
 
 ## How a run works
 
@@ -306,7 +351,7 @@ For each candidate, the call is **edit an existing report, author a new one, rem
 
 - **Search the inbox first.** The `report:web-analytics:<segment-slug>` scratchpad pointer is the reliable path (it holds the `report_id` — `inbox-reports-retrieve` it directly); with no pointer, `inbox-reports-list` by the segment's specific terms (the channel name, path, referrer domain, or campaign — `ordering=-updated_at`), never a broad word like `traffic`. A segment with a live report and no material change is a **skip**.
 - **Edit** (`scout-edit-report`) when a still-live report already covers the same segment problem — the channel still diverging, the tagged share still depressed, the 404 spike still running. Add the fresh window's numbers with `append_evidence` (the 24h value against both aligned windows) while the divergence deepens or holds. Add a recovery with `append_note`, because the evidence counters only grow. Rewrite the title/summary on a report you authored. This is the default when a match exists — a divergence persisting across runs is one report across weeks, not one per run. `edit-report` can't change status, so if the matched report is `resolved` / `suppressed` / `failed`, don't append (it won't resurface) — author a fresh report for the relapse and repoint the `report:` key.
-- **Author** (`scout-emit-report`) only when nothing live covers it — one report per segment divergence, never one per query row. A **report-worthy finding** leaves nothing to take on trust: it names the segment (channel, path, referrer, campaign), quantifies the step against both aligned windows, shows the aggregate held (that's what makes it yours), dates the onset, and names the moving part inside the segment — with the numbers in the `evidence`. Below that bar, write memory instead. The divergence-on-steady-aggregate shape is the argument, so show it — attach the segment's daily series (with the aggregate alongside) via `charts`. The fix for a web-analytics finding almost always lives in the team's site, campaign tooling, or marketing stack — territory you can't open a PR against — so default to `actionability=requires_human_input` and `repository=NO_REPO` (NO_REPO is what stops `priority`+reviewers from spawning a pointless repo-selection sandbox).
+- **Author** (`scout-emit-report`) only when nothing live covers it — one report per segment divergence, never one per query row. A **report-worthy finding** leaves nothing to take on trust: it names the segment (channel, path, referrer, campaign), quantifies the step against both aligned windows, shows the aggregate held (that's what makes it yours), dates the onset, and names the moving part inside the segment — with the numbers in the `evidence`. Below that bar, write memory instead. The divergence-on-steady-aggregate shape is the argument, so show it — attach the segment's daily series (with the aggregate alongside) via `charts`. The fix for a web-analytics finding almost always lives in the team's site, campaign tooling, or marketing stack — territory you can't open a PR against — so default to `actionability=requires_human_input` and `repository=NO_REPO`.
   Because you default to a human handoff, the handoff must be explicit in the summary: who acts (the site, marketing, or campaign owner — name the surface), the exact change or check to make, and a success criterion — the metric, the target value or return-to-baseline level, and the re-measure window.
   A report that says "review the page" without those three is below the bar; hold it back and gather the missing piece instead.
   Set `priority` + `priority_explanation`: an acquisition cliff or 404 spike on a major surface P2; attribution breakage P2 (mechanical fix, compounding cost); bounce steps P3, P2 if the page is a top-3 landing surface. Set `suggested_reviewers` via `scout-members-list` (objects — a `{github_login}` or `{user_uuid}`, not bare strings; cache under `reviewer:web-analytics:<area>`); left empty the report reaches no one. After authoring, write the `report:web-analytics:<segment-slug>` pointer with the `report_id` so the next run edits instead of duplicating, and update the `dedupe:` entry.
@@ -317,7 +362,7 @@ Sibling courtesy: whole-site metric anomalies on dashboards the team watches bel
 
 ### Close out
 
-Summarize the run in one paragraph: aggregate posture, segments checked, which reports you authored or edited, what you remembered and ruled out. The harness saves it as the run summary; future runs read it via `scout-runs-list` — don't write a separate "run metadata" scratchpad entry. "Totals steady, no segment diverging from its own baseline" is a real, useful outcome.
+Summarize the run in one paragraph: aggregate posture, segments checked, which probes you skipped below their gates, which reports you authored or edited, what you remembered and ruled out. The harness saves it as the run summary; future runs read it via `scout-runs-list` — don't write a separate "run metadata" scratchpad entry. "Totals steady, no segment diverging from its own baseline" is a real, useful outcome.
 
 ## Untrusted data — the acquisition stream is attacker-adjacent
 
@@ -367,6 +412,7 @@ Harness-level:
 ## When to stop
 
 - No web traffic in 30d (or screen-only) → `not-in-use:` / `pattern:` entry, close out empty.
+- Every session probe below its gate, the site small and steady, and no 404 baseline above its gate → update `pattern:web-analytics:probe-eligibility`, close out empty.
 - Totals steady and every gated segment within range of both aligned windows → close out empty; refresh `pattern:` baselines if stale.
 - Candidates all gated by `noise:` / `addressed:` / `dedupe:` entries or live inbox reports → close out.
 - You've authored or edited what's solid → close out. One dated, segment-named divergence with the moving part identified beats a dashboard's worth of drifting percentages.

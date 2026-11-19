@@ -231,6 +231,86 @@ When in doubt, classify as ACTIONABLE.
 Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
 
 
+# ── Incidents / on-call alerts ───────────────────────────────────────────────
+
+INCIDENT_SUMMARIZATION_PROMPT = """Summarize this incident for semantic search.
+Output exactly two parts separated by a newline:
+1. A short title (under 100 characters) naming the failure and the affected service or component
+2. A concise summary of what broke or degraded, its severity and status, and the affected product area, service, or data asset
+
+Strip alert boilerplate, runbook links, and repeated notification text — but keep error messages, failing checks, and the most specific component name.
+Keep the total output under {max_length} characters. Respond with only the title and summary, nothing else.
+
+<incident>
+{description}
+</incident>
+"""
+
+INCIDENT_ACTIONABILITY_PROMPT = """You are a site reliability engineer triaging incidents. Given an incident or alert from an on-call, incident-management, or data-observability tool, determine if it is actionable — it points to a product, infrastructure, or data defect an engineer could fix or prevent.
+
+An incident is ACTIONABLE if it describes:
+- An outage, error spike, or degraded performance in a product or service
+- A failing health check, monitor, or job that reflects a real defect
+- A data quality problem (stale, missing, or wrong data) in a pipeline or table
+- A capacity, configuration, or deploy problem that caused or could cause user impact
+- and similar real defects
+
+An incident is NOT_ACTIONABLE if it is:
+- A test page, drill, or tutorial incident
+- A planned maintenance window or an expected, scheduled event
+- A duplicate of another incident with no new information
+- Pure noise (a flapping alert with no impact, a heartbeat or "all clear" notification)
+
+When in doubt, classify as ACTIONABLE.
+
+<incident>
+{description}
+</incident>
+
+Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
+
+
+# ── Search and site audit findings ───────────────────────────────────────────
+
+SEARCH_OPPORTUNITY_SUMMARIZATION_PROMPT = """Summarize this search or site audit finding for semantic search.
+Output exactly two parts separated by a newline:
+1. A short title (under 100 characters) naming the problem and the affected site
+2. A concise summary of what is wrong, how many pages or URLs it affects, and how it hurts crawling, indexing, or search traffic
+
+Strip long URL lists and repeated metrics — but keep the issue type, the site, one example URL, and the counts that show how large the problem is.
+Keep the total output under {max_length} characters. Respond with only the title and summary, nothing else.
+
+<finding>
+{description}
+</finding>
+"""
+
+SEARCH_OPPORTUNITY_ACTIONABILITY_PROMPT = """You are a technical SEO analyst. Given a finding from a search console or site audit tool, determine if it is actionable — a problem on the site that engineers or content owners could fix so that search engines crawl, index, or show its pages better.
+
+A finding is ACTIONABLE if it describes:
+- Pages that return errors (4xx or 5xx), time out, or fail DNS resolution
+- Broken internal links, images, scripts, stylesheets, or canonical URLs
+- Pages blocked from crawling or indexing by mistake, or sitemap problems
+- Missing, duplicate, too long, or too short titles, meta descriptions, or headings
+- Redirect chains or loops, mixed content, insecure pages, or certificate problems
+- Slow pages or other performance problems a crawler reports
+- Pages that rank in search results but are rarely clicked
+- and similar fixable problems
+
+A finding is NOT_ACTIONABLE if it is:
+- Purely informational, with no defect on the site
+- A state the site owner chose on purpose, when the finding says so (for example admin or staging pages that are blocked from crawling)
+- A finding that affects no pages or URLs
+
+When in doubt, classify as ACTIONABLE. Site audit tools report concrete defects, so err on the side of capturing the signal.
+
+<finding>
+{description}
+</finding>
+
+Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
+
+
 COMMON_ACTIONABILITY_PROMPT_NAMES = {
     TICKET_ACTIONABILITY_PROMPT: "signals-actionability-ticket",
     ISSUE_ACTIONABILITY_PROMPT: "signals-actionability-issue",
@@ -238,4 +318,6 @@ COMMON_ACTIONABILITY_PROMPT_NAMES = {
     SCANNER_ACTIONABILITY_PROMPT: "signals-actionability-scanner",
     FEEDBACK_ACTIONABILITY_PROMPT: "signals-actionability-feedback",
     REVIEW_ACTIONABILITY_PROMPT: "signals-actionability-review",
+    INCIDENT_ACTIONABILITY_PROMPT: "signals-actionability-incident",
+    SEARCH_OPPORTUNITY_ACTIONABILITY_PROMPT: "signals-actionability-search-opportunity",
 }

@@ -1,0 +1,771 @@
+from collections.abc import Callable
+from itertools import product
+from typing import Any
+
+from unittest.mock import ANY, patch
+
+from django.core.cache import cache
+from django.db import OperationalError, connection
+
+from parameterized import parameterized
+from rest_framework import status
+from rest_framework.exceptions import ValidationError
+
+from posthog.models.integration import Integration
+from posthog.models.integration.email import EmailIntegration, lock_sender_domain
+from posthog.models.organization import Organization
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.team import Team
+from posthog.models.utils import hash_key_value
+
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.test.email_domain_api_test_case import (
+    ALL_KINDS,
+    DOMAIN,
+    ROOT_DOMAIN,
+    EmailDomainApiTestCase,
+    record_statuses,
+    step_states,
+)
+from products.workflows.backend.tests.fakes.fake_dns import dns_operation
+from products.workflows.backend.tests.fakes.faults import AwsFault, DnsFault
+from products.workflows.backend.tests.fakes.world import EmailDomainWorld
+
+SES_STATUS_READS = (
+    "ses.get_identity_verification_attributes",
+    "ses.get_identity_dkim_attributes",
+    "ses.get_identity_mail_from_domain_attributes",
+    "sts.get_caller_identity",
+    "sesv2.list_resource_tenants",
+)
+
+
+class TestEmailDomainVerification(EmailDomainApiTestCase):
+    def test_senders_become_verified_as_the_records_are_published_and_the_event_fires_once(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        sibling = self.create_sender(f"news@{DOMAIN}")
+        self.world.ses.identities[DOMAIN].checks_paused = True
+
+        body = self.status_body(sender)
+        assert (body["status"], body["verified"], step_states(body)) == (
+            "pending",
+            False,
+            ["done", "pending", "pending"],
+        )
+        assert {status for statuses in record_statuses(body).values() for status in statuses} == {"pending"}
+        records = body["records"]
+
+        for kind in ALL_KINDS[:-1]:
+            self.publish(records, kind)
+            body = self.status_body(sender)
+            assert (body["status"], set(record_statuses(body)[kind])) == ("pending", {"found"}), kind
+
+        self.publish(records, "dmarc")
+        body = self.status_body(sender)
+        assert (body["status"], step_states(body)) == ("records_found", ["done", "done", "pending"])
+        assert not self.is_verified(sender)
+        assert self.verified_events() == []
+
+        self.world.ses.identities[DOMAIN].checks_paused = False
+        body = self.status_body(sender)
+        assert (body["status"], body["verified"], step_states(body)) == ("verified", False, ["done", "done", "done"])
+        assert record_statuses(body) == {
+            "verification": ["verified"],
+            "dkim": ["verified"] * 3,
+            "spf": ["found"],
+            "mail_from_mx": ["verified"],
+            "mail_from_spf": ["verified"],
+            "dmarc": ["verified"],
+        }
+        assert not self.is_verified(sender)
+        self.world.dns.publish_txt(ROOT_DOMAIN, "v=spf1 include:sendgrid.net ~all")
+        self.world.dns.publish_txt(f"resend._domainkey.{ROOT_DOMAIN}", "p=MIGfMA0GCSqGSIb3DQEB")
+
+        assert self.verify(sender).status_code == status.HTTP_200_OK
+        assert self.status_body(sender)["verified"] is True
+        assert self.is_verified(sender) and self.is_verified(sibling)
+        assert TeamWorkflowsConfig.objects.get(team_id=self.team.id).default_email_integration_id == sender
+        assert self.verified_events() == [
+            {
+                "method": "agent",
+                "seconds_since_created": ANY,
+                "previous_email_providers": ["SendGrid", "Resend"],
+                "$set_once": {"email": self.user.email},
+            }
+        ]
+        self.reload_workers.assert_called_once_with(self.team.id, sorted([sender, sibling]))
+        assert self.world.ses.writes.count("verify_domain_identity") == 3
+
+        late_sender = self.create_sender(f"billing@{DOMAIN}")
+        assert self.verify(late_sender).status_code == status.HTTP_200_OK
+        assert self.is_verified(late_sender)
+        assert len(self.verified_events()) == 1
+
+    def test_status_reads_ses_without_writing_to_it(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+        writes_after_create = list(self.world.ses.writes)
+        response = self.get_status(sender)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["status"] == "verified"
+
+        assert self.world.ses.writes == writes_after_create
+
+    def test_status_is_cached_until_refresh(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        records = self.records_to_publish(sender)
+        assert self.status_body(sender, refresh=False)["status"] == "pending"
+
+        self.publish(records, *ALL_KINDS)
+
+        assert self.status_body(sender, refresh=False)["status"] == "pending"
+        assert self.status_body(sender, refresh=True)["status"] == "verified"
+
+    @parameterized.expand(
+        [
+            ("write_scope_records_it", ["integration:write"], status.HTTP_200_OK, True, ["agent"]),
+            ("read_scope_cannot_record_it", ["integration:read"], status.HTTP_403_FORBIDDEN, False, []),
+        ]
+    )
+    def test_only_email_verify_records_the_verification_for_a_personal_api_key(
+        self, _name: str, scopes: list[str], verify_status: int, verified: bool, event_methods: list[str]
+    ) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+        PersonalAPIKey.objects.create(
+            label="Agent", user=self.user, secure_value=hash_key_value("agent_key"), scopes=scopes
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer agent_key")
+
+        body = self.client.get(f"/api/projects/{self.team.id}/integrations/{sender}/email/status?refresh=true").json()
+        assert (body["status"], body["verified"], self.is_verified(sender)) == ("verified", False, False)
+
+        assert self.verify(sender, key="agent_key").status_code == verify_status
+        assert self.is_verified(sender) is verified
+        assert self.verified_event_methods() == event_methods
+
+    def test_a_cache_outage_still_answers_from_a_live_check(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+
+        with (
+            patch("posthog.models.integration.email.cache.get", side_effect=ConnectionError("Redis is down")),
+            patch("posthog.models.integration.email.cache.set", side_effect=ConnectionError("Redis is down")),
+        ):
+            report = EmailIntegration(Integration.objects.get(id=sender)).status(refresh=False)
+
+        assert (report.check.status, report.verified) == ("verified", False)
+
+    @parameterized.expand([("cache_outage",), ("unanswered_spf_lookup",)])
+    def test_a_failed_previous_provider_lookup_still_verifies_and_reports_unknown_providers(self, fault: str) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+        self.world.dns.publish_txt(ROOT_DOMAIN, "v=spf1 include:sendgrid.net ~all")
+
+        with patch("products.workflows.backend.services.existing_email_tools.cache") as tools_cache:
+            tools_cache.get.return_value = None
+            if fault == "cache_outage":
+                tools_cache.get.side_effect = ConnectionError("Redis is down")
+            else:
+                self.world.faults.inject(dns_operation(ROOT_DOMAIN, "TXT"), DnsFault.TIMEOUT)
+            assert self.verify(sender).status_code == status.HTTP_200_OK
+
+        assert self.is_verified(sender)
+        assert [event["previous_email_providers"] for event in self.verified_events()] == [None]
+
+    def test_a_browser_session_poll_reports_but_only_email_verify_records_the_verification(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+
+        response = self.get_status(sender, as_browser=True)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert (response.json()["status"], response.json()["verified"]) == ("verified", False)
+        assert (self.is_verified(sender), self.verified_events()) == (False, [])
+
+        verify = self.client.post(f"/api/projects/{self.team.id}/integrations/{sender}/email/verify")
+
+        assert verify.status_code == status.HTTP_200_OK
+        assert self.is_verified(sender)
+        assert self.verified_event_methods() == ["manual"]
+
+    def test_failed_worker_reload_keeps_the_verified_answer_and_is_not_retried(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+        self.reload_workers.side_effect = ConnectionError("Redis is down")
+
+        with patch("posthog.models.integration.email.capture_exception") as capture_exception:
+            assert self.verify(sender).status_code == status.HTTP_200_OK
+        capture_exception.assert_called_once()
+
+        self.reload_workers.side_effect = None
+        assert self.status_body(sender)["verified"] is True
+        assert self.is_verified(sender)
+        assert self.reload_workers.call_count == 1
+        assert len(self.verified_events()) == 1
+
+
+class TestEmailDomainPartialSesState(EmailDomainApiTestCase):
+    @parameterized.expand(
+        [
+            (
+                "verification_token_missing",
+                lambda world: setattr(world.ses.identities[DOMAIN], "verification_token", None),
+                "not_started",
+                {},
+            ),
+            (
+                "dkim_never_enabled",
+                lambda world: setattr(world.ses.identities[DOMAIN], "dkim_tokens", ()),
+                "records_found",
+                {
+                    "verification": ["verified"],
+                    "spf": ["found"],
+                    "mail_from_mx": ["verified"],
+                    "mail_from_spf": ["verified"],
+                    "dmarc": ["verified"],
+                },
+            ),
+            (
+                "only_two_of_three_dkim_records_published",
+                lambda world: world.dns.unpublish(
+                    f"{world.ses.identities[DOMAIN].dkim_tokens[2]}._domainkey.{DOMAIN}", "CNAME"
+                ),
+                "pending",
+                {"dkim": ["found", "found", "pending"]},
+            ),
+            (
+                "mail_from_never_set",
+                lambda world: setattr(world.ses.identities[DOMAIN], "mail_from_domain", None),
+                "records_found",
+                {"mail_from_mx": ["found"], "mail_from_spf": ["found"]},
+            ),
+            (
+                "mail_from_status_missing_from_ses",
+                lambda world: setattr(world.ses.identities[DOMAIN], "reports_mail_from_status", False),
+                "records_found",
+                {"mail_from_mx": ["found"], "mail_from_spf": ["found"]},
+            ),
+            (
+                "mail_from_set_for_another_senders_subdomain",
+                lambda world: setattr(world.ses.identities[DOMAIN], "mail_from_domain", f"bounce.{DOMAIN}"),
+                "records_found",
+                {"mail_from_mx": ["found"], "mail_from_spf": ["found"]},
+            ),
+            (
+                "mail_from_mx_published_without_its_spf_record",
+                lambda world: world.dns.unpublish(f"feedback.{DOMAIN}", "TXT"),
+                "verified",
+                {"mail_from_mx": ["verified"], "mail_from_spf": ["pending"]},
+            ),
+            (
+                "second_mx_record_on_the_bounce_subdomain",
+                lambda world: world.dns.publish(f"feedback.{DOMAIN}", "MX", "20 mx.example.net."),
+                "records_found",
+                {"mail_from_mx": ["found"], "mail_from_spf": ["found"]},
+            ),
+            (
+                "identity_owned_by_another_teams_tenant",
+                lambda world: world.ses.transfer_identity(DOMAIN, "team-999999"),
+                "records_found",
+                {"verification": ["verified"], "dkim": ["verified"] * 3},
+            ),
+            (
+                "dkim_failed",
+                lambda world: setattr(world.ses.identities[DOMAIN], "forced_dkim_status", "Failed"),
+                "failed",
+                {"dkim": ["found"] * 3},
+            ),
+            (
+                "verification_temporary_failure",
+                lambda world: setattr(world.ses.identities[DOMAIN], "forced_verification_status", "TemporaryFailure"),
+                "temporary_failure",
+                {"verification": ["found"]},
+            ),
+        ]
+    )
+    def test_reports_partial_ses_state_without_verifying(
+        self,
+        _name: str,
+        arrange: Callable[[EmailDomainWorld], object],
+        expected_status: str,
+        expected_records: dict[str, list[str]],
+    ) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+        arrange(self.world)
+
+        body = self.status_body(sender)
+
+        assert body["status"] == expected_status
+        assert {kind: statuses for kind, statuses in record_statuses(body).items() if kind in expected_records} == (
+            expected_records
+        )
+        if expected_status != "verified":
+            assert (body["verified"], self.is_verified(sender)) == (False, False)
+
+    def test_verifying_a_sender_whose_mail_from_status_ses_leaves_out_keeps_it_unverified(self) -> None:
+        self.world.ses.add_identity(DOMAIN, reports_mail_from_status=False)
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+
+        response = self.verify(sender)
+
+        assert (response.status_code, self.is_verified(sender)) == (status.HTTP_200_OK, False)
+
+    def test_verifying_after_ses_gave_up_on_the_mail_from_record_restarts_its_setup(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.world.ses.identities[DOMAIN].mail_from_setup_expired = True
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+
+        response = self.verify(sender)
+
+        assert (response.status_code, self.is_verified(sender)) == (status.HTTP_200_OK, True)
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"feedback.{DOMAIN}"
+
+
+class TestEmailDomainTenantScoping(EmailDomainApiTestCase):
+    def test_verifying_a_domain_leaves_other_teams_senders_on_it_untouched(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        other_teams_sender = self.create_sender(f"hello@{DOMAIN}", team=other_team)
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+
+        assert self.verify(sender).status_code == status.HTTP_200_OK
+
+        assert self.is_verified(sender)
+        assert not self.is_verified(other_teams_sender)
+        self.reload_workers.assert_called_once_with(self.team.id, [sender])
+
+    def test_verifying_another_projects_sender_keeps_a_changed_mail_from_subdomain(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        other_teams_sender = self.create_sender(f"hello@{DOMAIN}", team=other_team)
+        config = Integration.objects.get(id=sender).config
+        changed = self.client.patch(
+            f"/api/projects/{self.team.id}/integrations/{sender}/email",
+            {"config": {**config, "mail_from_subdomain": "bounce"}},
+            format="json",
+        )
+        assert changed.status_code == status.HTTP_200_OK, changed.json()
+
+        verified = self.client.post(
+            f"/api/projects/{other_team.id}/integrations/{other_teams_sender}/email/verify",
+            HTTP_AUTHORIZATION="Bearer admin_key",
+        )
+
+        assert verified.status_code == status.HTTP_200_OK, verified.json()
+        assert {r["recordHostname"] for r in verified.json()["dnsRecords"] if r["type"] == "mail_from"} == {
+            f"bounce.{DOMAIN}"
+        }
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"bounce.{DOMAIN}"
+        assert Integration.objects.get(id=other_teams_sender).config["mail_from_subdomain"] == "bounce"
+
+    def test_a_failed_mail_from_read_after_ses_verifies_still_verifies_the_sender_and_is_reported(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+        read_mail_from = self.world.ses._get_identity_mail_from_domain_attributes
+        reads_verify_makes_itself = 2
+        reads = 0
+
+        def ses_throttles_mail_from_reads_once_verify_has_read_its_state(*, Identities: list[str]) -> dict:
+            nonlocal reads
+            reads += 1
+            if reads > reads_verify_makes_itself:
+                raise AwsFault.THROTTLING.error("GetIdentityMailFromDomainAttributes")
+            return read_mail_from(Identities=Identities)
+
+        with (
+            patch.object(
+                self.world.ses,
+                "_get_identity_mail_from_domain_attributes",
+                ses_throttles_mail_from_reads_once_verify_has_read_its_state,
+            ),
+            patch("posthoganalytics.api_key", "phc_test"),
+            patch("posthoganalytics.capture_exception", return_value="event-id") as error_tracking,
+        ):
+            assert self.verify(sender).status_code == status.HTTP_200_OK
+
+        assert self.is_verified(sender)
+        assert Integration.objects.get(id=sender).config["mail_from_subdomain"] == "feedback"
+        [(reported_error,), reported] = error_tracking.call_args
+        assert reported_error.response["Error"]["Code"] == "Throttling"
+        assert {"team_id": self.team.id, "domain": DOMAIN}.items() <= reported["properties"].items()
+
+    def test_a_mail_from_change_that_lands_during_a_verify_is_kept(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        start_verification = self.world.ses._verify_domain_identity
+
+        def another_project_changes_the_mail_from_meanwhile(*, Domain: str) -> dict:
+            self.world.ses.identities[DOMAIN].mail_from_domain = f"bounce.{DOMAIN}"
+            return start_verification(Domain=Domain)
+
+        with patch.object(self.world.ses, "_verify_domain_identity", another_project_changes_the_mail_from_meanwhile):
+            assert self.verify(sender).status_code == status.HTTP_200_OK
+
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"bounce.{DOMAIN}"
+        assert Integration.objects.get(id=sender).config["mail_from_subdomain"] == "bounce"
+
+    def test_an_edit_of_the_sender_that_lands_during_its_verify_is_kept(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.world.ses.identities[DOMAIN].mail_from_domain = f"bounce.{DOMAIN}"
+        read_mail_from = self.world.ses._get_identity_mail_from_domain_attributes
+        edits = iter(f"returns{n}" for n in range(1, 100))
+
+        def edit_the_sender_after_each_read_so_an_edit_follows_verifys_last_read(*, Identities: list[str]) -> dict:
+            attributes = read_mail_from(Identities=Identities)
+            config = Integration.objects.get(id=sender).config
+            edited = self.client.patch(
+                f"/api/projects/{self.team.id}/integrations/{sender}/email",
+                {"config": {**config, "mail_from_subdomain": next(edits)}},
+                format="json",
+            )
+            assert edited.status_code == status.HTTP_200_OK, edited.json()
+            return attributes
+
+        with patch.object(
+            self.world.ses,
+            "_get_identity_mail_from_domain_attributes",
+            edit_the_sender_after_each_read_so_an_edit_follows_verifys_last_read,
+        ):
+            assert self.verify(sender).status_code == status.HTTP_200_OK
+
+        stored = Integration.objects.get(id=sender).config["mail_from_subdomain"]
+        assert stored.startswith("returns")
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"{stored}.{DOMAIN}"
+
+    def test_a_mail_from_change_that_lands_while_a_sender_is_added_to_the_domain_is_kept(self) -> None:
+        self.create_sender(f"hello@{DOMAIN}")
+        start_verification = self.world.ses._verify_domain_identity
+
+        def another_project_changes_the_mail_from_meanwhile(*, Domain: str) -> dict:
+            self.world.ses.identities[DOMAIN].mail_from_domain = f"bounce.{DOMAIN}"
+            return start_verification(Domain=Domain)
+
+        with patch.object(self.world.ses, "_verify_domain_identity", another_project_changes_the_mail_from_meanwhile):
+            self.create_sender(f"news@{DOMAIN}")
+
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"bounce.{DOMAIN}"
+
+    def test_re_adding_a_domain_ses_still_holds_sets_the_senders_mail_from_subdomain(self) -> None:
+        self.world.ses.add_identity(DOMAIN, mail_from_domain=f"bounce.{DOMAIN}")
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/integrations",
+            {
+                "kind": "email",
+                "config": {
+                    "email": f"hello@{DOMAIN}",
+                    "name": "Example",
+                    "provider": "ses",
+                    "mail_from_subdomain": "mail",
+                },
+            },
+            format="json",
+        )
+
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        assert Integration.objects.get(id=created.json()["id"]).config["mail_from_subdomain"] == "mail"
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"mail.{DOMAIN}"
+
+    def test_a_sender_of_another_organization_is_not_found(self) -> None:
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
+        foreign_sender = Integration.objects.create(
+            team=other_team,
+            kind="email",
+            integration_id=f"hello@{DOMAIN}",
+            config={"email": f"hello@{DOMAIN}", "domain": DOMAIN, "provider": "ses", "verified": False},
+        )
+
+        response = self.get_status(foreign_sender.id)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert not self.is_verified(foreign_sender.id)
+
+
+class TestEmailDomainClaimedByAnotherOrganization(EmailDomainApiTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        other_organization = Organization.objects.create(name="Other")
+        self.other_team = Team.objects.create(organization=other_organization, name="Other")
+        self.other_sender = EmailIntegration.create_native_integration(
+            {"email": f"hello@{DOMAIN}", "name": "Other", "provider": "ses"},
+            team_id=self.other_team.id,
+            organization_id=str(other_organization.id),
+        )
+
+    def _organization_record(self, records: list[dict]) -> dict:
+        return next(record for record in records if record["kind"] == "organization")
+
+    def test_only_the_organization_that_publishes_its_own_record_verifies_the_domain(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        records = self.records_to_publish(sender)
+        assert [record["kind"] for record in records if record["kind"] not in ALL_KINDS] == ["organization"]
+        other_records = EmailIntegration(self.other_sender).status(refresh=True).check.records
+        other_record = next(record for record in other_records if record.kind == "organization")
+        assert other_record.value != self._organization_record(records)["value"]
+
+        self.publish(records, *ALL_KINDS)
+        self.world.dns.publish_txt(other_record.hostname, other_record.value)
+        body = self.status_body(sender)
+        assert (body["status"], record_statuses(body)["organization"]) == ("pending", ["pending"])
+        assert self.verify(sender).json()["status"] == "pending"
+        assert not self.is_verified(sender)
+
+        self.publish(records, "organization")
+        assert self.status_body(sender)["status"] == "verified"
+        with self.captureOnCommitCallbacks(execute=True):
+            assert self.verify(sender).status_code == status.HTTP_200_OK
+        assert self.is_verified(sender)
+        assert not Integration.objects.filter(id=self.other_sender.id).exists()
+        self.create_sender(f"news@{DOMAIN}")
+
+    def test_a_sender_added_before_the_record_existed_gets_one_lasting_record(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        config = Integration.objects.get(id=sender).config
+        Integration.objects.filter(id=sender).update(
+            config={key: value for key, value in config.items() if key != "organization_proof_token"}
+        )
+
+        first = self._organization_record(self.status_body(sender)["records"])
+        second = self._organization_record(self.status_body(sender)["records"])
+
+        assert first["value"] == second["value"]
+        assert first["value"].endswith(Integration.objects.get(id=sender).config["organization_proof_token"])
+
+    def test_a_claim_still_needs_its_own_record_after_the_other_claim_is_gone(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+        Integration.objects.filter(id=sender).delete()
+
+        assert EmailIntegration(Integration.objects.get(id=self.other_sender.id)).verify()["status"] == "pending"
+        assert not self.is_verified(self.other_sender.id)
+
+    def test_a_domain_another_organization_verified_does_not_verify_again(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        records = self.records_to_publish(sender)
+        self.publish(records, *ALL_KINDS, "organization")
+        Integration.objects.filter(id=self.other_sender.id).update(
+            config={**self.other_sender.config, "verified": True}
+        )
+
+        assert self.verify(sender).json()["status"] == "pending"
+        assert not self.is_verified(sender)
+        assert Integration.objects.filter(id=self.other_sender.id).exists()
+
+    def test_a_mail_from_change_waits_for_a_verification_in_progress_on_the_domain(self) -> None:
+        held = f"held.{ROOT_DOMAIN}"
+        sender = Integration.objects.create(
+            team=self.other_team,
+            kind="email",
+            integration_id=f"hello@{held}",
+            config={"email": f"hello@{held}", "domain": held, "provider": "ses", "verified": False},
+        )
+        other = connection.get_new_connection(connection.get_connection_params())
+        try:
+            with other.cursor() as cursor:
+                lock_sender_domain(cursor, held)
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL lock_timeout = '200ms'")
+            with self.assertRaisesMessage(OperationalError, "lock timeout"):
+                EmailIntegration(sender).update_native_integration(
+                    {"mail_from_subdomain": "bounce"}, self.other_team.id
+                )
+            assert held not in self.world.ses.identities
+        finally:
+            other.rollback()
+            other.close()
+
+    def test_an_unverified_claim_cannot_change_the_shared_mail_from_subdomain(self) -> None:
+        self.create_sender(f"hello@{DOMAIN}")
+
+        with self.assertRaisesMessage(ValidationError, "Verify the domain before you change"):
+            EmailIntegration(self.other_sender).update_native_integration(
+                {"mail_from_subdomain": "bounce"}, self.other_team.id
+            )
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"feedback.{DOMAIN}"
+
+    def test_an_organization_that_published_its_record_can_change_the_mail_from_subdomain(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), "organization")
+
+        EmailIntegration(Integration.objects.get(id=sender)).update_native_integration(
+            {"mail_from_subdomain": "bounce"}, self.team.id
+        )
+
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"bounce.{DOMAIN}"
+
+
+class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
+    def test_dmarc_record_hosted_in_another_zone_through_a_cname_counts(self) -> None:
+        self.world.dns.add_zone("dmarc-reports.example.net")
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS[:-1])
+        self.world.dns.publish(f"_dmarc.{DOMAIN}", "CNAME", f"{DOMAIN}._dmarc.dmarc-reports.example.net.")
+        self.world.dns.publish_txt(f"{DOMAIN}._dmarc.dmarc-reports.example.net", "v=DMARC1; p=reject")
+
+        body = self.status_body(sender)
+
+        assert (body["status"], record_statuses(body)["dmarc"]) == ("verified", ["verified"])
+
+    @parameterized.expand([(DnsFault.TIMEOUT,), (DnsFault.SERVFAIL,)])
+    def test_public_resolver_confirms_a_record_the_zone_nameservers_cannot_answer(self, fault: DnsFault) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+        self.world.faults.inject(dns_operation(f"_dmarc.{DOMAIN}", "TXT", at="zone"), fault)
+
+        assert self.status_body(sender)["status"] == "verified"
+
+    def test_zone_nameservers_confirm_a_record_the_public_resolver_has_not_seen_yet(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+        self.world.faults.inject(dns_operation(f"_dmarc.{DOMAIN}", "TXT", at="public"), DnsFault.NXDOMAIN)
+
+        assert self.status_body(sender)["status"] == "verified"
+
+    @parameterized.expand(
+        [
+            ("zone_apex_lookup", ROOT_DOMAIN, "SOA"),
+            ("nameserver_lookup", ROOT_DOMAIN, "NS"),
+            ("nameserver_address_lookup", "ns1.example-dns.net", "A"),
+        ]
+    )
+    def test_failing_zone_nameserver_discovery_falls_back_to_the_public_resolver(
+        self, _name: str, name: str, rdtype: str
+    ) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+        self.world.faults.inject(dns_operation(name, rdtype), DnsFault.SERVFAIL)
+
+        assert self.status_body(sender)["status"] == "verified"
+
+    def test_txt_records_split_into_several_strings_count(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        records = self.records_to_publish(sender)
+        self.publish(records, "verification", "dkim", "mail_from_mx")
+        self.world.dns.publish(DOMAIN, "TXT", '"v=spf1 include:" "amazonses.com ~all"')
+        self.world.dns.publish(f"feedback.{DOMAIN}", "TXT", '"v=spf1 " "include:amazonses.com ~all"')
+        self.world.dns.publish(f"_dmarc.{DOMAIN}", "TXT", '"v=DMARC1; " "p=none;"')
+
+        body = self.status_body(sender)
+
+        assert body["status"] == "verified"
+        assert record_statuses(body)["spf"] == ["found"]
+
+    def test_never_queries_a_zone_nameserver_at_an_internal_address(self) -> None:
+        self.world.dns.add_zone("internal.example.org", nameservers={"ns.internal.example.org": "10.0.0.53"})
+        sender = self.create_sender("hello@internal.example.org")
+        self.publish(self.records_to_publish(sender, domain="internal.example.org"), *ALL_KINDS)
+
+        assert self.status_body(sender)["status"] == "verified"
+        assert "10.0.0.53" not in self.world.dns.queried_addresses
+
+
+def _add_sender(test: "TestEmailDomainStatusChaos", email: str) -> Any:
+    return test.client.post(
+        f"/api/projects/{test.team.id}/integrations",
+        {"kind": "email", "config": {"email": email, "name": "Other", "provider": "ses"}},
+        format="json",
+    )
+
+
+def _verify_after_mail_from_expired(test: "TestEmailDomainStatusChaos") -> Any:
+    test.world.ses.identities[DOMAIN].mail_from_setup_expired = True
+    return test.verify(test.sender)
+
+
+class TestEmailDomainStatusChaos(EmailDomainApiTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.capture_exception = self.enterContext(patch("products.workflows.backend.providers.ses.capture_exception"))
+        self.sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(self.sender), *ALL_KINDS)
+        cache.clear()
+
+    @parameterized.expand(
+        product(SES_STATUS_READS, list(AwsFault)), name_func=lambda f, _n, p: f"{f.__name__}_{p.args[0]}_{p.args[1]}"
+    )
+    def test_aws_failure_answers_503_and_the_next_poll_recovers(self, operation: str, fault: AwsFault) -> None:
+        self.world.faults.inject(operation, fault)
+
+        response = self.get_status(self.sender, refresh=False)
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json() == {
+            "type": "server_error",
+            "code": "email_provider_unavailable",
+            "detail": "Couldn't reach the email provider to check this domain. Try again in a moment.",
+            "attr": None,
+        }
+        assert (self.is_verified(self.sender), self.verified_events()) == (False, [])
+        assert self.capture_exception.called is (fault != AwsFault.THROTTLING)
+
+        self.world.faults.clear()
+        assert self.status_body(self.sender, refresh=False)["status"] == "verified"
+
+    @parameterized.expand(
+        [
+            ("verify_identity", "ses.verify_domain_identity", lambda test: test.verify(test.sender)),
+            ("verify_dkim", "ses.verify_domain_dkim", lambda test: test.verify(test.sender)),
+            ("verify_restarts_mail_from", "ses.set_identity_mail_from_domain", _verify_after_mail_from_expired),
+            ("add_sender", "ses.verify_domain_identity", lambda test: _add_sender(test, f"other@{DOMAIN}")),
+            (
+                "add_sender_on_new_domain",
+                "ses.set_identity_mail_from_domain",
+                lambda test: _add_sender(test, f"hello@send.{ROOT_DOMAIN}"),
+            ),
+            (
+                "change_mail_from",
+                "ses.set_identity_mail_from_domain",
+                lambda test: test.client.patch(
+                    f"/api/projects/{test.team.id}/integrations/{test.sender}/email",
+                    {"config": {**Integration.objects.get(id=test.sender).config, "mail_from_subdomain": "bounce"}},
+                    format="json",
+                ),
+            ),
+        ]
+    )
+    def test_ses_denying_domain_setup_answers_400_with_a_next_step(
+        self, _name: str, operation: str, send: Callable[["TestEmailDomainStatusChaos"], Any]
+    ) -> None:
+        senders_before = list(Integration.objects.filter(kind="email").values("id", "config"))
+        self.world.faults.inject(operation, AwsFault.ACCESS_DENIED)
+
+        response = send(self)
+
+        assert (response.status_code, response.json()["detail"]) == (
+            status.HTTP_400_BAD_REQUEST,
+            "Our email provider refused to set up this domain. Contact support for help.",
+        )
+        assert list(Integration.objects.filter(kind="email").values("id", "config")) == senders_before
+
+    @parameterized.expand(
+        product(
+            [
+                ("verification", f"_amazonses.{DOMAIN}", "TXT", "verified"),
+                ("dkim", None, "CNAME", "verified"),
+                ("spf", DOMAIN, "TXT", "found"),
+                ("mail_from_mx", f"feedback.{DOMAIN}", "MX", "verified"),
+                ("mail_from_spf", f"feedback.{DOMAIN}", "TXT", "verified"),
+                ("dmarc", f"_dmarc.{DOMAIN}", "TXT", "verified"),
+            ],
+            [DnsFault.TIMEOUT, DnsFault.SERVFAIL],
+        ),
+        name_func=lambda f, _n, p: f"{f.__name__}_{p.args[0][0]}_{p.args[1]}",
+    )
+    def test_unanswered_dns_lookup_holds_verification_until_it_answers(
+        self, lookup: tuple[str, str | None, str, str], fault: DnsFault
+    ) -> None:
+        kind, hostname, rdtype, status_once_answered = lookup
+        dkim_token = self.world.ses.identities[DOMAIN].dkim_tokens[0]
+        self.world.faults.inject(dns_operation(hostname or f"{dkim_token}._domainkey.{DOMAIN}", rdtype), fault)
+
+        body = self.status_body(self.sender, refresh=False)
+
+        assert body["status"] in ("pending", "records_found")
+        assert (body["verified"], self.is_verified(self.sender), self.verified_events()) == (False, False, [])
+
+        self.world.faults.clear()
+        body = self.status_body(self.sender, refresh=False)
+        assert (body["status"], record_statuses(body)[kind][0]) == ("verified", status_once_answered)

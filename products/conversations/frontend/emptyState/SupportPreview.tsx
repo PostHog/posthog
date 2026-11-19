@@ -4,7 +4,7 @@ import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/typ
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored falling first-response-time series for the stat card sparkline.
 const SPARK_LINE = 'M 0 12 L 10 14 L 20 13 L 30 17 L 40 16 L 50 20.5 L 60 19.5 L 70 24 L 80 25.5 L 90 28 L 100 29.5'
@@ -20,7 +20,7 @@ const SPARK_AREA = `${SPARK_LINE} L 100 40 L 0 40 Z`
  * In `waiting-for-data` mode the inbox pins a listening row.
  */
 export function SupportPreview({ mode }: { mode: ProductEmptyStateMode }): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('SupportPreview', isStatic && 'SupportPreview--static')}>

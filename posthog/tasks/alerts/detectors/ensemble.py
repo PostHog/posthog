@@ -2,7 +2,7 @@ from typing import Any
 
 import numpy as np
 
-from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult
+from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult, DetectorArtifact
 from posthog.tasks.alerts.detectors.registry import get_detector, register_detector
 
 
@@ -70,6 +70,54 @@ class EnsembleDetector(BaseDetector):
                     for cfg, r in zip(self.config.get("detectors", []), results)
                 ],
             },
+        )
+
+    def fit(self, history: np.ndarray) -> DetectorArtifact:
+        return self._artifact(
+            {"operator": self.operator}, children=tuple(detector.fit(history) for detector in self.sub_detectors)
+        )
+
+    def context_buckets(self) -> int:
+        return max(detector.context_buckets() for detector in self.sub_detectors)
+
+    def score(self, artifact: DetectorArtifact, data: np.ndarray) -> DetectionResult:
+        self._check_artifact(artifact)
+        if len(artifact.children) != len(self.sub_detectors):
+            raise ValueError("The artifact has another number of sub-detectors")
+        context = self.context_buckets()
+        if len(data) <= context:
+            return DetectionResult(is_anomaly=False)
+        # Each sub-detector reads only the context it needs.
+        results = [
+            detector.score(child, data[context - detector.context_buckets() :])
+            for detector, child in zip(self.sub_detectors, artifact.children)
+        ]
+        combine = all if self.operator == "and" else any
+        pick = min if self.operator == "and" else max
+        scores: list[float | None] = []
+        flags: list[int] = []
+        metadata: list[dict[str, Any]] = []
+        for i in range(len(data) - context):
+            sub_scores = [result.all_scores[i] for result in results]
+            known = [score for score in sub_scores if score is not None]
+            scores.append(pick(known) if known else None)
+            if combine(i in result.triggered_indices for result in results):
+                flags.append(i)
+            metadata.append(
+                {
+                    "operator": self.operator,
+                    "sub_results": [
+                        {"type": cfg.get("type"), "is_anomaly": i in result.triggered_indices, "score": score}
+                        for cfg, result, score in zip(self.config.get("detectors", []), results, sub_scores)
+                    ],
+                }
+            )
+        return DetectionResult(
+            is_anomaly=bool(flags) and flags[-1] == len(scores) - 1,
+            score=scores[-1] if scores else None,
+            triggered_indices=flags,
+            all_scores=scores,
+            all_metadata=metadata,
         )
 
     def detect_batch(self, data: np.ndarray) -> DetectionResult:

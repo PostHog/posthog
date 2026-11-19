@@ -402,6 +402,35 @@ phw remove haacked/old-feature
 git worktree prune
 ```
 
+To clear old `phw`, Claude Code (including agent scratchpads), Codex, and PostHog Code worktrees in bulk, run `hogli worktrees:clean --before 7d --mode deps,build --dry-run` to preview, then drop `--dry-run`, or use `--mode full` to remove whole worktrees.
+`--mode deps` removes installed dependencies such as `node_modules`, Python venvs, and Cargo `target` dirs.
+`--mode build` removes build output and tool caches such as Cargo `target`, `dist`, `.next`, and `__pycache__`, but only where git ignores every file inside.
+Neither removes a folder that holds a tracked file.
+Every mode skips a worktree where `cargo` or `rustc` is running.
+`--mode deps` and `--mode build` keep a Cargo `target` that a build used after the cutoff.
+Without `--source` or `--repo`, they also offer to delete the old shared `~/.cargo/target` when `CARGO_TARGET_DIR` is not set and no build used it after the cutoff.
+For a Cargo target that several projects share, run `hogli doctor:disk --area cargo-units`. It removes only the build units that no build in the last 7 days needed, directly or through its dependencies.
+Every mode also removes folders of removed worktrees that hold only flox caches.
+`--mode deps` and `--mode build` also act on worktrees that `git worktree list` registers outside these folders, such as ones made by hand. `--mode full` and the daily background run act on those only with `--source other`.
+
+Flox activation also runs this once a day in the background, through `hogli watch`: `--mode deps,build` on worktrees idle for 7 days and `--mode full` on worktrees idle for 14 days.
+It skips worktrees with uncommitted or unpushed work and keeps every branch.
+Commits that landed through a squash merge do not count as unpushed: hogli matches the branch's diff against the squash commit, and asks the GitHub CLI for the merged pull request when that fails.
+Set `POSTHOG_WORKTREES_AUTOCLEAN=0` to turn it off.
+The output goes to `~/.cache/posthog/watch.log`.
+
+### Background housekeeping (`hogli watch`)
+
+Flox activation starts `hogli watch`, and one copy runs per machine.
+It runs the daily worktree cleanup above, and it stops the local ClickHouse container after 30 minutes with no queries, no connected clients, and no `hogli start` stack.
+A test that needs ClickHouse starts the container again, which takes a few seconds, so ClickHouse runs only while something uses it.
+The watcher exits when it has nothing left to watch.
+
+- `hogli watch --status` shows the watcher, its jobs, and the ClickHouse state.
+- `hogli watch --ensure clickhouse` starts ClickHouse by hand.
+- `POSTHOG_CLICKHOUSE_IDLE_STOP_MINUTES` sets the idle window, and `0` turns the stop off.
+- `POSTHOG_WATCH=0` turns off the whole watcher.
+
 ## Quick Setup Script
 
 For a complete one-time setup, run:

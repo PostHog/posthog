@@ -20,7 +20,7 @@ import {
 
 const HedgehogDirector = pngHoggie(director)
 
-export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): JSX.Element {
+export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): JSX.Element | null {
     const {
         isOpen,
         imageFile,
@@ -365,6 +365,10 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
         const finalFilename = currentImageFile ? `edited-${currentImageFile.name}` : 'edited-screenshot.png'
         const editedFile = await dataURLtoFile(dataURL, finalFilename)
         downloadFile(editedFile)
+    }
+
+    if (!isOpen) {
+        return null
     }
 
     if (isLoading) {

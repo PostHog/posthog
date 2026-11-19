@@ -42,6 +42,7 @@ EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
     {
         "trace_not_settled",
         "session_not_settled",
+        "TaskSpendPending",
         "TransientRepartitionError",
         "EmbeddingServiceUnavailable",
         "AIFeaturesCloudOnly",
@@ -50,6 +51,7 @@ EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
         "tagger_disabled",
         "tagger_parse_error",
         "tagger_request_rejected",
+        "tagger_context_window_exceeded",
         "tagger_provider_key_required",
         "tagger_key_invalid",
         "tagger_no_default_model",

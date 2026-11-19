@@ -5,7 +5,13 @@ import operator
 
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
-from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BackfillDetails,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportSchema,
+)
 from products.batch_exports.backend.temporal.destinations.workflows_batch_export import workflows_default_fields
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
@@ -15,6 +21,26 @@ from products.batch_exports.backend.tests.temporal.utils.records import get_reco
 TeamId = str
 HogFunctionId = str
 Body = bytes
+
+CDP_EMPTY_AS_OBJECT_FIELDS = frozenset(("properties", "person_properties"))
+JSON_TEXT_FIELDS = CDP_EMPTY_AS_OBJECT_FIELDS | {f"group{i}_properties" for i in range(5)}
+
+
+def canonicalize_json_text_fields(record: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    # The native events table prints these fields with sorted keys and no spaces, and the legacy table keeps the
+    # text as it was inserted. The comparison rewrites the text in one canonical form so that it checks the data and
+    # not the formatting. It compares text and not parsed values, because Python treats True as equal to 1.
+    # An event without properties exports '{}' from the native table and '' from the legacy table. The CDP
+    # consumer reads both as an empty object, so the comparison does the same.
+    canonical: dict[str, typing.Any] = {}
+    for k, v in record.items():
+        if k in CDP_EMPTY_AS_OBJECT_FIELDS and v == "":
+            canonical[k] = "{}"
+        elif k in JSON_TEXT_FIELDS and isinstance(v, str) and v:
+            canonical[k] = json.dumps(json.loads(v), sort_keys=True)
+        else:
+            canonical[k] = v
+    return canonical
 
 
 class RequestData(typing.NamedTuple):
@@ -29,7 +55,7 @@ async def assert_clickhouse_records_were_handled(
     hog_function_id,
     team_id: int,
     sort_key: str,
-    batch_export_model: BatchExportModel | BatchExportSchema | None,
+    batch_export_model: AnyBatchExportModel | BatchExportSchema | None,
     batch_export_id: str,
     date_ranges: list[tuple[dt.datetime, dt.datetime]],
     backfill_details: BackfillDetails | None = None,
@@ -38,7 +64,9 @@ async def assert_clickhouse_records_were_handled(
     include_events: list[str] | None = None,
     is_backfill: bool = False,
 ):
-    handled_records = [json.loads(request.body)["clickhouse_event"] for request in handler.data]
+    handled_records = [
+        canonicalize_json_text_fields(json.loads(request.body)["clickhouse_event"]) for request in handler.data
+    ]
     hog_function_ids = {request.hog_function_id for request in handler.data}
 
     assert hog_function_id in hog_function_ids and len(hog_function_ids) == 1, (
@@ -46,15 +74,18 @@ async def assert_clickhouse_records_were_handled(
     )
 
     if batch_export_model is not None:
-        if isinstance(batch_export_model, BatchExportModel):
+        if isinstance(batch_export_model, AnyBatchExportModel):
             model_name = batch_export_model.name
-            fields = batch_export_model.schema["fields"] if batch_export_model.schema is not None else None
-            filters = batch_export_model.filters
-            extra_query_parameters = (
-                batch_export_model.schema["values"] if batch_export_model.schema is not None else None
+            schema = batch_export_model.schema if isinstance(batch_export_model, BatchExportEventsCustomModel) else None
+            fields = schema["fields"] if schema is not None else None
+            filters = (
+                batch_export_model.filters
+                if isinstance(batch_export_model, BatchExportEventsModel | BatchExportEventsCustomModel)
+                else None
             )
+            extra_query_parameters = schema["values"] if schema is not None else None
         else:
-            model_name = "custom"
+            model_name = "events"
             fields = batch_export_model["fields"]
             filters = None
             extra_query_parameters = batch_export_model["values"]
@@ -108,7 +139,7 @@ async def assert_clickhouse_records_were_handled(
                     else:
                         expected_record[k] = v
 
-                expected_records.append(expected_record)
+                expected_records.append(canonicalize_json_text_fields(expected_record))
 
     produced_column_names = list(handled_records[0].keys())
     expected_column_names = [key for key in expected_records[0].keys() if key != "_inserted_at"]

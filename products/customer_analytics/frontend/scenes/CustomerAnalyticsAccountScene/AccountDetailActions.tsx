@@ -3,23 +3,23 @@ import { useActions, useValues } from 'kea'
 import { IconGear, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { accountViewsLogic } from './accountViewsLogic'
+import { QuillAccountDetailActions } from './QuillAccountDetailActions'
 
 interface AccountDetailActionsProps {
     projectId: number
 }
 
-export function AccountDetailActions({ projectId }: AccountDetailActionsProps): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
+export function AccountDetailActions({ projectId }: AccountDetailActionsProps): JSX.Element {
     const logic = accountViewsLogic({ projectId })
     const { accountDetailTabs, config, configError, configLoading } = useValues(logic)
     const { openConfigure, openCreateEditor } = useActions(logic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
-    if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]) {
-        return null
+    if (todayRailNav) {
+        return <QuillAccountDetailActions projectId={projectId} />
     }
 
     return (

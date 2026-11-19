@@ -133,6 +133,34 @@ Both `tui/` and `ci/` consume the same `core.GetChecks()` and `core.GetInstallSt
 5. **Install** - Clone repo, generate config, pull images, start Docker stack
 6. **Complete** - Success message with URL or troubleshooting tips
 
+## Compose files and overrides
+
+Compose loads overrides differently for each install script. This does not make custom service settings a supported configuration.
+
+- The installer runs `stop`, `down`, `pull`, and `up` with `-f docker-compose.yml`.
+  Its migration check and database commands run without `-f`.
+- `bin/deploy-hobby` runs `stop` and `up` with `-f docker-compose.yml`.
+- The legacy `bin/upgrade-hobby` script runs `docker-compose` without `-f`.
+  Commands without `-f` load `docker-compose.override.yml` automatically if it exists.
+- All three scripts replace `docker-compose.yml` and `docker-compose.base.yml` on each run.
+  Edits to these files do not persist. Keep local changes in a separate override file.
+
+Commands with `-f docker-compose.yml` ignore that override file unless you add it explicitly.
+
+To apply an override file, give it as a second `-f`:
+
+```bash
+docker-compose -f docker-compose.yml -f docker-compose.override.yml up -d
+```
+
+To see the configuration the installer uses, run:
+
+```bash
+docker-compose -f docker-compose.yml config
+```
+
+Add `-f docker-compose.override.yml` to the same command to see the merged result.
+
 ## Production deployment
 
 On an Ubuntu server:

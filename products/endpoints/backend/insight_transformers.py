@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 import structlog
 
-from posthog.schema import HogQLQueryModifiers, HogQLQueryResponse
+from posthog.schema import HogQLQueryModifiers, HogQLQueryResponse, ResolvedDateRangeResponse
 
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.team import Team
@@ -192,10 +192,10 @@ def _transform_trends(result: dict, original_query: dict, team: Team, now: datet
     rows = result.get("results", [])
 
     if runner.query.compareFilter is not None and runner.query.compareFilter.compare:
-        result["resolved_compare_date_range"] = {
-            "date_from": runner.query_previous_date_range.date_from(),
-            "date_to": runner.query_previous_date_range.date_to(),
-        }
+        result["resolved_compare_date_range"] = ResolvedDateRangeResponse(
+            date_from=runner.query_previous_date_range.date_from(),
+            date_to=runner.query_previous_date_range.date_to(),
+        ).model_dump()
 
     if not rows:
         result["results"] = []

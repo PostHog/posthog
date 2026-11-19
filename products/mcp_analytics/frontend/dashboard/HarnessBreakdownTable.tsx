@@ -23,9 +23,12 @@ export function HarnessBreakdownTable({ rows, totalCalls }: { rows: HarnessRow[]
                     dataIndex: 'category',
                     render: (_, row) =>
                         row.category === 'Other' ? (
-                            <Tooltip title="Clients that could not be classified, including calls with no client identity.">
-                                <span tabIndex={0}>Unrecognized harnesses</span>
-                            </Tooltip>
+                            <span className="flex items-center gap-1.5">
+                                <HarnessLogo category={row.category} />
+                                <Tooltip title="Clients that could not be classified, including calls with no client identity.">
+                                    <span tabIndex={0}>Unrecognized harnesses</span>
+                                </Tooltip>
+                            </span>
                         ) : (
                             <span className="flex items-center gap-1.5">
                                 <HarnessLogo category={row.category} />

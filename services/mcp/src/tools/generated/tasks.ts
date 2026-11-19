@@ -8,12 +8,6 @@ import {
     TaskAgentCreateSchema,
     TaskAgentRunCreateSchema,
 } from '@/schema/tool-inputs'
-import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
-import {
-    executeConfirmedAction,
-    prepareConfirmedAction,
-    type PrepareConfirmedActionResult,
-} from '@/tools/confirmed-action-runtime'
 import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -116,12 +110,12 @@ const ChannelListSchema = () => {
     return TaskChannelsListQueryParams
 }
 
-const channelList = (): ToolBase<ReturnType<typeof ChannelListSchema>, Schemas.PaginatedChannelDTOList> => ({
+const channelList = (): ToolBase<ReturnType<typeof ChannelListSchema>, Schemas.ChannelListResponse> => ({
     name: 'channel-list',
     schema: ChannelListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ChannelListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedChannelDTOList>({
+        const result = await context.api.request<Schemas.ChannelListResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/`,
             query: {
@@ -153,383 +147,108 @@ const channelRetrieve = (): ToolBase<ReturnType<typeof ChannelRetrieveSchema>, S
     },
 })
 
-const LoopChannelInstructionsRetrieveSchema = () => {
-    const TaskChannelsInstructionsRetrieveParams = orvalSchemas.TaskChannelsInstructionsRetrieveParams()
-    return TaskChannelsInstructionsRetrieveParams.omit({ project_id: true }).extend({
-        id: TaskChannelsInstructionsRetrieveParams.shape['id'].describe("ID of the loop's context channel."),
+const InboxRepoRoutingRulesCreateSchema = () => {
+    const TasksRepoRoutingRulesCreateBody = orvalSchemas.TasksRepoRoutingRulesCreateBody()
+    return TasksRepoRoutingRulesCreateBody
+}
+
+const inboxRepoRoutingRulesCreate = (): ToolBase<
+    ReturnType<typeof InboxRepoRoutingRulesCreateSchema>,
+    Schemas.RepoRoutingRule
+> => ({
+    name: 'inbox-repo-routing-rules-create',
+    schema: InboxRepoRoutingRulesCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxRepoRoutingRulesCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.rule_text !== undefined) {
+            body['rule_text'] = params.rule_text
+        }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        const result = await context.api.request<Schemas.RepoRoutingRule>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/repo_routing_rules/`,
+            body,
+        })
+        return result
+    },
+})
+
+const InboxRepoRoutingRulesDeleteSchema = () => {
+    const TasksRepoRoutingRulesDestroyParams = orvalSchemas.TasksRepoRoutingRulesDestroyParams()
+    return TasksRepoRoutingRulesDestroyParams.omit({ project_id: true }).extend({
+        id: TasksRepoRoutingRulesDestroyParams.shape['id'].describe(
+            'ID of the routing rule to delete, from inbox-repo-routing-rules-list.'
+        ),
     })
 }
 
-const loopChannelInstructionsRetrieve = (): ToolBase<
-    ReturnType<typeof LoopChannelInstructionsRetrieveSchema>,
-    Schemas.ChannelInstructionsDTO
-> => ({
-    name: 'loop-channel-instructions-retrieve',
-    schema: LoopChannelInstructionsRetrieveSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopChannelInstructionsRetrieveSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
-        })
-        return result
-    },
-})
-
-const LoopChannelInstructionsUpdateSchema = () => {
-    const TaskChannelsInstructionsUpdateBody = orvalSchemas.TaskChannelsInstructionsUpdateBody()
-    const TaskChannelsInstructionsUpdateParams = orvalSchemas.TaskChannelsInstructionsUpdateParams()
-    return TaskChannelsInstructionsUpdateParams.omit({ project_id: true })
-        .extend(TaskChannelsInstructionsUpdateBody.shape)
-        .extend({
-            id: TaskChannelsInstructionsUpdateParams.shape['id'].describe("ID of the loop's context channel."),
-            base_version: ChannelInstructionsBaseVersionSchema,
-        })
-}
-
-const loopChannelInstructionsUpdate = (): ToolBase<
-    ReturnType<typeof LoopChannelInstructionsUpdateSchema>,
-    Schemas.ChannelInstructionsDTO
-> => ({
-    name: 'loop-channel-instructions-update',
-    schema: LoopChannelInstructionsUpdateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopChannelInstructionsUpdateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
-        if (params.base_version !== undefined) {
-            body['base_version'] = params.base_version
-        }
-        const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
-            method: 'PUT',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
-            body,
-        })
-        return result
-    },
-})
-
-const LoopsCreateSchema = () => {
-    const LoopsCreateBody = orvalSchemas.LoopsCreateBody()
-    return LoopsCreateBody
-}
-
-const LoopsCreateSchemaExecute = z.strictObject({
-    confirmation_hash: z
-        .string()
-        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
-    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
-})
-
-const loopsCreatePrepare = (): ToolBase<ReturnType<typeof LoopsCreateSchema>, PrepareConfirmedActionResult> => ({
-    name: 'loops-create-prepare',
-    schema: LoopsCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopsCreateSchema>>) => {
-        const __runtime = getConfirmedActionRuntime()
-        const __scopeProjectId = await context.stateManager.getProjectId()
-        return await prepareConfirmedAction(context, {
-            args: params,
-            purpose: 'loops-create',
-            actionLabel: 'create loop',
-            messageTemplate:
-                "About to create the loop '{name}', a persistent automation that will run unattended with your GitHub and connector access whenever its triggers fire. Reply 'confirm' to create it.\n",
-            codec: __runtime.codec,
-            stash: __runtime.stash,
-            boundScope: { projectId: String(__scopeProjectId) },
-        })
-    },
-})
-
-const loopsCreateExecute = (): ToolBase<typeof LoopsCreateSchemaExecute, Schemas.LoopDTO> => ({
-    name: 'loops-create-execute',
-    schema: LoopsCreateSchemaExecute,
-    handler: async (context: Context, confirmationParams: z.infer<typeof LoopsCreateSchemaExecute>) => {
-        const __runtime = getConfirmedActionRuntime()
-        const __scopeProjectId = await context.stateManager.getProjectId()
-        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof LoopsCreateSchema>>>(context, {
-            incomingArgs: confirmationParams,
-            purpose: 'loops-create',
-            codec: __runtime.codec,
-            ledger: __runtime.ledger,
-            stash: __runtime.stash,
-            expectedScope: { projectId: String(__scopeProjectId) },
-        })
-        if (!__guard.ok) {
-            return __guard.result as never
-        }
-        const params = __guard.verifiedArgs
-        const projectId = __scopeProjectId
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.take_ownership !== undefined) {
-            body['take_ownership'] = params.take_ownership
-        }
-        if (params.visibility !== undefined) {
-            body['visibility'] = params.visibility
-        }
-        if (params.instructions !== undefined) {
-            body['instructions'] = params.instructions
-        }
-        if (params.runtime_adapter !== undefined) {
-            body['runtime_adapter'] = params.runtime_adapter
-        }
-        if (params.model !== undefined) {
-            body['model'] = params.model
-        }
-        if (params.reasoning_effort !== undefined) {
-            body['reasoning_effort'] = params.reasoning_effort
-        }
-        if (params.repositories !== undefined) {
-            body['repositories'] = params.repositories
-        }
-        if (params.sandbox_environment !== undefined) {
-            body['sandbox_environment'] = params.sandbox_environment
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.overlap_policy !== undefined) {
-            body['overlap_policy'] = params.overlap_policy
-        }
-        if (params.behaviors !== undefined) {
-            body['behaviors'] = params.behaviors
-        }
-        if (params.connectors !== undefined) {
-            body['connectors'] = params.connectors
-        }
-        if (params.notifications !== undefined) {
-            body['notifications'] = params.notifications
-        }
-        if (params.context_target !== undefined) {
-            body['context_target'] = params.context_target
-        }
-        if (params.triggers !== undefined) {
-            body['triggers'] = params.triggers
-        }
-        const result = await context.api.request<Schemas.LoopDTO>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/loops/`,
-            body,
-        })
-        return result
-    },
-})
-
-const LoopsDestroySchema = () => {
-    const LoopsDestroyParams = orvalSchemas.LoopsDestroyParams()
-    return LoopsDestroyParams.omit({ project_id: true })
-}
-
-const loopsDestroy = (): ToolBase<ReturnType<typeof LoopsDestroySchema>, unknown> => ({
-    name: 'loops-destroy',
-    schema: LoopsDestroySchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopsDestroySchema>>) => {
+const inboxRepoRoutingRulesDelete = (): ToolBase<ReturnType<typeof InboxRepoRoutingRulesDeleteSchema>, unknown> => ({
+    name: 'inbox-repo-routing-rules-delete',
+    schema: InboxRepoRoutingRulesDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxRepoRoutingRulesDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/loops/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/repo_routing_rules/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
 })
 
-const LoopsListSchema = () => {
-    const LoopsListQueryParams = orvalSchemas.LoopsListQueryParams()
-    return LoopsListQueryParams
-}
+const InboxRepoRoutingRulesListSchema = () => z.object({})
 
-const loopsList = (): ToolBase<ReturnType<typeof LoopsListSchema>, WithPostHogUrl<Schemas.PaginatedLoopDTOList>> => ({
-    name: 'loops-list',
-    schema: LoopsListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopsListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedLoopDTOList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/loops/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
-        })
-        return await withPostHogUrl(context, result, '/tasks')
-    },
-})
-
-const LoopsPartialUpdateSchema = () => {
-    const LoopsPartialUpdateBody = orvalSchemas.LoopsPartialUpdateBody()
-    const LoopsPartialUpdateParams = orvalSchemas.LoopsPartialUpdateParams()
-    return LoopsPartialUpdateParams.omit({ project_id: true }).extend(LoopsPartialUpdateBody.shape)
-}
-
-const loopsPartialUpdate = (): ToolBase<ReturnType<typeof LoopsPartialUpdateSchema>, Schemas.LoopDTO> => ({
-    name: 'loops-partial-update',
-    schema: LoopsPartialUpdateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopsPartialUpdateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.take_ownership !== undefined) {
-            body['take_ownership'] = params.take_ownership
-        }
-        if (params.visibility !== undefined) {
-            body['visibility'] = params.visibility
-        }
-        if (params.instructions !== undefined) {
-            body['instructions'] = params.instructions
-        }
-        if (params.runtime_adapter !== undefined) {
-            body['runtime_adapter'] = params.runtime_adapter
-        }
-        if (params.model !== undefined) {
-            body['model'] = params.model
-        }
-        if (params.reasoning_effort !== undefined) {
-            body['reasoning_effort'] = params.reasoning_effort
-        }
-        if (params.repositories !== undefined) {
-            body['repositories'] = params.repositories
-        }
-        if (params.sandbox_environment !== undefined) {
-            body['sandbox_environment'] = params.sandbox_environment
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.overlap_policy !== undefined) {
-            body['overlap_policy'] = params.overlap_policy
-        }
-        if (params.behaviors !== undefined) {
-            body['behaviors'] = params.behaviors
-        }
-        if (params.connectors !== undefined) {
-            body['connectors'] = params.connectors
-        }
-        if (params.notifications !== undefined) {
-            body['notifications'] = params.notifications
-        }
-        if (params.context_target !== undefined) {
-            body['context_target'] = params.context_target
-        }
-        if (params.triggers !== undefined) {
-            body['triggers'] = params.triggers
-        }
-        const result = await context.api.request<Schemas.LoopDTO>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/loops/${encodeURIComponent(String(params.id))}/`,
-            body,
-        })
-        return result
-    },
-})
-
-const LoopsPreviewCreateSchema = () => {
-    const LoopsPreviewCreateBody = orvalSchemas.LoopsPreviewCreateBody()
-    const LoopsPreviewCreateParams = orvalSchemas.LoopsPreviewCreateParams()
-    return LoopsPreviewCreateParams.omit({ project_id: true }).extend(LoopsPreviewCreateBody.shape)
-}
-
-const loopsPreviewCreate = (): ToolBase<ReturnType<typeof LoopsPreviewCreateSchema>, Schemas.LoopPreviewDTO> => ({
-    name: 'loops-preview-create',
-    schema: LoopsPreviewCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopsPreviewCreateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.trigger_type !== undefined) {
-            body['trigger_type'] = params.trigger_type
-        }
-        if (params.payload !== undefined) {
-            body['payload'] = params.payload
-        }
-        const result = await context.api.request<Schemas.LoopPreviewDTO>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/loops/${encodeURIComponent(String(params.id))}/preview/`,
-            body,
-        })
-        return result
-    },
-})
-
-const LoopsRetrieveSchema = () => {
-    const LoopsRetrieveParams = orvalSchemas.LoopsRetrieveParams()
-    return LoopsRetrieveParams.omit({ project_id: true })
-}
-
-const loopsRetrieve = (): ToolBase<ReturnType<typeof LoopsRetrieveSchema>, WithPostHogUrl<Schemas.LoopDTO>> => ({
-    name: 'loops-retrieve',
-    schema: LoopsRetrieveSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopsRetrieveSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.LoopDTO>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/loops/${encodeURIComponent(String(params.id))}/`,
-        })
-        return await withPostHogUrl(context, result, `/tasks/${result.id}`)
-    },
-})
-
-const LoopsRunCreateSchema = () => {
-    const LoopsRunCreateParams = orvalSchemas.LoopsRunCreateParams()
-    return LoopsRunCreateParams.omit({ project_id: true })
-}
-
-const loopsRunCreate = (): ToolBase<ReturnType<typeof LoopsRunCreateSchema>, Schemas.LoopFireResult> => ({
-    name: 'loops-run-create',
-    schema: LoopsRunCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopsRunCreateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.LoopFireResult>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/loops/${encodeURIComponent(String(params.id))}/run/`,
-        })
-        return result
-    },
-})
-
-const LoopsRunsRetrieveSchema = () => {
-    const LoopsRunsRetrieveParams = orvalSchemas.LoopsRunsRetrieveParams()
-    const LoopsRunsRetrieveQueryParams = orvalSchemas.LoopsRunsRetrieveQueryParams()
-    return LoopsRunsRetrieveParams.omit({ project_id: true }).extend(LoopsRunsRetrieveQueryParams.shape)
-}
-
-const loopsRunsRetrieve = (): ToolBase<
-    ReturnType<typeof LoopsRunsRetrieveSchema>,
-    WithPostHogUrl<Schemas.LoopRunPage>
+const inboxRepoRoutingRulesList = (): ToolBase<
+    ReturnType<typeof InboxRepoRoutingRulesListSchema>,
+    Schemas.RepoRoutingRule[]
 > => ({
-    name: 'loops-runs-retrieve',
-    schema: LoopsRunsRetrieveSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopsRunsRetrieveSchema>>) => {
+    name: 'inbox-repo-routing-rules-list',
+    schema: InboxRepoRoutingRulesListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof InboxRepoRoutingRulesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.LoopRunPage>({
+        const result = await context.api.request<Schemas.RepoRoutingRule[]>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/loops/${encodeURIComponent(String(params.id))}/runs/`,
-            query: {
-                cursor: params.cursor,
-                limit: params.limit,
-                status: params.status,
-            },
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/repo_routing_rules/`,
         })
-        return await withPostHogUrl(
-            context,
-            {
-                ...result,
-                results: await Promise.all(
-                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/tasks/${item.id}/runs`))
-                ),
-            },
-            '/tasks'
-        )
+        return result
+    },
+})
+
+const InboxRepoRoutingRulesUpdateSchema = () => {
+    const TasksRepoRoutingRulesPartialUpdateBody = orvalSchemas.TasksRepoRoutingRulesPartialUpdateBody()
+    const TasksRepoRoutingRulesPartialUpdateParams = orvalSchemas.TasksRepoRoutingRulesPartialUpdateParams()
+    return TasksRepoRoutingRulesPartialUpdateParams.omit({ project_id: true })
+        .extend(TasksRepoRoutingRulesPartialUpdateBody.shape)
+        .extend({
+            id: TasksRepoRoutingRulesPartialUpdateParams.shape['id'].describe(
+                'ID of the routing rule to update, from inbox-repo-routing-rules-list.'
+            ),
+        })
+}
+
+const inboxRepoRoutingRulesUpdate = (): ToolBase<
+    ReturnType<typeof InboxRepoRoutingRulesUpdateSchema>,
+    Schemas.RepoRoutingRule
+> => ({
+    name: 'inbox-repo-routing-rules-update',
+    schema: InboxRepoRoutingRulesUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxRepoRoutingRulesUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.rule_text !== undefined) {
+            body['rule_text'] = params.rule_text
+        }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        const result = await context.api.request<Schemas.RepoRoutingRule>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/repo_routing_rules/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -623,6 +342,7 @@ const TasksCreateSchema = () => {
         origin_product: true,
         repositories: true,
         github_integration: true,
+        repository_integration: true,
         github_user_integration: true,
         signal_report: true,
         signal_report_task_relationship: true,
@@ -639,12 +359,18 @@ const TasksCreateSchema = () => {
         auto_publish: true,
         channel: true,
         scheduled_at: true,
+        warm_submission_id: true,
+        warm_run_id: true,
         start_run: true,
         signal_report_discussion_question: true,
         naming_source: true,
         sandbox_environment_id: true,
         custom_image_id: true,
         runtime: true,
+        profile: true,
+        options: true,
+        source: true,
+        idempotency_key: true,
     }).extend({
         description: TasksCreateBody.shape['description']
             .nonoptional()
@@ -765,8 +491,10 @@ const tasksList = (): ToolBase<
                 pr_state: params.pr_state,
                 repository: params.repository,
                 search: params.search,
+                sources: params.sources,
                 stage: params.stage,
                 status: params.status,
+                task_status: params.task_status,
             },
         })
         const filtered = {
@@ -783,6 +511,9 @@ const tasksList = (): ToolBase<
                     'channel',
                     'created_by.first_name',
                     'created_by.last_name',
+                    'status',
+                    'status_reason',
+                    'status_detail',
                     'latest_run.id',
                     'latest_run.status',
                     'latest_run.error_message',
@@ -1076,17 +807,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'channel-instructions-update': channelInstructionsUpdate,
     'channel-list': channelList,
     'channel-retrieve': channelRetrieve,
-    'loop-channel-instructions-retrieve': loopChannelInstructionsRetrieve,
-    'loop-channel-instructions-update': loopChannelInstructionsUpdate,
-    'loops-create-prepare': loopsCreatePrepare,
-    'loops-create-execute': loopsCreateExecute,
-    'loops-destroy': loopsDestroy,
-    'loops-list': loopsList,
-    'loops-partial-update': loopsPartialUpdate,
-    'loops-preview-create': loopsPreviewCreate,
-    'loops-retrieve': loopsRetrieve,
-    'loops-run-create': loopsRunCreate,
-    'loops-runs-retrieve': loopsRunsRetrieve,
+    'inbox-repo-routing-rules-create': inboxRepoRoutingRulesCreate,
+    'inbox-repo-routing-rules-delete': inboxRepoRoutingRulesDelete,
+    'inbox-repo-routing-rules-list': inboxRepoRoutingRulesList,
+    'inbox-repo-routing-rules-update': inboxRepoRoutingRulesUpdate,
     'tasks-config-agent-instructions-create': tasksConfigAgentInstructionsCreate,
     'tasks-config-create': tasksConfigCreate,
     'tasks-config-list': tasksConfigList,

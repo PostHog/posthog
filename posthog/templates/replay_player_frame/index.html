@@ -41,11 +41,22 @@
         .PlayerFrame__content iframe {
             background-color: white;
             border: 0;
+
+            /* Recorded pages with backdrop-filter can make Chrome paint outside the replay frame,
+               over the app around the player. Clipping the frame to its own box keeps that paint in. */
+            clip-path: inset(0);
         }
 
         /* Copied over from rrweb replay css */
         .PlayerFrame__content .replayer-wrapper {
             position: relative;
+        }
+
+        /* rrweb puts the cursor before the iframe, and the clipped iframe paints over
+           positioned siblings that have no z-index. Keep it below the masking overlay. */
+        .PlayerFrame__content .replayer-mouse,
+        .PlayerFrame__content .replayer-mouse-tail {
+            z-index: 1;
         }
 
         .PlayerFrame__content .replayer-mouse {

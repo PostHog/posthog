@@ -1,7 +1,5 @@
 import { DateTime } from 'luxon'
-import { Counter } from 'prom-client'
 
-import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -13,22 +11,36 @@ import '../async-functions'
 import type {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
+    HogFunctionType,
     MinimalAppMetric,
     MinimalLogEntry,
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary } from '../utils'
 import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
-import { cdpTrackedFetch, fetchErrorDetail, isFetchResponseRetriable } from '../utils/cdp-fetch'
+import {
+    MAX_FETCH_RESPONSE_BYTES,
+    cdpTrackedFetch,
+    fetchErrorDetail,
+    isFetchResponseRetriable,
+} from '../utils/cdp-fetch'
+import { resolveHmacSha256Secret, signHmacSha256Request } from '../utils/hmac-sha256-signature'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
+import { overrideHeaders } from '../utils/override-headers'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
+import { resolveSecretHeaders } from '../utils/secret-headers'
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
-import { EMAIL_QUEUE_PRIORITY, getEmailQueuePriorityClass } from './messaging/email-priority'
+import {
+    EMAIL_QUEUE_PRIORITY,
+    cdpEmailQueuedTotal,
+    getEmailQueuePriority,
+    getEmailQueuePriorityClass,
+} from './messaging/email-priority'
 import { EmailService } from './messaging/email.service'
 import { PushNotificationService } from './messaging/push-notification.service'
-import { RecipientTokensService } from './messaging/recipient-tokens.service'
+import { RecipientTokensService, preferencesTokenSourceForInvocation } from './messaging/recipient-tokens.service'
 import {
     SELF_LOOP_MAX_DEPTH,
     getSelfLoopDepth,
@@ -37,12 +49,6 @@ import {
     isSelfReferentialIngestFetch,
     selfLoopGuardCounter,
 } from './self-loop-guard'
-
-const cdpEmailQueuedTotal = new Counter({
-    name: 'cdp_email_queued_total',
-    help: 'Total emails routed to the dedicated email queue',
-    labelNames: ['priority_class'] as const,
-})
 
 export interface HogExecutorAsyncConfig {
     googleAdwordsDeveloperToken: string
@@ -164,6 +170,9 @@ export class HogExecutorAsyncService {
                         nextInvocation,
                         options?.isTest ?? false
                     )
+                    if (invocation.queue === 'email' && !result.finished) {
+                        this.keepPushRetryInEmailQueueOrder(result, invocation)
+                    }
                 } else if (queueParamsType === 'email') {
                     // Route to the email queue unless this is a test run: tests execute in-process and
                     // never enqueue, so routing would leave the job unworked.
@@ -180,8 +189,8 @@ export class HogExecutorAsyncService {
                         // the current action's metadata so a throttle retry re-queues under this
                         // send's class rather than the previous email action's.
                         if (invocation.queue === 'email') {
-                            nextInvocation.queuePriority =
-                                EMAIL_QUEUE_PRIORITY[getEmailQueuePriorityClass(nextInvocation.hogFunction.metadata)]
+                            nextInvocation.queueMetadata = invocation.queueMetadata
+                            nextInvocation.queuePriority = getEmailQueuePriority(nextInvocation.hogFunction.metadata)
                         }
                         // isTest is forwarded so a test send stays out of the email's engagement tracking.
                         result = await this.deps.emailService.executeSendEmail(nextInvocation, options?.isTest ?? false)
@@ -244,10 +253,10 @@ export class HogExecutorAsyncService {
                 functions: {
                     generateMessagingPreferencesUrl: (identifier): string | null => {
                         return identifier && typeof identifier === 'string'
-                            ? this.deps.recipientTokensService.generatePreferencesUrl({
-                                  team_id: invocation.teamId,
-                                  identifier,
-                              })
+                            ? this.deps.recipientTokensService.generatePreferencesUrl(
+                                  { team_id: invocation.teamId, identifier },
+                                  preferencesTokenSourceForInvocation(invocation)
+                              )
                             : null
                     },
                     ...options.functions,
@@ -325,6 +334,15 @@ export class HogExecutorAsyncService {
         return result
     }
 
+    private keepPushRetryInEmailQueueOrder(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        entryInvocation: CyclotronJobInvocationHogFunction
+    ): void {
+        const { originQueue, originPriority } = entryInvocation.queueMetadata ?? {}
+        result.invocation.queueMetadata = { ...result.invocation.queueMetadata, originQueue, originPriority }
+        result.invocation.queuePriority = getEmailQueuePriority(result.invocation.hogFunction.metadata)
+    }
+
     private routeToQueue(
         invocation: CyclotronJobInvocationHogFunction,
         targetQueue: string,
@@ -342,6 +360,20 @@ export class HogExecutorAsyncService {
             },
             { finished: false }
         )
+    }
+
+    private async loadIntegrationTokenReplacements(hogFunction: HogFunctionType): Promise<[string, string][]> {
+        const integrationInputs = await this.deps.hogInputsService.loadIntegrationInputs(hogFunction)
+        return Object.values(integrationInputs).flatMap(({ value }): [string, string][] => {
+            // integration_multi inputs resolve to an array of integrations (e.g. push channels)
+            // and do not take part in the single access-token placeholder substitution.
+            if (Array.isArray(value) || !value?.access_token_raw) {
+                return []
+            }
+            return this.deps.hogInputsService
+                .acceptedAccessTokenPlaceholders(value.$integration_id)
+                .map((placeholder) => [placeholder, value.access_token_raw])
+        })
     }
 
     @instrumented('hog-executor.executeFetch')
@@ -372,34 +404,13 @@ export class HogExecutorAsyncService {
             headers['developer-token'] = this.config.googleAdwordsDeveloperToken
         }
 
-        const integrationInputs = await this.deps.hogInputsService.loadIntegrationInputs(invocation.hogFunction)
+        const tokenReplacements = await this.loadIntegrationTokenReplacements(invocation.hogFunction)
+        const replaceTokens = (value: string): string =>
+            tokenReplacements.reduce((acc, [placeholder, token]) => acc.replaceAll(placeholder, token), value)
 
-        if (Object.keys(integrationInputs).length > 0) {
-            for (const [key, value] of Object.entries(integrationInputs)) {
-                const inputValue = value.value
-                // integration_multi inputs resolve to an array of integrations (e.g. push channels)
-                // and don't participate in the single access-token placeholder substitution below.
-                if (Array.isArray(inputValue) || !inputValue) {
-                    continue
-                }
-                const accessToken: string = inputValue.access_token_raw
-                if (!accessToken) {
-                    continue
-                }
-
-                const placeholder: string = ACCESS_TOKEN_PLACEHOLDER + invocation.hogFunction.inputs?.[key]?.value
-
-                if (placeholder && accessToken) {
-                    const replace = (val: string) => val.replaceAll(placeholder, accessToken)
-
-                    params.body = params.body ? replace(params.body) : params.body
-                    headers = Object.fromEntries(
-                        Object.entries(params.headers ?? {}).map(([key, value]) => [key, replace(value)])
-                    )
-                    params.url = replace(params.url)
-                }
-            }
-        }
+        params.body = params.body ? replaceTokens(params.body) : params.body
+        headers = Object.fromEntries(Object.entries(headers).map(([key, value]) => [key, replaceTokens(value)]))
+        params.url = replaceTokens(params.url)
 
         // Bound event-forwarding loops: a fetch back into this project's own ingestion
         // endpoint re-enters the pipeline and can re-trigger this same function. The
@@ -453,24 +464,22 @@ export class HogExecutorAsyncService {
             return result
         }
 
+        const sentBody = ['GET', 'HEAD'].includes(method) ? '' : (params.body ?? '')
         let signedHeaders = headers
-        if (params.aws_sigv4) {
-            const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
+
+        // Secret headers are merged before signing so that the signatures cover them, and they are never written
+        // back to queueParameters, so every attempt resolves them again from the hog function.
+        if (params.secret_headers_input) {
+            const resolved = resolveSecretHeaders(params.secret_headers_input, invocation.hogFunction)
             if (!resolved.ok) {
                 return failSigning(resolved.error)
             }
-            signedHeaders = signAwsRequest({
-                method,
-                url: params.url,
-                body: params.body ?? '',
-                headers,
-                credentials: resolved.credentials,
-            })
+            signedHeaders = overrideHeaders(signedHeaders, resolved.headers)
         }
 
         // Standard Webhooks signatures embed a timestamp the receiver checks
-        // against a tolerance window (5 minutes in the reference libraries), so
-        // like AWS SigV4 above they are computed immediately before each attempt
+        // against a tolerance window (5 minutes in the reference libraries), so they
+        // are computed immediately before each attempt
         // and never persisted back to queueParameters. The `webhook-id` the
         // receiver dedupes on is the exception: it comes from the queue payload,
         // which the retry path preserves, so it stays constant across attempts.
@@ -481,16 +490,48 @@ export class HogExecutorAsyncService {
             }
             signedHeaders = signStandardWebhooksRequest({
                 webhookId: params.standard_webhooks.webhook_id,
-                body: params.body ?? '',
+                body: sentBody,
                 headers: signedHeaders,
                 key: resolved.key,
             })
         }
 
+        if (params.hmac_sha256) {
+            if (!sentBody) {
+                return failSigning(
+                    'HMAC-SHA256 signing failed: this format signs only the request body, and this request sends none, so every request would carry the same signature. Send a body with POST or PUT, or use Standard Webhooks, which also signs a delivery id and a timestamp.'
+                )
+            }
+            const resolved = resolveHmacSha256Secret(params.hmac_sha256, invocation.hogFunction)
+            if (!resolved.ok) {
+                return failSigning(resolved.error)
+            }
+            signedHeaders = signHmacSha256Request({
+                webhookId: params.hmac_sha256.webhook_id,
+                body: sentBody,
+                headers: signedHeaders,
+                secret: resolved.secret,
+            })
+        }
+
+        if (params.aws_sigv4) {
+            const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
+            if (!resolved.ok) {
+                return failSigning(resolved.error)
+            }
+            signedHeaders = signAwsRequest({
+                method,
+                url: params.url,
+                body: sentBody,
+                headers: signedHeaders,
+                credentials: resolved.credentials,
+            })
+        }
+
         const fetchParams: FetchOptions = { method, headers: signedHeaders }
 
-        if (!['GET', 'HEAD'].includes(method) && params.body) {
-            fetchParams.body = params.body
+        if (sentBody) {
+            fetchParams.body = sentBody
         }
 
         const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({
@@ -574,7 +615,12 @@ export class HogExecutorAsyncService {
                 }
             }
         } catch (e) {
-            addLog('error', `Failed to parse response body: ${e.message}`)
+            addLog(
+                'error',
+                e.name === 'ResponseTooLargeError'
+                    ? `The response body is larger than ${MAX_FETCH_RESPONSE_BYTES / 1024 / 1024} MB, so it was not read.`
+                    : `Failed to parse response body: ${e.message}`
+            )
             body = undefined
         }
 

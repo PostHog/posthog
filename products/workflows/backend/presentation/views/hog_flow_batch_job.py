@@ -7,16 +7,24 @@ from products.workflows.backend.facade.enums import HogFlowBatchJobState
 
 logger = structlog.get_logger(__name__)
 
+BATCH_RUN_STATUS_HELP_TEXT = (
+    "Status of the batch run. waiting: the audience's cohort is still calculating. queued and active: the run "
+    "is enrolling its audience. completed: the whole audience was enrolled. When every enrolled person's run "
+    "has ended, or a day after the run completed, PostHog checks for errored sends. A completed run stays "
+    "completed when no send errored, becomes "
+    "partially_failed when some sends errored, and becomes failed when every send errored. failed also means "
+    "the run could not enroll its audience. cancelled: someone stopped the run. A send errors when its step "
+    "throws, for example on a template that does not render. Provider failures such as bounces are not errored "
+    "sends; read them from the run's metrics."
+)
+
 
 class HogFlowBatchJobSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="ID of the batch run.")
     status = serializers.ChoiceField(
         choices=HogFlowBatchJobState.choices,
         required=False,
-        help_text=(
-            "Not currently tracked — stays at its initial value. Use the workflow logs/metrics "
-            "endpoints for run outcome."
-        ),
+        help_text=BATCH_RUN_STATUS_HELP_TEXT,
     )
     hog_flow = serializers.UUIDField(source="hog_flow_id", help_text="ID of the workflow this batch run belongs to.")
     filters = serializers.JSONField(
@@ -27,6 +35,14 @@ class HogFlowBatchJobSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(read_only=True, help_text="When the batch run was created.")
     created_by = UserBasicSerializer(read_only=True, help_text="User who started the batch run.")
     updated_at = serializers.DateTimeField(read_only=True, help_text="When the batch run was last updated.")
+
+    def validate_status(self, value: str) -> str:
+        # A waiting run is one PostHog has not dispatched yet, and stopping it skips the workers.
+        if value == HogFlowBatchJobState.WAITING:
+            raise serializers.ValidationError(
+                "PostHog sets 'waiting' itself while the audience's cohort calculates. Leave the status out."
+            )
+        return value
 
 
 class HogFlowBatchJobCancelResponseSerializer(serializers.Serializer):

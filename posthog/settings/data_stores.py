@@ -32,6 +32,8 @@ PERSON_TABLE_NAME: str = os.getenv("PERSON_TABLE_NAME", "posthog_person")
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
+POSTGRES_ENGINE = "posthog.db_backends.postgresql"
+
 
 def postgres_config(host: str) -> dict:
     """Generate the config map we need for a postgres database.
@@ -46,7 +48,7 @@ def postgres_config(host: str) -> dict:
     """
 
     return {
-        "ENGINE": "django.db.backends.postgresql_psycopg2",
+        "ENGINE": POSTGRES_ENGINE,
         "NAME": get_from_env("POSTHOG_DB_NAME"),
         "USER": os.getenv("POSTHOG_DB_USER", "postgres"),
         "PASSWORD": os.getenv("POSTHOG_DB_PASSWORD", ""),
@@ -85,7 +87,7 @@ else:
 
 if DATABASE_URL:
     DATABASES: dict[str, dict[str, Any]] = {
-        "default": dict(dj_database_url.config(default=DATABASE_URL, conn_max_age=0))
+        "default": dict(dj_database_url.config(default=DATABASE_URL, engine=POSTGRES_ENGINE, conn_max_age=0))
     }
 
     if DISABLE_SERVER_SIDE_CURSORS:
@@ -298,11 +300,18 @@ elif TEST:
     SUFFIX = "_test" + XDIST_SUFFIX
 
 # Clickhouse Settings
+
 CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "clickhouse")
 CLICKHOUSE_LOGS_HOST: str = os.getenv("CLICKHOUSE_LOGS_HOST", "clickhouse")
 CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
+# Where queries from projects on the native events table connect. Unset keeps them on the hosts above.
+CLICKHOUSE_EVENTS_ONLINE_HOST: str | None = os.getenv("CLICKHOUSE_EVENTS_ONLINE_HOST", None)
+CLICKHOUSE_EVENTS_OFFLINE_HOST: str | None = os.getenv("CLICKHOUSE_EVENTS_OFFLINE_HOST", None)
+# Workload that Workload.DEFAULT resolves to in this process. Celery tasks switch to OFFLINE per task.
+# Temporal workers and Dagster set OFFLINE so background queries are tagged with where they run.
+CLICKHOUSE_DEFAULT_WORKLOAD: str = os.getenv("CLICKHOUSE_DEFAULT_WORKLOAD", "ONLINE")
 CLICKHOUSE_MIGRATIONS_HOST: str = os.getenv("CLICKHOUSE_MIGRATIONS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_ENDPOINTS_HOST: str = os.getenv("CLICKHOUSE_ENDPOINTS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER", "default")
@@ -339,6 +348,8 @@ CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
 # query_log_archive's single data table lives on the OPS cluster; every cluster's
 # Distributed read/write tables route to it via this cluster name.
 CLICKHOUSE_OPS_CLUSTER: str = os.getenv("CLICKHOUSE_OPS_CLUSTER", "ops")
+# In deployed cloud, the live raw_sessions_v3 MergeTree is on this satellite cluster.
+CLICKHOUSE_SESSIONS_CLUSTER: str = os.getenv("CLICKHOUSE_SESSIONS_CLUSTER", "sessions")
 # Opt-in flag for the multinode ClickHouse smoke-test stack. When true, migrations
 # respect their declared NodeRole(s) instead of being collapsed to NodeRole.ALL,
 # so a per-cluster topology can actually exercise routing.
@@ -378,6 +389,7 @@ CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION: bool = get_from_env(
     "CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION", False, type_cast=str_to_bool
 )
 
+CLICKHOUSE_METRICS_CLUSTER: str = os.getenv("CLICKHOUSE_METRICS_CLUSTER", "metrics")
 CLICKHOUSE_LOGS_CLUSTER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER", "posthog_single_shard")
 # The name the logs cluster answers to from the ingestion-events nodes, which host the logs Kafka
 # table and the Distributed front that writes into it. Cloud names it the same from both sides, so it
@@ -393,6 +405,20 @@ CLICKHOUSE_LOGS_CLUSTER_DATABASE: str = (
 CLICKHOUSE_LOGS_CLUSTER_SECURE: bool = get_from_env(
     "CLICKHOUSE_LOGS_CLUSTER_SECURE", not TEST and not DEBUG, type_cast=str_to_bool
 )
+# The metrics cluster serves Workload.METRICS reads. Every setting falls back to the logs cluster's, which holds the
+# same metrics4 tables, so reads stay on the logs cluster until a deployment sets CLICKHOUSE_METRICS_CLUSTER_HOST.
+CLICKHOUSE_METRICS_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_METRICS_CLUSTER_HOST", CLICKHOUSE_LOGS_CLUSTER_HOST)
+CLICKHOUSE_METRICS_CLUSTER_PORT: str = os.getenv("CLICKHOUSE_METRICS_CLUSTER_PORT", CLICKHOUSE_LOGS_CLUSTER_PORT)
+CLICKHOUSE_METRICS_CLUSTER_USER: str = os.getenv("CLICKHOUSE_METRICS_CLUSTER_USER", CLICKHOUSE_LOGS_CLUSTER_USER)
+CLICKHOUSE_METRICS_CLUSTER_PASSWORD: str = os.getenv(
+    "CLICKHOUSE_METRICS_CLUSTER_PASSWORD", CLICKHOUSE_LOGS_CLUSTER_PASSWORD
+)
+CLICKHOUSE_METRICS_CLUSTER_DATABASE: str = (
+    CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_METRICS_DATABASE", CLICKHOUSE_LOGS_CLUSTER_DATABASE)
+)
+CLICKHOUSE_METRICS_CLUSTER_SECURE: bool = get_from_env(
+    "CLICKHOUSE_METRICS_CLUSTER_SECURE", CLICKHOUSE_LOGS_CLUSTER_SECURE, type_cast=str_to_bool
+)
 CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY: bool = get_from_env(
     "CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY", False, type_cast=str_to_bool
 )
@@ -404,6 +430,11 @@ SNUFFLE_APM_URL: str = os.getenv("SNUFFLE_APM_URL", "")
 SNUFFLE_APM_USER: str = os.getenv("SNUFFLE_APM_USER", CLICKHOUSE_LOGS_CLUSTER_USER)
 SNUFFLE_APM_PASSWORD: str = os.getenv("SNUFFLE_APM_PASSWORD", CLICKHOUSE_LOGS_CLUSTER_PASSWORD)
 SNUFFLE_APM_TIMEOUT_SECONDS: int = get_from_env("SNUFFLE_APM_TIMEOUT_SECONDS", 60, type_cast=int)
+# PromQL goes to the Snuffle next to the metrics cluster. Each setting falls back to the logs Snuffle's, which
+# reads the same metrics4 tables, so PromQL stays there until a deployment sets SNUFFLE_METRICS_URL.
+SNUFFLE_METRICS_URL: str = os.getenv("SNUFFLE_METRICS_URL", SNUFFLE_APM_URL)
+SNUFFLE_METRICS_USER: str = os.getenv("SNUFFLE_METRICS_USER", SNUFFLE_APM_USER)
+SNUFFLE_METRICS_PASSWORD: str = os.getenv("SNUFFLE_METRICS_PASSWORD", SNUFFLE_APM_PASSWORD)
 
 CLICKHOUSE_KAFKA_NAMED_COLLECTION: str = os.getenv("CLICKHOUSE_KAFKA_NAMED_COLLECTION", "msk_cluster")
 CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION: str = os.getenv(
@@ -470,6 +501,17 @@ if TEST or DEBUG or os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None) is None:
     # When testing, there is no offline cluster.
     # Also in EU, there is no offline cluster.
     CLICKHOUSE_OFFLINE_HTTP_URL = CLICKHOUSE_HTTP_URL
+
+CLICKHOUSE_EVENTS_ONLINE_HTTP_URL: str | None = (
+    f"{_clickhouse_http_protocol}{CLICKHOUSE_EVENTS_ONLINE_HOST}:{_clickhouse_http_port}/"
+    if CLICKHOUSE_EVENTS_ONLINE_HOST
+    else None
+)
+CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL: str | None = (
+    f"{_clickhouse_http_protocol}{CLICKHOUSE_EVENTS_OFFLINE_HOST}:{_clickhouse_http_port}/"
+    if CLICKHOUSE_EVENTS_OFFLINE_HOST
+    else None
+)
 
 READONLY_CLICKHOUSE_USER: str | None = os.getenv("READONLY_CLICKHOUSE_USER", None)
 READONLY_CLICKHOUSE_PASSWORD: str | None = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
@@ -601,6 +643,17 @@ WORKFLOWS_STEP_RESUME_JWT_SECRETS = get_list(
     get_from_env("WORKFLOWS_STEP_RESUME_JWT_SECRET", "local-dev-workflows-step-resume-jwt" if DEBUG or TEST else "")
 )
 
+# Scoped JWT keys for the transactional email route (an API call sending one email from a message
+# template). The web tier mints, the plugin server verifies. Its own key per the one-key-per-surface
+# rule above. Comma-separated, newest first. Empty outside dev/test, so sends fail closed until
+# provisioned. The dev/test value must match the plugin server's default (nodejs/src/cdp/config.ts).
+WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET",
+        "local-dev-workflows-transactional-email-jwt" if DEBUG or TEST else "",
+    )
+)
+
 # Signs the tokens a workflow's "Create AI task" action calls back with. The dev/test value
 # must match the plugin server's minting default so local workflows work with no setup.
 TASKS_CREATE_JWT_SECRETS = get_list(
@@ -618,6 +671,30 @@ WORKFLOW_SCOUT_RUN_JWT_SECRETS = get_list(
 # must match the plugin server's minting default.
 WORKFLOW_CLASSIFY_JWT_SECRETS = get_list(
     get_from_env("WORKFLOW_CLASSIFY_JWT_SECRET", "local-dev-workflow-classify-jwt" if DEBUG or TEST else "")
+)
+
+# Signs the tokens a workflow's Replay Vision step calls back with. Its own
+# key for the same reason as the scout one. The dev/test value must match the plugin server's minting default.
+WORKFLOW_VISION_REQUEST_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOW_VISION_REQUEST_JWT_SECRET", "local-dev-workflow-vision-request-jwt" if DEBUG or TEST else "")
+)
+
+# Signs the tokens a workflow's "Add to static cohort" step calls back with. The dev/test value
+# must match the plugin server's minting default.
+WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRET",
+        "local-dev-workflow-add-to-static-cohort-jwt" if DEBUG or TEST else "",
+    )
+)
+
+# Signs the tokens a workflow's "Opt out of messages" step calls back with. The dev/test value must match the
+# plugin server's minting default.
+WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRET",
+        "local-dev-workflow-message-opt-out-jwt" if DEBUG or TEST else "",
+    )
 )
 
 # Verifies the scoped JWTs the CDP worker's conversations ticket actions send to the internal
@@ -660,12 +737,6 @@ TASKS_REDIS_URL = os.getenv("TASKS_REDIS_URL", None)
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
-HOGQL_LANGUAGE_SERVICE_URL = get_from_env(
-    "HOGQL_LANGUAGE_SERVICE_URL", "http://localhost:8091" if DEBUG and not TEST else ""
-)
-HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS = get_list(
-    get_from_env("HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS", "local-development-key" if DEBUG and not TEST else "")
-)
 
 MCP_SERVER_URL: str = get_from_env("MCP_SERVER_URL", "http://localhost:8787/mcp" if DEBUG and not TEST else "")
 
@@ -691,7 +762,7 @@ LLM_PROMPTS_CACHE_MISS_TTL = int(os.getenv("LLM_PROMPTS_CACHE_MISS_TTL", str(60 
 # staleness when a cache fill races an invalidation (signals stay the fast path).
 LLM_PROMPTS_LABEL_CACHE_TTL = int(os.getenv("LLM_PROMPTS_LABEL_CACHE_TTL", str(60)))  # 1 minute
 
-CACHES = {
+CACHES: dict[str, dict[str, Any]] = {
     "default": {
         # IMPORTANT: If any of these settings change, make sure the
         # feature-flags crate is updated accordingly.
@@ -707,6 +778,18 @@ CACHES = {
         "KEY_PREFIX": "posthog",
     }
 }
+
+WAREHOUSE_SOURCE_CATALOG_CACHE_CONFIG = {
+    **CACHES["default"],
+    "OPTIONS": {
+        **CACHES["default"]["OPTIONS"],
+        "CONNECTION_FACTORY": "products.warehouse_sources.backend.cache.WarehouseSourceCatalogConnectionFactory",
+        "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
+        "SOCKET_CONNECT_TIMEOUT": 0.2,
+        "SOCKET_TIMEOUT": 0.2,
+    },
+}
+CACHES["warehouse_source_catalog"] = WAREHOUSE_SOURCE_CATALOG_CACHE_CONFIG
 
 # Authorization cache reads must use the writer. Reading membership versions and values from
 # different replicas can otherwise make a revoked membership appear valid after invalidation.
@@ -729,6 +812,100 @@ CACHES["cohort_dependencies"] = {
 CACHES["ingress_dedup"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
+}
+
+CACHES["task_artifact_preview"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# Survey site snapshot polls must read the render claim and asset pointer they wrote, or they start duplicate renders.
+CACHES["survey_site_snapshot"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# Destination replay claims must read what they wrote: a replica that still serves an
+# expired or released claim would let a second sender queue the same replay.
+CACHES["cdp_invocation_replay"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# The signup throttle reads its per-IP history, changes it and writes it back under a lock. A lagging
+# replica would hand it a stale history, and the write-back would erase another request's reservation.
+CACHES["signup_throttle"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# Metrics dashboard tiles wait for one loader to write the variable options and hold a lock while it runs.
+# A replica that lags would hide the result and the lock, so another tile would run the same query again.
+CACHES["metrics_variable_options"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# Prometheus API usage is deduplicated with SETNX after a query has already succeeded. Short socket
+# deadlines keep a stalled Redis from holding the query response; the event is skipped instead.
+CACHES["metrics_prometheus_usage"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+    "OPTIONS": {
+        **CACHES["default"]["OPTIONS"],
+        "SOCKET_CONNECT_TIMEOUT": 0.2,
+        "SOCKET_TIMEOUT": 0.2,
+    },
+}
+
+# Warehouse destination connect tokens are polled right after they are written, and completion claims a
+# token with SETNX. A lagging replica would report a fresh token as expired, so read from the writer.
+CACHES["warehouse_destination_connect"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# A PostHog Admin result is read once, right after the operation stores it. A lagging replica would report it
+# as already shown, and a result can hold a password that the control plane returns only once.
+CACHES["admin_console_results"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# The Distinct ID usage report caches ClickHouse rows that staff reload during incidents. JSON, so a read never
+# unpickles a value someone with Redis write access placed under the key.
+CACHES["distinct_id_usage_report"] = {
+    **CACHES["default"],
+    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SERIALIZER": "django_redis.serializers.json.JSONSerializer"},
+}
+
+# A data deletion stats fetch holds a lease with an owner token. The worker must read the lease the console just
+# wrote, and a lagging replica would make it skip a valid fetch as superseded.
+CACHES["data_deletion_stats"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SERIALIZER": "django_redis.serializers.json.JSONSerializer"},
+}
+
+# AEO prompt suggestion jobs are polled right after the job is created. A lagging replica would report a new
+# job as unknown, and the client treats that as expired, so read from the writer.
+CACHES["aeo_prompt_suggestions"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# The `@current` dedupe runs inside the request, so a stalled Redis must drop an event, not hold a worker.
+CACHES["current_alias_usage"] = {
+    **CACHES["default"],
+    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SOCKET_CONNECT_TIMEOUT": 0.1, "SOCKET_TIMEOUT": 0.1},
+}
+
+# A pending WorkOS Radar login attempt is read when the session signs in, seconds after the password step wrote it.
+# Read from the writer, and give up fast, so the optional report never holds a login.
+CACHES["radar_login_attempt"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SOCKET_CONNECT_TIMEOUT": 0.2, "SOCKET_TIMEOUT": 0.2},
 }
 
 # Dedicated cache for the feature flags service (if configured)
@@ -792,10 +969,23 @@ else:
 
 if TEST:
     CACHES["default"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+    CACHES["warehouse_source_catalog"] = CACHES["default"]
     CACHES["query_cache"] = CACHES["default"]
     CACHES["organization_access"] = CACHES["default"]
     CACHES["cohort_dependencies"] = CACHES["default"]
     CACHES["ingress_dedup"] = CACHES["default"]
+    CACHES["task_artifact_preview"] = CACHES["default"]
+    CACHES["cdp_invocation_replay"] = CACHES["default"]
+    CACHES["survey_site_snapshot"] = CACHES["default"]
+    CACHES["metrics_variable_options"] = CACHES["default"]
+    CACHES["warehouse_destination_connect"] = CACHES["default"]
+    CACHES["aeo_prompt_suggestions"] = CACHES["default"]
+    CACHES["signup_throttle"] = CACHES["default"]
+    CACHES["admin_console_results"] = CACHES["default"]
+    CACHES["distinct_id_usage_report"] = CACHES["default"]
+    CACHES["data_deletion_stats"] = CACHES["default"]
+    CACHES["current_alias_usage"] = CACHES["default"]
+    CACHES["radar_login_attempt"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)
@@ -811,6 +1001,12 @@ PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM: set[int] = get_from_env(
 )
 
 CLICKHOUSE_EVENT_LIST_MAX_THREADS: int = get_from_env("CLICKHOUSE_EVENT_LIST_MAX_THREADS", 50, type_cast=int)
+
+CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS: int | None = get_from_env(
+    "CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS", optional=True, type_cast=int
+)
+if CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS is not None and CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS <= 0:
+    raise ImproperlyConfigured("CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS must be a positive integer.")
 
 WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL: str = os.getenv("WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL", "")
 WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL: str = os.getenv(

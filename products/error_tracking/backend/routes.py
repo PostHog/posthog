@@ -3,10 +3,12 @@ from posthog.api.routing import RouterRegistry
 from products.error_tracking.backend.presentation.views import (
     ErrorTrackingAlertViewSet,
     ErrorTrackingAssignmentRuleViewSet,
+    ErrorTrackingBuiltInFilterViewSet,
     ErrorTrackingBypassRuleViewSet,
     ErrorTrackingExternalReferenceViewSet,
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
+    ErrorTrackingIssueTagRuleViewSet,
     ErrorTrackingIssueViewSet,
     ErrorTrackingQueryViewSet,
     ErrorTrackingRecommendationViewSet,
@@ -45,6 +47,12 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(
+        r"error_tracking/tag_rules",
+        ErrorTrackingIssueTagRuleViewSet,
+        "project_error_tracking_tag_rule",
+        ["team_id"],
+    )
+    routers.projects.register(
         r"error_tracking/grouping_rules",
         ErrorTrackingGroupingRuleViewSet,
         "project_error_tracking_grouping_rule",
@@ -60,6 +68,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"error_tracking/bypass_rules",
         ErrorTrackingBypassRuleViewSet,
         "project_error_tracking_bypass_rule",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"error_tracking/built_in_filters",
+        ErrorTrackingBuiltInFilterViewSet,
+        "project_error_tracking_built_in_filter",
         ["team_id"],
     )
     routers.projects.register(

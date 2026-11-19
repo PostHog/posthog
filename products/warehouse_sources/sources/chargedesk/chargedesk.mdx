@@ -1,0 +1,54 @@
+---
+title: Linking ChargeDesk as a source
+sidebar: Docs
+showTitle: true
+availability: { free: full, selfServe: full, enterprise: full }
+sourceId: Chargedesk
+---
+
+import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
+import SyncModes from '../_snippets/sync-modes.mdx'
+import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
+
+[ChargeDesk](https://chargedesk.com) is a billing-support tool that layers customer support workflows on top of payment gateways like Stripe, Braintree, and PayPal. Linking ChargeDesk as a source syncs your charges, charge line items, customers, subscriptions, products, subscription cancellations, and account activity into the PostHog data warehouse, where you can join them with product analytics, build revenue insights, and power SQL queries.
+
+## Prerequisites
+
+Before connecting, you need:
+
+- A ChargeDesk account with at least one connected payment gateway.
+- API access enabled for the company you want to sync.
+- A secret API key for that company.
+
+Each company in ChargeDesk has its own secret key. Create one under **Setup → API / Webhooks → Issue New Key**. The key is used as the username for HTTP Basic authentication (the password is left empty), so a single secret key grants read access to all of that company's data.
+
+## Adding a data source
+
+<SourceSetupIntro />
+
+When prompted, enter your ChargeDesk **secret API key**. That's the only credential required.
+
+## Sync modes
+
+<SyncModes />
+
+Every table except products supports incremental sync using ChargeDesk's server-side time-range filters, so ongoing syncs only fetch new records. Products are small and mutable, so they are full-refreshed on every sync.
+
+Charge items are not selected by default. ChargeDesk returns line items one charge at a time and allows 60 API requests a minute, so the first sync of an account with a lot of charges is slow. Select the table when you need the per-item breakdown of your charges.
+
+The activity log and subscription cancellations tables carry no identifier of their own, so each row is keyed by `log_id`, a hash of the row's contents.
+
+## Configuration
+
+<SourceParameters />
+
+## Supported tables
+
+<SourceTables />
+
+## Troubleshooting
+
+- **Invalid or revoked key:** if syncs fail with an authentication error, issue a new secret key in **Setup → API / Webhooks** and reconnect the source.
+- **API access not enabled:** make sure API access is turned on for the specific company whose key you used — keys are scoped per company.
+
+<TroubleshootingLink />

@@ -6,9 +6,13 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.clickhouse.client.connection import ClickHouseUser
+
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     PullRequestLink,
+    ReviewerProposal,
+    ReviewerState,
     SafetyJudgment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
@@ -25,6 +29,7 @@ from products.signals.backend.report_generation.research import (
     ReportPresentationOutput,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_plan import report_plan
 from products.signals.backend.stack_plan import (
     create_layer_reports,
     dependency_head_branch,
@@ -88,7 +93,11 @@ class TestStackPlan(BaseTest):
     def setUp(self):
         super().setUp()
         self.parent = SignalReport.objects.create(
-            team=self.team, status=SignalReport.Status.READY, title="feat(x): the plan", summary="plan"
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="feat(x): the plan",
+            summary="plan",
+            tags=["billing", "api"],
         )
         for content in (
             SafetyJudgment(choice=True),
@@ -159,6 +168,7 @@ class TestStackPlan(BaseTest):
             "feat(x): ui",
         ]
         assert all(child.status == SignalReport.Status.READY for child in children.values())
+        assert all(child.tags == ["billing", "api"] for child in children.values())
         # A promoted report is expected to emit `signal_report_started`, and a layer never runs research.
         assert all(child.promoted_at is None for child in children.values())
         for index, child_id in enumerate(child_ids):
@@ -176,22 +186,45 @@ class TestStackPlan(BaseTest):
                 "repo_selection",
             }
 
+    @parameterized.expand([("from_the_plan", None), ("from_a_layer", 2)])
+    def test_the_plan_and_each_layer_read_the_same_plan(self, _name: str, viewed_layer: int | None):
+        child_ids = self._create_layers()
+        self._attach_pull_request(child_ids[0], 101, SignalReportPullRequest.State.OPEN)
+        SignalReport.objects.filter(id=child_ids[1]).update(status=SignalReport.Status.DELETED)
+        viewed_id = str(self.parent.id) if viewed_layer is None else child_ids[viewed_layer]
+
+        plan = report_plan(team_id=self.team.id, report_id=viewed_id)
+
+        assert plan is not None
+        assert plan.id == str(self.parent.id)
+        assert [(step.id, step.depends_on, step.implementation_pr_state) for step in plan.steps] == [
+            (child_ids[0], (), SignalReportPullRequest.State.OPEN),
+            (child_ids[2], (), None),
+        ]
+
     @parameterized.expand(
         [
-            ("pipeline_list_is_inherited", False, 3),
-            ("user_edited_list_is_not_inherited", True, 0),
+            ("pipeline_list_is_inherited", False, False, 3),
+            ("pipeline_list_is_inherited_by_the_writer", False, True, 3),
+            ("user_edited_list_is_not_inherited", True, False, 0),
         ]
     )
-    def test_layers_inherit_only_a_pipeline_reviewer_list(self, _name: str, edited_by_user: bool, expected: int):
-        SignalReportArtefact.append_status(
-            team_id=self.team.id,
-            report_id=str(self.parent.id),
-            content=SuggestedReviewers(root=[SuggestedReviewerEntry(github_login="octocat")]),
-            attribution=ArtefactAttribution.from_user(self.user.id) if edited_by_user else ArtefactAttribution.system(),
-            reevaluate_autostart=False,
-        )
+    def test_layers_inherit_only_a_pipeline_reviewer_list(
+        self, _name: str, edited_by_user: bool, writer_enabled: bool, expected: int
+    ):
+        with patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=writer_enabled):
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=str(self.parent.id),
+                content=SuggestedReviewers(root=[SuggestedReviewerEntry(user_uuid=str(self.user.uuid))]),
+                attribution=ArtefactAttribution.from_user(self.user.id)
+                if edited_by_user
+                else ArtefactAttribution.system(),
+                reevaluate_autostart=False,
+                reviewer_proposal=ReviewerProposal(expected_state=ReviewerState()),
+            )
 
-        child_ids = self._create_layers()
+            child_ids = self._create_layers()
 
         inherited = SignalReportArtefact.objects.filter(
             report_id__in=child_ids, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
@@ -256,14 +289,17 @@ class TestStackPlan(BaseTest):
         assert second == []
         assert SignalReport.objects.filter(team=self.team).count() == 4
 
-    def test_only_the_first_layer_starts_with_the_plan(self):
+    @parameterized.expand([("web", ClickHouseUser.DEFAULT), ("pipeline", ClickHouseUser.SIGNALS)])
+    def test_only_the_first_layer_starts_with_the_plan(self, _name: str, ch_user: ClickHouseUser):
         child_ids = self._create_layers()
 
         with patch(AUTOSTART, new_callable=AsyncMock) as autostart:
-            started = start_unblocked_layers_of_plan(team_id=self.team.id, parent_report_id=str(self.parent.id))
+            started = start_unblocked_layers_of_plan(
+                team_id=self.team.id, parent_report_id=str(self.parent.id), ch_user=ch_user
+            )
 
         assert started == [child_ids[0]]
-        autostart.assert_awaited_once_with(team_id=self.team.id, report_id=child_ids[0])
+        autostart.assert_awaited_once_with(team_id=self.team.id, report_id=child_ids[0], ch_user=ch_user)
 
     def test_a_failed_layer_start_raises_after_its_siblings_are_tried(self):
         with transaction.atomic():
@@ -290,7 +326,7 @@ class TestStackPlan(BaseTest):
             self._attach_pull_request(child_ids[0], 1, SignalReportPullRequest.State.OPEN)
             assert start_dependent_layers(team_id=self.team.id, report_id=child_ids[0]) == [child_ids[1]]
 
-        autostart.assert_awaited_once_with(team_id=self.team.id, report_id=child_ids[1])
+        autostart.assert_awaited_once_with(team_id=self.team.id, report_id=child_ids[1], ch_user=ClickHouseUser.SIGNALS)
 
     def test_an_archived_layer_does_not_start_when_its_dependency_opens_a_pull_request(self):
         child_ids = self._create_layers()

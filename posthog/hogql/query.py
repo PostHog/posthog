@@ -1,7 +1,14 @@
+import re
 import dataclasses
+from collections.abc import Callable, Sequence
+from contextvars import ContextVar
+from datetime import datetime
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 
+from django.utils import timezone
+
+from clickhouse_driver.errors import SocketTimeoutError
 from opentelemetry import trace
 
 from posthog.schema import (
@@ -16,6 +23,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast, query_stats
+from posthog.hogql.compilation import bounded_compilation
 from posthog.hogql.constants import (
     HogQLDialect,
     HogQLGlobalSettings,
@@ -33,7 +41,11 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
 )
 from posthog.hogql.database.schema.information_schema import InformationSchemaTable
 from posthog.hogql.database.schema.logs import get_hogql_max_bytes_to_read_for_logs_user_queries
-from posthog.hogql.database.warehouse_usage import WarehouseSourceUsage, extract_warehouse_sources
+from posthog.hogql.database.warehouse_usage import (
+    WarehouseSourceUsage,
+    extract_warehouse_sources,
+    merge_warehouse_sources,
+)
 from posthog.hogql.direct_connection import (
     INVALID_CONNECTION_ID_ERROR,
     RAW_QUERY_TABLE_DENIED_ERROR,
@@ -46,21 +58,32 @@ from posthog.hogql.direct_sql import (
     DirectQueryRequest,
     DirectSQLAdapter,
     ensure_single_direct_statement,
-    get_adapter,
+    get_adapter_for_source,
     get_raw_adapter_for_source,
 )
-from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
+from posthog.hogql.errors import (
+    FIELD_NOT_FOUND_MESSAGE,
+    UNRESOLVED_FIELD_MESSAGE,
+    BaseHogQLError,
+    ExposedHogQLError,
+    InternalHogQLError,
+    QueryError,
+    ResolutionError,
+)
 from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.multi_query import SharingQuery, is_query_sharing_enabled
 from posthog.hogql.parser import parse_select, sanitize_client_parser_mode
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_warning
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.resolver import Resolver, ResolverFactory, resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_lazy_table_types, extract_select_queries
+from posthog.hogql.team_first_prewhere import should_check_team_first_in_prewhere
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
@@ -69,15 +92,28 @@ from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
+from posthog.clickhouse.workload import PINNED_CLUSTER_WORKLOADS
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
-from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
+from posthog.errors import (
+    CHQueryErrorS3Error,
+    CHQueryErrorS3FileChangedDuringRead,
+    CHQueryErrorUnknownIdentifier,
+    CHQueryErrorUnknownType,
+    ExposedCHQueryError,
+    unknown_type_error,
+)
+from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.exceptions_capture import capture_exception
+from posthog.models.event.new_events_schema import events_route_scope, use_new_events_schema
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.data_modeling.backend.facade import api as data_modeling_api
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 if TYPE_CHECKING:
@@ -88,6 +124,56 @@ if TYPE_CHECKING:
 tracer = trace.get_tracer(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
+DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS = 5
+MAIN_CLUSTER_WORKLOADS = (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE)
+
+
+def _contains_raw_bytes(value: object) -> bool:
+    if value is None or isinstance(value, str):
+        return False
+    if isinstance(value, bytes):
+        return True
+    if isinstance(value, list):
+        return any(_contains_raw_bytes(item) for item in value)
+    if isinstance(value, tuple):
+        return any(_contains_raw_bytes(item) for item in value)
+    if isinstance(value, dict):
+        return any(_contains_raw_bytes(key) or _contains_raw_bytes(item) for key, item in value.items())
+    return False
+
+
+def columns_with_type(names: Sequence[str], column_types: Sequence[str], wanted_type: str) -> list[str]:
+    whole_type = re.compile(rf"(?<!\w){re.escape(wanted_type)}(?!\w)")
+    return [name for name, column_type in zip(names, column_types) if whole_type.search(column_type)]
+
+
+def _raise_for_raw_bytes_in_string_results(
+    rows: Sequence[Sequence[object]], types: Sequence[tuple[str, str]], query_type: str
+) -> None:
+    """Reject raw bytes in String results because query responses and their cache use JSON."""
+    columns_with_bytes: list[str] = []
+    for column, (column_name, column_type) in enumerate(types):
+        if "String" not in column_type:
+            continue
+        if any(_contains_raw_bytes(row[column]) for row in rows):
+            columns_with_bytes.append(column_name)
+
+    if not columns_with_bytes:
+        return
+
+    if query_type == "HogQLQuery":
+        column_names = ", ".join(repr(column_name) for column_name in columns_with_bytes)
+        raise QueryError(
+            f"Query result column(s) {column_names} contain raw bytes that cannot be returned as JSON. "
+            "Encode the affected values with `hex()` or `base64Encode()` in your query to preserve the original bytes."
+        )
+
+    error = QueryError(
+        "Some values in these results aren't valid text, so the results can't be shown. "
+        "Check the event and person properties used here for values with invalid characters."
+    )
+    capture_exception(error, {"query_type": query_type, "columns": columns_with_bytes})
+    raise error
 
 
 @frozen
@@ -122,6 +208,10 @@ class HogQLQueryExecutor:
     pretty: Optional[bool] = True
     context: HogQLContext = dataclasses.field(default_factory=lambda: HogQLQueryExecutor.__uninitialized_context)
     hogql_context: Optional[HogQLContext] = None
+    _sharing_ast: ast.SelectQuery | ast.SelectSetQuery | None = dataclasses.field(default=None, init=False, repr=False)
+    _capture_sharing_ast: bool = dataclasses.field(default=False, init=False, repr=False)
+    _sharing_default_top_level_limit: bool = dataclasses.field(default=False, init=False, repr=False)
+    _sharing_removed_limit: int | None = dataclasses.field(default=None, init=False, repr=False)
     clickhouse_prepared_ast: Optional[ast.AST] = None
     clickhouse_context: Optional[HogQLContext] = None
     clickhouse_sql: Optional[str] = None
@@ -132,11 +222,15 @@ class HogQLQueryExecutor:
     direct_values: dict[str, object] | None = None
     direct_dialect: Optional[HogQLDialect] = None
     connection_id: Optional[str] = None
+    expected_direct_engine: str | None = None
+    trino_canary: bool = False
     send_raw_query: bool = False
     user: Optional[User] = None
     bypass_warehouse_access_control: bool = False
     user_access_control: Optional[UserAccessControl] = None
     resolver_factory: Optional[ResolverFactory] = None
+    refresh_stale_view_columns: bool = True
+    returned_row_limit: int | None = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -173,6 +267,7 @@ class HogQLQueryExecutor:
         self.used_data_warehouse_sources: list[WarehouseSourceUsage] = []
         self._direct_source: Optional[ExternalDataSource] = None
         self._direct_source_resolved = False
+        self._compilation_adapter: DirectSQLAdapter | None = None
         self._prompt_jev_tables: list[PromptJevTable] = []
         self._prompt_jev_warehouse_sources: list[WarehouseSourceUsage] = []
         self._executing = False
@@ -194,9 +289,9 @@ class HogQLQueryExecutor:
     @tracer.start_as_current_span("HogQLQueryExecutor._process_variables")
     def _process_variables(self):
         with self.timings.measure("variables"):
-            if self.variables and len(self.variables.keys()) > 0:
+            if self.variables or find_placeholders(self.select_query).has_variables:
                 self.select_query = replace_variables(
-                    node=self.select_query, variables=list(self.variables.values()), team=self.team
+                    node=self.select_query, variables=list((self.variables or {}).values()), team=self.team
                 )
 
     @tracer.start_as_current_span("HogQLQueryExecutor._process_placeholders")
@@ -243,7 +338,10 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._apply_optimizers")
     def _apply_optimizers(self):
-        if self.query_modifiers.usePreaggregatedTableTransforms:
+        # The preaggregated tables are built from the legacy events table, so a read of events_json skips them.
+        if self.query_modifiers.usePreaggregatedTableTransforms and not use_new_events_schema(
+            self.team.pk, self.query_modifiers
+        ):
             with self.timings.measure("preaggregated_table_transforms"):
                 assert self.hogql_context is not None
                 assert self.hogql_context.team is not None
@@ -331,6 +429,14 @@ class HogQLQueryExecutor:
             )
 
         with self.timings.measure("print_prepared_ast"):
+            if self._capture_sharing_ast:
+                self._sharing_ast = select_query_hogql
+                # The executor injects a safety limit for ordinary queries. It does not affect a
+                # top-level count, but must not make it look like the caller supplied LIMIT.
+                if self._sharing_default_top_level_limit and isinstance(self._sharing_ast, ast.SelectQuery):
+                    if isinstance(self._sharing_ast.limit, ast.Constant) and type(self._sharing_ast.limit.value) is int:
+                        self._sharing_removed_limit = self._sharing_ast.limit.value
+                    self._sharing_ast.limit = None
             self.hogql = print_prepared_ast(
                 select_query_hogql,
                 self.hogql_context,
@@ -444,8 +550,7 @@ class HogQLQueryExecutor:
         if self.connection_id != direct_source_id:
             raise ExposedHogQLError("The query references a different source than the selected connection.")
 
-        source = self._direct_source
-        adapter = get_adapter(source.direct_engine) if source is not None else None
+        adapter = self._compilation_adapter
         if adapter is not None and adapter.dialect is None:
             # A raw-only engine (BigQuery) has no HogQL printer; falling back to another
             # dialect would send SQL the engine cannot parse.
@@ -476,7 +581,8 @@ class HogQLQueryExecutor:
                 context=direct_context,
                 dialect=dialect,
                 pretty=self.pretty if self.pretty is not None else True,
-            )
+            ),
+            dialect=dialect,
         )
         self.direct_context = direct_context
         self.direct_values = direct_context.values
@@ -538,8 +644,8 @@ class HogQLQueryExecutor:
         if self._references_information_schema(direct_context):
             return None
 
-        from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415 -- load the optional backend only for Trino queries
-            transpile_hogql_to_trino_with_database,
+        from posthog.hogql.transforms.trino.manifest import (
+            transpile_hogql_to_trino_with_database,  # noqa: PLC0415 -- load the optional backend only for Trino queries
         )
 
         transpiled = transpile_hogql_to_trino_with_database(
@@ -560,7 +666,7 @@ class HogQLQueryExecutor:
 
         self.hogql = transpiled.hogql
         self.print_columns = list(transpiled.print_columns)
-        self.direct_sql = ensure_single_direct_statement(transpiled.sql)
+        self.direct_sql = ensure_single_direct_statement(transpiled.sql, dialect="trino")
         self.direct_values = transpiled.values
         self.direct_source_id = str(source.id)
         self.direct_dialect = "trino"
@@ -599,6 +705,39 @@ class HogQLQueryExecutor:
             return {}
         return types
 
+    def _modifiers_tag(self) -> dict[str, Any]:
+        tag = {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
+        if (
+            isinstance(self.clickhouse_settings, HogQLGlobalSettings)
+            and self.clickhouse_settings.move_primary_key_columns_to_end_of_prewhere is False
+        ):
+            # Temporary rollout marker, not a real modifier. Remove it with the `hogql-team-first-prewhere` flag.
+            # It goes here because `query_log_archive` keeps `modifiers` and drops unknown top-level tags.
+            tag["teamFirstPrewhere"] = True
+        return tag
+
+    def _column_formats(self) -> list[str | None] | None:
+        if self.send_raw_query and self.connection_id is not None:
+            return None
+        select = next(extract_select_queries(self.select_query), None)
+        if select is None:
+            return None
+        formats: list[str | None] = [None] * len(self.print_columns)
+        column_positions = {name: index for index, name in enumerate(self.print_columns)}
+        for index, expression in enumerate(select.select):
+            alias = expression.alias if isinstance(expression, ast.Alias) else None
+            if isinstance(expression, ast.Alias):
+                expression = expression.expr
+            if isinstance(expression, ast.Field) and expression.chain[-1] == "$virt_mcp_harness":
+                if len(select.select) == len(self.print_columns):
+                    formats[index] = "mcp_harness"
+                else:
+                    column_name = alias or str(expression.chain[-1])
+                    column_position = column_positions.get(column_name)
+                    if column_position is not None:
+                        formats[column_position] = "mcp_harness"
+        return formats if any(formats) else None
+
     def _detect_warehouse_sources(self) -> list[WarehouseSourceUsage]:
         """Detect connector-synced data warehouse sources referenced by the (resolved) query and
         store them for the query response. Never raises — telemetry must not break query execution."""
@@ -607,7 +746,7 @@ class HogQLQueryExecutor:
         except Exception:
             sources = []
         # jev source queries read their tables in separate executions.
-        sources = list({source.id: source for source in [*sources, *self._prompt_jev_warehouse_sources]}.values())
+        sources = merge_warehouse_sources([*sources, *self._prompt_jev_warehouse_sources])
         self.used_data_warehouse_sources = sources
         return sources
 
@@ -627,9 +766,17 @@ class HogQLQueryExecutor:
         if source is None:
             raise ExposedHogQLError("Connection not found or has been deleted")
 
-        adapter = adapter or get_adapter(source.direct_engine)
+        adapter = adapter or get_adapter_for_source(source, team=self.team)
         if adapter is None:
             raise InternalHogQLError(f"No direct SQL adapter registered for engine: {source.direct_engine}")
+        if self.expected_direct_engine is not None and (
+            (self.expected_direct_engine == "trino") != (adapter.engine == "trino")
+        ):
+            raise ExposedHogQLError("The warehouse engine changed. Run the query again.")
+        if source.managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN and (
+            (self.direct_dialect == "trino") != (adapter.engine == "trino")
+        ):
+            raise ExposedHogQLError("The warehouse engine changed. Run the query again.")
 
         stats = query_stats.get_active()
         if stats is not None:
@@ -653,7 +800,10 @@ class HogQLQueryExecutor:
                 query_type=self.query_type,
                 debug=bool(self.debug),
                 principal=(
-                    DirectQueryPrincipal(value=f"posthog:sql-editor:team:{self.team.pk}:user:{self.user.pk}")
+                    DirectQueryPrincipal(
+                        value=f"posthog:sql-editor:team:{self.team.pk}:user:{self.user.pk}",
+                        trino_canary=self.trino_canary,
+                    )
                     if isinstance(self.user, User) and self.user.pk is not None
                     else None
                 ),
@@ -714,13 +864,23 @@ class HogQLQueryExecutor:
                     settings=settings,
                 )
 
-            if self.clickhouse_context.workload == Workload.LOGS and self.query_type == "HogQLQuery":
+            if self.clickhouse_context.workload in PINNED_CLUSTER_WORKLOADS and self.query_type == "HogQLQuery":
                 if settings.max_bytes_to_read is None:
                     settings.max_bytes_to_read = get_hogql_max_bytes_to_read_for_logs_user_queries(
                         self.team.organization
                     )
                 if settings.read_overflow_mode is None:
                     settings.read_overflow_mode = "throw"
+
+            # Batch exports pass a `HogQLQuerySettings` subclass, which has no field for this setting.
+            if isinstance(settings, HogQLGlobalSettings) and should_check_team_first_in_prewhere(
+                self.team, self.clickhouse_prepared_ast
+            ):
+                # ON can help when index selection is precise; OFF can help when it leaves lots of irrelevant
+                # rows inside the selected granules. Small teams can share granules with many other teams,
+                # so an early team_id check can avoid expensive property evaluation on other teams' rows.
+                # OFF allows the optimizer to check team_id earlier; it does not force it first.
+                settings.move_primary_key_columns_to_end_of_prewhere = False
 
             with self.timings.measure("print_prepared_ast"):
                 if self.clickhouse_prepared_ast is None:
@@ -792,7 +952,8 @@ class HogQLQueryExecutor:
                 self,
                 query=query,
                 settings=settings,
-                context=dataclasses.replace(self.context, limit_top_select=False),
+                # The source query gets its own set, so its flag-call reads do not tag the query that embeds its rows.
+                context=dataclasses.replace(self.context, limit_top_select=False, flag_calls_read=set()),
                 limit_context=LimitContext.QUERY,
             )
             executor._prompt_jev_tables = self._prompt_jev_tables
@@ -818,6 +979,7 @@ class HogQLQueryExecutor:
         self._evaluate_prompt_jev()
         return self.select_query, self._prompt_jev_tables
 
+    @bounded_compilation
     def _prepare_execution(self, *, embedded_select: bool = False) -> _PreparedExecution:
         self.context.clear_reads()
         self._parse_query()
@@ -826,7 +988,9 @@ class HogQLQueryExecutor:
             self.context.limit_top_select = False
 
         source = self._resolve_direct_source()
-        if source is not None and source.direct_engine == "trino":
+        adapter = get_adapter_for_source(source, team=self.team) if source is not None else None
+        self._compilation_adapter = adapter
+        if adapter is not None and adapter.engine == "trino":
             trino_execution = self._prepare_pure_trino_query()
             if trino_execution is not None:
                 return trino_execution
@@ -840,6 +1004,11 @@ class HogQLQueryExecutor:
         if embedded_select:
             _EmbeddedSelectSettingsValidator().visit(self.select_query)
         if not embedded_select:
+            self._sharing_default_top_level_limit = (
+                self._capture_sharing_ast
+                and isinstance(self.select_query, ast.SelectQuery)
+                and self.select_query.limit is None
+            )
             self._apply_limit()
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
@@ -875,7 +1044,7 @@ class HogQLQueryExecutor:
         self.connection_id = str(source.id)
         self.direct_source_id = self.connection_id
         managed_warehouse_mode = source.managed_warehouse_sql_mode if source.has_managed_warehouse_prefix else None
-        adapter = get_raw_adapter_for_source(source)
+        adapter = get_raw_adapter_for_source(source, team=self.team)
         if adapter is None:
             raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
         if managed_warehouse_mode != ManagedWarehouseSQLMode.BUILT_IN and raw_query_denied_by_table_access(
@@ -901,10 +1070,14 @@ class HogQLQueryExecutor:
             return
         if self.clickhouse_sql is None:
             raise ValueError("Cannot execute ClickHouse query: SQL was not prepared")
+        clickhouse_sql = self.clickhouse_sql
         clickhouse_context = self.clickhouse_context
         if clickhouse_context is None:
             raise ValueError("Cannot execute ClickHouse query: ClickHouse context was not prepared")
         timings_dict = self.timings.to_dict()
+        # The connection host follows the events table the SQL was printed against, which a query modifier can
+        # set differently from the project's switch.
+        printed_events_route = HogQLQueryModifiers(useNewEventsSchema=clickhouse_context.uses_new_events_schema())
         with self.timings.measure("clickhouse_execute"):
             with self.timings.measure("extract_hogql_features"):
                 hogql_features = extract_hogql_features(self.select_query)
@@ -920,26 +1093,39 @@ class HogQLQueryExecutor:
                 **self.context.read_tags(),
                 plan_fingerprint=plan_fingerprint,
                 timings=timings_dict,
-                modifiers=(
-                    {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
-                ),
+                modifiers=self._modifiers_tag(),
             )
 
             workload = self.workload
-            if workload == Workload.DEFAULT and clickhouse_context.workload is not None:
-                workload = clickhouse_context.workload
+            table_workload = clickhouse_context.workload
+            if table_workload is not None and table_workload != Workload.DEFAULT and workload in MAIN_CLUSTER_WORKLOADS:
+                workload = table_workload
+
+            def run_on_clickhouse(sql: str, *, with_column_types: bool, **execution_budget: Any) -> Any:
+                with events_route_scope(printed_events_route):
+                    return sync_execute(
+                        sql,
+                        clickhouse_context.values,
+                        with_column_types=with_column_types,
+                        workload=workload,
+                        team_id=self.team.pk,
+                        readonly=True,
+                        ch_user=self.ch_user,
+                        external_tables=list(clickhouse_context.external_tables.values()) or None,
+                        **execution_budget,
+                    )
 
             def run_clickhouse_query() -> Any:
-                return sync_execute(
-                    self.clickhouse_sql,
-                    clickhouse_context.values,
-                    with_column_types=True,
-                    workload=workload,
-                    team_id=self.team.pk,
-                    readonly=True,
-                    ch_user=self.ch_user,
-                    external_tables=list(clickhouse_context.external_tables.values()) or None,
+                return run_on_clickhouse(clickhouse_sql, with_column_types=True)
+
+            def describe_column_types() -> list[str]:
+                rows = run_on_clickhouse(
+                    f"DESCRIBE TABLE ({clickhouse_sql})",
+                    with_column_types=False,
+                    settings={"max_execution_time": DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS},
+                    send_receive_timeout=DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS,
                 )
+                return [column_type for _, column_type, *_ in rows]
 
             stats = query_stats.get_active()
             if stats is not None:
@@ -957,6 +1143,14 @@ class HogQLQueryExecutor:
                     # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
                     sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
                     self.results, self.types = run_clickhouse_query()
+                except CHQueryErrorUnknownType as error:
+                    named_error = self._name_unreadable_columns(error, describe_column_types)
+                    if named_error is None:
+                        raise
+                    raise named_error from error
+                _raise_for_raw_bytes_in_string_results(
+                    self.results[: self.returned_row_limit], self.types, self.query_type
+                )
             except Exception as e:
                 if self.debug:
                     self.results = []
@@ -978,17 +1172,18 @@ class HogQLQueryExecutor:
 
         if self.debug and self.error is None:
             with self.timings.measure("explain"):
-                # nosemgrep: clickhouse-injection-taint - self.clickhouse_sql is HogQL-compiled from AST, not raw user input; values remain parameterized in clickhouse_context.values
-                explain_results = sync_execute(
-                    f"EXPLAIN {self.clickhouse_sql}",
-                    clickhouse_context.values,
-                    with_column_types=True,
-                    workload=workload,
-                    team_id=self.team.pk,
-                    readonly=True,
-                    ch_user=self.ch_user,
-                    external_tables=list(clickhouse_context.external_tables.values()) or None,
-                )
+                with events_route_scope(printed_events_route):
+                    # nosemgrep: clickhouse-injection-taint - self.clickhouse_sql is HogQL-compiled from AST, not raw user input; values remain parameterized in clickhouse_context.values
+                    explain_results = sync_execute(
+                        f"EXPLAIN {self.clickhouse_sql}",
+                        clickhouse_context.values,
+                        with_column_types=True,
+                        workload=workload,
+                        team_id=self.team.pk,
+                        readonly=True,
+                        ch_user=self.ch_user,
+                        external_tables=list(clickhouse_context.external_tables.values()) or None,
+                    )
                 self.explain = [str(r[0]) for r in explain_results[0]]
             with self.timings.measure("metadata"):
                 from posthog.hogql.metadata import get_hogql_metadata
@@ -1001,6 +1196,74 @@ class HogQLQueryExecutor:
                     prepared_ast=self.clickhouse_prepared_ast,
                     printed_sql=self.clickhouse_sql,
                 )
+
+    def _name_unreadable_columns(
+        self, error: CHQueryErrorUnknownType, describe_column_types: Callable[[], list[str]]
+    ) -> CHQueryErrorUnknownType | None:
+        try:
+            column_types = describe_column_types()
+        except (ClickHouseQueryTimeOut, SocketTimeoutError):
+            return None
+        except Exception as describe_error:
+            capture_exception(describe_error, {"team_id": self.team.pk})
+            return None
+        if not error.unreadable_type or len(column_types) != len(self.print_columns):
+            return None
+        unreadable_names = columns_with_type(self.print_columns, column_types, error.unreadable_type)
+        if not unreadable_names:
+            return None
+        return unknown_type_error(error.unreadable_type, unreadable_names, code=error.code)
+
+    @tracer.start_as_current_span("HogQLQueryExecutor.prepare_for_sharing")
+    def prepare_for_sharing(self, *, query_id: str, scope_key: str) -> SharingQuery:
+        """Compile without execution, scoped to one caller-validated request.
+
+        The returned logical AST owns its literals, so it can be rewritten and compiled
+        again without merging independently allocated ClickHouse parameter names.
+        """
+        if self.connection_id is not None or self.send_raw_query:
+            raise ExposedHogQLError("Only ClickHouse-backed HogQL queries can share execution.")
+        self._capture_sharing_ast = True
+        self._sharing_default_top_level_limit = False
+        self._sharing_removed_limit = None
+        try:
+            prepared = self._prepare_execution()
+            sharing_ast = self._sharing_ast
+            default_limit = self._sharing_removed_limit
+        finally:
+            self._capture_sharing_ast = False
+            self._sharing_default_top_level_limit = False
+            self._sharing_removed_limit = None
+            self._sharing_ast = None
+        if prepared.engine != "clickhouse" or sharing_ast is None:
+            raise ExposedHogQLError("Only ClickHouse-backed HogQL queries can share execution.")
+        context_key = repr(
+            (
+                scope_key,
+                self.team.pk,
+                self.user.pk if self.user else None,
+                id(self.context.user_access_control),
+                self.context.bypass_warehouse_access_control,
+                self.context.apply_events_retention_floor,
+                _restriction_key(prepared.context.restricted_properties),
+                self.query_modifiers,
+                self.clickhouse_settings,
+                self.workload,
+                self.ch_user,
+                self.limit_context,
+                prepared.context.timezone,
+                prepared.context.database.get_timezone() if prepared.context.database else None,
+                prepared.context.database.get_week_start_day() if prepared.context.database else None,
+            )
+        )
+        return SharingQuery(
+            query_id=query_id,
+            query=clone_expr(sharing_ast, clear_types=True, clear_locations=True),
+            context_key=context_key,
+            output_columns=tuple(self.print_columns),
+            sharing_enabled=is_query_sharing_enabled(self.team),
+            default_limit=default_limit,
+        )
 
     @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_sql")
     def generate_clickhouse_sql(self) -> tuple[str, HogQLContext]:
@@ -1020,6 +1283,54 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
+        query = self.query
+        started_at = timezone.now()
+        try:
+            return self._execute()
+        except (CHQueryErrorUnknownIdentifier, QueryError) as error:
+            if not _names_a_missing_column(error) or not self._refreshed_stale_view_columns(started_at):
+                raise
+            return self._with_fresh_database(query).execute()
+
+    def _refreshed_stale_view_columns(self, started_at: datetime) -> bool:
+        view_ids = self.context.referenced_saved_query_ids
+        if not self.refresh_stale_view_columns or not view_ids or self.user is None:
+            return False
+        try:
+            if data_modeling_api.refresh_view_columns(self.team, view_ids, self.user):
+                return True
+            return data_modeling_api.views_updated_since(self.team, view_ids, started_at)
+        except ConcurrencyLimitExceeded:
+            return False
+        except Exception as e:
+            capture_exception(e, {"team_id": self.team.pk})
+            return False
+
+    def _add_view_freshness_warnings(self) -> None:
+        if not self.context or not self.context.materialized_saved_query_ids:
+            return
+        try:
+            warnings = data_modeling_api.view_freshness_warnings(
+                self.team.pk, self.context.materialized_saved_query_ids, now=timezone.now()
+            )
+        except Exception as e:
+            # A freshness lookup must never fail the query whose results it annotates.
+            capture_exception(e, {"team_id": self.team.pk})
+            return
+        for saved_query_id, warning in warnings.items():
+            self.context.add_data_warehouse_sync_warning(saved_query_id, warning)
+
+    def _with_fresh_database(
+        self, query: Union[str, ast.SelectQuery, ast.SelectSetQuery] | None
+    ) -> "HogQLQueryExecutor":
+        return dataclasses.replace(
+            self,
+            query=query,
+            context=dataclasses.replace(self.context, database=None),
+            refresh_stale_view_columns=False,
+        )
+
+    def _execute(self) -> HogQLQueryResponse:
         self._executing = True
         trace.get_current_span().set_attribute("team_id", self.team.pk)
         try:
@@ -1044,6 +1355,7 @@ class HogQLQueryExecutor:
             # failure. The warning is often the actual explanation for the query error (e.g. a
             # FAILED warehouse sync left the table unreadable); throwing it away when execution
             # raises would hide the most useful signal.
+            self._add_view_freshness_warnings()
             if self.context and self.context.data_warehouse_sync_warnings:
                 record_warnings(self.context.data_warehouse_sync_warnings.values())
 
@@ -1061,6 +1373,7 @@ class HogQLQueryExecutor:
             timings=self.timings.to_list(),
             results=self.results,
             columns=self.print_columns,
+            column_formats=self._column_formats(),
             types=self.types,
             modifiers=self.query_modifiers,
             explain=self.explain,
@@ -1081,10 +1394,33 @@ class HogQLQueryExecutor:
         if self.user is None or not self.user.is_authenticated:
             return None
         return [
-            DataWarehouseSourceUsage(id=s.id, source_type=s.source_type, table_name=s.table_name)
+            DataWarehouseSourceUsage(
+                id=s.id,
+                source_type=s.source_type,
+                table_name=s.table_name,
+                uses_history_table=s.uses_history_table or None,
+            )
             for s in self.used_data_warehouse_sources
         ]
 
 
+hogql_execution_override: ContextVar[Callable[[HogQLQueryExecutor], HogQLQueryResponse] | None] = ContextVar(
+    "hogql_execution_override", default=None
+)
+
+
+def _restriction_key(restricted: set[RestrictedProperty] | None) -> tuple[str, ...] | None:
+    return tuple(sorted(repr(prop) for prop in restricted)) if restricted is not None else None
+
+
+_MISSING_COLUMN_MESSAGES = (UNRESOLVED_FIELD_MESSAGE, FIELD_NOT_FOUND_MESSAGE)
+
+
+def _names_a_missing_column(error: Exception) -> bool:
+    return isinstance(error, CHQueryErrorUnknownIdentifier) or str(error).startswith(_MISSING_COLUMN_MESSAGES)
+
+
 def execute_hogql_query(*args, **kwargs) -> HogQLQueryResponse:
-    return HogQLQueryExecutor(*args, **kwargs).execute()
+    executor = HogQLQueryExecutor(*args, **kwargs)
+    override = hogql_execution_override.get()
+    return override(executor) if override is not None else executor.execute()

@@ -4,9 +4,11 @@ from posthog.hogql.database.models import (
     FieldOrTable,
     IntegerDatabaseField,
     MapStringDatabaseField,
+    StringArrayDatabaseField,
     StringDatabaseField,
     Table,
 )
+from posthog.hogql.database.schema.logs import LogsKafkaMetricsTable
 
 from posthog.clickhouse.workload import Workload
 
@@ -66,10 +68,33 @@ class TraceSpansTable(Table):
             nullable=False,
             description="Instrumentation scope (library/module) that emitted the span.",
         ),
+        "events": StringArrayDatabaseField(
+            name="events",
+            nullable=False,
+            description="OpenTelemetry span events. Each element is a JSON object with time_unix_nano, name and attributes.",
+        ),
+        "dropped_events_count": IntegerDatabaseField(
+            name="dropped_events_count",
+            nullable=False,
+            description="Number of span events the SDK dropped before export.",
+        ),
+        "links": StringArrayDatabaseField(
+            name="links",
+            nullable=False,
+            description="OpenTelemetry span links to other spans. Each element is a JSON object with trace_id, span_id and attributes.",
+        ),
+        "dropped_links_count": IntegerDatabaseField(
+            name="dropped_links_count",
+            nullable=False,
+            description="Number of span links the SDK dropped before export.",
+        ),
         "time_bucket": DateTimeDatabaseField(
             name="time_bucket", nullable=False, description="Coarse time bucket used for partitioning and filtering."
         ),
         # internal fields for query optimization
+        # Physical type-suffixed backing map of `attributes`. A bare arrayElement() on it reads only
+        # the serialization bucket holding the key, where `attributes` rebuilds the whole map.
+        "attributes_map_str": MapStringDatabaseField(name="attributes_map_str", nullable=False, hidden=True),
         "_part": StringDatabaseField(name="_part", nullable=True, hidden=True),
         "_part_offset": IntegerDatabaseField(name="_part_offset", nullable=True, hidden=True),
     }
@@ -121,3 +146,18 @@ class TraceAttributesTable(Table):
 
     def to_printed_hogql(self):
         return "trace_attributes"
+
+
+class TraceSpansKafkaMetricsTable(LogsKafkaMetricsTable):
+    """Kafka consumption per partition for the trace spans topic, with the logs table's columns.
+
+    Not scoped to teams. Traces alerts read it to hold a check back to what ingestion has written.
+    """
+
+    description: str = "Per-partition Kafka consumption metadata for the trace spans ingestion topic; not scoped to teams, used to track ingestion lag."
+
+    def to_printed_clickhouse(self, context):
+        return "trace_spans_kafka_metrics"
+
+    def to_printed_hogql(self):
+        return "trace_spans_kafka_metrics"

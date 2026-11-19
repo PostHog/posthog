@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 from parameterized import parameterized
 
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
-from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRFilter, PRParser
+from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRFilter, PRParser, _patch_omitted
 
 _META = "products.review_hog.backend.reviewer.tools.github_meta"
 
@@ -410,7 +410,10 @@ class TestFetchPrData:
             mock_paginated,
             _pr_json(number=456, head_sha="abc123"),
             comments=[_comment_json(comment_id=9001)],
-            files=[_file_json(filename="src/module.py", status="modified", patch=patch)],
+            files=[
+                _file_json(filename="src/module.py", status="modified", patch=patch),
+                {**_file_json(filename="src/notes.md", status="renamed"), "previous_filename": "src/AGENTS.md"},
+            ],
         )
 
         fetcher = PRFetcher("owner", "repo", 456, token="test-token")
@@ -424,9 +427,10 @@ class TestFetchPrData:
         assert len(comments) == 1
         assert comments[0].id == 9001
 
-        assert len(files) == 1
+        assert len(files) == 2
         assert files[0].filename == "src/module.py"
         assert len(files[0].changes) > 0
+        assert files[1].previous_filename == "src/AGENTS.md"
 
         # The diff snapshot anchors findings to the exact reviewed code via the header + raw patch.
         assert "=== src/module.py [modified] ===" in diff
@@ -449,16 +453,33 @@ class TestFetchPrData:
 
     @parameterized.expand(
         [
-            ("pipeline", False, ["src/module.py"]),
-            ("single_agent", True, ["tests/test_module.py", "requirements.txt", "src/module.py"]),
+            (
+                "pipeline",
+                False,
+                ["src/module.py", "src/large.py"],
+                ["tests/test_module.py", "requirements.txt", "yarn.lock", "src/large.py"],
+            ),
+            (
+                "single_agent",
+                True,
+                ["tests/test_module.py", "requirements.txt", "src/module.py", "src/large.py"],
+                ["yarn.lock", "src/large.py"],
+            ),
         ]
     )
     def test_filtered_and_test_files_are_excluded(
-        self, mock_request: Mock, mock_paginated: Mock, _name: str, review_tests_and_text: bool, expected: list[str]
+        self,
+        mock_request: Mock,
+        mock_paginated: Mock,
+        _name: str,
+        review_tests_and_text: bool,
+        expected: list[str],
+        expected_skipped: list[str],
     ) -> None:
         # A lock file never reaches the review. Test and `.txt` files reach only the single-agent
         # design, which was measured with them in its diff; the pipeline was tuned without them. A
-        # comment follows its file, so dedup sees exactly the comments on reviewed files.
+        # comment follows its file, so dedup sees exactly the comments on reviewed files. GitHub sends
+        # no patch for a large file, so the review never sees its changes and must report it skipped.
         _wire(
             mock_request,
             mock_paginated,
@@ -469,6 +490,7 @@ class TestFetchPrData:
                 _file_json(filename="requirements.txt", status="modified", patch="@@ -1,1 +1,1 @@\n+w"),
                 _file_json(filename="yarn.lock", status="modified", patch="@@ -1,1 +1,1 @@\n+y"),
                 _file_json(filename="src/module.py", status="modified", patch="@@ -1,1 +1,1 @@\n+z"),
+                _file_json(filename="src/large.py", status="modified"),
             ],
         )
 
@@ -477,6 +499,7 @@ class TestFetchPrData:
         comments, files, diff = fetched.pr_comments, fetched.pr_files, fetched.diff
 
         assert [f.filename for f in files] == expected
+        assert list(fetched.skipped_paths) == expected_skipped
         assert [comment.path for comment in comments] == (["tests/test_module.py"] if review_tests_and_text else [])
         assert ("=== tests/test_module.py [added] ===" in diff) is review_tests_and_text
         assert "yarn.lock" not in diff
@@ -577,3 +600,20 @@ class TestFetchPrData:
         fetcher = PRFetcher("owner", "repo", 123, token="test-token")
         with pytest.raises(GitHubAPIError):
             fetcher.fetch_pr_data()
+
+
+@pytest.mark.parametrize(
+    "file, omitted",
+    [
+        ({"filename": "big.py", "status": "modified", "additions": 900, "deletions": 0}, True),
+        ({"filename": "logo.png", "status": "added", "additions": 0, "deletions": 0}, True),
+        ({"filename": "lib.so", "status": "modified", "additions": 0, "deletions": 0}, True),
+        ({"filename": "new_name.py", "status": "renamed", "additions": 0, "deletions": 0}, False),
+        (
+            {"filename": "small.py", "status": "modified", "additions": 1, "deletions": 0, "patch": "@@ -1 +1 @@\n+x"},
+            False,
+        ),
+    ],
+)
+def test_patch_omitted_marks_every_unseen_change(file: dict[str, Any], omitted: bool) -> None:
+    assert _patch_omitted(file) is omitted

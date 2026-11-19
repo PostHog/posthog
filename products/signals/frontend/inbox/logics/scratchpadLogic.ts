@@ -1,24 +1,34 @@
-import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ApiError } from 'lib/api-error'
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { signalsReportsRetrieve, signalsScoutScratchpadSearch } from 'products/signals/frontend/generated/api'
+import {
+    signalsReportsRetrieve,
+    signalsScoutScratchpadDiscard,
+    signalsScoutScratchpadSearch,
+} from 'products/signals/frontend/generated/api'
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { withPanelLoadTimeout } from '../utils/panelLoadTimeout'
 import { SCOUT_ROSTER_WINDOW_HOURS, isPipelineWriter } from '../utils/scoutRunsWindow'
-import { BOOKKEEPING_KINDS, isReportUuid, scratchpadKindOf, scratchpadTopicOf } from '../utils/scratchpadKeys'
+import { BOOKKEEPING_KINDS, scratchpadKindOf, scratchpadReportIdOf, scratchpadTopicOf } from '../utils/scratchpadKeys'
+import { isReportUnreachable, rememberUnreachableReport } from '../utils/unreachableReports'
 
 // Search reruns the server-side ILIKE on every keystroke; debounce so typing doesn't
 // fire a request per character.
 const SEARCH_DEBOUNCE_MS = 300
-// `list` caps at 1000 newest-first with no pagination wrapper — pull the whole window in
-// one read and filter it client-side. Older memory arrives through `loadOlderEntries`, which
-// walks the endpoint's `date_to` cursor a page at a time.
+// `list` caps at 1000 newest-first with no pagination wrapper. Search and one scout's entries
+// are narrow reads, so they take the whole cap in one read and filter it client-side.
 export const SCRATCHPAD_FETCH_LIMIT = 1000
+// The unfiltered window is the wide read: on a busy project 1000 previews cost Postgres megabytes
+// per panel open. Fetch a smaller first page, and let `loadOlderEntries` walk the endpoint's
+// `date_to` cursor for older memory a page at a time.
+export const SCRATCHPAD_WINDOW_PAGE_SIZE = 200
 // Bodies are an unbounded TextField clamped at 50k chars on write, so a full-fat window of
 // 1000 entries is a payload nobody needs: the ledger renders a one-line clamp until you open it.
 // Pull previews for the list and fetch the one body you expand. Sized well past one line so
@@ -73,20 +83,29 @@ export function isPreviewTruncated(content: string | null | undefined): boolean 
     return (content?.length ?? 0) >= SCRATCHPAD_PREVIEW_CHARS
 }
 
+/** One scout's own entries, tagged with the scout they were read for. */
+export interface ScoutScratchpadEntries {
+    skillName: string
+    entries: ScratchpadEntryApi[]
+}
+
 /**
- * The notes one scout wrote, newest first. The search endpoint has no per-scout filter, but every
- * entry carries the skill that created it, so the scout page narrows the already-loaded project
- * window rather than issuing a second read. Always fed the unfiltered `entries`, never search
- * results: a scout's memory shouldn't shrink because someone typed in the fleet search box.
+ * The entries one scout wrote, newest first, or null until a read for that scout has landed. The
+ * server filters on the writer, because on a busy project the newest rows across the fleet can
+ * fill the shared window before one scout's entries appear. The tag keeps a read for the previous
+ * scout from answering for this one.
  */
-export function entriesForSkill(entries: ScratchpadEntryApi[] | null, skillName: string): ScratchpadEntryApi[] {
-    return (entries ?? []).filter((entry) => entry.created_by_skill === skillName)
+export function entriesForSkill(
+    scoutEntries: ScoutScratchpadEntries | null,
+    skillName: string
+): ScratchpadEntryApi[] | null {
+    return scoutEntries?.skillName === skillName ? scoutEntries.entries : null
 }
 
 /**
  * How wide a span the loaded rows actually cover, e.g. "last 8 h". The header needs this because
- * 1,000 rows is a cap, not a total: on a busy project the window closes after a few hours, and a
- * bare "1,000 entries" reads as the whole memory.
+ * a page of rows is a cap, not a total: on a busy project the window closes after a few hours, and
+ * a bare "200 entries" reads as the whole memory.
  */
 export function describeLoadedSpan(entries: ScratchpadEntryApi[] | null): string | null {
     const stamps = (entries ?? []).map((entry) => entry.updated_at).filter((stamp): stamp is string => !!stamp)
@@ -144,9 +163,24 @@ function matchesFacetFilters(
     return true
 }
 
+function withoutKey(entries: ScratchpadEntryApi[] | null, key: string): ScratchpadEntryApi[] | null {
+    return entries === null ? null : entries.filter((entry) => entry.key !== key)
+}
+
+function withoutKeysDiscardedSince(
+    entries: ScratchpadEntryApi[],
+    discardedKeys: string[],
+    discardedBeforeRead: number
+): ScratchpadEntryApi[] {
+    const discardedSince = new Set(discardedKeys.slice(discardedBeforeRead))
+    return discardedSince.size === 0 ? entries : entries.filter((entry) => !discardedSince.has(entry.key))
+}
+
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface scratchpadLogicValues {
     canLoadOlderEntries: boolean
+    discardedKeys: string[]
+    discardingKeys: string[]
     entries: ScratchpadEntryApi[] | null
     entriesLoading: boolean
     expandedKeys: string[]
@@ -166,6 +200,9 @@ export interface scratchpadLogicValues {
     recentlyLearnedCount: number
     recentlyLearnedCountCapped: boolean
     reportTitles: Record<string, string | null>
+    scoutEntries: ScoutScratchpadEntries | null
+    scoutEntriesLoadFailed: boolean
+    scoutEntriesLoading: boolean
     scoutFacets: ScratchpadFacet[]
     scoutFilter: string[]
     searchFailed: boolean
@@ -186,6 +223,13 @@ export interface scratchpadLogicValues {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface scratchpadLogicActions {
+    loadCurrentProjectSuccess: (
+        currentProject: null | import('~/types').ProjectType,
+        payload?: any
+    ) => {
+        currentProject: null | import('~/types').ProjectType
+        payload?: any
+    } // projectLogic
     appendOlderEntries: (
         entries: ScratchpadEntryApi[],
         hasMore: boolean
@@ -194,6 +238,15 @@ export interface scratchpadLogicActions {
         hasMore: boolean
     }
     clearFilters: () => {}
+    discardEntry: (key: string) => {
+        key: string
+    }
+    discardEntryFailure: (key: string) => {
+        key: string
+    }
+    discardEntrySuccess: (key: string) => {
+        key: string
+    }
     loadEntries: (_payload: void) => void
     loadEntriesFailure: (
         error: string,
@@ -224,6 +277,27 @@ export interface scratchpadLogicActions {
     }
     loadOlderEntries: () => {}
     loadOlderEntriesFailure: () => {}
+    loadScoutEntries: (skillName: string) => string
+    loadScoutEntriesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadScoutEntriesSuccess: (
+        scoutEntries: {
+            entries: ScratchpadEntryApi[]
+            skillName: string
+        },
+        payload?: string
+    ) => {
+        scoutEntries: {
+            entries: ScratchpadEntryApi[]
+            skillName: string
+        }
+        payload?: string
+    }
     loadSearchResults: (_payload: void) => void
     loadSearchResultsFailure: (
         error: string,
@@ -240,6 +314,9 @@ export interface scratchpadLogicActions {
         payload?: void
     }
     resolveReportTitles: () => {}
+    setFirstPageHasMore: (hasMore: boolean) => {
+        hasMore: boolean
+    }
     setHideBookkeeping: (hideBookkeeping: boolean) => {
         hideBookkeeping: boolean
     }
@@ -327,19 +404,20 @@ export type scratchpadLogicType = MakeLogicType<
 >
 
 /**
- * Read-only view over the scout fleet's durable memory (`SignalScratchpad`). Owns the loaded
- * window, the debounced search text (wired straight to the endpoint's `?text=` ILIKE), the
- * client-side ledger filters, and the report titles that make UUID-namespaced keys readable.
- * There is no write surface on purpose — humans inspect this memory; only the harness
- * (internal-scope) writes it.
+ * View over the scout fleet's durable memory (`SignalScratchpad`). Owns the loaded window, the
+ * debounced search text (wired straight to the endpoint's `?text=` ILIKE), the client-side ledger
+ * filters, and the report titles that make UUID-namespaced keys readable. Only the harness writes
+ * this memory; a person with editor access to skills can delete an entry, which adds no text a
+ * scout reads.
  *
- * `entries` is always the unfiltered first page: the roster's "learned" headline and the scout
- * page's memory panel read it, and neither a search nor a ledger filter may shrink those. A
- * search lands in `searchResults`, older pages land in `olderEntries`, and the ledger reads
- * `filteredEntries` on top of whichever applies.
+ * `entries` is always the unfiltered first page: the roster's "learned" headline reads it, and
+ * neither a search nor a ledger filter may shrink it. A search lands in `searchResults`, older
+ * pages land in `olderEntries`, and the ledger reads `filteredEntries` on top of whichever applies.
+ * The scout page reads its own scout's entries from `scoutEntries`.
  */
 export const scratchpadLogic = kea<scratchpadLogicType>([
     path(['scenes', 'inbox', 'logics', 'scratchpadLogic']),
+    connect(() => ({ actions: [projectLogic, ['loadCurrentProjectSuccess']] })),
 
     actions({
         setSearchText: (searchText: string) => ({ searchText }),
@@ -354,13 +432,17 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         loadFullContentSuccess: (key: string, content: string) => ({ key, content }),
         loadFullContentFailure: (key: string) => ({ key }),
         loadOlderEntries: () => ({}),
+        setFirstPageHasMore: (hasMore: boolean) => ({ hasMore }),
         appendOlderEntries: (entries: ScratchpadEntryApi[], hasMore: boolean) => ({ entries, hasMore }),
         loadOlderEntriesFailure: () => ({}),
         resolveReportTitles: () => ({}),
         setReportTitle: (reportId: string, title: string | null) => ({ reportId, title }),
+        discardEntry: (key: string) => ({ key }),
+        discardEntrySuccess: (key: string) => ({ key }),
+        discardEntryFailure: (key: string) => ({ key }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         entries: [
             null as ScratchpadEntryApi[] | null,
             {
@@ -369,11 +451,12 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                     if (!teamId) {
                         return []
                     }
+                    const discardedBeforeRead = values.discardedKeys.length
                     const page = await withPanelLoadTimeout('scout_memory', (options) =>
                         signalsScoutScratchpadSearch(
                             String(teamId),
                             {
-                                limit: SCRATCHPAD_FETCH_LIMIT,
+                                limit: SCRATCHPAD_WINDOW_PAGE_SIZE,
                                 content_max_chars: SCRATCHPAD_PREVIEW_CHARS,
                                 ...dateFromParam(values.timeFilter),
                             },
@@ -389,7 +472,40 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                     // A wider span is the slower read, so narrowing right after widening is the
                     // order that would otherwise let the older response answer last.
                     breakpoint()
-                    return page
+                    actions.setFirstPageHasMore(page.length >= SCRATCHPAD_WINDOW_PAGE_SIZE)
+                    return withoutKeysDiscardedSince(page, values.discardedKeys, discardedBeforeRead)
+                },
+            },
+        ],
+        scoutEntries: [
+            null as ScoutScratchpadEntries | null,
+            {
+                loadScoutEntries: async (skillName: string, breakpoint) => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return { skillName, entries: [] }
+                    }
+                    const discardedBeforeRead = values.discardedKeys.length
+                    const entries = await withPanelLoadTimeout('scout_memory', (options) =>
+                        signalsScoutScratchpadSearch(
+                            String(teamId),
+                            {
+                                skill_name: skillName,
+                                limit: SCRATCHPAD_FETCH_LIMIT,
+                                content_max_chars: SCRATCHPAD_PREVIEW_CHARS,
+                            },
+                            options
+                        )
+                    ).catch((error: unknown) => {
+                        breakpoint()
+                        throw error
+                    })
+                    // Drop a stale response if the reader opened another scout while this was in flight.
+                    breakpoint()
+                    return {
+                        skillName,
+                        entries: withoutKeysDiscardedSince(entries, values.discardedKeys, discardedBeforeRead),
+                    }
                 },
             },
         ],
@@ -402,6 +518,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                     if (!teamId || !text) {
                         return null
                     }
+                    const discardedBeforeRead = values.discardedKeys.length
                     const results = await signalsScoutScratchpadSearch(String(teamId), {
                         text,
                         limit: SCRATCHPAD_FETCH_LIMIT,
@@ -410,7 +527,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                     })
                     // Drop a stale response if the search moved on while this request was in flight.
                     breakpoint()
-                    return results
+                    return withoutKeysDiscardedSince(results, values.discardedKeys, discardedBeforeRead)
                 },
             },
         ],
@@ -448,6 +565,14 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                 loadEntriesFailure: () => true,
             },
         ],
+        scoutEntriesLoadFailed: [
+            false,
+            {
+                loadScoutEntries: () => false,
+                loadScoutEntriesSuccess: () => false,
+                loadScoutEntriesFailure: () => true,
+            },
+        ],
         searchFailed: [
             false,
             {
@@ -463,19 +588,37 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             {
                 setSearchText: (state, { searchText }) => (searchText.trim() ? state : null),
                 clearFilters: () => null,
+                discardEntrySuccess: (state, { key }) => withoutKey(state, key),
+            },
+        ],
+        entries: {
+            discardEntrySuccess: (state, { key }) => withoutKey(state, key),
+        },
+        scoutEntries: {
+            discardEntrySuccess: (state, { key }) =>
+                state === null ? null : { ...state, entries: state.entries.filter((entry) => entry.key !== key) },
+        },
+        discardedKeys: [[] as string[], { discardEntrySuccess: (state, { key }) => [...state, key] }],
+        discardingKeys: [
+            [] as string[],
+            {
+                discardEntry: (state, { key }) => (state.includes(key) ? state : [...state, key]),
+                discardEntrySuccess: (state, { key }) => state.filter((k) => k !== key),
+                discardEntryFailure: (state, { key }) => state.filter((k) => k !== key),
             },
         ],
         // Which first page the walked pages belong to. A page read against an earlier window can
         // still answer after a reload started, and this is bumped at dispatch, so the listener
         // sees the invalidation without waiting for the fresh page to arrive.
         windowGeneration: [0, { loadEntries: (state: number) => state + 1 }],
-        // Pages walked back past the 1,000-row cap with the endpoint's `date_to` cursor. A fresh
+        // Pages walked back past the first page with the endpoint's `date_to` cursor. A fresh
         // first page invalidates them: it may already carry rows these pages hold.
         olderEntries: [
             [] as ScratchpadEntryApi[],
             {
                 appendOlderEntries: (state, { entries }) => [...state, ...entries],
                 loadEntries: () => [],
+                discardEntrySuccess: (state, { key }) => state.filter((entry) => entry.key !== key),
             },
         ],
         olderEntriesLoading: [
@@ -504,7 +647,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         hasMoreOlderEntries: [
             false,
             {
-                loadEntriesSuccess: (_, { entries }) => entries.length >= SCRATCHPAD_FETCH_LIMIT,
+                setFirstPageHasMore: (_, { hasMore }) => hasMore,
                 appendOlderEntries: (_, { hasMore }) => hasMore,
                 // A reload drops the walked pages, so the control goes with them until the fresh
                 // first page says whether anything older is left.
@@ -591,7 +734,9 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         recentlyLearnedCountCapped: [
             (s) => [s.entries, s.recentlyLearnedCount],
             (entries: ScratchpadEntryApi[] | null, recentlyLearnedCount: number): boolean =>
-                entries !== null && entries.length >= SCRATCHPAD_FETCH_LIMIT && recentlyLearnedCount === entries.length,
+                entries !== null &&
+                entries.length >= SCRATCHPAD_WINDOW_PAGE_SIZE &&
+                recentlyLearnedCount === entries.length,
         ],
         // What the ledger filters over: the search hits while a search is typed, the whole loaded
         // window otherwise. Null while the applicable set is still loading.
@@ -712,9 +857,9 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             (filteredEntries: ScratchpadEntryApi[] | null, reportTitles: Record<string, string | null>): string[] => {
                 const ids: string[] = []
                 for (const entry of filteredEntries ?? []) {
-                    const topic = scratchpadTopicOf(entry.key)
-                    if (topic && isReportUuid(topic) && !Object.hasOwn(reportTitles, topic) && !ids.includes(topic)) {
-                        ids.push(topic)
+                    const reportId = scratchpadReportIdOf(entry.key)
+                    if (reportId && !Object.hasOwn(reportTitles, reportId) && !ids.includes(reportId)) {
+                        ids.push(reportId)
                         if (ids.length >= REPORT_TITLE_RESOLVE_CAP) {
                             break
                         }
@@ -726,6 +871,22 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
     }),
 
     listeners(({ actions, values, cache }) => ({
+        discardEntry: async ({ key }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.discardEntryFailure(key)
+                return
+            }
+            try {
+                await signalsScoutScratchpadDiscard(String(teamId), { key })
+                actions.discardEntrySuccess(key)
+                lemonToast.success('Memory deleted')
+            } catch (error: unknown) {
+                actions.discardEntryFailure(key)
+                const detail = error instanceof Object && 'detail' in error ? String(error.detail) : null
+                lemonToast.error(detail ?? "Couldn't delete this memory. Try again in a moment.")
+            }
+        },
         setSearchText: async ({ searchText }, breakpoint) => {
             if (!searchText.trim()) {
                 return
@@ -755,6 +916,11 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             actions.resolveReportTitles()
         },
 
+        // Titles resolve against the project id, so entries that loaded before the project resolve now.
+        loadCurrentProjectSuccess: () => {
+            actions.resolveReportTitles()
+        },
+
         loadSearchResultsSuccess: () => {
             actions.resolveReportTitles()
         },
@@ -770,13 +936,14 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             const loaded = values.windowEntries ?? []
             const cursor = loaded[loaded.length - 1]?.updated_at
             const generation = values.windowGeneration
+            const discardedBeforeRead = values.discardedKeys.length
             if (!teamId || !cursor) {
                 actions.loadOlderEntriesFailure()
                 return
             }
             try {
                 const page = await signalsScoutScratchpadSearch(String(teamId), {
-                    limit: SCRATCHPAD_FETCH_LIMIT,
+                    limit: SCRATCHPAD_WINDOW_PAGE_SIZE,
                     content_max_chars: SCRATCHPAD_PREVIEW_CHARS,
                     date_to: cursor,
                     ...dateFromParam(values.timeFilter),
@@ -791,8 +958,10 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                 // still carry a key already on screen. Keys are unique per team, so drop by key.
                 const seen = new Set(loaded.map((entry) => entry.key))
                 actions.appendOlderEntries(
-                    page.filter((entry) => !seen.has(entry.key)),
-                    page.length >= SCRATCHPAD_FETCH_LIMIT
+                    withoutKeysDiscardedSince(page, values.discardedKeys, discardedBeforeRead).filter(
+                        (entry) => !seen.has(entry.key)
+                    ),
+                    page.length >= SCRATCHPAD_WINDOW_PAGE_SIZE
                 )
             } catch {
                 actions.loadOlderEntriesFailure()
@@ -810,9 +979,13 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             if (Object.hasOwn(values.fullContentByKey, key) || values.loadingContentKeys.includes(key)) {
                 return
             }
-            // A row can sit in either list (the scout page renders from the window while a search
-            // may still be typed in the panel), so look in both.
-            const entry = [...(values.windowEntries ?? []), ...(values.searchResults ?? [])].find((e) => e.key === key)
+            // A row can sit in any of these lists (the scout page renders its own read while a
+            // search may still be typed in the panel), so look in all of them.
+            const entry = [
+                ...(values.windowEntries ?? []),
+                ...(values.searchResults ?? []),
+                ...(values.scoutEntries?.entries ?? []),
+            ].find((e) => e.key === key)
             if (entry && isPreviewTruncated(entry.content)) {
                 actions.loadFullContent(key)
             }
@@ -855,21 +1028,29 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             // scratchpad key names belongs to the parent, while the reports endpoint filters by the
             // team the URL carries and does not canonicalize it. A child-environment id would 404
             // every title. `currentProjectId` mirrors that canonical id, and equals the team id for
-            // a root project; it reads '@current' until the team loads, which we reject.
-            const projectId = teamLogic.values.currentProjectId
+            // a root project; it is null until the project loads.
+            const projectId = projectLogic.values.currentProjectId
             // An id reaches `reportTitles` only when its response lands, so a pass that starts
             // while another is in flight would list, and ask for, every id the first one is
             // already fetching. Two loads answering at different times is ordinary here.
             const inFlight: Set<string> = (cache.resolvingReportIds ??= new Set<string>())
             const ids = values.unresolvedReportIds.filter((reportId) => !inFlight.has(reportId))
-            if (!projectId || projectId === '@current' || ids.length === 0) {
+            if (projectId === null || ids.length === 0) {
                 return
             }
-            for (const reportId of ids) {
+            // A 404 from an earlier mount, or from the findings feed, is already terminal.
+            const fetchIds = ids.filter((reportId) => {
+                if (isReportUnreachable(reportId)) {
+                    actions.setReportTitle(reportId, null)
+                    return false
+                }
+                return true
+            })
+            for (const reportId of fetchIds) {
                 inFlight.add(reportId)
             }
             await Promise.all(
-                ids.map(async (reportId) => {
+                fetchIds.map(async (reportId) => {
                     try {
                         const report = await signalsReportsRetrieve(String(projectId), reportId)
                         actions.setReportTitle(reportId, report.title ?? null)
@@ -878,7 +1059,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                         // for again, so only a 404 earns one. Anything else is transient: leave the
                         // id unresolved, so the next pass asks again rather than pinning the row to
                         // its shortened UUID for the rest of the session.
-                        if (error instanceof ApiError && error.status === 404) {
+                        if (rememberUnreachableReport(reportId, error)) {
                             actions.setReportTitle(reportId, null)
                         }
                     } finally {

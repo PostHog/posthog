@@ -7,6 +7,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { isInsightVizNode } from '~/queries/schema/node-guards'
 import {
     AlertCalculationInterval,
     AlertConditionType,
@@ -14,7 +15,6 @@ import {
     InsightThresholdType,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
 
 import type { AlertCheck, AlertType } from '../types'
 import { EditAlertModal } from './EditAlertModal'
@@ -180,7 +180,7 @@ const llmDetectorAlert = makeAlert({
     id: 'alert-llm',
     name: 'Watch signups',
     calculation_interval: AlertCalculationInterval.DAILY,
-    detector_config: { type: 'llm', threshold: 0.7, window: 90, instructions: 'Only tell me about drops.' },
+    detector_config: { type: 'llm', instructions: 'Only tell me about drops.' },
     threshold: undefined,
     checks: makeChecks([980, 1010, 960, 1030, 990, 1020, 640]).map((check, index, checks) =>
         index === checks.length - 1
@@ -191,6 +191,7 @@ const llmDetectorAlert = makeAlert({
                   triggered_metadata: {
                       rationale: 'Signups fell to 640, well below the 960-1030 range of the previous week.',
                       kind: 'drop',
+                      model: 'claude-haiku-5-5',
                   },
               }
             : check
@@ -209,6 +210,31 @@ const llmDetectorAlert = makeAlert({
             },
         },
     } as unknown as AlertType['insight'],
+})
+
+// The forecast detector: a different rule for spikes and drops, and the forecast on each check.
+const forecastDetectorAlert = makeAlert({
+    ...llmDetectorAlert,
+    id: 'alert-forecast',
+    detector_config: {
+        type: 'forecast',
+        above: { quantile: 0.99, min_relative_change: 0.2 },
+        below: { quantile: 0.05, min_absolute_change: 100 },
+    },
+    checks: makeChecks([980, 1010, 960, 1030, 990, 1020, 640]).map((check, index, checks) => ({
+        ...check,
+        state: index === checks.length - 1 ? AlertState.FIRING : AlertState.NOT_FIRING,
+        triggered_metadata: {
+            detector_type: 'forecast',
+            expected: 1000,
+            lower: 900,
+            upper: 1100,
+            lower_quantile: 0.05,
+            upper_quantile: 0.99,
+            actual: check.calculated_value,
+            ...(index === checks.length - 1 ? { side: 'below' } : {}),
+        },
+    })),
 })
 
 const meta: Meta<typeof EditAlertModal> = {
@@ -238,7 +264,7 @@ const storyAlerts: Record<StoryInsightType, AlertType> = {
 }
 
 const alertsById = Object.fromEntries(
-    [...Object.values(storyAlerts), llmDetectorAlert].map((alert) => [alert.id, alert])
+    [...Object.values(storyAlerts), llmDetectorAlert, forecastDetectorAlert].map((alert) => [alert.id, alert])
 )
 
 function EditAlertStory({ insightType }: AlertTypeStoryProps): JSX.Element {
@@ -297,6 +323,39 @@ export const EditAlertWithLLMDetector: StoryObj<typeof EditAlertModal> = {
             insightLogicProps={{
                 dashboardItemId: llmDetectorAlert.insight.short_id,
                 cachedInsight: llmDetectorAlert.insight,
+            }}
+            onEditSuccess={() => {}}
+            onClose={() => {}}
+            useAlertCheckPreview
+        />
+    ),
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/alerts/:alert_id/': (request) => [
+                    200,
+                    alertsById[request.params.alert_id as string],
+                ],
+                '/api/projects/:team_id/hog_functions/': EMPTY_PAGINATED_RESPONSE,
+            },
+        }),
+    ],
+}
+
+export const EditAlertWithForecastDetector: StoryObj<typeof EditAlertModal> = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.ALERTS_INLINE_NOTIFICATIONS, FEATURE_FLAGS.ALERTS_FORECAST_DETECTOR],
+        testOptions: { viewport: { width: 1300, height: 900 }, snapshotBrowsers: [] },
+    },
+    render: () => (
+        <EditAlertModal
+            isOpen
+            alertId={forecastDetectorAlert.id}
+            insightId={forecastDetectorAlert.insight.id}
+            insightShortId={forecastDetectorAlert.insight.short_id}
+            insightLogicProps={{
+                dashboardItemId: forecastDetectorAlert.insight.short_id,
+                cachedInsight: forecastDetectorAlert.insight,
             }}
             onEditSuccess={() => {}}
             onClose={() => {}}

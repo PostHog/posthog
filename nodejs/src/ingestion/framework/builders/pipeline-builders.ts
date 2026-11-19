@@ -9,6 +9,7 @@ import {
 import { StartPipeline } from '~/ingestion/framework/start-pipeline'
 import { StepPipeline } from '~/ingestion/framework/step-pipeline'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { TimeoutBarrierPipeline } from '~/ingestion/framework/timeout-barrier-pipeline'
 
 export class StartPipelineBuilder<T, C> {
     pipe<U, R extends string = never>(
@@ -57,6 +58,11 @@ export class PipelineBuilder<TInput, TOutput, C, R extends string = never> {
         )
         const finalBuilder = callback(branchingBuilder)
         return new PipelineBuilder(finalBuilder.build())
+    }
+
+    /** Past this point the budget no longer stops an element. See {@link TimeoutBarrierPipeline}. */
+    timeoutBarrier(): PipelineBuilder<TInput, TOutput, C, R> {
+        return new PipelineBuilder(new TimeoutBarrierPipeline(this.pipeline))
     }
 
     /**

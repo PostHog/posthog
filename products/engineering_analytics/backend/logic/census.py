@@ -1,9 +1,5 @@
-"""Static test-file census of a connected repo, resolved through its owners.yaml map.
-
-One tarball request per repo per run (the stream carries both the path list and the
-ownership files), captured as one ``eng_analytics_test_census`` event per owning team
-into the team's own project.
-"""
+"""Test-file census of a connected repo, captured as one ``eng_analytics_test_census`` event per
+owning team into the team's own project."""
 
 import shutil
 import tarfile
@@ -16,18 +12,19 @@ from owners_yaml import TeamTestCensus, census, runner_for_path
 
 from posthog.api.capture import capture_batch_internal
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration.github import _is_safe_github_repo_path
 from posthog.models.team import Team
 
 CENSUS_EVENT = "eng_analytics_test_census"
 _GITHUB_API = "https://api.github.com"
-# owners.yaml and product.yaml are hand-written config; anything bigger is not one.
+# Ownership files are hand-written config, so a bigger file is not one.
 _MAX_OWNERSHIP_FILE_BYTES = 512 * 1024
 _OWNERSHIP_BASENAMES = {"owners.yaml", "product.yaml"}
 
 
 def collect_repo_census(repository: str, access_token: str, *, timeout: int = 300) -> list[TeamTestCensus]:
-    """Stream the repo tarball once, keeping only test-file paths and the ownership files."""
+    """Stream the repo tarball once, because it carries both the test paths and the ownership files."""
     if not _is_safe_github_repo_path(repository):
         raise ValueError(f"Unsafe GitHub repo path: {repository!r}")
     url = f"{_GITHUB_API}/repos/{repository}/tarball"
@@ -43,6 +40,7 @@ def collect_repo_census(repository: str, access_token: str, *, timeout: int = 30
                 timeout=timeout,
                 allow_redirects=True,
                 stream=True,
+                priority=Priority.BATCH,
             )
         ) as response:
             raise_if_github_rate_limited(response)

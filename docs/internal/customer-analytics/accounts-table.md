@@ -1,5 +1,35 @@
 # Accounts table
 
+## Account automations
+
+The Automations tab and view widget show retained workflow runs for an account.
+The `customer-analytics-automations-widget` feature flag controls the tab, widget picker, and saved widgets.
+Each execution has its own row, including repeated runs of one workflow.
+Account events and account-audience batch runs appear here.
+Person-triggered product events do not.
+Account events match their stable account ID, including accounts without an external ID or whose external ID has changed.
+Event discovery only considers events referenced by retained runs.
+ClickHouse filters, counts, and paginates runs before returning rows.
+Workflow step metadata is read in one batch for the page when the ClickHouse-to-Postgres proxy is configured.
+Without that proxy, the existing Workflows read facade loads each page workflow through Django's database connection.
+
+Rows link to the workflow with an inline status chip.
+Separate columns show the original trigger time, last completed step, and expected resume time for a current delay.
+The last completed step shows its date and current name when the retained logs identify a step still present in the workflow.
+A resume time describes when execution should continue. It does not guarantee an action.
+Run records expire after 30 days and step logs after 90 days.
+Only retained run records can be discovered, so older active runs may be absent too.
+Expected resume times come from retained delay logs and disappear after later execution or completion.
+Completed history can be incomplete, and a date appears as unavailable when retained evidence cannot establish it.
+Only lifecycle log messages contribute to step evidence. Failure evidence matches known runtime messages with their expected prefixes.
+Ordinary function output containing error or skip words does not invalidate step history or consume the evidence limit.
+Returned messages are capped at 256 bytes.
+Runs with more than 200 lifecycle log messages omit completed-step and resume details because their evidence exceeds the summary limit.
+
+The endpoint requires account, workflow, person, and event read scopes.
+It checks account access and returns only workflows the caller can read.
+The widget offers no controls to change a workflow run.
+
 ## Default pinned account properties
 
 Project admins choose an ordered set of default pinned properties under Customer analytics > Accounts settings.
@@ -10,6 +40,36 @@ The user configuration inherits when it has no personal selection, including his
 Reads resolve the current project defaults without copying them into the user row, so later project changes reach every user who still inherits.
 A personal save stores the complete ordered list and an override marker.
 A saved empty list means the user chose no pinned properties and no longer inherits project changes.
+
+## Table columns and definitions
+
+The first table response contains rows, ordered columns, and the metadata needed to show and edit those columns.
+A default view sends `useDefaultColumns: true`. The backend selects the name, tags, note count, and all project relationships.
+Saved views store their selected column expressions. Relationship expressions contain the definition ID and a stable alias:
+
+```text
+accounts.relationships.values.`<definition-id>` AS rel_<definition-id-without-hyphens>
+```
+
+Relationship sort entries use the same alias followed by `ASC` or `DESC`.
+The column picker and default-column builder create this format. Saved views preserve it unchanged.
+The query planner sends typed definition references to the table endpoint.
+Empty results still include column metadata.
+
+The table and overview queries start without waiting for definition catalogs.
+The backend validates custom-property and relationship filters, including filters for columns outside the table.
+The Accounts UI requests that missing definitions be omitted, so deleted properties do not block saved views.
+The response omits their columns and values. A deleted sort column falls back to the default row order.
+Saved custom-property filters with incompatible operators are omitted after a definition changes type.
+Other API callers retain strict validation by default.
+
+Saved overview metrics use their definition IDs without waiting for catalogs.
+Missing or nonnumeric metric definitions produce an empty metric value.
+Table metadata caches workflow-reference flags for 60 seconds per project.
+
+Opening a column, filter, or overview editor loads each definition catalog once with `pagination=none`.
+The API keeps its `results`, `count`, `next`, and `previous` envelope. Other callers keep pagination by default.
+Catalog responses update picker options without changing the table request.
 
 ## Query scheduling
 
@@ -54,6 +114,7 @@ On a fresh load, restoration uses this order:
 
 Accounts and Notes have independent My accounts filters.
 Changing one does not change the other, including when switching tabs.
+Notes saved views retain the selected assignee IDs when shared. Their summaries show those members' names, not the current viewer's accounts.
 Removing My accounts on the Accounts list restores all assignment statuses.
 Fresh Accounts loads do not restore unsaved filters or the Notes preference.
 Saved-view restoration waits for the project, user, and saved configuration to resolve before issuing list and overview queries.
@@ -76,6 +137,22 @@ An explicit query-string view ID takes precedence over a legacy snapshot.
 Browser storage failures do not prevent URL-based selection.
 `accountsLogic.viewState` supplies the snapshot for working state and explicit saves.
 The parent scene preserves the selected view ID when changing date or test-account filters.
+
+### Notes saved views
+
+Accounts and Notes use the same saved-view picker and management dialogs.
+The Notes toolbar starts with search. View tooltips describe the saved filters and sorting.
+Edit and Delete remain in each view's Manage menu.
+Select "All notes" to clear the selected view and restore that Notes list's default filters and sorting.
+
+A Notes tile saves search, tags, authors, sorting, and the selected view ID in its configuration.
+Switching account tabs keeps the selected Notes view with its filters.
+A view's account and assignment filters apply only on the team Notes list.
+Sorting by account also applies only there. Within one account, the table uses creation-date sorting while preserving the saved account sort.
+Changing other filters and updating that view does not replace its team-only sort.
+
+Note tag edits appear immediately and save in order for each note.
+An earlier response cannot replace a later pending edit. A failed write restores the last saved tags unless another edit is pending.
 
 ## Sorting
 

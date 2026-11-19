@@ -4,7 +4,6 @@ import { useMemo, useState } from 'react'
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { Button, cn } from '@posthog/quill'
 
-import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { releaseStageProductForScene } from 'lib/components/ReleaseStageTag/releaseStage'
 import { ReleaseStageTag } from 'lib/components/ReleaseStageTag/ReleaseStageTag'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -18,15 +17,15 @@ import { QuillSceneHeader } from './QuillSceneHeader'
 import { QuillSceneName } from './QuillSceneName'
 import { QuillSceneTrail } from './QuillSceneTrail'
 import { SceneDescription } from './SceneDescription'
-import { useRegisterSceneMenuBarSlot, useSceneMenuBarSlotMarginTop } from './SceneMenuBarSlotProvider'
+import { useRegisterSceneMenuBarSlot, useSceneMenuBarSlotFilled } from './SceneMenuBarSlotProvider'
 import { sceneResourceIcon } from './sceneResourceIcon'
-import { SceneTitlePanelButton } from './SceneTitlePanelButton'
 import type { SceneMainTitleProps } from './SceneTitleSection'
 import { SceneTitleSettingsButton } from './SceneTitleSettingsButton'
 
 export function QuillSceneTitleSection({
     name,
     nameSuffix,
+    nameAction,
     description,
     resourceType,
     markdown = false,
@@ -36,17 +35,16 @@ export function QuillSceneTitleSection({
     canEdit = false,
     forceEdit = false,
     descriptionAlwaysVisible = false,
+    descriptionIgnoresForceEdit = false,
     renameDebounceMs,
     saveOnBlur = false,
     noPadding = false,
     actions,
-    hideProductSetupButton = false,
     forceBackTo,
+    scope,
     className,
     onGenerateMetadata,
     isGeneratingMetadata,
-    maxToolProps,
-    maxButtonLabel,
     descriptionMaxLength,
     sceneId,
 }: SceneMainTitleProps): JSX.Element {
@@ -62,15 +60,37 @@ export function QuillSceneTitleSection({
         () => releaseStageProductForScene(releaseStageSceneId, name),
         [releaseStageSceneId, name]
     )
+    const staticName = name !== null && !titleInPhoneHeader && !(onNameChange && canEdit) && !forceEdit && !isLoading
+    const descriptionForceEdit = forceEdit && !descriptionIgnoresForceEdit
     const hasDescription = description != null && (description || canEdit)
     const descriptionShown =
-        hasDescription && (descriptionAlwaysVisible || (showDescription && !titleInPhoneHeader) || forceEdit)
+        hasDescription &&
+        (descriptionAlwaysVisible || (showDescription && !titleInPhoneHeader && !staticName) || descriptionForceEdit)
+    const descriptionToggle = hasDescription && !descriptionAlwaysVisible && (
+        <Button
+            variant="default"
+            size="icon-sm"
+            aria-label={showDescription ? 'Hide description' : 'Show description'}
+            onClick={toggleShowDescription}
+            data-attr={showDescription ? 'toggle-description-button-collapse' : 'toggle-description-button-expand'}
+        >
+            {showDescription || descriptionForceEdit ? <IconCollapse /> : <IconExpand />}
+        </Button>
+    )
     const backTo = forceBackTo || (breadcrumbs.length > 2 ? breadcrumbs[breadcrumbs.length - 2] : undefined)
     const backPath = !titleInPhoneHeader && backTo && 'path' in backTo ? backTo.path : undefined
     const resourceIcon = name !== null && !titleInPhoneHeader ? sceneResourceIcon(resourceType) : undefined
+    const nameSuffixes = (
+        // Lemon tags read --success and --warning, which quill redefines as pale fills
+        <span data-not-quill className="contents">
+            {releaseStageProduct && <ReleaseStageTag product={releaseStageProduct} />}
+            {nameSuffix}
+        </span>
+    )
     const [menuBarSlot, setMenuBarSlot] = useState<HTMLDivElement | null>(null)
     useRegisterSceneMenuBarSlot(menuBarSlot)
-    const menuBarSlotMarginTop = useSceneMenuBarSlotMarginTop(menuBarSlot)
+    // The menu bar's Help menu carries the settings link, so the title shows its own only without a bar.
+    const menuBarShown = useSceneMenuBarSlotFilled()
 
     return (
         <>
@@ -81,78 +101,78 @@ export function QuillSceneTitleSection({
                     titleInPhoneHeader && 'hidden has-[>div>*]:flex',
                     className,
                     // Last, so a caller's spacing cannot move the row. The sidebar toggle must sit on the same spot in
-                    // every scene. The menu bar portals below the row, so callers that make room for it above need not.
+                    // every scene. The menu bar portals into the row, so callers that make room for it above need not.
                     'px-4',
                     !noPadding && '-mt-4'
                 )}
                 back={
                     <QuillSceneTrail
                         lead={sidebarBreadcrumbShown && <TodaySidebarBreadcrumb />}
-                        parent={backTo && backPath ? { name: backTo.name, path: backPath } : undefined}
+                        parent={
+                            backTo && backPath
+                                ? { name: backTo.name, path: backPath }
+                                : scope && !titleInPhoneHeader
+                                  ? { name: scope }
+                                  : undefined
+                        }
                         icon={resourceIcon}
+                        iconLeadsName={resourceType.iconLeadsName}
+                        current={staticName ? { name, description: description || undefined } : undefined}
                     />
                 }
                 title={
-                    name !== null &&
-                    !titleInPhoneHeader && (
-                        <QuillSceneName
-                            name={name}
-                            isLoading={isLoading}
-                            onChange={onNameChange}
-                            canEdit={canEdit}
-                            forceEdit={forceEdit}
-                            renameDebounceMs={renameDebounceMs}
-                            saveOnBlur={saveOnBlur}
-                            onGenerateMetadata={onGenerateMetadata}
-                            isGeneratingMetadata={isGeneratingMetadata}
-                            suffix={
-                                <>
-                                    {releaseStageProduct && <ReleaseStageTag product={releaseStageProduct} />}
-                                    {nameSuffix}
-                                    {hasDescription && !descriptionAlwaysVisible && (
-                                        <Button
-                                            variant="default"
-                                            size="icon-sm"
-                                            aria-label={showDescription ? 'Hide description' : 'Show description'}
-                                            onClick={toggleShowDescription}
-                                            data-attr={
-                                                showDescription
-                                                    ? 'toggle-description-button-collapse'
-                                                    : 'toggle-description-button-expand'
-                                            }
-                                        >
-                                            {showDescription || forceEdit ? <IconCollapse /> : <IconExpand />}
-                                        </Button>
-                                    )}
-                                </>
-                            }
+                    <>
+                        {staticName && (
+                            <>
+                                {nameAction}
+                                {nameSuffixes}
+                            </>
+                        )}
+                        {name !== null && !titleInPhoneHeader && !staticName && (
+                            <QuillSceneName
+                                name={name}
+                                isLoading={isLoading}
+                                onChange={onNameChange}
+                                canEdit={canEdit}
+                                forceEdit={forceEdit}
+                                renameDebounceMs={renameDebounceMs}
+                                saveOnBlur={saveOnBlur}
+                                onGenerateMetadata={onGenerateMetadata}
+                                isGeneratingMetadata={isGeneratingMetadata}
+                                fieldSuffix={descriptionIgnoresForceEdit && descriptionToggle}
+                                suffix={
+                                    <>
+                                        {nameAction}
+                                        {nameSuffixes}
+                                        {descriptionToggle}
+                                    </>
+                                }
+                            />
+                        )}
+                        {/* The scene menu bar portals in here, so its menus follow the name after a short divider. A narrow scene wraps
+                            the menus onto their own line, where the divider would lead the line, so it hides there. */}
+                        <div
+                            ref={setMenuBarSlot}
+                            className="flex shrink-0 items-center empty:hidden before:mx-1 before:h-4 before:w-px before:shrink-0 before:bg-[var(--border)] before:content-[''] @max-xl/main-content:before:hidden"
                         />
-                    )
+                    </>
                 }
                 actions={
                     <>
-                        {!hideProductSetupButton && <ProductSetupButton />}
                         {actions}
-                        <SceneTitleSettingsButton />
-                        <SceneTitlePanelButton maxToolProps={maxToolProps} maxButtonLabel={maxButtonLabel} />
+                        {!menuBarShown && <SceneTitleSettingsButton />}
                     </>
                 }
             />
-            {/* The scene menu bar portals in here. It sits outside the sticky header, so it scrolls away. */}
-            <div
-                ref={setMenuBarSlot}
-                className={cn('empty:hidden', !noPadding && '-mx-4')}
-                style={{ marginTop: menuBarSlotMarginTop }}
-            />
             {descriptionShown && (
-                <div className={cn('[&_svg]:size-6', noPadding && cn('pl-4 pr-2', className))}>
+                <div className={cn(noPadding && cn('pl-4 pr-2', className))}>
                     <SceneDescription
                         description={description}
                         markdown={markdown}
                         isLoading={isLoading}
                         onChange={onDescriptionChange}
                         canEdit={canEdit}
-                        forceEdit={forceEdit}
+                        forceEdit={descriptionForceEdit}
                         renameDebounceMs={renameDebounceMs}
                         saveOnBlur={saveOnBlur}
                         maxLength={descriptionMaxLength}

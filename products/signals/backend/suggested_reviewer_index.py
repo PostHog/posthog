@@ -15,33 +15,22 @@ from django.db.models import Q, QuerySet
 import structlog
 from pydantic import ValidationError
 
+from posthog.dataclasses import frozen
+
 from products.signals.backend.artefact_schemas import SuggestedReviewers
 from products.signals.backend.models import SignalReportArtefact, SignalReportSuggestedReviewer
 
 logger = structlog.get_logger(__name__)
 
 
-# A tie needs at most a handful of rows, and a report's reviewer history is short, so reading the
-# newest few and grouping in Python costs one query where a timestamp lookup would cost two.
-_TIE_SCAN_LIMIT = 20
-
-
 def _current_reviewer_artefacts(team_id: int, report_id: str) -> list[SignalReportArtefact]:
-    """The report's live reviewer artefacts: the newest row, plus any row written at the same
-    instant. The predicate this replaces ("no newer row of this type exists") also kept every row
-    at the maximum timestamp, so a tie must stay a union rather than become a pick.
-    """
-    newest_first = list(
+    return list(
         SignalReportArtefact.objects.filter(
             team_id=team_id,
             report_id=report_id,
             type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-        ).order_by("-created_at")[:_TIE_SCAN_LIMIT]
+        ).order_by("-created_at", "-id")[:1]
     )
-    if not newest_first:
-        return []
-    latest = newest_first[0].created_at
-    return [artefact for artefact in newest_first if artefact.created_at == latest]
 
 
 def _rows_for_artefact(artefact: SignalReportArtefact) -> list[SignalReportSuggestedReviewer]:
@@ -121,3 +110,18 @@ def report_ids_naming_reviewers(
         user_uuids, github_logins, logins_match_unidentified_only=logins_match_unidentified_only
     )
     return SignalReportSuggestedReviewer.objects.for_team(team_id).filter(identity).values("report_id")
+
+
+@frozen
+class ReviewerSetMatch:
+    reviewer_count: int
+    names_identity: bool
+
+
+def match_reviewer_set(*, team_id: int, report_id: str, user_uuid: str, github_login: str | None) -> ReviewerSetMatch:
+    """Whether a report's current reviewer set names this person, with the "is this me?" login rule."""
+    rows = SignalReportSuggestedReviewer.objects.for_team(team_id).filter(report_id=report_id)
+    identity = _identity_filter(
+        [user_uuid], [github_login] if github_login else [], logins_match_unidentified_only=False
+    )
+    return ReviewerSetMatch(reviewer_count=rows.count(), names_identity=rows.filter(identity).exists())

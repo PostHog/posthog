@@ -3,10 +3,192 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 7 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * @summary Send a transactional email
+ */
+export const MessagingSendEmailCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const MessagingSendEmailCreateHeader = () => zod.object({
+    'Idempotency-Key': zod
+        .string()
+        .optional()
+        .describe(
+            "A unique key for this email, 1 to 255 visible ASCII characters. Retrying with the same key and the same request within 24 hours sends nothing new and returns the first send's `message_id`. Reusing a key for a different request returns a 422."
+        ),
+})
+
+export const messagingSendEmailCreateBodyTemplateKeyMax = 256
+
+export const messagingSendEmailCreateBodyTemplateKeyRegExp = new RegExp('^[a-zA-Z0-9_-]+$')
+export const messagingSendEmailCreateBodyDistinctIdMax = 400
+
+export const messagingSendEmailCreateBodyReplyToMax = 10
+
+export const messagingSendEmailCreateBodyCcTwoMax = 10
+
+export const messagingSendEmailCreateBodyBccTwoMax = 10
+
+export const messagingSendEmailCreateBodyAttachmentsItemSha256RegExp = new RegExp('^[0-9a-f]{64}$')
+export const messagingSendEmailCreateBodyAttachmentsItemFilenameMax = 255
+
+export const messagingSendEmailCreateBodyAttachmentsItemContentTypeMax = 78
+
+export const messagingSendEmailCreateBodyAttachmentsItemContentIdMax = 78
+
+export const messagingSendEmailCreateBodyAttachmentsMax = 10
+
+export const messagingSendEmailCreateBodyFromMax = 1024
+
+export const MessagingSendEmailCreateBody = () => zod.strictObject({
+    to: zod.email().describe('Email address of the recipient.'),
+    message_data: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Data for the template\'s Liquid placeholders, available as `variables`. For example `{\"reset_link\": \"https:\/\/...\"}` fills `{{ variables.reset_link }}`.'
+        ),
+    template_id: zod
+        .string()
+        .optional()
+        .describe(
+            'ID of the email template to send. The template must be made transactional first. Send either `template_id` or `template_key`.'
+        ),
+    template_key: zod
+        .string()
+        .max(messagingSendEmailCreateBodyTemplateKeyMax)
+        .regex(messagingSendEmailCreateBodyTemplateKeyRegExp)
+        .optional()
+        .describe(
+            'Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only, at most 256 characters. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
+        ),
+    distinct_id: zod
+        .string()
+        .max(messagingSendEmailCreateBodyDistinctIdMax)
+        .nullish()
+        .describe(
+            "Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. Defaults to the recipient's email address. The events join the person who has this ID, or start a new person when nobody has it. No events are captured when the project's engagement events setting is off, or when `tracking` or `capture_engagement` turns engagement off for a send with `template_key`. The template can't read the person's properties, so pass everything it needs in `message_data`."
+        ),
+    subject: zod.string().optional().describe('Subject of the email your code rendered.'),
+    html: zod.string().optional().describe('HTML body of the email your code rendered, at most 5 MiB as UTF-8.'),
+    text: zod
+        .string()
+        .optional()
+        .describe(
+            'Plain text body of the email your code rendered, at most 5 MiB as UTF-8. Without it, PostHog derives the text from `html`.'
+        ),
+    reply_to: zod
+        .array(zod.email())
+        .max(messagingSendEmailCreateBodyReplyToMax)
+        .optional()
+        .describe(
+            "Addresses replies to the email your code rendered go to. The PostHog test sender ignores them and says so in the response's `warnings`."
+        ),
+    cc: zod
+        .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyCcTwoMax), zod.null()])
+        .optional()
+        .describe(
+            "Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here."
+        ),
+    bcc: zod
+        .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyBccTwoMax), zod.null()])
+        .optional()
+        .describe(
+            "Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here."
+        ),
+    attachments: zod
+        .array(
+            zod.strictObject({
+                sha256: zod
+                    .string()
+                    .regex(messagingSendEmailCreateBodyAttachmentsItemSha256RegExp)
+                    .describe(
+                        'SHA-256 of a file uploaded through `POST \/api\/projects\/{project_id}\/messaging\/attachments\/uploads\/`, as 64 lowercase hex characters.'
+                    ),
+                filename: zod
+                    .string()
+                    .max(messagingSendEmailCreateBodyAttachmentsItemFilenameMax)
+                    .describe(
+                        'File name the recipient sees, such as `invoice.pdf`. No path and no line breaks. A file type mailbox providers block, such as `.exe`, is refused.'
+                    ),
+                content_type: zod
+                    .string()
+                    .max(messagingSendEmailCreateBodyAttachmentsItemContentTypeMax)
+                    .optional()
+                    .describe(
+                        'MIME type of the file, such as `application\/pdf`, with any parameters, such as `text\/calendar; charset=utf-8; method=REQUEST`. Without it, the type follows from the file name. A `name` parameter is refused, because the file name comes from `filename`.'
+                    ),
+                content_id: zod
+                    .string()
+                    .max(messagingSendEmailCreateBodyAttachmentsItemContentIdMax)
+                    .optional()
+                    .describe(
+                        'Content ID that the HTML body references as `cid:<content_id>` to show the file inline, such as `logo`. Without `<` or `>`.'
+                    ),
+            })
+        )
+        .max(messagingSendEmailCreateBodyAttachmentsMax)
+        .nullish()
+        .describe(
+            "Files attached to the email your code rendered: up to 10, each uploaded first through `POST \/api\/projects\/{project_id}\/messaging\/attachments\/uploads\/` and named here by its SHA-256. The whole email can be at most 40 MB after Base64 encoding, about 29 MB of files. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here."
+        ),
+    capture_engagement: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Deprecated: use `tracking.engagement`. Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A send with `tracking` can't also carry this field. A project whose admin turned engagement capture off captures nothing, whatever the send says."
+        ),
+    tracking: zod
+        .union([
+            zod.boolean(),
+            zod.strictObject({
+                opens: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether PostHog adds its open pixel to the email. Defaults to true.'),
+                clicks: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether the email's links go through a redirect that counts clicks. Defaults to true when the email isn't sensitive and false when it is. Needs `opens`. A link with `data-ph-no-track` keeps its own address."
+                    ),
+                engagement: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. Defaults to true."
+                    ),
+            }),
+        ])
+        .optional()
+        .describe(
+            "What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body."
+        ),
+    sensitive: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive."
+        ),
+    from: zod
+        .string()
+        .max(messagingSendEmailCreateBodyFromMax)
+        .optional()
+        .describe(
+            "Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its organization, and then only to members of the organization. That sender ignores this field and says so in the response's `warnings`."
+        ),
+})
 
 export const MessagingTemplatesListParams = () => zod.object({
     project_id: zod
@@ -16,9 +198,23 @@ export const MessagingTemplatesListParams = () => zod.object({
         ),
 })
 
+export const messagingTemplatesListQueryBasicDefault = false
+
 export const MessagingTemplatesListQueryParams = () => zod.object({
+    basic: zod
+        .boolean()
+        .default(messagingTemplatesListQueryBasicDefault)
+        .describe(
+            'With true, leave out `content` and `draft_content` from each template, for lists that show names and metadata only. `has_draft` still says whether a draft exists.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    transactional: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'With true, list only templates sent over the transactional email API. With false, only the others. Leave out to list all templates.'
+        ),
 })
 
 export const MessagingTemplatesCreateParams = () => zod.object({
@@ -31,17 +227,31 @@ export const MessagingTemplatesCreateParams = () => zod.object({
 
 export const messagingTemplatesCreateBodyNameMax = 400
 
+export const messagingTemplatesCreateBodyTagsItemMax = 255
+
+export const messagingTemplatesCreateBodyTagsMax = 10
+
 export const messagingTemplatesCreateBodyContentOneTemplatingDefault = `liquid`
+export const messagingTemplatesCreateBodyContentOneEmailOneFromOneEmailMax = 254
+
 export const messagingTemplatesCreateBodyTypeMax = 24
 
-export const MessagingTemplatesCreateBody = () => zod.object({
+export const MessagingTemplatesCreateBody = () => zod.strictObject({
+    _create_in_folder: zod.string().optional().describe('Project folder for the new email template.'),
     name: zod
         .string()
         .max(messagingTemplatesCreateBodyNameMax)
         .describe('Human-readable template name shown in the library.'),
     description: zod.string().optional().describe('What the template is for and when to use it.'),
+    tags: zod
+        .array(zod.string().max(messagingTemplatesCreateBodyTagsItemMax))
+        .max(messagingTemplatesCreateBodyTagsMax)
+        .optional()
+        .describe(
+            'Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.'
+        ),
     content: zod
-        .object({
+        .strictObject({
             templating: zod
                 .enum(['liquid'])
                 .describe('\* `liquid` - liquid')
@@ -51,19 +261,25 @@ export const MessagingTemplatesCreateBody = () => zod.object({
                 ),
             email: zod
                 .union([
-                    zod.object({
+                    zod.strictObject({
                         subject: zod
                             .string()
                             .optional()
                             .describe(
-                                'Email subject line. Supports Liquid templating. Required for email-type templates.'
+                                'Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published.'
                             ),
                         text: zod
                             .string()
                             .optional()
                             .describe("Plain-text fallback body for clients that can't render the email."),
+                        preheader: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                'Preview text that most inboxes show after the subject. Supports Liquid templating.'
+                            ),
                         design: zod
-                            .object({
+                            .looseObject({
                                 counters: zod
                                     .looseObject({})
                                     .optional()
@@ -71,7 +287,7 @@ export const MessagingTemplatesCreateBody = () => zod.object({
                                         'Highest htmlID suffix per element type, e.g. {\"u_row\": 1, \"u_content_text\": 2}.'
                                     ),
                                 schemaVersion: zod.number().describe('Design schema version, e.g. 16.'),
-                                body: zod.object({
+                                body: zod.looseObject({
                                     id: zod.string().optional().describe('Any unique string.'),
                                     rows: zod
                                         .array(zod.looseObject({}))
@@ -92,6 +308,37 @@ export const MessagingTemplatesCreateBody = () => zod.object({
                             .describe(
                                 "Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill."
                             ),
+                        from: zod
+                            .strictObject({
+                                email: zod
+                                    .string()
+                                    .max(messagingTemplatesCreateBodyContentOneEmailOneFromOneEmailMax)
+                                    .optional()
+                                    .describe(
+                                        "Address to send from instead of the sender's own. Must be on the sender's verified domain. Supports Liquid templating. Leave out or empty to use the sender's address."
+                                    ),
+                                name: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        "Sender name shown in the inbox instead of the sender's own. Supports Liquid templating. Leave out or empty to use the sender's name."
+                                    ),
+                                integrationId: zod
+                                    .number()
+                                    .describe(
+                                        "ID of the project's email sender integration that sends this email. Transactional sends need a verified sender."
+                                    ),
+                            })
+                            .optional()
+                            .describe(
+                                'The sender a transactional template sends from. A template made transactional without one gets the sender it was made transactional with.'
+                            ),
+                        replyTo: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                "Reply-to address for a transactional template. Separate several addresses with commas. Supports Liquid templating. Leave empty to use the sender's default reply-to."
+                            ),
                     }),
                     zod.null(),
                 ])
@@ -110,6 +357,12 @@ export const MessagingTemplatesCreateBody = () => zod.object({
         .nullish()
         .describe('Message category ID to file the template under. Must belong to the same project.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
+    sensitive: zod
+        .boolean()
+        .optional()
+        .describe(
+            "For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time."
+        ),
 })
 
 export const MessagingTemplatesRetrieveParams = () => zod.object({
@@ -132,18 +385,32 @@ export const MessagingTemplatesPartialUpdateParams = () => zod.object({
 
 export const messagingTemplatesPartialUpdateBodyNameMax = 400
 
+export const messagingTemplatesPartialUpdateBodyTagsItemMax = 255
+
+export const messagingTemplatesPartialUpdateBodyTagsMax = 10
+
 export const messagingTemplatesPartialUpdateBodyContentOneTemplatingDefault = `liquid`
+export const messagingTemplatesPartialUpdateBodyContentOneEmailOneFromOneEmailMax = 254
+
 export const messagingTemplatesPartialUpdateBodyTypeMax = 24
 
-export const MessagingTemplatesPartialUpdateBody = () => zod.object({
+export const MessagingTemplatesPartialUpdateBody = () => zod.strictObject({
+    _create_in_folder: zod.string().optional().describe('Project folder for the new email template.'),
     name: zod
         .string()
         .max(messagingTemplatesPartialUpdateBodyNameMax)
         .optional()
         .describe('Human-readable template name shown in the library.'),
     description: zod.string().optional().describe('What the template is for and when to use it.'),
+    tags: zod
+        .array(zod.string().max(messagingTemplatesPartialUpdateBodyTagsItemMax))
+        .max(messagingTemplatesPartialUpdateBodyTagsMax)
+        .optional()
+        .describe(
+            'Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.'
+        ),
     content: zod
-        .object({
+        .strictObject({
             templating: zod
                 .enum(['liquid'])
                 .describe('\* `liquid` - liquid')
@@ -153,19 +420,25 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.object({
                 ),
             email: zod
                 .union([
-                    zod.object({
+                    zod.strictObject({
                         subject: zod
                             .string()
                             .optional()
                             .describe(
-                                'Email subject line. Supports Liquid templating. Required for email-type templates.'
+                                'Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published.'
                             ),
                         text: zod
                             .string()
                             .optional()
                             .describe("Plain-text fallback body for clients that can't render the email."),
+                        preheader: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                'Preview text that most inboxes show after the subject. Supports Liquid templating.'
+                            ),
                         design: zod
-                            .object({
+                            .looseObject({
                                 counters: zod
                                     .looseObject({})
                                     .optional()
@@ -173,7 +446,7 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.object({
                                         'Highest htmlID suffix per element type, e.g. {\"u_row\": 1, \"u_content_text\": 2}.'
                                     ),
                                 schemaVersion: zod.number().describe('Design schema version, e.g. 16.'),
-                                body: zod.object({
+                                body: zod.looseObject({
                                     id: zod.string().optional().describe('Any unique string.'),
                                     rows: zod
                                         .array(zod.looseObject({}))
@@ -194,6 +467,37 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.object({
                             .describe(
                                 "Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill."
                             ),
+                        from: zod
+                            .strictObject({
+                                email: zod
+                                    .string()
+                                    .max(messagingTemplatesPartialUpdateBodyContentOneEmailOneFromOneEmailMax)
+                                    .optional()
+                                    .describe(
+                                        "Address to send from instead of the sender's own. Must be on the sender's verified domain. Supports Liquid templating. Leave out or empty to use the sender's address."
+                                    ),
+                                name: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        "Sender name shown in the inbox instead of the sender's own. Supports Liquid templating. Leave out or empty to use the sender's name."
+                                    ),
+                                integrationId: zod
+                                    .number()
+                                    .describe(
+                                        "ID of the project's email sender integration that sends this email. Transactional sends need a verified sender."
+                                    ),
+                            })
+                            .optional()
+                            .describe(
+                                'The sender a transactional template sends from. A template made transactional without one gets the sender it was made transactional with.'
+                            ),
+                        replyTo: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                "Reply-to address for a transactional template. Separate several addresses with commas. Supports Liquid templating. Leave empty to use the sender's default reply-to."
+                            ),
                     }),
                     zod.null(),
                 ])
@@ -212,6 +516,12 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.object({
         .nullish()
         .describe('Message category ID to file the template under. Must belong to the same project.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
+    sensitive: zod
+        .boolean()
+        .optional()
+        .describe(
+            "For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time."
+        ),
 })
 
 export const MessagingTemplatesDesignPartialUpdateParams = () => zod.object({
@@ -223,10 +533,10 @@ export const MessagingTemplatesDesignPartialUpdateParams = () => zod.object({
         ),
 })
 
-export const MessagingTemplatesDesignPartialUpdateBody = () => zod.object({
+export const MessagingTemplatesDesignPartialUpdateBody = () => zod.strictObject({
     operations: zod
         .array(
-            zod.object({
+            zod.strictObject({
                 op: zod
                     .enum([
                         'update_content',
@@ -282,5 +592,27 @@ export const MessagingTemplatesDesignPartialUpdateBody = () => zod.object({
         .optional()
         .describe(
             "Ordered edits applied atomically to a template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and it's saved only if valid — otherwise the template is unchanged. Reference blocks by id so you never resend the whole design."
+        ),
+})
+
+/**
+ * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
+ * @summary Make a template transactional
+ */
+export const MessagingTemplatesMakeTransactionalCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this message template.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const MessagingTemplatesMakeTransactionalCreateBody = () => zod.strictObject({
+    from_integration_id: zod
+        .number()
+        .nullish()
+        .describe(
+            "ID of the verified email sender integration the email is sent from. Defaults to the project's default sender."
         ),
 })

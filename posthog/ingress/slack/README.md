@@ -33,8 +33,15 @@ Two apps on one Slack app registration: `supporthog` for the Events API, and `su
 They are separate here because they are separate endpoints with separate payload types, so each one's consumers are validated against only the types its own endpoint receives.
 The signing secret is the same for both, and it belongs to the product that owns the Slack app, so `build_slack_provider()` and `build_slack_interactivity_provider()` take it as a getter.
 Nothing under `posthog/ingress/` reads it.
+The conversations product reads `SUPPORT_SLACK_SIGNING_SECRET` from the credentials service first, and from the instance setting while the service does not hold it.
+It caches the secret for five minutes.
 
-The `slack_app` product runs a second Slack app registration with its own signing secret, held as the `SLACK_APP_SIGNING_SECRET` instance setting.
+A third app, `provisioning_review_interactivity`, is PostHog's staff bot for provisioning partner reviews.
+It is its own Slack app registration, installed only in PostHog's workspace, and core reads its signing secret from the `PROVISIONING_REVIEW_SLACK_SIGNING_SECRET` setting.
+It receives only `block_actions` and `view_submission`.
+
+The `slack_app` product runs a second Slack app registration with its own signing secret, `SLACK_APP_SIGNING_SECRET`.
+It is read the same way, through the five-minute cache of `SlackIntegration.slack_config()`.
 Its endpoints answer Slack synchronously (a slash command, an interactivity ack, a cross-region workspace probe), so they keep their own views and verify through `build_slack_signature_scheme()` rather than through a provider.
 `posthog.models.integration.validate_slack_request` is that call.
 
@@ -65,4 +72,6 @@ A lookup that does not answer, the bounded statement timeout included, forwards 
 a lookup that never finished is no evidence that the other region owns the workspace, and the delivery carries the workspace's support messages.
 It also sets `dedup=False`, because its receipt row is unique per Slack event id and already absorbs a redelivery.
 A dedup mark would only add a way to lose one: a run that exits between the claim and the receipt commit leaves the mark behind with nothing durable written, and every redelivery then takes `retry_status` until Slack gives up.
+`provisioning_review_actions`, a core consumer on the `provisioning_review_interactivity` app, opens the Block form and queues the block.
+It declares `ownership` from the region in the review's block id, so a click on a review the other region holds is forwarded there.
 See the [Endpoints table](../README.md#endpoints).

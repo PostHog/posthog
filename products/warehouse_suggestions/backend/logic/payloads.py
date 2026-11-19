@@ -1,6 +1,6 @@
 import json
 from collections.abc import Collection, Iterable, Mapping
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from typing import Any
 from uuid import UUID
 
@@ -13,10 +13,16 @@ from ..facade.contracts import (
     SourceRef,
     SuggestionPayload,
     SuggestionPayloadView,
+    UnmaterializePayload,
     UnsupportedPayloadVersionError,
     VisibleSources,
 )
-from ..facade.enums import WarehouseSuggestionKind
+from ..facade.enums import (
+    WarehouseSuggestionKind,
+    WarehouseSuggestionMainSaving,
+    WarehouseSuggestionRefreshIntervalBasis,
+    WarehouseSuggestionRefreshMode,
+)
 
 SOURCE_FIELDS = ("live_sources", "unknown_sources")
 
@@ -31,11 +37,14 @@ def payload_from_json(
     if payload_version != PAYLOAD_VERSION:
         raise UnsupportedPayloadVersionError(payload_version)
     if kind == WarehouseSuggestionKind.CERTIFY:
-        return CertifyPayload(**data)
+        return CertifyPayload(**_declared(CertifyPayload, data))
     if kind == WarehouseSuggestionKind.DEPRECATE:
-        return DeprecatePayload(**data)
-    sources = {field: tuple(_source_ref(source) for source in data[field]) for field in SOURCE_FIELDS}
-    return MaterializePayload(**{**data, **sources})
+        return DeprecatePayload(**_declared(DeprecatePayload, data))
+    if kind == WarehouseSuggestionKind.UNMATERIALIZE:
+        return UnmaterializePayload(**_declared(UnmaterializePayload, data))
+    declared = _declared(MaterializePayload, data)
+    sources = {field: tuple(_source_ref(source) for source in declared[field]) for field in SOURCE_FIELDS}
+    return MaterializePayload(**{**declared, **sources, **_refresh_fields(declared)})
 
 
 def source_table_ids(payloads: Iterable[SuggestionPayload]) -> set[UUID]:
@@ -51,13 +60,9 @@ def source_table_ids(payloads: Iterable[SuggestionPayload]) -> set[UUID]:
 def payload_view(payload: SuggestionPayload, readable_table_ids: Collection[UUID]) -> SuggestionPayloadView:
     if not isinstance(payload, MaterializePayload):
         return payload
+    shared = {field.name: getattr(payload, field.name) for field in fields(payload) if field.name not in SOURCE_FIELDS}
     return MaterializeSuggestionPayload(
-        subject_name=payload.subject_name,
-        refresh_interval_seconds=payload.refresh_interval_seconds,
-        saves_seconds_per_month=payload.saves_seconds_per_month,
-        saves_bytes_per_month=payload.saves_bytes_per_month,
-        freshness_today_seconds=payload.freshness_today_seconds,
-        freshness_after_seconds=payload.freshness_after_seconds,
+        **shared,
         live_sources=_visible_sources(payload.live_sources, readable_table_ids),
         unknown_sources=_visible_sources(payload.unknown_sources, readable_table_ids),
     )
@@ -72,6 +77,22 @@ def _visible_sources(sources: tuple[SourceRef, ...], readable_table_ids: Collect
     return VisibleSources(names=names, hidden_count=len(sources) - len(names))
 
 
+def _declared(payload_type: type, data: Mapping[str, Any]) -> dict[str, Any]:
+    names = {field.name for field in fields(payload_type)}
+    return {key: value for key, value in data.items() if key in names}
+
+
 def _source_ref(source: Mapping[str, Any]) -> SourceRef:
     table_id = source["warehouse_table_id"]
     return SourceRef(name=source["name"], warehouse_table_id=UUID(table_id) if table_id else None)
+
+
+def _refresh_fields(data: Mapping[str, Any]) -> dict[str, Any]:
+    basis = data.get("refresh_interval_basis")
+    main_saving = data.get("main_saving")
+    return {
+        "refresh_mode": WarehouseSuggestionRefreshMode(data.get("refresh_mode", WarehouseSuggestionRefreshMode.FULL)),
+        "unique_key": tuple(data.get("unique_key", ())),
+        "refresh_interval_basis": WarehouseSuggestionRefreshIntervalBasis(basis) if basis else None,
+        "main_saving": WarehouseSuggestionMainSaving(main_saving) if main_saving else None,
+    }

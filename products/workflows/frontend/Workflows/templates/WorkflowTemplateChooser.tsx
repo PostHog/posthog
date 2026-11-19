@@ -13,7 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 import type { HogFlowTemplate } from '../hogflows/types'
 import { newWorkflowLogic } from '../newWorkflowLogic'
 import { WorkflowTemplateAiBadge } from './WorkflowTemplateAiBadge'
-import { WorkflowTemplateBlankPreview } from './WorkflowTemplateBlankPreview'
+import { WorkflowTemplateBlankCard } from './WorkflowTemplateBlankCard'
 import { WorkflowTemplateCard } from './WorkflowTemplateCard'
 import { isAiTemplate } from './workflowTemplateDisplay'
 import { WorkflowTemplateMeta } from './WorkflowTemplateMeta'
@@ -29,7 +29,7 @@ export function WorkflowTemplateChooser(props: WorkflowTemplateChooserProps): JS
     const { deleteHogflowTemplate } = useActions(workflowTemplatesLogic)
     const { user } = useValues(userLogic)
 
-    const { createWorkflowFromTemplate, createEmptyWorkflow } = useActions(newWorkflowLogic)
+    const { createWorkflowFromTemplate } = useActions(newWorkflowLogic)
 
     const canEditTemplate = (template: HogFlowTemplate): boolean => {
         if (template.scope === 'global') {
@@ -47,15 +47,7 @@ export function WorkflowTemplateChooser(props: WorkflowTemplateChooserProps): JS
     return (
         <div className="flex flex-col gap-3">
             <div className="WorkflowTemplateChooser">
-                {props.showEmptyWorkflow && (
-                    <WorkflowTemplateCard
-                        name="Blank workflow"
-                        description="Start from scratch and add your own trigger and steps."
-                        preview={<WorkflowTemplateBlankPreview />}
-                        onClick={createEmptyWorkflow}
-                        data-attr="create-workflow-blank"
-                    />
-                )}
+                {props.showEmptyWorkflow && <WorkflowTemplateBlankCard data-attr="create-workflow-blank" />}
                 {filteredTemplates.map((template: HogFlowTemplate) => (
                     <WorkflowTemplateCard
                         key={template.id}

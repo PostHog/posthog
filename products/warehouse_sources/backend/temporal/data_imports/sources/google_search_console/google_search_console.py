@@ -1,3 +1,4 @@
+import re
 import time
 import datetime as dt
 import threading
@@ -14,10 +15,10 @@ from google.auth.exceptions import RefreshError, TransportError
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials as OAuthCredentials
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -111,10 +112,11 @@ class GoogleSearchConsoleQuotaExceededError(Exception):
 
 
 class GoogleSearchConsoleServerError(Exception):
-    """Raised when listing sites/sitemaps hits a transient Google-side 5xx.
+    """Raised when a transient Google-side 5xx outlasts whatever inline retry budget the caller has.
 
-    Unlike `_query_search_analytics`, `list_sites`/`list_sitemaps` have no inline retry
-    budget, so a 5xx otherwise reaches `get_non_retryable_errors`/error tracking as a bare
+    `list_sites`/`list_sitemaps` have no inline retry budget at all; `_query_search_analytics`
+    raises this once its own `QUOTA_MAX_RETRIES` backoff is spent. Either way, a bare
+    `raise_for_status()` would reach `get_non_retryable_errors`/error tracking as an unmarked
     HTTPError. Its messages carry a `(retryable)` marker that `get_retryable_errors`
     matches, so Temporal retries the activity and the self-recovering failure is logged as
     a warning instead of tracked as noise.
@@ -141,6 +143,8 @@ def is_search_console_ui_url(site: str) -> bool:
 
 
 _PASTED_QUOTES = "'\"`\u2018\u2019\u201c\u201d"
+
+_DOMAIN_PROPERTY_PATTERN = re.compile(r"sc-domain\s*:(.*)", re.IGNORECASE | re.DOTALL)
 
 
 def normalize_site_url(raw: str) -> str:
@@ -171,6 +175,12 @@ def normalize_site_url(raw: str) -> str:
     if "%" in site:
         site = unquote(site).strip()
 
+    # Google lists domain properties as 'sc-domain:<lowercase domain>' and matches byte for byte.
+    # Mobile keyboards capitalise the prefix, and domain names are case-insensitive, so rewrite it.
+    domain_match = _DOMAIN_PROPERTY_PATTERN.fullmatch(site)
+    if domain_match:
+        return "sc-domain:" + domain_match.group(1).strip().rstrip("/").strip().lower()
+
     # URL-prefix properties are canonically stored with a lowercase scheme and host and a
     # trailing slash. Schemes and hostnames are case-insensitive, so a value like
     # "Https://Example.com/" never matches Google's lowercase form on an exact lookup — lower
@@ -193,11 +203,25 @@ def suggest_registered_site(site_url: str, registered: collections.abc.Iterable[
     check whether either canonical form *is* registered and point the user at it, so a
     dead-end "not visible" error becomes "enter this exact value instead".
 
+    A ``www.`` hostname, with or without a scheme, also matches the domain property of the bare
+    domain, because that property covers every subdomain.
+
     A site's root URL entered where only its domain property is registered gets the domain
     property suggested. A URL with a path doesn't: the domain property covers the whole
     site, so syncing it would import more than the entry asked for.
+
+    A domain property entered where only the site's root URL-prefix property is registered
+    gets that URL-prefix property suggested.
     """
     if site_url.startswith("sc-domain:"):
+        domain = site_url.removeprefix("sc-domain:").strip().strip("/").lower()
+        if not domain:
+            return None
+        registered_set = set(registered)
+        for scheme in ("https", "http"):
+            for host in (domain, f"www.{domain}"):
+                if f"{scheme}://{host}/" in registered_set:
+                    return f"{scheme}://{host}/"
         return None
     parsed = urlparse(site_url)
     if parsed.scheme:
@@ -213,7 +237,12 @@ def suggest_registered_site(site_url: str, registered: collections.abc.Iterable[
     if not host:
         return None
     registered_set = set(registered)
-    for candidate in (f"https://{host}/", f"http://{host}/", f"sc-domain:{host}"):
+    for candidate in (
+        f"https://{host}/",
+        f"http://{host}/",
+        f"sc-domain:{host}",
+        f"sc-domain:{host.removeprefix('www.')}",
+    ):
         if candidate in registered_set:
             return candidate
     return None
@@ -227,7 +256,7 @@ def _backoff_sleep(attempt: int) -> None:
 _MAX_INTEGRATION_FETCH_ATTEMPTS = 4
 
 
-def _get_integration(integration_id: int, team_id: int) -> Integration:
+def _get_integration(integration_id: int, team_id: int) -> IntegrationRecord:
     """Fetch the OAuth ``Integration`` row, retrying a transient DB failure with backoff.
 
     Temporal activities run in a long-lived worker outside Django's request cycle, and this
@@ -239,13 +268,16 @@ def _get_integration(integration_id: int, team_id: int) -> Integration:
     failed query marks one unusable, drops it), so each attempt runs on a fresh connection; the
     short backoff also gives a saturated pool time to drain rather than retrying straight back
     into the same wait timeout. This read is idempotent, so repeating it is safe.
-    ``Integration.DoesNotExist`` is left to propagate.
+    A missing row raises ``IntegrationNotFound`` with the text "Integration not found: <id>".
     """
     attempt = 0
     while True:
         close_old_connections()
         try:
-            return Integration.objects.get(id=integration_id, team_id=team_id)
+            return IntegrationManager.google_search_console.oauth.get(team_id, integration_id)
+        except IntegrationNotFound as error:
+            # A fixed text, because the error maps match on it. The SDK message is not part of its contract.
+            raise IntegrationNotFound(f"Integration not found: {integration_id}") from error
         except OperationalError:
             attempt += 1
             if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:
@@ -255,7 +287,7 @@ def _get_integration(integration_id: int, team_id: int) -> Integration:
 
 def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:
     integration = _get_integration(integration_id, team_id)
-    resolved = integration_secrets.get_secrets(
+    resolved = credentials_service.get_secrets(
         ["GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID", "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET"]
     )
     return OAuthCredentials(
@@ -488,9 +520,15 @@ def _query_search_analytics(
 
         if attempt == QUOTA_MAX_RETRIES:
             if _is_server_error(response):
-                # Still 5xx after the inline budget — surface the real HTTPError so Temporal
-                # retries the activity (resuming from the last saved date).
-                response.raise_for_status()
+                # Still 5xx after the inline budget. A bare `raise_for_status()` here would reach
+                # `get_non_retryable_errors`/error tracking as an unmarked HTTPError and get
+                # reported as a bug even though Temporal retries it anyway (resuming from the last
+                # saved date) — same reason `_property_rows` raises `GoogleSearchConsoleServerError`
+                # for its own un-budgeted 5xx.
+                raise GoogleSearchConsoleServerError(
+                    f"Google Search Console server error querying Search Analytics for '{site_url}'; "
+                    "retrying (retryable)"
+                )
             raise GoogleSearchConsoleQuotaExceededError(
                 f"Search Analytics quota for '{site_url}' still exhausted after {QUOTA_MAX_RETRIES} retries (retryable)"
             )
@@ -668,6 +706,20 @@ def _property_rows(
                 f"Google Search Console server error while listing {resource_name}; retrying (retryable)"
             ) from e
         raise
+    except RefreshError as e:
+        # `list_sites`/`list_sitemaps` call out through `AuthorizedSession`, which refreshes the
+        # access token first — a failing token endpoint raises here before any response exists, the
+        # same OAuth-refresh class `_query_search_analytics` retries inline. These two calls have no
+        # inline retry budget of their own, so mark a transient failure (e.g. the token endpoint's own
+        # 502) the same way rather than letting a bare RefreshError fall through and get logged as an
+        # exception. A permanent failure (invalid_grant/invalid_scope) still raises unchanged, so it
+        # keeps reaching `get_non_retryable_errors`.
+        if _is_transient_refresh_error(e):
+            raise GoogleSearchConsoleServerError(
+                f"Google Search Console server error refreshing credentials while listing {resource_name}; "
+                "retrying (retryable)"
+            ) from e
+        raise
 
     if rows:
         yield rows
@@ -738,6 +790,25 @@ def google_search_console_source(
                 resume_start_row = resume.start_row
 
         session = google_search_console_session(config.google_search_console_integration_id, team_id)
+
+        if "searchAppearance" in dimensions:
+            # A property without rich results never gets a watermark, so the walk below would make one
+            # slow call per day of the full history. One call over the window says whether any day has rows.
+            probe_start = max(start_date.isoformat(), resume_date or "")
+            probe_end = end_date.isoformat()
+            if probe_start > probe_end:
+                return
+            if probe_start < probe_end and not _query_search_analytics(
+                session=session,
+                site_url=site_url,
+                start_date=probe_start,
+                end_date=probe_end,
+                dimensions=dimensions,
+                start_row=0,
+                data_state=data_state,
+                search_type=search_type,
+            ):
+                return
 
         for current in _iter_dates(start_date, end_date):
             iso = current.isoformat()

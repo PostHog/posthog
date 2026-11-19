@@ -22,6 +22,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
+import { consumePersonsModalClick } from 'lib/components/ResultMenu/personsModalCapture'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
@@ -34,19 +35,19 @@ import { isGroupType, isSessionType } from 'lib/utils/guards'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils/strings'
 import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
 import { isOtherBreakdown } from 'scenes/insights/utils'
+import type { SessionPlayerModalRecordingList } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { Noun } from '~/models/groupsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
-import { FunnelsActorsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { FunnelsActorsQuery, InsightActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
     ActorType,
     ExporterFormat,
-    PropertiesTimelineFilterType,
     PropertyDefinitionType,
 } from '~/types'
 
@@ -107,11 +108,13 @@ export function PersonsModal({
         isCohortModalOpen,
         isModalOpen,
         missingActorsCount,
-        propertiesTimelineFilterFromUrl,
+        propertiesTimelineQuery,
         insightEventsQueryUrl,
         exploreUrl,
         actorsQuery,
         recordingFilters,
+        playerRecordingList,
+        hasMoreActorsToLoad,
     } = useValues(logic)
     const { updateActorsQuery, setSearchTerm, saveAsCohort, setIsCohortModalOpen, closeModal, loadNextActors } =
         useActions(logic)
@@ -283,7 +286,7 @@ export function PersonsModal({
                                 </>
                             ) : (
                                 <span>
-                                    {actorsResponse?.next || actorsResponse?.offset ? 'More than ' : ''}
+                                    {hasMoreActorsToLoad ? 'More than ' : ''}
                                     <span className="font-semibold text-default">
                                         {totalActorsCount || 'No'} unique{' '}
                                         {pluralize(totalActorsCount, actorLabel.singular, actorLabel.plural, false)}
@@ -318,22 +321,34 @@ export function PersonsModal({
                             )
                         ) : actors && actors.length > 0 ? (
                             <>
-                                {actors.map((actor) => (
-                                    <ActorRow
-                                        key={actor.id}
-                                        actor={actor}
-                                        // created_at is null for actors without a PostgreSQL Person record
-                                        // (personless mode, merged, or deleted persons) — skip the
-                                        // timeline which would 404, and show static properties instead.
-                                        propertiesTimelineFilter={
-                                            actor.type == 'person' &&
-                                            actor.created_at &&
-                                            currentTeam?.person_on_events_querying_enabled
-                                                ? propertiesTimelineFilterFromUrl
-                                                : undefined
-                                        }
-                                    />
-                                ))}
+                                {actors.map((actor) => {
+                                    const firstPosition = playerRecordingList.firstPositionByActorId[String(actor.id)]
+                                    return (
+                                        <ActorRow
+                                            key={actor.id}
+                                            actor={actor}
+                                            recordingList={
+                                                firstPosition === undefined
+                                                    ? undefined
+                                                    : {
+                                                          entries: playerRecordingList.entries,
+                                                          position: firstPosition,
+                                                          hasMoreToLoad: hasMoreActorsToLoad,
+                                                      }
+                                            }
+                                            // created_at is null for actors without a PostgreSQL Person record
+                                            // (personless mode, merged, or deleted persons) — skip the
+                                            // timeline which would 404, and show static properties instead.
+                                            propertiesTimelineQuery={
+                                                actor.type == 'person' &&
+                                                actor.created_at &&
+                                                currentTeam?.person_on_events_querying_enabled
+                                                    ? (propertiesTimelineQuery ?? undefined)
+                                                    : undefined
+                                            }
+                                        />
+                                    )
+                                })}
                             </>
                         ) : actorsResponseLoading ? (
                             <div className="deprecated-space-y-3">
@@ -346,7 +361,7 @@ export function PersonsModal({
                             </div>
                         )}
 
-                        {(actorsResponse?.next || actorsResponse?.offset) && (
+                        {hasMoreActorsToLoad && (
                             <div className="m-4 flex justify-center">
                                 <LemonButton type="primary" onClick={loadNextActors} loading={actorsResponseLoading}>
                                     Load more {actorLabel.plural}
@@ -437,10 +452,12 @@ export function PersonsModal({
 
 interface ActorRowProps {
     actor: ActorType
-    propertiesTimelineFilter?: PropertiesTimelineFilterType
+    recordingList?: SessionPlayerModalRecordingList
+    /** The clicked data point's actors query, when the timeline supports it and the actor is a person. */
+    propertiesTimelineQuery?: InsightActorsQuery
 }
 
-export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JSX.Element {
+export function ActorRow({ actor, recordingList, propertiesTimelineQuery }: ActorRowProps): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const [tab, setTab] = useState('properties')
     const isSession = isSessionType(actor)
@@ -453,17 +470,14 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
     const bestDistinctId =
         !isGroupType(actor) && !isSessionType(actor) ? pickBestPersonDistinctId(actor.distinct_ids) : undefined
 
+    const matchedRecordings = actor.matched_recordings || []
+
     const onOpenRecordingClick = (): void => {
-        if (!actor.matched_recordings) {
-            return
-        }
-        if (actor.matched_recordings?.length > 1) {
+        if (matchedRecordings.length > 1) {
             setExpanded(true)
             setTab('recordings')
         }
     }
-
-    const matchedRecordings = actor.matched_recordings || []
 
     return (
         <div className="relative border rounded bg-surface-primary">
@@ -513,6 +527,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                         size="small"
                         openPlayerIn={RecordingPlayerType.Modal}
                         hasRecording={true}
+                        recordingList={recordingList}
                     />
                 ) : matchedRecordings.length > 1 ? (
                     <div className="shrink-0">
@@ -544,6 +559,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                         size="small"
                         openPlayerIn={RecordingPlayerType.Modal}
                         hasRecording={matchedRecordings.length > 0}
+                        recordingList={recordingList}
                     />
                 )}
             </div>
@@ -557,14 +573,15 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                             {
                                 key: 'properties',
                                 label: 'Properties',
-                                content: propertiesTimelineFilter ? (
-                                    <PropertiesTimeline actor={actor} filter={propertiesTimelineFilter} />
-                                ) : (
-                                    <PropertiesTable
-                                        type={actor.type as PropertyDefinitionType}
-                                        properties={actor.properties}
-                                    />
-                                ),
+                                content:
+                                    propertiesTimelineQuery && actor.type === 'person' ? (
+                                        <PropertiesTimeline actor={actor} query={propertiesTimelineQuery} />
+                                    ) : (
+                                        <PropertiesTable
+                                            type={actor.type as PropertyDefinitionType}
+                                            properties={actor.properties}
+                                        />
+                                    ),
                             },
                             ...(isSession && actor.person
                                 ? [
@@ -607,6 +624,17 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                                                                             label={`View recording ${i + 1}`}
                                                                             checkIfViewed={true}
                                                                             openPlayerIn={RecordingPlayerType.Modal}
+                                                                            recordingList={
+                                                                                recordingList && {
+                                                                                    ...recordingList,
+                                                                                    position:
+                                                                                        recordingList.position +
+                                                                                        matchedRecordings
+                                                                                            .slice(0, i)
+                                                                                            .filter((r) => r.session_id)
+                                                                                            .length,
+                                                                                }
+                                                                            }
                                                                             fullWidth={true}
                                                                         />
                                                                     </li>
@@ -662,6 +690,10 @@ export const openPersonsModal = (props: OpenPersonsModalProps): void => {
     if (isSharedView()) {
         // Shared/exported views authenticate with a sharing token, which can never run the
         // person-level queries this modal needs — it would only ever render an error state.
+        return
+    }
+
+    if (consumePersonsModalClick(props)) {
         return
     }
 

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 import structlog
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration
 
 # Import names only — pulling `Sandbox` at module level would trigger the module's lazy
@@ -78,7 +79,9 @@ def collect_repository_commit_activity(
     the repository or the clone/log fails.
     """
     repository = repository.strip().lower()
-    github = GitHubIntegration.first_for_team_repository(team_id, repository, source="repo_commit_activity")
+    github = GitHubIntegration.first_for_team_repository(
+        team_id, repository, source="repo_commit_activity", priority=Priority.BATCH
+    )
     if github is None:
         raise RepositoryCommitActivityError(f"No GitHub integration for team {team_id} can access {repository}")
     github_token = github.get_access_token()

@@ -1,6 +1,7 @@
-import { MOCK_DEFAULT_USER } from '~/lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -8,20 +9,27 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import preflightJson from '~/mocks/fixtures/_preflight.json'
+import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
-import { MCPAnalyticsDashboardOverview } from './MCPAnalyticsDashboardOverview'
+import { expect, userEvent } from 'storybook/test'
+
+import { modelLab } from './aiLabs'
+import { labMark } from './aiLabs'
+import { ActivityNextSteps } from './earlyData/ActivityNextSteps'
+import { MCPAnalyticsLeaderboardHome } from './leaderboardHome/MCPAnalyticsLeaderboardHome'
 
 const KPI_RESULTS = [
-    ['2026-05-25', 320, 4100, 120, 1900, false],
-    ['2026-05-26', 310, 3950, 140, 2050, false],
-    ['2026-05-27', 298, 3800, 110, 1880, false],
-    ['2026-06-01', 340, 4300, 150, 2100, true],
-    ['2026-06-02', 355, 4500, 165, 2200, true],
-    ['2026-06-03', 372, 4720, 158, 2080, true],
-    ['2026-06-04', 360, 4600, 170, 2290, true],
-    ['2026-06-05', 388, 4900, 182, 2150, true],
-    ['2026-06-06', 401, 5100, 176, 2240, true],
-    ['2026-06-07', 415, 5300, 168, 2290, true],
+    ['2026-05-25', 320, 4100, 120, 1900, 251],
+    ['2026-05-26', 310, 3950, 140, 2050, 246],
+    ['2026-05-27', 298, 3800, 110, 1880, 239],
+    ['2026-06-01', 340, 4300, 150, 2100, 262],
+    ['2026-06-02', 355, 4500, 165, 2200, 271],
+    ['2026-06-03', 372, 4720, 158, 2080, 280],
+    ['2026-06-04', 360, 4600, 170, 2290, 294],
+    ['2026-06-05', 388, 4900, 182, 2150, 288],
+    ['2026-06-06', 401, 5100, 176, 2240, 301],
+    ['2026-06-07', 415, 5300, 168, 2290, 312],
 ]
 
 const TOOL_RESULTS = [
@@ -48,7 +56,7 @@ const DAILY_TOTALS: [string, number, number][] = [
     ['2026-06-07', 5300, 168],
 ]
 
-const ACTIVITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors]) => [day, calls - errors, errors])
+const ACTIVITY_RESULTS = DAILY_TOTALS.map(([bucket, calls, errors]) => ({ bucket, successes: calls - errors, errors }))
 
 const TOOL_DAILY_SHARES: [string, number][] = [
     ['exec', 0.58],
@@ -60,7 +68,7 @@ const TOOL_DAILY_SHARES: [string, number][] = [
 ]
 
 const TOOL_DAILY_RESULTS = DAILY_TOTALS.flatMap(([day, calls]) =>
-    TOOL_DAILY_SHARES.map(([tool, share]) => [day, tool, Math.round(calls * share)])
+    TOOL_DAILY_SHARES.map(([tool, share]) => ({ bucket: day, tool, calls: Math.round(calls * share) }))
 )
 
 const SESSION_RESULTS = [
@@ -72,14 +80,42 @@ const SESSION_RESULTS = [
     ['0193f2a1-aaaa-bbbb-cccc-000000000006', 22, 3, 13.6, 410, 6, '2026-06-06T16:20:00Z'],
 ]
 
+// An invented icon for the custom harness below, as a team would paste it in settings.
+const ACME_AGENT_ICON =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAoklEQVR42u2WyxGAIAwF4ZXhwcIs0MI82IbemUHyh8yYMwnshl8pfyjjPvZHk4/ZALCg11jIa6ClllrIaaBHK7GQz8CIkmshlwEqHceC2sB2XjXEALe31PGwoNdYgOeLR8mDVe+lFuD93o/yYbnzJRbgSU+pA+tzz7UAb/pRPXjcehwLiKD/qguvO586vkbR9xa31n8ggr6dZx0DUfSz5uvGCwGCWU5qX8y4AAAAAElFTkSuQmCC'
+
+const CUSTOM_HARNESSES = [
+    {
+        id: '0193f2a1-0000-7000-8000-000000000001',
+        name: 'Acme agent',
+        match_pattern: 'acme-agent',
+        icon: ACME_AGENT_ICON,
+        created_at: '2026-06-01T10:00:00Z',
+        updated_at: '2026-06-01T10:00:00Z',
+    },
+]
+
 // MCPHarnessBreakdownQuery returns already-labelled rows (the runner resolves the
 // harness server-side), so these are customer labels, not raw client strings.
 const HARNESS_RESULTS = [
     { harness: 'Claude Code', total_calls: 6200, errors: 240, error_rate_pct: 3.9, sessions: 820 },
     { harness: 'Cursor', total_calls: 2100, errors: 96, error_rate_pct: 4.6, sessions: 410 },
+    // A team-defined custom harness name. It shows the icon the team pasted in settings.
+    { harness: 'Acme agent', total_calls: 1500, errors: 30, error_rate_pct: 2.0, sessions: 260 },
     { harness: 'OpenAI Codex', total_calls: 980, errors: 71, error_rate_pct: 7.2, sessions: 180 },
     { harness: 'Claude.ai', total_calls: 760, errors: 22, error_rate_pct: 2.9, sessions: 240 },
     { harness: 'VS Code', total_calls: 540, errors: 12, error_rate_pct: 2.2, sessions: 120 },
+]
+
+const MODEL_BREAKDOWN_RESULTS = [
+    { model: 'example-provider/model-with-a-long-version-name', total_calls: 4200 },
+    { model: 'example-fast', total_calls: 3100 },
+    { model: 'example-balanced', total_calls: 1800 },
+    { model: 'example-model-d', total_calls: 500 },
+    { model: 'example-model-e', total_calls: 200 },
+    { model: 'example-model-f', total_calls: 1 },
+    { model: 'Other', total_calls: 179 },
+    { model: 'Unknown', total_calls: 600 },
 ]
 
 const SESSION_LIST = {
@@ -158,6 +194,9 @@ const TOOL_CALL_LIST = {
             is_error: true,
             error_message: 'Estimated query execution time is too long (max_execution_time=600)',
             duration_ms: 610000,
+            parameters: '{"query":"SELECT event, count() FROM events GROUP BY event","timeout_seconds":600}',
+            error_type: 'timeout',
+            error_status: '',
         },
     ],
 }
@@ -270,7 +309,7 @@ const CLUSTER_SNAPSHOT = {
         distance_threshold: 0.35,
         embedding_model: 'text-embedding-3-small',
         n_intents: 412,
-        n_clusters: 3,
+        n_clusters: 4,
     },
     clusters: [
         {
@@ -365,7 +404,48 @@ const CLUSTER_SNAPSHOT = {
             ],
             self_retries: [{ tool: 'read-data-schema', count: 4 }],
         },
+        {
+            // Below the five-session floor: listed and ranked, but left out of the scorecards.
+            id: 4,
+            label: 'Export a cohort to a CSV file',
+            intent_count: 3,
+            session_count: 3,
+            call_count: 40,
+            error_count: 6,
+            error_rate_pct: 15.0,
+            routing_entropy: 0.0,
+            tool_distribution: [{ tool: 'execute-sql', count: 40, pct: 100, errors: 6, error_rate_pct: 15.0 }],
+            sample_intents: ['Export the churned users cohort to CSV.'],
+            journey: null,
+            switches: [],
+            self_retries: [],
+        },
     ],
+    long_tail: {
+        intent_count: 37,
+        session_count: 41,
+        call_count: 260,
+        error_count: 9,
+        error_rate_pct: 3.5,
+        sample_intents: ['Rename the onboarding dashboard.'],
+    },
+    recurring: [
+        {
+            intent_text: 'Nightly: summarize yesterday’s signups and post to the growth channel.',
+            session_count: 30,
+            call_count: 240,
+            error_count: 0,
+            error_rate_pct: 0,
+        },
+        {
+            intent_text: 'Hourly health check of the ingestion lag insight.',
+            session_count: 24,
+            call_count: 96,
+            error_count: 12,
+            error_rate_pct: 12.5,
+        },
+    ],
+    intent_text_redacted: false,
     tools: [
         {
             tool: 'execute-sql',
@@ -651,10 +731,24 @@ function activityEventsResponse(select: string[]): Record<string, any> {
                 return durationMs
             }
             if (column.endsWith('-- Client')) {
-                return clientName
+                if (!column.startsWith('withIcon(')) {
+                    return clientName
+                }
+                const mark =
+                    {
+                        'claude-code': 'Claude',
+                        'claude-ai': 'Claude',
+                        cursor: 'Cursor',
+                        'posthog-cli': 'PostHog',
+                        windsurf: 'Windsurf',
+                    }[clientName] ?? 'Other harnesses'
+                return ['__hx_tag', 'BrandMarkLabel', 'label', clientName || 'Other', 'mark', mark]
             }
             if (column.endsWith('-- Model')) {
-                return model
+                if (!column.startsWith('withIcon(')) {
+                    return model
+                }
+                return ['__hx_tag', 'BrandMarkLabel', 'label', model, 'mark', labMark(modelLab(model))]
             }
             return null
         })
@@ -693,37 +787,19 @@ const PROTOCOL_SHARES: [string, number][] = [
     ['Unknown', 0.05],
 ]
 
-// The tool facet groups by the effective tool name, which reads `$mcp_exec_tool_call_name` first.
-const facetProperty = (query: string): string => {
-    if (query.includes('$mcp_protocol_version')) {
-        return '$mcp_protocol_version'
-    }
-    if (query.includes('$mcp_exec_tool_call_name')) {
-        return '$mcp_tool_name'
-    }
-    return query.match(/toString\(properties\.(\$\w+)\)/)?.[1] ?? ''
-}
-
 const bucketedShareResults = (shares: [string, number][]): [string, string, number][] =>
     DAILY_TOTALS.flatMap(([day, calls]) =>
         shares.map(([label, share]): [string, string, number] => [day, label, Math.round(calls * share)])
     )
 
-// [label, calls, users, errors] per leaderboard facet, keyed by the event property the query groups by.
-const WINDOW_FACET_RESULTS: Record<string, [string, number, number, number][]> = {
-    $mcp_tool_name: TOOL_RESULTS.map((r): [string, number, number, number] => [
-        String(r[0]),
-        Number(r[1]),
-        100,
-        Number(r[2]),
-    ]),
-    $mcp_error_type: [
-        ['timeout', 90, 40, 90],
-        ['validation', 60, 30, 60],
-        ['auth', 30, 15, 30],
-        ['rate_limit', 15, 9, 15],
-    ],
-}
+// [label, calls, users, errors] per leaderboard facet.
+const TOOL_FACET_RESULTS = TOOL_RESULTS.map((r) => [r[0], r[1], 100, r[2]])
+const ERROR_TYPE_FACET_RESULTS = [
+    ['timeout', 90, 40, 90],
+    ['validation', 60, 30, 60],
+    ['auth', 30, 15, 30],
+    ['rate_limit', 15, 9, 15],
+]
 
 const RELIABILITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors], index) => [
     day,
@@ -732,6 +808,30 @@ const RELIABILITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors], index) => [
     700 + index * 20,
     3100 + index * 90,
 ])
+
+const DASHBOARD_SECTIONS: Record<string, unknown[]> = {
+    kpis: KPI_RESULTS,
+    periodTotals: [[1840, 1655, 2050, 2180]],
+    toolRows: TOOL_RESULTS.map((row) => [...row, 'calls']),
+    sessionRows: SESSION_RESULTS,
+    harnessRows: HARNESS_RESULTS,
+    modelRows: MODEL_BREAKDOWN_RESULTS,
+    activityRows: ACTIVITY_RESULTS,
+    toolDailyRows: TOOL_DAILY_RESULTS,
+    model: bucketedShareResults(MODEL_SHARES),
+    protocolVersion: bucketedShareResults(PROTOCOL_SHARES),
+    tool: TOOL_FACET_RESULTS,
+    errorType: ERROR_TYPE_FACET_RESULTS,
+    labUsers: [
+        ['Anthropic', 190],
+        ['OpenAI', 150],
+        ['Google', 80],
+        ['Open weights', 20],
+        ['Unknown', 40],
+    ],
+    namedModelUsers: [[260]],
+    reliability: RELIABILITY_RESULTS,
+}
 
 const meta: Meta = {
     component: App,
@@ -743,6 +843,7 @@ const meta: Meta = {
             })(Story, context),
         mswDecorator({
             get: {
+                '/api/projects/:team_id/mcp_analytics/custom_harnesses/': CUSTOM_HARNESSES,
                 '/api/projects/:team_id/mcp_analytics/intent_clusters/': CLUSTER_SNAPSHOT,
                 '/api/projects/:team_id/mcp_analytics/sessions/activity_overview/': ACTIVITY_OVERVIEW,
                 '/api/projects/:team_id/mcp_analytics/sessions/': SESSION_LIST,
@@ -765,22 +866,21 @@ const meta: Meta = {
                     const query: string = body?.query?.query ?? ''
                     // The harness tile sends a typed MCPHarnessBreakdownQuery node (the runner
                     // resolves the harness server-side) — match on its kind, not a SQL string.
-                    if (body?.query?.kind === 'MCPModelBreakdownQuery') {
+                    if (body?.query?.kind === 'MCPDashboardQuery') {
                         return [
                             200,
                             {
-                                results: [
-                                    { model: 'example-provider/model-with-a-long-version-name', total_calls: 4200 },
-                                    { model: 'example-fast', total_calls: 3100 },
-                                    { model: 'example-balanced', total_calls: 1800 },
-                                    { model: 'example-model-d', total_calls: 500 },
-                                    { model: 'example-model-e', total_calls: 200 },
-                                    { model: 'example-model-f', total_calls: 1 },
-                                    { model: 'Other', total_calls: 179 },
-                                    { model: 'Unknown', total_calls: 600 },
-                                ],
+                                results: Object.fromEntries(
+                                    body.query.sections.map((section: string) => [
+                                        section,
+                                        { results: DASHBOARD_SECTIONS[section] ?? [] },
+                                    ])
+                                ),
                             },
                         ]
+                    }
+                    if (body?.query?.kind === 'MCPModelBreakdownQuery') {
+                        return [200, { results: MODEL_BREAKDOWN_RESULTS }]
                     }
                     if (body?.query?.kind === 'MCPHarnessBreakdownQuery') {
                         return [200, { results: HARNESS_RESULTS }]
@@ -854,28 +954,10 @@ const meta: Meta = {
                         ]
                     }
                     if (body?.query?.kind === 'MCPToolCallBreakdownQuery') {
-                        return [
-                            200,
-                            {
-                                results: TOOL_DAILY_RESULTS.map(([bucket, tool, calls]) => ({
-                                    bucket,
-                                    tool,
-                                    calls,
-                                })),
-                            },
-                        ]
+                        return [200, { results: TOOL_DAILY_RESULTS }]
                     }
                     if (body?.query?.kind === 'MCPToolCallsAndErrorsQuery') {
-                        return [
-                            200,
-                            {
-                                results: ACTIVITY_RESULTS.map(([bucket, successes, errors]) => ({
-                                    bucket,
-                                    successes,
-                                    errors,
-                                })),
-                            },
-                        ]
+                        return [200, { results: ACTIVITY_RESULTS }]
                     }
                     if (body?.query?.kind === 'MCPToolCategoriesQuery') {
                         return [200, { results: CATEGORY_LIST.map((r) => ({ category: r[0] })) }]
@@ -889,41 +971,6 @@ const meta: Meta = {
                     if (body?.query?.kind === 'EventsQuery') {
                         return [200, activityEventsResponse(body.query.select ?? [])]
                     }
-                    // Leaderboard home tab queries. Match before the KPI query below: both select AS bucket.
-                    if (query.includes('AS lab,')) {
-                        return [
-                            200,
-                            {
-                                results: [
-                                    ['Anthropic', 190],
-                                    ['OpenAI', 150],
-                                    ['Google', 80],
-                                    ['Open weights', 20],
-                                    ['Unknown', 40],
-                                ],
-                            },
-                        ]
-                    }
-                    if (query.includes("!= 'Unknown'")) {
-                        return [200, { results: [[260]] }]
-                    }
-                    if (query.includes('AS label')) {
-                        const property = facetProperty(query)
-                        if (query.includes('AS bucket')) {
-                            return [
-                                200,
-                                {
-                                    results: bucketedShareResults(
-                                        property === '$mcp_protocol_version' ? PROTOCOL_SHARES : MODEL_SHARES
-                                    ),
-                                },
-                            ]
-                        }
-                        return [200, { results: WINDOW_FACET_RESULTS[property] ?? [] }]
-                    }
-                    if (query.includes('AS p50')) {
-                        return [200, { results: RELIABILITY_RESULTS }]
-                    }
                     // Onboarding gate: report the project as instrumented so the scene
                     // renders the dashboard/tabs instead of the empty state.
                     if (query.includes('has_initialize')) {
@@ -933,15 +980,6 @@ const meta: Meta = {
                                 results: [[true, ACTIVITY_OVERVIEW.stats.total_calls, 72, '2026-05-15T09:00:00Z']],
                             },
                         ]
-                    }
-                    if (query.includes('AS session_id')) {
-                        return [200, { results: SESSION_RESULTS }]
-                    }
-                    if (query.includes('p95_duration_ms')) {
-                        return [200, { results: TOOL_RESULTS }]
-                    }
-                    if (query.includes('AS bucket')) {
-                        return [200, { results: KPI_RESULTS }]
                     }
                     return [200, { results: [] }]
                 },
@@ -967,16 +1005,9 @@ export const DashboardNarrow: Story = {
     parameters: { layout: 'padded' },
     render: () => (
         <div className="w-[520px]">
-            <MCPAnalyticsDashboardOverview />
+            <MCPAnalyticsLeaderboardHome />
         </div>
     ),
-}
-
-export const DashboardLeaderboardHome: Story = {
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_LEADERBOARD_HOME],
-        testOptions: { viewportWidths: ['medium', 'wide'] },
-    },
 }
 
 export const DashboardWithMenuBar: Story = {
@@ -988,9 +1019,109 @@ export const DashboardWithMenuBar: Story = {
 // The default landing tab for low-volume projects. The feed mock has enough rows to overflow its
 // viewport and reports more data, covering both scrolling and the load-more affordance.
 export const Activity: Story = {
+    tags: ['manual-icons'],
     parameters: {
         pageUrl: urls.mcpAnalyticsActivity(),
     },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findAllByText('claude-opus-5-5', {}, { timeout: 15000 })).not.toHaveLength(0)
+        await expect(canvasElement.querySelector('[data-attr=hogqlx-brand-mark-label] svg')).toBeVisible()
+    },
+}
+
+const WEEKLY_REPORT_BUTTON = '[data-attr=mcp-analytics-activity-next-step-weekly-report]'
+
+const WEEKLY_REPORT_OFFER_GET_MOCKS = {
+    '/_preflight': { ...preflightJson, cloud: true, realm: 'cloud' },
+    '/api/projects/:team_id/hog_functions': EMPTY_PAGINATED_RESPONSE,
+    '/api/projects/:team_id/subscriptions': EMPTY_PAGINATED_RESPONSE,
+}
+
+const CREATED_WEEKLY_REPORT = {
+    id: 1,
+    title: 'MCP tool health',
+    enabled: true,
+    target_type: 'email',
+    target_value: MOCK_DEFAULT_USER.email,
+    next_delivery_date: '2026-06-08T09:00:00Z',
+}
+
+const WEEKLY_REPORT_OFFER_PARAMETERS = {
+    featureFlags: [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT],
+    msw: {
+        mocks: {
+            get: WEEKLY_REPORT_OFFER_GET_MOCKS,
+            post: { '/api/projects/:team_id/subscriptions': CREATED_WEEKLY_REPORT },
+        },
+    },
+    testOptions: { waitForSelector: WEEKLY_REPORT_BUTTON },
+}
+
+async function clickWeeklyReportButton(): Promise<void> {
+    // A bare querySelector misses while the card is still loading, and the click would silently do nothing.
+    const button = await waitFor(() => {
+        const element = document.querySelector<HTMLElement>(WEEKLY_REPORT_BUTTON)
+        if (!element) {
+            throw new Error('The weekly report button is not rendered')
+        }
+        return element
+    })
+    await userEvent.click(button)
+}
+
+export const ActivityWeeklyReportOffer: Story = {
+    parameters: { ...WEEKLY_REPORT_OFFER_PARAMETERS, pageUrl: urls.mcpAnalyticsActivity() },
+}
+
+export const ActivityWeeklyReportOfferNarrow: Story = {
+    parameters: { ...WEEKLY_REPORT_OFFER_PARAMETERS, layout: 'padded' },
+    render: () => (
+        <div className="w-[520px]">
+            <ActivityNextSteps />
+        </div>
+    ),
+}
+
+export const ActivityWeeklyReportOfferFailed: Story = {
+    parameters: {
+        ...WEEKLY_REPORT_OFFER_PARAMETERS,
+        pageUrl: urls.mcpAnalyticsActivity(),
+        msw: {
+            mocks: {
+                get: WEEKLY_REPORT_OFFER_GET_MOCKS,
+                post: {
+                    '/api/projects/:team_id/subscriptions': (): [number, { detail: string }] => [
+                        400,
+                        { detail: 'Your plan is limited to 5 subscriptions.' },
+                    ],
+                },
+            },
+        },
+        testOptions: { waitForSelector: '[data-attr=mcp-analytics-activity-next-steps] [role=alert]' },
+    },
+    play: clickWeeklyReportButton,
+}
+
+export const ActivityWeeklyReportOfferNeedsConsent: Story = {
+    parameters: {
+        ...WEEKLY_REPORT_OFFER_PARAMETERS,
+        pageUrl: urls.mcpAnalyticsActivity(),
+        msw: {
+            mocks: {
+                get: {
+                    ...WEEKLY_REPORT_OFFER_GET_MOCKS,
+                    '/api/organizations/@current/': {
+                        ...MOCK_DEFAULT_ORGANIZATION,
+                        is_ai_data_processing_approved: false,
+                    },
+                },
+                post: { '/api/projects/:team_id/subscriptions': CREATED_WEEKLY_REPORT },
+            },
+        },
+        testOptions: { waitForSelector: '[data-attr=ai-consent-approve]' },
+    },
+    play: clickWeeklyReportButton,
 }
 
 export const Sessions: Story = {
@@ -1013,6 +1144,24 @@ export const IntentClustering: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
         featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+    },
+}
+
+// Property access control hides $mcp_intent, so the API blanks every intent string.
+const REDACTED_CLUSTER_SNAPSHOT = {
+    ...CLUSTER_SNAPSHOT,
+    intent_text_redacted: true,
+    clusters: CLUSTER_SNAPSHOT.clusters.map((c) => ({ ...c, label: '', sample_intents: [] })),
+    recurring: CLUSTER_SNAPSHOT.recurring.map((r) => ({ ...r, intent_text: '' })),
+    long_tail: { ...CLUSTER_SNAPSHOT.long_tail, sample_intents: [] },
+}
+
+export const IntentClusteringRedacted: Story = {
+    parameters: {
+        pageUrl: urls.mcpAnalyticsIntentClustering(),
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+        msw: { mocks: { get: { '/api/projects/:team_id/mcp_analytics/intent_clusters/': REDACTED_CLUSTER_SNAPSHOT } } },
+        testOptions: { waitForSelector: '[data-attr=mcp-cluster-row]' },
     },
 }
 

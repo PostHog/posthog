@@ -1,5 +1,7 @@
 import { within } from '@testing-library/react'
 
+import { getChart } from '@posthog/quill-charts/testing'
+
 // DOM element accessors and cleanup helpers for insight tests. These aren't
 // user actions (those live in interactions.ts) — they're getters for asserting
 // presence/absence and teardown helpers for roots rendered outside
@@ -46,4 +48,9 @@ export const personsModal = {
             }
         })
     },
+}
+
+/** Annotation badges rendered on the chart. */
+export function annotationBadges(chart = getChart()): HTMLElement[] {
+    return Array.from(chart.element.querySelectorAll<HTMLElement>('.AnnotationsBadge'))
 }

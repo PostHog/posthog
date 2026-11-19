@@ -45,6 +45,45 @@ class AutoresearchConflict(ValueError):
     """
 
 
+class TrainingRunCapReached(Exception):
+    """The project has used its daily limit of sandbox training runs.
+
+    The viewset maps it to a 429, so the message is user-facing copy.
+    """
+
+    def __init__(self, *, used: int, limit: int, next_slot_at: datetime | None) -> None:
+        self.used = used
+        self.limit = limit
+        self.next_slot_at = next_slot_at
+        if limit == 0 or next_slot_at is None:
+            message = "Training runs are turned off for this project. Contact support to turn them on."
+        else:
+            message = (
+                f"This project has used {used} of its daily limit of {limit} training runs. "
+                f"The next run can start after {next_slot_at:%H:%M} UTC."
+            )
+        super().__init__(message)
+
+
+class LivePipelineCapReached(AutoresearchConflict):
+    """The project already has its limit of live pipelines, so another cannot go live.
+
+    An ``AutoresearchConflict``, so the viewsets map it to a 400 with the message as-is, and the
+    message is user-facing copy.
+    """
+
+    def __init__(self, *, used: int, limit: int) -> None:
+        self.used = used
+        self.limit = limit
+        if limit == 0:
+            message = "Active models are turned off for this project. Contact support to turn them on."
+        else:
+            message = (
+                f"This project has reached its limit of {limit} active models. Pause or delete one to start another."
+            )
+        super().__init__(message)
+
+
 class InvalidTarget(ValueError):
     """The target names something the labeler cannot honor.
 
@@ -72,15 +111,25 @@ class ArtifactStorageUnavailable(RuntimeError):
 
 
 @dataclass(frozen=True)
+class TrainingTrendPoint:
+    iteration_number: int
+    best_holdout_score: float
+
+
+@dataclass(frozen=True)
 class LiveTrainingRun:
     """Progress of the pipeline's pending or running training run, read from its live iteration rows."""
 
     id: UUID
+    task_id: UUID | None
+    task_run_id: UUID | None
+    task_url: str | None
     iteration_budget: int
     experiment_count: int
     best_holdout_score: float | None
     latest_agent_description: str
     latest_summary: str | None
+    trend: list[TrainingTrendPoint]
 
 
 @dataclass(frozen=True)
@@ -101,12 +150,6 @@ class PredictionCoverage:
 class RealizedAucPoint:
     prediction_date: date
     realized_auc: float
-
-
-@dataclass(frozen=True)
-class TrainingTrendPoint:
-    iteration_number: int
-    best_holdout_score: float
 
 
 @dataclass(frozen=True, config={"arbitrary_types_allowed": True})
@@ -130,9 +173,19 @@ class Pipeline:
     cadence_days: int
     iteration_budget: int
     iteration_budget_remaining: int
+    iterations_per_run: int
+    research_interval_days: int | None
+    agent_model: str | None
+    agent_reasoning_effort: str | None
+    effective_agent_model: str
+    effective_agent_reasoning_effort: str | None
+    training_phase: str
+    next_research_at: datetime | None
+    not_promoted_reason: str | None
     success_auc: float | None
     plateau_iterations: int
     output_person_property: str
+    write_person_property: bool
     status: str
     created_by: Any
     created_at: datetime
@@ -190,6 +243,7 @@ class IterationTrailEntry:
     train_score: float | None
     agent_description: str
     summary: str | None
+    headline: str | None
     model_spec: dict[str, Any]
     recipe_snapshot: dict[str, Any]
 
@@ -228,11 +282,17 @@ class TrainingRun:
     task_run_id: UUID | None
     task_url: str | None
     status: str
+    kickoff_reason: str | None
+    agent_runtime_adapter: str | None
+    agent_model: str | None
+    agent_model_label: str | None
+    agent_reasoning_effort: str | None
     iteration_budget: int
     iteration_count: int
     best_holdout_score: float | None
     summary: dict[str, Any] | None
     reader_summary: str | None
+    headline: str | None
     next_steps: list[str] | None
     iterations: list[IterationTrailEntry]
     error: str
@@ -257,6 +317,7 @@ class Iteration:
     status: str
     agent_description: str
     summary: str | None
+    headline: str | None
     agent_confidence: float | None
     parent_suggestion: UUID | None
     created_at: datetime
@@ -297,6 +358,48 @@ class Run:
     created_at: datetime
 
 
+@dataclass(frozen=True)
+class AgentReasoningEffortOption:
+    value: str
+    label: str
+
+
+@dataclass(frozen=True)
+class AgentModelOption:
+    model: str
+    label: str
+    runtime_adapter: str
+    supported_efforts: list[AgentReasoningEffortOption]
+    cost_multiplier: str | None
+
+
+@dataclass(frozen=True)
+class AgentModelOptions:
+    """The models a pipeline's training agent may run on, and what a blank setting resolves to."""
+
+    default_model: str
+    default_model_label: str
+    default_reasoning_effort: str | None
+    models: list[AgentModelOption]
+
+
+@dataclass(frozen=True)
+class ProjectLimits:
+    """The project's autoresearch limits, and how much of each it is using now."""
+
+    max_training_runs_per_day: int
+    training_runs_used: int
+    # When the next training run can start, while the project is at its daily limit.
+    next_slot_at: datetime | None
+    max_iterations_per_run: int
+    max_live_pipelines: int
+    live_pipelines: int
+    # Where each limit came from: project, default or code.
+    max_training_runs_per_day_source: str
+    max_iterations_per_run_source: str
+    max_live_pipelines_source: str
+
+
 # ── Write contracts ────────────────────────────────────────────────────────
 
 
@@ -319,9 +422,14 @@ class PipelineWrite:
     inference_population: dict[str, Any] = field(default_factory=dict)
     cadence_days: int = 1
     iteration_budget: int = 50
+    iterations_per_run: int = 5
+    research_interval_days: int | None = 7
+    agent_model: str | None = None
+    agent_reasoning_effort: str | None = None
     success_auc: float | None = None
     plateau_iterations: int = 10
     output_person_property: str = ""
+    write_person_property: bool = False
 
 
 # ── Validation and template contracts ──────────────────────────────────────
@@ -347,6 +455,8 @@ class PipelineValidation:
     inference_population_size: int | None
     warnings: list[ValidationWarning]
     error: str | None
+    # One of VALIDATION_ERROR_CODE_CHOICES when `error` is set.
+    error_code: str | None
 
 
 @dataclass(frozen=True)
@@ -466,6 +576,7 @@ class PredictionSegmentThresholds:
     likely_lift: float
     base_rate: float | None
     base_rate_dates: int
+    base_rate_source: str
     champion_mean_p_y: float | None
     champion_base_rate: float | None
     scores_miscalibrated: bool

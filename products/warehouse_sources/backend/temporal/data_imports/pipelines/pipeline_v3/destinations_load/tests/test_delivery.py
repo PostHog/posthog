@@ -1,7 +1,7 @@
 import uuid
 
 from posthog.test.base import BaseTest
-from unittest import mock
+from unittest import TestCase, mock
 
 from django.db import OperationalError
 
@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
     DESTINATION_CONFIGURATION_ERROR_MARKER,
     DestinationConfigurationError,
+    destination_named_in_failure,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 
@@ -41,8 +42,10 @@ class RecordingWriter:
     holds_sync_lock = False
     runs_post_load = False
     calls: list[tuple[str, str, int]] = []
+    primary_keys: list[tuple[str, ...]] = []
     fail_for: set[str] = set()
     configuration_error_for: set[str] = set()
+    rows_written = 1
 
     def __init__(self, ctx) -> None:
         self._ctx = ctx
@@ -56,7 +59,8 @@ class RecordingWriter:
         if self._ctx.destination_name in RecordingWriter.configuration_error_for:
             raise DestinationConfigurationError(self._ctx.destination_name, "The host name does not exist.")
         RecordingWriter.calls.append(("write", self._ctx.destination_name, batch_ctx.batch_index))
-        return BatchWriteOutcome(rows_written=1)
+        RecordingWriter.primary_keys.append(batch_ctx.run.primary_keys)
+        return BatchWriteOutcome(rows_written=RecordingWriter.rows_written)
 
     async def finalize_run(self, ctx) -> None:
         RecordingWriter.calls.append(("finalize", self._ctx.destination_name, -1))
@@ -69,8 +73,10 @@ class DeliveryTestCase(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         RecordingWriter.calls = []
+        RecordingWriter.primary_keys = []
         RecordingWriter.fail_for = set()
         RecordingWriter.configuration_error_for = set()
+        RecordingWriter.rows_written = 1
 
         # Registered before the snapshot, so the first delivery in the process cannot replace the
         # fakes below, and the cleanup puts the real writers back.
@@ -113,6 +119,7 @@ class DeliveryTestCase(BaseTest):
         batch_index: int = 0,
         is_final: bool = False,
         schema_id: str | None = None,
+        primary_keys: list[str] | None = None,
     ) -> ExportSignalMessage:
         return ExportSignalMessage(
             team_id=self.team.pk,
@@ -131,7 +138,7 @@ class DeliveryTestCase(BaseTest):
             sync_type="incremental",
             data_folder=None,
             schema_path=None,
-            primary_keys=["id"],
+            primary_keys=["id"] if primary_keys is None else primary_keys,
             destination_ids=destination_ids,
         )
 
@@ -149,6 +156,24 @@ class TestDelivery(DeliveryTestCase):
 
         assert written == 2
         assert sorted(self._writes()) == ["warehouse a", "warehouse b"]
+
+    @parameterized.expand(
+        [
+            ("camel_case", ["AdId", "TimePeriod"], ("ad_id", "time_period")),
+            ("already_normalized", ["ad_id", "time_period"], ("ad_id", "time_period")),
+            ("lowercase", ["id"], ("id",)),
+            ("spaces_and_symbols", ["Order ID", "Line#"], ("order_id", "linex")),
+            ("no_keys", [], ()),
+        ]
+    )
+    def test_the_writer_merges_on_the_column_names_the_staged_batch_carries(
+        self, _name: str, source_keys: list[str], expected: tuple[str, ...]
+    ) -> None:
+        redshift = self._destination("Redshift")
+
+        delivery.deliver_batch_to_destinations(self._signal([str(redshift.id)], primary_keys=source_keys))
+
+        assert RecordingWriter.primary_keys == [expected]
 
     def test_the_logs_say_where_the_rows_went(self) -> None:
         # A run writing to several destinations is otherwise indistinguishable in the logs from
@@ -436,15 +461,52 @@ class TestDestinationHealth(DeliveryTestCase):
 
     @parameterized.expand(
         [
-            ("failing_is_reset", ExternalDataDestination.Status.FAILING, 2, ExternalDataDestination.Status.HEALTHY, 0),
-            ("paused_stays_paused", ExternalDataDestination.Status.PAUSED, 3, ExternalDataDestination.Status.PAUSED, 3),
+            (
+                "failing_is_reset",
+                ExternalDataDestination.Status.FAILING,
+                2,
+                1,
+                ExternalDataDestination.Status.HEALTHY,
+                0,
+            ),
+            (
+                "paused_stays_paused",
+                ExternalDataDestination.Status.PAUSED,
+                3,
+                1,
+                ExternalDataDestination.Status.PAUSED,
+                3,
+            ),
+            (
+                "empty_delivery_keeps_configuration_failures",
+                ExternalDataDestination.Status.FAILING,
+                2,
+                0,
+                ExternalDataDestination.Status.FAILING,
+                2,
+            ),
+            (
+                "empty_delivery_clears_a_transient_failure",
+                ExternalDataDestination.Status.FAILING,
+                0,
+                0,
+                ExternalDataDestination.Status.HEALTHY,
+                0,
+            ),
         ]
     )
     def test_a_successful_delivery_resets_a_failing_destination(
-        self, _name: str, status: str, failures: int, expected_status: str, expected_failures: int
+        self,
+        _name: str,
+        status: str,
+        failures: int,
+        rows_written: int,
+        expected_status: str,
+        expected_failures: int,
     ) -> None:
         destination = self._destination("customer redshift")
         self._set_health(destination, status, failures)
+        RecordingWriter.rows_written = rows_written
 
         assert self._deliver(destination) is None
 
@@ -512,3 +574,19 @@ class TestDestinationHealth(DeliveryTestCase):
                     delivery.deliver_batch_to_destinations(signal, destinations=[destination])
             else:
                 assert delivery.deliver_batch_to_destinations(signal, destinations=[destination]) == 1
+
+
+class TestDestinationNamedInFailure(TestCase):
+    @parameterized.expand(
+        [
+            ("prefix", "Prod: boom", ["Prod"], "Prod"),
+            ("after_separator", "Charge: Prod: boom", ["Prod"], "Prod"),
+            ("longest_wins", "My Prod: boom", ["Prod", "My Prod"], "My Prod"),
+            ("substring_of_other_name", "My Prod: boom", ["Prod"], None),
+            ("no_separator", "Prod went away", ["Prod"], None),
+            ("no_destinations", "Prod: boom", [], None),
+            ("empty_name_ignored", "Charge: : boom", [""], None),
+        ]
+    )
+    def test_matches(self, _name, reason, names, expected):
+        assert destination_named_in_failure(reason, names) == expected

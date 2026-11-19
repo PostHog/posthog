@@ -28,7 +28,10 @@ function ObservationShareDialogContent(props: ObservationShareLogicProps): JSX.E
                 center
                 sideIcon={<IconCopy />}
                 onClick={() => {
-                    posthog.capture('replay_vision_observation_link_copied', { with_timestamp: includeTime })
+                    posthog.capture('replay_vision_observation_link_copied', {
+                        observation_id: props.observationId,
+                        with_timestamp: includeTime,
+                    })
                     void copyToClipboard(shareUrl, 'observation link').catch((e) => posthog.captureException(e))
                 }}
                 title={shareUrl}
@@ -61,19 +64,36 @@ function ObservationShareDialogContent(props: ObservationShareLogicProps): JSX.E
     )
 }
 
+export interface ObservationShareButtonProps {
+    observationId: string
+    sessionRecordingId: string
+    playerKey: string
+}
+
+export function openObservationShareDialog({
+    observationId,
+    sessionRecordingId,
+    playerKey,
+}: ObservationShareButtonProps): void {
+    LemonDialog.open({
+        title: 'Share observation',
+        // Read at click time: the player keeps moving, and reading it earlier would re-render the page.
+        content: () => (
+            <ObservationShareDialogContent
+                observationId={observationId}
+                seconds={getCurrentPlayerTime({ playerKey, sessionRecordingId })}
+            />
+        ),
+        maxWidth: '30rem',
+        primaryButton: null,
+    })
+}
+
 /**
  * Shares the observation page itself, not only the recording — the reader lands on the model's verdict with
  * the recording already open at the moment being discussed.
  */
-export function ObservationShareButton({
-    observationId,
-    sessionRecordingId,
-    playerKey,
-}: {
-    observationId: string
-    sessionRecordingId: string
-    playerKey: string
-}): JSX.Element {
+export function ObservationShareButton(props: ObservationShareButtonProps): JSX.Element {
     return (
         <LemonButton
             icon={<IconShare />}
@@ -81,20 +101,7 @@ export function ObservationShareButton({
             size="small"
             tooltip="Copy a link to this observation, starting the recording where you are"
             data-attr="vision-observation-share"
-            onClick={() =>
-                LemonDialog.open({
-                    title: 'Share observation',
-                    // Read at click time: the player keeps moving, and reading it earlier would re-render the page.
-                    content: () => (
-                        <ObservationShareDialogContent
-                            observationId={observationId}
-                            seconds={getCurrentPlayerTime({ playerKey, sessionRecordingId })}
-                        />
-                    ),
-                    maxWidth: '30rem',
-                    primaryButton: null,
-                })
-            }
+            onClick={() => openObservationShareDialog(props)}
         >
             Share
         </LemonButton>

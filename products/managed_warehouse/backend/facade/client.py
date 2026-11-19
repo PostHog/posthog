@@ -12,12 +12,13 @@ result types live in ``facade.contracts``.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from products.managed_warehouse.backend import client
+from products.managed_warehouse.backend.duckgres_availability import classify_duckgres_refusal
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTrinoConnectionUnavailable,
     TrinoExpansionMode,
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
         DuckLakeS3Secret,
         DuckLakeTableResult,
         ManagedWarehouseTrinoConnection,
+        StoredColumnType,
         TrinoCompiledQuery,
         TrinoIncrementalWrite,
     )
@@ -56,6 +58,7 @@ __all__ = [
     "ServiceCredential",
     "ServiceCredentialUnavailable",
     "ManagedWarehouseTrinoConnectionUnavailable",
+    "classify_duckgres_refusal",
     "compile_hogql_to_ducklake_sql",
     "compile_hogql_to_trino_sql",
     "connect_managed_warehouse_trino",
@@ -63,6 +66,7 @@ __all__ = [
     "execute_ducklake_query",
     "execute_trino_shadow_materialization",
     "execute_trino_model",
+    "get_trino_missing_object_error_name",
     "make_duckgres_conninfo",
     "mint_service_credential",
     "prepare_hogql_to_trino_compiler",
@@ -94,6 +98,7 @@ def execute_trino_shadow_materialization(
     saved_query_id: str | UUID,
     source_query: object,
     incremental: TrinoIncrementalWrite | None = None,
+    stored_column_types: tuple[StoredColumnType, ...] = (),
 ) -> DuckLakeTableResult:
     from products.managed_warehouse.backend.trino_materialization import (  # noqa: PLC0415 -- keeps the optional Trino driver off startup paths
         execute_trino_shadow_materialization as execute_shadow,
@@ -105,6 +110,7 @@ def execute_trino_shadow_materialization(
         saved_query_id=saved_query_id,
         source_query=source_query,
         incremental=incremental,
+        stored_column_types=stored_column_types,
     )
 
 
@@ -232,6 +238,17 @@ async def request_model_alias_reconciliation(team_id: int, saved_query_id: str |
     await request(team_id, saved_query_id)
 
 
+TRINO_MISSING_OBJECT_ERROR_NAMES = frozenset(
+    {"CATALOG_NOT_FOUND", "SCHEMA_NOT_FOUND", "TABLE_NOT_FOUND", "COLUMN_NOT_FOUND"}
+)
+
+
+def get_trino_missing_object_error_name(error: BaseException) -> str | None:
+    """The Trino error name when Trino could not resolve a catalog, schema, table or column, else None."""
+    error_name = getattr(error, "error_name", None)
+    return error_name if error_name in TRINO_MISSING_OBJECT_ERROR_NAMES else None
+
+
 async def execute_trino_model(
     *,
     organization_id: str,
@@ -239,21 +256,28 @@ async def execute_trino_model(
     saved_query_id: str | UUID,
     source_query: object,
     incremental: TrinoIncrementalWrite | None = None,
+    stored_column_types: tuple[StoredColumnType, ...] = (),
+    on_processed_bytes: Callable[[int], None] | None = None,
+    on_cpu_milliseconds: Callable[[int], None] | None = None,
 ) -> DuckLakeTableResult:
+    """Build the model on Trino and report the final statement usage, including failed attempts."""
     from products.managed_warehouse.backend.trino_execution import (  # noqa: PLC0415 -- keeps executor creation off startup paths
-        run_trino_model,
+        run_trino_model_with_retries,
     )
     from products.managed_warehouse.backend.trino_materialization import (  # noqa: PLC0415 -- keeps the optional Trino driver off startup paths
         execute_trino_shadow_materialization,
     )
 
-    return await run_trino_model(
+    return await run_trino_model_with_retries(
         lambda control: execute_trino_shadow_materialization(
             organization_id=organization_id,
             team_id=team_id,
             saved_query_id=saved_query_id,
             source_query=source_query,
             incremental=incremental,
+            stored_column_types=stored_column_types,
             control=control,
         ),
+        on_processed_bytes=on_processed_bytes,
+        on_cpu_milliseconds=on_cpu_milliseconds,
     )

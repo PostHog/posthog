@@ -1,5 +1,6 @@
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 
+import { STEP_SOURCE_PRESETS } from '~/queries/nodes/InsightQuery/stepSourcePresets'
 import {
     FunnelsQuery,
     InsightQueryNode,
@@ -12,9 +13,7 @@ import {
     StickinessQuery,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, FunnelVizType, PathType, RetentionPeriod } from '~/types'
-
-import { STEP_SOURCE_PRESETS } from 'products/product_analytics/frontend/insights/journeys/stepSourcePresets'
+import { BaseMathType, ChartDisplayType, FunnelVizType, InsightType, PathType, RetentionPeriod } from '~/types'
 
 function getTrendsQueryDefault(): TrendsQuery {
     const defaultEvent = getDefaultEventName()
@@ -163,6 +162,16 @@ export type ProductAnalyticsInsightNodeKind = Exclude<
     InsightQueryNode['kind'],
     NodeKind.WebStatsTableQuery | NodeKind.WebOverviewQuery
 >
+
+export const nodeKindToInsightType: Record<ProductAnalyticsInsightNodeKind, InsightType> = {
+    [NodeKind.TrendsQuery]: InsightType.TRENDS,
+    [NodeKind.FunnelsQuery]: InsightType.FUNNELS,
+    [NodeKind.RetentionQuery]: InsightType.RETENTION,
+    [NodeKind.PathsQuery]: InsightType.PATHS,
+    [NodeKind.PathsV2Query]: InsightType.JOURNEYS,
+    [NodeKind.StickinessQuery]: InsightType.STICKINESS,
+    [NodeKind.LifecycleQuery]: InsightType.LIFECYCLE,
+}
 
 /** Legacy exports for backwards compatibility - use getNodeKindToDefaultQuery() instead */
 export const trendsQueryDefault = getTrendsQueryDefault()

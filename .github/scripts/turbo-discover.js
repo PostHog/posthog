@@ -67,10 +67,11 @@ const { loadContractSurfaces } = require('./trunk-impacted-targets')
 // sizing bounds the slowest shard at the target rather than the average, so a
 // 12-minute shard target puts a full PR run near 18 minutes end to end.
 const TARGET_WALL_SECONDS = 12 * 60
-// Per-product cost within a runner: turbo dispatch, pytest collection, Django
-// init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
-// average that also absorbs the amortized portion of runner startup.
-const PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS = 60
+// Per-product cost within a runner that the junit-scaled durations do not hold:
+// turbo dispatch, pytest collection, Django init for each later product in a
+// bucket. The first product's share is in PRODUCT_JOB_BASE_OVERHEAD_SECONDS.
+// Fitted Nov 2026 from step logs of full PR runs (20-23s per later leg).
+const PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS = 20
 // Headroom on a packed bucket, covering error in the recorded durations alone.
 // A bucket runs its products sequentially, so its wall is the sum of its parts
 // and it needs no allowance for an uneven split. That allowance belongs to the
@@ -79,18 +80,18 @@ const PRODUCT_BUCKET_SAFETY_FACTOR = 1.1
 // No headroom constant for a split product: the gap between the mean shard that
 // sizing solves for and the max shard that sets the wall is derived per product
 // in productSplitShards below.
-// Fitted per-shard overhead for a split product job. Two measured parts, from
-// run 32717208712: the job base (docker stack, deps, turbo dispatch) is
-// mean(job wall - JUnit suite time), 247-413s across 12 bucket jobs (median
-// 282s, 263s over the 17 warehouse-sources shards); the session cost
-// (collection, session fixtures) is re-paid in full by every shard of a split
-// and grows with suite size (128s/shard on warehouse-sources, ~15s on small
-// products). Only large products split, so the constant carries a large
-// product's session: ~270 base + ~130 session.
-const PRODUCT_JOB_OVERHEAD_SECONDS = 400
+// Per-shard overhead for a split product job: the job base (runner start, docker
+// stack, deps, post steps) plus the session cost (collection, session fixtures)
+// that every shard of a split pays again, which grows with suite size. Fitted
+// Nov 2026 against job walls of full PR runs: a split shard ran
+// 135-200s (p50) past its share of the junit-scaled work, and ~55s more at p90.
+// The constant sits at that p90 so the slowest shards still land on the target.
+const PRODUCT_JOB_OVERHEAD_SECONDS = 260
 // The base alone, for packed buckets: their products are small, so the session
-// share is the per-product overhead below rather than a large suite's collection.
-const PRODUCT_JOB_BASE_OVERHEAD_SECONDS = 270
+// share is the per-product overhead above rather than a large suite's collection.
+// Fitted from the same runs: a packed job of 2 to 7 products ran ~175s (p50) and
+// ~230s (p90) past its junit-scaled work.
+const PRODUCT_JOB_BASE_OVERHEAD_SECONDS = 200
 // Sentinel entry the timing workflow writes into .test_durations after it scales
 // the product entries to their JUnit-measured totals (see
 // optimize_test_durations.py). Product jobs record call-only durations, which
@@ -112,6 +113,7 @@ const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set([
     'batch-exports',
     'managed-warehouse',
+    'subscriptions',
     'tasks',
     'warehouse-sources',
 ])
@@ -349,6 +351,16 @@ function dropProducts(products, allProducts, names, label) {
     return remaining
 }
 
+// A product whose backend:test only echoes a message runs no test, yet a matrix
+// entry for it still pays the whole Docker stack and dependency setup.
+function testlessProducts(testTasks) {
+    return new Set(
+        testTasks
+            .filter((t) => isProductPackage(t.package) && /^echo[ \t][^;&|`$()<>\n\r]*$/.test(t.command.trim()))
+            .map((t) => packageToProduct(t.package))
+    )
+}
+
 // --- Dependent cascade (tach map) ---
 // When a product's contract changes, Turbo's graph has no edges to the
 // products that depend on it (no workspace deps, no `dependsOn`), so those
@@ -381,6 +393,33 @@ function productOfFile(file) {
     }
     const [product, rest] = file.slice(PRODUCTS_DIR.length).split('/', 2)
     return rest === undefined ? null : product
+}
+
+const UNDECLARED_PRODUCT_INPUT = /^products\/([^/]+)\/(backend|skills)\/(.+)$/
+
+function productsWithUndeclaredInputChanges(changedFiles, allProductSet) {
+    const products = new Set()
+    for (const file of changedFiles) {
+        const match = UNDECLARED_PRODUCT_INPUT.exec(file)
+        if (!match) {
+            continue
+        }
+        const [, directory, root, rest] = match
+        if (rest.includes('__pycache__/') || (root === 'backend' && rest.endsWith('.md'))) {
+            continue
+        }
+        const product = moduleToProduct(directory)
+        if (allProductSet.has(product)) {
+            products.add(product)
+        }
+    }
+    return [...products].sort()
+}
+
+function listChangedFiles(base, head) {
+    return execFileSync('git', ['diff', '--name-only', '--no-renames', base, head], TURBO_EXEC_OPTS)
+        .split('\n')
+        .filter(Boolean)
 }
 
 // Collapse tach's file map ({ file: [files that import it] }) into
@@ -440,11 +479,11 @@ function productGraphFromTachMap(fileMap) {
 // product's behavior" — the residual after excluding those is a handful of
 // narrow wrappers reaching at most a few products each.
 //
-// `direct` stops the walk after the first hop. Test selection must stay
-// transitive, because a change in A can break C's tests through B without C
-// ever importing A. Merge-queue lane assignment asks a narrower question and
-// passes direct: true; see trunk-impacted-targets.js for why one hop is the
-// boundary there.
+// `direct` stops the walk after the first hop. A change in A can break C's
+// tests through B without C ever importing A, so the merge gate stays
+// transitive; see contractCascadeIsDirect for the runs that take one hop.
+// Merge-queue lane assignment asks a narrower question and passes direct: true;
+// see trunk-impacted-targets.js for why one hop is the boundary there.
 function tachDependents(changedProducts, moduleGraph, { direct = false } = {}) {
     const reverse = new Map()
     for (const [product, deps] of moduleGraph) {
@@ -533,9 +572,22 @@ function deletedProductPythonFiles() {
     }
 }
 
-// Products that transitively depend on `products` per the tach map, or null when
-// the map cannot be read. Callers treat null as "unknown dependents" and widen.
-function tachDependentProducts(products, allProductSet) {
+// Whether a contract change cascades to direct dependents only. On a selecting
+// PR run it does: a direct importer is the only product that can reference the
+// changed symbols, and a product further out sees only its importer's unchanged
+// code, the same exposure an isolated product's internal edit gives its
+// dependents, which retests none of them. The product cycle in the tach map
+// makes the transitive walk reach most products from any seed inside it. The
+// merge queue and master do not select, so they keep the transitive walk and
+// catch a break mediated through an intermediate product before it lands.
+function contractCascadeIsDirect({ applies, disabled }) {
+    return applies && !disabled
+}
+
+// Products that depend on `products` per the tach map, transitively unless
+// `direct`, or null when the map cannot be read. Callers treat null as
+// "unknown dependents" and widen.
+function tachDependentProducts(products, allProductSet, { direct = false } = {}) {
     const deleted = deletedProductPythonFiles()
     if (deleted === null) {
         return null
@@ -548,7 +600,7 @@ function tachDependentProducts(products, allProductSet) {
     if (tachGraph === null) {
         return null
     }
-    return tachDependents(products, tachGraph).filter((p) => allProductSet.has(p))
+    return tachDependents(products, tachGraph, { direct }).filter((p) => allProductSet.has(p))
 }
 
 // Products a schema change reaches, [] for a purely additive change, or null when
@@ -1023,11 +1075,11 @@ const DJANGO_SEGMENTS = {
             'posthog/hogql/',
         ],
     },
-    // batch-exports, tasks and product-analytics used to run their temporal suites
-    // here. They now run them in their own product jobs, which cost no extra
-    // infrastructure because every shard already starts the temporal profile.
-    // signals/emission is listed because select-tests routes it here; leaving it
-    // out under-counted the segment.
+    // batch-exports, tasks, product-analytics and subscriptions used to run their
+    // temporal suites here. They now run them in their own product jobs, which cost
+    // no extra infrastructure because every shard already starts the temporal
+    // profile. signals/emission is listed because select-tests routes it here;
+    // leaving it out under-counted the segment.
     Temporal: {
         include: ['posthog/temporal/', 'products/signals/backend/emission/'],
         exclude: [],
@@ -1205,6 +1257,25 @@ function fallbackSelection(fallbackMode, reason, selection) {
     return { mode: fallbackMode, narrowed: false, skip_reason: reason, ...emptySegments(), ...selectionMetrics(selection) }
 }
 
+// Whether every legacy edit in the diff is Dagster Python under posthog/dags/. ci-dagster.yml runs
+// the tests there, and the selector assigns them to no Django segment. No module that Django loads
+// imports posthog.dags, because its __init__.py calls django.setup() again, so a Django test reaches
+// Dagster code only through its own import, which the selector follows. That makes an empty Django
+// selection correct for such a diff. A deleted file has no imports left to follow, so it does not
+// qualify. Products and Markdown are not legacy edits, so they may sit beside the Dagster files.
+function isDagsterOnlyLegacyEdit(changedFiles, fileExists) {
+    if (!Array.isArray(changedFiles)) {
+        return false
+    }
+    const isDagsterPython = (file) => file.startsWith('posthog/dags/') && file.endsWith('.py')
+    const dagsterFiles = changedFiles.filter(isDagsterPython)
+    return (
+        dagsterFiles.length > 0 &&
+        dagsterFiles.every((file) => fileExists(file)) &&
+        changedFiles.every((file) => isDagsterPython(file) || file.startsWith('products/') || /\.mdx?$/.test(file))
+    )
+}
+
 // Which Django tests this run should execute, and whether the product matrix may narrow.
 // Pure: every input is an argument, so each branch is unit-tested rather than inferred
 // from a workflow run.
@@ -1212,9 +1283,19 @@ function fallbackSelection(fallbackMode, reason, selection) {
 //   disabled       the DISABLE_BACKEND_TEST_SELECTION kill switch
 //   draft          fall back by skipping rather than by running everything
 //   legacyChanged  the paths filter saw an edit under posthog/ or ee/
+//   dagsterOnlyLegacyEdit  every legacy edit is Dagster Python, see isDagsterOnlyLegacyEdit
 //   runLegacy      whether the Django suite runs, and why
 //   selection      the selector's parsed output, null when it did not produce one
-function decideSelection({ applies, disabled, draft, legacyChanged, runLegacy, runLegacyReason, selection }) {
+function decideSelection({
+    applies,
+    disabled,
+    draft,
+    legacyChanged,
+    dagsterOnlyLegacyEdit,
+    runLegacy,
+    runLegacyReason,
+    selection,
+}) {
     if (!applies || runLegacy === false) {
         // Nothing to narrow: either the event never selects, or the Django suite is
         // skipped outright. An empty mode leaves every consumer on its own default.
@@ -1242,18 +1323,25 @@ function decideSelection({ applies, disabled, draft, legacyChanged, runLegacy, r
         console.error(`Selector requested a full run:\n  ${fullRunReasons.join('\n  ')}`)
         return fallbackSelection(fallbackMode, 'full_run_requested', selection)
     }
+    if (!(Number(selection.durations?.total_seconds) > 0)) {
+        return fallbackSelection(fallbackMode, 'no_durations', selection)
+    }
     const segments = selection.combined?.segments ?? {}
     const core = segments.core ?? []
     const poe = segments.poe ?? []
     const temporal = segments.temporal ?? []
     const compat = segments.compat ?? []
-    if (legacyChanged && core.length === 0 && temporal.length === 0) {
+    // The Dagster exemption trusts the import graph. A failed Snob run still exits cleanly, with
+    // segments that the graph never filled, so it cannot claim the exemption.
+    const dagsterExempt = dagsterOnlyLegacyEdit && selection.snob?.status === 'ok'
+    if (legacyChanged && !dagsterExempt && core.length === 0 && temporal.length === 0) {
         // A diff that touched legacy code but selected no Django test at all means the
         // selector had no rule for it, not that there is nothing to run — a non-Python
         // legacy file (C++ parser sources, a JSON config) reaches no import edge.
         // Narrowing to zero would silently gate on nothing. FULL_RUN_PATTERNS covers the
         // known cases; this catches the ones added to the `legacy` paths filter and
         // forgotten there. Products-only diffs legitimately select nothing and are not legacy.
+        // A diff whose legacy edits are all Dagster Python also legitimately selects nothing.
         return fallbackSelection(fallbackMode, 'empty_selection', selection)
     }
     console.error(`Selected: ${core.length} core, ${poe.length} POE-eligible, ${temporal.length} temporal, ${compat.length} compat`)
@@ -1509,6 +1597,7 @@ function buildMatrix(products, durations, productsScaled = false) {
 module.exports = {
     narrowedProducts,
     decideSelection,
+    isDagsterOnlyLegacyEdit,
     decideJsonTargets,
     loadJsonTargets,
     selectedShards,
@@ -1529,6 +1618,7 @@ module.exports = {
     narrowedJsonTargetsShards,
     DJANGO_SEGMENTS,
     getIsolatedProducts,
+    testlessProducts,
     collectTestFiles,
     checkProductStaleness,
     productPrefix,
@@ -1538,10 +1628,12 @@ module.exports = {
     productGraphFromTachMap,
     loadTachModuleGraph,
     tachDependents,
+    contractCascadeIsDirect,
     getAffectedLibPackages,
     libImportName,
     productsImportingModule,
     coreFilesImportingModule,
+    productsWithUndeclaredInputChanges,
 }
 
 // --- Main ---
@@ -1594,6 +1686,8 @@ let mustRunProducts = null
 // The products a product-only diff reached, kept apart from a matrix that a cascade widened
 // to all products. Null when a change reaches core directly or the reach is unknown.
 let diffProducts = null
+// 'direct' or 'transitive' when a contract change cascaded to dependents, else empty.
+let dependentCascade = ''
 
 if (legacyChanged) {
     console.error('Legacy code changed — testing all products')
@@ -1633,7 +1727,12 @@ if (legacyChanged) {
             console.error(`Isolated product contracts changed: ${JSON.stringify(affectedContracts)} — Django will run`)
             runLegacy = true
             runLegacyReason = 'contract_cascade'
-            const dependents = tachDependentProducts(affectedContracts, allProductSet)
+            const direct = contractCascadeIsDirect({
+                applies: process.env.SELECTION_APPLIES === 'true',
+                disabled: process.env.SELECTION_DISABLED === 'true',
+            })
+            dependentCascade = direct ? 'direct' : 'transitive'
+            const dependents = tachDependentProducts(affectedContracts, allProductSet, { direct })
             if (dependents === null) {
                 // Fail toward over-testing, like the quarantine loaders above: without the
                 // graph we cannot know which products depend on the changed contract, and
@@ -1643,7 +1742,7 @@ if (legacyChanged) {
             } else {
                 if (dependents.length > 0) {
                     console.error(
-                        `Dependent products cascaded in via tach map: ${JSON.stringify(dependents)} (transitively depend on ${JSON.stringify(affectedContracts)})`
+                        `Dependent products cascaded in via tach map: ${JSON.stringify(dependents)} (${direct ? 'directly' : 'transitively'} depend on ${JSON.stringify(affectedContracts)})`
                     )
                 }
                 products = [...new Set([...affectedProducts, ...dependents])].sort()
@@ -1727,6 +1826,32 @@ if (legacyChanged) {
     }
 }
 
+let undeclaredInputProductsAdded = []
+if (process.env.TURBO_SCM_BASE) {
+    let changedFiles
+    try {
+        changedFiles = listChangedFiles(process.env.TURBO_SCM_BASE, process.env.TURBO_SCM_HEAD || 'HEAD')
+    } catch (e) {
+        console.error(`changed-file listing failed: ${e.message}`)
+        process.exit(1)
+    }
+    const undeclaredInputProducts = productsWithUndeclaredInputChanges(changedFiles, allProductSet)
+    const unselected = undeclaredInputProducts.filter((p) => !products.includes(p))
+    if (unselected.length > 0) {
+        console.error(
+            `Products whose non-Python test inputs changed, which Turbo's affected query cannot see: ${JSON.stringify(unselected)}`
+        )
+        products = [...new Set([...products, ...unselected])].sort()
+        undeclaredInputProductsAdded = unselected
+    }
+    if (mustRunProducts !== null) {
+        mustRunProducts = [...new Set([...mustRunProducts, ...undeclaredInputProducts])].sort()
+    }
+    if (diffProducts !== null) {
+        diffProducts = [...new Set([...diffProducts, ...undeclaredInputProducts])].sort()
+    }
+}
+
 // Kill switch: products named in the SKIP_PRODUCT_TESTS repo variable (comma-
 // separated) are dropped from the matrix without a code change — use it to stop
 // running, and blocking on, a product whose tests are temporarily too flaky.
@@ -1768,6 +1893,7 @@ const selectionDecision = decideSelection({
     disabled: process.env.SELECTION_DISABLED === 'true',
     draft: process.env.PR_DRAFT === 'true',
     legacyChanged,
+    dagsterOnlyLegacyEdit: isDagsterOnlyLegacyEdit(selection?.changed_files, fs.existsSync),
     runLegacy,
     runLegacyReason,
     selection,
@@ -1782,6 +1908,11 @@ if (mustRunProducts !== null && selectionDecision.mode === 'selected') {
     console.error(`Products that must run if the matrix is narrowed: ${JSON.stringify(mustRun)}`)
     products = narrowedProducts(products, mustRun, selection)
     productMatrixNarrowed = true
+}
+
+const testless = testlessProducts(allTestTasks)
+if (products.some((p) => testless.has(p))) {
+    products = dropProducts(products, allProducts, testless, 'Products whose backend:test runs no tests')
 }
 
 console.error(`Products to test: ${JSON.stringify(products)}`)
@@ -1853,6 +1984,8 @@ const result = {
         product_matrix_narrowed: productMatrixNarrowed,
         product_count: products.length,
         product_count_full: productCountBeforeNarrowing,
+        undeclared_input_products: undeclaredInputProductsAdded,
+        dependent_cascade: dependentCascade,
         ...runContext(),
     },
 }

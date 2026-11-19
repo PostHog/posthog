@@ -18,6 +18,7 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
+import { useApmMobileLayout } from 'lib/hooks/useApmMobileLayout'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -40,6 +41,7 @@ import {
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import { LogsDateRangePicker } from '../LogsDateRangePicker/LogsDateRangePicker'
+import { LogsNaturalLanguageSearch } from '../LogsNaturalLanguageSearch/LogsNaturalLanguageSearch'
 
 const taxonomicFilterLogicKey = 'logs'
 const taxonomicGroupTypes = [
@@ -62,7 +64,8 @@ export const LogsQueryControls = (): JSX.Element => {
     const { dateRange } = filters
 
     return (
-        <div className="flex shrink-0 gap-1.5">
+        // Shrinks rather than overflowing, so a long absolute range fits a narrow pane by truncating.
+        <div className="flex gap-1.5 min-w-0">
             <LogsDateRangePicker dateRange={dateRange} setDateRange={setDateRange} />
 
             <LemonButton
@@ -152,7 +155,8 @@ export function addLogsValueFilter(
     return mergeFilterIntoValues(currentValues, newPropertyFilter)
 }
 
-export const LogsFilterSearch = (): JSX.Element => {
+export const LogsFilterSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JSX.Element => {
+    const mobileLayout = useApmMobileLayout()
     const [visible, setVisible] = useState<boolean>(false)
     const { utcDateRange, queryFilterGroup } = useValues(logsViewerFiltersLogic)
     const { focusFilter } = useActions(logsViewerFiltersLogic)
@@ -197,7 +201,8 @@ export const LogsFilterSearch = (): JSX.Element => {
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             <LemonDropdown
                 overlay={
-                    <div className="w-[400px] md:w-[600px]">
+                    <div className={mobileLayout ? 'w-[min(600px,calc(100vw-2rem))]' : 'w-[400px] md:w-[600px]'}>
+                        <LogsNaturalLanguageSearch onApplied={onClose} />
                         <InfiniteSelectResults
                             focusInput={() => searchInputRef.current?.focus()}
                             taxonomicFilterLogicProps={taxonomicFilterLogicProps}
@@ -211,8 +216,10 @@ export const LogsFilterSearch = (): JSX.Element => {
                 onClickOutside={() => onClose()}
             >
                 <TaxonomicFilterSearchInput
+                    compactCategoryDropdown={mobileLayout}
                     onClick={() => setVisible(true)}
                     searchInputRef={searchInputRef}
+                    autoFocus={autoFocus}
                     onClose={() => onClose()}
                     onChange={() => setVisible(true)}
                 />

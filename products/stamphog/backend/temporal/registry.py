@@ -6,6 +6,8 @@ stable import target: ``from products.stamphog.backend.temporal.registry import 
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from products.stamphog.backend.temporal.activities import (
     checkout_review_sandbox,
     destroy_review_sandbox,
@@ -13,8 +15,12 @@ from products.stamphog.backend.temporal.activities import (
     fetch_review_context,
     list_in_flight_reviewer_bots,
     mark_review_failed,
+    poll_pending_attestations,
     post_verdict,
+    refresh_review_evidence,
     refuse_on_pre_gates,
+    rereview_after_external_review_finished,
+    reuse_withheld_verdict,
     review_in_sandbox,
     run_review_in_sandbox,
     signal_review_started,
@@ -24,17 +30,21 @@ from products.stamphog.backend.temporal.workflow import StamphogReviewWorkflow
 
 WORKFLOWS = [StamphogReviewWorkflow]
 
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     dismiss_stale_approvals,
     signal_review_started,
+    reuse_withheld_verdict,
     start_review_sandbox,
     fetch_review_context,
     checkout_review_sandbox,
     refuse_on_pre_gates,
     list_in_flight_reviewer_bots,
+    refresh_review_evidence,
     review_in_sandbox,
     run_review_in_sandbox,
     destroy_review_sandbox,
+    rereview_after_external_review_finished,
+    poll_pending_attestations,
     post_verdict,
     mark_review_failed,
 ]

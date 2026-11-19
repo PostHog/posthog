@@ -319,6 +319,13 @@ describe('taskRunArtifacts', () => {
             'video',
         ],
         [
+            'a stored Slack file HTML previews as HTML',
+            { storage_path: 'tasks/doc.v1.html' },
+            'interactive.html',
+            'text/html',
+            'html',
+        ],
+        [
             'a stored Slack file CSV has no inline preview',
             { storage_path: 'tasks/doc.v1.csv' },
             'weeks.csv',

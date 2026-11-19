@@ -14,7 +14,7 @@ export function BroadcastsFeaturePreview(): JSX.Element {
             surface="broadcasts"
             dismissKey="broadcasts-feature-preview"
             prompt="Broadcasts is new. Is it doing what you need?"
-            modalTitle="Help shape broadcasts"
+            feedbackTitle="Help shape broadcasts"
             feedbackPlaceholder="Tell us what works, what doesn’t, or what you’d change"
             // Line up with the search box and table below, which sit flush with the tab content.
             className="my-2"

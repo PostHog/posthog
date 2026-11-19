@@ -45,7 +45,10 @@ describe('toolResolver', () => {
             ['call --confirm feature-flag-delete {"key":"x"}'],
             ['call --json --confirm feature-flag-delete {"key":"x"}'],
             ['call --confirm --json feature-flag-delete {"key":"x"}'],
-        ])('strips --json/--confirm flags in any order before the inner tool name (%s)', (command) => {
+            ['call feature-flag-delete --json {"key":"x"}'],
+            ['call feature-flag-delete {"key":"x"} --confirm'],
+            ['call --json feature-flag-delete --confirm {"key":"x"} --json'],
+        ])('strips --json/--confirm flags before and after the inner tool name (%s)', (command) => {
             const resolved = resolveToolKey('posthog', 'exec', { command })
             expect(resolved.resolvedKey).toEqual('feature-flag-delete')
             expect(resolved.innerToolName).toEqual('feature-flag-delete')
@@ -116,6 +119,34 @@ describe('toolResolver', () => {
                 innerInput: { kind: 'TrendsQuery', series: [] },
                 claudeToolName: meta.claudeCode?.toolName,
             })
+        })
+
+        it.each([
+            {
+                caseName: 'a Pi proxy search as a tool search with the query as its input',
+                meta: { posthog: { toolName: 'mcp', mcpProxy: { kind: 'search', query: 'issue' } } },
+                expected: { resolvedKey: 'ToolSearch', innerInput: { query: 'issue' } },
+            },
+            {
+                caseName: 'a Pi proxy call by the tool it names until the server reports the MCP server',
+                meta: { posthog: { toolName: 'mcp', mcpProxy: { kind: 'tool', name: 'linear_create_issue' } } },
+                expected: { resolvedKey: 'mcp', proxiedToolName: 'linear_create_issue' },
+            },
+            {
+                caseName: 'a Pi proxy call by its MCP descriptor once the server reports it',
+                meta: {
+                    posthog: {
+                        toolName: 'mcp__linear__create_issue',
+                        mcp: { server: 'linear', tool: 'create_issue' },
+                        mcpProxy: { kind: 'tool', name: 'linear_create_issue' },
+                    },
+                },
+                expected: { resolvedKey: 'mcp__linear__create_issue' },
+            },
+        ])('resolves $caseName', ({ meta, expected }) => {
+            expect(
+                resolveToolCall({ rawServerName: 'posthog', rawToolName: '', input: { search: 'issue' }, meta })
+            ).toEqual({ ...expected, claudeToolName: undefined })
         })
 
         it.each([

@@ -1,6 +1,7 @@
 import json
 import uuid
 import random
+import typing
 import asyncio
 import datetime as dt
 import operator
@@ -9,6 +10,7 @@ from typing import cast
 
 import pytest
 import time_machine
+from unittest.mock import patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -266,17 +268,11 @@ async def test_logger_renders_tracebacks(log_capture):
     for entry in log_capture.write_entries:
         entry_dict = json.loads(entry)
 
-        assert "exception" in entry_dict
-        assert isinstance(entry_dict["exception"], list)
-
-        exceptions = entry_dict["exception"]
-
-        assert len(exceptions) == 1
-
-        exception = exceptions[0]
-
-        assert exception["exc_type"] == "ValueError"
-        assert exception["exc_value"] == "Oh no!"
+        assert "exc_info" not in entry_dict
+        assert entry_dict["exception.type"] == "ValueError"
+        assert entry_dict["exception.message"] == "Oh no!"
+        assert entry_dict["exception.stacktrace"].startswith("Traceback (most recent call last):\n")
+        assert 'raise ValueError("Oh no!")' in entry_dict["exception.stacktrace"]
 
 
 async def test_logger_formats_positional_args(log_capture):
@@ -778,6 +774,52 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
         assert row[6].isoformat() == "2024-01-01T00:00:00+00:00"
 
 
+def test_resolve_log_source_unmapped_workflow_type():
+    assert resolve_log_source("ducklake-copy-data-imports", "ducklake-copy-123") == (
+        "temporal_workflow",
+        "ducklake-copy-data-imports",
+    )
+
+
+@pytest.mark.parametrize(
+    "workflow_type,expected_source,expected_source_id",
+    [
+        ("fixture-workflow", "fixture_source", "run-1"),
+        ("external-data-job", "fixture_source", "run-1"),
+        ("other-workflow", "temporal_workflow", "other-workflow"),
+        ("broken-workflow", "temporal_workflow", "broken-workflow"),
+    ],
+)
+def test_log_messages_renderer_asks_declared_resolvers_first(workflow_type, expected_source, expected_source_id):
+    from posthog.temporal.common.logger import Logger, LogMessagesRenderer
+
+    def resolver(workflow_type: str, workflow_id: str) -> tuple[str, str] | None:
+        if workflow_type == "broken-workflow":
+            raise ValueError("broken resolver")
+        if workflow_type in ("fixture-workflow", "external-data-job"):
+            return ("fixture_source", workflow_id)
+        return None
+
+    renderer = LogMessagesRenderer(event_key="msg", log_sources=(resolver,))
+    event_dict = {
+        "msg": "a line",
+        "level": "info",
+        "team_id": 2,
+        "timestamp": "2024-01-01 00:00:00.000000",
+        "workflow_type": workflow_type,
+        "workflow_id": "run-1",
+        "workflow_run_id": "abc-run-id",
+    }
+
+    with patch("posthog.temporal.common.logger.capture_exception") as capture:
+        rendered = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict)
+    assert rendered["produce_message"] is not None
+    assert capture.called == (workflow_type == "broken-workflow")
+
+    payload = json.loads(rendered["produce_message"].decode("utf-8"))
+    assert (payload["log_source"], payload["log_source_id"]) == (expected_source, expected_source_id)
+
+
 def test_resolve_log_source_dwh_cdp_producer_job():
     source, source_id = resolve_log_source(
         "dwh-cdp-producer-job", "dwh-cdp-producer-job-019bdc25-3569-0000-9f32-e7d02775304b"
@@ -966,3 +1008,108 @@ def test_logger_skips_produce_when_its_loop_is_closed():
     loop.close()
 
     Logger("test", queue=asyncio.Queue(), loop=loop).produce(b"late message")
+
+
+class _RecordingProducer:
+    def __init__(self) -> None:
+        self.enqueued: list[tuple[str, list]] = []
+
+    def enqueue(self, source: str, entries: list) -> None:
+        self.enqueued.append((source, list(entries)))
+
+    def flush(self) -> None:
+        pass
+
+
+@pytest.mark.parametrize(
+    "workflow_type, workflow_id, expected_source, expected_source_id",
+    [
+        ("external-data-job", "schema-1-2024-01-01T00:00:00Z", "external_data_jobs", "schema-1"),
+        ("some-unmapped-workflow", "wf-1", "temporal_workflow", "some-unmapped-workflow"),
+    ],
+)
+def test_internal_logs_sink_sends_rendered_messages_with_a_source(
+    workflow_type: str, workflow_id: str, expected_source: str, expected_source_id: str
+) -> None:
+    from posthog.temporal.common.internal_logs import InternalLogsSink
+    from posthog.temporal.common.logger import Logger, LogMessagesRenderer
+
+    from products.logs.backend.facade.internal_logs import InternalLogEntry
+
+    rendered = LogMessagesRenderer(event_key="msg")(
+        logger=cast(Logger, None),
+        name="info",
+        event_dict={
+            "msg": "synced 3 rows",
+            "level": "info",
+            "team_id": 2,
+            "timestamp": "2024-01-01 00:00:00.123456",
+            "workflow_type": workflow_type,
+            "workflow_id": workflow_id,
+            "workflow_run_id": "run-1",
+        },
+    )
+    producer = _RecordingProducer()
+    sink = InternalLogsSink(cast(typing.Any, producer))
+
+    if rendered["produce_message"] is not None:
+        sink.offer(rendered["produce_message"])
+
+    assert producer.enqueued == [
+        (
+            expected_source,
+            [
+                InternalLogEntry(
+                    team_id=2,
+                    log_source_id=expected_source_id,
+                    instance_id="run-1",
+                    timestamp=dt.datetime(2024, 1, 1, 0, 0, 0, 123456),
+                    level="info",
+                    message="synced 3 rows",
+                )
+            ],
+        )
+    ]
+
+
+class _ImmediateKafkaProducer:
+    async def produce(self, **kwargs: typing.Any) -> "asyncio.Future[None]":
+        delivered: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        delivered.set_result(None)
+        return delivered
+
+    async def flush(self) -> None:
+        pass
+
+    async def close(self) -> None:
+        pass
+
+
+class _RecordingSink:
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    def offer(self, message: bytes) -> None:
+        self.events.append(f"offer {message.decode()}")
+
+    async def drain(self) -> None:
+        self.events.append("drain")
+
+
+async def test_log_producer_drains_internal_logs_after_the_last_queued_message_when_it_stops() -> None:
+    from posthog.temporal.common.logger import KafkaLogProducerFromQueueAsync
+
+    queue: asyncio.Queue[bytes] = asyncio.Queue()
+    sink = _RecordingSink()
+    log_producer = KafkaLogProducerFromQueueAsync(
+        queue=queue, producer=cast(typing.Any, _ImmediateKafkaProducer()), internal_logs=cast(typing.Any, sink)
+    )
+    listen_task = asyncio.create_task(log_producer.listen())
+    for message in (b"first", b"second"):
+        queue.put_nowait(message)
+
+    await queue.join()
+    listen_task.cancel()
+    await asyncio.wait([listen_task])
+
+    assert sink.events == ["offer first", "offer second", "drain"]

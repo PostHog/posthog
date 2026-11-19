@@ -11,6 +11,7 @@ import { buildCliContext, flushAnalytics } from './context'
 import { installSkill, listSkills } from './skills'
 import { trackCliToolCall } from './tool-call-properties'
 import { getCliTools } from './tools'
+import { failureText, isRunningInCI } from './utils'
 
 const COMMAND_REFERENCE = `CLI-style command string. Supported commands:
 tools
@@ -43,6 +44,9 @@ Usage:
   posthog-cli api skill list [--json]
   posthog-cli api skill install [--force] <skill-id>
   posthog-cli api agents-md install [--path AGENTS.md]
+
+Call targets: --project-id <id> and --organization-id <id> override environment and login defaults.
+Targets apply to this invocation. Repeat them on each call or set per-process environment variables.
 
 Destructive tools require --confirm when executed. Use --dry-run before mutations.
 Agents: run \`posthog-cli api --agent-help\` and load the output into context before anything else.`
@@ -109,8 +113,7 @@ async function runStaticExecCommand(command: string): Promise<void> {
     printResult(result)
 }
 
-async function runExecCommand(command: string): Promise<void> {
-    const config = resolveCliConfig()
+async function runExecCommand(command: string, config: CliConfig): Promise<void> {
     if (command.startsWith('call ')) {
         requireApiKey(config)
     }
@@ -238,6 +241,7 @@ async function main(): Promise<void> {
             return
         }
         case 'call': {
+            const config = resolveCliConfig(args)
             const dryRun = takeFlag(args, '--dry-run')
             if (dryRun) {
                 await runDryCall(args)
@@ -250,7 +254,10 @@ async function main(): Promise<void> {
             if (!toolName) {
                 throw new Error('Usage: posthog-cli api call [--json] [--dry-run] [--confirm] <tool> [json]')
             }
-            await runExecCommand(`call ${json ? '--json ' : ''}${confirmed ? '--confirm ' : ''}${toolName} ${jsonBody}`)
+            await runExecCommand(
+                `call ${json ? '--json ' : ''}${confirmed ? '--confirm ' : ''}${toolName} ${jsonBody}`,
+                config
+            )
             return
         }
         case 'skill':
@@ -265,8 +272,7 @@ async function main(): Promise<void> {
 }
 
 main().catch(async (error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error)
-    process.stderr.write(`Error: ${message}\n`)
+    process.stderr.write(`Error: ${failureText(error, isRunningInCI(process.env))}\n`)
     // process.exit() kills in-flight requests, which silently dropped every
     // errored $mcp_tool_call event; flush analytics before exiting non-zero.
     await flushAnalytics()

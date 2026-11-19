@@ -6,6 +6,7 @@ from django.test import RequestFactory, SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.project import update_team_workflows_config
 from posthog.models import OrganizationMembership, Team
 from posthog.models.integration import Integration
 
@@ -42,6 +43,8 @@ class TestTeamWorkflowsConfig(APIBaseTest):
         self.url = f"/api/environments/{self.team.id}/"
 
     def test_defaults_to_capture_disabled_when_no_extension_row_exists(self) -> None:
+        TeamWorkflowsConfig.objects.filter(team=self.team).delete()
+
         response = self.client.get(self.url)
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["workflows_config"] == {
@@ -49,15 +52,20 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "email_tracking_consent_mode": "off",
             "workflow_task_rate_limit_per_day": None,
             "workflow_task_team_rate_limit_per_day": None,
+            "replay_vision_scan_rate_limit_per_day": None,
+            "replay_vision_scan_team_rate_limit_per_day": None,
             "default_email_integration_id": None,
             "marketing_frequency_cap_max_messages": None,
             "marketing_frequency_cap_window_days": None,
+            "marketing_frequency_cap_hold_hours": None,
+            "email_utm_tags_enabled": False,
+            "email_utm_params": {},
+            "email_workflow_run_link_tag_enabled": True,
         }
 
     def test_patch_enables_capture(self) -> None:
-        # APIBaseTest.setUp may trigger the workflows_config cached_property (which calls
-        # get_or_create_team_extension) so the extension row can already exist with the default
-        # value. Either way, the patch must end with the row present and capture enabled.
+        TeamWorkflowsConfig.objects.filter(team=self.team).update(capture_workflows_engagement_events=False)
+
         response = self.client.patch(self.url, {"workflows_config": {"capture_workflows_engagement_events": True}})
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["workflows_config"]["capture_workflows_engagement_events"] is True
@@ -81,16 +89,49 @@ class TestTeamWorkflowsConfig(APIBaseTest):
         assert response.json()["workflows_config"]["capture_workflows_engagement_events"] is True
         assert TeamWorkflowsConfig.objects.get(team=self.team).capture_workflows_engagement_events is True
 
-    def test_patch_sets_email_tracking_consent_mode(self) -> None:
-        response = self.client.patch(self.url, {"workflows_config": {"email_tracking_consent_mode": "opt_in"}})
+    @parameterized.expand(
+        [
+            ("email_tracking_consent_mode", "opt_in"),
+            ("email_workflow_run_link_tag_enabled", False),
+        ]
+    )
+    def test_patch_sets_email_setting(self, field: str, value: str | bool) -> None:
+        response = self.client.patch(self.url, {"workflows_config": {field: value}})
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["workflows_config"]["email_tracking_consent_mode"] == "opt_in"
-        assert TeamWorkflowsConfig.objects.get(team=self.team).email_tracking_consent_mode == "opt_in"
+        assert response.json()["workflows_config"][field] == value
+        assert getattr(TeamWorkflowsConfig.objects.get(team=self.team), field) == value
 
     def test_patch_rejects_unknown_email_tracking_consent_mode(self) -> None:
         response = self.client.patch(self.url, {"workflows_config": {"email_tracking_consent_mode": "sometimes"}})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "workflows_config__email_tracking_consent_mode"
+
+    def test_patch_rejects_unknown_utm_keys_and_keeps_saved_defaults(self) -> None:
+        self.client.patch(self.url, {"workflows_config": {"email_utm_params": {"utm_source": "newsletter"}}})
+
+        response = self.client.patch(self.url, {"workflows_config": {"email_utm_params": {"utm_soucre": "typo"}}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "workflows_config__email_utm_params"
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_utm_params == {"utm_source": "newsletter"}
+
+    def test_a_utm_save_keeps_settings_another_admin_changed_after_the_team_loaded(self) -> None:
+        team = Team.objects.get(pk=self.team.pk)
+        assert team.workflows_config.email_tracking_consent_mode == "off"
+        TeamWorkflowsConfig.objects.filter(team=self.team).update(
+            email_tracking_consent_mode="opt_in", workflow_task_rate_limit_per_day=0
+        )
+        request = RequestFactory().patch(self.url)
+        request.user = self.user
+
+        update_team_workflows_config(
+            team, {"email_utm_params": {"utm_source": "newsletter"}}, context={"request": request}
+        )
+
+        row = TeamWorkflowsConfig.objects.get(team=self.team)
+        assert row.email_tracking_consent_mode == "opt_in"
+        assert row.workflow_task_rate_limit_per_day == 0
+        assert row.email_utm_params == {"utm_source": "newsletter"}
 
     def test_patch_rejects_non_boolean_capture_workflows_engagement_events(self) -> None:
         response = self.client.patch(
@@ -113,9 +154,15 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "email_tracking_consent_mode": "off",
             "workflow_task_rate_limit_per_day": None,
             "workflow_task_team_rate_limit_per_day": None,
+            "replay_vision_scan_rate_limit_per_day": None,
+            "replay_vision_scan_team_rate_limit_per_day": None,
             "default_email_integration_id": None,
             "marketing_frequency_cap_max_messages": None,
             "marketing_frequency_cap_window_days": None,
+            "marketing_frequency_cap_hold_hours": None,
+            "email_utm_tags_enabled": False,
+            "email_utm_params": {},
+            "email_workflow_run_link_tag_enabled": True,
         }
 
     @parameterized.expand(
@@ -123,6 +170,7 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             ("unverified_sender", "email", False, False),
             ("other_projects_sender", "email", True, True),
             ("not_an_email_sender", "slack", True, False),
+            ("sandbox_sender", "email_sandbox", True, False),
         ]
     )
     def test_patch_rejects_default_email_sender(self, _name: str, kind: str, verified: bool, other_team: bool) -> None:

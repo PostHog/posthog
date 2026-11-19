@@ -27,6 +27,7 @@ from posthog.api.secret_revocation import (
     revoke_leaked_secret,
 )
 from posthog.egress.github.transport import github_request
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Team
 from posthog.models.utils import mask_key_value
 from posthog.redis import get_client
@@ -97,7 +98,14 @@ def verify_github_signature(payload: str, kid: str, sig: str) -> None:
     if pem is None:
         try:
             # Unauthenticated endpoint, so there is no installation whose budget this draws from.
-            resp = github_request("GET", GITHUB_KEYS_URI, source="secret_scanning", installation_id=None, timeout=10)
+            resp = github_request(
+                "GET",
+                GITHUB_KEYS_URI,
+                source="secret_scanning",
+                installation_id=None,
+                timeout=10,
+                priority=Priority.CRITICAL,
+            )
             resp.raise_for_status()
             data = resp.json()
         except Exception:

@@ -1,11 +1,12 @@
 import {
     findTextPosition,
     getSelectedCodeRanges,
+    getSelectedNotebookMarkdown,
     getSelectionRange,
     getTextOffset,
     restoreSelection,
 } from './domSelection'
-import { NotebookCodeBlockNode } from './types'
+import { NotebookCodeBlockNode, NotebookTableBlockNode } from './types'
 
 function codeNode(language: string, text: string): NotebookCodeBlockNode {
     return { id: 'code-1', type: 'code', language, text }
@@ -92,5 +93,53 @@ describe('getSelectedCodeRanges', () => {
         const selection = selectContents(element)
 
         expect(getSelectedCodeRanges(selection, [node], { 'code-1': element })).toHaveLength(expectedRanges)
+    })
+})
+
+describe('getSelectedNotebookMarkdown in tables', () => {
+    afterEach(() => {
+        window.getSelection()?.removeAllRanges()
+        document.body.innerHTML = ''
+    })
+
+    it.each([
+        { label: 'part of one cell', endCellIndex: 0, endOffset: 3, expected: null },
+        { label: 'two cells', endCellIndex: 1, endOffset: 2, expected: '| Name | Value |\n| --- | --- |' },
+    ])('copies the right content for a selection across $label', ({ endCellIndex, endOffset, expected }) => {
+        const table: NotebookTableBlockNode = {
+            id: 'table-1',
+            type: 'table',
+            headers: [{ children: [{ type: 'text', text: 'Name' }] }, { children: [{ type: 'text', text: 'Value' }] }],
+            rows: [],
+        }
+        const notebookElement = document.createElement('div')
+        const tableElement = document.createElement('div')
+        const cells = table.headers.map((header, columnIndex) => {
+            const cell = document.createElement('div')
+            cell.dataset.markdownNotebookTableSection = 'header'
+            cell.dataset.markdownNotebookTableRowIndex = '0'
+            cell.dataset.markdownNotebookTableColumnIndex = String(columnIndex)
+            cell.textContent = header.children[0].type === 'text' ? header.children[0].text : ''
+            return cell
+        })
+        tableElement.append(...cells)
+        notebookElement.appendChild(tableElement)
+        document.body.appendChild(notebookElement)
+
+        const range = document.createRange()
+        range.setStart(cells[0].firstChild!, 1)
+        range.setEnd(cells[endCellIndex].firstChild!, endOffset)
+        const selection = window.getSelection()!
+        selection.removeAllRanges()
+        selection.addRange(range)
+
+        const markdown = getSelectedNotebookMarkdown(
+            selection,
+            notebookElement,
+            [table],
+            { [table.id]: tableElement },
+            {}
+        )
+        expect(markdown?.trim() ?? null).toEqual(expected)
     })
 })

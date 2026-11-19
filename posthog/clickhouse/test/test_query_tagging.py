@@ -5,6 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
+
+from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from pydantic import ValidationError
@@ -31,12 +35,14 @@ from posthog.clickhouse.query_tagging import (
     get_query_tag_value,
     get_query_tags,
     is_api_key_access_method,
+    is_known_product_tag,
     reset_query_tags,
     tag_contains_user_hogql,
     tag_queries,
     tags_context,
     update_tags,
 )
+from posthog.models.team.team_event_volume import TeamEventVolume
 
 
 def test_create_base_tags():
@@ -443,6 +449,24 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
 
         assert comment["plan_fingerprint"] == fingerprint_query(parse_select(sql))
 
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    def test_execute_hogql_query_tags_the_team_first_prewhere_setting(self, _name: str, expected: bool) -> None:
+        TeamEventVolume.objects.unscoped().create(team=self.team, events_last_year=1, computed_at=timezone.now())
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test")
+        with patch("posthog.hogql.team_first_prewhere.feature_enabled_or_false", return_value=expected):
+            response = execute_hogql_query(
+                f"SELECT count() FROM events WHERE event = '{marker}'",  # noqa: S608
+                team=self.team,
+                query_type="HogQLQuery",
+            )
+
+        assert response.results == [(0,)]
+        assert response.clickhouse is not None
+        assert ("move_primary_key_columns_to_end_of_prewhere=0" in response.clickhouse) is expected
+        assert self._get_log_comment(marker)["modifiers"].get("teamFirstPrewhere") is (True if expected else None)
+
     @parameterized.expand([("approved", True), ("not_approved", False)])
     def test_sync_execute_preserves_ai_data_processing_approved_tag(self, _name, approved):
         marker = str(uuid.uuid4())
@@ -579,7 +603,7 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         assert comment["product"] == Product.ERROR_TRACKING.value
 
 
-class TestAddFallbackQueryTags(BaseTest):
+class TestAddFallbackQueryTags(SimpleTestCase):
     def test_does_not_override_set_product(self):
         tags = QueryTags(product=Product.LOGS, feature=Feature.QUERY, scene="Cohort", query_type="TrendsQuery")
         add_fallback_query_tags(tags)
@@ -608,12 +632,23 @@ class TestAddFallbackQueryTags(BaseTest):
         assert tags.feature is None
 
     @parameterized.expand(
-        [("MCPMissingCapabilitiesQuery",), ("MCPModelBreakdownQuery",), ("MCPProtocolVersionBreakdownQuery",)]
+        [
+            ("MCPDashboardQuery",),
+            ("MCPMissingCapabilitiesQuery",),
+            ("MCPModelBreakdownQuery",),
+            ("MCPProtocolVersionBreakdownQuery",),
+        ]
     )
     def test_mcp_analytics_kind_attributes_to_mcp_analytics(self, query_type: str) -> None:
         tags = QueryTags(query_type=query_type)
         add_fallback_query_tags(tags)
         assert tags.product == Product.MCP_ANALYTICS
+
+    @parameterized.expand([("BookActivityMatrixQuery",), ("BookActivityPeopleQuery",), ("BookActivityFirstsQuery",)])
+    def test_book_activity_kind_attributes_to_customer_analytics(self, query_type: str) -> None:
+        tags = QueryTags(query_type=query_type)
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.CUSTOMER_ANALYTICS
 
     def test_mcp_source_fills_product_only(self):
         tags = QueryTags(source="mcp")
@@ -833,3 +868,15 @@ class TestAddFallbackQueryTags(BaseTest):
 )
 def test_is_api_key_access_method(access_method, expected):
     assert is_api_key_access_method(access_method) is expected
+
+
+@parameterized.expand(
+    [
+        ("product_enum", Product.LLM_ANALYTICS.value, True),
+        ("product_key_enum", "session_replay", True),
+        ("unknown", "ai_gateway", False),
+        ("empty", "", False),
+    ]
+)
+def test_is_known_product_tag(_name, value, expected):
+    assert is_known_product_tag(value) is expected

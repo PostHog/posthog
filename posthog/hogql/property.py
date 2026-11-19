@@ -1,6 +1,6 @@
 import re
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Literal, Optional, TypeGuard, cast
 
 from django.db import models
@@ -60,16 +60,18 @@ from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.dataclasses import frozen
 from posthog.interval_specs import get_interval_func
-from posthog.models import Property, PropertyDefinition, Team
+from posthog.models import Property, Team
 from posthog.models.element import Element
-from posthog.models.event import Selector
+from posthog.models.event import MAX_SELECTOR_LENGTH, Selector
 from posthog.models.property import BehavioralPropertyType, PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
 from posthog.utils import get_from_dict_or_attr, relative_date_parse
 
-from products.actions.backend.models.action import Action, ActionStepJSON
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import Action, ActionNotFound, ActionStep
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
@@ -688,11 +690,20 @@ _NEGATIVE_OPERATOR_COMPLEMENTS = {
     PropertyOperator.NOT_STARTS_WITH: PropertyOperator.STARTS_WITH,
     PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
     PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
+    PropertyOperator.IS_CLEANED_PATH_NOT_EXACT: PropertyOperator.IS_CLEANED_PATH_EXACT,
+    # The scalar semver_neq arm drops missing and non-semver values, so it is not NOT(semver_eq).
+    # Callers that negate this complement instead keep those values.
+    PropertyOperator.SEMVER_NEQ: PropertyOperator.SEMVER_EQ,
 }
 
 
 def operator_is_negative(operator: PropertyOperator) -> bool:
     return operator in _NEGATIVE_OPERATOR_COMPLEMENTS
+
+
+def negative_operator_complement(operator: PropertyOperator) -> PropertyOperator:
+    """Return the positive form of a negative operator, and any other operator unchanged."""
+    return _NEGATIVE_OPERATOR_COMPLEMENTS.get(operator, operator)
 
 
 def _array_property_filter(array: ast.Expr, element_predicate: ast.Expr, negate: bool) -> ast.Expr:
@@ -738,16 +749,36 @@ def _multi_search_not_found_for_values(expr: ast.Expr, value: list) -> ast.Expr:
     return ast.Not(expr=_multi_search_found_for_values(expr, value))
 
 
-def _validate_regex(value: ValueT) -> None:
+# log_errors=False keeps RE2 from writing rejected patterns to stderr.
+_RE2_QUIET = re2.Options()
+_RE2_QUIET.log_errors = False
+
+
+def validate_regex(value: ValueT) -> None:
     """Reject an invalid regular expression with a clear user-facing error rather
     than letting ClickHouse fail the whole query with CANNOT_COMPILE_REGEXP. The
     same RE2 engine ClickHouse uses validates the pattern here."""
     if not isinstance(value, str):
         return
     try:
-        re2.compile(value)
+        re2.compile(value, options=_RE2_QUIET)
     except re2.error as err:
         raise QueryError(f"Invalid regular expression: '{value}'") from err
+
+
+# EXACT and IS_NOT stay out because their _expr_to_compare_op arms compare against one scalar.
+_WHOLE_LIST_OPERATORS = frozenset(
+    {
+        PropertyOperator.IN_,
+        PropertyOperator.NOT_IN,
+        PropertyOperator.ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.ICONTAINS_MULTI,
+        PropertyOperator.NOT_ICONTAINS_MULTI,
+        PropertyOperator.BETWEEN,
+        PropertyOperator.NOT_BETWEEN,
+    }
+)
 
 
 def _expr_to_compare_op(
@@ -822,7 +853,7 @@ def _expr_to_compare_op(
             values_list = cast(list, [value])
         return _multi_search_not_found_for_values(expr, values_list)
     elif operator == PropertyOperator.REGEX:
-        _validate_regex(value)
+        validate_regex(value)
         return ast.Call(
             name="ifNull",
             args=[
@@ -831,7 +862,7 @@ def _expr_to_compare_op(
             ],
         )
     elif operator == PropertyOperator.NOT_REGEX:
-        _validate_regex(value)
+        validate_regex(value)
         return ast.Call(
             name="ifNull",
             args=[
@@ -934,6 +965,18 @@ def _expr_to_compare_op(
             op=ast.CompareOperationOp.Eq,
             left=apply_path_cleaning(expr, team),
             right=apply_path_cleaning(ast.Constant(value=value), team),
+        )
+    elif operator == PropertyOperator.IS_CLEANED_PATH_NOT_EXACT:
+        return ast.Or(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=apply_path_cleaning(expr, team),
+                    right=apply_path_cleaning(ast.Constant(value=value), team),
+                ),
+                # Keep rows where the property is missing, matching every other negative operator.
+                ast.Call(name="isNull", args=[expr]),
+            ]
         )
     elif operator == PropertyOperator.IN_ or operator == PropertyOperator.NOT_IN:
         values: list
@@ -1094,8 +1137,8 @@ def _behavioral_property_to_expr(property: Property, team: Team, scope: str, str
 
     if property.event_type == "actions":
         try:
-            action = Action.objects.get(pk=int(property.key), team__project_id=team.project_id)
-        except (Action.DoesNotExist, ValueError, TypeError):
+            action = get_action(action_id=int(property.key), project_id=team.project_id)
+        except (ActionNotFound, ValueError, TypeError):
             raise QueryError(f"Action '{property.key}' in behavioral filter not found")
         conditions: list[ast.Expr] = [action_to_expr(action)]
     else:
@@ -1431,7 +1474,10 @@ def property_to_expr(
                 chain = split[:-1]
                 property.key = split[-1]
 
-            if isinstance(value, list) and len(value) > 1:
+            # The shared list handling below rebuilds the Property from property.key to split a list
+            # per value. That key no longer holds the table chain, so this branch splits the list itself.
+            # It falls through for the whole-list operators, which the shared handling never splits.
+            if isinstance(value, list) and len(value) > 1 and operator not in _WHOLE_LIST_OPERATORS:
                 field = ast.Field(chain=[*chain, property.key])
                 exprs = [
                     _expr_to_compare_op(
@@ -1444,13 +1490,7 @@ def property_to_expr(
                     )
                     for v in value
                 ]
-                if (
-                    operator == PropertyOperator.NOT_ICONTAINS
-                    or operator == PropertyOperator.NOT_REGEX
-                    or operator == PropertyOperator.IS_NOT
-                    or operator == PropertyOperator.NOT_STARTS_WITH
-                    or operator == PropertyOperator.NOT_ENDS_WITH
-                ):
+                if operator_is_negative(operator):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
         elif property.type == "data_warehouse_person_property":
@@ -1528,14 +1568,6 @@ def property_to_expr(
                 ],
             )
 
-        # _expr_to_compare_op combines every value of these into one multiSearchAnyCaseInsensitive
-        # call, so they must reach it with the list intact. Expanding them per value would OR
-        # separate negations together and keep a row that matches only one needle.
-        combines_values_itself = operator in (
-            PropertyOperator.ICONTAINS_MULTI,
-            PropertyOperator.NOT_ICONTAINS_MULTI,
-        )
-
         if isinstance(value, list) and operator not in (
             PropertyOperator.BETWEEN,
             PropertyOperator.NOT_BETWEEN,
@@ -1552,30 +1584,27 @@ def property_to_expr(
                 # _expr_to_compare_op's ICONTAINS_MULTI/NOT_ICONTAINS_MULTI arms re-wrap a scalar
                 # into a single-element list, so collapsing here is a no-op round trip for them too.
                 value = value[0]
-            elif not combines_values_itself:
-                if operator in (
-                    PropertyOperator.EXACT,
-                    PropertyOperator.IS_NOT,
-                    PropertyOperator.IN_,
-                    PropertyOperator.NOT_IN,
-                ):
-                    coerced = cast(list, _coerce_numeric_value_for_string_property(value, property, team))
-                    values = ast.Tuple(exprs=[ast.Constant(value=v) for v in coerced])
-                    negate = operator_is_negative(operator)
-                    if array_field is not None:
-                        return _array_property_filter(
-                            array_field,
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.In, left=ast.Field(chain=["v"]), right=values
-                            ),
-                            negate=negate,
-                        )
-                    return ast.CompareOperation(
-                        op=ast.CompareOperationOp.NotIn if negate else ast.CompareOperationOp.In,
-                        left=expr,
-                        right=values,
+            elif operator in (
+                PropertyOperator.EXACT,
+                PropertyOperator.IS_NOT,
+                PropertyOperator.IN_,
+                PropertyOperator.NOT_IN,
+            ):
+                coerced = cast(list, _coerce_numeric_value_for_string_property(value, property, team))
+                values = ast.Tuple(exprs=[ast.Constant(value=v) for v in coerced])
+                negate = operator_is_negative(operator)
+                if array_field is not None:
+                    return _array_property_filter(
+                        array_field,
+                        ast.CompareOperation(op=ast.CompareOperationOp.In, left=ast.Field(chain=["v"]), right=values),
+                        negate=negate,
                     )
-
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotIn if negate else ast.CompareOperationOp.In,
+                    left=expr,
+                    right=values,
+                )
+            elif operator not in _WHOLE_LIST_OPERATORS:
                 exprs = [
                     property_to_expr(
                         Property(
@@ -1591,13 +1620,7 @@ def property_to_expr(
                     )
                     for v in value
                 ]
-                if (
-                    operator == PropertyOperator.NOT_ICONTAINS
-                    or operator == PropertyOperator.NOT_REGEX
-                    or operator == PropertyOperator.IS_NOT
-                    or operator == PropertyOperator.NOT_STARTS_WITH
-                    or operator == PropertyOperator.NOT_ENDS_WITH
-                ):
+                if operator_is_negative(operator):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
 
@@ -1623,7 +1646,7 @@ def property_to_expr(
         element_predicate = _expr_to_compare_op(
             expr=ast.Field(chain=["v"]),
             value=value,
-            operator=_NEGATIVE_OPERATOR_COMPLEMENTS.get(operator, operator),
+            operator=negative_operator_complement(operator),
             team=team,
             property=property,
             is_json_field=is_json_field,
@@ -1653,13 +1676,7 @@ def property_to_expr(
                     )
                     for v in value
                 ]
-                if (
-                    operator == PropertyOperator.IS_NOT
-                    or operator == PropertyOperator.NOT_ICONTAINS
-                    or operator == PropertyOperator.NOT_REGEX
-                    or operator == PropertyOperator.NOT_STARTS_WITH
-                    or operator == PropertyOperator.NOT_ENDS_WITH
-                ):
+                if operator_is_negative(operator):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
 
@@ -1707,10 +1724,12 @@ def property_to_expr(
         if not isinstance(property.value, (str, int)):
             raise ValidationError("Cohort property value must be a cohort ID")
         try:
-            cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
+            cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value, deleted=False)
         except Cohort.DoesNotExist:
             # The id comes from the request, so a deleted or foreign cohort must read as
-            # bad input rather than escaping as an unhandled DoesNotExist.
+            # bad input rather than escaping as an unhandled DoesNotExist. `cohort()` and the
+            # IN COHORT transform skip deleted cohorts too, so the filter must fail here, not
+            # at print time when the whole query has already been built.
             raise QueryError(f"Cohort {property.value} does not exist")
         # Kludge: negation is outdated but still used in places
         negated = property.negation or property.operator == PropertyOperator.NOT_IN.value
@@ -1783,7 +1802,7 @@ def bound_property_to_expr(property: Property, expr: ast.Expr, team: Team) -> as
                 left=clone_expr(expr),
                 right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]),
             )
-        else:
+        elif operator not in _WHOLE_LIST_OPERATORS:
             exprs = [
                 bound_property_to_expr(
                     Property(
@@ -1798,13 +1817,7 @@ def bound_property_to_expr(property: Property, expr: ast.Expr, team: Team) -> as
                 )
                 for v in value
             ]
-            if (
-                operator == PropertyOperator.IS_NOT
-                or operator == PropertyOperator.NOT_ICONTAINS
-                or operator == PropertyOperator.NOT_REGEX
-                or operator == PropertyOperator.NOT_STARTS_WITH
-                or operator == PropertyOperator.NOT_ENDS_WITH
-            ):
+            if operator_is_negative(operator):
                 return ast.And(exprs=exprs)
             return ast.Or(exprs=exprs)
 
@@ -1818,7 +1831,7 @@ def bound_property_to_expr(property: Property, expr: ast.Expr, team: Team) -> as
     )
 
 
-def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optional[str] = None) -> ast.Expr:
+def steps_to_expr(steps: Sequence[ActionStep], team: Team, events_alias: Optional[str] = None) -> ast.Expr:
     if len(steps) == 0:
         return ast.Constant(value=True)
 
@@ -1835,6 +1848,7 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
                 exprs.append(tag_name_to_expr(step.tag_name))
             if step.href is not None:
                 if step.href_matching == "regex":
+                    validate_regex(step.href)
                     exprs.append(
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.Regex,
@@ -1861,6 +1875,7 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
             if step.text is not None:
                 value = step.text
                 if step.text_matching == "regex":
+                    validate_regex(value)
                     exprs.append(
                         parse_expr(
                             "arrayExists(x -> x =~ {value}, elements_chain_texts)",
@@ -1896,6 +1911,7 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
                     right=ast.Constant(value=step.url),
                 )
             elif step.url_matching == "regex":
+                validate_regex(step.url)
                 expr = ast.CompareOperation(
                     op=ast.CompareOperationOp.Regex,
                     left=ast.Field(
@@ -1940,8 +1956,18 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
         return ast.Or(exprs=or_queries)
 
 
-def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:
-    return steps_to_expr(action.steps, action.team, events_alias)
+def action_to_expr(action: Action, events_alias: Optional[str] = None, *, team: Optional[Team] = None) -> ast.Expr:
+    """The condition an event must meet to match the action, compiled against the action's own team.
+
+    The action's team is read by id. A caller that holds that team, or a child environment of it, can
+    pass it as `team` to skip the read; any other team is not used. Actions live on the project's root
+    team, so a child environment reaches it through its cached `parent_team`.
+    """
+    if team is not None and team.pk != action.team_id and team.parent_team_id == action.team_id:
+        team = team.parent_team
+    if team is None or team.pk != action.team_id:
+        team = Team.objects.get(pk=action.team_id)
+    return steps_to_expr(action.steps, team, events_alias)
 
 
 def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
@@ -1949,8 +1975,8 @@ def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
         # action
         action_id = int(entity.id) if isinstance(entity.id, float) else entity.id
         try:
-            action = Action.objects.get(pk=action_id, team=team)
-        except Action.DoesNotExist:
+            action = get_action(action_id=int(action_id), team_id=team.pk)
+        except ActionNotFound:
             raise ValidationError(f"Action ID {entity.id} does not exist!")
         event_expr = action_to_expr(action)
     elif entity.id is None:
@@ -1998,6 +2024,8 @@ def element_property_key_to_breakdown_expr(key: str) -> ast.Expr:
 
 
 def selector_to_expr(selector_string: str):
+    if len(selector_string) > MAX_SELECTOR_LENGTH:
+        raise QueryError(f"Selector is too long. The maximum length is {MAX_SELECTOR_LENGTH} characters.")
     selector = Selector(selector_string, escape_slashes=False)
     if selector.is_unsatisfiable():
         # The id-only shortcut below skips the regex, so [id="a"][id="b"] would match every

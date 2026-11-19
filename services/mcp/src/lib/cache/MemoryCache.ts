@@ -24,6 +24,14 @@ export class MemoryCache<T extends Record<string, any>> extends ScopedCache<T> {
         this.cache.delete(key as string)
     }
 
+    async setIfAbsent<K extends keyof T>(key: K, value: T[K]): Promise<boolean> {
+        if (this.cache.has(key as string)) {
+            return false
+        }
+        this.cache.set(key as string, value)
+        return true
+    }
+
     async clear(): Promise<void> {
         this.cache.clear()
     }

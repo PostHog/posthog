@@ -1,21 +1,20 @@
 import { useState } from 'react'
 
 import { IconPencil, IconPlus } from '@posthog/icons'
-import { LemonDropdown, LemonInputSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonDropdown, LemonTag } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { TagsInputSelect } from 'lib/components/TagsInputSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import type { SharedMetric } from './sharedMetricLogic'
 
 export function InlineTagEditor({
     metric,
-    allTags,
     onSave,
     saving,
 }: {
     metric: SharedMetric
-    allTags: string[]
     onSave: (tags: string[]) => void
     saving: boolean
 }): JSX.Element {
@@ -35,13 +34,8 @@ export function InlineTagEditor({
                         onClickOutside={() => setIsEditing(false)}
                         overlay={
                             <div className="p-2 w-[200px]">
-                                <LemonInputSelect
-                                    mode="multiple"
-                                    allowCustomValues
+                                <TagsInputSelect
                                     value={tags}
-                                    options={allTags
-                                        .filter((t) => !tags.includes(t))
-                                        .map((t) => ({ key: t, label: t }))}
                                     onChange={(newTags) => {
                                         onSave(newTags)
                                         setIsEditing(false)

@@ -23,13 +23,19 @@ describe('playerSidebarLogic', () => {
         }).toMatchValues({ activeTab: SessionRecordingSidebarTab.OVERVIEW })
 
         await expectLogic(logic, () => {
+            logic.actions.setAutoTab(SessionRecordingSidebarTab.OBSERVATIONS)
+        }).toMatchValues({ activeTab: SessionRecordingSidebarTab.OBSERVATIONS })
+
+        await expectLogic(logic, () => {
             logic.actions.setTab(SessionRecordingSidebarTab.NETWORK_WATERFALL)
         }).toMatchValues({ activeTab: SessionRecordingSidebarTab.NETWORK_WATERFALL })
 
         // Hosts re-announce their default on every remount, so a default arriving after a pick must
         // not drag the viewer off the tab they're on.
+
         await expectLogic(logic, () => {
             logic.actions.setDefaultTab(SessionRecordingSidebarTab.OVERVIEW)
+            logic.actions.setAutoTab(SessionRecordingSidebarTab.OBSERVATIONS)
         }).toMatchValues({ activeTab: SessionRecordingSidebarTab.NETWORK_WATERFALL })
     })
 

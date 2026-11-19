@@ -25,7 +25,12 @@ export type PersonHogConfig = Pick<
     | 'PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS'
     | 'PERSONHOG_TLS'
     | 'PERSONHOG_TIMEOUT_MS'
+    | 'PERSONHOG_IDENTITY_TIMEOUT_MS'
     | 'PERSONHOG_MERGE_TIMEOUT_MS'
+    | 'PERSONHOG_BATCH_CREATE_ENABLED'
+    | 'PERSONHOG_BATCH_CREATE_WINDOW_MS'
+    | 'PERSONHOG_BATCH_CREATE_MAX_SIZE'
+    | 'PERSONHOG_BATCH_CREATE_MAX_BYTES'
     | 'PERSONHOG_READ_MAX_BYTES'
     | 'PERSONHOG_WRITE_MAX_BYTES'
     | 'PERSONHOG_PING_INTERVAL_MS'
@@ -38,16 +43,22 @@ export type PersonHogConfig = Pick<
     | 'PLUGIN_SERVER_MODE'
 >
 
-export function createPersonHogClient(config: PersonHogConfig): PersonHogClient | null {
-    if (!config.PERSONHOG_ENABLED || !config.PERSONHOG_ADDR) {
+export function createPersonHogClient(
+    config: PersonHogConfig,
+    target: { addr: string; clientName: string } = {
+        addr: config.PERSONHOG_ADDR,
+        clientName: config.PLUGIN_SERVER_MODE ?? 'unknown',
+    }
+): PersonHogClient | null {
+    if (!config.PERSONHOG_ENABLED || !target.addr) {
         return null
     }
 
-    logger.info('🔌', `PersonHog gRPC client connecting to ${config.PERSONHOG_ADDR}`)
+    logger.info('🔌', `PersonHog gRPC client connecting to ${target.addr}`)
 
     return PersonHogClient.fromConfig({
-        addr: config.PERSONHOG_ADDR,
-        clientName: config.PLUGIN_SERVER_MODE ?? 'unknown',
+        addr: target.addr,
+        clientName: target.clientName,
         useTls: config.PERSONHOG_TLS,
         timeoutMs: config.PERSONHOG_TIMEOUT_MS,
         readMaxBytes: config.PERSONHOG_READ_MAX_BYTES,

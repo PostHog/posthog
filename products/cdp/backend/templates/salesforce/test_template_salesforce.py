@@ -1,11 +1,11 @@
 import pytest
-from posthog.test.base import BaseTest
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
 from products.cdp.backend.models.plugin import PluginConfig
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.cdp.backend.templates.salesforce.template_salesforce import (
     TemplatSalesforceMigrator,
     template_create as template_salesforce_create,
@@ -249,7 +249,7 @@ class TestTemplateSalesforceLookup(BaseHogFunctionTemplateTest):
         assert self.get_mock_fetch_calls() == []
 
 
-class TestTemplateMigration(BaseTest):
+class TestTemplateMigration(SimpleTestCase):
     def get_plugin_config(self, config: dict):
         _config = {
             "eventsToInclude": "a,b",

@@ -5,7 +5,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { initKeaTests } from '~/test/init'
 
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
-import { MetricDefinition } from './MetricDefinition'
+import { DataCatalogMetricRunResult, MetricDefinition } from './MetricDefinition'
 
 const SOURCE_INSIGHT_ACTION = 'View source insight'
 
@@ -24,14 +24,14 @@ function buildMetric(overrides: Partial<DataCatalogMetricApi> = {}): DataCatalog
     } as DataCatalogMetricApi
 }
 
-function renderDefinition(metric: DataCatalogMetricApi): void {
+function renderDefinition(metric: DataCatalogMetricApi, runResult: DataCatalogMetricRunResult | null = null): void {
     render(
         <MetricDefinition
             metric={metric}
             editingDefinition={false}
             draftMarkdown=""
             saving={false}
-            runResult={null}
+            runResult={runResult}
             runResultLoading={false}
             onDraftMarkdown={jest.fn()}
             onEdit={jest.fn()}
@@ -69,5 +69,13 @@ describe('MetricDefinition', () => {
         expect(screen.queryByText(/derived from an insight/)).not.toBeInTheDocument()
         expect(screen.queryByText(SOURCE_INSIGHT_ACTION)).not.toBeInTheDocument()
         expect(screen.getByText('View definition')).toBeInTheDocument()
+    })
+
+    it('keeps long result values out of the table cell', () => {
+        const days = Array.from({ length: 31 }, (_, index) => `2026-01-${String(index + 1).padStart(2, '0')}`)
+        renderDefinition(buildMetric(), { results: [{ days, count: 42 }] })
+
+        expect(screen.getByText('42')).toBeInTheDocument()
+        expect(screen.queryByText(JSON.stringify(days))).not.toBeInTheDocument()
     })
 })

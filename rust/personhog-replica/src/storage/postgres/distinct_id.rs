@@ -8,7 +8,7 @@ use super::{
 };
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::DistinctIdLookup;
-use crate::storage::types::{DistinctIdMapping, DistinctIdWithVersion};
+use crate::storage::types::{DistinctIdMapping, DistinctIdRow, DistinctIdWithVersion};
 
 #[async_trait]
 impl DistinctIdLookup for PostgresStorage {
@@ -47,7 +47,7 @@ impl DistinctIdLookup for PostgresStorage {
             (Some(cursor), Some(l)) => {
                 sqlx::query_as!(
                     DistinctIdWithVersion,
-                    r#"
+                    r#"/* service='personhog-replica', operation='get_distinct_ids_for_person_cursor_limit' */
                     SELECT distinct_id, version, id
                     FROM posthog_persondistinctid
                     WHERE team_id = $1 AND person_id = $2 AND is_deleted = false
@@ -66,7 +66,7 @@ impl DistinctIdLookup for PostgresStorage {
             (Some(cursor), None) => {
                 sqlx::query_as!(
                     DistinctIdWithVersion,
-                    r#"
+                    r#"/* service='personhog-replica', operation='get_distinct_ids_for_person_cursor' */
                     SELECT distinct_id, version, id
                     FROM posthog_persondistinctid
                     WHERE team_id = $1 AND person_id = $2 AND is_deleted = false
@@ -83,7 +83,7 @@ impl DistinctIdLookup for PostgresStorage {
             (None, Some(l)) => {
                 sqlx::query_as!(
                     DistinctIdWithVersion,
-                    r#"
+                    r#"/* service='personhog-replica', operation='get_distinct_ids_for_person_limit' */
                     SELECT capped.distinct_id, capped.version, capped.id
                     FROM (
                         SELECT distinct_id, version, id
@@ -104,7 +104,7 @@ impl DistinctIdLookup for PostgresStorage {
             (None, None) => {
                 sqlx::query_as!(
                     DistinctIdWithVersion,
-                    r#"
+                    r#"/* service='personhog-replica', operation='get_distinct_ids_for_person' */
                     SELECT distinct_id, version, id
                     FROM posthog_persondistinctid
                     WHERE team_id = $1 AND person_id = $2 AND is_deleted = false
@@ -182,7 +182,7 @@ impl DistinctIdLookup for PostgresStorage {
                     Some(l) => {
                         sqlx::query_as!(
                             DistinctIdMapping,
-                            r#"
+                            r#"/* service='personhog-replica', operation='get_distinct_ids_for_persons_limit' */
                                 SELECT l.person_id, l.distinct_id, l.version
                                 FROM UNNEST($2::bigint[]) AS pid(id)
                                 CROSS JOIN LATERAL (
@@ -207,7 +207,7 @@ impl DistinctIdLookup for PostgresStorage {
                     _ => {
                         sqlx::query_as!(
                             DistinctIdMapping,
-                            r#"
+                            r#"/* service='personhog-replica', operation='get_distinct_ids_for_persons' */
                                 SELECT person_id, distinct_id, version
                                 FROM posthog_persondistinctid
                                 WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = false
@@ -240,6 +240,57 @@ impl DistinctIdLookup for PostgresStorage {
             rows.len() as f64,
         );
 
+        Ok(rows)
+    }
+
+    async fn get_distinct_id_rows(
+        &self,
+        team_id: i64,
+        distinct_ids: &[String],
+        consistency: ConsistencyLevel,
+    ) -> StorageResult<Vec<DistinctIdRow>> {
+        if distinct_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let pool_label = PostgresStorage::bulk_pool_label(consistency);
+        let labels = [
+            ("operation".to_string(), "get_distinct_id_rows".to_string()),
+            ("pool".to_string(), pool_label.to_string()),
+            ("client".to_string(), current_client_name().to_string()),
+            ("method".to_string(), current_method_name().to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let pool = self.bulk_pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
+        // LEFT JOIN: the mapping foreign key is NOT VALID, so an orphan row can outlive its person.
+        let rows = sqlx::query!(
+            r#"/* service='personhog-replica', operation='get_distinct_id_rows' */
+            SELECT d.distinct_id as "distinct_id!", d.person_id as "person_id!", p.uuid as "person_uuid?",
+                   COALESCE(d.version, 0)::bigint as "version!", d.is_deleted as "is_deleted!",
+                   p.is_deleted as "person_is_deleted?"
+            FROM posthog_persondistinctid d
+            LEFT JOIN posthog_person p ON p.team_id = d.team_id AND p.id = d.person_id
+            WHERE d.team_id = $1 AND d.distinct_id = ANY($2)
+            ORDER BY d.distinct_id
+            "#,
+            team_id as i32,
+            distinct_ids
+        )
+        .fetch_all(&mut *conn)
+        .await?
+        .into_iter()
+        .map(|r| DistinctIdRow {
+            distinct_id: r.distinct_id,
+            person_id: r.person_id,
+            person_uuid: r.person_uuid,
+            version: r.version,
+            is_deleted: r.is_deleted,
+            person_is_deleted: r.person_is_deleted,
+        })
+        .collect::<Vec<_>>();
+
+        common_metrics::histogram(DB_ROWS_RETURNED, &labels, rows.len() as f64);
         Ok(rows)
     }
 }
