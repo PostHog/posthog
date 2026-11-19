@@ -27,6 +27,8 @@ export type RequestProperties = {
     mcpProtocolVersion?: string | undefined
     mcpVendorClient?: string | undefined
     readOnly?: boolean | undefined
+    // Undefined leaves the choice to the server; see `resolveSplitWrites`.
+    splitWrites?: boolean | undefined
     mode?: McpMode | undefined
     viaMcpStore?: boolean | undefined
     transport?: Transport | undefined
@@ -95,6 +97,16 @@ export function sanitizeToolFilterNames(names: readonly string[] | undefined): s
     return unique.length > 0 ? unique : undefined
 }
 
+function parseBooleanParam(value: string | undefined): boolean | undefined {
+    if (value === 'true' || value === '1') {
+        return true
+    }
+    if (value === 'false' || value === '0') {
+        return false
+    }
+    return undefined
+}
+
 function parseExcludeTools(value: string | undefined): string[] | undefined {
     return value ? sanitizeToolFilterNames(value.split(',')) : undefined
 }
@@ -122,6 +134,9 @@ export function parseRequestProperties(
         tools: splitCsv(params.get('tools')),
         region: params.get('region') || undefined,
         readOnly: readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined,
+        splitWrites: parseBooleanParam(
+            header(request, 'x-posthog-split-writes') || params.get('split_writes') || undefined
+        ),
         clientUserAgent: sanitizeHeaderValue(header(request, 'User-Agent')),
         mcpConsumer: sanitizeHeaderValue(
             header(request, 'x-posthog-mcp-consumer') || params.get('consumer') || undefined

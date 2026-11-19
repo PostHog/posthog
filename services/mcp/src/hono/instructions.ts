@@ -12,9 +12,12 @@ import { ProjectSkillCatalog } from '@/skills/project-skill-catalog'
 import type { SkillCatalog } from '@/skills/skill-catalog'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
+import EXEC_READ_ONLY_LEAD from '@/templates/sections/exec-read-only-lead.md'
+import EXEC_WRITE_TOOL from '@/templates/sections/exec-write-tool.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
 import { EXEC_TOOL_ANNOTATIONS } from '@/tools/exec'
 import { ExecLearnCatalog, LEARN_TOOL_NAME, learnSkillCommands } from '@/tools/exec-learn'
+import { EXEC_TOOL_NAME, EXEC_WRITE_TOOL_NAME } from '@/tools/exec-names'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
@@ -126,15 +129,44 @@ export class InstructionsBuilder {
         }
     }
 
-    buildExecToolEntry(state: ExecToolState): McpTool {
+    /** A client sets its approval policy by these names and hints, so `exec` claims read-only only when it refuses writes. */
+    buildExecToolEntries(state: ExecToolState & Pick<ResolvedState, 'splitWrites'>): McpTool[] {
+        if (!state.splitWrites) {
+            return [this.buildExecToolEntry(state, { readOnly: state.requestContext.readOnly === true })]
+        }
+        const readEntry = this.buildExecToolEntry(state, { readOnly: true })
+        return [
+            { ...readEntry, description: `${EXEC_READ_ONLY_LEAD.trim()}\n\n${readEntry.description}` },
+            this.buildExecWriteToolEntry(),
+        ]
+    }
+
+    buildExecToolEntry(state: ExecToolState, { readOnly = false }: { readOnly?: boolean } = {}): McpTool {
         const commandReference = this.buildExecCommandReference(state)
         const ExecSchema = { command: { type: 'string', description: commandReference } }
 
         return {
-            name: 'exec',
+            name: EXEC_TOOL_NAME,
             title: 'Execute PostHog command',
             description: this.buildExecToolDescription(state),
             inputSchema: { type: 'object', properties: ExecSchema, required: ['command'] },
+            annotations: { ...EXEC_TOOL_ANNOTATIONS, readOnlyHint: readOnly },
+        }
+    }
+
+    /** Short on purpose: discovery stays on `exec`, so this schema adds no command reference to the agent's context. */
+    buildExecWriteToolEntry(): McpTool {
+        return {
+            name: EXEC_WRITE_TOOL_NAME,
+            title: 'Change PostHog data',
+            description: EXEC_WRITE_TOOL.trim(),
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    command: { type: 'string', description: 'call [--json] [--confirm] <tool_name> [json_input]' },
+                },
+                required: ['command'],
+            },
             annotations: { ...EXEC_TOOL_ANNOTATIONS },
         }
     }

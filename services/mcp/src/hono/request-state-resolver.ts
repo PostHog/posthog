@@ -38,7 +38,12 @@ import type {
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
-import { MCP_CURSOR_EXEC_MODE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from './constants'
+import {
+    MCP_CURSOR_EXEC_MODE_FLAG,
+    MCP_EXEC_SKILLS_FEATURE_FLAG,
+    MCP_EXEC_SPLIT_WRITES_FLAG,
+    MCP_INBOX_FIRST_FLAG,
+} from './constants'
 import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
@@ -65,6 +70,8 @@ export interface ResolvedState {
     reqCtx: RequestContext
     context: Context
     useSingleExec: boolean
+    /** Reads stay on `exec` and writes go to `exec-write`, so a client can always allow one and ask on the other. */
+    splitWrites: boolean
     viaMcpStore?: boolean | undefined
     toolFeatureFlags: EvaluatedFlags | undefined
     interviewRecruitmentConfig?: InterviewRecruitmentConfig
@@ -140,6 +147,24 @@ export function resolveMode(args: {
     // header always wins over auto-detection.
     const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() && !cursorExecMode ? 'tools' : 'cli')
     return { mode: resolved, useSingleExec: resolved === 'cli' }
+}
+
+export function resolveSplitWrites(args: {
+    useSingleExec: boolean
+    readOnly: boolean | undefined
+    requested: boolean | undefined
+    flagEnabled: boolean
+    clientProfile: MCPClientProfile
+}): boolean {
+    const { useSingleExec, readOnly, requested, flagEnabled, clientProfile } = args
+    if (!useSingleExec || readOnly) {
+        return false
+    }
+    if (requested !== undefined) {
+        return requested
+    }
+    // Every wrapper that sends a consumer (the AI plugin, Tasks sandboxes) gates writes on the `exec` name, which `exec-write` would bypass.
+    return flagEnabled && clientProfile.consumer === undefined
 }
 
 export function tasksContextToolsToExclude(clientProfile: MCPClientProfile, taskId: string | undefined): string[] {
@@ -239,6 +264,7 @@ export class RequestStateResolver {
                 MCP_GATEWAY_FLAG,
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
                 MCP_CURSOR_EXEC_MODE_FLAG,
+                MCP_EXEC_SPLIT_WRITES_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
                 MCP_INBOX_FIRST_FLAG,
@@ -341,6 +367,13 @@ export class RequestStateResolver {
         requestContext.mode = resolvedMode
         reqCtx.setMcpContexts(requestContext, sessionContext)
         props.mode = resolvedMode
+        const splitWrites = resolveSplitWrites({
+            useSingleExec,
+            readOnly,
+            requested: props.splitWrites,
+            flagEnabled: mergedFlags[MCP_EXEC_SPLIT_WRITES_FLAG] === true,
+            clientProfile,
+        })
 
         const apiKeyScopes = _apiKey?.scopes ?? []
         const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []
@@ -404,6 +437,7 @@ export class RequestStateResolver {
             reqCtx,
             context,
             useSingleExec,
+            splitWrites,
             viaMcpStore: props.viaMcpStore,
             toolFeatureFlags,
             interviewRecruitmentConfig,
@@ -568,7 +602,7 @@ export class RequestStateResolver {
             return { flags: {}, payloads: {} }
         }
         // Enable product surfaces locally because the analytics flag client is disabled there.
-        // Recruitment, intent, guidance and Inbox-first experiments stay off so ordinary development keeps the default behavior.
+        // Recruitment, intent, guidance, Inbox-first and split-writes experiments stay off so ordinary development keeps the default behavior.
         if (isLocalApi()) {
             return {
                 flags: Object.fromEntries(
@@ -577,6 +611,7 @@ export class RequestStateResolver {
                         key !== MCP_INTERVIEW_RECRUITMENT_FLAG &&
                             key !== MCP_INTENT_PROMPT_FLAG &&
                             key !== MCP_INBOX_FIRST_FLAG &&
+                            key !== MCP_EXEC_SPLIT_WRITES_FLAG &&
                             !GUIDANCE_RULE_FLAGS.includes(key),
                     ])
                 ),

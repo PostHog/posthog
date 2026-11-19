@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { resolveMode } from '@/hono/request-state-resolver'
+import { resolveMode, resolveSplitWrites } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
 
 describe('resolveMode', () => {
@@ -62,5 +62,47 @@ describe('resolveMode', () => {
 
     it('explicit mode=tools disables single exec for a client that would default to cli', () => {
         expect(resolveMode({ ...base, mode: 'tools' })).toEqual({ mode: 'tools', useSingleExec: false })
+    })
+})
+
+describe('resolveSplitWrites', () => {
+    const base = {
+        useSingleExec: true,
+        readOnly: false,
+        requested: undefined,
+        flagEnabled: false,
+        clientProfile: new MCPClientProfile({ clientName: 'claude-ai' }),
+    }
+
+    // Wrappers that send a consumer gate writes on the `exec` name, so the flag must not move writes out from under them.
+    it.each([
+        ['off by default', {}, false],
+        ['on when the connection asks for it', { requested: true }, true],
+        ['on with the rollout flag', { flagEnabled: true }, true],
+        ['off when the connection declines it, flag or not', { requested: false, flagEnabled: true }, false],
+        [
+            'off for the posthog-code consumer under the flag',
+            { flagEnabled: true, clientProfile: new MCPClientProfile({ consumer: 'posthog-code' }) },
+            false,
+        ],
+        [
+            'off for the plugin consumer under the flag',
+            { flagEnabled: true, clientProfile: new MCPClientProfile({ consumer: 'plugin' }) },
+            false,
+        ],
+        [
+            'off for the slack consumer under the flag',
+            { flagEnabled: true, clientProfile: new MCPClientProfile({ consumer: 'slack' }) },
+            false,
+        ],
+        [
+            'on for the AI plugin when it asks',
+            { requested: true, clientProfile: new MCPClientProfile({ consumer: 'plugin' }) },
+            true,
+        ],
+        ['off in tools mode, which names every tool already', { requested: true, useSingleExec: false }, false],
+        ['off on a read-only connection, which has no writes', { requested: true, readOnly: true }, false],
+    ])('is %s', (_label, overrides, expected) => {
+        expect(resolveSplitWrites({ ...base, ...overrides })).toBe(expected)
     })
 })

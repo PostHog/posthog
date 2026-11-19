@@ -141,6 +141,55 @@ describe('ToolExecutor', () => {
             expect(text).not.toContain('feature-flag-get-all')
         })
 
+        describe('split writes', () => {
+            const deleteCommand = { command: 'call dashboard-delete {"id":1}' }
+
+            function splitState(splitWrites: boolean): { state: ResolvedState; request: MockInstance } {
+                const request = vi.fn().mockResolvedValue({ id: 1, deleted: true })
+                const tools = catalog
+                    .getFilteredTools({ scopes: ['*'] })
+                    .filter((tool) => tool.name === 'dashboard-delete')
+                const state = makeToolExecutorState(tools, {
+                    useSingleExec: true,
+                    splitWrites,
+                    context: {
+                        api: mockApi({ request }),
+                        cache: {},
+                        env: {},
+                        stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+                        sessionManager: {},
+                        getDistinctId: vi.fn(),
+                        trackEvent: vi.fn(),
+                    } as any,
+                })
+                return { state, request }
+            }
+
+            it('refuses a write through exec on a split connection', async () => {
+                const { state, request } = splitState(true)
+
+                const result = (await executor.handleToolCall({ name: 'exec', arguments: deleteCommand }, state)) as any
+
+                expect(result.content[0].text).toContain('exec-write')
+                expect(request).not.toHaveBeenCalled()
+            })
+
+            // A client that listed tools before the split keeps working on its cached `exec`.
+            it.each([
+                ['exec on a default connection', 'exec', false],
+                ['exec-write on a split connection', 'exec-write', true],
+                ['exec-write on a default connection', 'exec-write', false],
+            ])('runs a write through %s', async (_label, name, splitWrites) => {
+                const { state, request } = splitState(splitWrites)
+
+                await executor.handleToolCall({ name, arguments: deleteCommand }, state)
+
+                expect(request).toHaveBeenCalledWith(
+                    expect.objectContaining({ method: 'PATCH', body: { deleted: true } })
+                )
+            })
+        })
+
         function skillMissContext(skillName: string, body: string): ResolvedState['context'] {
             return {
                 api: mockApi({
@@ -267,6 +316,36 @@ describe('ToolExecutor', () => {
             const result = await executor.handleToolsList(state)
             expect(result.tools).toHaveLength(1)
             expect(result.tools[0]!.name).toBe('exec')
+        })
+
+        // Clients attach always-allow and ask policies to these names and hints, so a read-only
+        // hint on a tool that can write would let a mutation through unprompted.
+        it.each([
+            ['a default connection', {}, [['exec', false]]],
+            [
+                'a split connection',
+                { splitWrites: true },
+                [
+                    ['exec', true],
+                    ['exec-write', false],
+                ],
+            ],
+            ['a read-only connection', { readOnly: true }, [['exec', true]]],
+        ])('advertises the exec dispatchers and their read-only hints on %s', async (_label, flags, expected) => {
+            const { readOnly, ...overrides } = flags as { readOnly?: boolean; splitWrites?: boolean }
+            const state = makeToolExecutorState([], { useSingleExec: true, ...overrides })
+            state.requestContext.readOnly = readOnly
+
+            const result = await executor.handleToolsList(state)
+
+            expect(result.tools.map((t) => [t.name, t.annotations?.readOnlyHint])).toEqual(expected)
+        })
+
+        it('marks no exec dispatcher destructive', async () => {
+            const result = await executor.handleToolsList(
+                makeToolExecutorState([], { useSingleExec: true, splitWrites: true })
+            )
+            expect(result.tools.map((t) => t.annotations?.destructiveHint)).toEqual([false, false])
         })
 
         // The flag decides skill exposure per client; guides stay a Claude chat-host
@@ -1120,6 +1199,15 @@ describe('ToolExecutor', () => {
             await expect(result).rejects.toMatchObject({
                 challenge: 'Bearer error="insufficient_scope", scope="endpoint:write query:read"',
             })
+        })
+
+        it('sends the write to exec-write instead of asking for its scope on a split exec', async () => {
+            const result = (await executor.handleToolCall(
+                calls[1]!.params,
+                makeToolExecutorState([], { useSingleExec: true, splitWrites: true, ...gated, supportsStepUp: true })
+            )) as any
+
+            expect(result.content[0].text).toContain('exec-write({"command":"call endpoint-create {}"})')
         })
 
         it.each([

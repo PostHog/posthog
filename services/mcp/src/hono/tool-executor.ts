@@ -46,6 +46,7 @@ import {
     markNoncanonicalMetricRun,
     missingToolScopeError,
     parseExecCallInnerArgs,
+    isReadOnlyDefinition,
     parseExecCallInnerToolName,
     repairArgumentNesting,
     UNRECOGNIZED_EXEC_TOKEN,
@@ -54,6 +55,7 @@ import {
     type ExecInnerCallTracker,
 } from '@/tools/exec'
 import { LEARN_TOOL_NAME } from '@/tools/exec-learn'
+import { EXEC_TOOL_NAME, EXEC_WRITE_TOOL_NAME, isExecDispatcher } from '@/tools/exec-names'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import { skillAnalyticsProperties, skillLookupMissProperties } from '@/tools/skills/analytics'
@@ -210,7 +212,7 @@ export class ToolExecutor {
             const renderUiEntry = state.renderUiEnabled
                 ? this.instructionsBuilder.buildRenderUiToolEntry(this.catalog.getPreBuiltEntries())
                 : null
-            return [this.instructionsBuilder.buildExecToolEntry(state), ...(renderUiEntry ? [renderUiEntry] : [])]
+            return [...this.instructionsBuilder.buildExecToolEntries(state), ...(renderUiEntry ? [renderUiEntry] : [])]
         }
 
         const nameSet = new Set(state.allTools.map((t) => t.name))
@@ -232,8 +234,11 @@ export class ToolExecutor {
 
     private findOriginalTool(toolName: string, state: ResolvedState): ListToolsResult['tools'][number] | undefined {
         if (state.useSingleExec) {
-            if (toolName === 'exec') {
-                return this.instructionsBuilder.buildExecToolEntry(state)
+            if (toolName === EXEC_TOOL_NAME) {
+                return this.instructionsBuilder.buildExecToolEntries(state)[0]
+            }
+            if (toolName === EXEC_WRITE_TOOL_NAME) {
+                return this.instructionsBuilder.buildExecWriteToolEntry()
             }
             if (toolName === 'render-ui' && state.renderUiEnabled) {
                 return this.instructionsBuilder.buildRenderUiToolEntry(this.catalog.getPreBuiltEntries()) ?? undefined
@@ -294,7 +299,7 @@ export class ToolExecutor {
         const callParams = { ...params, arguments: args }
 
         const targetToolName =
-            toolName === 'exec' && typeof args.command === 'string'
+            isExecDispatcher(toolName) && typeof args.command === 'string'
                 ? parseExecCallInnerToolName(args.command)
                 : toolName
         const isContextSwitch = targetToolName === 'switch-project' || targetToolName === 'switch-organization'
@@ -342,11 +347,14 @@ export class ToolExecutor {
         state: ResolvedState,
         analyticsMeta: ToolCallAnalyticsMeta
     ): Promise<unknown> {
-        if (toolName === 'exec') {
+        // `exec-write` is served on every connection, so a client that listed tools before the split changed keeps working.
+        if (isExecDispatcher(toolName)) {
             if (state.viaMcpStore) {
-                return { content: [{ type: 'text', text: 'Tool exec not found' }], isError: true }
+                return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
             }
-            return this.callExecTool(callParams, state, analyticsMeta)
+            return this.callExecTool(callParams, state, analyticsMeta, {
+                refuseWrites: toolName === EXEC_TOOL_NAME && state.splitWrites,
+            })
         }
 
         // Tools mode has no `exec` tool, so it lists `learn` as a tool of its own (Cursor is the main
@@ -688,7 +696,8 @@ export class ToolExecutor {
     private async callExecTool(
         params: Record<string, unknown> | undefined,
         state: ResolvedState,
-        analyticsMeta?: ToolCallAnalyticsMeta
+        analyticsMeta?: ToolCallAnalyticsMeta,
+        { refuseWrites = false }: { refuseWrites?: boolean } = {}
     ): Promise<unknown> {
         const execMetrics: ExecMetricState = {
             innerToolName: undefined,
@@ -700,7 +709,7 @@ export class ToolExecutor {
             skillLookupMissKind: undefined,
             resultEmpty: false,
         }
-        const resolved = this.resolveExecTool(state, execMetrics, analyticsMeta)
+        const resolved = this.resolveExecTool(state, execMetrics, analyticsMeta, refuseWrites)
 
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
 
@@ -921,7 +930,8 @@ export class ToolExecutor {
     private resolveExecTool(
         state: ResolvedState,
         execMetrics: ExecMetricState,
-        analyticsMeta?: ToolCallAnalyticsMeta
+        analyticsMeta: ToolCallAnalyticsMeta | undefined,
+        refuseWrites: boolean
     ): ResolvedTool {
         const commandReference = this.instructionsBuilder.buildExecCommandReference(state)
 
@@ -1009,6 +1019,7 @@ export class ToolExecutor {
                 // Matches challengeStepUpForGatedTool: a call through the MCP store gets no challenge.
                 supportsStepUp: state.supportsStepUp && !state.viaMcpStore,
                 metricCatalogLookup: resolveMetricCatalogMode(state.metricCatalog) === 'lookup',
+                refuseWrites,
                 ...(state.gatewayToolsEnabled
                     ? {
                           gatewayToolsProvider: () => this.gatewayToolsFor(state),
@@ -1182,12 +1193,16 @@ function challengeStepUpForGatedTool(toolName: string, args: Record<string, unkn
         return
     }
     const targetToolName =
-        toolName === 'exec' && typeof args.command === 'string' ? parseExecCallInnerToolName(args.command) : toolName
+        isExecDispatcher(toolName) && typeof args.command === 'string'
+            ? parseExecCallInnerToolName(args.command)
+            : toolName
     if (!targetToolName || state.allTools.some((tool) => tool.name === targetToolName)) {
         return
     }
     const scopeGatedTool = state.findScopeGatedTool(targetToolName)
-    if (scopeGatedTool) {
+    // A split `exec` refuses the write anyway, so asking for its scope there would be wasted.
+    const refusedOnExec = toolName === EXEC_TOOL_NAME && state.splitWrites && !isReadOnlyDefinition(targetToolName)
+    if (scopeGatedTool && !refusedOnExec) {
         challengeStepUpBeforeRun(scopeGatedTool.requiredScopes, state.supportsStepUp)
     }
 }

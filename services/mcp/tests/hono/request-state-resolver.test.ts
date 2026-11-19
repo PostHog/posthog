@@ -989,6 +989,30 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.viaMcpStore).toBe(true)
     })
 
+    it.each([
+        ['the URL asks for it', '?split_writes=true', {}, {}, true],
+        ['the rollout flag is on', '', {}, { 'mcp-exec-split-writes': true }, true],
+        [
+            'the header declines what the URL and flag ask for',
+            '?split_writes=true',
+            { 'x-posthog-split-writes': 'false' },
+            { 'mcp-exec-split-writes': true },
+            false,
+        ],
+    ])('splits writes from exec when %s', async (_label, query, headers, flags, expected) => {
+        vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce(flags)
+        const props = parseRequestProperties(
+            new Request(`https://example.com/mcp${query}`, {
+                headers: { Authorization: 'Bearer phx_test', ...headers },
+            }),
+            {}
+        )
+
+        const result = await makeResolver().resolve(props)
+
+        expect(result.splitWrites).toBe(expected)
+    })
+
     it('carries connected-tool restrictions to execution', async () => {
         const filters = {
             tools: ['linear__create_issue'],

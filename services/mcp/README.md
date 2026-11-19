@@ -380,6 +380,33 @@ x-posthog-mcp-mode: tools
 The header wins when both the header and the query parameter are set.
 An explicit value always wins over the client auto-detection; any other value is ignored and the auto-detection takes over.
 
+### Separate read and write tools in cli mode
+
+By default every cli-mode command goes through `exec`, so a client can only allow all of them or ask about each one.
+Send `split_writes=true` to list two tools instead:
+
+| Tool         | Runs                                                         | `readOnlyHint` |
+| ------------ | ------------------------------------------------------------ | -------------- |
+| `exec`       | Every discovery command and `call`s to read-only tools.      | `true`         |
+| `exec-write` | `call`s to tools that change data, and anything `exec` runs. | `false`        |
+
+```text
+https://mcp.posthog.com/mcp?split_writes=true
+```
+
+```http
+x-posthog-split-writes: true
+```
+
+The header wins when both are set, and `false` turns the split off.
+A client can then always allow `exec` and keep asking about `exec-write`.
+Claude and ChatGPT run tools marked `readOnlyHint: true` without asking by default, and Claude Code, Codex and Cursor take an allow rule for each tool name.
+
+- `exec` refuses a `call` to a tool whose definition lacks `readOnlyHint: true`, and to every tool from a connected MCP server, because PostHog can't check that server's claim. The refusal names `exec-write`.
+- `exec-write` is accepted on every connection except those through the MCP store, so a client that listed tools before the split changed keeps working.
+- A `readonly=true` connection lists only `exec`, marked `readOnlyHint: true`, because none of its tools change data.
+- Without the parameter, the `mcp-exec-split-writes` feature flag decides, for connections that send no `consumer`. Every wrapper that sends one, such as the AI plugin and Tasks sandboxes, gates writes on the `exec` name.
+
 The cli-mode command surface is documented publicly on [posthog.com/docs/model-context-protocol/tools](https://posthog.com/docs/model-context-protocol/tools), which embeds `schema/exec-command-reference.md` at build time.
 That fragment is generated from the templates in `src/templates/sections/` by `scripts/generate-exec-docs.ts` (part of `hogli build:openapi`); edit the templates, not the fragment.
 
