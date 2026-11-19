@@ -6562,8 +6562,7 @@ class HogFlowViewSet(
             if not instance.draft:
                 raise exceptions.ValidationError("This workflow has no staged draft to publish.")
             counts = self._get_in_flight_counts(instance)
-            # nosemgrep: api-response-must-match-schema (these keys are exactly HogFlowPublishResponseSerializer's fields)
-            return Response(
+            preview = HogFlowPublishResponseSerializer(
                 {
                     "published": False,
                     "in_flight_runs": counts.get("count") if counts else None,
@@ -6575,6 +6574,7 @@ class HogFlowViewSet(
                     ),
                 }
             )
+            return Response(preview.data)
 
         confirm_token = param_serializer.validated_data.get("confirm_token")
         if not confirm_token:
@@ -6639,8 +6639,7 @@ class HogFlowViewSet(
         self._emit_resource_edited(locked)
         self._report_workflow_action("hog_flow_draft_published", locked)
 
-        # nosemgrep: api-response-must-match-schema (these keys are exactly HogFlowPublishResponseSerializer's fields)
-        return Response(
+        published = HogFlowPublishResponseSerializer(
             {
                 "published": True,
                 "in_flight_runs": None,
@@ -6648,9 +6647,11 @@ class HogFlowViewSet(
                 "confirm_token": None,
                 "impact": None,
                 "moves_to_sandbox_sender": None,
-                "workflow": self.get_serializer(locked).data,
-            }
+                "workflow": locked,
+            },
+            context=self.get_serializer_context(),
         )
+        return Response(published.data)
 
     @extend_schema(request=None, responses={200: HogFlowSerializer})
     @action(detail=True, methods=["POST"])

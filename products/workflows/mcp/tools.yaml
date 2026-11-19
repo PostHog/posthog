@@ -569,15 +569,16 @@ tools:
             there and whether they move to a surviving step or exit; variables that may render empty for runs that never
             executed their new producer; schedules overriding removed variables), changing nothing. Echo the impact to
             the user and get their go-ahead, then call again with confirm=true and that confirm_token. When the preview
-            says moves_to_sandbox_sender, tell the user those email steps will send from the PostHog test sender, and
-            send sandbox_sender_warned with whether you did. A 409 means the draft changed, was published or was
-            discarded since the preview, or, with sandbox_sender_warned false, that a live change now moves steps onto
-            the test sender. A 400 means the token expired or the draft is invalid. Preview again and re-confirm in each
-            case. Publish revalidates the draft fully and recompiles it, so an invalid draft is rejected with the reason
-            and the live config stays untouched. Test the draft first with workflows-test-run (use_draft=true).
-            Shortened delays apply to parked runs via a spread sweep: runs already waking soon keep their original time,
-            and wakes moved earlier by the sweep trickle in from a few minutes after publish rather than all at once -
-            so runs still parked shortly after publishing are normal, not a sign of a failed publish.
+            says moves_to_sandbox_sender, tell the user those email steps will send from the PostHog test sender. Send
+            sandbox_sender_warned on every confirm: true when you told them, false otherwise. A 409 means the draft
+            changed, was published or was discarded since the preview, or, with sandbox_sender_warned false, that a live
+            change now moves steps onto the test sender. A 400 means the token expired or the draft is invalid. Preview
+            again and re-confirm in each case. Publish revalidates the draft fully and recompiles it, so an invalid
+            draft is rejected with the reason and the live config stays untouched. Test the draft first with
+            workflows-test-run (use_draft=true). Shortened delays apply to parked runs via a spread sweep: runs already
+            waking soon keep their original time, and wakes moved earlier by the sweep trickle in from a few minutes
+            after publish rather than all at once - so runs still parked shortly after publishing are normal, not a sign
+            of a failed publish.
         response:
             exclude:
                 - workflow.actions.*.config.inputs
