@@ -1030,6 +1030,10 @@ def _batch_span(name: str, batch: pa.RecordBatch) -> contextlib.AbstractContextM
     return tracer.start_as_current_span(name, attributes={"rows": batch.num_rows, "bytes": batch.nbytes})
 
 
+async def _open_delta_table(table_uri: str, storage_options: dict[str, str]) -> deltalake.DeltaTable:
+    return await asyncio.to_thread(deltalake.DeltaTable, table_uri, storage_options=storage_options)
+
+
 async def _materialize_fully(
     objects: MatviewInputObjects,
     plan: WritePlan,
@@ -1097,7 +1101,7 @@ async def _materialize_fully(
                         schema_mode="overwrite",
                         storage_options=storage_options,
                     )
-                    delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+                    delta_table = await _open_delta_table(table_uri, storage_options)
                 else:
                     await asyncio.to_thread(
                         deltalake.write_deltalake,
@@ -1166,7 +1170,7 @@ async def _materialize_incrementally(
     config = plan.config
     assert config is not None  # resolve_write_plan only sets incremental with a config
 
-    delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+    delta_table = await _open_delta_table(table_uri, storage_options)
     # Wrapped in pa.schema() because delta-rs hands back an arro3 schema, whose DataType does not
     # compare equal to pyarrow's. arro3 exposes the Arrow PyCapsule interface, which pa.schema()
     # consumes at runtime even though its stubs don't advertise it.
@@ -1242,7 +1246,7 @@ async def _materialize_incrementally(
     # Reopened because deltalite commits through its own handle, leaving this one pinned to the
     # snapshot from before the upserts. Maintaining or listing files off the stale handle would
     # publish the pre-run file set and lose everything this run wrote.
-    delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+    delta_table = await _open_delta_table(table_uri, storage_options)
 
     file_uris = delta_table.file_uris()
     if len(file_uris) > INCREMENTAL_COMPACT_FILE_THRESHOLD:
@@ -1434,11 +1438,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         delta_version: int | None = None
         if account_property_sync_enabled:
             try:
-                delta_table = await asyncio.to_thread(
-                    deltalake.DeltaTable,
-                    table_uri,
-                    storage_options=storage_options,
-                )
+                delta_table = await _open_delta_table(table_uri, storage_options)
                 delta_version = delta_table.version()
             except Exception as error:
                 await logger.awarning(f"Could not resolve account-property Delta snapshot: {error}")

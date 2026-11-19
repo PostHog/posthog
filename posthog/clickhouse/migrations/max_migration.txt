@@ -1,1 +1,1 @@
-0388_query_log_archive_warehouse_table_ids
+0389_drop_surfacing_score_from_session_replay_events

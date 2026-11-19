@@ -953,6 +953,7 @@ class TestAdminConsoleViews(BaseTest):
     @parameterized.expand(
         [
             ("team_name", "team", None),
+            ("organization_name", "organization_name", None),
             ("team_uuid", "team_uuid", None),
             ("team_api_token_in_uuid_form", "team_token", None),
             ("organization_id", "organization", None),
@@ -963,6 +964,9 @@ class TestAdminConsoleViews(BaseTest):
     def test_a_lookup_with_one_match_opens_its_page(self, _name: str, record: str, ticket: str | None) -> None:
         if record == "team":
             query, expected = self.team.name, f"/admin/console/teams/{self.team.pk}/"
+        elif record == "organization_name":
+            query, expected = "Lookup Hedgehogs", f"/admin/console/teams/{self.team.pk}/"
+            Organization.objects.filter(pk=self.organization.pk).update(name="The Lookup Hedgehogs Ltd")
         elif record == "team_uuid":
             query, expected = str(self.team.uuid), f"/admin/console/teams/{self.team.pk}/"
         elif record == "team_token":

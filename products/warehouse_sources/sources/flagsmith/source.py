@@ -37,6 +37,7 @@ _PARENT_PROBE_PATHS = {
     "project": "/projects/",
     "environment": "/projects/",
     "identity": "/projects/",
+    "project_feature": "/projects/",
     "environment_feature": "/projects/",
     "versioned_environment_feature": "/projects/",
     "project_feature_environment": "/projects/",

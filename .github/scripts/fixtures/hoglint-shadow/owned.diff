@@ -1,0 +1,11 @@
+diff --git a/posthog/temporal/alerts/placement_probe.py b/posthog/temporal/alerts/placement_probe.py
+new file mode 100644
+index 000000000000..2ccdff9c0559
+--- /dev/null
++++ b/posthog/temporal/alerts/placement_probe.py
+@@ -0,0 +1,5 @@
++from datetime import timedelta
++
++
++def probe_interval() -> timedelta:
++    return timedelta(seconds=5)
