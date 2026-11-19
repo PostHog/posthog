@@ -586,7 +586,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
         with patch.dict(
-            CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": SMALL_MAX_QUERY_SIZE}}
+            CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": str(SMALL_MAX_QUERY_SIZE)}}
         ):
             response = self.client.get(
                 self._url("results/"),
@@ -691,7 +691,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
         with patch.dict(
-            CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": SMALL_MAX_QUERY_SIZE}}
+            CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": str(SMALL_MAX_QUERY_SIZE)}}
         ):
             impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
 

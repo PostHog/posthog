@@ -724,13 +724,12 @@ def _converted_sends(team: Team, user: User | None, event: str, sends: list[_Fol
 
 
 def _batches_by_query_size[T](team_id: int, items: list[T], query_bytes_of: Callable[[T], int]) -> Iterator[list[T]]:
-    # Resolve max_query_size the way sync_execute does for this team, so a per-team override shrinks the batches too.
-    # A quarter of it leaves room for the rest of the query.
+    # Per-team settings come from JSON and may hold numbers as strings. A quarter leaves room for the rest of the query.
     query_settings = {
         **clickhouse_execute.default_settings(),
         **CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}),
     }
-    budget = query_settings["max_query_size"] // 4
+    budget = int(query_settings["max_query_size"]) // 4
     batch: list[T] = []
     batch_bytes = 0
     for item in items:
