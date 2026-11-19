@@ -15,9 +15,8 @@ import { FlagCompareButton } from '~/toolbar/shared/flags/FlagCompareButton'
 import { flagComparisonLogic } from '~/toolbar/shared/flags/flagComparisonLogic'
 import { toFlagInfo } from '~/toolbar/shared/flags/flagInfo'
 import { flagsToolbarLogic } from '~/toolbar/shared/flags/flagsToolbarLogic'
-import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
+import { toolbarAppUrl, toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { urls } from '~/toolbar/shared/urls'
-import { joinWithUiHost } from '~/toolbar/shared/utils'
 
 export const FlagsToolbarMenu = (): JSX.Element => {
     const {
@@ -44,7 +43,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
         clearAllOverrides,
         setImpersonationOpen,
     } = useActions(flagsToolbarLogic)
-    const { uiHost, posthog: posthogClient, toolbarFlagsKey } = useValues(toolbarConfigLogic)
+    const { posthog: posthogClient, toolbarFlagsKey } = useValues(toolbarConfigLogic)
     const { comparingFlagKey } = useValues(flagComparisonLogic)
     const { compareFlag } = useActions(flagComparisonLogic)
     const comparingReason = comparingFlagKey ? 'Wait for the comparison to finish' : null
@@ -109,10 +108,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                     <FeatureFlagRow
                                         key={key}
                                         flag={flag}
-                                        flagUrl={joinWithUiHost(
-                                            uiHost,
-                                            id ? urls.featureFlag(id) : urls.featureFlags()
-                                        )}
+                                        flagUrl={toolbarAppUrl(id ? urls.featureFlag(id) : urls.featureFlags())}
                                         payloadDraft={openPayloadEditors[key] ? (draftPayloads[key] ?? '') : null}
                                         payloadError={payloadErrors[key] ?? null}
                                         disabledReason={comparingReason}

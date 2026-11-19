@@ -1,11 +1,12 @@
 """Cross-product value contracts exposed by data_catalog."""
 
+from dataclasses import field
 from datetime import datetime
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-from .enums import JudgeRelation, ShapeOutcome, UsageSnapshotStatus
+from .enums import JudgeRelation, ShapeOutcome, UsageSection, UsageSnapshotStatus
 
 
 @dataclass(frozen=True)
@@ -127,16 +128,79 @@ class UncoveredGroup:
     outcome: ShapeOutcome
     matched_metric_id: UUID | None
     distinct_people: int
-    runs: int
+    built: int
     sample_sql: str
     draft_name: str | None
     draft_description: str | None
+    draft_definition: str | None = None
+    views: int = 0
+    complexity: int = 0
+
+
+@dataclass(frozen=True)
+class ChartSource:
+    """A saved chart that ran a proposed metric's queries. People include anyone who only viewed it."""
+
+    insight_short_id: str
+    insight_name: str
+    dashboard_id: int | None
+    dashboard_name: str | None
+    people: int
+
+
+@dataclass(frozen=True)
+class SurfaceSource:
+    """A place in the web app that ran a proposed metric's queries outside a saved chart."""
+
+    product: str
+    people: int
+    runs: int
+
+
+@dataclass(frozen=True)
+class AgentSource:
+    people: int
+    sessions: int
+    runs: int
+
+
+@dataclass(frozen=True)
+class ProposedMetric:
+    """One proposal, with the measures it merges and where people use them.
+
+    People are distinct across the measures. Runs are the largest measure's runs, because
+    one query can compute several measures of a proposal.
+    """
+
+    name: str
+    description: str
+    definition: str
+    measures: int
+    people: int
+    built: int
+    charts: list[ChartSource]
+    other_charts: int
+    surfaces: list[SurfaceSource]
+    agents: AgentSource | None
+    views: int = 0
+    complexity: int = 0
+    # The fingerprint digests of the merged measures. A read hides the proposal when it hides one of them.
+    # The API does not return them.
+    fingerprint_digests: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class SectionFailure:
+    """A scan step that failed after its retries. Its section stays None."""
+
+    section: UsageSection
+    reason: str
 
 
 @dataclass(frozen=True)
 class UsageSnapshotPayload:
     """The stored body of a usage snapshot. Each scan step writes its own section, so a section
-    stays None until its step has run."""
+    stays None until its step has run, and stays None when its step fails."""
 
     metric_runs: list[MetricRunCounts] | None = None
     # Session ids that one agent conversation spans, for conversations that span more than one. The
@@ -149,6 +213,8 @@ class UsageSnapshotPayload:
     topic_sessions: TopicSessionCounts | None = None
     table_sources: list[TableSource] | None = None
     uncovered: list[UncoveredGroup] | None = None
+    proposed_metrics: list[ProposedMetric] | None = None
+    failed_sections: list[SectionFailure] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -179,3 +245,4 @@ class MetricUsage:
     computed_at: datetime | None
     runs: MetricRunCounts | None
     adjusted_runs: list[AdjustedRun]
+    failed_sections: list[SectionFailure]

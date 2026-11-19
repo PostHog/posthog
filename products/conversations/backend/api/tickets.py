@@ -85,7 +85,6 @@ from products.conversations.backend.api.ticket_filters import (
 from products.conversations.backend.cache import (
     get_cached_unread_count,
     invalidate_identity_tickets_cache,
-    invalidate_messages_cache,
     invalidate_tickets_cache,
     invalidate_unread_count_cache,
     set_cached_unread_count,
@@ -484,6 +483,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "github_issue_number",
             "zendesk_ticket_id",
             "intercom_conversation_id",
+            "pylon_issue_id",
             "organization_id",
             "organization_id_source",
             "person",
@@ -516,6 +516,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "github_issue_number",
             "zendesk_ticket_id",
             "intercom_conversation_id",
+            "pylon_issue_id",
             "organization_id",
             "organization_id_source",
             "person",
@@ -538,6 +539,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "intercom_conversation_id": {
                 "help_text": "Intercom conversation id when the ticket was imported from Intercom. Null otherwise."
             },
+            "pylon_issue_id": {"help_text": "Pylon issue id when the ticket was imported from Pylon. Null otherwise."},
             "organization_id": {
                 "help_text": "Customer's PostHog organization group key, resolved at ticket creation. Null when unknown."
             },
@@ -995,7 +997,6 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 lambda: cancel_open_deliveries_for_ticket(team_id=team_id, ticket_id=ticket_id),
                 lambda: cancel_pending_email_replies_for_ticket(team_id=team_id, ticket_id=ticket_id),
                 lambda: invalidate_unread_count_cache(team_id),
-                lambda: invalidate_messages_cache(team_id, str(ticket_id)),
                 lambda: invalidate_identity_tickets_cache(team_id),
                 lambda: report_user_action(
                     request.user,

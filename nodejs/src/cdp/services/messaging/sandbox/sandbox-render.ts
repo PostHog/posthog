@@ -5,7 +5,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { CyclotronJobInvocationHogFlow, HogFunctionInvocationGlobals, HogFunctionType } from '../../../types'
 import { HogInputsService } from '../../hog-inputs.service'
 import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
-import { SandboxEmailAction } from '../../hogflows/actions/email_sandbox'
+import { SandboxEmailAction, SandboxSenderAction } from '../../hogflows/actions/email_sandbox'
 import { actionIdForLogging } from '../../hogflows/hogflow-utils'
 import { AUTHORIZATION_TIMEOUT_MS, readSandboxAuthorization } from './sandbox-authorization'
 import { SandboxRenderedEmail, SandboxRenderedEmailSchema } from './sandbox-message'
@@ -27,7 +27,9 @@ export function deliveredAddressReader(
             return authorization.storedAddress
         }
         if (authorization.reason === 'authorization_unavailable') {
-            throw new SandboxRecipientUnavailableError('Could not read the address the sandbox email is delivered to')
+            throw new SandboxRecipientUnavailableError(
+                'Could not read the address the PostHog test sender delivers this email to'
+            )
         }
         return canonicalRecipient(recipient)
     }
@@ -57,16 +59,27 @@ export async function renderSandboxEmail(
     )
     const parsed = SandboxRenderedEmailSchema.safeParse(globals.inputs.email)
     if (!parsed.success) {
-        throw new SandboxRenderError('The rendered sandbox email is missing a recipient, subject, or content')
+        throw new SandboxRenderError(
+            'The rendered email from the PostHog test sender is missing a recipient, subject, or content'
+        )
     }
     return parsed.data
 }
 
-export function logRenderFailure({ action, result }: ActionHandlerOptions<SandboxEmailAction>, error: unknown): void {
+export function acceptedSandboxEmail(invocation: CyclotronJobInvocationHogFlow): SandboxRenderedEmail {
+    const content = invocation.state.send?.content
+    const recipient = invocation.state.event?.properties?.to
+    if (!content || typeof recipient !== 'string') {
+        throw new SandboxRenderError('The email sent from code has no recipient or content')
+    }
+    return { to: { email: recipient }, subject: content.subject, html: content.html, text: content.text }
+}
+
+export function logRenderFailure({ action, result }: ActionHandlerOptions<SandboxSenderAction>, error: unknown): void {
     result.logs.push({
         level: 'error',
         timestamp: DateTime.now(),
-        message: `${actionIdForLogging(action)} Sandbox email failed to render: ${error instanceof Error ? error.message : String(error)}`,
+        message: `${actionIdForLogging(action)} Email from the PostHog test sender failed to render: ${error instanceof Error ? error.message : String(error)}`,
     })
 }
 

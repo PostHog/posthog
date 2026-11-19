@@ -2,15 +2,17 @@ from dataclasses import dataclass, field
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
-# Xendit's public API only exposes two list endpoints that enumerate a merchant's own records:
-# `GET /transactions` (the unified money-movement ledger) and `GET /v2/accounts` (xenPlatform
-# sub-accounts). Everything else in the current API reference is either a single-object lookup
-# (payments, payouts, sessions, balance), a search that requires an exact identifier
-# (`GET /customers` requires `reference_id`), or a child collection with no way to enumerate its
-# parents (`GET /recurring/plans/{id}/cycles`), so none of them can be synced as a table.
+# Xendit's public API only exposes a few list endpoints that enumerate a merchant's own records:
+# `GET /transactions` (the unified money-movement ledger), `GET /v2/accounts` (xenPlatform
+# sub-accounts), `GET /v1/disputes` and `GET /bill-payments/v1/product`. Everything else in the
+# current API reference is either a single-object lookup (payments, payouts, sessions, balance), a
+# search that requires an exact identifier (`GET /customers` requires `reference_id`), or a child
+# collection with no way to enumerate its parents (`GET /recurring/plans/{id}/cycles`), so none of
+# them can be synced as a table.
 #
-# Both list endpoints share the same contract: cursor pagination via `after_id` + `has_more`, and
-# server-side `created[gte]` / `updated[gte]` range filters.
+# Transactions and accounts page via `after_id` + `has_more` and filter on `created[gte]` /
+# `updated[gte]`. Disputes and bill payment products page via a `cursor` param taken from the
+# response body.
 
 XENDIT_BASE_URL = "https://api.xendit.co"
 
@@ -30,6 +32,12 @@ class XenditEndpointConfig:
     should_sync_default: bool = True
     permission: str = ""
     extra_params: dict[str, str] = field(default_factory=dict)
+    page_size: int = PAGE_SIZE
+    cursor_param: str = "after_id"
+    # Body path of the next-page cursor. Empty means the cursor is the last row's `id`.
+    next_cursor_path: tuple[str, ...] = ()
+    # Body path of the "more pages" flag. None means a non-empty next cursor is the only signal.
+    has_more_path: tuple[str, ...] | None = ("has_more",)
 
     @property
     def incremental_fields(self) -> list[IncrementalField]:
@@ -57,6 +65,29 @@ XENDIT_ENDPOINTS: dict[str, XenditEndpointConfig] = {
         filterable_timestamps=("updated", "created"),
         should_sync_default=False,
         permission="Accounts Read",
+    ),
+    # Disputes change status and outcome after creation, but the API filters only on creation
+    # time (`created_after`), so an incremental sync would miss those changes.
+    "disputes": XenditEndpointConfig(
+        name="disputes",
+        path="/v1/disputes",
+        partition_key="created_at",
+        permission="Disputes Read",
+        page_size=100,
+        cursor_param="cursor",
+        next_cursor_path=("pagination", "next_cursor"),
+        has_more_path=("pagination", "has_more"),
+    ),
+    # A catalog of billers' products with no timestamps. Only useful to bill payment merchants.
+    "bill_payment_products": XenditEndpointConfig(
+        name="bill_payment_products",
+        path="/bill-payments/v1/product",
+        partition_key=None,
+        should_sync_default=False,
+        permission="Bill Payments Read",
+        cursor_param="cursor",
+        next_cursor_path=("next_cursor",),
+        has_more_path=None,
     ),
 }
 

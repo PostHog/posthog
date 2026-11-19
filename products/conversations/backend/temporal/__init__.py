@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from products.conversations.backend.temporal.ai_reply.activities.persist_knowledge_gap import (
     support_persist_knowledge_gap_activity,
 )
@@ -37,6 +39,16 @@ from products.conversations.backend.temporal.pipeline import (
     support_safety_filter_activity,
     support_validate_activity,
 )
+from products.conversations.backend.temporal.pylon_import.activities import (
+    pylon_import_batch_activity,
+    pylon_import_enumerate_issues_activity,
+    pylon_import_update_job_progress_activity,
+    pylon_import_update_job_status_activity,
+)
+from products.conversations.backend.temporal.pylon_import.workflows import (
+    PylonImportBatchWorkflow,
+    PylonImportCoordinatorWorkflow,
+)
 from products.conversations.backend.temporal.zendesk_import.activities import (
     zendesk_import_batch_activity,
     zendesk_import_enumerate_tickets_activity,
@@ -57,9 +69,11 @@ WORKFLOWS = [
     ZendeskImportBatchWorkflow,
     IntercomImportCoordinatorWorkflow,
     IntercomImportBatchWorkflow,
+    PylonImportCoordinatorWorkflow,
+    PylonImportBatchWorkflow,
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     support_build_context_activity,
     support_safety_filter_activity,
     support_classify_activity,
@@ -83,4 +97,8 @@ ACTIVITIES = [
     intercom_import_batch_activity,
     intercom_import_update_job_status_activity,
     intercom_import_update_job_progress_activity,
+    pylon_import_enumerate_issues_activity,
+    pylon_import_batch_activity,
+    pylon_import_update_job_status_activity,
+    pylon_import_update_job_progress_activity,
 ]

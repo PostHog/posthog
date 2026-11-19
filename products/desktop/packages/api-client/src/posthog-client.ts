@@ -2122,6 +2122,7 @@ function parseAvailableSuggestedReviewersPayload(
 export class PostHogAPIClient {
   private api: ReturnType<typeof createApiClient>;
   private _teamId: number | null = null;
+  private _organizationId: string | null = null;
   private githubConnectFrom: string;
   private readonly apiHost: string;
   private readonly taskClientProvenance: TaskClientProvenance;
@@ -2156,6 +2157,27 @@ export class PostHogAPIClient {
 
   setTeamId(teamId: number | null | undefined): void {
     this._teamId = teamId ?? null;
+    this._organizationId = null;
+  }
+
+  setOrganizationId(organizationId: string | null | undefined): void {
+    this._organizationId = organizationId ?? null;
+  }
+
+  // Organization routes name the organization of the client's project. The `@current` alias would
+  // resolve to the user's current organization on the server instead, and another tab, device or
+  // client can change that at any time.
+  private async getOrganizationId(): Promise<string> {
+    if (this._organizationId !== null) {
+      return this._organizationId;
+    }
+    const project = await this.getProject(await this.getTeamId());
+    this._organizationId = project.organization;
+    return this._organizationId;
+  }
+
+  private async organizationPath(path: string): Promise<string> {
+    return `/api/organizations/${encodeURIComponent(await this.getOrganizationId())}/${path}`;
   }
 
   private async getTeamId(): Promise<number> {
@@ -3596,7 +3618,7 @@ export class PostHogAPIClient {
         initial_permission_mode?: ExecutionMode;
         auto_publish?: boolean;
         naming_source?: string;
-      },
+      } & Pick<Schemas.TaskCreate, "warm_run_id">,
   ): Promise<Task> {
     const teamId = await this.getTeamId();
     const { origin_product: originProduct, ...taskOptions } = options;
@@ -4069,7 +4091,12 @@ export class PostHogAPIClient {
 
   // GET with the wiki's shared read semantics: 404 (never enabled or missing
   // page) reads as null, 403 (privacy guard) as ContextWikiUnavailableError.
-  private async getContextWikiResource<T>(urlPath: string): Promise<T | null> {
+  private async getContextWikiResource<T>(
+    contextLayerPath: string,
+  ): Promise<T | null> {
+    const urlPath = await this.organizationPath(
+      `context_layer/${contextLayerPath}`,
+    );
     try {
       const response = await this.api.fetcher.fetch({
         method: "get",
@@ -4089,49 +4116,41 @@ export class PostHogAPIClient {
   }
 
   async getContextWikiTree(): Promise<ContextWikiTree | null> {
-    return this.getContextWikiResource<ContextWikiTree>(
-      `/api/organizations/@current/context_layer/tree/`,
-    );
+    return this.getContextWikiResource<ContextWikiTree>("tree/");
   }
 
   async getContextWikiPage(path: string): Promise<ContextWikiPage | null> {
     return this.getContextWikiResource<ContextWikiPage>(
-      `/api/organizations/@current/context_layer/pages/?path=${encodeURIComponent(path)}`,
+      `pages/?path=${encodeURIComponent(path)}`,
     );
   }
 
   async getContextWikiHealthReport(): Promise<ContextWikiHealthReport | null> {
-    return this.getContextWikiResource<ContextWikiHealthReport>(
-      `/api/organizations/@current/context_layer/wiki/report/`,
-    );
+    return this.getContextWikiResource<ContextWikiHealthReport>("wiki/report/");
   }
 
   async getChannelContextWikiPage(
     channelId: string,
   ): Promise<ChannelContextWikiPage | null> {
     return this.getContextWikiResource<ChannelContextWikiPage>(
-      `/api/organizations/@current/context_layer/channel-pages/${encodeURIComponent(channelId)}/`,
+      `channel-pages/${encodeURIComponent(channelId)}/`,
     );
   }
 
   async getContextWikiDreams(): Promise<ContextWikiDreamList | null> {
-    return this.getContextWikiResource<ContextWikiDreamList>(
-      `/api/organizations/@current/context_layer/dreams/`,
-    );
+    return this.getContextWikiResource<ContextWikiDreamList>("dreams/");
   }
 
   async getContextWikiDream(
     sha: string,
   ): Promise<ContextWikiDreamDetail | null> {
     return this.getContextWikiResource<ContextWikiDreamDetail>(
-      `/api/organizations/@current/context_layer/dreams/${encodeURIComponent(sha)}/`,
+      `dreams/${encodeURIComponent(sha)}/`,
     );
   }
 
   async getContextWikiProposals(): Promise<ContextWikiPageProposal[] | null> {
-    const response = await this.getContextWikiResource<unknown>(
-      "/api/organizations/@current/context_layer/proposals/",
-    );
+    const response = await this.getContextWikiResource<unknown>("proposals/");
     return response === null
       ? null
       : contextWikiProposalsSchema.parse(response);
@@ -4140,7 +4159,9 @@ export class PostHogAPIClient {
   async applyContextWikiProposal(
     id: string,
   ): Promise<ContextWikiProposalApplyResult> {
-    const path = `/api/organizations/@current/context_layer/proposals/${encodeURIComponent(id)}/apply/`;
+    const path = await this.organizationPath(
+      `context_layer/proposals/${encodeURIComponent(id)}/apply/`,
+    );
     const response = await this.api.fetcher.fetch({
       method: "post",
       url: new URL(`${this.api.baseUrl}${path}`),
@@ -4162,7 +4183,7 @@ export class PostHogAPIClient {
     content: string;
     baseHead?: string;
   }): Promise<{ head_sha: string }> {
-    const urlPath = `/api/organizations/@current/context_layer/pages/`;
+    const urlPath = await this.organizationPath("context_layer/pages/");
     try {
       const response = await this.api.fetcher.fetch({
         method: "put",
@@ -4201,7 +4222,7 @@ export class PostHogAPIClient {
   }
 
   async enableContextWiki(): Promise<{ head_sha: string }> {
-    const urlPath = `/api/organizations/@current/context_layer/enable/`;
+    const urlPath = await this.organizationPath("context_layer/enable/");
     try {
       const response = await this.api.fetcher.fetch({
         method: "post",
@@ -4456,7 +4477,9 @@ export class PostHogAPIClient {
     const ORG_MEMBERS_MAX_PAGES = 20;
     const ORG_MEMBERS_PAGE_SIZE = 200;
     const all: OrganizationMemberBasic[] = [];
-    let urlPath = `/api/organizations/@current/members/?limit=${ORG_MEMBERS_PAGE_SIZE}`;
+    let urlPath = await this.organizationPath(
+      `members/?limit=${ORG_MEMBERS_PAGE_SIZE}`,
+    );
     for (let i = 0; i < ORG_MEMBERS_MAX_PAGES; i++) {
       const response = await this.api.fetcher.fetch({
         method: "get",
@@ -4625,7 +4648,7 @@ export class PostHogAPIClient {
     fast_mode?: boolean | null;
     sandbox_environment_id?: string | null;
     custom_image_id?: string | null;
-  }): Promise<{ task_id: string; run_id: string } | null> {
+  }): Promise<Schemas.WarmTaskResponse | null> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/tasks/warm/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -4667,7 +4690,7 @@ export class PostHogAPIClient {
     if (!text) {
       return null;
     }
-    return JSON.parse(text) as { task_id: string; run_id: string };
+    return JSON.parse(text) as Schemas.WarmTaskResponse;
   }
 
   async prepareTaskStagedArtifactUploads(

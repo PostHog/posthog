@@ -171,6 +171,8 @@ export const intercomImportLogic = kea<intercomImportLogicType>([
         },
         submitImportFailure: ({ error }) => {
             lemonToast.error(error || 'Failed to start Intercom import')
+            // The server can keep the job when it cannot tell whether the import started.
+            actions.loadImportJob()
         },
         startPolling: () => {
             actions.loadImportJob()

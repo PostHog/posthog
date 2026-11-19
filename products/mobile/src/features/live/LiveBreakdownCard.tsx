@@ -8,28 +8,32 @@ import { SegmentedPill } from '@/ui/SegmentedPill'
 import { createStyles, useTheme } from '@/ui/theme'
 import { radii, type } from '@/ui/tokens'
 
-import { LiveCard, LiveCardNote, NOT_LOADED_TEXT } from './LiveCard'
+import { LiveCard, LiveCardLoading, LiveCardNote } from './LiveCard'
 
 const TABS: readonly { key: LiveBreakdownKind; label: string; empty: string }[] = [
+    { key: 'platforms', label: 'Platforms', empty: 'No iOS or Android activity in the last 30 minutes' },
     { key: 'devices', label: 'Devices', empty: 'No device data' },
     { key: 'browsers', label: 'Browsers', empty: 'No browser data' },
     { key: 'countries', label: 'Countries', empty: 'No country data' },
 ]
 
 interface LiveBreakdownCardProps {
+    /** The segments to offer, from `liveBreakdownKinds`. */
+    kinds: readonly LiveBreakdownKind[]
+    /** One of `kinds`. */
     kind: LiveBreakdownKind
     breakdown: LiveBreakdown | null
     onChange: (kind: LiveBreakdownKind) => void
 }
 
 /** The web's Devices, Browsers and Countries cards as one card with a switch, to keep the screen short. */
-export function LiveBreakdownCard({ kind, breakdown, onChange }: LiveBreakdownCardProps): ReactElement {
+export function LiveBreakdownCard({ kinds, kind, breakdown, onChange }: LiveBreakdownCardProps): ReactElement {
     const { colors, chartPalette } = useTheme()
     const styles = useStyles()
     const tab = TABS.find((entry) => entry.key === kind) ?? TABS[0]
     let body: ReactElement
     if (!breakdown) {
-        body = <LiveCardNote text={NOT_LOADED_TEXT} testID="live-breakdown-not-loaded" />
+        body = <LiveCardLoading testID="live-breakdown-loading" />
     } else if (breakdown.rows.length === 0) {
         body = <LiveCardNote text={tab?.empty ?? ''} testID="live-breakdown-empty" />
     } else {
@@ -77,7 +81,7 @@ export function LiveBreakdownCard({ kind, breakdown, onChange }: LiveBreakdownCa
         <LiveCard testID="live-breakdown">
             <SegmentedPill
                 height={40}
-                segments={TABS.map((entry) => ({
+                segments={TABS.filter((entry) => kinds.includes(entry.key)).map((entry) => ({
                     key: entry.key,
                     accessibilityLabel: entry.label,
                     accessibilityRole: 'tab',
@@ -107,9 +111,7 @@ const useStyles = createStyles(({ colors }) => ({
         paddingVertical: 6,
     },
     totalValue: {
-        fontSize: 32,
-        lineHeight: 38,
-        fontWeight: '700',
+        ...type.screenTitle,
         color: colors.ink,
         fontVariant: ['tabular-nums'],
     },
@@ -144,7 +146,7 @@ const useStyles = createStyles(({ colors }) => ({
         borderRadius: radii.pill,
     },
     percent: {
-        ...type.metaSmall,
+        ...type.meta,
         width: 44,
         textAlign: 'right',
         color: colors.secondary,

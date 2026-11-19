@@ -1,6 +1,7 @@
 import { Stack, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useMemo, useRef } from 'react'
 import type { ChatSheetEntry } from '@/features/chat/chatSheetEvents'
+import { useLiveAudienceNativeMenu } from '@/features/live/useLiveAudienceNativeMenu'
 import { nativeIcons } from '@/ui/icons/nativeIcons'
 import { useOverlayDismiss } from '@/ui/overlayDismiss'
 import { useColors } from '@/ui/theme'
@@ -10,6 +11,7 @@ import type { TabHeaderSlot } from './tabHeaderStore'
 export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; onMore: () => void }): ReactElement {
     useNativeHeaderCleanup()
     const colors = useColors()
+    const audienceMenu = useLiveAudienceNativeMenu(!!slot?.liveAudience)
     const router = useRouter()
     const dismiss = useOverlayDismiss()
     const latest = useRef({ slot, onMore, dismiss })
@@ -66,6 +68,7 @@ export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; 
                         />,
                     ]
                   : [
+                        ...(slot?.liveAudience ? [audienceMenu] : []),
                         ...(hasFilter
                             ? [
                                   <Stack.Toolbar.Button
@@ -95,7 +98,7 @@ export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; 
                             onPress={more}
                         />,
                     ],
-        [dismiss, editing, hasFilter, activeFilter, done, filter, compose, more]
+        [dismiss, editing, hasFilter, activeFilter, done, filter, compose, more, slot?.liveAudience, audienceMenu]
     )
     return (
         <>

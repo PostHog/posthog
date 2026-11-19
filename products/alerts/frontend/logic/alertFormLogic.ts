@@ -692,7 +692,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                 const flushPendingNotifications = async (savedAlertId: string): Promise<void> => {
                     if (notifLogic.values.pendingNotifications.length > 0) {
-                        await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId, alert.name)
+                        await notifLogic.asyncActions.createPendingDestinations(savedAlertId)
                     }
                 }
 
@@ -745,6 +745,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (isNewAlert) {
                     posthog.capture('alert creation completed', {
                         ui_version: 'redesigned',
+                        detector_type: values.alertForm.detector_config?.type ?? null,
                     })
                 }
 

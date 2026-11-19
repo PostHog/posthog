@@ -20,8 +20,6 @@ import { WorkflowsEmailTrackingConsentSettings } from '../../scenes/settings/Wor
 import { FrequencyCapChoice } from './onboardingWizardSteps'
 import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
 
-const ADMIN_ONLY_REASON = 'Only project admins can change sending rules'
-
 const CAP_OPTIONS: LemonRadioOption<FrequencyCapChoice>[] = [
     {
         value: 'recommended',
@@ -57,12 +55,12 @@ export function WizardSendingRulesStep(): JSX.Element {
         shownFrequencyCapChoice,
         shownCustomFrequencyCap,
         shownHoldHours,
-        canEditSendingRules,
+        sendingRulesDisabledReason,
         shownEngagementEvents,
     } = useValues(workflowsOnboardingWizardLogic)
     const { setFrequencyCapChoice, setCustomFrequencyCap, setHoldHours, setEngagementEventsChoice } =
         useActions(workflowsOnboardingWizardLogic)
-    const disabledReason = canEditSendingRules ? undefined : ADMIN_ONLY_REASON
+    const disabledReason = sendingRulesDisabledReason ?? undefined
     const { maxMessages, windowDays } = shownCustomFrequencyCap
 
     return (
@@ -156,7 +154,7 @@ export function WizardSendingRulesStep(): JSX.Element {
             <LemonDivider className="my-0" />
             <SendingRule
                 title="Engagement events"
-                description="Capture sends, opens, clicks and bounces as PostHog events, so you can use them in insights and funnels. These events count toward your event usage."
+                description="Capture sends, opens, clicks and bounces as PostHog events, so you can use them in insights and funnels. These events count toward your event usage and are billed like any other event. Turn this off to stop capturing them."
             >
                 <LemonSwitch
                     checked={shownEngagementEvents}

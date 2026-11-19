@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
+
+from django.db import OperationalError
+from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models import Tag
 from posthog.models.comment import Comment
@@ -28,11 +33,8 @@ from products.conversations.backend.temporal.intercom_import.activities import (
     _import_conversation_batch_sync,
     _update_job_progress_sync,
 )
-from products.conversations.backend.temporal.intercom_import.client import (
-    IntercomAttachmentTooLargeError,
-    IntercomNotFoundError,
-    IntercomRateLimitError,
-)
+from products.conversations.backend.temporal.intercom_import.client import IntercomNotFoundError, IntercomRateLimitError
+from products.conversations.backend.temporal.ticket_import.attachment_download import AttachmentTooLargeError
 
 M = "products.conversations.backend.temporal.intercom_import.activities"
 
@@ -278,11 +280,17 @@ class TestIntercomImportBatchActivity(BaseTest):
             self._run_batch([flaky], contacts={"slow1": IntercomRateLimitError("slow down")})
         assert not Ticket.objects.filter(team_id=self.team.id, intercom_conversation_id="312").exists()
 
-    def test_rate_limited_fetch_propagates_so_temporal_retries_the_batch(self) -> None:
+    @parameterized.expand(
+        [
+            ("rate_limit", IntercomRateLimitError("slow down")),
+            ("database_connection", OperationalError("server closed the connection unexpectedly")),
+        ]
+    )
+    def test_transient_failure_propagates_so_temporal_retries_the_batch(self, _name: str, error: Exception) -> None:
         client = MagicMock()
-        client.fetch_conversation.side_effect = IntercomRateLimitError("slow down")
+        client.fetch_conversation.side_effect = error
 
-        with patch(f"{M}.IntercomImportClient", return_value=client), pytest.raises(IntercomRateLimitError):
+        with patch(f"{M}.IntercomImportClient", return_value=client), pytest.raises(type(error)):
             _import_conversation_batch_sync(
                 ImportBatchInput(job_id=str(self.job.id), team_id=self.team.id, conversation_ids=["520"])
             )
@@ -421,7 +429,7 @@ class TestIntercomImportBatchActivity(BaseTest):
         conversation = self._attachment_conversation("721", files=3)
         client = MagicMock()
         client.fetch_conversation.return_value = conversation
-        client.download_attachment.side_effect = IntercomAttachmentTooLargeError("too big", bytes_read=150)
+        client.download_attachment.side_effect = AttachmentTooLargeError("too big", bytes_read=150)
 
         with (
             patch(f"{M}.MAX_ATTACHMENT_BYTES_PER_CONVERSATION", 200),
@@ -440,6 +448,8 @@ class TestIntercomImportBatchActivity(BaseTest):
 class TestIntercomImportJobProgress(BaseTest):
     def test_replayed_progress_update_does_not_double_count(self) -> None:
         job = IntercomImportJob.objects.unscoped().create(team_id=self.team.id, status=IntercomImportJob.Status.RUNNING)
+        an_hour_ago = timezone.now() - timedelta(hours=1)
+        IntercomImportJob.objects.unscoped().filter(id=job.id).update(updated_at=an_hour_ago)
         progress = UpdateJobProgressInput(
             job_id=str(job.id), total=150, processed=50, imported=40, skipped=8, failed=2, export_cursor="c2"
         )
@@ -456,3 +466,4 @@ class TestIntercomImportJobProgress(BaseTest):
             job.failed_conversations,
             job.export_cursor,
         ) == (150, 50, 40, 8, 2, "c2")
+        assert job.updated_at > an_hour_ago

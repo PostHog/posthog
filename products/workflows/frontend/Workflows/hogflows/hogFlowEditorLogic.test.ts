@@ -192,6 +192,18 @@ describe('hogFlowEditorLogic', () => {
         expect(logic.values.selectedNode).toMatchObject({ id: action.id, data: action })
     })
 
+    it.each([TRIGGER_NODE_ID, 'trigger'])('selects the trigger step when its id is %s', (triggerId) => {
+        const [trigger, exit] = NEW_WORKFLOW.actions
+        workflowLogic().actions.setWorkflowInfo({
+            actions: [{ ...trigger, id: triggerId }, exit],
+            edges: [edge(triggerId, EXIT_NODE_ID, 'continue')],
+        })
+
+        logic.actions.selectTrigger()
+
+        expect(logic.values.selectedNode).toMatchObject({ id: triggerId, data: { type: 'trigger' } })
+    })
+
     it('keeps edits made while "Save as team default" was saving', () => {
         const email = {
             id: 'email',
@@ -343,7 +355,7 @@ describe('hogFlowEditorLogic', () => {
             expect(insertEmail()?.type).toEqual(expectedType)
         })
 
-        it('uses the sandbox sender for a new email step when the team turns UTM tags on by default', () => {
+        it('uses the PostHog test sender for a new email step when the team turns UTM tags on by default', () => {
             teamLogic.actions.loadCurrentTeamSuccess({
                 ...MOCK_DEFAULT_TEAM,
                 workflows_config: { email_utm_tags_enabled: true },
@@ -366,7 +378,7 @@ describe('hogFlowEditorLogic', () => {
             }).toDispatchActions(['provisionSandboxSender', 'provisionSandboxSenderFailed'])
 
             expect(sandboxSenderLogic.values.provisionError).toEqual(
-                "Couldn't set up the sandbox sender. Try again, or choose your own sender."
+                "Couldn't set up the PostHog test sender. Try again, or choose your own sender."
             )
         })
     })

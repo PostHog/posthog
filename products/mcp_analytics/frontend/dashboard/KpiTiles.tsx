@@ -9,17 +9,20 @@ import { urls } from 'scenes/urls'
 
 import { IntervalType } from '~/types'
 
+import { sortSearchParams } from '../mcpAnalyticsToolQualityLogic'
 import { type KPIData, KPIMetric } from '../mcpDashboardOverviewLogic'
 import { formatMs, formatNumber } from './formatters'
 import { MetricTile } from './MetricTile'
 
 interface TileSpec {
     label: string
+    dataAttr: string
     metric: KPIMetric
     href: string
     format: (n: number) => string
     color: string
     loading: boolean
+    hasValue: boolean
     failed?: boolean
     onRetry?: () => void
     summaryLabel: string
@@ -41,15 +44,18 @@ export function retryFailedSources(sources: { failed?: boolean; retry?: () => vo
 
 export function kpiTileUrls(searchParams: Record<string, any>): {
     sessions: string
-    erroredSessions: string
     toolQuality: string
+    toolQualityByErrorRate: string
     intentClustering: string
 } {
     const { landing: _landing, search: _search, ...sharedParams } = searchParams
     return {
         sessions: combineUrl(urls.mcpAnalyticsSessions(), sharedParams).url,
-        erroredSessions: combineUrl(urls.mcpAnalyticsSessions(), { ...sharedParams, has_errors: 'true' }).url,
         toolQuality: combineUrl(urls.mcpAnalyticsToolQuality(), sharedParams).url,
+        toolQualityByErrorRate: combineUrl(urls.mcpAnalyticsToolQuality(), {
+            ...sharedParams,
+            ...sortSearchParams({ column: 'error_rate_pct', direction: 'DESC' }),
+        }).url,
         intentClustering: combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url,
     }
 }
@@ -66,15 +72,16 @@ function KPITile({
     incompleteTail: boolean
 }): JSX.Element {
     const { metric } = tile
-    // Tiles whose metric carries no sparkline (Users, Intent clusters) have no segment to dash.
+    // Tiles whose metric carries no sparkline (Intent clusters) have no segment to dash.
     const dashedFromIndex = incompleteTail && metric.sparkline.length >= 2 ? metric.sparkline.length - 1 : undefined
 
     return (
-        <Link to={tile.href} subtle className="group/tile flex h-full">
+        <Link to={tile.href} subtle className="group/tile flex h-full" data-attr={tile.dataAttr}>
             <MetricTile
                 className="transition-transform group-hover/tile:-translate-y-0.5"
                 label={tile.label}
                 loading={tile.loading}
+                hasValue={tile.hasValue}
                 failed={tile.failed}
                 onRetry={tile.onRetry}
                 value={metric.value}
@@ -102,10 +109,11 @@ function KPITile({
 
 export function KpiTiles({
     kpis,
-    users,
     intentClusterCount,
     kpisLoading,
     usersLoading,
+    kpisLoaded,
+    usersLoaded,
     kpisFailed,
     usersFailed,
     onRetryKpis,
@@ -116,10 +124,11 @@ export function KpiTiles({
     incompleteTail,
 }: {
     kpis: KPIData
-    users: KPIMetric
     intentClusterCount: KPIMetric
     kpisLoading: boolean
     usersLoading: boolean
+    kpisLoaded: boolean
+    usersLoaded: boolean
     kpisFailed?: boolean
     usersFailed?: boolean
     onRetryKpis?: () => void
@@ -134,32 +143,40 @@ export function KpiTiles({
 }): JSX.Element {
     const {
         sessions: sessionsHref,
-        erroredSessions: erroredSessionsHref,
         toolQuality: toolQualityHref,
+        toolQualityByErrorRate: toolQualityByErrorRateHref,
         intentClustering: intentClusteringHref,
     } = kpiTileUrls(useValues(router).searchParams)
 
     const tiles: TileSpec[] = [
         {
             label: 'Users',
-            metric: users,
+            dataAttr: 'mcp-dashboard-kpi-users',
+            metric: kpis.users,
             // Person identity (email/name) is resolved on the Sessions tab, so that's the drill-down for "who".
             href: sessionsHref,
             format: formatNumber,
-            color: theme.colors[2],
-            loading: usersLoading,
-            failed: usersFailed,
-            onRetry: onRetryUsers,
+            color: theme.colors[0],
+            loading: kpisLoading || usersLoading,
+            hasValue: kpisLoaded && usersLoaded,
+            failed: kpisFailed || usersFailed,
+            onRetry: () =>
+                retryFailedSources([
+                    { failed: kpisFailed, retry: onRetryKpis },
+                    { failed: usersFailed, retry: onRetryUsers },
+                ]),
             summaryLabel: 'Total',
-            trend: false,
+            trend: true,
         },
         {
             label: 'Sessions',
+            dataAttr: 'mcp-dashboard-kpi-sessions',
             metric: kpis.sessions,
             href: sessionsHref,
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading,
+            hasValue: kpisLoaded,
             failed: kpisFailed,
             onRetry: onRetryKpis,
             summaryLabel: 'Total',
@@ -167,11 +184,13 @@ export function KpiTiles({
         },
         {
             label: 'Tool calls',
+            dataAttr: 'mcp-dashboard-kpi-tool-calls',
             metric: kpis.toolCalls,
             href: toolQualityHref,
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading,
+            hasValue: kpisLoaded,
             failed: kpisFailed,
             onRetry: onRetryKpis,
             summaryLabel: 'Total',
@@ -179,11 +198,13 @@ export function KpiTiles({
         },
         {
             label: 'Error rate',
+            dataAttr: 'mcp-dashboard-kpi-error-rate',
             metric: kpis.errorRatePct,
-            href: erroredSessionsHref,
+            href: toolQualityByErrorRateHref,
             format: (n) => formatPercentage(n, { compact: true }),
             color: theme.colors[4],
             loading: kpisLoading,
+            hasValue: kpisLoaded,
             failed: kpisFailed,
             onRetry: onRetryKpis,
             summaryLabel: 'Overall',
@@ -191,11 +212,13 @@ export function KpiTiles({
         },
         {
             label: 'p95 latency',
+            dataAttr: 'mcp-dashboard-kpi-p95-latency',
             metric: kpis.p95LatencyMs,
             href: toolQualityHref,
             format: formatMs,
             color: theme.colors[0],
             loading: kpisLoading || usersLoading,
+            hasValue: kpisLoaded && usersLoaded,
             failed: kpisFailed || usersFailed,
             onRetry: () =>
                 retryFailedSources([
@@ -209,11 +232,13 @@ export function KpiTiles({
             ? [
                   {
                       label: 'Intent clusters',
+                      dataAttr: 'mcp-dashboard-kpi-intent-clusters',
                       metric: intentClusterCount,
                       href: intentClusteringHref,
                       format: formatNumber,
                       color: theme.colors[6],
                       loading: false,
+                      hasValue: true,
                       summaryLabel: 'Total',
                       trend: false,
                       // Clusters come from the latest clustering snapshot across all sessions, so

@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo } from 'react'
 
+import { IconPlus } from '@posthog/icons'
+
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { analyticsListFiltersFromUrl } from 'scenes/analytics/analyticsListLogic'
 import { analyticsPinnedLogic } from 'scenes/analytics/analyticsPinnedLogic'
@@ -43,7 +45,9 @@ function AnalyticsItemIcon({ type }: { type: AnalyticsType }): JSX.Element {
 export function TodayAnalyticsSidebar(): JSX.Element {
     const { fromPostHog, recentAnalytics, searchQuery, isSectionOpen } = useValues(todayAnalyticsLogic)
     const { toggleSection, setSearchQuery } = useActions(todayAnalyticsLogic)
-    const { pinnedAnalytics } = useValues(analyticsPinnedLogic)
+    const { pinnedAnalytics, hasAnalyticsItems } = useValues(analyticsPinnedLogic)
+    const { showPinHint } = useActions(analyticsPinnedLogic)
+    const { shortcutDataLoading } = useValues(sidebarPinsLogic)
     const { movePinned } = useActions(sidebarPinsLogic)
     const { location, searchParams } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
@@ -131,6 +135,21 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                     : undefined,
             }
         }),
+    }
+
+    // With nothing pinned, the section stays to show that pinning exists. A search hides it, as it matches nothing.
+    if (lists.pinned.length === 0 && !shortcutDataLoading && hasAnalyticsItems && !searchQuery.trim()) {
+        lists.pinned = [
+            {
+                value: 'pinned:add',
+                label: 'Add a pinned item',
+                icon: <IconPlus />,
+                to: urls.analyticsList(),
+                active: false,
+                onClick: showPinHint,
+                dataAttr: 'analytics-sidebar-pinned-add',
+            },
+        ]
     }
 
     return (
