@@ -1142,6 +1142,21 @@ describe('cloud controller', () => {
             'no reader maximum before T0 to show the reader under its 2.5 ACU idle limit',
         ],
         [
+            'a minute before T0 below the reader minimum whose maximum CloudWatch left out',
+            {
+                readerAcu: [
+                    ...minutes(-5, -3, 1, 1),
+                    { minute: -2, avg: 0.5 },
+                    ...minutes(-1, -1, 1, 1),
+                    ...minutes(0, 0, 2.5, 1.4),
+                    ...minutes(1, 2, 8, 6),
+                ],
+            },
+            () => undefined,
+            'invalid',
+            'no reader maximum before T0 to show the reader under its 2.5 ACU idle limit',
+        ],
+        [
             'a minute before T0 above the idle limit whose maximum CloudWatch left out',
             {
                 readerAcu: [

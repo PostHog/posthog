@@ -28,10 +28,7 @@ const Answer = z
     })
     .loose()
 
-const IsoTime = z.union([
-    z.iso.datetime({ offset: true, precision: 0 }),
-    z.iso.datetime({ offset: true, precision: 3 }),
-])
+const IsoTime = z.iso.datetime({ offset: true }).refine((at) => !/\.\d{4}/.test(at))
 
 const iso = (at: number): string => new Date(at).toISOString()
 

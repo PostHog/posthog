@@ -147,7 +147,9 @@ function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: Clou
     }
     const pre = minutes.filter(({ at }) => at < t0Minute)
     const above = pre.filter(({ max, avg }) => [max, avg].some((reading) => reading !== undefined && reading > idleMax))
-    const unshown = pre.filter(({ max, avg }) => max === undefined && avg !== undefined && avg > min && avg <= idleMax)
+    const unshown = pre.filter(
+        ({ max, avg }) => max === undefined && avg !== undefined && avg !== min && avg <= idleMax
+    )
     const watched = Array.from({ length: CAPACITY_MINUTES }, (_, i) => t0Minute - (CAPACITY_MINUTES - i) * MINUTE_MS)
     const missing = watched.filter((at) => !pre.some((minute) => minute.at === at))
     const listed = (found: Minute[]): string => found.map(({ at }) => iso(at)).join(', ')

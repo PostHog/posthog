@@ -131,6 +131,16 @@ describe('seriesOf', () => {
             },
         ],
         [
+            'timestamps with one and two fraction digits',
+            {
+                MetricDataResults: [
+                    { Id: 'max', StatusCode: 'Complete', Timestamps: ['2026-11-19T10:01:00.0Z'], Values: [1] },
+                    { Id: 'avg', StatusCode: 'Complete', Timestamps: ['2026-11-19T10:01:00.00+00:00'], Values: [1] },
+                ],
+            },
+            { max: [{ at: Date.parse(STAMPS[0]), value: 1 }], avg: [{ at: Date.parse(STAMPS[0]), value: 1 }] },
+        ],
+        [
             'a series with no points, its lists left out',
             {
                 MetricDataResults: [
