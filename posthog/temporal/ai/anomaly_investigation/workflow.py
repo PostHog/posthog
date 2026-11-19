@@ -406,14 +406,22 @@ async def _finish_platform_investigation(
 
 
 def _investigated_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | None:
-    """The alert's insight row, or, for an alert with no insight row, one built from the platform's
-    view of it. None when both are gone."""
+    """The alert's insight row, with its copy's settings when the platform owns it, or, for an alert with
+    no insight row, one built from the platform's view of it. None when both are gone."""
     alert = (
         AlertConfiguration.objects.select_related("insight", "team", "threshold", "created_by")
         .filter(team_id=team_id, id=alert_id)
         .first()
     )
     if alert is not None:
+        # Deferred: the platform facade imports the alert task helpers, which import this workflow.
+        from products.alerts.backend.facade.platform import moved_alert_settings  # noqa: PLC0415
+
+        if alert.platform_owned and (
+            settings := moved_alert_settings(team_id=team_id, alert_ids=[alert_id]).get(alert_id)
+        ):
+            # A moved alert's edits reach only its copy, so its row's own settings are stale.
+            alert.show_copy_settings(settings)
         return alert
     view = platform.get_configuration(
         team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id

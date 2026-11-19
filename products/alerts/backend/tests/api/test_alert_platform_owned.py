@@ -26,6 +26,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval, AlertState
 from posthog.tasks.alerts.utils import due_insight_alerts_q
+from posthog.temporal.ai.anomaly_investigation.workflow import _investigated_alert as load_investigated_alert
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -1138,6 +1139,31 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert self._copy().source_config["condition"]["threshold"] == percentage
+
+    def test_an_investigation_reads_a_moved_alert_as_its_copy_holds_it(self) -> None:
+        with team_scope(self.team.id):
+            stored_config = self._copy().source_config
+            platform_testing.set_source_config(
+                self.copy_id,
+                {
+                    **stored_config,
+                    "config": {**stored_config["config"], "series_index": 1},
+                    "investigation_inconclusive_action": "suppress",
+                },
+            )
+
+        investigated = load_investigated_alert(self.team.id, self.alert.id)
+
+        assert investigated is not None
+        assert (
+            investigated.id,
+            (investigated.config or {}).get("series_index"),
+            investigated.investigation_inconclusive_action,
+        ) == (
+            self.alert.id,
+            1,
+            "suppress",
+        )
 
     @parameterized.expand([("another_member", True), ("nobody", False)])
     def test_a_moved_alerts_creator_is_the_one_its_copy_names(self, _name: str, has_creator: bool) -> None:
