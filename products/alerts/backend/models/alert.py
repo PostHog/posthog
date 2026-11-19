@@ -545,8 +545,6 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         """Whether this enabled alert is skipped because its project has more enabled alerts than its plan allows."""
         if not self.enabled:
             return False
-        # An ownership change between the ranking's two reads can leave this alert out of one ranking, so
-        # it is skipped only when a second ranking leaves it out too.
         for _ in range(2):
             kept = self.alerts_kept_by_plan_limit(self.team_id, organization)
             if kept is None or self.id in kept:
