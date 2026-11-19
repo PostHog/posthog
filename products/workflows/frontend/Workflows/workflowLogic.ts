@@ -5045,6 +5045,16 @@ export const workflowLogic = kea<workflowLogicType>([
                     return
                 }
                 cache.checkingSandboxSender = true
+                // Another tab can enable or archive the workflow while the check runs or the dialog is open,
+                // and the editor may reload that copy first. Enabling then would undo an archive.
+                const statusAtClick = values.originalWorkflow?.status
+                const statusMoved = (): boolean => {
+                    if (values.originalWorkflow?.status === statusAtClick) {
+                        return false
+                    }
+                    lemonToast.warning('This workflow was edited somewhere else. Review it, then enable it again.')
+                    return true
+                }
                 let live
                 try {
                     // Enabling resumes the stored live config, not the staged draft the form shows, so the
@@ -5057,10 +5067,20 @@ export const workflowLogic = kea<workflowLogicType>([
                     lemonToast.error("Couldn't check this workflow's email steps. Refresh the page and try again.")
                     return
                 }
+                if (statusMoved()) {
+                    return
+                }
+                if (live.status !== statusAtClick) {
+                    lemonToast.warning('This workflow was edited somewhere else. Review it, then enable it again.')
+                    reloadKeepingEdits(values.hasUnsavedChanges, actions)
+                    return
+                }
                 if (isLiveOnSandboxSender({ ...live, status: 'active' })) {
-                    confirmEnableOnSandboxSender(merged.id, 'editor', () =>
-                        actions.saveWorkflowPartial(workflow, true, true)
-                    )
+                    confirmEnableOnSandboxSender(merged.id, 'editor', () => {
+                        if (!statusMoved()) {
+                            actions.saveWorkflowPartial(workflow, true, true)
+                        }
+                    })
                 } else {
                     // The form may have changed while the check ran, so the save starts again from it. The
                     // server refuses it if the steps moved onto the test sender since this check.

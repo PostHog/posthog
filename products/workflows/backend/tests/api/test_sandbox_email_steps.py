@@ -610,35 +610,41 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         assert response.status_code == 404, response.json()
         assert not self._sandbox_sender_is_set_up()
 
-    def _active_flow_with_draft(self, live_step: dict[str, Any], draft_step: dict[str, Any], status: str) -> HogFlow:
-        def edges(step: dict[str, Any]) -> list[dict[str, Any]]:
-            return [{"from": "trigger_node", "to": step["id"], "type": "continue"}]
+    def _active_flow_with_draft(
+        self, live_step: dict[str, Any], draft_step: dict[str, Any], status: str, *more_draft_steps: dict[str, Any]
+    ) -> HogFlow:
+        def edges(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            ids = ["trigger_node", *(step["id"] for step in steps)]
+            return [{"from": source, "to": target, "type": "continue"} for source, target in zip(ids, ids[1:])]
 
+        draft_steps = [draft_step, *more_draft_steps]
         return HogFlow.objects.create(
             team=self.team,
             name="Flow",
             status=status,
             actions=[_trigger(), live_step],
-            edges=edges(live_step),
-            draft={"actions": [_trigger(), draft_step], "edges": edges(draft_step)},
+            edges=edges([live_step]),
+            draft={"actions": [_trigger(), *draft_steps], "edges": edges(draft_steps)},
         )
 
     @parameterized.expand(
         [
-            ("moves_a_step_onto_the_test_sender", "own", "active", True),
-            ("keeps_the_same_test_sender_step", "sandbox", "active", False),
-            ("of_a_disabled_workflow", "own", "draft", False),
+            ("moves_a_step_onto_the_test_sender", "own", "active", False, True),
+            ("keeps_the_same_test_sender_step", "sandbox", "active", False, False),
+            ("adds_a_second_test_sender_step", "sandbox", "active", True, True),
+            ("of_a_disabled_workflow", "own", "draft", False, False),
         ]
     )
     def test_the_publish_preview_says_whether_it_moves_steps_onto_the_test_sender(
-        self, _name: str, live_sender: str, status: str, expected: bool
+        self, _name: str, live_sender: str, status: str, adds_a_step: bool, expected: bool
     ) -> None:
         live_step = (
             _own_email_step(self._verified_sender().id, step_id=SANDBOX_STEP_ID)
             if live_sender == "own"
             else _sandbox_step()
         )
-        flow = self._active_flow_with_draft(live_step, _sandbox_step(), status)
+        added = [{**_sandbox_step(), "id": "action_email_sandbox_2"}] if adds_a_step else []
+        flow = self._active_flow_with_draft(live_step, _sandbox_step(), status, *added)
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow.id}/publish", {}, format="json")
 

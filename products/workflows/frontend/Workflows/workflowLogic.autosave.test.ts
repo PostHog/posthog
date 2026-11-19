@@ -689,6 +689,77 @@ describe('workflowLogic auto-save', () => {
                 expect(logic.values.originalWorkflow?.status).toBe(server ? 'draft' : 'active')
             })
 
+            const EDITED_ELSEWHERE = 'This workflow was edited somewhere else. Review it, then enable it again.'
+            const archived = (loaded: HogFlow): HogFlow =>
+                ({ ...loaded, status: 'archived', updated_at: '2026-05-01T00:10:00.000Z' }) as HogFlow
+
+            it('enables nothing when the server has archived the workflow', async () => {
+                const loaded = loadedWith('none')
+                useMocks(activeMocks(loaded))
+                await mountEditor()
+                useMocks(serverMocks(archived(loaded)))
+                showToasts()
+                await enableFromEditor()
+
+                expect(await toastShown(EDITED_ELSEWHERE)).toBe('warning-toast')
+                expect(patchBodies).toEqual([])
+            })
+
+            it.each([
+                ['while the check runs', 'none'],
+                ['while the dialog is open', 'live'],
+            ] as const)('enables nothing when the editor loads an archived copy %s', async (when, layout) => {
+                const loaded = loadedWith(layout)
+                useMocks(activeMocks(loaded))
+                await mountEditor()
+                let release: () => void = () => {}
+                const held = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                let markChecking: () => void = () => {}
+                const checking = new Promise<void>((resolve) => {
+                    markChecking = resolve
+                })
+                let reads = 0
+                useMocks(serverMocks(archived(loaded)))
+                useMocks({
+                    get: {
+                        // The check's read is held and sees the copy before the archive; the editor's reload sees it after.
+                        '/api/projects/:team_id/hog_flows/:id/': async () => {
+                            reads += 1
+                            if (reads > 1) {
+                                return [200, archived(loaded)]
+                            }
+                            markChecking()
+                            await held
+                            return [200, loaded]
+                        },
+                    },
+                })
+                showToasts()
+
+                logic.actions.saveWorkflowPartial({ status: 'active' })
+                await checking
+                if (when === 'while the check runs') {
+                    await expectLogic(logic, () => logic.actions.loadWorkflow()).toDispatchActions([
+                        'loadWorkflowSuccess',
+                    ])
+                    release()
+                } else {
+                    release()
+                    await screen.findByText(ENABLE_DIALOG)
+                    await expectLogic(logic, () => logic.actions.loadWorkflow()).toDispatchActions([
+                        'loadWorkflowSuccess',
+                    ])
+                    await userEvent.click(screen.getByText('Enable anyway'))
+                }
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(await toastShown(EDITED_ELSEWHERE)).toBe('warning-toast')
+                expect(patchBodies).toEqual([])
+                expect(logic.values.originalWorkflow?.status).toBe('archived')
+            })
+
             it('keeps a workflow on the test sender disabled after "Cancel"', async () => {
                 useMocks(activeMocks(loadedWith('live')))
                 await mountEditor()
