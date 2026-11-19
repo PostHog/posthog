@@ -8,7 +8,10 @@ PostHog has a data catalog with a semantic layer of **canonical metrics**. Befor
 headline number (MRR, activation rate, conversion rate, active users), check whether an approved definition
 already exists — reuse it instead of inventing a second, subtly-different number.
 
-Call `posthog:metric-list` and follow pagination until you have checked the complete catalog.
+Call `posthog:metric-list` with `search` first.
+Send the measure's name, the likely metric name, and the spelled-out form of any acronym, separated by commas, such as `mrr, monthly recurring revenue`.
+If no result's `match_reason` is a name match, an acronym, or all words, call `posthog:metric-list` again without `search`.
+Follow pagination until you have checked the complete catalog.
 Call `posthog:metric-describe` to read a candidate's full definition.
 Do not query `system.information_schema.metrics` with SQL for this check.
 

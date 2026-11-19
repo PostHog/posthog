@@ -89,6 +89,8 @@ Run separately for each model. Available models: `'text-embedding-3-small-1536'`
 Use `embedText(text, model_name)` and `cosineDistance()` for semantic search. See the `signals` skill for detailed query patterns around the signals product specifically, including required deduplication and metadata extraction.
 
 For a named business or operational measure, look it up in the data catalog with `metric-list` before any schema discovery.
+Pass `search` first, with the user's words, the likely metric name, and the spelled-out form of any acronym, separated by commas.
+If no result's `match_reason` is a name match, an acronym, or all words, call `metric-list` without `search` and follow pagination through the complete catalog.
 Do not query `system.information_schema.metrics` with SQL for this lookup.
 Use `metric-describe` to read a candidate's full definition.
 Run an approved, non-drifted match with `data-catalog-metric-run` instead of deriving it.
