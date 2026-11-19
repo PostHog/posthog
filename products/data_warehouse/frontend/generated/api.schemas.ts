@@ -2434,7 +2434,7 @@ export interface SavedQueryRenameBlockedApi {
     id: string
     /** Name of that model. */
     name: string
-    /** Why its query cannot be updated: 'does not parse' when the SQL is not valid HogQL, or 'parse check failed' when the updated SQL could not be proven equivalent. */
+    /** Why its query cannot be updated, as a sentence to show the user: the SQL is not valid HogQL, or the updated SQL could not be proven equivalent to the original. */
     reason: string
 }
 

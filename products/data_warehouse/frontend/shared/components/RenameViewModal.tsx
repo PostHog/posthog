@@ -93,15 +93,20 @@ export function RenameViewModal({
                             referencesLoading
                                 ? 'Loading known references'
                                 : plan?.blocked.length
-                                  ? 'Some models that read this view cannot be updated'
+                                  ? 'Some views that reference this one cannot be updated'
                                   : undefined
                         }
                         onClick={submit}
                         data-attr="data-warehouse-rename-view-submit"
                     >
                         {plan?.dependents.length
-                            ? `Rename and update ${plan.dependents.length} ${plan.dependents.length === 1 ? 'model' : 'models'}`
-                            : 'Rename view'}
+                            ? `Rename and update ${plan.dependents.length} ${plan.dependents.length === 1 ? 'view' : 'views'}`
+                            : !plan &&
+                                references.some(
+                                    (reference) => reference.type === 'view' || reference.type === 'matview'
+                                )
+                              ? 'Preview rename'
+                              : 'Rename view'}
                     </LemonButton>
                 </>
             }
@@ -116,6 +121,8 @@ export function RenameViewModal({
                         autoFocus
                     />
                 </LemonField.Pure>
+
+                {submitError ? <LemonBanner type="error">{submitError}</LemonBanner> : null}
 
                 {referencesLoading ? (
                     <div className="flex items-center gap-2 text-secondary text-sm">
@@ -147,13 +154,13 @@ export function RenameViewModal({
                             },
                         ]}
                     />
-                ) : (
-                    <p className="text-secondary text-sm">No downstream references found in data model lineage.</p>
-                )}
+                ) : null}
 
                 {plan?.blocked.length ? (
                     <LemonBanner type="error" alignItems="start">
-                        <p>These models read this view, and their SQL cannot be updated. Fix them, then try again.</p>
+                        <p>
+                            These views reference this one, and their SQL cannot be updated. Fix them, then try again.
+                        </p>
                         <ul className="mt-1 space-y-1">
                             {plan.blocked.map((model) => (
                                 <li key={model.id} className="break-words">
@@ -170,7 +177,7 @@ export function RenameViewModal({
                 {plan?.dependents.length ? (
                     <div className="space-y-2" data-attr="data-warehouse-rename-view-plan">
                         <p className="text-sm">
-                            These models read this view. Their SQL is updated to the new name in the same change.
+                            These views reference this one. Their SQL is updated to the new name in the same change.
                         </p>
                         <LemonCollapse
                             multiple
@@ -184,11 +191,10 @@ export function RenameViewModal({
                 ) : null}
 
                 <LemonBanner type="warning" alignItems="start">
-                    Models that read this view are updated with the new name. Endpoints, insights, dashboards,
-                    notebooks, and external systems are not updated and can stop working after the rename.
+                    {references.length
+                        ? 'Views that reference this one are updated with the new name. Endpoints, insights, dashboards, notebooks, and external systems are not updated and can stop working after the rename.'
+                        : 'No other views reference this one. Endpoints, insights, dashboards, notebooks, and external systems are not checked and can stop working after the rename.'}
                 </LemonBanner>
-
-                {submitError ? <p className="text-danger text-sm">{submitError}</p> : null}
             </div>
         </LemonModal>
     )

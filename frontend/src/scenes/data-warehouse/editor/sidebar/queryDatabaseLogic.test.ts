@@ -287,6 +287,19 @@ describe('queryDatabaseLogic', () => {
             logic.unmount()
         })
 
+        it.each([
+            ['orders by week', true],
+            ['orders_by_week', false],
+            ['', false],
+        ])('shows the name error while typing %p', async (name, hasError) => {
+            useRenamePlanMocks([{ dependents: [dependent], plan_token: 'token-1' }], [[200, {}]])
+            const logic = await openAndSubmit()
+
+            logic.actions.setRenameViewName(name)
+            expect(!!logic.values.renameView?.nameError).toBe(hasError)
+            logic.unmount()
+        })
+
         it('loads the new plan when the old one went stale', async () => {
             const renameBodies = useRenamePlanMocks(
                 [
@@ -302,7 +315,7 @@ describe('queryDatabaseLogic', () => {
             expect(renameBodies).toEqual([{ name: 'orders_by_week', plan_token: 'token-1' }])
             expect(logic.values.renameView).toMatchObject({
                 plan: { plan_token: 'token-2' },
-                submitError: 'The models that read this view changed. Review the new changes, then rename again.',
+                submitError: 'The views that reference this one changed. Review the new changes, then rename again.',
             })
             logic.unmount()
         })

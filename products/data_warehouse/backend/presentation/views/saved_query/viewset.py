@@ -196,12 +196,12 @@ class SavedQueryMaterializeSerializer(serializers.Serializer):
 
 RENAME_NAME_HELP_TEXT = "The model's new name."
 RENAME_BLOCKED_DETAIL = (
-    "A model that reads this model cannot be updated, so the rename was not applied. "
+    "A view that references this one cannot be updated, so the rename was not applied. "
     "Request the rename plan to see which one."
 )
 RENAME_NEEDS_EDIT_ACCESS_DETAIL = "You need edit access to every model that reads this model to rename it."
 RENAME_PLAN_STALE_DETAIL = (
-    "The models that read this model changed after the rename plan was made. Request the plan again."
+    "The views that reference this one changed after the rename plan was made. Request the plan again."
 )
 
 
@@ -232,8 +232,8 @@ class SavedQueryRenameBlockedSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Id of the model whose query cannot be updated.")
     name = serializers.CharField(help_text="Name of that model.")
     reason = serializers.CharField(
-        help_text="Why its query cannot be updated: 'does not parse' when the SQL is not valid HogQL, "
-        "or 'parse check failed' when the updated SQL could not be proven equivalent."
+        help_text="Why its query cannot be updated, as a sentence to show the user: the SQL is not valid HogQL, "
+        "or the updated SQL could not be proven equivalent to the original."
     )
 
 

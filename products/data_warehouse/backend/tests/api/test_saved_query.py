@@ -2761,7 +2761,7 @@ class TestSavedQuery(APIBaseTest):
             )
         plan = self.client.post(f"{url}/rename_plan/", {"name": "staging.signups"}).json()
         if case == "blocked_dependent":
-            assert plan["blocked"] == [{"id": str(broken.id), "name": "broken", "reason": "does not parse"}]
+            assert plan["blocked"] == [{"id": str(broken.id), "name": "broken", "reason": "Its query does not parse."}]
         else:
             dependent.query = {"kind": "HogQLQuery", "query": "select id from stg_signups"}
             dependent.query_revision = uuid.uuid4()
