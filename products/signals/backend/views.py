@@ -79,7 +79,7 @@ from posthog.models.github_integration_base import GitHubIntegrationBase, PullRe
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
-from posthog.oauth_provenance import is_sandbox_oauth_request, is_sandbox_origin_request
+from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request, is_sandbox_origin_request
 from posthog.permissions import (
     APIScopePermission,
     get_authenticator_scoped_team_ids,
@@ -271,6 +271,7 @@ from products.signals.backend.report_task_actions import (
     INBOX_REPORT_ACTION_EVENT,
     PULL_REQUEST_ACTION_KINDS,
     PULL_REQUEST_RUN_ACTIVE_DETAIL,
+    ParentRun,
     ReportActionState,
     ReportTaskActionContext,
     ReportTaskActionStartError,
@@ -308,6 +309,13 @@ from products.signals.backend.scout_harness.views import (
     has_skill_editor_access,
 )
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
+from products.signals.backend.scout_report_actions import (
+    REPORT_ACTION_SCOUT_DAILY_CAP,
+    ScoutReportActionGrant,
+    ScoutReportActionRefusal,
+    reserve_scout_report_action,
+    resolve_scout_report_action_grant,
+)
 from products.signals.backend.serializers import (
     AlertPatternPreviewOutcome,
     AlertPatternPreviewRequestSerializer,
@@ -389,7 +397,11 @@ from products.signals.backend.task_attribution import (
     resolve_request_attribution,
 )
 from products.signals.backend.task_profiles import INBOX
-from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded, implementation_in_flight_report_ids
+from products.signals.backend.task_run_artefacts import (
+    ReportTaskCapExceeded,
+    attribute_task_run_to_scout,
+    implementation_in_flight_report_ids,
+)
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications, sync_signals_refund_credit
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingInput,
@@ -4366,7 +4378,9 @@ class SignalReportViewSet(
                 response=SignalReportTaskActionErrorSerializer,
                 description=(
                     "AI data processing is not approved, the request came from a task sandbox, or `implement` "
-                    "needs code access the caller does not have"
+                    "needs code access the caller does not have. A sandbox that is not a scout run gets "
+                    "`report_action_sandbox_refused`. A scout run that was not granted the action gets "
+                    "`report_action_not_granted`, and `get_it_merged` always does."
                 ),
             ),
             404: OpenApiResponse(description="The report has no suggested prompt at that index"),
@@ -4382,7 +4396,8 @@ class SignalReportViewSet(
                 response=SignalReportTaskActionErrorSerializer,
                 description=(
                     "The report reached its task limit (code `signal_report_task_cap`), the per-user creation "
-                    "limit fired (code `throttled`), or the organization reached its usage limit or is deactivated"
+                    "limit fired (code `throttled`), a scout reached its daily report action cap (code "
+                    "`report_action_scout_daily_cap`), or the organization reached its usage limit or is deactivated"
                 ),
             ),
         },
@@ -4393,7 +4408,8 @@ class SignalReportViewSet(
             "of the inbox's Ask AI. `implement` starts the run the inbox's Implement button starts: it claims the "
             "report, and the pull request it opens is attached to the report. The run shows in the report's runs and counts "
             "toward the report's task limit. Nobody can answer questions in a background run, so the agent "
-            "writes a note to the report's work log when it needs a decision."
+            "writes a note to the report's work log when it needs a decision. A task sandbox cannot start an "
+            "action, except a scout run that a person granted the action in the scout's settings."
         ),
         operation_id="signals_reports_actions_run_create",
     )
@@ -4406,17 +4422,22 @@ class SignalReportViewSet(
         throttle_classes=[ReportTaskActionRunBurstThrottle, ReportTaskActionRunSustainedThrottle],
     )
     def run_task_action(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        data = request.validated_data
+        kind = ReportTaskActionKind(data["action"])
+        scout_grant: ScoutReportActionGrant | None = None
         if is_sandbox_origin_request(request):
-            return self._task_action_error(
-                "report_action_sandbox_refused",
-                "A task sandbox cannot start report actions.",
-                status.HTTP_403_FORBIDDEN,
+            resolved = resolve_scout_report_action_grant(
+                sandbox_task_id=getattr(get_oauth_access_token(request), "sandbox_task_id", None),
+                team_id=self.team.parent_team_id or self.team.id,
+                kind=kind,
+                message=data.get("message"),
             )
+            if isinstance(resolved, ScoutReportActionRefusal):
+                return self._task_action_error(resolved.code, resolved.detail, status.HTTP_403_FORBIDDEN)
+            scout_grant = resolved
         report = cast(SignalReport, self.get_object())
         user = cast(User, request.user)
         context = ReportTaskActionContext(team=self.team, user=user)
-        data = request.validated_data
-        kind = ReportTaskActionKind(data["action"])
         repository = data.get("repository")
         state = ReportActionState.read(report)
         report_action = resolve_report_task_action(
@@ -4436,7 +4457,12 @@ class SignalReportViewSet(
                 user,
                 INBOX_REPORT_ACTION_EVENT,
                 inbox_report_action_properties(
-                    report, report_action, outcome=outcome, state=state, limit_code=limit_code
+                    report,
+                    report_action,
+                    outcome=outcome,
+                    state=state,
+                    limit_code=limit_code,
+                    scout_skill_name=scout_grant.skill_name if scout_grant is not None else None,
                 ),
                 team=self.team,
                 organization=self.organization,
@@ -4486,6 +4512,17 @@ class SignalReportViewSet(
                 str(limit_response.data["code"]), str(limit_response.data["error"]), limit_response.status_code
             )
 
+        if scout_grant is not None and (
+            refusal := reserve_scout_report_action(scout_grant, report_id=str(report.id), kind=kind)
+        ):
+            daily_cap = refusal.code == REPORT_ACTION_SCOUT_DAILY_CAP
+            capture("limited" if daily_cap else "blocked", refusal.code)
+            return self._task_action_error(
+                refusal.code,
+                refusal.detail,
+                status.HTTP_429_TOO_MANY_REQUESTS if daily_cap else status.HTTP_403_FORBIDDEN,
+            )
+
         if kind == ReportTaskActionKind.IMPLEMENT:
             # An implementation always works in a repository, so it needs code access, the same rule the
             # tasks create endpoint applies to Create PR.
@@ -4513,13 +4550,29 @@ class SignalReportViewSet(
             # create endpoint applies to an inbox discussion.
             code_access_allowed = code_access_required_response(request, self.organization) is None
         try:
-            started = start_report_task_action(context, report, report_action, code_access_allowed=code_access_allowed)
+            started = start_report_task_action(
+                context,
+                report,
+                report_action,
+                code_access_allowed=code_access_allowed,
+                parent=ParentRun(task_id=scout_grant.task_id, run_id=scout_grant.task_run_id)
+                if scout_grant is not None
+                else None,
+            )
         except ReportTaskCapExceeded as error:
             capture("limited", "signal_report_task_cap")
             return self._task_action_error("signal_report_task_cap", error.detail, status.HTTP_429_TOO_MANY_REQUESTS)
         except ReportTaskActionStartError as error:
             capture("failure")
             return self._task_action_error(error.code, error.detail, status.HTTP_400_BAD_REQUEST)
+        if scout_grant is not None:
+            attribute_task_run_to_scout(
+                team_id=report.team_id,
+                report_id=str(report.id),
+                task_id=started.task_id,
+                skill_name=scout_grant.skill_name,
+                scout_run_id=scout_grant.scout_run_id,
+            )
         capture("failure" if started.run_error else "success")
         return Response(
             SignalReportTaskActionRunResponseSerializer(
