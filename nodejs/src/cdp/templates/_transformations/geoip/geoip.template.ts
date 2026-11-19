@@ -119,7 +119,7 @@ return returnEvent
             type: 'choice',
             label: 'Coordinate precision',
             description:
-                'How precise the latitude and longitude are on the event and on the person. Initial coordinates that a person profile already stores stay as they are.',
+                'How precise the latitude and longitude from the GeoIP lookup are, on the event and on the person. Initial coordinates that a person profile already stores stay as they are.',
             default: 'full',
             required: false,
             choices: [
