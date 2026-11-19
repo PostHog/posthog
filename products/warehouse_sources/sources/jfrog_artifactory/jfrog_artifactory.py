@@ -55,6 +55,11 @@ MAX_TRANSFER_SECONDS = 600
 RESPONSE_CHUNK_BYTES = 256 * 1024
 RESPONSE_LIMIT_ERROR = "JFrog response exceeded a transfer limit"
 
+# Related-domain rows repeat their parent fields, so one capped response can expand far past its byte
+# size. Yield related rows in batches bounded by their expanded size, so the pipeline never converts
+# one oversized list to Arrow.
+RELATED_BATCH_MAX_BYTES = 16 * 1024 * 1024
+
 
 class JfrogArtifactoryRetryableError(Exception):
     pass
@@ -342,6 +347,10 @@ def flatten_related(config: JfrogArtifactoryEndpointConfig, item: dict[str, Any]
     yield from _walk_related(item, config.aql_related_path, row)
 
 
+def _expanded_row_bytes(row: dict[str, Any]) -> int:
+    return sum(len(key) + (len(value) if isinstance(value, str) else 8) for key, value in row.items())
+
+
 def _fetch_related(
     session: requests.Session,
     base_url: str,
@@ -370,6 +379,7 @@ def _fetch_related(
         return
 
     rows: list[dict[str, Any]] = []
+    rows_bytes = 0
     seen: set[tuple[Any, ...]] = set()
     for item in data.get("results", []):
         for row in flatten_related(config, item):
@@ -378,6 +388,10 @@ def _fetch_related(
                 continue
             seen.add(key)
             rows.append(row)
+            rows_bytes += _expanded_row_bytes(row)
+            if rows_bytes >= RELATED_BATCH_MAX_BYTES:
+                yield rows
+                rows, rows_bytes = [], 0
     if rows:
         yield rows
 

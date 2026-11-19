@@ -410,6 +410,35 @@ class TestGetRowsAqlRelated:
 
         assert [(r["module_name"], r["name"]) for r in rows] == [("core", "lib")]
 
+    def test_expanded_related_rows_are_yielded_in_bounded_batches(self, monkeypatch: Any) -> None:
+        # Each property row repeats its artifact's fields, so a small response can expand far past the
+        # response cap; one unbounded list would be converted to Arrow in a single step.
+        monkeypatch.setattr(jfrog_artifactory, "RELATED_BATCH_MAX_BYTES", 10_000)
+        config = JFROG_ARTIFACTORY_ENDPOINTS["artifact_properties"]
+        long_name = "a" * 2_000 + ".jar"
+        parent = {"repo": "libs", "path": "com/acme", "name": long_name, "created": "2026-01-01"}
+        properties = [{"property.key": f"k{i}", "property.value": "v"} for i in range(50)]
+        _patch_related_aql(
+            monkeypatch,
+            {build_aql_query(config, offset=0): {"results": [parent]}},
+            lambda q: {"results": [{**parent, "properties": properties}]},
+        )
+
+        batches = list(
+            get_rows(
+                base_url="https://acme.jfrog.io",
+                access_token="token",
+                endpoint="artifact_properties",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            )
+        )
+
+        assert len(batches) > 1
+        row_bytes = jfrog_artifactory._expanded_row_bytes(batches[0][0])
+        assert all(sum(map(jfrog_artifactory._expanded_row_bytes, b)) < 10_000 + row_bytes for b in batches)
+        assert [r["key"] for b in batches for r in b] == [f"k{i}" for i in range(50)]
+
 
 def _violation(created: str) -> dict:
     return {"issue_id": "XRAY-1", "created": created, "violation_details_url": f"https://x/{created}"}
