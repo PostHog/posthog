@@ -1,22 +1,22 @@
-"""Map Arrow types onto Postgres column types.
+"""Map Arrow types and logical types onto Postgres column types.
 
-STRICT raises on any type outside the event and person shapes. PERMISSIVE stores every type
-somehow: nested values go to JSONB and unknown types go to TEXT.
+A type pinned in `TableTarget.column_types` wins. Otherwise STRICT maps the types below and
+raises `ColumnTypeMappingError` (DATA kind) for any other type, and PERMISSIVE stores every
+type: nested values go to JSONB and unknown types go to TEXT.
+
+STRICT supports: JSON extension types, strings, integers, floats, booleans, timestamps and
+lists of strings.
 """
 
-import re
 from collections.abc import Mapping
 
 import pyarrow as pa
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_destinations.backend.core.json_type import JsonType
-from products.warehouse_destinations.backend.destinations.postgres.errors import (
-    ColumnTypeMappingError,
-    PostgreSQLInvalidTargetError,
-)
-from products.warehouse_destinations.backend.facade.enums import TypePolicy
+from products.warehouse_destinations.backend.core.json_type import is_json_type
+from products.warehouse_destinations.backend.destinations.postgres.errors import ColumnTypeMappingError
+from products.warehouse_destinations.backend.facade.enums import LogicalType, TypePolicy
 
 
 @frozen
@@ -48,18 +48,6 @@ _PERMISSIVE_BY_ARROW_TYPE = {
     pa.date64(): "DATE",
 }
 
-# Overrides go into DDL as SQL text, so only known type names, a numeric modifier, a time zone
-# clause and array brackets can pass.
-_BASE_TYPES = (
-    "SMALLINT|INTEGER|INT|INT2|INT4|INT8|BIGINT|REAL|FLOAT4|FLOAT8|DOUBLE PRECISION|NUMERIC|DECIMAL|"
-    "BOOLEAN|BOOL|TEXT|VARCHAR|CHARACTER VARYING|CHARACTER|CHAR|BYTEA|DATE|TIME|TIMETZ|TIMESTAMP|"
-    "TIMESTAMPTZ|INTERVAL|JSON|JSONB|UUID|INET|CIDR|MACADDR|MONEY|XML"
-)
-_OVERRIDE_TYPE_PATTERN = re.compile(
-    rf"(?:{_BASE_TYPES})(?: ?\(\d{{1,4}}(?: ?, ?\d{{1,4}})?\))?(?: WITH(?:OUT)? TIME ZONE)?(?:\[\])*",
-    re.IGNORECASE,
-)
-
 
 def is_nested_type(arrow_type: pa.DataType) -> bool:
     return (
@@ -70,16 +58,31 @@ def is_nested_type(arrow_type: pa.DataType) -> bool:
     )
 
 
-def validate_override_type(column: str, column_type: str) -> str:
-    """Return `column_type` with its whitespace collapsed, or raise when it is not an allowed type."""
-    normalized = " ".join(column_type.split())
-    if not _OVERRIDE_TYPE_PATTERN.fullmatch(normalized):
-        raise PostgreSQLInvalidTargetError(f"Column override for '{column}' is not an allowed Postgres type")
-    return normalized
+_BY_LOGICAL_TYPE: dict[LogicalType, str] = {
+    LogicalType.TEXT: "TEXT",
+    LogicalType.BOOLEAN: "BOOLEAN",
+    LogicalType.INT32: "INTEGER",
+    LogicalType.INT64: "BIGINT",
+    LogicalType.FLOAT64: "DOUBLE PRECISION",
+    LogicalType.DECIMAL: "NUMERIC",
+    LogicalType.DATE: "DATE",
+    LogicalType.TIMESTAMP: "TIMESTAMP",
+    LogicalType.TIMESTAMP_TZ: "TIMESTAMPTZ",
+    LogicalType.JSON: "JSONB",
+    LogicalType.BINARY: "BYTEA",
+    LogicalType.UUID: "UUID",
+}
+
+
+def logical_type_for(logical_type: LogicalType, arrow_type: pa.DataType) -> str:
+    """The Postgres type for `logical_type`. A DECIMAL keeps the precision of an Arrow decimal."""
+    if logical_type == LogicalType.DECIMAL and pa.types.is_decimal(arrow_type):
+        return f"NUMERIC({arrow_type.precision}, {arrow_type.scale})"
+    return _BY_LOGICAL_TYPE[logical_type]
 
 
 def strict_type_for(name: str, arrow_type: pa.DataType) -> str:
-    if isinstance(arrow_type, JsonType):
+    if is_json_type(arrow_type):
         return "JSONB"
     if pa.types.is_string(arrow_type):
         return "TEXT"
@@ -97,7 +100,7 @@ def strict_type_for(name: str, arrow_type: pa.DataType) -> str:
 
 
 def permissive_type_for(arrow_type: pa.DataType) -> str:
-    if isinstance(arrow_type, JsonType):
+    if is_json_type(arrow_type):
         return "JSONB"
 
     mapped = _PERMISSIVE_BY_ARROW_TYPE.get(arrow_type)
@@ -121,19 +124,13 @@ def permissive_type_for(arrow_type: pa.DataType) -> str:
 
 
 def resolve_columns(
-    schema: pa.Schema, type_policy: TypePolicy, column_overrides: Mapping[str, str]
+    schema: pa.Schema, type_policy: TypePolicy, column_types: Mapping[str, LogicalType]
 ) -> tuple[PostgresColumn, ...]:
-    """Return the Postgres column for each field of `schema`.
-
-    An override wins over the policy for its column. Every override is validated, also when its
-    column is not in `schema`.
-    """
-    overrides = {name: validate_override_type(name, value) for name, value in column_overrides.items()}
-
+    """Return the Postgres column for each field of `schema`. A pinned type wins over the policy."""
     columns = []
     for field in schema:
-        if field.name in overrides:
-            column_type = overrides[field.name]
+        if field.name in column_types:
+            column_type = logical_type_for(column_types[field.name], field.type)
         elif type_policy == TypePolicy.STRICT:
             column_type = strict_type_for(field.name, field.type)
         else:

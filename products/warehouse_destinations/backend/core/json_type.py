@@ -1,4 +1,4 @@
-"""Arrow extension type for JSON strings."""
+"""Arrow extension type for JSON strings, and how to recognize any JSON extension type."""
 
 import re
 import typing
@@ -6,9 +6,18 @@ import typing
 import orjson
 import pyarrow as pa
 
-from posthog.temporal.common.logger import get_write_only_logger
+from products.warehouse_destinations.backend.core.loggers import get_write_only_logger
 
 LOGGER = get_write_only_logger(__name__)
+
+# Callers build batches with their own extension class, so a JSON column is recognized by the
+# extension name, never by class. "arrow.json" is the Arrow canonical JSON extension.
+JSON_EXTENSION_NAMES = frozenset({"json", "arrow.json"})
+
+
+def is_json_type(arrow_type: pa.DataType) -> bool:
+    """Whether `arrow_type` is a JSON extension type, from any class."""
+    return isinstance(arrow_type, pa.BaseExtensionType) and arrow_type.extension_name in JSON_EXTENSION_NAMES
 
 
 class JsonScalar(pa.ExtensionScalar):

@@ -1,9 +1,15 @@
-"""Find the connection settings of a Postgres destination."""
+"""Find the connection settings of a Postgres destination.
+
+`DestinationConnection.config` keys this destination reads:
+
+- `database` (required): the database to connect to. Target namespaces are schemas in it.
+- `host` and `port`: required when the connection has no integration.
+- `ssl_mode`: the TLS mode of a connection without an integration. One of `prefer`, `require`,
+  `verify-ca` and `verify-full`; the default is `require`. An integration sets its own mode.
+"""
 
 import typing
 from dataclasses import field
-
-from django.conf import settings
 
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager, IntegrationNotFound
@@ -16,6 +22,7 @@ from products.warehouse_destinations.backend.destinations.postgres.errors import
 from products.warehouse_destinations.backend.facade.contracts import DestinationConnection
 
 SSLMode = typing.Literal["prefer", "require", "verify-ca", "verify-full"]
+DEFAULT_SSL_MODE: SSLMode = "require"
 
 
 @frozen
@@ -58,7 +65,10 @@ class _InlineInputs:
         return Authority(host, int(port))
 
     def tls(self) -> TLS:
-        return TLS(ssl_mode="prefer" if settings.TEST else "require")
+        ssl_mode = self._connection.config.get("ssl_mode", DEFAULT_SSL_MODE)
+        if ssl_mode not in typing.get_args(SSLMode):
+            raise ValueError(f"Unsupported ssl_mode '{ssl_mode}'")
+        return TLS(ssl_mode=ssl_mode)
 
 
 async def _get_postgresql_integration(connection: DestinationConnection) -> PostgreSQLIntegration | None:
@@ -71,7 +81,8 @@ async def _get_postgresql_integration(connection: DestinationConnection) -> Post
         )
     except IntegrationNotFound:
         raise PostgreSQLIntegrationNotFoundError(
-            f"PostgreSQL integration with id '{connection.integration_id}' not found"
+            f"PostgreSQL integration with id '{connection.integration_id}' not found",
+            detail="The destination's connection details no longer exist. Connect the destination again.",
         ) from None
     return PostgreSQLIntegration(integration)
 

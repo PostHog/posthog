@@ -25,16 +25,16 @@ RECORDS = [
         "id": 1,
         "event": "pageview",
         "properties": '{"path": "/", "count": 1}',
-        "_inserted_at": dt.datetime(2026, 1, 1, tzinfo=dt.UTC),
+        "loaded_at": dt.datetime(2026, 1, 1, tzinfo=dt.UTC),
     },
     {
         "id": 2,
         "event": "signup",
         "properties": "{}",
-        "_inserted_at": dt.datetime(2026, 1, 2, tzinfo=dt.UTC),
+        "loaded_at": dt.datetime(2026, 1, 2, tzinfo=dt.UTC),
     },
 ]
-FIELD_NAMES = ["id", "event", "_inserted_at"]
+FIELD_NAMES = ["id", "event", "loaded_at"]
 
 
 def _record_batch() -> pa.RecordBatch:
@@ -79,7 +79,7 @@ def _recording_factory(calls: list[dict[str, typing.Any]]):
 
 @pytest.mark.parametrize("delimiter", [",", "\t"])
 async def test_csv_stream_transformer_writes_rows(delimiter: str) -> None:
-    transformer = CSVStreamTransformer(field_names=FIELD_NAMES, delimiter=delimiter)
+    transformer = CSVStreamTransformer(field_names=FIELD_NAMES, delimiter=delimiter, exclude_columns=("loaded_at",))
 
     chunks = await _collect(transformer.iter(_batches(_record_batch())))
 
@@ -88,8 +88,8 @@ async def test_csv_stream_transformer_writes_rows(delimiter: str) -> None:
     assert rows == [["1", "pageview"], ["2", "signup"]]
 
 
-async def test_csv_stream_transformer_includes_inserted_at_when_asked() -> None:
-    transformer = CSVStreamTransformer(field_names=FIELD_NAMES, include_inserted_at=True)
+async def test_csv_stream_transformer_keeps_every_column_by_default() -> None:
+    transformer = CSVStreamTransformer(field_names=FIELD_NAMES)
 
     chunks = await _collect(transformer.iter(_batches(_record_batch())))
 
@@ -98,7 +98,7 @@ async def test_csv_stream_transformer_includes_inserted_at_when_asked() -> None:
 
 
 async def test_jsonl_stream_transformer_decodes_json_columns() -> None:
-    transformer = JSONLStreamTransformer(max_workers=1)
+    transformer = JSONLStreamTransformer(max_workers=1, exclude_columns=("loaded_at",))
 
     chunks = await _collect(transformer.iter(_batches(_record_batch())))
 
@@ -114,6 +114,7 @@ async def test_parquet_stream_transformer_writes_rows(record: bool) -> None:
     calls: list[dict[str, typing.Any]] = []
     transformer = ParquetStreamTransformer(
         max_buffered_arrow_bytes=1,
+        exclude_columns=("loaded_at",),
         execution_time_recorder=_recording_factory(calls) if record else None,
     )
     batch = _record_batch()
@@ -144,8 +145,47 @@ async def test_serialized_stream_transformer_records_each_batch() -> None:
         )
         chunks = await _collect(transformer.iter(_batches(batch, batch)))
 
-    schema = batch.schema.remove(batch.schema.get_field_index("_inserted_at"))
-    restored = [pa.ipc.read_record_batch(pa.py_buffer(c.data), schema) for c in chunks if c.data]
+    restored = [pa.ipc.read_record_batch(pa.py_buffer(c.data), batch.schema) for c in chunks if c.data]
     assert [b.column("id").to_pylist() for b in restored] == [[1, 2], [1, 2]]
     assert [call["bytes"] for call in calls] == [batch.nbytes, batch.nbytes]
     assert all(call["histogram_name"] == "serialized_transformer_record_batch_transform_duration" for call in calls)
+
+
+@pytest.mark.parametrize(
+    "list_formatter, expected",
+    [
+        (None, '["a", "b"]'),
+        (lambda values: "{" + ",".join(values) + "}", "{a,b}"),
+    ],
+)
+async def test_csv_stream_transformer_renders_lists_with_the_formatter(list_formatter, expected: str) -> None:
+    kwargs = {} if list_formatter is None else {"list_formatter": list_formatter}
+    transformer = CSVStreamTransformer(field_names=["tags"], **kwargs)
+    batch = pa.RecordBatch.from_pylist([{"tags": ["a", "b"]}])
+
+    chunks = await _collect(transformer.iter(_batches(batch)))
+
+    assert list(csv.reader(io.StringIO(b"".join(c.data for c in chunks).decode()), escapechar="\\")) == [[expected]]
+
+
+@pytest.mark.parametrize(
+    "properties_type, json_columns",
+    [
+        (JsonType(), ()),
+        (pa.json_(), ()),
+        (pa.string(), ("properties",)),
+    ],
+)
+async def test_parquet_stream_transformer_skips_statistics_for_json_columns(
+    properties_type: pa.DataType, json_columns: tuple[str, ...]
+) -> None:
+    batch = pa.RecordBatch.from_pydict(
+        {"id": [1], "properties": pa.array(['{"a": 1}'], type=pa.string()).cast(properties_type)}
+    )
+    transformer = ParquetStreamTransformer(json_columns=json_columns)
+
+    chunks = await _collect(transformer.iter(_batches(batch)))
+
+    row_group = pq.ParquetFile(io.BytesIO(b"".join(c.data for c in chunks))).metadata.row_group(0)
+    assert row_group.column(0).statistics is not None
+    assert row_group.column(1).statistics is None

@@ -5,7 +5,7 @@ import pytest
 
 import pyarrow as pa
 
-from products.warehouse_destinations.backend.core.json_type import JsonType
+from products.warehouse_destinations.backend.core.json_type import JsonType, is_json_type
 
 
 @pytest.mark.parametrize(
@@ -43,3 +43,42 @@ def test_json_type_survives_pickle_round_trip() -> None:
 def test_json_type_instances_are_equal_and_hash_equal() -> None:
     assert JsonType() == JsonType()
     assert len({JsonType(), JsonType()}) == 1
+
+
+class _OtherJsonType(pa.ExtensionType):
+    def __init__(self) -> None:
+        super().__init__(pa.string(), "json")
+
+    def __arrow_ext_serialize__(self) -> bytes:
+        return b""
+
+    @classmethod
+    def __arrow_ext_deserialize__(cls, storage_type: pa.DataType, serialized: bytes) -> "_OtherJsonType":
+        return cls()
+
+
+class _NotJsonType(pa.ExtensionType):
+    def __init__(self) -> None:
+        super().__init__(pa.string(), "geojson")
+
+    def __arrow_ext_serialize__(self) -> bytes:
+        return b""
+
+    @classmethod
+    def __arrow_ext_deserialize__(cls, storage_type: pa.DataType, serialized: bytes) -> "_NotJsonType":
+        return cls()
+
+
+@pytest.mark.parametrize(
+    "arrow_type, expected",
+    [
+        (JsonType(), True),
+        (_OtherJsonType(), True),
+        (pa.json_(), True),
+        (_NotJsonType(), False),
+        (pa.string(), False),
+        (pa.struct([("a", pa.int64())]), False),
+    ],
+)
+def test_is_json_type_matches_by_extension_name(arrow_type: pa.DataType, expected: bool) -> None:
+    assert is_json_type(arrow_type) is expected

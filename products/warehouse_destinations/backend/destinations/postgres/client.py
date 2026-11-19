@@ -389,7 +389,14 @@ class PostgreSQLClient:
         columns: collections.abc.Sequence[PostgresColumn],
         exists_ok: bool = True,
         primary_key: collections.abc.Sequence[str] | None = None,
+        comment: str | None = None,
+        lock_key: str | None = None,
     ) -> None:
+        """Create a table, and set its comment in the same transaction.
+
+        With `lock_key`, the transaction first takes that advisory lock, so that concurrent
+        creates of the same table wait for each other instead of failing on the catalog.
+        """
         base_query = (
             "CREATE TABLE IF NOT EXISTS {table} ({fields}{pkey})"
             if exists_ok
@@ -402,7 +409,7 @@ class PostgreSQLClient:
         )
         query = sql.SQL(base_query).format(
             table=sql.Identifier(schema, table_name),
-            # Column types are validated in `types.py` before they reach here.
+            # Column types come from the fixed mappings in `types.py`, never from caller text.
             fields=sql.SQL(",").join(
                 sql.SQL("{field} {type}").format(field=sql.Identifier(column.name), type=sql.SQL(column.type))
                 for column in columns
@@ -411,7 +418,23 @@ class PostgreSQLClient:
         )
 
         async with self.write_cursor() as cursor:
+            if lock_key is not None:
+                await self.advisory_lock(cursor, lock_key)
             await cursor.execute(query)
+            if comment is not None:
+                await self.set_comment(cursor, schema, table_name, comment)
+
+    @staticmethod
+    async def advisory_lock(cursor: psycopg.AsyncCursor, key: str) -> None:
+        """Take a transaction-level advisory lock on `key`."""
+        await cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (key,))
+
+    @staticmethod
+    async def set_comment(cursor: psycopg.AsyncCursor, schema: str, table_name: str, comment: str) -> None:
+        # COMMENT ON takes only a string literal, not a bind parameter. `sql.Literal` quotes it.
+        await cursor.execute(
+            sql.SQL("COMMENT ON TABLE {} IS {}").format(sql.Identifier(schema, table_name), sql.Literal(comment))
+        )
 
     async def adelete_table(self, schema: str, table_name: str, not_found_ok: bool = True) -> None:
         base_query = "DROP TABLE IF EXISTS {table}" if not_found_ok else "DROP TABLE {table}"
@@ -527,8 +550,14 @@ class PostgreSQLClient:
         )
 
     async def _amerge_once(
-        self, merge_query: sql.Composed, after: collections.abc.Sequence[sql.Composed], lock_timeout: float
-    ) -> None:
+        self,
+        merge_query: sql.Composed,
+        stage_table: sql.Identifier,
+        stage_name: str,
+        after: collections.abc.Sequence[sql.Composed],
+        lock_key: str | None,
+        lock_timeout: float,
+    ) -> bool:
         async with self.write_cursor() as cursor:
             # The nested transaction is a savepoint. When the server rejects the SET, only the
             # savepoint rolls back and the merge runs without a lock limit.
@@ -540,9 +569,21 @@ class PostgreSQLClient:
             except psycopg.Error:
                 self.logger.warning("Failed to set lock_timeout for merge", exc_info=True)
 
+            if lock_key is not None:
+                await self.advisory_lock(cursor, lock_key)
+            # Another commit can have dropped the stage table while this one waited for the lock.
+            await cursor.execute("SELECT to_regclass(%s)", (stage_name,))
+            row = await cursor.fetchone()
+            if row is None or row[0] is None:
+                return False
+
+            # Writes into the stage wait until the merge and the cleanup commit, so no row can
+            # arrive after the merge read the stage and before the cleanup removed it.
+            await cursor.execute(sql.SQL("LOCK TABLE {} IN ACCESS EXCLUSIVE MODE").format(stage_table))
             await cursor.execute(merge_query)
             for statement in after:
                 await cursor.execute(statement)
+            return True
 
     async def amerge_mutable_tables(
         self,
@@ -553,17 +594,20 @@ class PostgreSQLClient:
         update_key: collections.abc.Sequence[str],
         columns: collections.abc.Sequence[str],
         dedupe_order_by: sql.Composable | None = None,
-        drop_stage: bool = False,
+        stage_after: typing.Literal["drop", "truncate"] | None = None,
+        lock_key: str | None = None,
         timeout: float | None = None,
         lock_timeout: float = MERGE_LOCK_TIMEOUT_SECONDS,
         max_attempts: int = MERGE_MAX_ATTEMPTS,
-    ) -> None:
+    ) -> bool:
         """Upsert the stage table into the final table with `INSERT INTO ... ON CONFLICT`.
 
         With `update_key`, a matched row changes only when one of those columns increases. With
         `dedupe_order_by`, only the first row of each merge key in that order is merged. With
-        `drop_stage`, the stage table is dropped in the merge transaction, so the merge and the
-        drop happen together or not at all.
+        `stage_after`, the stage table is dropped or emptied in the merge transaction, so the
+        merge and the cleanup happen together or not at all. With `lock_key`, merges with the
+        same key run one after another. Returns False, and merges nothing, when the stage table
+        does not exist.
 
         Postgres 15 has `MERGE`, but `INSERT ... ON CONFLICT` works on older versions too.
         """
@@ -577,7 +621,12 @@ class PostgreSQLClient:
             columns=columns,
             dedupe_order_by=dedupe_order_by,
         )
-        after = [sql.SQL("DROP TABLE {}").format(stage_table)] if drop_stage else []
+        after = {
+            "drop": [sql.SQL("DROP TABLE {}").format(stage_table)],
+            "truncate": [sql.SQL("TRUNCATE TABLE {}").format(stage_table)],
+            None: [],
+        }[stage_after]
+        stage_name = sql.Identifier(schema, stage_table_name).as_string()
         merge_with_retries = make_retryable_with_exponential_backoff(
             self._amerge_once,
             max_attempts=max_attempts,
@@ -587,7 +636,7 @@ class PostgreSQLClient:
 
         try:
             async with asyncio.timeout(timeout):
-                await merge_with_retries(merge_query, after, lock_timeout)
+                return await merge_with_retries(merge_query, stage_table, stage_name, after, lock_key, lock_timeout)
         except psycopg.errors.InvalidColumnReference:
             raise MissingPrimaryKeyError(f"{schema}.{final_table_name}", tuple(merge_key))
         except TimeoutError as e:

@@ -4,6 +4,8 @@ import pytest
 
 from products.warehouse_destinations.backend import tests as tests_package
 from products.warehouse_destinations.backend.facade.contracts import UnsupportedDestinationError
+from products.warehouse_destinations.backend.facade.enums import DestinationType, ErrorKind
+from products.warehouse_destinations.backend.facade.testing import FakeDestination
 from products.warehouse_destinations.backend.logic import registry
 from products.warehouse_destinations.backend.tests import fake_destinations
 
@@ -12,84 +14,83 @@ FAKE_MODULE = "products.warehouse_destinations.backend.tests.fake_destinations"
 pytestmark = pytest.mark.usefixtures("empty_registry")
 
 
-def _other_factory(connection, *, logger=None):
-    return fake_destinations.FakeDestination(connection, logger=logger)
+def _builtin(factory: str = "build_fake_destination", capabilities: str = "CAPABILITIES") -> registry._Builtin:
+    return registry._Builtin(factory=f"{FAKE_MODULE}:{factory}", capabilities=f"{FAKE_MODULE}:{capabilities}")
 
 
-def test_resolve_returns_registered_factory() -> None:
-    registry.register("Fake", fake_destinations.build_fake_destination)
+@pytest.mark.parametrize("lookup", [registry.resolve, registry.capabilities_for])
+def test_unknown_type_is_a_configuration_error(lookup) -> None:
+    with pytest.raises(UnsupportedDestinationError, match="Unsupported destination type") as exc_info:
+        lookup(DestinationType.SNOWFLAKE)
 
-    assert registry.resolve("Fake") is fake_destinations.build_fake_destination
-
-
-def test_register_rejects_duplicate() -> None:
-    registry.register("Fake", fake_destinations.build_fake_destination)
-
-    with pytest.raises(ValueError, match="already registered for destination type 'Fake'"):
-        registry.register("Fake", _other_factory)
-
-    assert registry.resolve("Fake") is fake_destinations.build_fake_destination
+    assert exc_info.value.kind == ErrorKind.CONFIGURATION
+    assert exc_info.value.detail is not None
 
 
-def test_register_with_replace_overrides() -> None:
-    registry.register("Fake", fake_destinations.build_fake_destination)
-    registry.register("Fake", _other_factory, replace=True)
-
-    assert registry.resolve("Fake") is _other_factory
-
-
-def test_register_rejects_type_that_has_a_builtin() -> None:
-    registry._BUILTIN_FACTORIES["Fake"] = f"{FAKE_MODULE}:build_fake_destination"
-
-    with pytest.raises(ValueError, match="already registered"):
-        registry.register("Fake", _other_factory)
-
-    registry.register("Fake", _other_factory, replace=True)
-    assert registry.resolve("Fake") is _other_factory
-
-
-@pytest.mark.parametrize("destination_type", ["Unknown", "", "fake"])
-def test_resolve_unknown_type_raises(destination_type: str) -> None:
-    registry.register("Fake", fake_destinations.build_fake_destination)
-
-    with pytest.raises(UnsupportedDestinationError, match="Unsupported destination type"):
-        registry.resolve(destination_type)
-
-
-def test_resolve_imports_builtin_on_first_use(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_builtin_resolves_lazily_by_import_path(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delitem(sys.modules, FAKE_MODULE)
     monkeypatch.delattr(tests_package, "fake_destinations")
-    registry._BUILTIN_FACTORIES["Fake"] = f"{FAKE_MODULE}:build_fake_destination"
+    registry._BUILTINS[DestinationType.SNOWFLAKE] = _builtin()
 
     assert FAKE_MODULE not in sys.modules
-    factory = registry.resolve("Fake")
+    factory = registry.resolve(DestinationType.SNOWFLAKE)
 
-    assert FAKE_MODULE in sys.modules
     assert factory is sys.modules[FAKE_MODULE].build_fake_destination
+    assert registry.capabilities_for(DestinationType.SNOWFLAKE) is sys.modules[FAKE_MODULE].CAPABILITIES
 
 
 @pytest.mark.parametrize(
-    "import_path, error, match",
+    "builtin, lookup, error, match",
     [
-        ("no_separator", ValueError, "must look like"),
-        (f"{FAKE_MODULE}:", ValueError, "must look like"),
-        (":build_fake_destination", ValueError, "must look like"),
-        (f"{FAKE_MODULE}:missing_attribute", AttributeError, "missing_attribute"),
-        (f"{FAKE_MODULE}:NOT_CALLABLE", TypeError, "is not callable"),
-        ("products.warehouse_destinations.no_such_module:factory", ModuleNotFoundError, "no_such_module"),
+        (registry._Builtin(factory="no_separator", capabilities=""), registry.resolve, ValueError, "must look like"),
+        (_builtin(factory="missing_attribute"), registry.resolve, AttributeError, "missing_attribute"),
+        (_builtin(factory="NOT_CALLABLE"), registry.resolve, TypeError, "is not callable"),
+        (_builtin(capabilities="NOT_CAPABILITIES"), registry.capabilities_for, TypeError, "not DestinationCapab"),
+        (
+            registry._Builtin(factory="products.warehouse_destinations.no_such_module:f", capabilities=""),
+            registry.resolve,
+            ModuleNotFoundError,
+            "no_such_module",
+        ),
     ],
 )
-def test_resolve_rejects_bad_builtin_path(import_path: str, error: type[Exception], match: str) -> None:
-    registry._BUILTIN_FACTORIES["Fake"] = import_path
+def test_bad_builtin_paths_raise(builtin, lookup, error: type[Exception], match: str) -> None:
+    registry._BUILTINS[DestinationType.SNOWFLAKE] = builtin
 
     with pytest.raises(error, match=match):
-        registry.resolve("Fake")
+        lookup(DestinationType.SNOWFLAKE)
 
 
-def test_registered_types_lists_registered_and_builtin_types_once() -> None:
-    registry._BUILTIN_FACTORIES["Postgres"] = f"{FAKE_MODULE}:build_fake_destination"
-    registry._BUILTIN_FACTORIES["BigQuery"] = f"{FAKE_MODULE}:build_fake_destination"
-    registry.register("Fake", fake_destinations.build_fake_destination)
-    registry.register("Postgres", fake_destinations.build_fake_destination, replace=True)
+def test_override_wins_over_the_builtin_and_restores_it() -> None:
+    registry._BUILTINS[DestinationType.SNOWFLAKE] = _builtin()
+    outer = FakeDestination()
+    inner = FakeDestination()
 
-    assert registry.registered_types() == ("BigQuery", "Fake", "Postgres")
+    with registry.override(DestinationType.SNOWFLAKE, outer):
+        with registry.override(DestinationType.SNOWFLAKE, inner):
+            assert registry.resolve(DestinationType.SNOWFLAKE) is inner
+        assert registry.resolve(DestinationType.SNOWFLAKE) is outer
+        assert registry.capabilities_for(DestinationType.SNOWFLAKE) is outer.capabilities
+
+    assert registry.resolve(DestinationType.SNOWFLAKE) is fake_destinations.build_fake_destination
+
+
+def test_override_restores_after_an_error() -> None:
+    with pytest.raises(RuntimeError):
+        with registry.override(DestinationType.BIGQUERY, FakeDestination()):
+            raise RuntimeError
+
+    assert registry.registered_types() == ()
+
+
+def test_registered_types_lists_builtins_and_overrides_once_sorted() -> None:
+    registry._BUILTINS[DestinationType.SNOWFLAKE] = _builtin()
+    registry._BUILTINS[DestinationType.BIGQUERY] = _builtin()
+
+    with registry.override(DestinationType.SNOWFLAKE, FakeDestination()):
+        with registry.override(DestinationType.AZURE_BLOB, FakeDestination()):
+            assert registry.registered_types() == (
+                DestinationType.AZURE_BLOB,
+                DestinationType.BIGQUERY,
+                DestinationType.SNOWFLAKE,
+            )
