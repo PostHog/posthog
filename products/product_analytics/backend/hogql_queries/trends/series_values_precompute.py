@@ -58,7 +58,6 @@ INSERT_QUERY_TEMPLATE = """
 SELECT
     hour AS time_window_start,
     '' AS series_key,
-    [] AS breakdown_value,
     toFloat(count()) AS value
 FROM (
     SELECT toStartOfHour(timestamp) AS hour
