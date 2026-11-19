@@ -4896,6 +4896,8 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             } finally {
                 actions.setDraftActionPending(null)
+                // An edit from elsewhere waited for the preview, and a failed or canceled preview has no reload.
+                actions.replayDeferredResourceEdited()
             }
             // The token covers the server's draft. When that is not the draft this editor shows, the
             // dialog would describe the wrong changes, so the user reviews the newer draft first.

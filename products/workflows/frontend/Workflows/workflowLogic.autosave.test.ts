@@ -1732,6 +1732,54 @@ describe('workflowLogic auto-save', () => {
                 }).toEqual({ reloads: 1, name: 'Renamed elsewhere', banner: false })
             })
 
+            it('applies an edit from elsewhere that arrived while a failed publish preview ran', async () => {
+                resourceEditedLogic.mount()
+                let release: () => void = () => {}
+                const held = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                let markPreviewing: () => void = () => {}
+                const previewing = new Promise<void>((resolve) => {
+                    markPreviewing = resolve
+                })
+                let served = staged
+                useMocks({
+                    ...serverMocks({
+                        [PUBLISH_URL]: recordPublish(async () => {
+                            markPreviewing()
+                            await held
+                            return [500, { detail: 'boom' }]
+                        }),
+                    }),
+                    get: {
+                        '/api/environments/:team_id/hog_flows/:id/': () => {
+                            reloads += 1
+                            return [200, served]
+                        },
+                    },
+                })
+
+                logic.actions.publishDraft()
+                await previewing
+                served = { ...staged, draft: { ...staged.draft!, name: 'Renamed elsewhere' } }
+                resourceEditedLogic.actions.resourceEdited({
+                    notification_type: 'resource_edited',
+                    team_id: 1,
+                    resource_type: 'HogFlow',
+                    resource_id: WORKFLOW_ID,
+                    updated_at: '2027-01-01T00:00:00.000Z',
+                    actor_user_id: 2,
+                })
+                release()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect({ reloads, name: logic.values.workflow.name, dialogs }).toEqual({
+                    reloads: 1,
+                    name: 'Renamed elsewhere',
+                    dialogs: [],
+                })
+            })
+
             it('shows no publish dialog and frees the buttons when the preview fails', async () => {
                 useMocks(serverMocks({ [PUBLISH_URL]: recordPublish(() => [500, { detail: 'boom' }]) }))
                 const errorToast = jest.spyOn(lemonToast, 'error')
