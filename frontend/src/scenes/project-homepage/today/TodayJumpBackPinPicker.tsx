@@ -31,14 +31,14 @@ import { objectKey } from './todayRecentObjects'
 const PRODUCT_LIMIT = 4
 
 type PinOption = { key: string; entry: FileSystemEntry; label: string }
-type PinGroup = { kind: 'pinned' | 'products' | 'items'; items: string[] }
+type PinGroup = { kind: 'pinned' | 'recent' | 'products' | 'items'; items: string[] }
 
 function pinOption(entry: FileSystemEntry): PinOption {
     return { key: objectKey(entry), entry, label: libraryObjectName(entry) || 'Untitled' }
 }
 
 export function TodayJumpBackPinPicker({ trigger }: { trigger: JSX.Element }): JSX.Element | null {
-    const { currentTeam, pinnedObjects } = useValues(todayLogic)
+    const { currentTeam, pinnedObjects, recentObjects } = useValues(todayLogic)
     const { toggleJumpBackPin } = useActions(todayLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const triggerRef = useRef<HTMLButtonElement>(null)
@@ -66,16 +66,19 @@ export function TodayJumpBackPinPicker({ trigger }: { trigger: JSX.Element }): J
         const byKey = new Map<string, PinOption>()
         const take = (options: PinOption[]): string[] =>
             options.filter((option) => !byKey.has(option.key) && !!byKey.set(option.key, option)).map((o) => o.key)
-        const result: PinGroup[] = [
-            {
-                kind: 'pinned' as const,
-                items: searching ? [] : take([...pinnedOnOpen, ...pinnedObjects].map(pinOption)),
-            },
-            { kind: 'products' as const, items: take(products) },
-            { kind: 'items' as const, items: take(objects.map(pinOption)) },
-        ].filter((group) => group.items.length > 0)
+        const result: PinGroup[] = (
+            searching
+                ? [
+                      { kind: 'products' as const, items: take(products) },
+                      { kind: 'items' as const, items: take(objects.map(pinOption)) },
+                  ]
+                : [
+                      { kind: 'pinned' as const, items: take([...pinnedOnOpen, ...pinnedObjects].map(pinOption)) },
+                      { kind: 'recent' as const, items: take(recentObjects.map(pinOption)) },
+                  ]
+        ).filter((group) => group.items.length > 0)
         return { groups: result, optionsByKey: byKey }
-    }, [featureFlags, objects, search, searching, pinnedOnOpen, pinnedObjects])
+    }, [featureFlags, objects, search, searching, pinnedOnOpen, pinnedObjects, recentObjects])
 
     if (!currentTeam) {
         return null
@@ -93,13 +96,14 @@ export function TodayJumpBackPinPicker({ trigger }: { trigger: JSX.Element }): J
             itemToStringLabel={(key: string) => optionsByKey.get(key)?.label ?? ''}
             onInputValueChange={(value: string) => {
                 setSearch(value)
-                loadPinSearchResults(value)
+                if (value.trim()) {
+                    loadPinSearchResults(value)
+                }
             }}
             onOpenChange={(next: boolean) => {
                 setOpen(next)
                 if (next) {
                     setPinnedOnOpen(pinnedObjects)
-                    loadPinSearchResults('')
                 } else {
                     setSearch('')
                 }
@@ -146,7 +150,9 @@ export function TodayJumpBackPinPicker({ trigger }: { trigger: JSX.Element }): J
                         </ComboboxGroup>
                     )}
                 </ComboboxList>
-                <ComboboxEmpty>{loading ? 'Searching…' : 'Nothing matches'}</ComboboxEmpty>
+                <ComboboxEmpty>
+                    {searching ? (loading ? 'Searching…' : 'Nothing matches') : 'Search for a product or item to pin'}
+                </ComboboxEmpty>
             </ComboboxContent>
         </Combobox>
     )

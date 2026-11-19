@@ -2,7 +2,7 @@ import { Collapsible } from '@base-ui/react/collapsible'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useId, useMemo } from 'react'
 
-import { IconChevronDown, IconPin, IconPinFilled } from '@posthog/icons'
+import { IconChevronDown, IconPinFilled } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -31,13 +31,10 @@ function RecentObjectRow({
     frequent: boolean
 }): JSX.Element {
     const preview = useMemo(() => objectPreview(entry, 'jump_back'), [entry])
-    const { jumpBackOpened, toggleJumpBackPin } = useActions(todayLogic)
-    const { currentTeam } = useValues(todayLogic)
-    const { homeEditing } = useValues(todayHomeEditLogic)
+    const { jumpBackOpened } = useActions(todayLogic)
     const pinned = entry.jumpBackReason === 'pinned'
-    const pinLabel = pinned ? 'Unpin from Jump back in' : 'Pin to Jump back in'
     return (
-        <li className={pinned ? 'TodayJumpRow TodayJumpRow--pinned' : 'TodayJumpRow'}>
+        <li className="TodayJumpRow">
             <TodayObjectIcon type={entry.type} className="TodayJumpRow__icon" />
             <TodayPreviewTrigger payload={preview}>
                 <LinkPrimitive
@@ -49,31 +46,24 @@ function RecentObjectRow({
                     {preview.name}
                 </LinkPrimitive>
                 <span className="TodayJumpRow__meta">
+                    {pinned && (
+                        <>
+                            <IconPinFilled className="TodayJumpRow__pinned" aria-hidden />
+                            <span className="sr-only">Pinned, </span>
+                        </>
+                    )}
                     {entry.last_viewed_at ? (
                         <time dateTime={entry.last_viewed_at} title={`Last opened: ${entry.last_viewed_at}`}>
                             <span className="sr-only">Last opened </span>
                             <TZLabel time={entry.last_viewed_at} showPopover={false} noStyles />
                         </time>
                     ) : pinned ? (
-                        <span>Pinned</span>
+                        <span>Not opened yet</span>
                     ) : (
                         <span title="Last-opened time is not available">Time unknown</span>
                     )}
                 </span>
             </TodayPreviewTrigger>
-            {currentTeam && homeEditing && (
-                <Button
-                    size="icon-xs"
-                    aria-label={pinLabel}
-                    tooltip={pinLabel}
-                    aria-pressed={pinned}
-                    className="TodayJumpRow__pin"
-                    data-attr="today-home-recent-pin"
-                    onClick={() => toggleJumpBackPin(currentTeam.id, entry)}
-                >
-                    {pinned ? <IconPinFilled /> : <IconPin />}
-                </Button>
-            )}
         </li>
     )
 }
@@ -103,7 +93,7 @@ export function TodayRecents(): JSX.Element {
                                 variant="outline"
                                 size="sm"
                                 className="-my-1"
-                                aria-label="Pin items to Jump back in"
+                                aria-label="Edit Jump back in"
                                 data-attr="today-home-recent-edit"
                             >
                                 Edit
