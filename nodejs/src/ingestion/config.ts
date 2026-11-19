@@ -171,6 +171,8 @@ export type IngestionConsumerConfig = {
     PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST: string
     /** Concurrent RPC fan-out in the personhog store (batch fetches and flush). */
     PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: number
+    /** How long a personhog store flush retries a retriable transport error. Zero turns the retry off. */
+    PERSONHOG_STORE_FLUSH_TRANSIENT_RETRY_BUDGET_MS: number
     PERSONS_PREFETCH_ENABLED: boolean
 
     // Person properties config
@@ -375,6 +377,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST: '',
         PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: 10,
+        PERSONHOG_STORE_FLUSH_TRANSIENT_RETRY_BUDGET_MS: 15_000,
         PERSONS_PREFETCH_ENABLED: false,
 
         // Person properties config

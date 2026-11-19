@@ -108,6 +108,13 @@ export interface PersonhogPersonsStoreOptions {
     /** The injected repository's per-request timeout; the flush's lane wait derives from it. */
     requestTimeoutMs: number
     mergeTimeoutMs: number
+    /**
+     * How long a flush writes a lane again after a retriable transport error, counted from the first
+     * such error. Zero turns the retry off, and the first such error fails the flush. A flush that
+     * retries holds the consumer's request open, so this budget plus one write in progress must end
+     * before the consumer's revoke drain timeout.
+     */
+    flushTransientRetryBudgetMs: number
 }
 
 const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
@@ -116,6 +123,7 @@ const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
     syncMergeMoveLimit: 10_000,
     requestTimeoutMs: 3_000,
     mergeTimeoutMs: 35_000,
+    flushTransientRetryBudgetMs: 15_000,
 }
 
 const CALLER_TAG = 'ingestion/personhog-store'
@@ -153,12 +161,6 @@ export class PersonhogUnsupportedFieldError extends Error {
 const REDIRECT_MAX_ATTEMPTS = 3
 
 const FLUSH_WAIT_ROUND_MS = 1_000
-
-/**
- * Counted from the first transport failure. A flush that retries holds the consumer's request open,
- * so this budget plus one write in progress must end before the consumer's revoke drain timeout.
- */
-const FLUSH_TRANSIENT_RETRY_BUDGET_MS = 15_000
 
 function isTransientTransportError(error: unknown): error is ConnectError & { isRetriable: true } {
     return error instanceof ConnectError && (error as { isRetriable?: boolean }).isRetriable === true
@@ -318,6 +320,14 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
         if (!Number.isInteger(this.options.mergeTimeoutMs) || this.options.mergeTimeoutMs < 1) {
             throw new Error(`PERSONHOG_MERGE_TIMEOUT_MS must be an integer >= 1, got ${this.options.mergeTimeoutMs}`)
+        }
+        if (
+            !Number.isInteger(this.options.flushTransientRetryBudgetMs) ||
+            this.options.flushTransientRetryBudgetMs < 0
+        ) {
+            throw new Error(
+                `PERSONHOG_STORE_FLUSH_TRANSIENT_RETRY_BUDGET_MS must be an integer >= 0, got ${this.options.flushTransientRetryBudgetMs}`
+            )
         }
         // A flush waits out a claimed lane rather than failing past it. The
         // wait outlasts one write's full transport retry budget, derived
@@ -1337,6 +1347,10 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
+    private retriesTransportError(error: unknown): boolean {
+        return this.options.flushTransientRetryBudgetMs > 0 && isTransientTransportError(error)
+    }
+
     private transientBudgetExpired(budget: TransientRetryBudget): boolean {
         return budget.expiresAt !== undefined && Date.now() >= budget.expiresAt
     }
@@ -1358,10 +1372,10 @@ export class PersonhogPersonsStore implements PersonsStore {
         try {
             await this.writeEntry(lane.personKey, lane.entry, lane.segments)
         } catch (error) {
-            if (!isTransientTransportError(error)) {
+            if (!this.retriesTransportError(error)) {
                 throw error
             }
-            budget.expiresAt ??= Date.now() + FLUSH_TRANSIENT_RETRY_BUDGET_MS
+            budget.expiresAt ??= Date.now() + this.options.flushTransientRetryBudgetMs
             budget.lastError = error
             pass.transientFailures += 1
         }
@@ -1511,7 +1525,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                             personId: entry.personId,
                             fencingOpId: error.fencingOpId,
                         })
-                    } else if (isTransientTransportError(error)) {
+                    } else if (this.retriesTransportError(error)) {
                         personhogStoreFlushCounter.inc({ outcome: 'transient' })
                         personhogStoreFlushErrorCounter.inc({ error: errorClassLabel(error) })
                         logger.warn('transport failed a folded update; the flush retries the lane next round', {

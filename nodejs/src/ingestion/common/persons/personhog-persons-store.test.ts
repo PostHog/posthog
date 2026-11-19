@@ -147,6 +147,15 @@ describe('PersonhogPersonsStore', () => {
         )
     })
 
+    it.each([-1, 1.5, NaN])(
+        'refuses a flush transient retry budget of %p at construction',
+        (flushTransientRetryBudgetMs) => {
+            expect(() => new PersonhogPersonsStore(repository, { flushTransientRetryBudgetMs })).toThrow(
+                'PERSONHOG_STORE_FLUSH_TRANSIENT_RETRY_BUDGET_MS must be an integer >= 0'
+            )
+        }
+    )
+
     it('keeps an entry writable when the redirect resolve fails transiently', async () => {
         const bound = store.forBatch(0)
         await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
@@ -3264,6 +3273,15 @@ describe('PersonhogPersonsStore', () => {
             } finally {
                 jest.useRealTimers()
             }
+        })
+
+        it('fails the flush on the first transport error when the budget is zero', async () => {
+            const noRetryStore = new PersonhogPersonsStore(repository, { flushTransientRetryBudgetMs: 0 })
+            repository.updatePersonProperties.mockRejectedValueOnce(transportFailure())
+            const bound = noRetryStore.forBatch(0)
+            await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+            await expect(bound.flush()).rejects.toBeInstanceOf(ConnectError)
+            expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
         })
 
         const personWithId = (id: number): InternalPerson => ({ ...person, id: String(id), uuid: `person-uuid-${id}` })
