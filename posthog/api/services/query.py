@@ -307,18 +307,18 @@ def plan_query_dict(
     )
     if query_runner is None:
         return None
-    _configure_query_runner(
-        query_runner,
-        dashboard_filters=DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None,
-        variables_override=(
+    # Configured the way _run_query_runner configures the runner before process_query_dict runs it.
+    dashboard_filters = DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None
+    if dashboard_filters:
+        query_runner.apply_dashboard_filters(dashboard_filters)
+        tag_queries(dashboard_all_time=dashboard_filters.date_from == "all")
+    if variables_override_json:
+        query_runner.apply_variable_overrides(
             [HogQLVariable.model_validate(n) for n in variables_override_json.values()]
-            if variables_override_json
-            else None
-        ),
-        pagination_cursor=None,
-        is_query_service=False,
-        allow_raw_results=allow_raw_results,
-    )
+        )
+    query_runner.is_query_service = False
+    if allow_raw_results:
+        query_runner.serve_raw_cached_results = True
     return PlannedQuery(
         query_runner=query_runner, upgraded_query=upgraded_query, cache_key=query_runner.plan_cache_key()
     )
@@ -361,17 +361,19 @@ def run_planned_query(
 ) -> dict | BaseModel | RawCachedQueryResponse:
     """Run a planned query as `process_query_dict` would have run it."""
     tag_queries(query=planned.upgraded_query)
-    return _execute_query_runner(
-        planned.query_runner,
+    query_runner = planned.query_runner
+    result = query_runner.run(
         execution_mode=execution_mode,
         user=user,
-        query_id=None,
         insight_id=insight_id,
         dashboard_id=dashboard_id,
         cache_age_seconds=cache_age_seconds,
         analytics_props=analytics_props,
-        query_status=None,
     )
+    raw_results = query_runner.raw_cached_results_bytes
+    if raw_results is not None and isinstance(result, BaseModel):
+        return RawCachedQueryResponse(response=result, raw_results=raw_results)
+    return result
 
 
 @overload
@@ -558,36 +560,6 @@ def _run_query_runner(
     query_status: QueryStatus | None = None,
     allow_raw_results: bool,
 ) -> dict | BaseModel | RawCachedQueryResponse:
-    _configure_query_runner(
-        query_runner,
-        dashboard_filters=dashboard_filters,
-        variables_override=variables_override,
-        pagination_cursor=pagination_cursor,
-        is_query_service=is_query_service,
-        allow_raw_results=allow_raw_results,
-    )
-    return _execute_query_runner(
-        query_runner,
-        execution_mode=execution_mode,
-        user=user,
-        query_id=query_id,
-        insight_id=insight_id,
-        dashboard_id=dashboard_id,
-        cache_age_seconds=cache_age_seconds,
-        analytics_props=analytics_props,
-        query_status=query_status,
-    )
-
-
-def _configure_query_runner(
-    query_runner: QueryRunner,
-    *,
-    dashboard_filters: Optional[DashboardFilter],
-    variables_override: Optional[list[HogQLVariable]],
-    pagination_cursor: Optional[str],
-    is_query_service: bool,
-    allow_raw_results: bool,
-) -> None:
     if dashboard_filters:
         query_runner.apply_dashboard_filters(dashboard_filters)
         # A tag, so it reaches the async worker, which rebuilds the runner from the query alone.
@@ -600,19 +572,6 @@ def _configure_query_runner(
     if allow_raw_results:
         query_runner.serve_raw_cached_results = True
 
-
-def _execute_query_runner(
-    query_runner: QueryRunner,
-    *,
-    execution_mode: ExecutionMode,
-    user: Optional[User],
-    query_id: Optional[str],
-    insight_id: Optional[int],
-    dashboard_id: Optional[int],
-    cache_age_seconds: Optional[int],
-    analytics_props: Optional[AnalyticsProps],
-    query_status: QueryStatus | None,
-) -> dict | BaseModel | RawCachedQueryResponse:
     # The worker rebuilds the runner, so enqueue-time labels can describe a different access snapshot.
     labels = query_runner.query_status_labels() if query_status is not None else None
     result = query_runner.run(

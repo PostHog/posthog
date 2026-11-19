@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from datetime import timedelta
 from enum import StrEnum
-from functools import partial
+from functools import lru_cache, partial
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
 
 from django.conf import settings
@@ -1386,9 +1386,13 @@ class CachedTileInsightResultSerializer(InsightSerializer):
             self._query_variables_mapping(insight.query)
         return self.plan_query(insight)
 
-    def planned_query(self, insight: Insight) -> PlannedQuery | None:
+    @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer, one tile at a time
+    def insight_result(self, insight: Insight) -> InsightResult:
         tile = self.context.get("dashboard_tile")
-        return self.context.get("planned_queries", {}).get(tile.id) if tile is not None else None
+        planned = self.context.get("planned_queries", {}).get(tile.id) if tile is not None else None
+        if planned is None:
+            return super().insight_result(insight)
+        return self.planned_insight_result(insight, planned)
 
 
 class CachedTileResultSerializer(serializers.Serializer):
@@ -4461,39 +4465,42 @@ class DashboardsViewSet(
         # Built once: a serializer per tile deep-copies every declared insight field each time.
         insight_serializer = CachedTileInsightResultSerializer(context=context)
 
-        # Plan every viewable tile's query first, so all their entries come back from one cache read.
-        planned_queries: dict[int, PlannedQuery] = {}
-        for tile, insight in tiles_by_id.values():
-            if tile.id in restricted_levels:
-                continue
-            context["dashboard_tile"] = tile
-            try:
-                planned = insight_serializer.plan_tile_query(insight)
-                if planned is not None:
-                    planned_queries[tile.id] = planned
-            except Exception:
-                # Left unplanned, the tile runs as it would without the batch, which reports the failure.
-                logger.info("cached_tiles_plan_failed", tile_id=tile.id, exc_info=True)
-        context["planned_queries"] = planned_queries
-        cache_keys = [planned.cache_key for planned in planned_queries.values()]
-
-        results: list[dict[str, Any]] = []
-        with prefetched_entries(cache_keys, team_id=self.team.pk):
-            for tile_id in tile_ids:
-                tile_and_insight = tiles_by_id.get(tile_id)
-                if tile_and_insight is None:
-                    results.append({"id": tile_id, "status": CachedTileStatus.NOT_FOUND})
-                    continue
-                tile, insight = tile_and_insight
-                if tile_id in restricted_levels:
-                    results.append({"id": tile_id, "status": CachedTileStatus.FORBIDDEN})
+        # Shares work across tiles as a dashboard load does: one set of warehouse lookups while the keys are
+        # built, and one write that records every tile's cache read.
+        with shared_tile_work(self.team, request.user):
+            # Plan every viewable tile's query first, so all their entries come back from one cache read.
+            planned_queries: dict[int, PlannedQuery] = {}
+            for tile, insight in tiles_by_id.values():
+                if tile.id in restricted_levels:
                     continue
                 context["dashboard_tile"] = tile
-                insight_data = insight_serializer.to_representation(insight)
-                if not insight_data.get("is_cached"):
-                    results.append({"id": tile_id, "status": CachedTileStatus.MISS})
-                    continue
-                results.append({"id": tile_id, "status": CachedTileStatus.HIT, "insight": insight_data})
+                try:
+                    planned = insight_serializer.plan_tile_query(insight)
+                    if planned is not None:
+                        planned_queries[tile.id] = planned
+                except Exception:
+                    # Left unplanned, the tile runs as it would without the batch, which reports the failure.
+                    logger.info("cached_tiles_plan_failed", tile_id=tile.id, exc_info=True)
+            context["planned_queries"] = planned_queries
+            cache_keys = [planned.cache_key for planned in planned_queries.values()]
+
+            results: list[dict[str, Any]] = []
+            with prefetched_entries(cache_keys, team_id=self.team.pk):
+                for tile_id in tile_ids:
+                    tile_and_insight = tiles_by_id.get(tile_id)
+                    if tile_and_insight is None:
+                        results.append({"id": tile_id, "status": CachedTileStatus.NOT_FOUND})
+                        continue
+                    tile, insight = tile_and_insight
+                    if tile_id in restricted_levels:
+                        results.append({"id": tile_id, "status": CachedTileStatus.FORBIDDEN})
+                        continue
+                    context["dashboard_tile"] = tile
+                    insight_data = insight_serializer.to_representation(insight)
+                    if not insight_data.get("is_cached"):
+                        results.append({"id": tile_id, "status": CachedTileStatus.MISS})
+                        continue
+                    results.append({"id": tile_id, "status": CachedTileStatus.HIT, "insight": insight_data})
 
         return Response({"results": results})
 

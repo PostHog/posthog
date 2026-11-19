@@ -630,7 +630,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 analytics_props=ANY,
                 allow_raw_results=False,
                 limit_context=LimitContext.QUERY_ASYNC,
-                planned=None,
             )
             record_outcome.assert_not_called()
 
@@ -655,7 +654,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 analytics_props=ANY,
                 allow_raw_results=False,
                 limit_context=LimitContext.QUERY_ASYNC,
-                planned=None,
             )
 
     def test_get_shared_insight_with_force_refresh_returns_200(self) -> None:
@@ -720,7 +718,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 analytics_props=ANY,
                 allow_raw_results=False,
                 limit_context=LimitContext.QUERY_ASYNC,
-                planned=None,
             )
 
     def test_get_insight_by_short_id(self) -> None:

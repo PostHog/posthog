@@ -75,18 +75,35 @@ def _read_values(cache_keys: Sequence[str], *, team_id: int) -> dict[str, Option
 def fetch_entry(cache_key: str, team_id: int) -> Optional[CachedEntry]:
     prefetched = _prefetched_values.get()
     if prefetched is not None and cache_key in prefetched:
-        stored_value = prefetched[cache_key]
-    else:
+        return _entry_from_prefetched_value(prefetched[cache_key], cache_key=cache_key, team_id=team_id)
+    try:
+        stored_value = load_entry_value(cache_key)
+    except Exception:
+        logger.warning("query_cache_read_error", cache_key=cache_key, team_id=team_id, exc_info=True)
         try:
-            stored_value = load_entry_value(cache_key)
+            delete_entry(cache_key)
         except Exception:
-            logger.warning("query_cache_read_error", cache_key=cache_key, team_id=team_id, exc_info=True)
-            try:
-                delete_entry(cache_key)
-            except Exception:
-                pass
-            return None
+            pass
+        return None
 
+    if not stored_value:
+        return None
+
+    payload = decode_stored_value(stored_value, team_id=team_id, cache_key=cache_key)
+    if payload is None:
+        return None
+
+    try:
+        return split_cached_response_bytes(payload, cache_key=cache_key, team_id=team_id)
+    except Exception:
+        logger.exception("query_cache_deserialize_error", cache_key=cache_key, team_id=team_id, exc_info=True)
+        return None
+
+
+def _entry_from_prefetched_value(
+    stored_value: Optional[bytes], *, cache_key: str, team_id: int
+) -> Optional[CachedEntry]:
+    # The steps fetch_entry takes after its own read.
     if not stored_value:
         return None
 
