@@ -67,6 +67,7 @@ from posthog.rate_limit import (
     SignupIPThrottle,
     SignupResendInviteThrottle,
 )
+from posthog.tasks.workos_radar import report_attempt_success
 from posthog.utils import get_can_create_org, get_trusted_client_ip, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
@@ -313,9 +314,10 @@ class SignupSerializer(serializers.Serializer):
             _save_session_with_recovery(request.session)
             passkey_credential = None
 
+        radar_attempt = None
         if not self.is_social_signup:
             auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
-            evaluate_auth_attempt(
+            radar_attempt = evaluate_auth_attempt(
                 request=request._request,
                 email=validated_data["email"],
                 action=RadarAction.SIGNUP,
@@ -411,6 +413,7 @@ class SignupSerializer(serializers.Serializer):
             _save_session_with_recovery(request.session)
 
         user = self._user
+        report_attempt_success(radar_attempt)
         oauth_connection = read_pending_oauth_connection(request)
         if oauth_connection is not None:
             apply_pending_connection_onboarding_skip(user, self._organization, oauth_connection)
@@ -687,9 +690,10 @@ class InviteSignupSerializer(serializers.Serializer):
         except (OrganizationInvite.DoesNotExist, ValidationError):
             raise serializers.ValidationError("The provided invite ID is not valid.")
 
+        radar_attempt = None
         if not user and invite.target_email:
             auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
-            evaluate_auth_attempt(
+            radar_attempt = evaluate_auth_attempt(
                 request=request._request,
                 email=invite.target_email,
                 action=RadarAction.SIGNUP,
@@ -825,6 +829,7 @@ class InviteSignupSerializer(serializers.Serializer):
                 user.save(update_fields=["credentials_reviewed_at"])
 
         if is_new_user:
+            report_attempt_success(radar_attempt)
             oauth_connection = read_pending_oauth_connection(request)
             # A delegated invitee is the teammate asked to run onboarding, so they keep it.
             if oauth_connection is not None and not is_delegation:

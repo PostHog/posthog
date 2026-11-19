@@ -67,10 +67,11 @@ const { loadContractSurfaces } = require('./trunk-impacted-targets')
 // sizing bounds the slowest shard at the target rather than the average, so a
 // 12-minute shard target puts a full PR run near 18 minutes end to end.
 const TARGET_WALL_SECONDS = 12 * 60
-// Per-product cost within a runner: turbo dispatch, pytest collection, Django
-// init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
-// average that also absorbs the amortized portion of runner startup.
-const PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS = 60
+// Per-product cost within a runner that the junit-scaled durations do not hold:
+// turbo dispatch, pytest collection, Django init for each later product in a
+// bucket. The first product's share is in PRODUCT_JOB_BASE_OVERHEAD_SECONDS.
+// Fitted Nov 2026 from step logs of full PR runs (20-23s per later leg).
+const PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS = 20
 // Headroom on a packed bucket, covering error in the recorded durations alone.
 // A bucket runs its products sequentially, so its wall is the sum of its parts
 // and it needs no allowance for an uneven split. That allowance belongs to the
@@ -79,18 +80,18 @@ const PRODUCT_BUCKET_SAFETY_FACTOR = 1.1
 // No headroom constant for a split product: the gap between the mean shard that
 // sizing solves for and the max shard that sets the wall is derived per product
 // in productSplitShards below.
-// Fitted per-shard overhead for a split product job. Two measured parts, from
-// run 32717208712: the job base (docker stack, deps, turbo dispatch) is
-// mean(job wall - JUnit suite time), 247-413s across 12 bucket jobs (median
-// 282s, 263s over the 17 warehouse-sources shards); the session cost
-// (collection, session fixtures) is re-paid in full by every shard of a split
-// and grows with suite size (128s/shard on warehouse-sources, ~15s on small
-// products). Only large products split, so the constant carries a large
-// product's session: ~270 base + ~130 session.
-const PRODUCT_JOB_OVERHEAD_SECONDS = 400
+// Per-shard overhead for a split product job: the job base (runner start, docker
+// stack, deps, post steps) plus the session cost (collection, session fixtures)
+// that every shard of a split pays again, which grows with suite size. Fitted
+// Nov 2026 against job walls of full PR runs: a split shard ran
+// 135-200s (p50) past its share of the junit-scaled work, and ~55s more at p90.
+// The constant sits at that p90 so the slowest shards still land on the target.
+const PRODUCT_JOB_OVERHEAD_SECONDS = 260
 // The base alone, for packed buckets: their products are small, so the session
-// share is the per-product overhead below rather than a large suite's collection.
-const PRODUCT_JOB_BASE_OVERHEAD_SECONDS = 270
+// share is the per-product overhead above rather than a large suite's collection.
+// Fitted from the same runs: a packed job of 2 to 7 products ran ~175s (p50) and
+// ~230s (p90) past its junit-scaled work.
+const PRODUCT_JOB_BASE_OVERHEAD_SECONDS = 200
 // Sentinel entry the timing workflow writes into .test_durations after it scales
 // the product entries to their JUnit-measured totals (see
 // optimize_test_durations.py). Product jobs record call-only durations, which
@@ -468,11 +469,11 @@ function productGraphFromTachMap(fileMap) {
 // product's behavior" — the residual after excluding those is a handful of
 // narrow wrappers reaching at most a few products each.
 //
-// `direct` stops the walk after the first hop. Test selection must stay
-// transitive, because a change in A can break C's tests through B without C
-// ever importing A. Merge-queue lane assignment asks a narrower question and
-// passes direct: true; see trunk-impacted-targets.js for why one hop is the
-// boundary there.
+// `direct` stops the walk after the first hop. A change in A can break C's
+// tests through B without C ever importing A, so the merge gate stays
+// transitive; see contractCascadeIsDirect for the runs that take one hop.
+// Merge-queue lane assignment asks a narrower question and passes direct: true;
+// see trunk-impacted-targets.js for why one hop is the boundary there.
 function tachDependents(changedProducts, moduleGraph, { direct = false } = {}) {
     const reverse = new Map()
     for (const [product, deps] of moduleGraph) {
@@ -561,9 +562,22 @@ function deletedProductPythonFiles() {
     }
 }
 
-// Products that transitively depend on `products` per the tach map, or null when
-// the map cannot be read. Callers treat null as "unknown dependents" and widen.
-function tachDependentProducts(products, allProductSet) {
+// Whether a contract change cascades to direct dependents only. On a selecting
+// PR run it does: a direct importer is the only product that can reference the
+// changed symbols, and a product further out sees only its importer's unchanged
+// code, the same exposure an isolated product's internal edit gives its
+// dependents, which retests none of them. The product cycle in the tach map
+// makes the transitive walk reach most products from any seed inside it. The
+// merge queue and master do not select, so they keep the transitive walk and
+// catch a break mediated through an intermediate product before it lands.
+function contractCascadeIsDirect({ applies, disabled }) {
+    return applies && !disabled
+}
+
+// Products that depend on `products` per the tach map, transitively unless
+// `direct`, or null when the map cannot be read. Callers treat null as
+// "unknown dependents" and widen.
+function tachDependentProducts(products, allProductSet, { direct = false } = {}) {
     const deleted = deletedProductPythonFiles()
     if (deleted === null) {
         return null
@@ -576,7 +590,7 @@ function tachDependentProducts(products, allProductSet) {
     if (tachGraph === null) {
         return null
     }
-    return tachDependents(products, tachGraph).filter((p) => allProductSet.has(p))
+    return tachDependents(products, tachGraph, { direct }).filter((p) => allProductSet.has(p))
 }
 
 // Products a schema change reaches, [] for a purely additive change, or null when
@@ -1603,6 +1617,7 @@ module.exports = {
     productGraphFromTachMap,
     loadTachModuleGraph,
     tachDependents,
+    contractCascadeIsDirect,
     getAffectedLibPackages,
     libImportName,
     productsImportingModule,
@@ -1660,6 +1675,8 @@ let mustRunProducts = null
 // The products a product-only diff reached, kept apart from a matrix that a cascade widened
 // to all products. Null when a change reaches core directly or the reach is unknown.
 let diffProducts = null
+// 'direct' or 'transitive' when a contract change cascaded to dependents, else empty.
+let dependentCascade = ''
 
 if (legacyChanged) {
     console.error('Legacy code changed — testing all products')
@@ -1699,7 +1716,12 @@ if (legacyChanged) {
             console.error(`Isolated product contracts changed: ${JSON.stringify(affectedContracts)} — Django will run`)
             runLegacy = true
             runLegacyReason = 'contract_cascade'
-            const dependents = tachDependentProducts(affectedContracts, allProductSet)
+            const direct = contractCascadeIsDirect({
+                applies: process.env.SELECTION_APPLIES === 'true',
+                disabled: process.env.SELECTION_DISABLED === 'true',
+            })
+            dependentCascade = direct ? 'direct' : 'transitive'
+            const dependents = tachDependentProducts(affectedContracts, allProductSet, { direct })
             if (dependents === null) {
                 // Fail toward over-testing, like the quarantine loaders above: without the
                 // graph we cannot know which products depend on the changed contract, and
@@ -1709,7 +1731,7 @@ if (legacyChanged) {
             } else {
                 if (dependents.length > 0) {
                     console.error(
-                        `Dependent products cascaded in via tach map: ${JSON.stringify(dependents)} (transitively depend on ${JSON.stringify(affectedContracts)})`
+                        `Dependent products cascaded in via tach map: ${JSON.stringify(dependents)} (${direct ? 'directly' : 'transitively'} depend on ${JSON.stringify(affectedContracts)})`
                     )
                 }
                 products = [...new Set([...affectedProducts, ...dependents])].sort()
@@ -1947,6 +1969,7 @@ const result = {
         product_count: products.length,
         product_count_full: productCountBeforeNarrowing,
         undeclared_input_products: undeclaredInputProductsAdded,
+        dependent_cascade: dependentCascade,
         ...runContext(),
     },
 }

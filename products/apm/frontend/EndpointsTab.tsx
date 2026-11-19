@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonInput, LemonSelect, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
-
-import { urls } from 'scenes/urls'
+import { LemonBanner, LemonInput, LemonSelect, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { applicationObservabilityLogic } from './applicationObservabilityLogic'
+import { endpointOperationUrl } from './endpointOperationUrl'
 import { EndpointTimeSpent } from './EndpointTimeSpent'
 import type { EndpointHealthApi } from './generated/api.schemas'
 import { healthColumns } from './healthColumns'
+import { HealthTableLink } from './HealthTableLink'
 import { TelemetryLinks } from './TelemetryLinks'
 
 export function EndpointsTab(): JSX.Element {
@@ -34,13 +34,12 @@ export function EndpointsTab(): JSX.Element {
             key: 'endpoint',
             sorter: (a, b) => a.endpoint.localeCompare(b.endpoint),
             render: (_, row) => (
-                <Link
-                    to={urls.tracingOperation(row.service_name, row.endpoint, { date_from: timeRange, date_to: null })}
-                    className="font-semibold"
+                <HealthTableLink
+                    to={endpointOperationUrl(row, { date_from: timeRange, date_to: null })}
                     data-attr="apm-endpoint-operation"
                 >
                     {row.endpoint}
-                </Link>
+                </HealthTableLink>
             ),
         },
         {
@@ -49,7 +48,7 @@ export function EndpointsTab(): JSX.Element {
             sorter: (a, b) => a.service_name.localeCompare(b.service_name),
             render: (_, row) => row.service_name,
         },
-        ...healthColumns<EndpointHealthApi>(),
+        ...healthColumns<EndpointHealthApi>(filteredEndpoints),
         {
             title: 'Open in',
             key: 'links',

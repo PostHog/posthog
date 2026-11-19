@@ -1,5 +1,7 @@
 from typing import Any
 
+from unittest.mock import patch
+
 from django.utils import timezone
 
 import numpy as np
@@ -10,6 +12,7 @@ from posthog.models.utils import uuid7
 
 from products.experiments.backend.facade import testing as experiments_testing
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.replay_vision.backend import quota
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -21,6 +24,16 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.observation_ranks import NewRank, record_ranks
 from products.replay_vision.backend.temporal.activities.create_observation import _build_scanner_snapshot
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, ANCHORS, WatchCategory
+
+# The free plan's allocation, which tests give an org billing never synced unless they say otherwise.
+TEST_FREE_CREDITS = 2500
+
+
+def unsynced_allowance(*, credit_limit: int | None = TEST_FREE_CREDITS, free_credits: int = TEST_FREE_CREDITS):
+    """What an org billing never synced gets, as an instance with no billing service configures it."""
+    return patch.object(
+        quota, "UNSYNCED_ALLOWANCE", quota.BillingAllowance(credit_limit=credit_limit, free_credits=free_credits)
+    )
 
 
 def snapshot_for(scanner: ReplayScanner) -> dict[str, Any]:

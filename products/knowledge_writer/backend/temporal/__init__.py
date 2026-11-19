@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from .merge_workflow import MergeCheckWorkflow, run_merge_check_activity, tell_docs_check_waiters_activity
 from .publish_workflow import (
     PublishWorkflow,
@@ -16,7 +18,7 @@ WORKFLOWS = [
     WriterPullRequestWorkflow,
     StartHeldRequestsWorkflow,
 ]
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     publish_docs_pull_request_activity,
     settle_publication_activity,
     run_merge_check_activity,

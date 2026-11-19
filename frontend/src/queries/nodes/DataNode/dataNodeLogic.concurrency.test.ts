@@ -26,7 +26,6 @@ describe('dataNodeLogic concurrency', () => {
 
     it.each([
         { scene: Scene.SavedInsights, limit: 6 },
-        { scene: Scene.AnalyticsProductHome, limit: 6 },
         { scene: Scene.Max, limit: 4 },
         { scene: Scene.Insight, limit: 1 },
     ])('runs at most $limit queries at once in $scene', async ({ scene, limit }) => {

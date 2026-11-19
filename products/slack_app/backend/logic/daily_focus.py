@@ -5,6 +5,7 @@ quarter hour runs up to 14 minutes late."""
 import json
 from collections import Counter
 from datetime import UTC, datetime, time, timedelta
+from enum import StrEnum
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db import transaction
@@ -17,7 +18,10 @@ from posthog.dataclasses import frozen
 from posthog.models.integration import SlackIntegration
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import is_slack_app_daily_work_focus_enabled
+from products.slack_app.backend.feature_flags import (
+    is_slack_app_daily_work_focus_enabled,
+    is_slack_app_link_search_scopes_enabled,
+)
 from products.slack_app.backend.models import SlackDailyFocus, SlackUserProfileCache
 from products.slack_app.backend.services.slack_messages import context_block
 from products.slack_app.backend.services.slack_user_info import (
@@ -25,7 +29,7 @@ from products.slack_app.backend.services.slack_user_info import (
     normalize_slack_response,
     persist_slack_user_info,
 )
-from products.slack_app.backend.services.slack_user_oauth import linked_search_token
+from products.slack_app.backend.services.slack_user_oauth import linked_user_token
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 logger = structlog.get_logger(__name__)
@@ -139,10 +143,28 @@ def _person_rows(slack_workspace_id: str, slack_user_id: str) -> QuerySet[SlackD
     return SlackDailyFocus.objects.unscoped().filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
 
 
+class DailyFocusAccess(StrEnum):
+    READY = "ready"
+    # The link predates the search scopes, so linking again would add them.
+    RELINK = "relink"
+    NONE = "none"
+
+
+def daily_focus_access(integration: WorkspaceIntegration, slack_user_id: str) -> DailyFocusAccess:
+    """Ready when the flag is on and the person's Slack link can search. The Home tab controls and the runs need
+    both. A link without the search scope gets a prompt to link again, but only while a new link would ask for it."""
+    token = linked_user_token(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
+    if token is None or not is_slack_app_daily_work_focus_enabled(integration, token.user_distinct_id):
+        return DailyFocusAccess.NONE
+    if "search:read.public" in token.scopes:
+        return DailyFocusAccess.READY
+    if is_slack_app_link_search_scopes_enabled(integration, token.user_distinct_id):
+        return DailyFocusAccess.RELINK
+    return DailyFocusAccess.NONE
+
+
 def can_run_daily_focus(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
-    """The flag is on and the person's Slack link can search. The Home tab controls and the runs need both."""
-    token = linked_search_token(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
-    return token is not None and is_slack_app_daily_work_focus_enabled(integration, token.user_distinct_id)
+    return daily_focus_access(integration, slack_user_id) is DailyFocusAccess.READY
 
 
 def resolve_daily_focus(slack_workspace_id: str, slack_user_id: str) -> DailyFocusSettings:

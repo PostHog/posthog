@@ -748,7 +748,7 @@ def send_hog_function_filters_uncompilable(team_id: int, hog_function_ids: list[
     # creator is included by effective access to this team, not by organization membership.
     for entry in broken:
         creator = entry.hog_function.created_by
-        if not creator or creator in recipients:
+        if not creator or not creator.is_active or creator in recipients:
             continue
         creator_membership = OrganizationMembership.objects.filter(
             organization_id=team.organization_id, user=creator
@@ -797,7 +797,7 @@ def _get_project_admins_to_notify_of_email_sending_suspension(team: Team) -> lis
     # not be able to mute this.
     memberships_to_email = []
     memberships = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
-        organization_id=team.organization_id
+        organization_id=team.organization_id, user__is_active=True
     )
     for membership in memberships:
         team_permissions = UserPermissions(membership.user).team(team)

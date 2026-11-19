@@ -8,6 +8,7 @@ import { applicationObservabilityLogic } from './applicationObservabilityLogic'
 import { environmentLabel } from './environmentDisplay'
 import type { ServiceHealthApi } from './generated/api.schemas'
 import { healthColumns } from './healthColumns'
+import { HealthTableLink } from './HealthTableLink'
 import { Sparkline } from './Sparkline'
 import { TelemetryLinks } from './TelemetryLinks'
 
@@ -30,16 +31,15 @@ export function ServicesTab(): JSX.Element {
             key: 'service_name',
             sorter: (a, b) => a.service_name.localeCompare(b.service_name),
             render: (_, row) => (
-                <Link
+                <HealthTableLink
                     to={urls.applicationObservabilityService(row.service_name, { range: timeRange, environment })}
-                    className="font-semibold"
                     data-attr="apm-service-page"
                 >
                     {row.service_name}
-                </Link>
+                </HealthTableLink>
             ),
         },
-        ...healthColumns<ServiceHealthApi>(),
+        ...healthColumns<ServiceHealthApi>(filteredServices),
         {
             title: 'Trend',
             key: 'sparkline',

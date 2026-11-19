@@ -397,7 +397,7 @@ class TestInputParts(SimpleTestCase):
             input_hash(
                 candidates, config=config, limit=25, activity_summary_version=7, focus="checkout", inbox_activity=None
             )
-            == "61ca7a345f363b93b18359ec68ad052fe0a72b9864ed0bca593573dce55d2637"
+            == "34299ea407bb3601fd5abdd5c88116119623ffd109700d92185083ad840f7dfd"
         )
 
     @parameterized.expand(
@@ -557,12 +557,12 @@ class TestPrompt(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("without_inbox_activity", 0, "the focus and this candidate's own block"),
-            ("with_inbox_activity", 20, "the focus, the recent inbox activity and this candidate's own block"),
+            ("without_inbox_activity", 0, "the focus and this candidate's own block", False),
+            ("with_inbox_activity", 20, "the focus, the recent inbox activity and this candidate's own block", True),
         ]
     )
     def test_system_prompt_states_the_tier_and_reason_rules(
-        self, _name: str, inbox_activity_lines: int, reason_sources: str
+        self, _name: str, inbox_activity_lines: int, reason_sources: str, has_working_now_rule: bool
     ) -> None:
         prompt = system_prompt(
             PersonalRankingConfig(
@@ -578,6 +578,7 @@ class TestPrompt(SimpleTestCase):
         assert '"worth_a_look" for at most 7 other' in prompt
         assert 'At most 90 characters for "top", 60 for "worth_a_look", 30 for "later".' in prompt
         assert f"Use only facts from the person block, {reason_sources}." in prompt
+        assert ("A report they are working on now moves up" in prompt) == has_working_now_rule
         # The reason rules forbid claims, so no example reason may cite one.
         assert "you claimed" not in prompt
 
@@ -672,6 +673,8 @@ class TestConfig(SimpleTestCase):
                         "max_org_share": 2,
                         "overdue_after_minutes": -1,
                         "time_budget_share": 2,
+                        "precheck_hours": 1000,
+                        "precheck_sample_share": 2,
                     },
                     "max_builds_per_day": 100_000,
                 },
@@ -684,6 +687,7 @@ class TestConfig(SimpleTestCase):
                         max_pairs_per_tick=2000,
                         max_concurrency=100,
                         time_budget_share=0.85,
+                        precheck_hours=48,
                     ),
                 ),
             ),
@@ -691,7 +695,13 @@ class TestConfig(SimpleTestCase):
                 "enabled_tick_raises_freshness_and_overdue_age_and_leaves_a_shared_reserve",
                 {
                     "max_builds_per_day": 100,
-                    "tick": {"enabled": True, "target_interval_minutes": 180, "max_tick_builds_per_day": 100},
+                    "tick": {
+                        "enabled": True,
+                        "target_interval_minutes": 180,
+                        "max_tick_builds_per_day": 100,
+                        "precheck_hours": 24,
+                        "precheck_sample_share": 0,
+                    },
                 },
                 PersonalRankingConfig(
                     max_builds_per_day=100,
@@ -701,6 +711,8 @@ class TestConfig(SimpleTestCase):
                         target_interval_minutes=180,
                         overdue_after_minutes=360,
                         max_tick_builds_per_day=80,
+                        precheck_hours=24,
+                        precheck_sample_share=0.0,
                     ),
                 ),
             ),
@@ -1015,6 +1027,15 @@ class TestBuildPersonalRanking(BaseTest):
         assert (event["properties"]["personalized"], event["properties"]["model_called"]) == (True, True)
         assert event["properties"]["model_arm"] == "default"
         assert event["properties"]["tier_counts"] == {"top": 0, "worth_a_look": 2, "later": 1}
+        assert [needs_you[entry["report_id"]] for entry in row.result["ranked"]] == [
+            ("waiting_on_input",),
+            ("suggested_reviewer",),
+            ("claimed",),
+        ]
+        assert (event["properties"]["needs_you_candidate_count"], event["properties"]["needs_you_leading_count"]) == (
+            2,
+            1,
+        )
         assert event["properties"]["report_ids"] == [
             *(entry["report_id"] for entry in row.result["ranked"]),
             *(fold["report_id"] for fold in row.result["folded"]),

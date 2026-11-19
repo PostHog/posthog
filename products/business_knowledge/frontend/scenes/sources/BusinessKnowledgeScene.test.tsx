@@ -100,6 +100,7 @@ describe('BusinessKnowledgeScene', () => {
             setSearchTerm: jest.fn(),
             setSourceTypeFilter: jest.fn(),
             setAddedByFilter: jest.fn(),
+            setLibraryScope: jest.fn(),
             push: jest.fn(),
         })
         ;(useValues as jest.Mock).mockReturnValue({
@@ -113,8 +114,6 @@ describe('BusinessKnowledgeScene', () => {
             addedByFilter: 'all',
             libraries: [],
             libraryScope: 'all',
-            savingLibrary: false,
-            libraryDialog: null,
         })
     })
 
@@ -144,8 +143,6 @@ describe('BusinessKnowledgeScene', () => {
             addedByFilter: 'all',
             libraries: [],
             libraryScope: 'all',
-            savingLibrary: false,
-            libraryDialog: null,
         })
         render(<BusinessKnowledgeScene />)
 

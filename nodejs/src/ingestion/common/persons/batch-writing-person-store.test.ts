@@ -75,8 +75,6 @@ describe('BatchWritingPersonStore', () => {
             },
             created_at: DateTime.now(),
             version: 1,
-            properties_last_updated_at: {},
-            properties_last_operation: {},
             is_user_id: null,
             is_identified: false,
             uuid: '1',
@@ -2661,8 +2659,6 @@ describe('BatchWritingPersonStore', () => {
             await personStore.createPerson(
                 DateTime.now(),
                 { prop: 'value' },
-                {},
-                {},
                 teamId,
                 null,
                 false,

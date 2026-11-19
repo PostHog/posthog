@@ -55,7 +55,9 @@ import { createPostHogHandlers } from "../test/mocks/msw-handlers";
 import type { StoredEntry, TaskRun } from "../types";
 import {
   AgentServer,
+  codexProcessCwd,
   isTurnCompleteNotification,
+  LAUNCH_BEFORE_REPO_READY_CAPABILITY,
   MESSAGE_DRIVEN_RESUME_CAPABILITY,
   PREWARMED_RESUME_IDLE_CAPABILITY,
   type PreparedInitialTaskMessage,
@@ -603,6 +605,45 @@ it.each([false, true])(
 );
 
 it.each([
+  {
+    config: {
+      repositoryPath: "/tmp/workspace/repos/posthog/posthog",
+      repoReadyFile: "/tmp/workspace/.repo-ready",
+    },
+    expected: "/tmp/workspace",
+  },
+  {
+    config: { repositoryPath: "/tmp/workspace/repos/posthog/posthog" },
+    expected: "/tmp/workspace/repos/posthog/posthog",
+  },
+  { config: {}, expected: "/tmp/workspace" },
+])("spawns codex in $expected for $config", ({ config, expected }) => {
+  expect(codexProcessCwd(config)).toBe(expected);
+});
+
+it("fails session setup when the repository never becomes ready", async () => {
+  const testServer = new AgentServer({
+    port: 0,
+    jwtPublicKey: TEST_PUBLIC_KEY,
+    apiUrl: "http://localhost:8000",
+    apiKey: "test-api-key",
+    projectId: 1,
+    mode: "interactive",
+    taskId: "test-task-id",
+    runId: "test-run-id",
+    repoReadyFile: join(tmpdir(), "missing-repo-ready-dir", ".repo-ready"),
+  }) as unknown as {
+    repoReadyTimeoutMs: number;
+    waitForRepoReady(): Promise<void>;
+  };
+  testServer.repoReadyTimeoutMs = 10;
+
+  await expect(testServer.waitForRepoReady()).rejects.toThrow(
+    "Repository was not ready",
+  );
+});
+
+it.each([
   ["request_failed", "transient"],
   ["openai_unavailable", "transient"],
   ["reauth_required", "requires_action"],
@@ -905,6 +946,7 @@ describe("AgentServer HTTP Mode", () => {
         capabilities: [
           PREWARMED_RESUME_IDLE_CAPABILITY,
           MESSAGE_DRIVEN_RESUME_CAPABILITY,
+          LAUNCH_BEFORE_REPO_READY_CAPABILITY,
         ],
       });
     }, 30000);
@@ -8438,7 +8480,7 @@ describe("AgentServer HTTP Mode", () => {
         // brevity
         expect(prompt).toContain("Keep the PR description brief");
         expect(prompt).toContain("do NOT enumerate every change");
-        // plain footer, no Slack link; Slack-origin PRs are branded "PostHog"
+        // plain footer, no Slack link; without a thread link the PR is branded "PostHog"
         expect(prompt).toContain(
           "*Created with [PostHog](https://posthog.com?ref=pr)*",
         );
@@ -8452,7 +8494,7 @@ describe("AgentServer HTTP Mode", () => {
           origin: "slack",
           launchOptions: { slack_thread_url: SLACK_THREAD_URL },
           source: undefined,
-          footer: `*Created with [PostHog](https://posthog.com?ref=pr) from a [Slack thread](${SLACK_THREAD_URL})*`,
+          footer: `*Created by [PostHog Slack Bot](https://posthog.com/slack?ref=pr) from a [Slack thread](${SLACK_THREAD_URL})*`,
         },
         {
           label: "inbox report on a signal_report run",
@@ -8532,7 +8574,7 @@ describe("AgentServer HTTP Mode", () => {
         ).buildCloudSystemPrompt();
 
         expect(prompt).toContain(
-          `*Created with [PostHog](https://posthog.com?ref=pr) from a [Slack thread](${SLACK_THREAD_URL})*`,
+          `*Created by [PostHog Slack Bot](https://posthog.com/slack?ref=pr) from a [Slack thread](${SLACK_THREAD_URL})*`,
         );
       });
     });
