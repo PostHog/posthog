@@ -433,13 +433,45 @@ describe('exec tool', () => {
             // JSON output keeps `next` and `count`, so it needs no footer.
             expect(json).toBe(JSON.stringify(handlerResult))
         })
+        it('keeps the chart when a large text result is shortened', async () => {
+            const handlerResult = {
+                results: [{ data: [5, 7], days: ['2026-11-10', '2026-11-11'], label: 'signups' }],
+                details: 'More context about the results. '.repeat(120),
+            }
+            const limit = 300
+            const exec = createExec([makeMockTool({ handler: async () => handlerResult })], undefined, {
+                appendTimeSeriesChartData: true,
+                toolResultTokenLimit: limit,
+            })
+
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as string
+
+            expect(result).toContain(CHART_DATA_PREAMBLE)
+            expect(Buffer.byteLength(result)).toBeLessThanOrEqual(maxResponseBytes(limit))
+        })
+
+        it('drops the next-page hint when shortening cuts rows from a partial list', async () => {
+            const handlerResult = {
+                count: 230,
+                next: 'https://example.com/api/projects/1/things/?limit=100&offset=100',
+                previous: null,
+                results: Array.from({ length: 100 }, (_, id) => ({ id, name: `thing ${id}` })),
+            }
+            const exec = createExec([makeMockTool({ handler: async () => handlerResult })], undefined, {
+                toolResultTokenLimit: 300,
+            })
+
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as string
+
+            expect(result).not.toContain('offset=100')
+        })
 
         it('returns raw JSON when --json flag is passed in command', async () => {
-            const exec = createExec()
-            const result = await exec.handler(mockContext, { command: 'call --json mock-tool' })
-            const parsed = JSON.parse(result as string)
-            expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
-        })
+        const exec = createExec()
+        const result = await exec.handler(mockContext, { command: 'call --json mock-tool' })
+        const parsed = JSON.parse(result as string)
+        expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
+    })
 
         it('returns JSON for tool with outputFormat json even without --json flag', async () => {
             const tool = makeMockTool({ _meta: { [POSTHOG_META_KEY]: { outputFormat: 'json' } } })

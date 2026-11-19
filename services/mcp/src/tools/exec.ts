@@ -23,7 +23,9 @@ import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
 import {
     boundText,
+    byteLength,
     jsonResponseBody,
+    maxResponseBytes,
     responseTokenBudget,
     type ResponseBodySource,
     toonResponseBody,
@@ -2540,22 +2542,25 @@ export function createExecTool(
                         outputText = formatResponse(result)
                         bodySource = typeof result === 'string' ? undefined : toonResponseBody(result)
                     }
-                    if (!useJson) {
-                        const chartData = options.appendTimeSeriesChartData
-                            ? buildTimeSeriesChartData(result)
-                            : undefined
-                        if (chartData) {
-                            outputText = `${outputText}\n\n${chartData}`
-                        }
-                        // `formatResponse` drops the pagination fields a client needs to fetch the next page.
-                        const nextPageHint = getNextPageHint(tool.name, result)
-                        if (nextPageHint) {
-                            outputText = `${outputText}\n\n${nextPageHint}`
-                        }
-                    }
-                    // Bound here, where the handler result is still available to re-serialize.
+                    const chartData =
+                        !useJson && options.appendTimeSeriesChartData ? buildTimeSeriesChartData(result) : undefined
+                    const chartFooter = chartData ? `\n\n${chartData}` : ''
+                    // `formatResponse` drops the pagination fields a client needs to fetch the next page.
+                    const nextPageHint = useJson ? null : getNextPageHint(tool.name, result)
+                    const fullText = `${outputText}${chartFooter}${nextPageHint ? `\n\n${nextPageHint}` : ''}`
                     const budget = responseTokenBudget(options.toolResultTokenLimit, input)
-                    if (budget !== undefined) {
+                    if (budget === undefined || byteLength(fullText) <= maxResponseBytes(budget)) {
+                        outputText = fullText
+                    } else if (chartFooter) {
+                        // Reserve the chart's bytes before re-serializing the result body. The next-page
+                        // hint is dropped because it offsets past the rows the bound cuts.
+                        const bodyBudget = maxResponseBytes(budget) - byteLength(chartFooter)
+                        const body = bodyBudget > 0 ? boundText(outputText, budget, bodySource, bodyBudget) : undefined
+                        outputText =
+                            body !== undefined && byteLength(body) <= bodyBudget
+                                ? body + chartFooter
+                                : boundText(outputText, budget, bodySource)
+                    } else {
                         outputText = boundText(outputText, budget, bodySource)
                     }
                     trackInnerCall?.(tool.name, {
