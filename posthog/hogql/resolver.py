@@ -2402,6 +2402,8 @@ class Resolver(CloningVisitor):
             return len(frame["published"])
 
         scope = self.scopes[-1] if self.scopes else None
+        if scope is not frame["scope"]:
+            return len(frame["published"])
         resolved_any = True
         while resolved_any:
             resolved_any = False
@@ -2443,7 +2445,11 @@ class Resolver(CloningVisitor):
     def _resolve_join_constraint(
         self, node: ast.JoinExpr, using_column_names: Optional[list[str]]
     ) -> Optional[ast.JoinConstraint]:
-        if node.next_join is None and self._pending_scalar_ctes:
+        if (
+            node.next_join is None
+            and self._pending_scalar_ctes
+            and self._get_scope() is self._pending_scalar_ctes[-1]["scope"]
+        ):
             self._pending_scalar_ctes[-1]["from_complete"] = True
             self._stage_pending_scalar_ctes()
         if node.constraint is None:

@@ -945,6 +945,32 @@ class TestResolver(BaseTest):
         self.assertIsInstance(resolved.type, ast.SelectQueryType)
         self.assertEqual(self.context.errors, [])
 
+    @parameterized.expand(
+        [
+            ("pivot", "numbers(1) PIVOT (count() FOR number IN (0))"),
+            ("unpivot", "numbers(1) UNPIVOT (value FOR name IN (number))"),
+        ]
+    )
+    def test_temporary_join_scope_does_not_complete_enclosing_from(self, _name: str, source: str):
+        resolved = resolve_types(
+            self._select(
+                "WITH '' AS properties SELECT (WITH properties AS y SELECT groupArray(y) "
+                f"FROM {source} JOIN raw_persons AS t ON 1 = length(y) * 0)"
+            ),
+            self.context,
+            dialect="hogql",
+        )
+        inner = resolved.select[0]
+        assert isinstance(inner, ast.SelectQuery) and inner.ctes is not None
+        field_type = inner.ctes["y"].expr.type
+        while isinstance(field_type, ast.FieldAliasType):
+            field_type = field_type.type
+        assert isinstance(field_type, ast.FieldType)
+        self.assertEqual(field_type.name, "properties")
+        assert isinstance(field_type.table_type, ast.TableAliasType)
+        self.assertEqual(field_type.table_type.alias, "t")
+        self.assertEqual(self.context.errors, [])
+
     def test_nested_scalar_subqueries_wait_for_their_from_without_repeated_resolution(self):
         query = "SELECT 1"
         for index in range(18):
