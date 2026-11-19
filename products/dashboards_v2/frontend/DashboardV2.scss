@@ -111,7 +111,8 @@
         z-index: 3;
     }
 
-    // Resize handles are grab zones on the right and bottom edges. The edge under the pointer highlights.
+    // Resize handles are grab zones on the right and bottom edges, shown only by the cursor. The corner alone draws a
+    // grip, inside the tile, so no bar runs along a tile's side.
     // The selectors are this long, and each edge resets its own transform, to win over the grid library's own
     // handle styles, which rotate each handle.
     .react-grid-item > .react-resizable-handle {
@@ -151,7 +152,7 @@
             transform: none;
 
             &::after {
-                inset: 8px 5px;
+                display: none;
             }
         }
 
@@ -162,23 +163,37 @@
             transform: none;
 
             &::after {
-                inset: 5px 8px;
+                display: none;
             }
         }
 
         &.react-resizable-handle-se {
-            inset: auto -6px -6px auto;
-            width: 18px;
-            height: 18px;
+            inset: auto 0 0 auto;
+            width: 16px;
+            height: 16px;
             cursor: nwse-resize;
             transform: none;
 
             &::after {
-                right: 5px;
-                bottom: 5px;
+                right: 4px;
+                bottom: 4px;
                 width: 8px;
                 height: 8px;
+                background: none;
+                border-right: 2px solid var(--color-text-tertiary, currentColor);
+                border-bottom: 2px solid var(--color-text-tertiary, currentColor);
+                border-radius: 0 0 3px;
             }
+        }
+    }
+
+    // Over a resize edge, or while resizing, the whole tile is outlined instead of the edge.
+    .react-grid-item:has(> .react-resizable-handle:hover),
+    .react-grid-item.resizing {
+        > .DashboardV2__card,
+        > * > .DashboardV2__card {
+            outline: 2px solid var(--color-accent);
+            outline-offset: -1px;
         }
     }
 
