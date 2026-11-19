@@ -7,8 +7,11 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
 from posthog.redis import get_client as get_redis_client
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key
@@ -20,11 +23,15 @@ from products.cohorts.backend.models.team_access import (
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.feature_flags.backend.person_sampling import bounded_memory_settings
 from products.feature_flags.backend.user_blast_radius import PERSON_BATCH_SIZE, get_user_blast_radius_persons
+from products.workflows.backend.facade.enums import HogFlowBatchJobAudienceStatus
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob, HogFlowBatchJobAudienceMember
 from products.workflows.backend.services.batch_audience import (
     audience_page_size,
     get_batch_audience_person_ids,
     get_batch_audience_person_ids_snapshot,
 )
+from products.workflows.backend.services.batch_audience_snapshot import resolve_audience_snapshot
 from products.workflows.backend.services.blast_radius import get_audience_size
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
@@ -75,44 +82,78 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         self._create_audience(["Dup@X.com", " dup@x.com ", "b@x.com", None, ""])
 
         result = get_batch_audience_person_ids_snapshot(
-            self.team, FILTERS, dedupe_key=dedupe_key, limit=limit, settings=bounded_memory_settings()
+            self.team, FILTERS, dedupe_key=dedupe_key, limit=limit, settings=bounded_memory_settings(), user=None
         )
 
         assert result == [_uuid(i) for i in expected_indices]
 
     @parameterized.expand(
         [
-            (
-                "paged",
-                lambda team, filters: get_batch_audience_person_ids(team, filters),
-            ),
-            (
-                "snapshot",
-                lambda team, filters: get_batch_audience_person_ids_snapshot(
-                    team, filters, dedupe_key=None, limit=10, settings=bounded_memory_settings()
-                ),
-            ),
+            ("creator_can_read_the_view", "creator", False, HogFlowBatchJobAudienceStatus.READY),
+            ("creator_denied_the_view", "creator", True, HogFlowBatchJobAudienceStatus.FAILED),
+            ("run_without_a_creator", None, False, HogFlowBatchJobAudienceStatus.FAILED),
         ]
     )
-    def test_audience_can_filter_on_a_warehouse_view(self, _name, fetch_audience):
+    def test_run_filters_on_a_warehouse_view_only_with_its_creators_access(
+        self, _name, created_by, deny_view, expected_status
+    ):
         self._create_audience(["a@x.com", "b@x.com", "c@x.com"])
-        DataWarehouseSavedQuery.objects.create(
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+        view = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="excluded_emails",
             query={"kind": "HogQLQuery", "query": "SELECT 'b@x.com' AS email"},
             columns={"email": "String"},
         )
-        filters = {
-            "properties": [
-                *FILTERS["properties"],
-                {"type": "hogql", "key": "properties.email NOT IN (SELECT email FROM excluded_emails)"},
-            ]
-        }
+        if deny_view:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_view",
+                resource_id=str(view.id),
+                access_level="none",
+                organization_member=membership,
+            )
+        hog_flow = HogFlow.objects.create(
+            team=self.team,
+            name="Test Flow",
+            trigger={"type": "batch", "filters": {"properties": []}},
+            actions=[{"id": "trigger_node", "name": "trigger", "type": "trigger", "config": {"type": "batch"}}],
+        )
+        with patch(
+            "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+        ):
+            job = HogFlowBatchJob.objects.create(
+                team=self.team,
+                hog_flow=hog_flow,
+                created_by=self.user if created_by == "creator" else None,
+                audience_status=HogFlowBatchJobAudienceStatus.RESOLVING,
+                filters={
+                    "properties": [
+                        *FILTERS["properties"],
+                        {"type": "hogql", "key": "properties.email NOT IN (SELECT email FROM excluded_emails)"},
+                    ]
+                },
+            )
 
         with patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
-            result = fetch_audience(self.team, filters)
+            resolve_audience_snapshot(
+                team_id=self.team.pk, batch_job_id=str(job.id), dedupe_key=None, max_audience_size=10
+            )
 
-        assert sorted(result) == [_uuid(1), _uuid(3)]
+        job.refresh_from_db()
+        assert job.audience_status == expected_status
+        members = HogFlowBatchJobAudienceMember.objects.for_team(self.team.pk).filter(batch_job=job)
+        if expected_status == HogFlowBatchJobAudienceStatus.READY:
+            assert sorted(str(m) for m in members.values_list("person_id", flat=True)) == [_uuid(1), _uuid(3)]
+        else:
+            assert not members.exists()
+            assert "excluded_emails" in (job.audience_error or "")
 
     def test_audience_without_dedupe_matches_legacy_query(self):
         self._create_audience(["a@x.com", "a@x.com", "b@x.com", None])

@@ -123,7 +123,11 @@ def resolve_audience_snapshot(
     *, team_id: int, batch_job_id: str, dedupe_key: str | None, max_audience_size: int
 ) -> None:
     """Run the audience query once and store every person id, then mark the run's audience ready or failed."""
-    job = HogFlowBatchJob.objects.filter(id=batch_job_id, team_id=team_id).select_related("team", "hog_flow").first()
+    job = (
+        HogFlowBatchJob.objects.filter(id=batch_job_id, team_id=team_id)
+        .select_related("team", "hog_flow", "created_by")
+        .first()
+    )
     if job is None or job.status in TERMINAL_STATES or job.audience_status == HogFlowBatchJobAudienceStatus.READY:
         return
     query_settings = bounded_memory_settings()
@@ -136,6 +140,7 @@ def resolve_audience_snapshot(
             # One past the cap, so the resolver still sees the audience overflow and warns about it.
             limit=max_audience_size + 1,
             settings=query_settings,
+            user=job.created_by,
         )
     except AUDIENCE_QUERY_TRANSIENT_ERRORS:
         raise
