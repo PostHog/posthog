@@ -60,7 +60,9 @@ from products.apm.backend.logic.health.dependencies import (
     get_dependencies as _get_dependencies,
 )
 from products.apm.backend.logic.health.deployments import (
+    DeploymentsResult,
     DeploymentVersion,
+    VersionSource,
     list_deployments as _list_deployments,
 )
 from products.apm.backend.logic.health.sources import (
@@ -90,7 +92,9 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 __all__ = [
+    "DeploymentsResult",
     "DeploymentVersion",
+    "VersionSource",
     "list_deployments",
     "DependenciesResult",
     "DependencyEdge",
@@ -175,7 +179,7 @@ def get_service_map(
 
 def list_deployments(
     *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str | None, service: str
-) -> list[DeploymentVersion]:
+) -> DeploymentsResult:
     """One service's versions in the window, oldest first, each compared with the version before it."""
     return _list_deployments(team=team, date_from=date_from, date_to=date_to, environment=environment, service=service)
 
