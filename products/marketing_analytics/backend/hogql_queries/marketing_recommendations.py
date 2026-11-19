@@ -173,6 +173,12 @@ class CampaignStats:
 
 
 @frozen
+class ExcludedSearch:
+    term: str
+    campaign_id: str
+
+
+@frozen
 class SearchTermStats:
     term: str
     campaign_id: str
@@ -252,7 +258,7 @@ class RecommendationInputs:
     keyword_tracking: KeywordTracking | None = None
     ads: tuple[Ad, ...] = ()
     keywords: tuple[Keyword, ...] = ()
-    excluded_searches: frozenset[tuple[str, str]] = frozenset()
+    excluded_searches: frozenset[ExcludedSearch] = frozenset()
     policy_ads: tuple[PolicyAds, ...] = ()
 
 
@@ -789,7 +795,7 @@ class _Recommender:
         # Misspellings are a follow-up step, so the brand's own spelling decides whether the action is done.
         compact_brand = brand.replace(" ", "")
         searches = {
-            (row.term, row.campaign_id)
+            ExcludedSearch(term=row.term, campaign_id=row.campaign_id)
             for row in self.inputs.search_terms
             if row.campaign_id in campaign_ids and compact_brand in row.term.replace(" ", "")
         }
@@ -893,7 +899,7 @@ class _Recommender:
                 continue
             spend[row.term][0] += row.cost
             spend[row.term][1] += row.conversions
-            is_excluded = (row.term, row.campaign_id) in self.inputs.excluded_searches
+            is_excluded = self._is_excluded(row)
             if _is_keyword(row.status) or is_excluded:
                 targeted_or_excluded.add(row.term)
             if is_excluded:
@@ -1349,6 +1355,9 @@ class _Recommender:
 
     # Helpers
 
+    def _is_excluded(self, row: SearchTermStats) -> bool:
+        return ExcludedSearch(term=row.term, campaign_id=row.campaign_id) in self.inputs.excluded_searches
+
     def _aggregate_terms(self) -> dict[str, _Term]:
         totals: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
         statuses: dict[str, str] = {}
@@ -1357,7 +1366,7 @@ class _Recommender:
         top_impressions: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
         serving_campaigns: dict[str, set[str]] = defaultdict(set)
         for row in self.inputs.search_terms:
-            if (row.term, row.campaign_id) not in self.inputs.excluded_searches:
+            if not self._is_excluded(row):
                 serving_campaigns[row.term].add(row.campaign_id)
         for row in self.inputs.search_terms:
             # Spend in a campaign that already blocks the search is not recoverable, so it only counts once every
@@ -1410,7 +1419,7 @@ class _Recommender:
             if (
                 row.campaign_id not in campaign_ids
                 or row.status == "ADDED"
-                or (row.term, row.campaign_id) in self.inputs.excluded_searches
+                or self._is_excluded(row)
                 or row.term not in self.brand_terms
             ):
                 continue
