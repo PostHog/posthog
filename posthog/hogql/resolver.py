@@ -626,6 +626,7 @@ class Resolver(CloningVisitor):
         self._pending_scalar_ctes: list[dict[str, Any]] = []
         self._scalar_cte_scopes: dict[int, tuple[ast.CTE, ast.SelectQueryType]] = {}
         self._scalar_cte_captures: list[dict[str, Any]] = []
+        self._table_bound_aliases: dict[int, ast.FieldAliasType] = {}
 
     def _get_scope_table_names(self, scope: ast.SelectQueryType) -> dict[str, str]:
         return self._scope_table_names.setdefault(id(scope), {})
@@ -1187,6 +1188,13 @@ class Resolver(CloningVisitor):
             if not any(frame["has_from"] for frame in self._pending_scalar_ctes[capture["frame_index"] + 1 :]):
                 capture["table_bound"] = True
 
+    def _references_table(self, type: ast.Type | None) -> bool:
+        while isinstance(type, ast.FieldAliasType):
+            if id(type) in self._table_bound_aliases:
+                return True
+            type = type.type
+        return isinstance(type, (ast.FieldType, ast.PropertyType))
+
     def _record_scalar_cte_reference(self, cte: ast.CTE) -> None:
         binding = self._scalar_cte_scopes.get(id(cte))
         if binding is None:
@@ -1197,7 +1205,7 @@ class Resolver(CloningVisitor):
             if frame["has_from"]:
                 raise QueryError(
                     f"Scalar WITH alias '{cte.name}' references another SELECT's tables. "
-                    "Define it inside this SELECT instead."
+                    "Define it inside this SELECT, or rename any column that has the same name."
                 )
         self._record_scalar_table_reference()
 
@@ -2544,8 +2552,21 @@ class Resolver(CloningVisitor):
         if node.alias == "":
             raise ImpossibleASTError("Alias cannot be empty")
 
-        node = super().visit_alias(node)
+        capture = (
+            {"frame_index": len(self._pending_scalar_ctes) - 1, "table_bound": False}
+            if self._scalar_cte_captures
+            else None
+        )
+        if capture is not None:
+            self._scalar_cte_captures.append(capture)
+        try:
+            node = super().visit_alias(node)
+        finally:
+            if capture is not None:
+                self._scalar_cte_captures.pop()
         node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type or ast.UnknownType())
+        if capture is not None and capture["table_bound"]:
+            self._table_bound_aliases[id(node.type)] = node.type
         if not node.hidden:
             scope.aliases[node.alias] = node.type
         return node
@@ -3089,6 +3110,11 @@ class Resolver(CloningVisitor):
             if nested_match:
                 type, qualifier_length = nested_match
 
+        if type and len(node.chain) == 1 and name in self.ctes:
+            # ClickHouse prefers a WITH alias over a same-named column, and copies a UNION's root WITH
+            # into every branch, so this bare name can still evaluate the alias against this scope's tables.
+            self._record_scalar_cte_reference(self.ctes[name])
+
         if not type:
             cte = self.ctes.get(name, None)
             if cte:
@@ -3237,10 +3263,7 @@ class Resolver(CloningVisitor):
             if loop_type is None:
                 raise ResolutionError(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
-        table_reference_type = node.type
-        while isinstance(table_reference_type, ast.FieldAliasType):
-            table_reference_type = table_reference_type.type
-        if isinstance(table_reference_type, (ast.FieldType, ast.PropertyType)):
+        if self._references_table(node.type):
             self._record_scalar_table_reference()
 
         if isinstance(node.type, ast.ExpressionFieldType):

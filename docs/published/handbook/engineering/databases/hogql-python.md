@@ -74,6 +74,7 @@ Aliases become available as their source tables enter scope. An alias used in a 
 In a nested SELECT with its own `FROM`, scalar aliases bind to that SELECT's tables, even when an outer query uses the same table alias.
 Aliases introduced inside a scalar `WITH` expression belong to that SELECT and are not visible in an outer query.
 Define table-dependent scalar aliases inside each subquery that has its own `FROM`, rather than inheriting them from an outer SELECT.
+A column read by name in another SELECT or `UNION` branch with its own `FROM` cannot share a name with a table-dependent scalar alias. Rename the column or the alias.
 Property references such as `properties.$browser` and `person.properties.email` also work in scalar aliases. Query preparation expands any required lazy joins.
 
 ## Embedding text

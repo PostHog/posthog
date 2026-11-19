@@ -529,6 +529,7 @@ class TestWrappedEventJoins(SimpleTestCase):
             ("intervening_from_local_alias", "t.properties AS x", "(WITH x AS y SELECT y)"),
             ("dotted", "t.properties AS x", "x.private_key"),
             ("dotted_intervening_from", "t.properties AS x", "(SELECT x.private_key)"),
+            ("expression_alias", "tuple(concat(t.properties, '') AS z) AS x, z AS y", "y"),
         ]
     )
     def test_table_bound_scalar_alias_cannot_be_inherited_by_a_different_from(
@@ -605,6 +606,26 @@ class TestWrappedEventJoins(SimpleTestCase):
         )
         self.assertIn("JSONDropKeysPool(", printed)
         self.assertTrue(any(isinstance(value, list) and "private_key" in value for value in context.values.values()))
+
+    @parameterized.expand([("columns", "COLUMNS('^leak$')"), ("spread", "toString(*COLUMNS('^leak$')) AS out")])
+    def test_union_expanded_columns_cannot_use_another_branch_table_alias(self, _name: str, selected: str) -> None:
+        with self.assertRaisesRegex(QueryError, "references another SELECT's tables"):
+            self._compile(
+                "WITH t.properties AS leak SELECT leak AS out FROM (SELECT '' AS properties) AS t "
+                f"UNION ALL SELECT {selected} FROM (SELECT '' AS leak) CROSS JOIN events AS t",
+                restricted={RestrictedProperty(name="private_key", property_type=PropertyDefinition.Type.EVENT)},
+            )
+
+    def test_unused_union_alias_does_not_block_unrelated_column_expansion(self) -> None:
+        printed, _ = self._compile(
+            "WITH t.properties AS leak SELECT leak AS out FROM (SELECT '' AS properties) AS t "
+            "UNION ALL SELECT COLUMNS('^safe$') FROM (SELECT '' AS safe) CROSS JOIN events AS t"
+        )
+        self.assertIn("UNION ALL", printed)
+
+    def test_table_independent_expression_alias_can_be_inherited(self) -> None:
+        printed, _ = self._compile("WITH tuple(concat('a', 'b') AS z) AS x, z AS y SELECT (SELECT y FROM numbers(1))")
+        self.assertIn("SELECT y", printed)
 
     @parameterized.expand(
         [
