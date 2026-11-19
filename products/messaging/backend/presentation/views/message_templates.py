@@ -16,6 +16,7 @@ from django.core.exceptions import (
 from django.core.validators import validate_email
 from django.db import transaction
 from django.utils import timezone
+from django.utils.datastructures import MultiValueDict
 
 import structlog
 import posthoganalytics
@@ -35,7 +36,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
-from rest_framework.utils import html
 
 from posthog.api.fields import OmittableBooleanField
 from posthog.api.file_system.file_system import validate_file_system_path, validate_file_system_placement
@@ -574,7 +574,7 @@ class ScheduledAtField(serializers.DateTimeField):
     def get_value(self, dictionary: Mapping[str, Any]) -> Any:
         # A form body has no null, and DRF reads a blank there as one, which would send the email now. DRF also
         # keeps only the last of repeated values, which can be an earlier time than the one before it.
-        if html.is_html_input(dictionary):
+        if isinstance(dictionary, MultiValueDict):
             values = dictionary.getlist(self.field_name)
             if len(values) > 1:
                 return values
