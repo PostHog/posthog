@@ -24,6 +24,7 @@ from posthog.models import Organization, Team
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_FINGERPRINT_KEY
 
 from products.replay_vision.backend.enqueue_claims import try_claim_enqueue_slot
+from products.replay_vision.backend.experiment_launch import start_scanners_of_launched_experiments
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -669,7 +670,7 @@ async def test_start_launched_scanners_activity(org_team) -> None:
     # draft keeps waiting.
     _, team = org_team
 
-    def _setup() -> tuple[ReplayScanner, ReplayScanner]:
+    def _setup() -> tuple[ReplayScanner, ReplayScanner, ReplayScanner]:
         launched = create_experiment(team, "launched-flag", launched=True, variants=["control", "test"])
         draft = create_experiment(team, "draft-flag", variants=["control", "test"])
 
@@ -682,16 +683,46 @@ async def test_start_launched_scanners_activity(org_team) -> None:
                 scanner_config={"prompt": "p", "experiment_id": experiment_id, "start_on_launch": True},
             )
 
-        return waiting("missed-launch", launched.id), waiting("still-draft", draft.id)
+        # A scanner whose scope holds the marker: what a row migrated off the native type looks like.
+        scoped = _make_scanner(
+            team,
+            name="missed-launch-on-scope",
+            scanner_type=ScannerType.SUMMARIZER,
+            enabled=False,
+            scanner_config={"prompt": "p"},
+            scope={"kind": "experiment", "experiment_id": launched.id, "start_on_launch": True},
+        )
+        return waiting("missed-launch", launched.id), waiting("still-draft", draft.id), scoped
 
-    missed, still_waiting = await sync_to_async(_setup)()
+    missed, still_waiting, scoped = await sync_to_async(_setup)()
 
     started = await _live_activity_env().run(start_launched_scanners_activity)
 
-    assert started == 1
+    assert started == 2
     await sync_to_async(missed.refresh_from_db)()
     await sync_to_async(still_waiting.refresh_from_db)()
+    await sync_to_async(scoped.refresh_from_db)()
     assert missed.enabled is True
     assert "start_on_launch" not in missed.scanner_config
+    assert scoped.enabled is True
+    assert "start_on_launch" not in scoped.scope
     assert still_waiting.enabled is False
     assert await _live_activity_env().run(start_launched_scanners_activity) == 0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_the_catch_up_finds_a_scope_stored_experiment(org_team) -> None:
+    # The catch-up's own query picks the team and experiment to start. Reading only `scanner_config`
+    # leaves a scope-stored row undiscovered, and the receiver it calls is never reached for it.
+    _, team = org_team
+    launched = create_experiment(team, "catch-up-flag", launched=True, variants=["control", "test"])
+    _make_scanner(
+        team,
+        name="scope-only-waiting",
+        scanner_type=ScannerType.SUMMARIZER,
+        enabled=False,
+        scanner_config={"prompt": "p"},
+        scope={"kind": "experiment", "experiment_id": launched.id, "start_on_launch": True},
+    )
+
+    assert start_scanners_of_launched_experiments() == 1
