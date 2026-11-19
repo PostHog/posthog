@@ -397,8 +397,10 @@ function MarketplaceCredentialSection(): JSX.Element {
                     {marketplaceCommand}
                 </CodeSnippet>
                 <p className="m-0 text-xs text-secondary">
-                    Run each line in Claude Code — skills then appear as <code>/posthog-skill-store:&lt;name&gt;</code>,
-                    auto-updating as you publish.
+                    Run each line in Claude Code. Skills then appear as <code>/posthog-skill-store:&lt;name&gt;</code>.
+                    Claude Code disables marketplace auto-update by default. To receive new and updated skills
+                    automatically, run <code>/plugin</code>, open <b>Marketplaces</b>, select{' '}
+                    <code>posthog-skill-store-marketplace</code>, then choose <b>Enable auto-update</b>.
                 </p>
             </div>
             <div className="flex flex-col gap-1">
@@ -407,8 +409,8 @@ function MarketplaceCredentialSection(): JSX.Element {
                     {codexCommand}
                 </CodeSnippet>
                 <p className="m-0 text-xs text-secondary">
-                    Run both lines in your terminal — the same marketplace, added to Codex and installed. Codex loads
-                    the skills automatically.
+                    Run both lines in your terminal. Then start a new Codex session before using the installed skills
+                    and tools. Open <code>/plugins</code> in Codex to review installed plugins.
                 </p>
             </div>
         </>
@@ -424,7 +426,7 @@ function ConnectToClaudeCodeModal(): JSX.Element {
             isOpen={connectModalOpen}
             onClose={() => setConnectModalOpen(false)}
             title="Connect a coding agent"
-            description="Install your team's skills into Claude Code or Codex with automatic updates – or let any MCP-connected agent load them directly."
+            description="Install your team's skills into Claude Code or Codex, or let any MCP-connected agent load them directly."
             width={640}
         >
             <div className="flex flex-col gap-4">
