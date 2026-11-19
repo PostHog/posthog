@@ -27,7 +27,8 @@ export function EmailPersonPreview({
                     srcDoc={withInertLinks(withUnresolvedChips(rendered))}
                     sandbox=""
                     title="Email preview"
-                    className="flex-1 min-h-80"
+                    // The recorder serializes `srcdoc`, and this one holds a real person's values.
+                    className="ph-no-capture flex-1 min-h-80"
                 />
             ) : (
                 <pre className="ph-no-capture flex-1 min-h-80 m-0 p-4 font-sans text-sm whitespace-pre-wrap wrap-anywhere bg-surface-primary">
