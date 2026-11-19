@@ -52,6 +52,9 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("value_in_an_event_handler", '<a onclick="{{token}}">x</a>'),
             ("value_as_an_attribute_name", "<p {{token}}>x</p>"),
             ("unsubscribe_tag_in_a_string", '{{ insert name "default=<%body%>" }}'),
+            ("event_handler_hidden_by_an_angle_bracket", '<a title="a>b" onclick="{{first_name}}">x</a>'),
+            ("event_handler_hidden_by_a_tag_like_value", '<a title="<%%>" onclick="{{first_name}}">x</a>'),
+            ("brace_before_a_body_tag", "x{<%body%>y"),
             (
                 "unsubscribe_tag_beside_a_block_in_an_attribute",
                 '<a href="<%subject%>{{#if allow}}u">{{token}}</a>{{/if}}',

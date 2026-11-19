@@ -196,11 +196,15 @@ _ALLOWED_TAG = re.compile(
 _BLOCK_TAG = re.compile(r"\{\{ *[#/]|\{\{ *else")
 # An attribute value in quotes, other than an event handler or a style, can hold a value.
 _PLAIN_ATTRIBUTE = re.compile(r"""\s(?!on|style\b)[\w:-]+\s*=\s*(?:"[^"<>]*"|'[^'<>]*')""", re.IGNORECASE)
+_BRACE_BEFORE_ASM = re.compile(r"\{(?:<|&lt;)%")
+_ANGLE_IN_QUOTED_VALUE = re.compile(r"""=\s*(?:"[^"]*[<>][^"]*"|'[^']*[<>][^']*')""")
 _LINK_LABEL = re.compile(r"<a\b[^<>]{0,2000}>((?:(?!<a\b).){0,5000}?)</a\s*>", re.DOTALL | re.IGNORECASE)
 
 
 def _unsupported_reason(source: str, is_html: bool) -> str | None:
     """Why the template can't convert, or None when every tag is a supported form in a supported place."""
+    if _BRACE_BEFORE_ASM.search(source):
+        return "put a brace right before an unsubscribe or body tag"
     held: list[str] = []
     position = 0
     # `<%...%>` tags hold `<` and `>`, which would read as HTML below.
@@ -214,6 +218,9 @@ def _unsupported_reason(source: str, is_html: bool) -> str | None:
     text = "".join(held) + text[position:]
     if not is_html:
         return None
+    # A `<` or `>` in a quoted value hides where the tag ends from the checks below.
+    if _ANGLE_IN_QUOTED_VALUE.search(text):
+        return "have a < or > inside a quoted attribute value"
     if any("\x02" in text[span.start : span.end] for span in _not_content_spans(text)):
         return "sit inside a comment, style, script or head block"
     for tag in _HTML_TAG.finditer(text):
