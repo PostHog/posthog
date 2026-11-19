@@ -109,6 +109,7 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
                 SCENARIO_HOST_ROOT: host,
                 SCENARIO_PROCESS_LOGS: path.join(dir, 'processes'),
                 SCENARIO_LIVE_COPY_SECONDS: '0.2',
+                TMPDIR: dir,
                 FAKE_S3: path.join(dir, 's3'),
                 FAKE_RELEASE: path.join(dir, 'release'),
                 FAKE_RUNNER_PID: path.join(dir, 'runner.pid'),
@@ -351,8 +352,10 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
                 { runId: RUN_ID, content: `${START}\n` }
             )
             await until(
-                () => processesOf(run).some(([, , , , command, interval]) => command === 'sleep' && interval === '600'),
-                'the copy loop to wait for its next copy'
+                () =>
+                    existsSync(object(run, 'live.jsonl')) &&
+                    !processesOf(run).some((args) => args.slice(4).join(' ').includes(' s3 cp ')),
+                'a live log copy, with no copy in flight'
             )
             const before = copied(run)
 
