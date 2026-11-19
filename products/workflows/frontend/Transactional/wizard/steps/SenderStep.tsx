@@ -15,18 +15,36 @@ import { EmailSetupModal } from '../../../Channels/EmailSetup/EmailSetupModal'
 import { transactionalEmailWizardLogic } from '../transactionalEmailWizardLogic'
 
 export function SenderStep(): JSX.Element {
+    const { draft } = useValues(transactionalEmailWizardLogic)
+    const { updateEmail } = useActions(transactionalEmailWizardLogic)
+    const { loadIntegrations } = useActions(integrationsLogic)
+    const [senderSetupOpen, setSenderSetupOpen] = useState(false)
+    const from = senderFrom(draft.email)
+
+    const finishSenderSetup = (integrationId?: number): void => {
+        setSenderSetupOpen(false)
+        loadIntegrations()
+        if (integrationId && !from.integrationId) {
+            updateEmail({ from: { ...from, integrationId } })
+        }
+    }
+
+    // A new sender swaps the empty state for the picker, so the setup sits outside both to stay open.
+    return (
+        <>
+            <SenderStepContent onAddSender={() => setSenderSetupOpen(true)} />
+            {senderSetupOpen ? (
+                <EmailSetupModal entry="transactional" onComplete={finishSenderSetup} onClose={finishSenderSetup} />
+            ) : null}
+        </>
+    )
+}
+
+function SenderStepContent({ onAddSender }: { onAddSender: () => void }): JSX.Element {
     const { draft, senders } = useValues(transactionalEmailWizardLogic)
     const { updateEmail } = useActions(transactionalEmailWizardLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
-    const [senderSetupOpen, setSenderSetupOpen] = useState(false)
-    const senderSetup = senderSetupOpen ? (
-        <EmailSetupModal
-            entry="transactional"
-            onComplete={() => setSenderSetupOpen(false)}
-            onClose={() => setSenderSetupOpen(false)}
-        />
-    ) : null
 
     // A failed load clears the loading flag, and falls through to the retry below.
     if (integrations === null && integrationsLoading) {
@@ -44,7 +62,7 @@ export function SenderStep(): JSX.Element {
                     <div className="flex gap-2 flex-wrap">
                         <LemonButton
                             type="primary"
-                            onClick={() => setSenderSetupOpen(true)}
+                            onClick={onAddSender}
                             data-attr="transactional-email-wizard-setup-sender"
                         >
                             Set up a sending domain
@@ -58,7 +76,6 @@ export function SenderStep(): JSX.Element {
                         >
                             Check again
                         </LemonButton>
-                        {senderSetup}
                     </div>
                 }
             />
@@ -75,10 +92,9 @@ export function SenderStep(): JSX.Element {
                     senders={senders}
                     dataAttrPrefix="transactional-email"
                     onChangeFrom={(next) => updateEmail({ from: next })}
-                    onAddSender={() => setSenderSetupOpen(true)}
+                    onAddSender={onAddSender}
                 />
             </LemonField.Pure>
-            {senderSetup}
             <EmailSenderForm
                 from={from}
                 replyTo={draft.email.replyTo}

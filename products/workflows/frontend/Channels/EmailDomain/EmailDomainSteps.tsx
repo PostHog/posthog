@@ -13,9 +13,14 @@ import { VerifyingStep } from './steps/VerifyingStep'
 export interface EmailDomainStepsProps {
     domainLogicKey: string
     onDomainCreated: EmailDomainWizardLogicProps['onCreated']
+    readyNextStep?: JSX.Element
 }
 
-export function EmailDomainSteps({ domainLogicKey, onDomainCreated }: EmailDomainStepsProps): JSX.Element {
+export function EmailDomainSteps({
+    domainLogicKey,
+    onDomainCreated,
+    readyNextStep,
+}: EmailDomainStepsProps): JSX.Element {
     const { phase } = useValues(emailDomainLogic)
     switch (phase) {
         case 'domain':
@@ -35,6 +40,6 @@ export function EmailDomainSteps({ domainLogicKey, onDomainCreated }: EmailDomai
         case 'verifying':
             return <VerifyingStep />
         case 'ready':
-            return <ReadyStep />
+            return <ReadyStep nextStep={readyNextStep} />
     }
 }

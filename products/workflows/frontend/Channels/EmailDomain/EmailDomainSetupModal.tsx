@@ -10,6 +10,8 @@ import { AgentHandoffModal } from './components/AgentHandoffModal'
 import { EmailDomainSetupEntry, captureEmailDomainSetupStarted, emailDomainSetupPath } from './emailDomainSetupLinks'
 import { EmailDomainSteps } from './EmailDomainSteps'
 
+const RETURNS_TO_EMAIL: EmailDomainSetupEntry[] = ['broadcast', 'email_step', 'transactional']
+
 export interface EmailDomainSetupModalProps {
     integration?: IntegrationType | null
     entry: EmailDomainSetupEntry
@@ -38,6 +40,19 @@ export function EmailDomainSetupModal({
                     <EmailDomainSteps
                         domainLogicKey="modal"
                         onDomainCreated={(created) => setIntegrationId(created.id)}
+                        readyNextStep={
+                            integrationId !== null && RETURNS_TO_EMAIL.includes(entry) ? (
+                                <LemonButton
+                                    type="primary"
+                                    size="large"
+                                    className="self-center"
+                                    onClick={() => onComplete(integrationId)}
+                                    data-attr="email-domain-use-sender"
+                                >
+                                    Use this sender
+                                </LemonButton>
+                            ) : undefined
+                        }
                     />
                     {integrationId === null ? null : (
                         <LemonButton

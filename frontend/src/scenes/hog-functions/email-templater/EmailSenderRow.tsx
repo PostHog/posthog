@@ -93,87 +93,92 @@ export function EmailSenderRow(): JSX.Element {
         setIsEditing(visible)
     }
 
+    // The setup sits outside both rows, so it stays open when its new sender swaps the empty row for the picker.
     if (!sandbox && !integrationsLoading && senders.length === 0) {
         return (
-            <EmailHeaderRow label="From" className="py-1">
-                <div className="flex-1 min-w-0 text-secondary">No email senders yet</div>
-                <LemonButton
-                    size="small"
-                    type="primary"
-                    onClick={() => setSenderSetupOpen(true)}
-                    icon={<IconPlus />}
-                    // pinned: data-attr values feed autocapture dashboards
-                    data-attr={`${dataAttrPrefix}-sender-connect`}
-                >
-                    Set up email sender
-                </LemonButton>
+            <>
+                <EmailHeaderRow label="From" className="py-1">
+                    <div className="flex-1 min-w-0 text-secondary">No email senders yet</div>
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        onClick={() => setSenderSetupOpen(true)}
+                        icon={<IconPlus />}
+                        // pinned: data-attr values feed autocapture dashboards
+                        data-attr={`${dataAttrPrefix}-sender-connect`}
+                    >
+                        Set up email sender
+                    </LemonButton>
+                </EmailHeaderRow>
                 {senderSetup}
-            </EmailHeaderRow>
+            </>
         )
     }
 
     return (
-        <EmailHeaderRow
-            label="From"
-            error={fromRowError(logicProps.fieldErrors?.from || addressError, selected)}
-            className="py-1"
-        >
-            <div className="flex-1 min-w-0">
-                <EmailSenderPicker
-                    from={from}
-                    senders={senders}
-                    allowRotation={isWorkflowEmail && senderRotationEnabled}
-                    dataAttrPrefix={dataAttrPrefix}
-                    sandbox={sandbox}
-                    onChooseSandbox={() => switchSenderKind(() => sandbox?.onSelect())}
-                    onChangeFrom={changeFrom}
-                    onAddSender={() => setSenderSetupOpen(true)}
-                />
-                {notes.length > 0 ? (
-                    <div className="flex flex-wrap gap-x-3 mt-0.5 text-xs text-secondary">
-                        {notes.map((note, index) => (
-                            <span key={index} className="min-w-0 truncate">
-                                {note}
-                            </span>
-                        ))}
-                    </div>
-                ) : null}
-            </div>
-            {!sandbox?.selected && (
-                <LemonDropdown
-                    visible={isEditing}
-                    onVisibilityChange={onVisibilityChange}
-                    closeOnClickInside={false}
-                    placement="bottom-end"
-                    overlay={
-                        <EmailSenderForm
-                            from={from}
-                            replyTo={replyTo}
-                            senders={senders}
-                            variables={isWorkflowEmail ? logicProps.variables : undefined}
-                            dataAttrPrefix={dataAttrPrefix}
-                            onChangeFrom={(next) => setEmailTemplateValue('from', next)}
-                            onChangeReplyTo={(next) => setEmailTemplateValue('replyTo', next)}
-                            onClear={clearCustomSender}
-                            onDone={() => onVisibilityChange(false)}
-                        />
-                    }
-                >
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        className="shrink-0"
-                        icon={hasOverrides ? <IconPencil /> : <IconPlus />}
-                        status={addressError ? 'danger' : 'default'}
-                        tooltip="Set a display name, address, or reply-to for this email"
-                        // pinned: data-attr values feed autocapture dashboards
-                        data-attr={isWorkflowEmail ? 'email-from-custom-sender' : 'transactional-email-sender-edit'}
+        <>
+            <EmailHeaderRow
+                label="From"
+                error={fromRowError(logicProps.fieldErrors?.from || addressError, selected)}
+                className="py-1"
+            >
+                <div className="flex-1 min-w-0">
+                    <EmailSenderPicker
+                        from={from}
+                        senders={senders}
+                        allowRotation={isWorkflowEmail && senderRotationEnabled}
+                        dataAttrPrefix={dataAttrPrefix}
+                        sandbox={sandbox}
+                        onChooseSandbox={() => switchSenderKind(() => sandbox?.onSelect())}
+                        onChangeFrom={changeFrom}
+                        onAddSender={() => setSenderSetupOpen(true)}
+                    />
+                    {notes.length > 0 ? (
+                        <div className="flex flex-wrap gap-x-3 mt-0.5 text-xs text-secondary">
+                            {notes.map((note, index) => (
+                                <span key={index} className="min-w-0 truncate">
+                                    {note}
+                                </span>
+                            ))}
+                        </div>
+                    ) : null}
+                </div>
+                {!sandbox?.selected && (
+                    <LemonDropdown
+                        visible={isEditing}
+                        onVisibilityChange={onVisibilityChange}
+                        closeOnClickInside={false}
+                        placement="bottom-end"
+                        overlay={
+                            <EmailSenderForm
+                                from={from}
+                                replyTo={replyTo}
+                                senders={senders}
+                                variables={isWorkflowEmail ? logicProps.variables : undefined}
+                                dataAttrPrefix={dataAttrPrefix}
+                                onChangeFrom={(next) => setEmailTemplateValue('from', next)}
+                                onChangeReplyTo={(next) => setEmailTemplateValue('replyTo', next)}
+                                onClear={clearCustomSender}
+                                onDone={() => onVisibilityChange(false)}
+                            />
+                        }
                     >
-                        Custom sender
-                    </LemonButton>
-                </LemonDropdown>
-            )}
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            className="shrink-0"
+                            icon={hasOverrides ? <IconPencil /> : <IconPlus />}
+                            status={addressError ? 'danger' : 'default'}
+                            tooltip="Set a display name, address, or reply-to for this email"
+                            // pinned: data-attr values feed autocapture dashboards
+                            data-attr={isWorkflowEmail ? 'email-from-custom-sender' : 'transactional-email-sender-edit'}
+                        >
+                            Custom sender
+                        </LemonButton>
+                    </LemonDropdown>
+                )}
+            </EmailHeaderRow>
             {senderSetup}
-        </EmailHeaderRow>
+        </>
     )
 }

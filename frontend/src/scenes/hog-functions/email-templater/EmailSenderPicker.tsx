@@ -67,7 +67,12 @@ export function EmailSenderPicker({
             onChange={changeSenders}
             fullWidth
             autoWidth={false}
-            action={{ children: 'Add new email sender', icon: <IconPlus />, onClick: onAddSender }}
+            action={{
+                children: 'Add new email sender',
+                icon: <IconPlus />,
+                onClick: onAddSender,
+                closesDropdown: true,
+            }}
             data-attr={`${dataAttrPrefix}-sender-select`}
         />
     ) : (

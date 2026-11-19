@@ -19,9 +19,12 @@ import { initKeaTests } from '~/test/init'
 
 import { MessagingTabActions } from '../../MessagingTabActions'
 import { SendingDomainRow } from '../../Transactional/sendFromCode/SendingDomainRow'
+import { SenderStep } from '../../Transactional/wizard/steps/SenderStep'
+import { transactionalEmailWizardLogic } from '../../Transactional/wizard/transactionalEmailWizardLogic'
 import { EmailSetupModal } from '../EmailSetup/EmailSetupModal'
 import { MessageChannels } from '../MessageChannels'
 import { FakeEmailDomainBackend } from './__mocks__/fakeEmailDomainBackend'
+import { POLL_FAST_MS } from './emailDomainStatusLogic'
 
 const { ToastContainer, toast } = jest.requireActual('react-toastify')
 
@@ -223,6 +226,31 @@ describe('email domain setup entry points', () => {
         expect(emailTemplaterLogic(templaterProps).values.emailTemplate.from).toMatchObject({
             integrationId: SENDER_ID,
         })
+    })
+
+    it('keeps the transactional setup open when its domain verifies, and hands the sender to the email', async () => {
+        await renderInApp(<SenderStep />)
+
+        fireEvent.click(element('transactional-email-wizard-setup-sender'))
+        await flush()
+        fireEvent.change(document.getElementById('email-domain-another-domain') as HTMLInputElement, {
+            target: { value: 'acme.com' },
+        })
+        fireEvent.click(element('email-domain-use-custom-domain'))
+        fireEvent.click(element('email-domain-continue'))
+        await flush()
+
+        backend.verifyDomain(DOMAIN)
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(POLL_FAST_MS)
+        })
+        integrationsLogic.actions.loadIntegrations()
+        await flush()
+        expect(element('transactional-email-sender-select')).toBeInTheDocument()
+
+        fireEvent.click(element('email-domain-use-sender'))
+        await flush()
+        expect(transactionalEmailWizardLogic.values.draft.email.from).toMatchObject({ integrationId: SENDER_ID })
     })
 
     it('opens the existing sender when the new address already has one', async () => {
