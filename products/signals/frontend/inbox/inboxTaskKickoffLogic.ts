@@ -368,6 +368,8 @@ function handleKickoffError(
 // comes back as a 400 on a field the reader never sees named.
 export const REPORT_DISCUSSION_QUESTION_MAX_LENGTH = 4000
 
+const REPOSITORY_MISSING_REASON = 'Select a repository to implement this report.'
+
 async function cancelWarmRun(projectId: string, lease: ReportWarmLease): Promise<void> {
     try {
         await tasksRunsCancelCreate(projectId, lease.taskId, lease.runId, { only_if_awaiting_first_message: true })
@@ -1228,14 +1230,17 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             const githubAccessLogic =
                 reportGithubAccessLogic.findMounted({ report, surface: 'triage_mode' }) ??
                 reportGithubAccessLogic.findMounted({ report })
+            const repositoryMissing = !!githubAccessLogic?.values.repositoryRequired && !repository
             const disabledReason =
                 values.createPrDisabledReason ??
-                (githubAccessLogic?.values.repositoryRequired && !repository
-                    ? 'Select a repository to implement this report.'
-                    : null) ??
+                (repositoryMissing ? REPOSITORY_MISSING_REASON : null) ??
                 githubAccessLogic?.values.disabledReason
             if (disabledReason) {
-                lemonToast.error(disabledReason)
+                if (disabledReason === REPOSITORY_MISSING_REASON) {
+                    githubAccessLogic?.actions.requireRepositorySelection()
+                } else {
+                    lemonToast.error(disabledReason)
+                }
                 captureInboxReportActionCompleted({
                     report,
                     actionType: 'create_pr',
@@ -1299,8 +1304,12 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     actions.clearActiveCreation()
                 }
                 if (error?.code === 'report_implementation_repository_unresolved') {
-                    githubAccessLogic?.actions.requireRepositorySelection()
-                    lemonToast.error(error?.detail || "Couldn't start the PR task. Try again.")
+                    if (githubAccessLogic) {
+                        githubAccessLogic.actions.requireRepositorySelection()
+                    } else {
+                        // Nothing on screen can show the picker, so the refusal needs the toast.
+                        lemonToast.error(error?.detail || "Couldn't start the PR task. Try again.")
+                    }
                     captureInboxReportActionCompleted({
                         report,
                         actionType: 'create_pr',

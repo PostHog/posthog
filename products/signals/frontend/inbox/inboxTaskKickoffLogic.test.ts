@@ -183,27 +183,32 @@ describe('inboxTaskKickoffLogic', () => {
             expect(logic.values.reportDiscussionIntent).toBeNull()
         })
 
-        it.each([false, true])('shows the repository error without a picker (access mounted: %s)', async (mounted) => {
+        it.each([false, true])('asks for a repository before the request (access mounted: %s)', async (mounted) => {
             const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
             const reportWithoutRepository = { ...report, repo_slug: null }
             const access = reportGithubAccessLogic({ report: reportWithoutRepository })
             const unmount = mounted ? access.mount() : undefined
+            let taskRequests = 0
             useMocks({
                 post: {
-                    '/api/projects/:team/tasks/': () => [
-                        400,
-                        {
-                            code: 'report_implementation_repository_unresolved',
-                            detail: 'Select a repository to continue.',
-                        },
-                    ],
+                    '/api/projects/:team/tasks/': () => {
+                        taskRequests += 1
+                        return [
+                            400,
+                            {
+                                code: 'report_implementation_repository_unresolved',
+                                detail: 'Select a repository to continue.',
+                            },
+                        ]
+                    },
                 },
             })
             try {
                 await expectLogic(logic, () =>
                     logic.actions.createPrFromReport(reportWithoutRepository)
                 ).toFinishAllListeners()
-                expect(toast).toHaveBeenCalledWith('Select a repository to continue.')
+                expect(taskRequests).toBe(mounted ? 0 : 1)
+                expect(toast.mock.calls).toEqual(mounted ? [] : [['Select a repository to continue.']])
                 expect(startedRuns).toHaveLength(0)
             } finally {
                 unmount?.()
@@ -414,6 +419,7 @@ describe('inboxTaskKickoffLogic', () => {
             ['invalid_input', false],
             ['permission_denied', false],
         ])('offers repository recovery only for an unresolved repository (%s)', async (code, expected) => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
             useMocks({
                 get: {
                     '/api/projects/:team/integrations/': {
@@ -422,11 +428,12 @@ describe('inboxTaskKickoffLogic', () => {
                     },
                 },
             })
-            const reportWithoutRepository = { ...report, repo_slug: null }
-            const access = reportGithubAccessLogic({ report: reportWithoutRepository })
+            const reportWithRepository = { ...report, repo_slug: 'example/app' }
+            const access = reportGithubAccessLogic({ report: reportWithRepository })
             const unmount = access.mount()
             try {
                 await waitFor(() => expect(access.values.loading).toBe(false))
+                expect(access.values.repositoryRequired).toBe(false)
                 useMocks({
                     post: {
                         '/api/projects/:team/tasks/': () => [
@@ -436,10 +443,11 @@ describe('inboxTaskKickoffLogic', () => {
                     },
                 })
                 await expectLogic(logic, () =>
-                    logic.actions.createPrFromReport(reportWithoutRepository)
+                    logic.actions.createPrFromReport(reportWithRepository)
                 ).toFinishAllListeners()
 
                 expect(access.values.repositoryRequired).toBe(expected)
+                expect(toast).toHaveBeenCalledTimes(expected ? 0 : 1)
                 expect(startedRuns).toHaveLength(0)
                 expect(logic.values.isCreatingPr).toBe(false)
                 expect(logic.values.activeCreation).toBeNull()
