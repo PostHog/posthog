@@ -302,7 +302,9 @@ class TestGatewayExecTools(APIBaseTest):
         self._tool(installation=shared)
 
         assert self._available().json()["servers"] == []
-        assert self._call(installation_id=shared.id).status_code == status.HTTP_403_FORBIDDEN
+        refusal = self._call(installation_id=shared.id)
+        assert refusal.status_code == status.HTTP_403_FORBIDDEN
+        assert refusal.json()["reason"] == "disabled"
         mock_call.assert_not_called()
         assert list(MCPAuditEvent.objects.for_team(self.team.id).values_list("tool_name", "decision")) == [
             ("create_issue", "blocked")

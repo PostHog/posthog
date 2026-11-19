@@ -71,6 +71,7 @@ from products.mcp_store.backend.policy import (
 )
 from products.mcp_store.backend.proxy import (
     borrowed_refusal_detail,
+    is_posthog_installation,
     record_tool_call_audit,
     resolve_call_decision,
     validate_installation_auth,
@@ -364,6 +365,12 @@ def _mounts_for_agent_run(
                     "needs_reconnect" if owns_grant else "teammate_needs_reconnect",
                 )
             continue
+        if is_posthog_installation(installation):
+            # The gateway refuses every agent call on a PostHog connection, so mounting it gives the run a dead server.
+            dropped_by_server.setdefault(
+                access.gateway_server_id, _agent_unmounted(access.gateway_server, access.scope, "owner_only")
+            )
+            continue
         healthy_by_server[access.gateway_server_id].append((access, installation))
 
     mounts: list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]] = []
@@ -614,6 +621,8 @@ def _member_unmounted_reason(
         health_failure = "server_disabled"
     elif gateway_server_id is not None and gateway_server_id in revoked_gateway_server_ids:
         health_failure = "revoked"
+    elif installation.user_id != user_id and is_posthog_installation(installation):
+        health_failure = "owner_only"
     elif not _is_oauth_ready(installation):
         health_failure = "needs_reconnect" if installation.user_id == user_id else "teammate_needs_reconnect"
     # Healthy unselected installations stay in play until the personal-copy dedup has run.

@@ -1248,6 +1248,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     status=403,
                 )
 
+        if borrowed_refusal_detail(installation, borrowed=installation.user_id != request.user.id) is not None:
+            # The call is refused further on, so the owner's token is not refreshed on this caller's behalf.
+            return None
         ok, error_response = validate_installation_auth(installation)
         if not ok and error_response is not None:
             return error_response
@@ -1365,7 +1368,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             )
 
         if refusal_detail is not None:
-            return Response({"detail": refusal_detail}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": refusal_detail, "reason": "disabled"}, status=status.HTTP_403_FORBIDDEN)
         if block_reason is not None:
             return Response(
                 {"detail": _BLOCKED_CALL_DETAIL[block_reason].format(tool_name=tool_name), "reason": block_reason},

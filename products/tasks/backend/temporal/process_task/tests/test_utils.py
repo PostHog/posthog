@@ -553,6 +553,10 @@ class TestUnmountedMcpInstallationsNotice(SimpleTestCase):
                 "not_shared",
                 "1 MCP Store connection was not added to this run: Linear (share it with this agent in the MCP Store).",
             ),
+            (
+                "owner_only",
+                "1 MCP Store connection was not added to this run: Linear (only the person who connected it can use it).",
+            ),
             ("not_selected", None),
             ("replaced_by_personal", None),
         ]
