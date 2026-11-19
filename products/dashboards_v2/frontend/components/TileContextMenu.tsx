@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 
 import {
     ContextMenu,
+    ContextMenuCheckboxItem,
     ContextMenuContent,
     ContextMenuItem,
     ContextMenuSub,
@@ -12,6 +13,7 @@ import {
 } from '@posthog/quill'
 
 import { dashboardV2Logic } from '../dashboardV2Logic'
+import { type ContentWidget, type ContentWidgetParts, showsPart } from '../layout/dashboardTypes'
 
 /** One thing a person can do to a tile, shared by the right-click menu and the hover toolbar so the two agree. */
 export interface TileAction {
@@ -22,6 +24,8 @@ export interface TileAction {
     destructive?: boolean
     onSelect?: () => void
     submenu?: TileAction[]
+    /** Set on an action that is a toggle: whether it is on. */
+    checked?: boolean
 }
 
 function isUsable(action: TileAction): boolean {
@@ -31,7 +35,13 @@ function isUsable(action: TileAction): boolean {
     return action.submenu ? action.submenu.some(isUsable) : true
 }
 
-export function useContentTileActions(id: string): TileAction[] {
+const TILE_PARTS: { key: keyof ContentWidgetParts; label: string }[] = [
+    { key: 'header', label: 'Header' },
+    { key: 'description', label: 'Description' },
+    { key: 'footer', label: 'Footer' },
+]
+
+export function useContentTileActions(id: string, widget: ContentWidget): TileAction[] {
     const { dashboard, activeTab, disabledReasonFor } = useValues(dashboardV2Logic)
     const { applyDashboardEdit } = useActions(dashboardV2Logic)
     const otherTabs = dashboard.tabs.filter((tab) => tab.id !== activeTab.id)
@@ -52,6 +62,27 @@ export function useContentTileActions(id: string): TileAction[] {
             })),
         })
     }
+    const partsDisabledReason = disabledReasonFor('setTileParts')
+    actions.push({
+        key: 'parts',
+        label: 'Show',
+        dataAttr: 'dashboard-v2-tile-parts',
+        disabledReason: partsDisabledReason,
+        submenu: TILE_PARTS.filter(({ key }) => key !== 'footer' || widget.footer).map(({ key, label }) => {
+            const shown = showsPart(widget, key)
+            const needsHeader = key === 'description' && !showsPart(widget, 'header')
+            return {
+                key,
+                label,
+                dataAttr: `dashboard-v2-tile-parts-${key}`,
+                // The description lives in the header, so it cannot be turned on while the header is off.
+                disabledReason: partsDisabledReason ?? (needsHeader ? 'Show the header first' : null),
+                checked: shown,
+                onSelect: () =>
+                    applyDashboardEdit({ edit: 'setTileParts', id, parts: { ...widget.parts, [key]: !shown } }),
+            }
+        }),
+    })
     actions.push({
         key: 'remove',
         label: 'Remove tile',
@@ -105,6 +136,19 @@ function TileMenuEntry({ action }: { action: TileAction }): JSX.Element {
                     ))}
                 </ContextMenuSubContent>
             </ContextMenuSub>
+        )
+    }
+    if (action.checked !== undefined) {
+        return (
+            <ContextMenuCheckboxItem
+                data-attr={action.dataAttr}
+                checked={action.checked}
+                disabled={!!action.disabledReason}
+                title={action.disabledReason ?? undefined}
+                onCheckedChange={() => action.onSelect?.()}
+            >
+                {action.label}
+            </ContextMenuCheckboxItem>
         )
     }
     return (
