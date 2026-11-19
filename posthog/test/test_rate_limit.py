@@ -2,7 +2,7 @@ import json
 import time
 from datetime import timedelta
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
@@ -18,6 +18,7 @@ from django_redis.client import DefaultClient
 from django_redis.exceptions import ConnectionInterrupted
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from redis.connection import parse_url
 from redis.exceptions import RedisError
 from rest_framework import exceptions, status
 from rest_framework.request import Request
@@ -1220,8 +1221,9 @@ class TestReserveUnits(BaseTest):
 
     def _lagging_reader_caches(self) -> dict[str, Any]:
         primary = urlsplit(settings.REDIS_URL)
-        reader_db = "14" if primary.path.strip("/") == "15" else "15"
-        reader = f"{primary.scheme}://{primary.netloc}/{reader_db}"
+        reader_db = 14 if int(parse_url(settings.REDIS_URL).get("db", 0)) == 15 else 15
+        query = urlencode([(name, value) for name, value in parse_qsl(primary.query) if name != "db"])
+        reader = urlunsplit(primary._replace(path=f"/{reader_db}", query=query))
         return {
             "default": {
                 "BACKEND": "django_redis.cache.RedisCache",
