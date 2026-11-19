@@ -415,46 +415,64 @@ describe('inboxTaskKickoffLogic', () => {
         })
 
         it.each([
-            ['report_implementation_repository_unresolved', true],
-            ['invalid_input', false],
-            ['permission_denied', false],
-        ])('offers repository recovery only for an unresolved repository (%s)', async (code, expected) => {
-            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
-            useMocks({
-                get: {
-                    '/api/projects/:team/integrations/': {
-                        results: [{ id: 1, kind: 'github', installation_status: 'connected' }],
-                        next: null,
-                    },
-                },
-            })
-            const reportWithRepository = { ...report, repo_slug: 'example/app' }
-            const access = reportGithubAccessLogic({ report: reportWithRepository })
-            const unmount = access.mount()
-            try {
-                await waitFor(() => expect(access.values.loading).toBe(false))
-                expect(access.values.repositoryRequired).toBe(false)
+            ['report_implementation_repository_unresolved', false, true],
+            ['report_implementation_repository_unresolved', true, false],
+            ['invalid_input', false, false],
+            ['permission_denied', false, false],
+        ])(
+            'offers repository recovery only for an unresolved repository (%s, left report: %s)',
+            async (code, leavesReport, expected) => {
+                const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
                 useMocks({
-                    post: {
-                        '/api/projects/:team/tasks/': () => [
-                            400,
-                            { type: 'validation_error', code, attr: 'repository', detail: 'The request failed.' },
-                        ],
+                    get: {
+                        '/api/projects/:team/integrations/': {
+                            results: [{ id: 1, kind: 'github', installation_status: 'connected' }],
+                            next: null,
+                        },
                     },
                 })
-                await expectLogic(logic, () =>
-                    logic.actions.createPrFromReport(reportWithRepository)
-                ).toFinishAllListeners()
+                const reportWithRepository = { ...report, repo_slug: 'example/app' }
+                const access = reportGithubAccessLogic({ report: reportWithRepository })
+                let unmount: (() => void) | null = access.mount()
+                const unmountAccess = (): void => {
+                    unmount?.()
+                    unmount = null
+                }
+                try {
+                    await waitFor(() => expect(access.values.loading).toBe(false))
+                    expect(access.values.repositoryRequired).toBe(false)
+                    useMocks({
+                        post: {
+                            '/api/projects/:team/tasks/': () => {
+                                if (leavesReport) {
+                                    unmountAccess()
+                                }
+                                return [
+                                    400,
+                                    {
+                                        type: 'validation_error',
+                                        code,
+                                        attr: 'repository',
+                                        detail: 'The request failed.',
+                                    },
+                                ]
+                            },
+                        },
+                    })
+                    await expectLogic(logic, () =>
+                        logic.actions.createPrFromReport(reportWithRepository)
+                    ).toFinishAllListeners()
 
-                expect(access.values.repositoryRequired).toBe(expected)
-                expect(toast).toHaveBeenCalledTimes(expected ? 0 : 1)
-                expect(startedRuns).toHaveLength(0)
-                expect(logic.values.isCreatingPr).toBe(false)
-                expect(logic.values.activeCreation).toBeNull()
-            } finally {
-                unmount()
+                    expect(toast.mock.calls).toEqual(expected ? [] : [['The request failed.']])
+                    expect(access.isMounted() && access.values.repositoryRequired).toBe(expected)
+                    expect(startedRuns).toHaveLength(0)
+                    expect(logic.values.isCreatingPr).toBe(false)
+                    expect(logic.values.activeCreation).toBeNull()
+                } finally {
+                    unmountAccess()
+                }
             }
-        })
+        )
 
         it.each([201, 503])('saves the repository before task creation (status %i)', async (status) => {
             const selections: Record<string, unknown>[] = []

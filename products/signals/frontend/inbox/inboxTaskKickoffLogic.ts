@@ -1227,9 +1227,10 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 return
             }
             const [{ reportGithubAccessLogic }, { runStreamLogic }] = modules
-            const githubAccessLogic =
+            const findGithubAccessLogic = (): ReturnType<typeof reportGithubAccessLogic.findMounted> =>
                 reportGithubAccessLogic.findMounted({ report, surface: 'triage_mode' }) ??
                 reportGithubAccessLogic.findMounted({ report })
+            const githubAccessLogic = findGithubAccessLogic()
             const repositoryMissing = !!githubAccessLogic?.values.repositoryRequired && !repository
             const disabledReason =
                 values.createPrDisabledReason ??
@@ -1304,10 +1305,12 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     actions.clearActiveCreation()
                 }
                 if (error?.code === 'report_implementation_repository_unresolved') {
-                    if (githubAccessLogic) {
-                        githubAccessLogic.actions.requireRepositorySelection()
+                    // The reader can leave the report while the request runs, which unmounts the picker.
+                    // Without a mounted picker on screen, only the toast can report the refusal.
+                    const accessLogic = findGithubAccessLogic()
+                    if (accessLogic) {
+                        accessLogic.actions.requireRepositorySelection()
                     } else {
-                        // Nothing on screen can show the picker, so the refusal needs the toast.
                         lemonToast.error(error?.detail || "Couldn't start the PR task. Try again.")
                     }
                     captureInboxReportActionCompleted({
