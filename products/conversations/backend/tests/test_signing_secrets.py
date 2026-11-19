@@ -13,7 +13,9 @@ class TestRetireLeakedSigningSecret(BaseTest):
             .order_by("-created_at")
             .first()
         )
-        return [change["field"] for change in entry.detail["changes"]] if entry else []
+        if entry is None or entry.detail is None:
+            return []
+        return [change["field"] for change in entry.detail["changes"]]
 
     def test_replaces_active_secret_and_logs_the_change(self):
         row = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret="phs_leaked")
