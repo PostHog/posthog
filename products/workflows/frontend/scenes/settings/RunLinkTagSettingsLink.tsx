@@ -22,7 +22,12 @@ export function RunLinkTagSettingsLink({
             data-attr={dataAttr}
             // Capture runs before Link's own click handler, which swallows a Cmd-click or Ctrl-click.
             onClickCapture={onOpen}
-            onAuxClick={onOpen}
+            onAuxClick={(event) => {
+                // A right-click also fires auxclick, but only the middle button opens the link.
+                if (event.button === 1) {
+                    onOpen?.()
+                }
+            }}
         >
             {children}
         </Link>

@@ -412,7 +412,7 @@ export const teamLogic = kea<teamLogicType>([
             },
         ],
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, cache }) => ({
         currentTeam: [
             null as TeamType | TeamPublicType | null,
             {
@@ -436,12 +436,13 @@ export const teamLogic = kea<teamLogicType>([
                 // No listeners, so the late fields do not rerun what a team load triggers.
                 addFullStageTeamFields: (fields: Partial<TeamType>): TeamType | TeamPublicType | null =>
                     values.currentTeam ? ({ ...values.currentTeam, ...fields } as TeamType | TeamPublicType) : null,
-                refreshCurrentTeam: async (_, breakpoint) => {
+                refreshCurrentTeam: async () => {
                     const projectId = values.currentTeam?.project_id
                     if (!projectId) {
                         return values.currentTeam
                     }
 
+                    const request = (cache.teamRequests = (cache.teamRequests ?? 0) + 1)
                     let refreshed: TeamType
                     try {
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
@@ -449,8 +450,11 @@ export const teamLogic = kea<teamLogicType>([
                     } catch {
                         return values.currentTeam
                     }
-                    // A later refresh started while this one was in flight, so its answer is the newer one.
-                    breakpoint()
+                    // A refresh or save that started later already set the team, so this older answer would undo it.
+                    if (request < (cache.teamShownRequest ?? 0)) {
+                        return values.currentTeam
+                    }
+                    cache.teamShownRequest = request
                     return refreshed
                 },
                 updateCurrentTeam: async (payload: Partial<TeamType>, breakpoint) => {
@@ -466,6 +470,7 @@ export const teamLogic = kea<teamLogicType>([
                         }
                     }
 
+                    const request = (cache.teamRequests = (cache.teamRequests ?? 0) + 1)
                     let patchedTeam: TeamType | TeamPublicType
                     if (Object.keys(payload).length === 1 && payload.name && values.currentTeam.project_id) {
                         // Renames go through the project id, because that mirrors the name onto the
@@ -484,6 +489,7 @@ export const teamLogic = kea<teamLogicType>([
                         patchedTeam = await api.update(`api/projects/${values.currentTeam.id}`, payload)
                         breakpoint()
                     }
+                    cache.teamShownRequest = Math.max(cache.teamShownRequest ?? 0, request)
 
                     // We need to reload current org (which lists its teams) in organizationLogic
                     actions.loadCurrentOrganization()

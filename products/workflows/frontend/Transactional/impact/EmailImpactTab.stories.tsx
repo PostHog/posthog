@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
-import { useLayoutEffect, useState } from 'react'
+import { useLayoutEffect, useMemo, useState } from 'react'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -47,8 +47,20 @@ const Template: StoryFn<{
     linkTagging?: boolean
     sensitive?: boolean
 }> = ({ impact, event, replay = true, linkTagging = true, sensitive = false }) => {
+    const team = useMemo(
+        () => ({
+            ...MOCK_DEFAULT_TEAM,
+            session_recording_opt_in: replay,
+            workflows_config: {
+                ...MOCK_DEFAULT_TEAM.workflows_config,
+                email_workflow_run_link_tag_enabled: linkTagging,
+            },
+        }),
+        [replay, linkTagging]
+    )
     useStorybookMocks({
         get: {
+            '/api/projects/:id/': team,
             '/api/projects/:team_id/transactional_email_log/impact/': ({ request }: { request: Request }) => {
                 if (!new URL(request.url).searchParams.get('event')) {
                     return [200, impact]
@@ -68,17 +80,10 @@ const Template: StoryFn<{
     const { setEvent } = useActions(emailImpactLogic({ workflowId: WORKFLOW_ID }))
     const [ready, setReady] = useState(false)
     useLayoutEffect(() => {
-        loadCurrentTeamSuccess({
-            ...MOCK_DEFAULT_TEAM,
-            session_recording_opt_in: replay,
-            workflows_config: {
-                ...MOCK_DEFAULT_TEAM.workflows_config,
-                email_workflow_run_link_tag_enabled: linkTagging,
-            },
-        })
+        loadCurrentTeamSuccess(team)
         setEvent(event)
         setReady(true)
-    }, [loadCurrentTeamSuccess, setEvent, event, replay, linkTagging])
+    }, [loadCurrentTeamSuccess, setEvent, event, team])
 
     return ready ? <EmailImpactTab workflowId={WORKFLOW_ID} alwaysSensitive={sensitive} /> : <></>
 }
