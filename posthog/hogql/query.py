@@ -1095,19 +1095,18 @@ class HogQLQueryExecutor:
             if table_workload is not None and table_workload != Workload.DEFAULT and workload in MAIN_CLUSTER_WORKLOADS:
                 workload = table_workload
 
-            def run_on_clickhouse(sql: str, *, with_column_types: bool, timeout_seconds: int | None = None) -> Any:
+            def run_on_clickhouse(sql: str, *, with_column_types: bool, **execution_budget: Any) -> Any:
                 with events_route_scope(printed_events_route):
                     return sync_execute(
                         sql,
                         clickhouse_context.values,
-                        settings={"max_execution_time": timeout_seconds} if timeout_seconds else None,
                         with_column_types=with_column_types,
                         workload=workload,
                         team_id=self.team.pk,
                         readonly=True,
                         ch_user=self.ch_user,
                         external_tables=list(clickhouse_context.external_tables.values()) or None,
-                        send_receive_timeout=timeout_seconds,
+                        **execution_budget,
                     )
 
             def run_clickhouse_query() -> Any:
@@ -1117,7 +1116,8 @@ class HogQLQueryExecutor:
                 rows = run_on_clickhouse(
                     f"DESCRIBE TABLE ({clickhouse_sql})",
                     with_column_types=False,
-                    timeout_seconds=DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS,
+                    settings={"max_execution_time": DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS},
+                    send_receive_timeout=DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS,
                 )
                 return [column_type for _, column_type, *_ in rows]
 
