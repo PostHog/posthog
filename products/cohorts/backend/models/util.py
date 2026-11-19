@@ -1549,9 +1549,7 @@ def insert_cohort_people_into_pg(
         )
 
     for wait_seconds in (*STATIC_COHORT_READ_BACK_WAITS_SECONDS, None):
-        new_rows_read, any_counted_resolved = (
-            _retry_quorum_read(_copy_once) if replace_marker is not None else _copy_once()
-        )
+        new_rows_read, any_counted_resolved = _copy_once()
         if new_rows_read >= min_rows:
             # ClickHouse can hold non-empty rows whose UUIDs do not correspond to any Person in Postgres.
             # Require at least one resolved counted person before pruning so Postgres keeps existing members
@@ -1631,28 +1629,31 @@ def _copy_static_cohort_rows_to_pg(
             require_current_population_marker(cohort.pk, replace_marker)
         # Tagged per page, because the batch writer between pages may retag.
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, query_type="static_cohort_sync_page")
-        # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
-        with _static_cohort_data_route():
-            rows = sync_execute(
-                f"SELECT person_id, {kept}, {counted}, toUnixTimestamp(_timestamp) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id >= %(cursor)s ORDER BY person_id LIMIT %(limit)s",
-                {
-                    "cohort_id": cohort.pk,
-                    "team_id": team_id,
-                    "cursor": cursor,
-                    "limit": batch_size,
-                    "counted_since": counted_since,
-                    **(
-                        replace_keeps_row_params(keep_marker, keep_floor)
-                        if keep_marker is not None
-                        else {"replace_offset": REPLACE_ROW_OFFSET}
-                    ),
-                },
-                settings=read_settings,
-                # Pinned to the data cluster while keeping team_id so settings, query tags, and kill switches still apply.
-                workload=Workload.OFFLINE,
-                ch_user=ClickHouseUser.COHORTS,
-                team_id=team_id,
-            )
+        def _query_page() -> Any:
+            # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
+            with _static_cohort_data_route():
+                return sync_execute(
+                    f"SELECT person_id, {kept}, {counted}, toUnixTimestamp(_timestamp) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id >= %(cursor)s ORDER BY person_id LIMIT %(limit)s",
+                    {
+                        "cohort_id": cohort.pk,
+                        "team_id": team_id,
+                        "cursor": cursor,
+                        "limit": batch_size,
+                        "counted_since": counted_since,
+                        **(
+                            replace_keeps_row_params(keep_marker, keep_floor)
+                            if keep_marker is not None
+                            else {"replace_offset": REPLACE_ROW_OFFSET}
+                        ),
+                    },
+                    settings=read_settings,
+                    # Pinned to the data cluster while keeping team_id so settings, query tags, and kill switches still apply.
+                    workload=Workload.OFFLINE,
+                    ch_user=ClickHouseUser.COHORTS,
+                    team_id=team_id,
+                )
+
+        rows = _retry_quorum_read(_query_page) if replace_marker is not None else _query_page()
         if not rows:
             exhausted = True
             return [], cursor

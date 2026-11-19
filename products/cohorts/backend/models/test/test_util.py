@@ -628,22 +628,34 @@ class TestCohortUtils(BaseTest):
         self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], list(STATIC_COHORT_READ_BACK_WAITS_SECONDS))
 
     def test_a_replace_copy_waits_for_a_replica_that_has_not_fetched_its_part(self):
-        # Code 289 on the read right after the quorum insert is a lagging replica, not a failed run.
+        # Code 289 on a page read retries only that page instead of restarting the copy from the first person.
+        u1, u2 = uuid.UUID(int=1), uuid.UUID(int=2)
+        p1 = create_person(team=self.team, distinct_ids=["page-1"], uuid=u1)
+        p2 = create_person(team=self.team, distinct_ids=["page-2"], uuid=u2)
+        flush_persons_and_events()
+        marker = timezone.now().replace(microsecond=0)
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
+        Cohort.objects.filter(pk=cohort.pk).update(population_marker=marker)
         lagging = InternalCHQueryError("replica is not in quorum", code=289)
 
         with (
+            patch("products.cohorts.backend.models.util.CH_PAGE_SIZE", 2),
             patch(
-                "products.cohorts.backend.models.util._copy_static_cohort_rows_to_pg", side_effect=[lagging, (1, True)]
-            ) as mock_copy,
+                "products.cohorts.backend.models.util.sync_execute",
+                side_effect=[
+                    [(str(u1), 1, 1, 100), (str(u2), 1, 1, 100)],
+                    lagging,
+                    [(str(u2), 1, 1, 100)],
+                ],
+            ) as mock_execute,
             patch("products.cohorts.backend.models.util.time.sleep") as mock_sleep,
         ):
-            insert_cohort_people_into_pg(
-                cohort, team_id=self.team.id, min_rows=1, replace_marker=timezone.now().replace(microsecond=0)
-            )
+            insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=2, replace_marker=marker)
 
-        self.assertEqual(mock_copy.call_count, 2)
+        cursors = [call.args[1]["cursor"] for call in mock_execute.call_args_list]
+        self.assertEqual(cursors, ["00000000-0000-0000-0000-000000000000", str(u2), str(u2)])
         self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], [STATIC_COHORT_READ_BACK_WAITS_SECONDS[0]])
+        self.assertCountEqual(list_cohort_member_ids(self.team.id, cohort.id), [p1.id, p2.id])
 
     def test_copy_to_postgres_handles_member_spanning_pages_and_all_filtered_page(self):
         # Members split across a ClickHouse page boundary must be held back until the next page so their
