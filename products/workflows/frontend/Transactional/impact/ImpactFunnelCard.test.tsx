@@ -113,7 +113,10 @@ describe('ImpactFunnelCard', () => {
         }
     )
 
-    it('opens the setting in a new tab and shows what the user saved there once this tab is shown again', async () => {
+    it.each([
+        ['this tab is shown again', (): void => setPageHidden(false)],
+        ['a settings window hands focus back', (): void => void fireEvent(window, new Event('focus'))],
+    ])('opens the setting in a new tab and shows what the user saved there once %s', async (way, comeBack) => {
         initKeaTests(true, teamWithLinkTagging(false))
         let stored = teamWithLinkTagging(false)
         const saveTeam = async ({ request }: { request: Request }): Promise<[number, TeamType]> => {
@@ -131,16 +134,48 @@ describe('ImpactFunnelCard', () => {
         expect(link?.getAttribute('href')).toMatch(/\/settings\/environment-workflows#workflows-email-run-link-tag$/)
         expect(link?.getAttribute('target')).toBe('_blank')
 
-        setPageHidden(true)
+        if (way === 'this tab is shown again') {
+            setPageHidden(true)
+        }
         render(<WorkflowsRunLinkTagSettings />)
         fireEvent.click(screen.getByLabelText('Connect tracked email clicks to sessions'))
         await waitFor(() => expect(stored.workflows_config?.email_workflow_run_link_tag_enabled).toBe(true))
         expect(stored.workflows_config?.capture_workflows_engagement_events).toBe(true)
         expect(screen.getByText('Needs link tagging')).toBeInTheDocument()
 
-        setPageHidden(false)
+        comeBack()
 
         expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
+    })
+
+    it('waits for a slow read to answer before the timer reads again', async () => {
+        jest.useFakeTimers()
+        initKeaTests(true, teamWithLinkTagging(true))
+        let reads = 0
+        let releaseFirstRead = (): void => {}
+        useMocks({
+            get: {
+                [PROJECT_URL]: async () => {
+                    reads += 1
+                    if (reads === 1) {
+                        await new Promise<void>((resolve) => (releaseFirstRead = resolve))
+                    }
+                    return [200, teamWithLinkTagging(false)]
+                },
+            },
+        })
+        answer = [200, IMPACT]
+        renderCard()
+        await waitFor(() => expect(reads).toBe(1))
+
+        act(() => {
+            jest.advanceTimersByTime(LINK_TAGGING_REFRESH_MS * 2)
+        })
+        expect(reads).toBe(1)
+        releaseFirstRead()
+
+        expect(await screen.findByText('Needs link tagging')).toBeInTheDocument()
+        expect(reads).toBe(1)
     })
 
     it('keeps the stored setting through a failed read on show, and reads it again on a timer', async () => {

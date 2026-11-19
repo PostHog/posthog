@@ -342,16 +342,27 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             actions.setAlwaysSensitive(!!props.alwaysSensitive)
         }
     }),
-    afterMount(({ actions, cache }) => {
+    afterMount(({ actions, cache, values }) => {
         actions.loadImpact()
-        // The link tagging setting can change in another tab, including the one this tab's settings link opens.
-        // kea-disposables runs this setup on mount and again each time the page is shown, so the step reads the
-        // setting then. The timer catches a save that committed after that read, or a read that failed. The read
-        // stays out of teamLogic, because a slow response there would replace a newer shared team.
+        // The link tagging setting can change in another tab or window, including the one this tab's settings link
+        // opens. kea-disposables runs this setup on mount and again each time the page is shown, and a settings window
+        // beside this one hands focus back without a show, so the step reads the setting on all three. The timer
+        // catches a save that committed after that read, or a read that failed. It skips a tick while a read is still
+        // running, so a slow read can finish. The read stays out of teamLogic, because a slow response there would
+        // replace a newer shared team.
         cache.disposables.add(() => {
-            actions.loadStoredLinkTagging()
-            const timer = window.setInterval(() => actions.loadStoredLinkTagging(), LINK_TAGGING_REFRESH_MS)
-            return () => window.clearInterval(timer)
+            const refresh = (): void => actions.loadStoredLinkTagging()
+            refresh()
+            window.addEventListener('focus', refresh)
+            const timer = window.setInterval(() => {
+                if (!values.storedLinkTaggingLoading) {
+                    refresh()
+                }
+            }, LINK_TAGGING_REFRESH_MS)
+            return () => {
+                window.removeEventListener('focus', refresh)
+                window.clearInterval(timer)
+            }
         }, 'refreshLinkTagging')
     }),
 ])
