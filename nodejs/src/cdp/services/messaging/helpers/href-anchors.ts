@@ -91,6 +91,9 @@ export const MAX_TEXT_RUN_BUDGET = 500_000
 // from an earlier tag are not compared. Work on its list of formatting elements, and each read of an element's
 // attributes with the length of their values, counts against the same budget.
 export const FORMATTING_BUDGET = 10_000_000
+// Before each run of text and most start tags, the parser looks for the newest formatting elements in its stack of
+// open elements, from the top down, so a formatting tag left open under many others costs their depth each time.
+export const STACK_SCAN_BUDGET = 50_000_000
 const FORMATTING_TAGS = new Set([
     'a',
     'b',
@@ -115,6 +118,7 @@ type ParseBounds = {
     attributesLeft: number
     textRunsLeft: number
     formattingLeft: number
+    stackScansLeft: number
 }
 
 const parseBoundsFor = (html: string): ParseBounds => {
@@ -128,6 +132,7 @@ const parseBoundsFor = (html: string): ParseBounds => {
         attributesLeft: MAX_ATTRIBUTE_BUDGET,
         textRunsLeft: MAX_TEXT_RUN_BUDGET,
         formattingLeft: FORMATTING_BUDGET,
+        stackScansLeft: STACK_SCAN_BUDGET,
     }
 }
 
@@ -309,6 +314,29 @@ const limitTokens = (parser: Parser<DefaultTreeAdapterMap>, bounds: ParseBounds)
     }
 }
 
+// `_reconstructActiveFormattingElements` is internal to the parser of parse5 7.1.2, which the patch pins. Each formatting
+// element it reopens costs another scan.
+const limitStackScans = (parser: Parser<DefaultTreeAdapterMap>, bounds: ParseBounds): void => {
+    const internals = parser as unknown as { _reconstructActiveFormattingElements: () => void }
+    const reconstruct = internals._reconstructActiveFormattingElements.bind(parser)
+    const charge = (scans: number): void => {
+        bounds.stackScansLeft -= scans
+        if (bounds.stackScansLeft < 0) {
+            throw new EmailFormattingTooCostlyError()
+        }
+    }
+    internals._reconstructActiveFormattingElements = () => {
+        if (parser.activeFormattingElements.entries.length === 0) {
+            return reconstruct()
+        }
+        const depth = parser.openElements.stackTop + 1
+        charge(depth)
+        const elementsLeft = bounds.elementsLeft
+        reconstruct()
+        charge((elementsLeft - bounds.elementsLeft) * depth)
+    }
+}
+
 // Splits a start tag into its attributes as the HTML tokenizer does, repeats included. `close` is the tag's `>`.
 const readSourceAttributes = (html: string, tagStart: number, close: number): SourceAttribute[] => {
     const attributes: SourceAttribute[] = []
@@ -474,6 +502,7 @@ const scanComment = (
         limitNesting(parser, bounds)
         limitFormattingListWork(parser, bounds)
         limitTokens(parser, bounds)
+        limitStackScans(parser, bounds)
         parser.tokenizer.write(comment.content, true)
         fragment = parser.getFragment()
     } catch (error) {
@@ -528,6 +557,7 @@ const scanHtml = (html: string): Scan => {
     limitNesting(parser, bounds)
     limitFormattingListWork(parser, bounds)
     limitTokens(parser, bounds)
+    limitStackScans(parser, bounds)
     parser.tokenizer.write(html, true)
     const anchors = new Map<number, ScannedTag>()
     const comments: CommentNode[] = []

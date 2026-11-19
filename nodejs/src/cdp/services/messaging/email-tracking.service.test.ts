@@ -659,6 +659,15 @@ describe('EmailTrackingService', () => {
                 expect(() => sesTrack(nested(100, 20_000))).toThrow(EmailFormattingTooCostlyError)
             })
 
+            it('refuses an email whose text the parser checks against a deep stack for an open formatting tag', () => {
+                // Before each run of text, the parser looks for the newest open formatting tag in its stack of open
+                // elements, from the top down.
+                const words = (count: number): string =>
+                    `<body><b>${'<div>'.repeat(3_000)}${'x '.repeat(count)}<a href="https://example.com/">a</a></body>`
+                expect(sesTrack(words(1_000))).toContain('phl:0')
+                expect(() => sesTrack(words(20_000))).toThrow(EmailFormattingTooCostlyError)
+            })
+
             it('refuses an email whose MathML annotation the parser rereads for each child', () => {
                 // Each child that opens or closes inside an `<annotation-xml>` makes the parser read all of its
                 // attributes again, looking for an encoding.
