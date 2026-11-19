@@ -38,6 +38,7 @@ export type InvariantResult = {
     gate?: number
     violation?: string
     unitIds: string[]
+    crossedBy?: string
 }
 
 export type RunEvidence = Pick<JudgeEvidence, 'janitorResets'>
