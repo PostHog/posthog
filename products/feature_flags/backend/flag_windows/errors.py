@@ -118,7 +118,7 @@ def _errors_by_last_value(
     """The level 2 counts of each edit, or no entry when the query runs out of time or memory."""
     # The counts by last value don't use the watched conditions, so the query leaves out the joins that read them.
     edits = [replace(edit, conditions=()) for edit in edits]
-    before_error = last_values(team, edits, start, end, counted_event="$exception")
+    before_error = last_values(edits, start, end, counted_event="$exception")
     try:
         return counts_by_bucket(
             team,
