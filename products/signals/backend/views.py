@@ -199,6 +199,7 @@ from products.signals.backend.report_check_authoring import (
 from products.signals.backend.report_claim_follow_up import record_report_claimed
 from products.signals.backend.report_claims import (
     ReportClaim,
+    actor_owns_claim,
     actor_works_under_claim,
     get_active_claim,
     get_active_claims,
@@ -5437,7 +5438,7 @@ class SignalReportViewSet(
                     if data["takeover_agent_claims"]
                     and claim is not None
                     and claim.actor_kind in (SignalActorKind.AGENT, SignalActorKind.TASK)
-                    and not actor_works_under_claim(claim, actor)
+                    and not actor_owns_claim(claim, actor)
                     else None
                 )
                 try:
@@ -7661,7 +7662,7 @@ class SignalReportArtefactViewSet(
                 if (
                     assignment is None
                     or assignment.claim_id != claim_id
-                    or not actor_works_under_claim(assignment, attribution)
+                    or not actor_works_under_claim(assignment, attribution, user_id=request.user.id)
                 ):
                     return Response(
                         {"detail": "Claim is stale or belongs to another actor."}, status=status.HTTP_409_CONFLICT
