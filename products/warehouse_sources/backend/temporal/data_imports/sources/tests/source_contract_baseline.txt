@@ -39,6 +39,7 @@ GoogleCloudStorage not-checkable:schemas
 GooglePlayConsole not-checkable:no-request
 GoogleSearchConsole not-checkable:database
 GoogleSheets not-checkable:schemas
+GoogleTagManager not-checkable:database
 GrafanaIRM not-checkable:no-request
 Hatchet not-checkable:no-request
 HelpScout not-checkable:database

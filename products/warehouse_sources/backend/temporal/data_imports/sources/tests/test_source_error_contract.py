@@ -113,6 +113,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "GooglePlayConsole": "no-request",
     "GoogleSearchConsole": "database",
     "GoogleSheets": "schemas",
+    "GoogleTagManager": "database",
     "GrafanaIRM": "no-request",
     "Hatchet": "no-request",
     "HelpScout": "database",

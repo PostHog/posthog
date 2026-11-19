@@ -46,6 +46,7 @@ KINDS: Mapping[str, KindSpec] = {
     "google-pubsub": KindSpec(label="Google Pub/Sub", default=_CREDENTIALS),
     "google-search-console": KindSpec(label="Google Search Console", default=_OAUTH),
     "google-sheets": KindSpec(label="Google Sheets", default=_OAUTH, others=frozenset({_CREDENTIALS})),
+    "google-tag-manager": KindSpec(label="Google Tag Manager", default=_OAUTH),
     "helpscout": KindSpec(label="Help Scout", default=_OAUTH),
     "hubspot": KindSpec(label="HubSpot", default=_OAUTH),
     "instagram": KindSpec(label="Instagram", default=_OAUTH),

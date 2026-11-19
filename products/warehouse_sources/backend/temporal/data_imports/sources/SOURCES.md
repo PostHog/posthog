@@ -415,6 +415,7 @@ the row lists both.
 | google_play_console              | HTTP                        | requests                                                        | ✅                          |
 | google_search_console            | HTTP                        | requests (`AuthorizedSession` + `TrackedHTTPAdapter`)           | ✅                          |
 | google_sheets                    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
+| google_tag_manager               | HTTP                        | requests (`AuthorizedSession` + `TrackedHTTPAdapter`)           | ✅                          |
 | google_webfonts                  | HTTP                        | requests                                                        | ✅                          |
 | grafana                          | HTTP                        | requests                                                        | ✅                          |
 | grafana_irm                      | HTTP                        | requests                                                        | ✅                          |

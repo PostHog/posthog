@@ -505,6 +505,11 @@ OAUTH_CLIENT_CREDENTIAL_KEYS: dict[str, _ClientCredentialKeys] = {
         client_secret="SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET",
         not_configured="Google Sheets app not configured",
     ),
+    "google-tag-manager": _ClientCredentialKeys(
+        client_id="GOOGLE_TAG_MANAGER_APP_CLIENT_ID",
+        client_secret="GOOGLE_TAG_MANAGER_APP_CLIENT_SECRET",
+        not_configured="Google Tag Manager app not configured",
+    ),
     "youtube-analytics": _ClientCredentialKeys(
         client_id="YOUTUBE_ANALYTICS_APP_CLIENT_ID",
         client_secret="YOUTUBE_ANALYTICS_APP_CLIENT_SECRET",
@@ -610,6 +615,7 @@ class OauthIntegration:
         "google-calendar",
         "google-search-console",
         "google-sheets",
+        "google-tag-manager",
         "snapchat",
         "linkedin-ads",
         "reddit-ads",
@@ -842,6 +848,18 @@ class OauthIntegration:
                 token_info_config_fields=["sub", "email"],
                 token_url="https://oauth2.googleapis.com/token",
                 scope="https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email",
+                id_path="sub",
+                name_path="email",
+            )
+        elif kind == "google-tag-manager":
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+                # forces the consent screen, otherwise we won't receive a refresh token
+                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://oauth2.googleapis.com/token",
+                scope="https://www.googleapis.com/auth/tagmanager.readonly https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )

@@ -2004,6 +2004,7 @@ class IntegrationKind(StrEnum):
     GOOGLE_CALENDAR = "google-calendar"
     GOOGLE_SEARCH_CONSOLE = "google-search-console"
     GOOGLE_SHEETS = "google-sheets"
+    GOOGLE_TAG_MANAGER = "google-tag-manager"
     LINKEDIN_ADS = "linkedin-ads"
     SNAPCHAT = "snapchat"
     STRIPE = "stripe"

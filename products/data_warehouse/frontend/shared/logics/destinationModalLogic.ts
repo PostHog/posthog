@@ -157,6 +157,7 @@ export interface destinationModalLogicActions {
             | 'google-pubsub'
             | 'google-search-console'
             | 'google-sheets'
+            | 'google-tag-manager'
             | 'helpscout'
             | 'hubspot'
             | 'instagram'
