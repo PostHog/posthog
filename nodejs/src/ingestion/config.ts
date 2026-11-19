@@ -304,6 +304,7 @@ export type IngestionConsumerConfig = {
     AI_BLOB_S3_SECRET_ACCESS_KEY: string
     AI_BLOB_S3_TIMEOUT_MS: number
     AI_BLOB_OFFLOAD_TEAMS: string
+    AI_EVENTS_RETENTION_DAYS_BY_TEAM: string
     AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: number
     AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: number
     AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY: number
@@ -478,6 +479,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         AI_BLOB_S3_SECRET_ACCESS_KEY: '',
         AI_BLOB_S3_TIMEOUT_MS: 30000,
         AI_BLOB_OFFLOAD_TEAMS: '',
+        AI_EVENTS_RETENTION_DAYS_BY_TEAM: '',
         // Keep the floor above base64-packed embedding vectors so logged embeddings stay inline as text.
         // The shortest base64 that decodes to AI_MEDIA_OFFLOAD_MIN_BYTES, so no media of that size stays inline.
         AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: Math.ceil(AI_MEDIA_OFFLOAD_MIN_BYTES / 3) * 4,

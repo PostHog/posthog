@@ -103,8 +103,8 @@ def query_ai_events(
     rewritten to native columns for ai_events and back to properties.$ai_* when the query
     runs against the shared events table.
 
-    ai_events has a 30-day retention TTL; the shared events table is long-lived but has the
-    heavy AI columns stripped. When ai_events returns no rows:
+    ai_events has a retention TTL, 30 days unless the team's is extended; the shared events table
+    is long-lived but has the heavy AI columns stripped. When ai_events returns no rows:
 
     - ``fall_back_to_events=True``: re-run against events and return that result. Use this
       for paths that stay useful without the heavy columns (trace shape, costs, navigation).

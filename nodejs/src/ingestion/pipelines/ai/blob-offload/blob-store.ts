@@ -249,8 +249,9 @@ export interface AiBlobS3Config {
     AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: number
 }
 
-// The 31-day bucket lifecycle must outlive touch age + the 30-day ai_events row TTL,
-// or pointers in live rows would reference expired objects.
+// The 31-day bucket lifecycle must outlive touch age + the default 30-day ai_events row TTL,
+// or pointers in live rows would reference expired objects. Rows of a team with extended
+// retention outlive their objects: the text stays readable, the media does not.
 const MAX_TOUCH_AFTER_HOURS = 24
 
 export function buildAiBlobStore(config: AiBlobS3Config): S3BlobStore | null {

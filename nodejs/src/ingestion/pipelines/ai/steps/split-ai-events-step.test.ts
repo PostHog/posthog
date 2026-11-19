@@ -30,7 +30,7 @@ function createProcessedEvent(
 }
 
 describe('split-ai-events-step', () => {
-    const step = createSplitAiEventsStep()
+    const step = createSplitAiEventsStep({ retentionDaysByTeam: new Map([[7, 90]]) })
 
     it('should split an event with large AI properties into stripped + full', async () => {
         const event = createProcessedEvent({
@@ -157,6 +157,44 @@ describe('split-ai-events-step', () => {
         expect(eventsToEmit).toHaveLength(1)
         expect(eventsToEmit[0].event).toBe(event)
         expect(eventsToEmit[0].output).toBe(EVENTS_OUTPUT)
+    })
+
+    it.each([
+        {
+            desc: 'configured team, heavy AI event',
+            teamId: 7,
+            event: '$ai_generation',
+            props: { $ai_input: 'large input', $ai_retention_days: 9999 },
+            expected: [undefined, { 'retention-days': '90' }],
+        },
+        {
+            desc: 'configured team, light AI event',
+            teamId: 7,
+            event: '$ai_metric',
+            props: { $ai_model: 'gpt-4' },
+            expected: [undefined, { 'retention-days': '90' }],
+        },
+        {
+            desc: 'configured team, non-AI event',
+            teamId: 7,
+            event: '$pageview',
+            props: { $browser: 'Chrome' },
+            expected: [undefined],
+        },
+        {
+            desc: 'unconfigured team, AI event',
+            teamId: 1,
+            event: '$ai_generation',
+            props: { $ai_input: 'large input', $ai_retention_days: 9999 },
+            expected: [undefined, undefined],
+        },
+    ])('sets the retention header only on the AI copy: $desc', async ({ teamId, event, props, expected }) => {
+        const result = await step({
+            eventsToEmit: [{ event: createProcessedEvent(props, { event, team_id: teamId }), output: EVENTS_OUTPUT }],
+            teamId,
+        })
+
+        expect(isOkResult(result) && result.value.eventsToEmit.map((entry) => entry.headers)).toEqual(expected)
     })
 
     it('should handle multiple events independently', async () => {

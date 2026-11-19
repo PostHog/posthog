@@ -96,6 +96,7 @@ export interface AiIngestionPipelineConfig {
     topHog: TopHogRegistry
     aiBlobStore: BlobStore | null
     aiBlobOffloadConfig: OffloadAiBlobsConfig
+    aiEventsRetentionDaysByTeam: ReadonlyMap<number, number>
     createEventUsageBatch: () => UsageRecordBatch
 }
 
@@ -146,6 +147,7 @@ export function createAiIngestionPipeline<
         topHog,
         aiBlobStore,
         aiBlobOffloadConfig,
+        aiEventsRetentionDaysByTeam,
         createEventUsageBatch,
     } = config
 
@@ -270,7 +272,7 @@ export function createAiIngestionPipeline<
             .pipe(createRecordAiOverageUsageStep())
             .pipe(createCreateEventStep(EVENTS_OUTPUT))
             // Double-write to events + ai_events outputs.
-            .pipe(createSplitAiEventsStep())
+            .pipe(createSplitAiEventsStep({ retentionDaysByTeam: aiEventsRetentionDaysByTeam }))
             .pipe(createEmitEventStep({ outputs }), {
                 retry: { tries: 5, sleepMs: 100, name: 'emit_event' },
                 topHog: [

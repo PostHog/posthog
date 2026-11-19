@@ -47,6 +47,7 @@ describe('createAiConsumer', () => {
             AI_BLOB_S3_SECRET_ACCESS_KEY: '',
             AI_BLOB_S3_TIMEOUT_MS: 30000,
             AI_BLOB_OFFLOAD_TEAMS: '',
+            AI_EVENTS_RETENTION_DAYS_BY_TEAM: '',
             AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: 8192,
             AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: 50,
             AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY: 8,

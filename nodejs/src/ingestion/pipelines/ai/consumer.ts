@@ -38,6 +38,7 @@ import { RedisPool } from '~/types'
 
 import { AiBlobStoreComponent } from './blob-offload/blob-store'
 import { createAiIngestionPipeline } from './pipeline'
+import { parseAiEventsRetentionDaysByTeam } from './retention-days-by-team'
 
 export type AiConsumerConfig = CommonIngestionConsumerConfig &
     IngestionOutputsConfig &
@@ -68,6 +69,7 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
         | 'AI_BLOB_S3_SECRET_ACCESS_KEY'
         | 'AI_BLOB_S3_TIMEOUT_MS'
         | 'AI_BLOB_OFFLOAD_TEAMS'
+        | 'AI_EVENTS_RETENTION_DAYS_BY_TEAM'
         | 'AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH'
         | 'AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT'
         | 'AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY'
@@ -175,6 +177,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
         )
     }
     const createEventUsageBatch = createEventUsageBatchFactory(config, 'ai_events')
+    const aiEventsRetentionDaysByTeam = parseAiEventsRetentionDaysByTeam(config.AI_EVENTS_RETENTION_DAYS_BY_TEAM)
 
     const aiBlobOffloadConfig = {
         isTeamEnabled: buildIntegerMatcher(config.AI_BLOB_OFFLOAD_TEAMS, true),
@@ -213,6 +216,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             topHog: container.topHog,
             aiBlobStore: container.aiBlobStore.store,
             aiBlobOffloadConfig,
+            aiEventsRetentionDaysByTeam,
             createEventUsageBatch,
         })
     )
