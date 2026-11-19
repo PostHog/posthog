@@ -46,6 +46,12 @@ from products.feature_flags.backend.api.feature_flag import (
     RemoteConfigProjectSecretApiKeyTeamThrottle,
     RemoteConfigThrottle,
 )
+from products.messaging.backend.presentation.views.message_templates import (
+    TransactionalEmailBurstThrottle,
+    TransactionalEmailSustainedThrottle,
+    TransactionalEmailTeamBurstThrottle,
+    TransactionalEmailTeamSustainedThrottle,
+)
 
 
 class TestUserAPI(APIBaseTest):
@@ -1214,19 +1220,21 @@ class TestReserveUnits(BaseTest):
             assert response is not None
             self.assertEqual(response.headers["Retry-After"], "60")
 
-    def test_a_reservation_counts_the_charge_a_lagging_reader_has_not_seen(self):
+    def _lagging_reader_caches(self) -> dict[str, Any]:
         primary = urlsplit(settings.REDIS_URL)
         reader = f"{primary.scheme}://{primary.netloc}/15"
-        replicated = {
+        return {
             "default": {
                 "BACKEND": "django_redis.cache.RedisCache",
                 "LOCATION": [settings.REDIS_URL, reader],
                 "KEY_PREFIX": "test-reserve-units",
             }
         }
+
+    def test_a_reservation_counts_the_charge_a_lagging_reader_has_not_seen(self):
         now = time.time()
         with (
-            override_settings(CACHES=replicated),
+            override_settings(CACHES=self._lagging_reader_caches()),
             patch.object(_PSAKThrottleForTest, "rate", "2/minute"),
             patch.object(_PSAKThrottleForTest, "timer", lambda _throttle: now),
         ):
@@ -1246,6 +1254,40 @@ class TestReserveUnits(BaseTest):
                     redis_cache.delete(key, client=client)
 
         self.assertEqual(retry_after, "60")
+
+    @parameterized.expand(
+        [
+            ("burst", TransactionalEmailBurstThrottle, "60"),
+            ("sustained", TransactionalEmailSustainedThrottle, "60"),
+            ("team_burst", TransactionalEmailTeamBurstThrottle, "60"),
+            ("team_sustained", TransactionalEmailTeamSustainedThrottle, "60"),
+            ("a_throttle_that_reads_the_replica", _PSAKThrottleForTest, None),
+        ]
+    )
+    def test_a_single_after_a_batch_counts_the_charges_a_lagging_reader_has_not_seen(
+        self, _name, throttle_class, retry_after
+    ):
+        now = time.time()
+        with (
+            override_settings(CACHES=self._lagging_reader_caches()),
+            patch.object(throttle_class, "rate", "5/minute"),
+            patch.object(throttle_class, "timer", lambda _throttle: now),
+        ):
+            redis_cache = caches["default"]
+            assert isinstance(redis_cache, RedisCache)
+            key = throttle_class().get_cache_key(self._request(), self.view)
+            primary_client = redis_cache.client.get_client(write=True)
+            reader_client = redis_cache.client.get_client(write=False)
+            try:
+                self.assertIsNone(self._send([throttle_class], 1))
+                redis_cache.set(key, redis_cache.get(key, client=primary_client), 60, client=reader_client)
+                self.assertIsNone(self._send([throttle_class], 4))
+                outcome = self._send([throttle_class], 1)
+            finally:
+                for client in (primary_client, reader_client):
+                    redis_cache.delete(key, client=client)
+
+        self.assertEqual(outcome, retry_after)
 
     def test_a_refusal_is_counted(self):
         route = rate_limit.get_route_from_path("/api/messaging/send/email_batch/")

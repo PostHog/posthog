@@ -170,6 +170,7 @@ def hashed_personal_api_key_for_throttling(request: "Request") -> str | None:
 
 class PersonalApiKeyRateThrottle(SimpleRateThrottle):
     DRF_UNITS_PER_REQUEST = 1
+    reads_history_from_primary = False
     units_to_check: int | None = None
     units_to_charge = 0
     retry_wait = 0.0
@@ -267,9 +268,14 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         return self.history[-expiries_needed] + duration - self.now
 
     def _would_allow(self, request: "Request", view: "APIView") -> bool:
-        if self.units_to_check is None:
+        if self.units_to_check is not None:
+            return self._has_room_for_units(request, view, self.units_to_check)
+        if not self.reads_history_from_primary:
             return SimpleRateThrottle.allow_request(self, request, view)
-        return self._has_room_for_units(request, view, self.units_to_check)
+        if not self._has_room_for_units(request, view, self.DRF_UNITS_PER_REQUEST):
+            return False
+        self.units_to_charge = 0
+        return self.throttle_success()
 
     def _allow_request_internal(self, request, view, *, personal_api_key_only: bool) -> bool:
         if not is_rate_limit_enabled(round(time.time() / 60)):

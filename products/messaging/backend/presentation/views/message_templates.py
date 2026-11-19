@@ -823,11 +823,13 @@ def unconfirmed_email_send() -> ExplainedRefusal:
 
 class TransactionalEmailBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     scope = "transactional_email_burst"
+    reads_history_from_primary = True
     rate = "600/minute"
 
 
 class TransactionalEmailSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     scope = "transactional_email_sustained"
+    reads_history_from_primary = True
     rate = "20000/hour"
 
 
@@ -835,11 +837,13 @@ class TransactionalEmailTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
     """Per-team aggregate across all of a project's secret API keys."""
 
     scope = "transactional_email_psak_team_burst"
+    reads_history_from_primary = True
     rate = "600/minute"
 
 
 class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
     scope = "transactional_email_psak_team_sustained"
+    reads_history_from_primary = True
     rate = "20000/hour"
 
 
