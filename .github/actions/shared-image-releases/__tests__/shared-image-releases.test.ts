@@ -18,6 +18,8 @@ describe('shared-image publication bindings and fingerprints', () => {
     const base = policy.filters.sharedWorkerBase
     const witnesses = [
       '.dockerignore', 'Dockerfile', 'uv.lock',
+      'tools/hogli/pyproject.toml', 'packages/owners-yaml/pyproject.toml', 'packages/owners-yaml/README.md',
+      'packages/personhog-proto/pyproject.toml',
       'posthog/management/commands/migrate.py', 'posthog/management/commands/migrate_clickhouse.py',
       'posthog/migrations/0001_initial.py', 'posthog/clickhouse/migrations/0001_initial.py',
       'products/access_control/backend/migrations/0001_initial.py'

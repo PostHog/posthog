@@ -12,6 +12,7 @@ filters:
         - packages/owners-yaml/pyproject.toml
         - 'packages/owners-yaml/owners_yaml/**'
         - packages/owners-yaml/LICENSE
+        - packages/owners-yaml/README.md
         - manage.py
         - bin/temporal-django-worker
         - 'posthog/settings/**'
