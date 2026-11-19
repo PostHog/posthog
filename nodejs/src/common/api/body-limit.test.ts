@@ -122,21 +122,31 @@ describe('setupExpressApp request body handling', () => {
     })
 
     it.each([
-        ['JSON', 'a zero length', '/echo', 'application/json', { 'Content-Length': '0' }],
-        ['JSON', 'chunked transfer', '/echo', 'application/json', { 'Transfer-Encoding': 'chunked' }],
-        ['text', 'a zero length', '/echo-text', 'text/plain', { 'Content-Length': '0' }],
-        ['text', 'chunked transfer', '/echo-text', 'text/plain', { 'Transfer-Encoding': 'chunked' }],
+        ['JSON', 'a zero length', '/echo', 'application/json', { 'Content-Length': '0' }, [], { body: {} }],
+        ['JSON', 'chunked transfer', '/echo', 'application/json', {}, [], { body: {}, rawBody: '' }],
+        ['JSON', 'a length', '/echo', 'application/json', {}, [gzipSync('')], { body: {}, rawBody: '' }],
+        ['text', 'a zero length', '/echo-text', 'text/plain', { 'Content-Length': '0' }, [], { body: {} }],
+        ['text', 'chunked transfer', '/echo-text', 'text/plain', {}, [], { body: '' }],
+        ['text', 'a length', '/echo-text', 'text/plain', {}, [gzipSync('')], { body: '' }],
     ])(
-        'passes an empty compressed %s body sent with %s to the route as {}',
-        async (_, __, path, contentType, headers) => {
+        'passes an empty compressed %s body sent with %s to the route as the base parser did',
+        async (_, framing, path, contentType, headers, chunks, expected) => {
+            const lengthHeader =
+                framing === 'a length' ? { 'Content-Length': String(Buffer.concat(chunks).length) } : {}
             const res = await postBytes(
                 path,
-                { 'Content-Type': contentType, 'Content-Encoding': 'gzip', ...headers },
-                []
+                {
+                    'Content-Type': contentType,
+                    'Content-Encoding': 'gzip',
+                    ...(framing === 'chunked transfer' ? { 'Transfer-Encoding': 'chunked' } : {}),
+                    ...lengthHeader,
+                    ...headers,
+                },
+                chunks
             )
 
             expect(res.status).toEqual(200)
-            expect(res.body).toEqual({ body: {} })
+            expect(res.body).toEqual(expected)
         }
     )
 
@@ -203,10 +213,11 @@ describe('setupExpressApp request body handling', () => {
         ['constructor', 'text/plain', '/echo-text', 'Unsupported content encoding'],
         ['__proto__', 'text/plain', '/echo-text', 'Unsupported content encoding'],
         ['gzip', 'text/plain; charset=utf-32', '/echo-text', 'Unsupported charset'],
+        ['gzip', 'text/plain; charset=utf-32', '/echo-text', 'Unsupported charset', gzipSync('')],
     ])(
         'answers content encoding %s on a %s body with 415 and keeps serving',
-        async (encoding, contentType, path, error) => {
-            const res = await postEncoded(path, encoding, gzipSync('{"data":"x"}'), contentType)
+        async (encoding, contentType, path, error, body = gzipSync('{"data":"x"}')) => {
+            const res = await postEncoded(path, encoding, body, contentType)
 
             expect(res.status).toEqual(415)
             expect(res.body).toEqual({ status: 'error', error })

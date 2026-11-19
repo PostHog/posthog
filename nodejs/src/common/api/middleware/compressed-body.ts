@@ -92,7 +92,7 @@ function onceOnly(callback: (error?: unknown) => void): (error?: unknown) => voi
     }
 }
 
-type Decoded = { ok: true; bytes: Buffer } | { ok: false; status: 400 | 413 }
+type Decoded = { ok: true; bytes: Buffer | undefined } | { ok: false; status: 400 | 413 }
 
 function readCompressedBody(
     limitBytes: number,
@@ -110,8 +110,11 @@ function readCompressedBody(
                 }
                 const compressed: unknown = req.body
                 req.body = {}
-                if (!Buffer.isBuffer(compressed) || compressed.length === 0) {
-                    return done(undefined, { ok: true, bytes: Buffer.alloc(0) })
+                if (!Buffer.isBuffer(compressed)) {
+                    return done(undefined, { ok: true, bytes: undefined })
+                }
+                if (compressed.length === 0) {
+                    return done(undefined, { ok: true, bytes: compressed })
                 }
                 decompressorFor(contentEncodingOf(req))!(compressed, decodedLimitBytes).then(
                     (bytes) => done(undefined, { ok: true, bytes }),
@@ -144,12 +147,12 @@ export function createCompressedBodyMiddleware(limitBytes: number): RequestHandl
                 if (!decoded!.ok) {
                     return decoded!.status === 413 ? next(tooLarge()) : refuse(res, 400, 'Malformed compressed body')
                 }
-                if (decoded!.bytes.length === 0) {
+                if (!decoded!.bytes) {
                     return next()
                 }
                 const text = decoded!.bytes.toString('utf8')
                 ;(req as BodyState).rawBody = text
-                req.body = parseJSON(text)
+                req.body = text.length === 0 ? {} : parseJSON(text)
                 next()
             } catch (parseError) {
                 next(parseError)
@@ -190,7 +193,7 @@ export function createTextBodyParser(): RequestHandler {
                     ? refuse(res, 413, 'Request entity too large')
                     : refuse(res, 400, 'Malformed compressed body')
             }
-            if (decoded!.bytes.length === 0) {
+            if (!decoded!.bytes) {
                 return next()
             }
             const charset = charsetOf(req)
