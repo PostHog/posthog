@@ -602,6 +602,7 @@ def _ai_gateway_anthropic_client(
     properties: Mapping[str, str] | None,
     distinct_id: str | None,
     team_id: int | None,
+    privacy_mode: bool = False,
 ) -> Anthropic:
     labels = dict(properties or {})
     if team_id is not None:
@@ -614,6 +615,7 @@ def _ai_gateway_anthropic_client(
             trace_id=trace_id or team_trace_id(team_id),
             properties=labels,
             distinct_id=distinct_id,
+            privacy_mode=privacy_mode,
         ),
         http_client=httpx.Client(trust_env=False),
     )
@@ -625,15 +627,17 @@ def build_ai_gateway_anthropic_client(
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
     team_id: int | None = None,
+    privacy_mode: bool = False,
 ) -> Anthropic:
     """:func:`build_anthropic_client` without the Python-gateway fallback, for callers with no route there.
 
-    Raises when the Go ai-gateway pair is unset or malformed.
+    Raises GatewayNotConfiguredError when the Go ai-gateway pair is unset or malformed. ``privacy_mode`` keeps
+    the request and response out of the generation the gateway captures.
     """
     gateway = resolve_ai_gateway_config()
     if gateway is None:
-        raise ValueError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
-    return _ai_gateway_anthropic_client(gateway, ai_product, trace_id, properties, distinct_id, team_id)
+        raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
+    return _ai_gateway_anthropic_client(gateway, ai_product, trace_id, properties, distinct_id, team_id, privacy_mode)
 
 
 def build_anthropic_client(

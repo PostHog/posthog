@@ -59,9 +59,10 @@ from posthog.permissions import (
     get_authenticator_scopes,
     is_scout_sandbox_request,
     is_service_auth,
+    scopes_caller_lacks,
 )
 from posthog.rate_limit import RunSavedQueryRateThrottle
-from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import (
@@ -118,6 +119,8 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomPropertySyncRunListQuerySerializer,
     CustomPropertySyncRunSerializer,
     CustomPropertySyncTriggerResponseSerializer,
+    CustomPropertyValueHistoryEntrySerializer,
+    CustomPropertyValueHistoryQuerySerializer,
     CustomPropertyValueSerializer,
     CustomPropertyValueSuggestionsResponseSerializer,
     CustomPropertyValueWriteSerializer,
@@ -964,6 +967,12 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
     )
     def create(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         try:
+            api.authorize_account_view_content(
+                request.validated_data["content"],
+                team=self.team,
+                user=cast(User, request.user),
+                can_query=not scopes_caller_lacks(request, ["query:read"]),
+            )
             view = api.create_account_view(
                 team_id=self.team_id,
                 user_id=cast(User, request.user).id,
@@ -973,6 +982,8 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             )
         except api.InvalidAccountViewContent as error:
             raise ValidationError({"content": error.errors})
+        except api.AccountViewPermissionDenied as error:
+            raise PermissionDenied(str(error))
         return Response(AccountViewSerializer(instance=view).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
@@ -988,6 +999,13 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
     )
     def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         try:
+            if "content" in request.validated_data:
+                api.authorize_account_view_content(
+                    request.validated_data["content"],
+                    team=self.team,
+                    user=cast(User, request.user),
+                    can_query=not scopes_caller_lacks(request, ["query:read"]),
+                )
             view = api.update_account_view(
                 team_id=self.team_id,
                 user_id=cast(User, request.user).id,
@@ -2773,6 +2791,30 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         values = api.list_active_custom_property_values(self.team_id, account_id)
         return Response(CustomPropertyValueSerializer(values, many=True).data)
+
+    @validated_request(
+        query_serializer=CustomPropertyValueHistoryQuerySerializer,
+        responses={200: OpenApiResponse(response=CustomPropertyValueHistoryEntrySerializer(many=True))},
+    )
+    @action(detail=False, methods=["get"], url_path="history", required_scopes=["account:read"])
+    def history(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        account_id = self._accessible_account_id()
+        if account_id is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            entries = api.list_custom_property_value_history(
+                self.team_id,
+                account_id,
+                request.validated_query_data["definition"],
+                since=request.validated_query_data.get("since"),
+            )
+        except api.CustomPropertyDefinitionNotFound:
+            raise ValidationError({"definition": "Custom property definition not found."})
+        except api.CustomPropertyValueHistoryTooLong as exc:
+            raise ValidationError(
+                {"since": f"This property has more than {exc.limit} values in this range. Pass a later since date."}
+            )
+        return Response(CustomPropertyValueHistoryEntrySerializer(entries, many=True).data)
 
     @extend_schema(
         request=CustomPropertyValueWriteSerializer, responses={201: CustomPropertyValueSerializer, 204: None}

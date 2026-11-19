@@ -15,13 +15,15 @@ export const PROFILE = {
         hostSubnet: 'subnet-0000000000000000a',
         hostSecurityGroup: 'sg-0000000000000000b',
         hostInstanceProfile: 'test-host',
+        hostLaunchTemplateId: 'lt-0000000000000000a',
+        hostLaunchTemplateVersion: '1',
+        hostRootVolumeGb: 100,
     },
     engineVersion: '16.4',
     writerClass: 'db.r8g.2xlarge',
-    readerAcu: { min: 1, max: 32 },
+    readerAcu: { min: 1, max: 32, idleMax: 2.5 },
     host: {
         class: 'm7i.8xlarge',
-        ebsGb: 100,
         imageParameter: '/test/ubuntu/ami-id',
         bootstrapDeadline: '30m',
     },
@@ -50,4 +52,24 @@ export const PROFILE = {
         allowances: { storageGb: 73, transferGb: 10, s3Requests: 10_000, enhancedMonitoringEventBytes: 10_000 },
         reserve: { marginUsd: 10 },
     },
+}
+
+export function pinClockAfterMinuteStart(): void {
+    const now = Date.now()
+    jest.useFakeTimers({
+        doNotFake: [
+            'hrtime',
+            'nextTick',
+            'performance',
+            'queueMicrotask',
+            'setImmediate',
+            'clearImmediate',
+            'setInterval',
+            'clearInterval',
+            'setTimeout',
+            'clearTimeout',
+        ],
+        advanceTimers: true,
+        now: now - (now % 60_000) + 1000,
+    })
 }

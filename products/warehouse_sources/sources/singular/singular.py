@@ -1,5 +1,4 @@
 import json
-import time
 import datetime as dt
 from collections.abc import Callable, Iterator
 from itertools import batched
@@ -11,10 +10,12 @@ from structlog.types import FilteringBoundLogger
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.sdk import (
+    JobStatus,
     ResumableSourceManager,
     SourceResponse,
     frozen,
     make_tracked_session,
+    poll_until_done,
     request_deadline,
     stop_at_request_deadline,
 )
@@ -38,7 +39,7 @@ CREATE_MAX_ATTEMPTS = 5
 # Singular allows one status call per report every 10 seconds.
 REPORT_POLL_INTERVAL_SECONDS = 15
 # Singular treats a report that is not done after 30 minutes as stuck and says to submit it again.
-REPORT_POLL_MAX_ATTEMPTS = 30 * 60 // REPORT_POLL_INTERVAL_SECONDS
+REPORT_POLL_BUDGET_SECONDS = 30 * 60
 ROWS_PER_BATCH = 5000
 
 # `get_non_retryable_errors` matches on these, so each one must stay the start of its message.
@@ -229,27 +230,29 @@ class SingularClient:
         return str(report_id)
 
     def await_download_url(self, report_id: str, day: dt.date, safe_point: Callable[[], None]) -> str:
-        status = None
-        for _attempt in range(REPORT_POLL_MAX_ATTEMPTS):
+        def check() -> JobStatus[str]:
             value = self.get(
                 f"/api/{self.api_version}/get_report_status", params={"report_id": report_id}, capture=False
             )
             status = value.get("status")
-
             if status == "DONE" and value.get("download_url"):
-                return str(value["download_url"])
+                return JobStatus(done=True, result=str(value["download_url"]))
             if status == "FAILED":
                 # The report ID stays in the message because Singular support asks for it.
                 raise SingularNonRetryableError(
                     f"{REPORT_FAILED_ERROR} for {day.isoformat()}. Singular said: {json.dumps(value)}"
                 )
+            return JobStatus(message=str(status))
 
-            # A worker that shuts down during a long wait hands the run over here.
-            safe_point()
-            time.sleep(REPORT_POLL_INTERVAL_SECONDS)
-
-        raise SingularRetryableError(
-            f"report {report_id} for {day.isoformat()} still {status} after the polling budget"
+        # A worker that shuts down during a long wait hands the run over at the safe point.
+        return poll_until_done(
+            check,
+            interval=REPORT_POLL_INTERVAL_SECONDS,
+            budget_seconds=REPORT_POLL_BUDGET_SECONDS,
+            safe_point=safe_point,
+            timeout_error=lambda status: SingularRetryableError(
+                f"report {report_id} for {day.isoformat()} still {status.message} after the polling budget"
+            ),
         )
 
     def download_report(self, url: str) -> list[dict[str, Any]]:

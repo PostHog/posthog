@@ -2,7 +2,8 @@
 
 1. measure: coverage, profile, the trace sample, the free checks and the gap judges.
 2. screen: the decision model screens traces for the judges and matches hand-written evaluations. Paid.
-3. draft: one paid draft for the best uncovered gap.
+3. draft: a model reviews a sample of the team's calls and drafts at most two judges from what it finds, and each
+   judge is kept only when the model it will run on reproduces the review's labels. Paid.
 4. publish: dedupe, pick at most three, and publish them in one transaction.
 
 Stages hand over through `EvalSuggestionRun.handoff`: trace ids and candidate cards, never trace content. A stage
@@ -11,17 +12,21 @@ that needs traces hydrates them again from their ids, so a retry redoes one stag
 
 import time
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta
 from typing import Any
 
 from django.utils import timezone
 
 import structlog
+from anthropic import Anthropic
 
+from posthog.dataclasses import frozen
+from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models.team import Team
 
+from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.logic.eval_suggestions.profile_queries import ProfileWindow
 from products.ai_observability.backend.models.eval_suggestions import (
@@ -31,47 +36,39 @@ from products.ai_observability.backend.models.eval_suggestions import (
 )
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 
-from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
-
 from . import (
+    call_review,
     catalog,
     coverage as coverage_stage,
-    drafting,
+    judge_calibration,
     ranking,
     runs,
     screening,
 )
-from .adapters import AdaptedCheck, compile_check
 from .applicability import applicable, content_profile
-from .config import SuggestionSettings, runs_for_organization
-from .coverage import Coverage, dismissed_dedupe_keys, existing_evals
-from .measure import (
-    Measurement,
-    Outcome,
-    TraceSample,
-    discover_sample,
-    hydrate_sample,
-    measure,
-    run_check,
-    structured_outputs,
+from .call_review_queries import (
+    CODE_CHECK_CALLS_PER_CALL_TYPE,
+    CallTypeRow,
+    ReviewCallRow,
+    load_call_types,
+    load_review_calls,
+    snippet_matches,
 )
-from .profile import StructuredGap, TeamProfile, fetch_profile, find_structured_gaps, gap_holds
+from .config import REVIEW_WINDOW, WINDOW, SuggestionSettings, runs_for_organization
+from .coverage import Coverage, dismissed_dedupe_keys, existing_evals
+from .measure import discover_sample, hydrate_sample, measure, structured_outputs
+from .profile import TeamProfile, fetch_profile, find_structured_gaps, gap_holds, sample_per_mille
+from .queries import MAX_EXECUTION_TIME_SECONDS
 from .ranking import Proposal
-from .runs import GapCandidate, Handoff
+from .runs import Handoff
 
 logger = structlog.get_logger(__name__)
 
-WINDOW = timedelta(days=7)
 # Traces younger than this may still be receiving events, so the window stops short of now.
 SETTLE = timedelta(minutes=30)
-# Below this share of sampled traces with a model answer, the team has not captured enough to suggest anything.
 MIN_CONTENT_SHARE = 0.25
-# A drafted body under the per-trace limit can still be slow on every trace, so measuring it has a total budget.
-DRAFT_MEASURE_BUDGET_SECONDS = 120
-DRAFT_ABORT_ERRORS = ("Execution timed out", "Memory limit exceeded")
 # Dedupe asks the model about each hand-written evaluation, so a team with many pays for this many at most.
 MAX_DEDUPED_EVALS = 50
-JUDGE_KINDS = frozenset({EvalSuggestionKind.NEW_LLM_JUDGE})
 PAID_STAGES = ("screening", "drafting")
 
 
@@ -108,19 +105,20 @@ def _current_coverage(team: Team) -> Coverage:
     return Coverage(evals=existing_evals(team), fixes=[], dismissed_dedupe_keys=dismissed_dedupe_keys(team))
 
 
-def paid_draft(team: Team, run: EvalSuggestionRun, brief: str, budget: float) -> drafting.DraftCall | None:
-    """One draft call charged to the run, or None when the budget cannot cover the most it could cost.
+def paid_call(
+    run: EvalSuggestionRun, client: Anthropic, request: call_review.ModelRequest, budget: float
+) -> call_review.ModelCall | None:
+    """One model call charged to the run, or None when the budget cannot cover the most it could cost.
 
     The run's spend holds that maximum while the call is in flight and keeps it when the call raises,
     since the provider may have billed. A call that returns settles to the cost it reports.
     """
-    reserved = drafting.max_cost_usd(brief)
+    reserved = call_review.max_cost_usd(request)
     if not runs.reserve_spend(run, reserved, budget):
         return None
-    # The brief carries segment values and tool names, so an organization in privacy mode keeps it out of analytics.
-    call = drafting.draft_check(team.pk, brief, privacy_mode=is_privacy_mode_enabled(team))
-    runs.settle_spend(run, reserved, call.cost_usd)
-    return call
+    result = call_review.call(client, request)
+    runs.settle_spend(run, reserved, result.cost_usd)
+    return result
 
 
 def dedupe(
@@ -164,65 +162,225 @@ def dedupe(
     return kept
 
 
-def _drafted_proposals(
+def _time_left(deadline: float | None) -> float:
+    return float("inf") if deadline is None else deadline - time.monotonic()
+
+
+@frozen
+class _Calibrated:
+    kept: list[tuple[call_review.ReviewCard, judge_calibration.Calibration]]
+    # What the run records: why calibration was skipped, or each card's counts.
+    record: dict[str, Any]
+    cost_usd: float
+
+
+def _calibrate(
     team: Team,
     run: EvalSuggestionRun,
-    gap_proposals: Sequence[tuple[StructuredGap, Proposal]],
-    sample: TraceSample,
-    profile: TeamProfile,
-    settings: SuggestionSettings,
+    cards: Sequence[call_review.ReviewCard],
+    rendering: call_review.Rendering,
+    judge_model: str,
+    budget: float,
+    deadline: float | None,
+) -> _Calibrated:
+    """Run each card's judge on the review's labelled calls, on the model the accepted judge will run on, and keep
+    the cards it agrees with. Every request's most is reserved from the run's budget first."""
+    if not cards:
+        return _Calibrated(kept=[], record={"status": "skipped", "detail": "no cards"}, cost_usd=0.0)
+    numbers = [judge_calibration.calibration_calls(card) for card in cards]
+    requests = [
+        judge_calibration.judge_request(card, rendering, number, judge_model)
+        for card, card_numbers in zip(cards, numbers)
+        for number in card_numbers
+    ]
+    if _time_left(deadline) < call_review.max_seconds(judge_calibration.TIMEOUT_SECONDS):
+        return _Calibrated(kept=[], record={"status": "skipped", "detail": "not enough time left"}, cost_usd=0.0)
+    client = judge_calibration.build_client(team.pk, str(run.id), judge_model, run.trigger)
+    reserved = judge_calibration.max_cost_usd(requests)
+    if not runs.reserve_spend(run, reserved, budget):
+        return _Calibrated(kept=[], record={"status": "skipped", "detail": "budget used up"}, cost_usd=0.0)
+    calls = judge_calibration.judge_all(client, requests, deadline)
+    cost = sum(call.cost_usd for call in calls if call is not None)
+    runs.settle_spend(run, reserved, cost)
+    verdicts = iter([call.verdict if call is not None else None for call in calls])
+    calibrations = [
+        judge_calibration.calibrate(card, card_numbers, [next(verdicts) for _ in card_numbers])
+        for card, card_numbers in zip(cards, numbers)
+    ]
+    return _Calibrated(
+        kept=[(card, c) for card, c in zip(cards, calibrations) if judge_calibration.keeps(card, c)],
+        record={
+            "status": "ok",
+            "model": judge_model,
+            "cards": [
+                {"title": card.title, **asdict(c), "kept": judge_calibration.keeps(card, c)}
+                for card, c in zip(cards, calibrations)
+            ],
+        },
+        cost_usd=cost,
+    )
+
+
+def _reviewed_proposals(
+    team: Team,
+    run: EvalSuggestionRun,
+    handoff: Handoff,
+    judge_model: str,
+    budget: float,
+    review_calls: int,
     stages: _Stages,
+    deadline: float | None,
 ) -> list[Proposal]:
-    if not gap_proposals:
-        stages.set("drafting", "skipped", detail="no uncovered finding")
+    """Triage the busiest call types, review a sample of the picked ones, and turn the review's cards into
+    calibrated candidates. Each paid call reserves its most from the run's budget first."""
+    day = ProfileWindow(start=handoff.window.end - REVIEW_WINDOW, end=handoff.window.end)
+    per_mille = sample_per_mille(handoff.profile.generations_by_days_ago.get(0, 0))
+    call_types = load_call_types(team, day, per_mille)
+    if not call_types:
+        stages.set("drafting", "skipped", detail="no generations with a model and an input in the last day")
         return []
-    gap, templated = max(gap_proposals, key=lambda pair: pair[1].score)
-    call = paid_draft(team, run, drafting.gap_brief(gap, profile), settings.llm_budget_usd_per_run)
-    if call is None:
+    client = call_review.build_client(team.pk, str(run.id), run.trigger)
+    triage_call = paid_call(run, client, call_review.triage_request(call_types), budget)
+    if triage_call is None:
         stages.set("drafting", "skipped", detail="budget used up")
         return []
-    draft = call.draft
-    if draft is None:
-        stages.set("drafting", "failed", detail="no usable draft", cost_usd=round(call.cost_usd, 4))
+    spent = triage_call.cost_usd
+    triage = call_review.parse_triage(triage_call.answer, call_types)
+    if triage is None:
+        stages.set("drafting", "failed", detail="unreadable triage answer", cost_usd=round(spent, 4))
         return []
-    stages.set("drafting", "ok", evaluation_type=draft.evaluation_type, cost_usd=round(call.cost_usd, 4))
-    if draft.evaluation_type == "llm_judge":
-        drafted_judge = {
-            **templated.draft,
-            "name": draft.name,
-            "description": draft.description,
-            "evaluation_config": {"prompt": draft.body},
-        }
-        return [replace(templated, draft=drafted_judge)]
-    check = AdaptedCheck(
-        # The dedupe key names the gap. This key only has to fit template_key, so it stays fixed.
-        key="drafted_gap",
-        name=draft.name,
-        description=draft.description,
-        source=draft.body,
-        template_key="",
-        severity=ranking.SEVERITY["structured_output_gap"],
+    if triage.excluded or not triage.picked:
+        detail = "content the review does not read" if triage.excluded else "no call type worth reviewing"
+        stages.set("drafting", "skipped", detail=detail, cost_usd=round(spent, 4))
+        return []
+    calls = call_review.select_calls(load_review_calls(team, day, per_mille, triage.picked), limit=review_calls)
+    if len(calls) < call_review.MIN_CARD_FAILURES:
+        stages.set("drafting", "skipped", detail="too few calls with a text answer", cost_usd=round(spent, 4))
+        return []
+    rendering = call_review.render(triage.picked, calls, review_calls, coverage_stage.earlier_review_cards(team))
+    request = call_review.review_request(rendering)
+    # A review that starts too late to finish would be paid for and then lost with the timed-out attempt.
+    if _time_left(deadline) < call_review.max_seconds(request.timeout):
+        stages.set("drafting", "skipped", detail="not enough time left", cost_usd=round(spent, 4))
+        return []
+    review_call = paid_call(run, client, request, budget)
+    if review_call is None:
+        stages.set("drafting", "skipped", detail="budget used up", cost_usd=round(spent, 4))
+        return []
+    cards = call_review.parse_cards(review_call.answer, rendering)
+    spent += review_call.cost_usd
+    # A rule broken in most calls needs a prompt change, so its card skips the judge and its calibration cost.
+    prompt_bugs = [card for card in cards if ranking.is_prompt_bug(card)]
+    # The code stops in time for the judge calibration that a card falls back to.
+    code_deadline = None if deadline is None else deadline - call_review.max_seconds(judge_calibration.TIMEOUT_SECONDS)
+    checked = [
+        (card, judge_calibration.check_code(card, rendering, code_deadline))
+        for card in cards
+        if card.code_check and card not in prompt_bugs
+    ]
+    kept_code = [
+        (card, code) for card, code in checked if code is not None and judge_calibration.keeps(card, code.calibration)
+    ]
+    # Every card is settled on the calls the review labelled before the time left goes to counting more calls.
+    day_calls = _code_check_calls(team, day, per_mille, [card for card, _ in kept_code], code_deadline)
+    widened = [
+        (card, judge_calibration.counted_on_day(card, code, rendering, day_calls, code_deadline))
+        for card, code in kept_code
+    ]
+    coded = [(card, code) for card, code in widened if code is not None]
+    coded_cards = [card for card, _ in coded]
+    judged = [card for card in cards if card not in prompt_bugs and card not in coded_cards]
+    calibrated = _calibrate(team, run, judged, rendering, judge_model, budget, deadline)
+    snippets = _prompt_snippets(
+        team, day, per_mille, call_types, [*coded_cards, *(card for card, _ in calibrated.kept)], deadline
     )
+    proposals = [
+        ranking.review_proposal(
+            judge_calibration.measured(card, calibration),
+            handoff.profile,
+            snippets=snippets,
+            judge_model=judge_model,
+            calibration=calibration,
+        )
+        for card, calibration in calibrated.kept
+    ] + [ranking.review_code_proposal(card, handoff.profile, snippets=snippets, code=code) for card, code in coded]
+    scoped = [proposal for proposal in proposals if proposal is not None]
+    stages.set(
+        "drafting",
+        "ok",
+        call_types=len(call_types),
+        picked=len(triage.picked),
+        reviewed=len(calls),
+        cards=len(cards),
+        calibration=calibrated.record,
+        prompt_bugs=len(prompt_bugs),
+        # Where the review saw the team's prompt and its judge disagree, for staff to read before trusting a card.
+        conflicts=[{"title": card.title, "conflict": card.conflict} for card in cards if card.conflict],
+        code_checks=len(coded),
+        code_calibration=[
+            {
+                "title": card.title,
+                "compiles": code is not None,
+                **({**asdict(code.calibration), "errors": code.errors} if code is not None else {}),
+                "kept": card in coded_cards,
+            }
+            for card, code in checked
+        ],
+        # Kept cards whose generations no filter selects, which the run leaves out.
+        unscoped=len(proposals) - len(scoped),
+        cost_usd=round(spent + calibrated.cost_usd, 4),
+    )
+    named = {c.name for card in prompt_bugs for c in card.call_types if c.source == "prompt_name"}
+    managed = coverage_stage.managed_prompt_names(team, named) if named else frozenset()
+    return [*scoped, *(ranking.prompt_fix_proposal(card, managed) for card in prompt_bugs)]
+
+
+def _prompt_snippets(
+    team: Team,
+    window: ProfileWindow,
+    per_mille: int,
+    call_types: Sequence[CallTypeRow],
+    cards: Sequence[call_review.ReviewCard],
+    deadline: float | None,
+) -> dict[str, str]:
+    """The snippet that selects each input-named call type on the cards, keyed by call type. Each candidate is
+    counted on the day's generations, and a call type whose candidates all match other generations gets none.
+    Without time left for the count, or when the count fails, no call type gets one, and the run leaves their cards
+    out while it keeps the cards that a prompt or span name scopes."""
+    # A snippet is prompt text, and an accepted card copies it into evaluation conditions that every member who reads
+    # evaluations sees. A team with property access rules can have members who may not read $ai_input.
+    if team_has_property_access_rules(team_id=team.pk):
+        return {}
+    unnamed = {c.name: c for card in cards for c in card.call_types if c.source == "input"}
+    candidates = {
+        name: ranking.prompt_snippets(call_type, [c for c in call_types if c.key != call_type.key])
+        for name, call_type in unnamed.items()
+    }
+    candidates = {name: texts for name, texts in candidates.items() if texts}
+    if not candidates or _time_left(deadline) < MAX_EXECUTION_TIME_SECONDS:
+        return {}
     try:
-        bytecode = compile_check(check)
-    except Exception:
-        stages.set("drafting", "failed", detail="drafted Hog does not compile")
+        matches = snippet_matches(team, window, per_mille, candidates)
+    except Exception as error:
+        logger.warning("eval_suggestions_snippet_count_failed", team_id=team.pk, error=str(error))
+        return {}
+    chosen = {unnamed[name].key: ranking.choose_snippet(texts, matches[name]) for name, texts in candidates.items()}
+    return {key: snippet for key, snippet in chosen.items() if snippet is not None}
+
+
+def _code_check_calls(
+    team: Team, window: ProfileWindow, per_mille: int, cards: Sequence[call_review.ReviewCard], deadline: float | None
+) -> list[ReviewCallRow]:
+    """More of the day's calls of the code cards' call types to count them on, or none, which leaves each code check
+    counted on the calls the review read."""
+    call_types = list({c.key: c for card in cards for c in card.call_types}.values())
+    if not call_types or _time_left(deadline) < MAX_EXECUTION_TIME_SECONDS:
         return []
-    # A drafted body can loop until the 10s Hog limit on some inputs and not others, so the first trace that
-    # times out or runs out of memory stops the whole measurement.
-    outcomes: dict[bool, list[Outcome]] = {False: [], True: []}
-    stop_at = time.monotonic() + DRAFT_MEASURE_BUDGET_SECONDS
-    for sampled in sample.traces:
-        [outcome] = run_check(bytecode, [sampled])
-        too_slow = time.monotonic() > stop_at
-        if too_slow or (outcome.failed is None and outcome.reasoning.startswith(DRAFT_ABORT_ERRORS)):
-            stages.set("drafting", "failed", detail="drafted Hog runs too long")
-            return []
-        outcomes[sampled.held_out].append(outcome)
-    measured = [Measurement(check=check, main=outcomes[False], held_out=outcomes[True])]
-    proposal = ranking.code_check_proposal(measured[0], sample, profile, similar_evaluation_id=None)
-    # The draft replaces the templated card for the same gap, so it shares its key and dismissals.
-    return [replace(proposal, dedupe_key=templated.dedupe_key)] if proposal else []
+    try:
+        return load_review_calls(team, window, per_mille, call_types, per_type=CODE_CHECK_CALLS_PER_CALL_TYPE)
+    except Exception as error:
+        logger.warning("eval_suggestions_code_check_calls_failed", team_id=team.pk, error=str(error))
+        return []
 
 
 def _publish_fixes_only(
@@ -241,7 +399,6 @@ def _publish_fixes_only(
             profile=profile,
             sample=[],
             proposals=fixes,
-            gaps=[],
             screened_judges=[],
             judge_target="trace",
             judge_model=model,
@@ -343,22 +500,16 @@ def measure_stage(
         for gap in find_structured_gaps(structured_outputs(sample.main))
         if gap_holds(gap, held_out_outputs) is not False
     ]
-    # Without a judge model a gap still gets a drafted Hog check, priced as if it ran on the product default.
-    gap_candidates = [
-        GapCandidate(
-            gap=gap,
-            proposal=ranking.gap_proposal(
-                gap, sample, profile, judge_model=model or ranking.DEFAULT_JUDGE_MODEL, similar_evaluation_id=None
-            ),
-        )
-        for gap in gaps
-    ]
+    gap_proposals = (
+        [ranking.gap_proposal(gap, sample, profile, judge_model=model, similar_evaluation_id=None) for gap in gaps]
+        if model is not None
+        else []
+    )
     proposals: list[Proposal] = list(fixes)
     proposals += [
         p for m in measurements if (p := ranking.code_check_proposal(m, sample, profile, similar_evaluation_id=None))
     ]
-    if model is not None:
-        proposals += [candidate.proposal for candidate in gap_candidates]
+    proposals += gap_proposals
     runs.save_handoff(
         run,
         Handoff(
@@ -366,7 +517,6 @@ def measure_stage(
             profile=profile,
             sample=[ref for ref in refs if ref.trace_id in hydrated],
             proposals=proposals,
-            gaps=gap_candidates,
             screened_judges=list(applicability.screened_judges) if model is not None else [],
             judge_target=applicability.judge_target,
             judge_model=model,
@@ -377,7 +527,7 @@ def measure_stage(
                     ranking.judge_dedupe_key(key): catalog.template(key).description
                     for key in applicability.screened_judges
                 }
-                | {c.proposal.dedupe_key: c.proposal.draft["description"] for c in gap_candidates}
+                | {p.dedupe_key: p.draft["description"] for p in gap_proposals}
             ),
         ),
         stages.record,
@@ -415,7 +565,7 @@ def screen_stage(
         runs.save_handoff(run, handoff, stages.record, "screening")
         return 0
     try:
-        client = screening.build_client(team)
+        client = screening.build_client(team, run.trigger)
         evals = existing_evals(team)
         unmapped = sorted(
             (e for e in evals if e.enabled and e.template_key is None and e.dedupe_key is None),
@@ -467,7 +617,7 @@ def screen_stage(
 def draft_stage(
     team_id: int, run_id: str, *, include_paid: bool, settings: SuggestionSettings, deadline: float | None = None
 ) -> int:
-    """Stage 3: one paid draft for the best uncovered gap. Returns the number of drafted candidates."""
+    """Stage 3: review a sample of the team's calls and draft at most two judges. Returns the number of candidates."""
     run = runs.running_run(team_id, run_id)
     if run is None:
         return 0
@@ -475,35 +625,43 @@ def draft_stage(
     handoff = runs.load_handoff(run)
     stages = _Stages()
     skip = _paid_skip(team, include_paid, settings.llm_drafting)
-    coverage = _current_coverage(team)
-    matches = _matches(handoff, coverage.evals)
-    # Paying for a draft of a finding the team dismissed or already covers would be wasted.
-    draftable = [(c.gap, c.proposal) for c in handoff.gaps if dedupe([c.proposal], coverage, matches, {})]
-    if skip is None and not draftable:
-        skip = "no uncovered finding"
-    sample = (
-        hydrate_sample(team, handoff.window, list(handoff.profile.segments), handoff.sample) if skip is None else None
+    # The measure stage hands on no sample when the team captures too little of the model's output to review.
+    if skip is None and not handoff.sample:
+        skip = "no traces with content"
+    if skip is None and handoff.judge_model is None:
+        skip = "no judge model for the team's provider key"
+    # Its cards could not be calibrated, so the review would be paid for and dropped.
+    if skip is None and judge_calibration.provider(handoff.judge_model) is None:
+        skip = f"no gateway route to calibrate judges on {handoff.judge_model}"
+    needed = (
+        call_review.max_seconds(call_review.TRIAGE_TIMEOUT_SECONDS)
+        + call_review.max_seconds(call_review.REVIEW_TIMEOUT_SECONDS)
+        + call_review.max_seconds(judge_calibration.TIMEOUT_SECONDS)
     )
-    # Checked after hydration, which can take minutes: a draft that starts too late to finish would be paid for and
-    # then lost with the timed-out attempt.
-    if (
-        skip is None
-        and deadline is not None
-        and deadline - time.monotonic() < drafting.max_draft_seconds() + DRAFT_MEASURE_BUDGET_SECONDS
-    ):
+    if skip is None and _time_left(deadline) < needed:
         skip = "not enough time left"
-    if skip is not None or sample is None:
+    if skip is not None or handoff.judge_model is None:
         stages.set("drafting", "skipped", detail=skip)
         runs.save_handoff(run, handoff, stages.record, "drafting")
         return 0
     try:
-        drafted = _drafted_proposals(team, run, draftable, sample, handoff.profile, settings, stages)
+        drafted = _reviewed_proposals(
+            team,
+            run,
+            handoff,
+            handoff.judge_model,
+            settings.llm_budget_usd_per_run,
+            settings.review_calls,
+            stages,
+            deadline,
+        )
+    except GatewayNotConfiguredError:
+        stages.set("drafting", "skipped", detail="the AI gateway is not configured")
+        drafted = []
     except Exception as error:
-        logger.warning("eval_suggestions_drafting_failed", team_id=team.pk, error=str(error))
+        logger.warning("eval_suggestions_review_failed", team_id=team.pk, error=str(error))
         stages.set("drafting", "failed", detail=type(error).__name__)
         drafted = []
-    if handoff.judge_model is None:
-        drafted = [p for p in drafted if p.kind not in JUDGE_KINDS]
     runs.save_handoff(run, replace(handoff, proposals=[*handoff.proposals, *drafted]), stages.record, "drafting")
     return len(drafted)
 

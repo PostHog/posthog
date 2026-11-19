@@ -90,6 +90,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadRunDiff', // The Wizard run drawer renders its own diff error banner with a retry
     'loadRunArtifacts', // The Wizard run drawer renders its own artifact error banner with a retry
     'loadRuns', // The Wizard runs table shows a persistent stale-data banner; a poll failure must not toast every 10s
+    'checkForFirstCodeSend', // The first-send status line says its checks failed and offers a retry; a poll failure must not toast every 10s
     'loadRunDetails', // The Wizard run drawer shows a stale-state banner with a retry
     'cancelRunRequest', // wizardRunDetailsLogic shows its own cancel-failure toast
     'loadCoreMemory', // The PostHog AI memory setting renders its own load error banner with a retry
@@ -122,6 +123,10 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadMembers: 'products.replay_vision.frontend.replay_scanners.highlightFeedGroupLogic', // The feed card shows its own retry
     loadTraceSpans: 'products.tracing.frontend.components.TraceDialog.traceDialogLogic', // The dialog shows its own retry
     loadTransactionalEmailOptions: 'products.workflows.frontend.Transactional.webhooks.deliveryWebhooksLogic',
+    loadImpact: 'products.workflows.frontend.Transactional.impact.emailImpactLogic', // The funnel card shows its own retry
+    // The import window shows the refusal, and the run list keeps polling with its own retry
+    startImport: 'products.workflows.providerImportLogic',
+    loadImportRuns: 'products.workflows.providerImportLogic',
     fetchMatchingCounts: 'products.tracing.frontend.tracingDataLogic', // The matching-count label is hidden when the count fails
     loadPreview: 'products.metrics.frontend.components.metricVariableEditorLogic', // The variable editor shows the error under the preview
     loadSiteProfiles: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
@@ -158,6 +163,9 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
     loadRecentCalls: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
     loadServerTools: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
+    // The logic toasts every failure itself, including network errors that have no HTTP status
+    setIssueSummariesEnabled:
+        'products.error_tracking.scenes.ErrorTrackingConfigurationScene.ai_features.aiFeaturesSettingsLogic',
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
@@ -196,7 +204,22 @@ const NOT_FOUND_SELF_HANDLED = new Set([
     'loadOfflineResultPayload',
     'loadDatasetItemDetails', // The dataset item modal renders a deleted, stale, or foreign item as an inline error
     'loadDatasetItemVersions',
+    'loadPluginConfig', // The legacy plugin page renders NotFound for a deleted or mistyped config id
 ])
+
+// The same as NOT_FOUND_SELF_HANDLED, for an action name that other logics also use and do not handle.
+const NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    // The workflow scene and the notebook node views that show the workflow render NotFound
+    loadWorkflow: 'products.workflows.frontend.Workflows.workflowLogic',
+}
+
+function isNotFoundSelfHandled(error: any, actionKey: string, logicPath: string): boolean {
+    return (
+        isUnavailableEndpointError(error) &&
+        (NOT_FOUND_SELF_HANDLED.has(actionKey) ||
+            isOwnedByLogic(NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath))
+    )
+}
 
 /*
 Write actions whose own logic toasts the duplicate-key 400 (code `unique` on attr `key`), so the
@@ -227,6 +250,7 @@ const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     createProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     loadMatrix: 'products.customer_analytics.accountDotMatrixTileLogic', // Shows SQL mistakes in the tile, so only 5xx are reported
+    startImport: 'products.workflows.providerImportLogic', // Shows the refusal inside the import window
 }
 
 /*
@@ -411,12 +435,12 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                const isSelfHandledNotFound =
-                    NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
+                const isSelfHandledNotFound = isNotFoundSelfHandled(error, String(actionKey), logic.pathString)
                 const isSelfHandledExistingMember =
                     error?.code === 'existing_member' && EXISTING_MEMBER_SELF_HANDLED.has(String(actionKey))
                 if (
                     shouldReportApiFailure(error) &&
+                    logic.props.captureQueryTelemetry !== false &&
                     !isSelfHandledNotFound &&
                     !isSelfHandledExistingMember &&
                     !isExpectedFailureOwnedByLogic(error, actionKey, logic.pathString) &&

@@ -38,9 +38,11 @@ _LIST_SORT_PARAMS = {"order_by": "id", "sort_order": "asc"}
 # Names of the internal parent resources that enumerate sensor / location ids for the fan-outs.
 _SENSOR_IDS_RESOURCE = "sensor_ids"
 _LOCATION_IDS_RESOURCE = "location_ids"
+_PARAMETER_IDS_RESOURCE = "parameter_ids"
 # Keys the framework injects a parent field under: `_{parent_resource}_{field}`.
 _PARENT_SENSOR_ID_KEY = f"_{_SENSOR_IDS_RESOURCE}_id"
 _PARENT_LOCATION_ID_KEY = f"_{_LOCATION_IDS_RESOURCE}_id"
+_PARENT_PARAMETER_ID_KEY = f"_{_PARAMETER_IDS_RESOURCE}_id"
 
 
 @dataclasses.dataclass(frozen=False)
@@ -188,8 +190,22 @@ def _reshape_latest(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _reshape_parameter_latest(item: dict[str, Any]) -> dict[str, Any]:
+    reading_time = item.get("datetime") or {}
+    return {
+        "parameter_id": item[_PARENT_PARAMETER_ID_KEY],
+        "sensor_id": item["sensorsId"],
+        "location_id": item.get("locationsId"),
+        "datetime": reading_time.get("utc"),
+        "datetime_local": reading_time.get("local"),
+        "value": item.get("value"),
+        "coordinates": item.get("coordinates"),
+    }
+
+
 _FANOUT_ROW_MAPPERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "location_latest": _reshape_latest,
+    "parameter_latest": _reshape_parameter_latest,
     "location_flags": _reshape_location_flag,
     "sensor_flags": _reshape_sensor_flag,
 }
@@ -230,10 +246,11 @@ def _fanout_resources(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> list[EndpointResource | str]:
+    parent_path = "/v3/parameters" if config.kind == "parameter_fanout" else "/v3/locations"
     parent: EndpointResource = {
         "name": _SENSOR_IDS_RESOURCE,
         "endpoint": {
-            "path": "/v3/locations",
+            "path": parent_path,
             "params": {**_LIST_SORT_PARAMS, "limit": page_size},
             "data_selector": "results",
             "paginator": OpenAQPageNumberPaginator(page_size, MAX_PAGES),
@@ -242,6 +259,9 @@ def _fanout_resources(
     if config.kind == "location_fanout":
         parent["name"] = _LOCATION_IDS_RESOURCE
         resolve_param = "locations_id"
+    elif config.kind == "parameter_fanout":
+        parent["name"] = _PARAMETER_IDS_RESOURCE
+        resolve_param = "parameters_id"
     else:
         parent["data_map"] = _explode_location_sensor_ids
         resolve_param = "sensors_id"
@@ -289,7 +309,7 @@ def openaq_source(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    if config.kind in ("measurement", "location_fanout", "sensor_fanout"):
+    if config.kind in ("measurement", "location_fanout", "sensor_fanout", "parameter_fanout"):
         rest_config: RESTAPIConfig = {
             "client": client_config,
             "resource_defaults": {},

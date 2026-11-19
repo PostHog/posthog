@@ -6,7 +6,7 @@ import type { BarResult } from '../judge/bars'
 import type { Convergence, InvariantResult } from '../judge/judge'
 import { Baseline, DriveWindow, MIN_BASELINE_SECONDS, phasesOf } from '../judge/measurements'
 import type { WriterSample } from '../probe/writer-probe'
-import type { ValveTimelineEntry } from '../valves/valves'
+import { VALVES, ValveTimelineEntry } from '../valves/valves'
 
 export type Status = 'passed' | 'failed' | 'invalid'
 
@@ -104,13 +104,32 @@ const DATABASE_TARGETS = new Set(['postgres', 'cyclotron'])
 const SUSTAINED_FAILURES = 5
 const CONNECTION_LOST = /^(08...|57P01)$/
 
-const appliedDuring = ({ intentAt, appliedAt, releasedAt }: ValveTimelineEntry, at: string): boolean => {
+const appliedWithin = (
+    { intentAt, appliedAt, releasedAt }: ValveTimelineEntry,
+    at: string,
+    graceMs: number
+): boolean => {
     const from = intentAt ?? appliedAt
-    return from !== undefined && from <= at && (releasedAt === undefined || at <= releasedAt)
+    const time = Date.parse(at)
+    return (
+        from !== undefined &&
+        appliedAt !== undefined &&
+        Date.parse(from) <= time &&
+        (releasedAt === undefined || time <= Date.parse(releasedAt) + graceMs)
+    )
 }
 
+const exitedByValve = (exit: RoleExit, timeline: ValveTimelineEntry[]): boolean =>
+    exit.byValve ||
+    (exit.code !== null &&
+        exit.signal === null &&
+        timeline.some((entry) => {
+            const graceMs = VALVES.find(({ name }) => name === entry.valve)?.roleExitGraceMs
+            return graceMs !== undefined && appliedWithin(entry, exit.at, graceMs)
+        }))
+
 function unexpectedExit(exit: RoleExit, timeline: ValveTimelineEntry[]): string {
-    const applied = timeline.filter((entry) => DATABASE_TARGETS.has(entry.target) && appliedDuring(entry, exit.at))
+    const applied = timeline.filter((entry) => DATABASE_TARGETS.has(entry.target) && appliedWithin(entry, exit.at, 0))
     return [
         `${nameOf(exit)} exited (${exit.signal ?? `code ${exit.code}`}) without a valve causing it`,
         ...applied.map(({ valve, target }) => `while ${valve} on ${target} was applied`),
@@ -184,7 +203,7 @@ export function statusOf({
     if (interrupted !== undefined) {
         return { status: 'invalid', statusReason: interrupted }
     }
-    const crashes = exits.filter(({ byValve }) => !byValve).map((exit) => unexpectedExit(exit, timeline))
+    const crashes = exits.filter((exit) => !exitedByValve(exit, timeline)).map((exit) => unexpectedExit(exit, timeline))
     const unobserved = [
         ...timeline
             .filter(({ observedAt }) => observedAt === undefined)

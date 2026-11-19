@@ -35,9 +35,11 @@ posthog:inbox-reports-claim
 Save the returned `assignee.claim_id` and pass it on subsequent work updates and artefact writes.
 Taking over another actor requires `takeover=true`; stale claim IDs are rejected.
 The claim is attributed to the current internal task or external MCP client. Claims do not expire, so
-release the report whenever you walk away without landing a fix — including when you dismiss it instead.
-Release clears ownership only; an attached pull request stays on the report, and release works from any
-status, so a dismissed report can be released too.
+release the report whenever you walk away without landing a fix.
+Dismissing a report releases its claim for you.
+A resolved, closed, or Monitoring report keeps its claim, because a late open pull request moves it back to ready.
+Release clears ownership only; an attached pull request stays on the report.
+An MCP client that acts for a person can release that person's own claim.
 
 ### Step 2 — Verify the diagnosis against the code (do not skip)
 

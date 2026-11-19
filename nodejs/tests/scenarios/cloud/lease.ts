@@ -21,6 +21,8 @@ export type Manifest = {
     stackName: string
     schedules: string[]
     inputs: Record<string, string>
+    card: string
+    readerIdleMaxAcu?: number
 }
 
 const HOUR_MS = 60 * 60 * 1000
@@ -114,7 +116,7 @@ async function register(controller: Controller, schedulerRole: string, manifest:
 
 export async function lease(
     controller: Controller,
-    { profile, inputs }: RunInputs,
+    { profile, inputs, card }: RunInputs,
     { owner, commit }: Admitted
 ): Promise<Manifest> {
     const runId = randomUUID()
@@ -131,6 +133,8 @@ export async function lease(
         stackName,
         schedules: schedulesOf(runId),
         inputs: Object.fromEntries(inputs.map(({ file, sha256 }) => [file, sha256])),
+        card: card.id,
+        readerIdleMaxAcu: profile.readerAcu.idleMax,
     }
     const bucket = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
     const body = JSON.stringify(manifest, null, 2)
@@ -187,9 +191,9 @@ export async function manifestOf(controller: Controller, evidenceBucket: string,
     return parsed.data as unknown as Manifest
 }
 
-const HostManifest = StoredManifest.extend({ account: z.string() })
+const HostManifest = StoredManifest.extend({ account: z.string(), readerIdleMaxAcu: z.number().positive().optional() })
 
-export type RunManifest = Pick<Manifest, 'runId' | 'account' | 'expiresAt' | 'stackName'>
+export type RunManifest = Pick<Manifest, 'runId' | 'account' | 'expiresAt' | 'stackName' | 'readerIdleMaxAcu'>
 
 export function runManifestOf(env: NodeJS.ProcessEnv): RunManifest | undefined {
     const file = env.SCENARIO_RUN_MANIFEST

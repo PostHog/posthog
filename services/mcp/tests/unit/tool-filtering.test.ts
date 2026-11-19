@@ -41,28 +41,21 @@ describe('Tool Filtering - Features', () => {
     })
 
     it.each([
-        { scopes: ['evaluation:read'], enabled: true, metadata: true, scores: false, upload: false },
+        { scopes: ['evaluation:read'], metadata: true, scores: false, upload: false },
         {
             scopes: ['evaluation:read', 'llm_analytics:read'],
-            enabled: true,
             metadata: true,
             scores: true,
             upload: false,
         },
-        { scopes: ['offline_evaluation_ingestion:write'], enabled: true, metadata: false, scores: false, upload: true },
-        { scopes: ['*'], enabled: false, metadata: false, scores: false, upload: false },
-    ])(
-        'offline tools preserve read/write scope separation and rollout: %j',
-        async ({ scopes, enabled, metadata, scores, upload }) => {
-            const tools = await getToolsFromContext(createMockContext(scopes), {
-                featureFlags: { 'ai-observability-offline-evaluations': enabled },
-            })
-            const names = tools.map((tool) => tool.name)
-            expect(names.includes('llma-offline-experiment-item-payload-get')).toBe(metadata)
-            expect(names.includes('llma-offline-experiment-scorer-summary-list')).toBe(scores)
-            expect(names.includes('llma-offline-experiment-upload')).toBe(upload)
-        }
-    )
+        { scopes: ['offline_evaluation_ingestion:write'], metadata: false, scores: false, upload: true },
+    ])('offline tools preserve read/write scope separation: %j', async ({ scopes, metadata, scores, upload }) => {
+        const tools = await getToolsFromContext(createMockContext(scopes))
+        const names = tools.map((tool) => tool.name)
+        expect(names.includes('llma-offline-experiment-item-payload-get')).toBe(metadata)
+        expect(names.includes('llma-offline-experiment-scorer-summary-list')).toBe(scores)
+        expect(names.includes('llma-offline-experiment-upload')).toBe(upload)
+    })
 
     it.each([false, true])('hides run-start tools from sandbox tokens: %s', async (sandbox) => {
         const context = {
@@ -608,7 +601,7 @@ function expectAllToolsHaveNoRequiredScopes(toolNames: string[]): void {
 
 describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
     // Minted directly into a server-issued token, never advertised via OAuth metadata
-    // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes.py). Tools may require them, but
+    // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes/exposure.py). Tools may require them, but
     // they are intentionally absent from OAUTH_SCOPES_SUPPORTED, so exclude them here.
     const SERVER_MINT_ONLY_SCOPES = new Set([
         'context_layer_internal:write',
@@ -623,7 +616,7 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
         'signal_scratchpad_internal:write',
     ])
 
-    // OAuth-hidden scopes (generated from OAUTH_HIDDEN_SCOPE_OBJECTS in posthog/scopes.py)
+    // OAuth-hidden scopes (generated from OAUTH_HIDDEN_SCOPE_OBJECTS in posthog/scopes/exposure.py)
     // are PAT-grantable but never OAuth-advertised: tools requiring one (e.g. the staff-only
     // managed-migrations support tools) only surface for personal API keys carrying it.
     const oauthHiddenScopes = new Set<string>(OAUTH_SCOPES_HIDDEN)
@@ -1128,8 +1121,10 @@ describe('Tool Filtering - Feature Flags', () => {
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const allFlags = getRequiredFeatureFlags()
         const branchFlags = [
+            'workflows-email-activity',
             'workflows-supabase-auth-emails',
             'scout-trials',
+            'scout-scratchpad-discard-mcp',
             'signals-report-monitoring',
             'inbox-report-actions-mcp',
             'inbox-reports-create-mcp',
@@ -1163,6 +1158,9 @@ describe('Tool Filtering - Feature Flags', () => {
             'platform-alerts-source-warehouse',
             'dwh-custom-source-ai-builder',
             'workflows-bulk-suppressions-mcp',
+            'workflows-resend-import',
+            'signals-source-filters',
+            'error-tracking-issue-tags',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1205,13 +1203,13 @@ describe('Tool Filtering - Feature Flags', () => {
                 'aeo-citation-tracking',
                 'self-driving-usage-display',
                 'logs-agent-tools',
+                'release-objects',
             ])
         )
-        expect(flags).toContain('ai-observability-offline-evaluations')
         expect(flags).toContain('ai-observability-composite-validation')
         expect(allFlags).not.toContain('dashboard-widgets')
         expect(allFlags).not.toContain('self-driving-usage-mcp')
-        expect(flags).toHaveLength(37)
+        expect(flags).toHaveLength(38)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

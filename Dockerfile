@@ -369,6 +369,10 @@ RUN apt-get update && \
     # psutil is not installed, so joblib's loky kills worker process trees with pgrep.
     # Operators also need ps to find a PID for py-spy.
     "procps" \
+    # Kubernetes runs the container command as PID 1, and PID 1 drops a signal that it has no
+    # handler for. Deployments that run their command under tini get a PID 1 that always handles
+    # SIGTERM, forwards it to the command and reaps orphaned processes.
+    "tini" \
     # The base image digest freezes its tzdata. HogQL prints datetime constants as local time in
     # the team's timezone, and ClickHouse resolves them with its own tz rules. When a zone's rules
     # change and this image lags, both sides disagree on the UTC offset and queries shift their

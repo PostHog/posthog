@@ -10,9 +10,10 @@ from rest_framework.viewsets import ViewSet
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
-from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
+from posthog.synthetic_user import SyntheticUser
 
 from products.business_knowledge.backend.github_repos import (
     GithubReposError,
@@ -25,6 +26,7 @@ from products.business_knowledge.backend.github_repos import (
     search_repositories,
     select_github_repos,
 )
+from products.business_knowledge.backend.key_libraries import readable_library_id
 from products.business_knowledge.backend.libraries import LibraryNotFound, get_library
 
 from .repository_serializers import (
@@ -36,6 +38,8 @@ from .repository_serializers import (
     RepositorySearchResponseSerializer,
     RepositorySelectionSerializer,
 )
+from .settings import CanonicalTeamTokenPermission
+from .throttles import KNOWLEDGE_THROTTLES
 
 _READ_ACTIONS = frozenset({"status", "search", "read_file"})
 _WRITE_ACTIONS = frozenset({"connect", "disconnect", "select"})
@@ -45,9 +49,12 @@ class BusinessKnowledgeRepositoriesViewSet(TeamAndOrgViewSetMixin, ViewSet):
     scope_object = "business_knowledge"
     # Plain ViewSet: object permissions never run, so resource-level access is checked here.
     requires_resource_level_access = True
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    # Every action listed here must apply the key's library limit from `key_libraries`.
+    psak_allowed_actions = ["search", "read_file"]
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     posthog_feature_flag = "product-business-knowledge"
-    throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
+    throttle_classes = KNOWLEDGE_THROTTLES
     pagination_class = None
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
@@ -147,11 +154,11 @@ class BusinessKnowledgeRepositoriesViewSet(TeamAndOrgViewSetMixin, ViewSet):
         required_scopes=["business_knowledge:read"],
     )
     def search(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        library_id = request.validated_query_data.get("library_id")
-        self._require_library(library_id)
+        library_id = readable_library_id(request, request.validated_query_data.get("library_id"))
+        self._require_library(request, library_id)
         outcome = search_repositories(
             self.team,
-            cast(User, request.user),
+            cast(User | SyntheticUser, request.user),
             request.validated_query_data["query"],
             request.validated_query_data.get("repo") or None,
             library_id=library_id,
@@ -176,20 +183,25 @@ class BusinessKnowledgeRepositoriesViewSet(TeamAndOrgViewSetMixin, ViewSet):
         required_scopes=["business_knowledge:read"],
     )
     def read_file(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        library_id = request.validated_query_data.get("library_id")
-        self._require_library(library_id)
+        library_id = readable_library_id(request, request.validated_query_data.get("library_id"))
+        self._require_library(request, library_id)
         loaded = read_repository_file(
             self.team,
-            cast(User, request.user),
+            cast(User | SyntheticUser, request.user),
             request.validated_query_data["repo"],
             request.validated_query_data["path"],
             library_id=library_id,
         )
         return Response(RepositoryFileSerializer(_file_payload(loaded)).data)
 
-    def _require_library(self, library_id: Any) -> None:
+    def _require_library(self, request: Request, library_id: Any) -> None:
         if library_id is None:
             return
+        # The parent project owns libraries. Without this check, a caller confined to a child
+        # environment learns from the 404 which library ids exist in the parent.
+        permission = CanonicalTeamTokenPermission()
+        if not permission.has_permission(request, self):
+            raise exceptions.PermissionDenied(permission.message)
         try:
             get_library(self.team_id, library_id)
         except LibraryNotFound:

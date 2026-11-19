@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -45,12 +45,22 @@ export const externalDataDestinationsCreateBodyNameMax = 400
 
 export const ExternalDataDestinationsCreateBody = () => zod.object({
     type: zod
-        .enum(['PostHogWarehouse', 'Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3'])
+        .enum([
+            'PostHogWarehouse',
+            'Redshift',
+            'Snowflake',
+            'BigQuery',
+            'Postgres',
+            'Databricks',
+            'AzureBlob',
+            'S3',
+            'MotherDuck',
+        ])
         .describe(
-            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck'
         )
         .describe(
-            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck'
         ),
     name: zod
         .string()
@@ -169,6 +179,18 @@ export const ExternalDataDestinationsAddSourcesCreateBody = () => zod.object({
 })
 
 /**
+ * List recent sync runs that could not deliver to this destination, with the error of each one.
+ */
+export const ExternalDataDestinationsDeliveryFailuresRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data destination.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * Test the credentials and target of an existing destination, and return the result of each step.
  */
 export const ExternalDataDestinationsTestConnectionCreateParams = () => zod.object({
@@ -197,9 +219,9 @@ export const ExternalDataDestinationsConnectLinkRetrieveParams = () => zod.objec
 
 export const ExternalDataDestinationsConnectLinkRetrieveQueryParams = () => zod.object({
     destination_type: zod
-        .enum(['Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3'])
+        .enum(['Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3', 'MotherDuck'])
         .describe(
-            "The destination type to connect, e.g. 'Snowflake' or 'S3'.\n\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3"
+            "The destination type to connect, e.g. 'Snowflake' or 'S3'.\n\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck"
         ),
     integration_kind: zod
         .string()

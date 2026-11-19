@@ -45,6 +45,7 @@ import type {
     BillingSpendExportRetrieveParams,
     BillingSpendRetrieveParams,
     BillingSpendSummaryApi,
+    BillingSpendTimeSeriesResponseApi,
     BillingSpendTimeseriesRetrieveParams,
     BillingSubscriptionApi,
     BillingTeamOptionsResponseApi,
@@ -55,8 +56,10 @@ import type {
     BillingUsageStatusApi,
     BillingUsageSummaryApi,
     BillingUsageTimeseriesRetrieveParams,
+    ClaimCouponApi,
     PaginatedBillingAlertConfigurationListApi,
     PaginatedBillingAlertEventListApi,
+    PaginatedBillingSpendTimeSeriesListApi,
     PaginatedBillingTimeSeriesPointListApi,
     PatchedBillingAlertConfigurationApi,
     PatchedBillingApi,
@@ -156,12 +159,15 @@ export const getBillingCouponsClaimCreateUrl = () => {
     return `/api/billing/coupons/claim/`
 }
 
-export const billingCouponsClaimCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
+export const billingCouponsClaimCreate = async (
+    claimCouponApi?: ClaimCouponApi,
+    options?: RequestInit
+): Promise<void> => {
     return apiMutator<void>(getBillingCouponsClaimCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(claimCouponApi),
     })
 }
 
@@ -285,8 +291,8 @@ export const getBillingSpendRetrieveUrl = (params?: BillingSpendRetrieveParams) 
 export const billingSpendRetrieve = async (
     params?: BillingSpendRetrieveParams,
     options?: RequestInit
-): Promise<BillingTimeSeriesResponseApi> => {
-    return apiMutator<BillingTimeSeriesResponseApi>(getBillingSpendRetrieveUrl(params), {
+): Promise<BillingSpendTimeSeriesResponseApi> => {
+    return apiMutator<BillingSpendTimeSeriesResponseApi>(getBillingSpendRetrieveUrl(params), {
         ...options,
         method: 'GET',
     })
@@ -936,8 +942,8 @@ export const billingSpendTimeseriesRetrieve = async (
     organizationId: string,
     params?: BillingSpendTimeseriesRetrieveParams,
     options?: RequestInit
-): Promise<PaginatedBillingTimeSeriesPointListApi> => {
-    return apiMutator<PaginatedBillingTimeSeriesPointListApi>(
+): Promise<PaginatedBillingSpendTimeSeriesListApi> => {
+    return apiMutator<PaginatedBillingSpendTimeSeriesListApi>(
         getBillingSpendTimeseriesRetrieveUrl(organizationId, params),
         {
             ...options,
@@ -1129,8 +1135,8 @@ export const billingProjectSpendTimeseriesRetrieve = async (
     projectId: string,
     params?: BillingProjectSpendTimeseriesRetrieveParams,
     options?: RequestInit
-): Promise<PaginatedBillingTimeSeriesPointListApi> => {
-    return apiMutator<PaginatedBillingTimeSeriesPointListApi>(
+): Promise<PaginatedBillingSpendTimeSeriesListApi> => {
+    return apiMutator<PaginatedBillingSpendTimeSeriesListApi>(
         getBillingProjectSpendTimeseriesRetrieveUrl(projectId, params),
         {
             ...options,

@@ -519,6 +519,45 @@ describe('insightSceneLogic', () => {
     })
 
     const VARIABLE_ID = '00000000-0000-0000-0000-00000000beef'
+
+    it.each([true, false])('saving from a dashboard respects redirect=%s', async (redirect) => {
+        let savedDescription: string | undefined
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/insights/42/': async ({ request }) => {
+                    const body = (await request.json()) as { description?: string }
+                    savedDescription = body.description
+                    return [200, { id: 42, short_id: Insight42, ...body }]
+                },
+            },
+        })
+        router.actions.push(urls.insightEdit(Insight42, 6))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        sceneLogic.actions.setExportedScene(
+            { logic: insightSceneLogic, component: () => null as any },
+            Scene.Insight,
+            'insightEdit',
+            { params: {}, searchParams: {}, hashParams: {} }
+        )
+        sceneLogic.actions.setScene(
+            Scene.Insight,
+            'insightEdit',
+            { params: {}, searchParams: {}, hashParams: {} },
+            false
+        )
+        const insight = logic.values.insightLogicRef!.logic
+        insight.actions.setInsightMetadataLocal({ description: 'Updated review notes' })
+
+        await expectLogic(insight, () => insight.actions.saveInsight(redirect)).toFinishAllListeners()
+
+        expect(savedDescription).toEqual('Updated review notes')
+        expect(router.values.location.pathname).toEqual(
+            addProjectIdIfMissing(redirect ? urls.dashboard(6) : urls.insightEdit(Insight42), MOCK_TEAM_ID)
+        )
+    })
+
     const CARD_NAME_OVERRIDE: Record<string, HogQLVariable> = {
         [VARIABLE_ID]: {
             variableId: VARIABLE_ID,

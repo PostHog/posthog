@@ -459,6 +459,7 @@ always_required:
     - nodejs
     - capture
     - feature-flags
+    - flags-cache-builder
     - hypercache-server
     - property-defs-rs
     - personhog-replica

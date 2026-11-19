@@ -1,3 +1,4 @@
+import { once } from 'events'
 import { existsSync, mkdirSync, realpathSync } from 'fs'
 import os from 'os'
 import path from 'path'
@@ -46,12 +47,21 @@ import {
     terminateRoleConnections,
 } from './stack'
 import { RoleExit, createSupervisor } from './supervisor'
+import {
+    WORKFLOWS_ADAPTER,
+    Wiring,
+    kafkaGroups,
+    postgresClients,
+    scenarioGroupsOf,
+    unionOf,
+    wiringOf,
+} from './topology'
 import { writerCpuOf } from './writer-cpu'
 
 export type { RoleExit } from './supervisor'
 
 export interface Environment {
-    up(): Promise<void>
+    up(signal: AbortSignal): Promise<void>
     reset(settings: Profile['settings'], replicas?: Replicas): Promise<void>
     edgeUrl(): string
     role(name: Role): RoleHandle
@@ -60,6 +70,7 @@ export interface Environment {
     dependencyHealth(): Promise<{ healthy: boolean; down: string[] }>
     exits(): RoleExit[]
     groupLag(group: string): Promise<number>
+    wiring(signal: AbortSignal): Promise<Wiring>
     writerCpu(manifest: RunManifest, window: DriveWindow, signal: AbortSignal): Promise<CpuPoint[]>
     down(): Promise<void>
 }
@@ -94,6 +105,7 @@ const STOP_GRACE_MS = 10_000
 const PROBE_INTERVAL_MS = 1000
 const KILL_OBSERVED_WITHIN_MS = 10_000
 const FREEZE_OBSERVED_WITHIN_MS = 10_000
+const DROP_SWEEP_EVERY_MS = 100
 
 const portsOf = (specs: RoleSpec[]): { port: number; owner: string }[] =>
     specs.map((spec) => ({ port: spec.port, owner: nameOf(spec) }))
@@ -122,6 +134,49 @@ export type EnvironmentOptions = {
     roleHealthyWithinMs: number
     aws: Aws
     failover: Partial<Pick<FailoverOptions, 'identity' | 'pollMs' | 'observeWithinMs'>>
+}
+
+async function holdConnectionsDropped(sweep: () => Promise<number>): Promise<Actuation> {
+    let terminated = await sweep()
+    let failure: unknown
+    const settled = Promise.withResolvers<void>()
+    if (terminated > 0) {
+        settled.resolve()
+    }
+    const released = new AbortController()
+    const sweeping = (async () => {
+        while (!released.signal.aborted) {
+            await sleep(DROP_SWEEP_EVERY_MS, undefined, { signal: released.signal }).catch(() => undefined)
+            if (released.signal.aborted) {
+                return
+            }
+            try {
+                terminated += await sweep()
+            } catch (error) {
+                failure = error
+                settled.resolve()
+                return
+            }
+            if (terminated > 0) {
+                settled.resolve()
+            }
+        }
+    })()
+    return {
+        async observed(holdEnds) {
+            if (holdEnds !== undefined && !holdEnds.aborted) {
+                await Promise.race([settled.promise, once(holdEnds, 'abort')])
+            }
+            return terminated > 0
+        },
+        async release() {
+            released.abort()
+            await sweeping
+            if (failure !== undefined) {
+                throw failure
+            }
+        },
+    }
 }
 
 export function createEnvironment({
@@ -153,7 +208,7 @@ export function createEnvironment({
     const logOf = (id: RoleId): string => path.join(stateDir, `${nameOf(id)}.log`)
 
     return {
-        async up() {
+        async up(signal) {
             if (!existsSync(TSX)) {
                 throw new Error(`No tsx at ${TSX}; install the nodejs package first.`)
             }
@@ -161,7 +216,7 @@ export function createEnvironment({
             stateDir = realpathSync(stateDir)
             releaseLock = await holdRunLock(stateDir)
             try {
-                await bringUp()
+                await bringUp(signal)
             } catch (error) {
                 await stop()
                 throw error
@@ -199,11 +254,14 @@ export function createEnvironment({
                 case 'freeze':
                     return supervisor.freeze({ role: action.role, replica: 0 }, FREEZE_OBSERVED_WITHIN_MS)
                 case 'pg.terminate': {
-                    let terminated = 0
-                    for (const server of postgresServers) {
-                        terminated += await terminateRoleConnections(server, action.share)
-                    }
-                    return { observed: () => Promise.resolve(terminated > 0), release: () => Promise.resolve() }
+                    const servers = postgresServers
+                    return holdConnectionsDropped(async () => {
+                        let terminated = 0
+                        for (const server of servers) {
+                            terminated += await terminateRoleConnections(server, action.share)
+                        }
+                        return terminated
+                    })
                 }
                 case 'edge.fault':
                     return startedEdge('actuate').hold(action.rule)
@@ -224,6 +282,17 @@ export function createEnvironment({
 
         groupLag: (group) => groupLag(group, docker),
 
+        async wiring(signal) {
+            const clients = await Promise.all(postgresServers.map((server) => postgresClients(server)))
+            return wiringOf({
+                adapter: WORKFLOWS_ADAPTER,
+                specs: running,
+                groups: await kafkaGroups(docker, signal),
+                clients: clients.flat(),
+                recordedAt: new Date(),
+            })
+        },
+
         writerCpu: (manifest, window, signal) => writerCpuOf(aws ?? awsCli(env), manifest, window, signal),
 
         down: stop,
@@ -238,10 +307,11 @@ export function createEnvironment({
 
     async function resetRoles(edge: ProviderEdge, settings: Profile['settings'], replicas: Replicas): Promise<void> {
         const exitsBefore = supervisor.exits().length
+        const joined = await kafkaGroups(docker).then(scenarioGroupsOf, () => [])
         await supervisor.stop()
         const specs = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas)
         running = specs
-        const groups = consumerGroupsOf(specs)
+        const groups = unionOf(consumerGroupsOf(specs), joined)
         await waitForExpect(
             async () => {
                 const busy = await groupsWithMembers(groups, docker)
@@ -307,14 +377,14 @@ export function createEnvironment({
         }
     }
 
-    async function bringUp(): Promise<void> {
+    async function bringUp(signal: AbortSignal): Promise<void> {
         const exitsBefore = supervisor.exits().length
         const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR, stateDir)
         if (plan.strangers.length > 0) {
             throw await strangerConflict(plan.strangers)
         }
         await terminate(plan, STOP_GRACE_MS)
-        await startStack(hogli, stateDir, env)
+        await startStack(hogli, stateDir, env, signal)
         const planned = roleSpecs(
             env,
             { url: `http://127.0.0.1:${EDGE_PORT}` },
@@ -352,7 +422,7 @@ export function createEnvironment({
         await supervisor.start(api)
         await untilHealthy(api, exitsBefore)
         if ((await missingTemplates(postgresUrl)).length > 0) {
-            await syncTemplates(hogli, stateDir, env)
+            await syncTemplates(hogli, stateDir, env, signal)
         }
         await waitForExpect(
             async () => {

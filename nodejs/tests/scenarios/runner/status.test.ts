@@ -49,6 +49,16 @@ const failedOver: ValveTimelineEntry = {
     releasedAt: at(32),
 }
 
+const dropped = (from: number, to: number): ValveTimelineEntry => ({
+    valve: 'pg.drop_connections',
+    target: 'postgres',
+    requestedAt: at(0),
+    intentAt: at(from),
+    appliedAt: at(from),
+    observedAt: at(from),
+    releasedAt: at(to),
+})
+
 const probed = (failing: (second: number) => string | false): WriterSample[] =>
     Array.from({ length: 56 }, (_, second) => {
         const failure = failing(second)
@@ -66,6 +76,8 @@ const exited = (role: Role, second: number, byValve = false, replica = 0): RoleE
     signal: 'SIGKILL',
     byValve,
 })
+
+const exitedWithError = (role: Role, second: number): RoleExit => ({ ...exited(role, second), code: 1, signal: null })
 
 describe('statusOf', () => {
     it.each<[string, Partial<Verdict>, string, string]>([
@@ -126,6 +138,7 @@ describe('statusOf', () => {
                     {
                         name: 'pickup_p99_under',
                         unit: 's',
+                        limit: 5,
                         passed: false,
                         breakingPoint: { scale: 10, at: at(30), offeredPerSecond: 12.34, key: 'hogflow', value: 10 },
                     },
@@ -141,6 +154,7 @@ describe('statusOf', () => {
                     {
                         name: 'writer_cpu_under',
                         unit: '%',
+                        limit: 70,
                         passed: false,
                         unjudged: 'no writer CPU reading off a run host in the 1x step',
                     },
@@ -247,6 +261,68 @@ describe('statusOf', () => {
             { timeline: [failedOver], exits: [exited(HOGFLOW_WORKER, 15)] },
             'failed',
             `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it, while pg.failover on cyclotron was applied`,
+        ],
+        [
+            "a role exited with an error while the roles' Postgres connections were dropped",
+            { timeline: [dropped(10, 40)], exits: [exitedWithError(HOGFLOW_WORKER, 25)] },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a role exited with an error just after the connection drop released',
+            { timeline: [dropped(10, 40)], exits: [exitedWithError(HOGFLOW_WORKER, 44)] },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a role exited with an error well after the connection drop released',
+            { timeline: [dropped(10, 40)], exits: [exitedWithError(HOGFLOW_WORKER, 46)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it`,
+        ],
+        [
+            'a role exited with an error before the connection drop applied',
+            { timeline: [dropped(10, 40)], exits: [exitedWithError(HOGFLOW_WORKER, 8)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it`,
+        ],
+        [
+            'a role exited with an error after the connection drop failed to apply',
+            {
+                timeline: [
+                    {
+                        valve: 'pg.drop_connections',
+                        target: 'postgres',
+                        requestedAt: at(0),
+                        intentAt: at(10),
+                        error: 'the first sweep failed',
+                    },
+                ],
+                exits: [exitedWithError(HOGFLOW_WORKER, 25)],
+            },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it; pg.drop_connections on postgres was not observed: the first sweep failed`,
+        ],
+        [
+            'a role exited with an error during a valve that sets no exit grace',
+            { timeline: [failedOver], exits: [exitedWithError(HOGFLOW_WORKER, 15)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it, while pg.failover on cyclotron was applied`,
+        ],
+        [
+            'a role failed to start while the connections were dropped',
+            {
+                timeline: [dropped(10, 40)],
+                exits: [{ ...exited(HOGFLOW_WORKER, 25), signal: null, error: 'spawn ENOENT' }],
+            },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code null) without a valve causing it, while pg.drop_connections on postgres was applied`,
+        ],
+        [
+            'a role was killed by a signal while the connections were dropped',
+            { timeline: [dropped(10, 40)], exits: [exited(HOGFLOW_WORKER, 25)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it, while pg.drop_connections on postgres was applied`,
         ],
         [
             'a dependency went away',

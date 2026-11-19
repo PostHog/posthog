@@ -8,7 +8,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import FeatureFlagGroupType
 
 from posthog.exceptions_capture import capture_exception
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel

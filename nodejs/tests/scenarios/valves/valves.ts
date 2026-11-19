@@ -23,6 +23,7 @@ export type ValveContext = {
 export type ValveDefinition = Definition & {
     target: z.ZodType<string>
     strandsRunningJobs: boolean
+    roleExitGraceMs?: number
     journalsIntent?: true
     apply(context: ValveContext, target: string, dose: unknown, holdMs: number, signal: AbortSignal): Promise<Actuation>
 }
@@ -71,6 +72,7 @@ export const pgDropConnections: ValveDefinition = {
     params: ConnectionShare,
     target: z.literal('postgres'),
     strandsRunningJobs: false,
+    roleExitGraceMs: 5000,
     apply: ({ environment }, _target, dose) =>
         environment.actuate({ kind: 'pg.terminate', share: ConnectionShare.parse(dose).share }),
 }

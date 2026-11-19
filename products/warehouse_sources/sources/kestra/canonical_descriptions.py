@@ -105,4 +105,30 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "message": "Log message.",
         },
     },
+    "task_outputs": {
+        "description": "Outputs that task runs store, one row for each task run that has outputs.",
+        "docs_url": "https://kestra.io/docs/api-reference/open-source",
+        "columns": {
+            "executionId": "Identifier of the execution that ran the task.",
+            "execution_start_date": "Start time of the execution, used for incremental sync.",
+            "taskId": "Identifier of the task in the flow.",
+            "taskRunId": "Identifier of the task run that stored the outputs.",
+            "value": "Loop value of the task run, for a task inside a loop.",
+            "iteration": "Iteration number of the task run, for a task that repeats.",
+            "inline": "Whether Kestra stores the outputs with the execution instead of in internal storage.",
+            "outputs": "Output names of the task run, mapped to their values.",
+        },
+    },
+    "daily_execution_statistics": {
+        "description": "Execution counts and durations for each day, across every tenant of the instance.",
+        "docs_url": "https://kestra.io/docs/api-reference/open-source",
+        "columns": {
+            "start_date": "Start of the day, used for incremental sync.",
+            "startDate": "Start of the day, as Kestra returns it.",
+            "duration": "Minimum, average, maximum, and total execution duration, and the execution count.",
+            "taskRunsDuration": "Minimum, average, maximum, and total task run duration, and the task run count.",
+            "executionCounts": "Number of executions in each state.",
+            "groupBy": "Time unit of the row.",
+        },
+    },
 }

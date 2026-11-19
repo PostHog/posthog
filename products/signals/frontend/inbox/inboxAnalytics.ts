@@ -21,6 +21,7 @@ import {
     SignalSourceProduct,
     SignalSourceType,
 } from './types'
+import type { ReportDecision } from './utils/reportDecisions'
 import { rankingPillLifts } from './utils/reportOrdering'
 import { reportPullRequests } from './utils/reportPullRequests'
 
@@ -49,12 +50,18 @@ export const INBOX_EVENTS = {
     REPORT_OPENED: 'Inbox report opened',
     REPORT_CLOSED: 'Inbox report closed',
     REPORT_SCROLLED: 'Inbox report scrolled',
+    // Sent by the cloud inbox only, because the desktop inbox does not track visible time.
+    REPORT_READ: 'Inbox report read',
     REPORT_ACTION: 'Inbox report action',
     SELECTION_MODE_ENTERED: 'Inbox selection mode entered',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
+    // Cloud-only for now.
+    REPORT_DECISION_CHANGED: 'Inbox report decision changed',
     REPORT_FEEDBACK: 'Inbox report feedback',
     REPORT_SOURCE_SUGGESTION_SHOWN: 'Inbox report source suggestion shown',
     REPORT_SOURCE_SUGGESTION_CLICKED: 'Inbox report source suggestion clicked',
+    // Cloud-only for now: the desktop inbox shows no report tags.
+    REPORT_TAG_CLICKED: 'Inbox report tag clicked',
     REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
     INTERVIEW_INVITE_SHOWN: 'Inbox interview invite shown',
     INTERVIEW_INVITE_CLICKED: 'Inbox interview invite clicked',
@@ -71,6 +78,8 @@ export const INBOX_EVENTS = {
     SOURCE_CATALOG_SOURCE_SELECTED: 'Signal source catalog source selected',
     SOURCE_STEERING_CHANGED: 'Signal source steering changed',
     SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
+    SOURCE_FILTER_EDITOR_OPENED: 'Signal source filter editor opened',
+    SOURCE_FILTER_EXPRESSION_CHANGED: 'Signal source filter expression changed',
     SOURCE_ALERT_SCOPE_CHANGED: 'Signal source alert scope changed',
     SOURCE_ALERT_PATTERNS_CHANGED: 'Signal source alert patterns changed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
@@ -147,6 +156,7 @@ export const INBOX_REPORT_LINK_SOURCES = [
     'support',
     'task',
     'today',
+    'note_mention',
 ] as const
 
 /** `other` is a `source` value outside the fixed set, so a typo or a hand-edited link stays countable. */
@@ -177,6 +187,7 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
  * last Ask AI run from the report composer), `view_diff`, `show_more` (a list
  * section widening its window), and the section expand/collapse pair (desktop splits those per
  * section instead). `expand_preview` is a Today list row opened in place, which no ranking head reads yet.
+ * `select_pull_request` is a pull request line chosen in the Status section of a report with several.
  * Desktop-only variants we don't fire yet are intentionally omitted.
  */
 export type InboxReportActionType =
@@ -206,6 +217,7 @@ export type InboxReportActionType =
     | 'claim_dialog'
     | 'expand_preview'
     | 'add_note'
+    | 'select_pull_request'
 
 /**
  * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
@@ -254,7 +266,7 @@ export type InboxPanelName = 'runs' | 'config' | 'sources' | 'scratchpad' | 'fin
 export type InboxPanelLoad = 'scout_notes' | 'scout_memory' | 'report_notes'
 
 /** A report write that carries its own timeout. `state` covers dismiss, resolve, restore, and monitoring. */
-export type InboxWrite = 'claim' | 'note' | 'priority' | 'retire_note' | 'state'
+export type InboxWrite = 'actionability' | 'claim' | 'note' | 'priority' | 'repository' | 'retire_note' | 'state'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange =
@@ -262,6 +274,7 @@ export type InboxQueryChange =
     | 'sort'
     | 'source_product'
     | 'scout'
+    | 'tags'
     | 'priority'
     | 'state'
     | 'search'
@@ -354,7 +367,7 @@ interface RankingPillProperties {
     pill_fix: number | null
 }
 
-/** The lifts the person saw on the report's pill. A list without pills, or a stale or unscored report, shows none. */
+/** The lifts the person saw on the report's pill. A list without pills, or an unscored report, shows none. */
 function rankingPillProperties(report: SignalReport, rankingPill: boolean): RankingPillProperties {
     const lifts = rankingPill ? rankingPillLifts(report) : null
     return {
@@ -492,6 +505,7 @@ export function captureInboxViewed(params: {
         personal_list_age_minutes: status?.age_minutes ?? null,
         personal_list_checked_age_minutes: status?.checked_age_minutes ?? null,
         personal_list_fallback_reason: status?.fallback_reason ?? null,
+        personal_list_building: status?.building ?? null,
         for_you_report_count: params.forYouReportCount,
         sort_field: params.sortField,
         ranker_id: params.rankerId,
@@ -527,7 +541,7 @@ export function captureInboxReportsImpressed(params: {
     rankingPill: boolean
 }): void {
     const rankingSort = params.sortField.startsWith('ranking_')
-    const personalSort = params.sortField === 'personal' || params.rankerId === 'personal'
+    const personalSort = params.rankerId === 'personal'
     if (params.rankingPill) {
         params.reports
             .filter((report) => rankingPillLifts(report) !== null)
@@ -579,9 +593,9 @@ export function captureInboxReportOpened(
         section: InboxReportSectionKey | null
         /** The ranker of the list the report was opened from. Null for other sorts and for a cold deep-link. */
         rankerId: string | null
-        /** The tier the card showed under the Personalized sort. Null for other sorts and for a cold deep-link. */
+        /** The tier the card showed under the personal order. Null for other orders and for a cold deep-link. */
         personalTier: string | null
-        /** Whether the card showed a personal ranking reason under the Personalized sort. */
+        /** Whether the card showed a personal ranking reason under the personal order. */
         personalReasonShown: boolean
     },
     /** The unload flush passes `{ send_instantly: true }` so the open leaves before the page does. */
@@ -612,6 +626,8 @@ export function captureInboxReportClosed(
     params: {
         report: SignalReport
         timeSpentMs: number
+        /** The part of `timeSpentMs` with the tab visible. A report left open in a background tab adds nothing. */
+        activeTimeMs: number
         closeMethod: InboxReportCloseMethod
     },
     /** The unload flush passes `{ send_instantly: true }` so the event leaves before the page goes. */
@@ -622,6 +638,7 @@ export function captureInboxReportClosed(
         {
             ...baseReportProperties(params.report),
             time_spent_ms: params.timeSpentMs,
+            active_time_ms: params.activeTimeMs,
             close_method: params.closeMethod,
         },
         options
@@ -649,6 +666,28 @@ export function captureInboxReportScrolled(params: {
 }
 
 /**
+ * The person read the open report: they scrolled the detail pane, and the report stayed open with the
+ * tab visible for the read threshold. Fired at most once per open, while the report is still open, so
+ * it does not depend on `Inbox report closed`, which a closed tab can drop. Most opens end without an
+ * action or feedback, so this is the signal that separates a read from a bounce.
+ */
+export function captureInboxReportRead(params: {
+    report: SignalReport
+    rank: number | null
+    listSize: number | null
+    activeTimeMs: number
+    timeSinceOpenMs: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_READ, {
+        ...baseReportProperties(params.report),
+        rank: params.rank,
+        list_size: params.listSize,
+        active_time_ms: params.activeTimeMs,
+        time_since_open_ms: params.timeSinceOpenMs,
+    })
+}
+
+/**
  * The hover card on a report's model score opened. `tag` is the single-head tag under a model sort,
  * and `pill` is the three-score pill on the Recommended sort, which has no active head.
  */
@@ -658,7 +697,7 @@ export function captureInboxRankingDetailsViewed(params: {
     head: string | null
     state: 'scored' | 'stale' | 'unscored'
     strength: string | null
-    /** The tier the card showed under the Personalized sort. Null for other sorts. */
+    /** The tier the card showed under the personal order. Null for other orders. */
     personalTier?: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.RANKING_DETAILS_VIEWED, {
@@ -698,6 +737,25 @@ export function captureInboxReportAction(params: {
               )
             : {}),
         ...params.extra,
+    })
+}
+
+/** `previous_set_by` tells a correction of the agent apart from a change to a person's own value. */
+export function captureInboxReportDecisionChanged(params: {
+    report: SignalReport
+    decision: ReportDecision
+    previousValue: string | null
+    newValue: string
+    previousSetBy: 'agent' | 'person' | null
+    surface: InboxReportActionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_DECISION_CHANGED, {
+        ...baseReportProperties(params.report),
+        decision: params.decision,
+        previous_value: params.previousValue,
+        new_value: params.newValue,
+        previous_set_by: params.previousSetBy,
+        surface: params.surface,
     })
 }
 
@@ -839,6 +897,28 @@ export function captureInboxReportSourceSuggestionClicked(params: { report: Sign
     captureInboxEvent(INBOX_EVENTS.REPORT_SOURCE_SUGGESTION_CLICKED, {
         ...baseReportProperties(params.report),
         product: params.product,
+    })
+}
+
+/** Where a report tag chip was clicked: a list row, or the report detail. */
+export type InboxReportTagSurface = 'card' | 'detail'
+
+/**
+ * A tag chip was clicked, which adds that tag to the Tags filter or removes it. The resulting query
+ * also fires `Inbox query changed`; this event says the chip, not the menu, was the way in.
+ */
+export function captureInboxReportTagClicked(params: {
+    report: SignalReport
+    surface: InboxReportTagSurface
+    added: boolean
+    tagFilterCount: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_TAG_CLICKED, {
+        ...baseReportProperties(params.report),
+        surface: params.surface,
+        added: params.added,
+        tag_count: params.report.tags?.length ?? 0,
+        tag_filter_count: params.tagFilterCount,
     })
 }
 
@@ -995,6 +1075,39 @@ export function captureSignalSourceFiltersChanged(params: {
     })
 }
 
+/** The expression filter editor opened on a source. Pairs with the changed event to show drop-off. */
+export function captureSignalSourceFilterEditorOpened(params: {
+    sourceProduct: string
+    sourceType: string
+    hasFilter: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_FILTER_EDITOR_OPENED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        has_filter: params.hasFilter,
+    })
+}
+
+/**
+ * A source's expression filter was saved or removed. Carries only the length: the expression names
+ * the customer's own projects and labels, so its text never leaves their project.
+ */
+export function captureSignalSourceFilterExpressionChanged(params: {
+    sourceProduct: string
+    sourceType: string
+    action: 'saved' | 'removed'
+    expressionLength: number
+    success: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_FILTER_EXPRESSION_CHANGED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        action: params.action,
+        expression_length: params.expressionLength,
+        success: params.success,
+    })
+}
+
 /**
  * The product analytics source switched between investigated alerts only and all firing alerts.
  * Fired once the request settles, so `success` separates a saved change from a rejected one.
@@ -1111,6 +1224,7 @@ export function captureInboxQueryChanged(params: {
     sortDirection: string
     sourceProductFilter: string[]
     scoutFilter: string[]
+    tagFilter: string[]
     priorityFilter: string[]
     stateFilter: string[]
     searchQuery: string
@@ -1126,6 +1240,9 @@ export function captureInboxQueryChanged(params: {
         sort_direction: params.sortDirection,
         source_product_filter: params.sourceProductFilter,
         scout_filter: params.scoutFilter,
+        // A count, not the tags: like the search term, a tag is written from the report's content and
+        // can name the customer's own entities.
+        tag_filter_count: params.tagFilter.length,
         priority_filter: params.priorityFilter,
         state_filter: params.stateFilter,
         has_search: search.length > 0,

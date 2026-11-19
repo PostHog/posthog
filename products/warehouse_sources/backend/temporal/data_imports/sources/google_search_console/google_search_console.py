@@ -112,10 +112,11 @@ class GoogleSearchConsoleQuotaExceededError(Exception):
 
 
 class GoogleSearchConsoleServerError(Exception):
-    """Raised when listing sites/sitemaps hits a transient Google-side 5xx.
+    """Raised when a transient Google-side 5xx outlasts whatever inline retry budget the caller has.
 
-    Unlike `_query_search_analytics`, `list_sites`/`list_sitemaps` have no inline retry
-    budget, so a 5xx otherwise reaches `get_non_retryable_errors`/error tracking as a bare
+    `list_sites`/`list_sitemaps` have no inline retry budget at all; `_query_search_analytics`
+    raises this once its own `QUOTA_MAX_RETRIES` backoff is spent. Either way, a bare
+    `raise_for_status()` would reach `get_non_retryable_errors`/error tracking as an unmarked
     HTTPError. Its messages carry a `(retryable)` marker that `get_retryable_errors`
     matches, so Temporal retries the activity and the self-recovering failure is logged as
     a warning instead of tracked as noise.
@@ -519,9 +520,15 @@ def _query_search_analytics(
 
         if attempt == QUOTA_MAX_RETRIES:
             if _is_server_error(response):
-                # Still 5xx after the inline budget — surface the real HTTPError so Temporal
-                # retries the activity (resuming from the last saved date).
-                response.raise_for_status()
+                # Still 5xx after the inline budget. A bare `raise_for_status()` here would reach
+                # `get_non_retryable_errors`/error tracking as an unmarked HTTPError and get
+                # reported as a bug even though Temporal retries it anyway (resuming from the last
+                # saved date) — same reason `_property_rows` raises `GoogleSearchConsoleServerError`
+                # for its own un-budgeted 5xx.
+                raise GoogleSearchConsoleServerError(
+                    f"Google Search Console server error querying Search Analytics for '{site_url}'; "
+                    "retrying (retryable)"
+                )
             raise GoogleSearchConsoleQuotaExceededError(
                 f"Search Analytics quota for '{site_url}' still exhausted after {QUOTA_MAX_RETRIES} retries (retryable)"
             )
@@ -697,6 +704,20 @@ def _property_rows(
         if e.response is not None and _is_server_error(e.response):
             raise GoogleSearchConsoleServerError(
                 f"Google Search Console server error while listing {resource_name}; retrying (retryable)"
+            ) from e
+        raise
+    except RefreshError as e:
+        # `list_sites`/`list_sitemaps` call out through `AuthorizedSession`, which refreshes the
+        # access token first — a failing token endpoint raises here before any response exists, the
+        # same OAuth-refresh class `_query_search_analytics` retries inline. These two calls have no
+        # inline retry budget of their own, so mark a transient failure (e.g. the token endpoint's own
+        # 502) the same way rather than letting a bare RefreshError fall through and get logged as an
+        # exception. A permanent failure (invalid_grant/invalid_scope) still raises unchanged, so it
+        # keeps reaching `get_non_retryable_errors`.
+        if _is_transient_refresh_error(e):
+            raise GoogleSearchConsoleServerError(
+                f"Google Search Console server error refreshing credentials while listing {resource_name}; "
+                "retrying (retryable)"
             ) from e
         raise
 

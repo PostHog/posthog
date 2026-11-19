@@ -10,7 +10,7 @@ from posthog.hogql.database.postgres_table import PostgresTable
 if TYPE_CHECKING:
     from posthog.schema import AccessControlFilterWarning
 
-    from posthog.scopes import APIScopeObject
+    from posthog.scopes.catalog import APIScopeObject
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 

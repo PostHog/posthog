@@ -830,6 +830,28 @@ export interface CustomPropertyValueWriteApi {
     value: string | number | boolean | null
 }
 
+/**
+ * One value an account held for a custom property (read shape).
+ */
+export interface CustomPropertyValueHistoryEntryApi {
+    /** The value, typed per the property's data type. */
+    readonly value: string | number | boolean
+    /** When the account got this value. */
+    readonly set_at: string
+    /**
+     * ID of the user who set this value. Null when a sync or the system set it.
+     * @nullable
+     */
+    readonly set_by_id: number | null
+    /**
+     * When the next value replaced this one. Null for the current value, and for a value that was cleared with no value after it.
+     * @nullable
+     */
+    readonly replaced_at: string | null
+    /** Whether this is the account's value now. */
+    readonly is_current: boolean
+}
+
 export interface AccountNotebookApi {
     readonly id: string
     readonly short_id: string
@@ -1756,7 +1778,7 @@ export interface HogQLQueryModifiersApi {
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean | null
     useMaterializedViews?: boolean | null
-    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored. */
     useNewEventsSchema?: boolean | null
     usePreaggregatedIntermediateResults?: boolean | null
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
@@ -5292,6 +5314,17 @@ export type AccountsListParams = {
      * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags. Malformed values (not a JSON-encoded list of strings) return a 400.
      */
     tags?: string
+}
+
+export type AccountsCustomPropertyValuesHistoryRetrieveParams = {
+    /**
+     * ID of the custom property definition to read the history of.
+     */
+    definition: string
+    /**
+     * Only return values held on or after this date (YYYY-MM-DD, UTC). The first entry is the value in place on that date. Omit for the full history.
+     */
+    since?: string
 }
 
 export type AccountsNotebooksListParams = {

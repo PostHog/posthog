@@ -22,6 +22,9 @@ Parameters:
         Type: String
         AllowedValues: ['true', 'false']
         Default: 'false'
+    ReaderMonitoringInterval:
+        Type: Number
+        AllowedValues: [1, 5, 10, 15, 30, 60]
     AvailabilityZone:
         Type: AWS::EC2::AvailabilityZone::Name
     DbSubnetGroup:
@@ -40,10 +43,12 @@ Parameters:
         Type: AWS::EC2::SecurityGroup::Id
     HostInstanceProfile:
         Type: String
+    HostLaunchTemplate:
+        Type: String
+    HostLaunchTemplateVersion:
+        Type: String
     HostClass:
         Type: String
-    HostEbsGb:
-        Type: Number
     HostImage:
         Type: AWS::EC2::Image::Id
 
@@ -119,7 +124,8 @@ Resources:
                 Ref: AvailabilityZone
             DBParameterGroupName:
                 Ref: InstanceParameterGroup
-            MonitoringInterval: 1
+            MonitoringInterval:
+                Ref: ReaderMonitoringInterval
             MonitoringRoleArn:
                 Ref: MonitoringRole
 
@@ -129,6 +135,11 @@ Resources:
         DeletionPolicy: Delete
         UpdateReplacePolicy: Delete
         Properties:
+            LaunchTemplate:
+                LaunchTemplateId:
+                    Ref: HostLaunchTemplate
+                Version:
+                    Ref: HostLaunchTemplateVersion
             ImageId:
                 Ref: HostImage
             InstanceType:
@@ -142,17 +153,10 @@ Resources:
             IamInstanceProfile:
                 Ref: HostInstanceProfile
             InstanceInitiatedShutdownBehavior: terminate
-            PropagateTagsToVolumeOnCreation: true
             MetadataOptions:
                 HttpTokens: required
-            BlockDeviceMappings:
-                - DeviceName: /dev/sda1
-                  Ebs:
-                      VolumeType: gp3
-                      VolumeSize:
-                          Ref: HostEbsGb
-                      DeleteOnTermination: true
-                      Encrypted: true
+                HttpPutResponseHopLimit: 1
+            PropagateTagsToVolumeOnCreation: true
             UserData:
                 Fn::Base64:
                     Fn::Sub: |

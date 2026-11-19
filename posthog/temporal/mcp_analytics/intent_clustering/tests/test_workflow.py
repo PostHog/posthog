@@ -14,6 +14,7 @@ from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.temporal.mcp_analytics.intent_clustering.constants import DEFAULT_TOP_N_INTENTS
 from posthog.temporal.mcp_analytics.intent_clustering.models import (
     IntentClusteringResult,
     IntentClusteringWorkflowInputs,
@@ -87,11 +88,11 @@ class TestParseInputs:
         "raw_payload, expected_team_id, expected_lookback_days, expected_top_n, expected_user_id",
         [
             # Empty input falls back to dataclass defaults.
-            ([], 0, 7, 1000, None),
+            ([], 0, 7, DEFAULT_TOP_N_INTENTS, None),
             # Full JSON payload overrides every field.
             (['{"team_id": 99, "lookback_days": 3, "top_n": 50, "user_id": 5}'], 99, 3, 50, 5),
             # Partial payload preserves dataclass defaults for omitted fields.
-            (['{"team_id": 99}'], 99, 7, 1000, None),
+            (['{"team_id": 99}'], 99, 7, DEFAULT_TOP_N_INTENTS, None),
         ],
     )
     def test_parse_inputs_cases(

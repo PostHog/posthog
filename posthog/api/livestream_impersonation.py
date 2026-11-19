@@ -14,7 +14,7 @@ from loginas import settings as loginas_settings
 
 from posthog.dataclasses import frozen
 from posthog.models.oauth import OAuthAccessToken
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 from posthog.session.activity import session_public_id
 from posthog.session.models import Session
 from posthog.utils import get_safe_cache, safe_cache_set

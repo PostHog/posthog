@@ -87,34 +87,47 @@ export function RankingHoverCard({
                     Here to help you find the good stuff faster. Your agent gets these too, through the inbox MCP tools.
                 </div>
             )}
-            {isStaff && ranking.model && (
-                <div className="border-t border-primary pt-1 font-mono opacity-70">{ranking.model}</div>
-            )}
+            {isStaff && <RankingStaffFooter ranking={ranking} />}
         </div>
     )
 }
 
-/** The muted tag for a report the model has not scored yet, or scored before its last edit. Score sorts put it after the scored ones. */
-export function RankingStatusTag({ state, onOpen }: { state: 'stale' | 'unscored'; onOpen: () => void }): JSX.Element {
+export function RankingStaffFooter({ ranking }: { ranking: Ranking }): JSX.Element | null {
+    if (!ranking.model && ranking.status !== 'stale') {
+        return null
+    }
+    return (
+        <div className="border-t border-primary pt-1 opacity-70">
+            {ranking.model && <div className="font-mono">{ranking.model}</div>}
+            {ranking.status === 'stale' && <div>This score is from before the last edit to the title or summary.</div>}
+        </div>
+    )
+}
+
+/** The muted tag for a report the model has not scored yet. Score sorts put it after the scored ones. */
+export function RankingStatusTag({ onOpen }: { onOpen: () => void }): JSX.Element {
     return (
         <Tooltip
-            title={
-                state === 'stale'
-                    ? 'The title or summary changed after the model scored this report. Until the model scores it again, it sorts after the scored ones.'
-                    : 'The model has not scored this report yet. Until it does, the report sorts after the scored ones.'
-            }
+            title="The model has not scored this report yet. Until it does, the report sorts after the scored ones."
             onOpen={onOpen}
         >
             <LemonTag size="small" type="muted" className="cursor-help" data-attr="inbox-ranking-tag">
-                {state === 'stale' ? 'Score out of date' : 'Not scored yet'}
+                Not scored yet
             </LemonTag>
         </Tooltip>
     )
 }
 
+function rankingTagState(ranking: SignalReport['ranking'], hasValue: boolean): 'scored' | 'stale' | 'unscored' {
+    if (!ranking || !hasValue || ranking.status === 'unscored' || ranking.status === 'not_available') {
+        return 'unscored'
+    }
+    return ranking.status === 'stale' ? 'stale' : 'scored'
+}
+
 /**
  * How likely the report is to reach the active model sort's outcome, in the card's meta row. A report
- * edited after it was scored, or not scored yet, says so, because the model sort puts it after the scored ones.
+ * the model has not scored yet says so, because the model sort puts it after the scored ones.
  */
 export function ReportCardRankingTag({
     report,
@@ -128,15 +141,7 @@ export function ReportCardRankingTag({
     const ranking = report.ranking
     const lift = ranking ? rankingLift(ranking, score.outcome) : null
     const probability = ranking ? rankingProbability(ranking, score.outcome, isStaff) : null
-    const state =
-        !ranking ||
-        ranking.status === 'unscored' ||
-        ranking.status === 'not_available' ||
-        (lift === null && probability === null)
-            ? 'unscored'
-            : ranking.status === 'stale'
-              ? 'stale'
-              : 'scored'
+    const state = rankingTagState(ranking, lift !== null || probability !== null)
     const strength = lift !== null ? rankingStrength(lift) : null
     // Tooltip re-fires onOpen when the callback identity changes, so a new one each render would double count views.
     const onOpen = useCallback(
@@ -146,13 +151,13 @@ export function ReportCardRankingTag({
                 surface: 'tag',
                 head: score.head,
                 state,
-                strength: state === 'scored' ? strength : null,
+                strength: state === 'unscored' ? null : strength,
             }),
         [report, score.head, state, strength]
     )
 
-    if (!ranking || state !== 'scored') {
-        return <RankingStatusTag state={state === 'stale' ? 'stale' : 'unscored'} onOpen={onOpen} />
+    if (!ranking || state === 'unscored') {
+        return <RankingStatusTag onOpen={onOpen} />
     }
     return (
         <Tooltip

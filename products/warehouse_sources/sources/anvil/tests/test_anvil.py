@@ -107,6 +107,35 @@ class TestOrganizations:
         assert result.saved_states == []
 
 
+class TestOrganizationUsers:
+    def test_flattens_memberships_of_every_organization_in_one_query(self) -> None:
+        organizations = [
+            {
+                "eid": "o1",
+                "organizationUsers": [
+                    {"role": "admin", "user": {"eid": "u1", "email": "a@example.com"}, "createdAt": "2024-01-01"},
+                    {"role": "api", "user": None},
+                ],
+            },
+            {"eid": "o2", "organizationUsers": None},
+            {"eid": "o3", "organizationUsers": [{"role": "viewer", "user": {"eid": "u1"}}]},
+        ]
+
+        result = _driver().run(
+            "organization_users",
+            [ScriptedResponse(json={"data": {"currentUser": {"organizations": organizations}}})],
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == 1
+        assert "organizationUsers {" in result.requests[0].json()["query"]
+        assert [(row["organizationEid"], row["userEid"], row["role"]) for row in result.rows] == [
+            ("o1", "u1", "admin"),
+            ("o3", "u1", "viewer"),
+        ]
+        assert result.saved_states == []
+
+
 class TestOrganizationPagedEndpoints:
     def test_resumes_from_bookmarked_organization_and_offset(self) -> None:
         result = _driver().run(
