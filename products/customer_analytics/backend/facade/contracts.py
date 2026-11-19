@@ -1382,6 +1382,17 @@ class CustomPropertyValue:
     created_by_id: int | None
 
 
+@dataclass(frozen=True)
+class CustomPropertyValueHistoryEntry:
+    """One value an account held for a custom property, and when it held it."""
+
+    value: float | bool | str | datetime | None
+    set_at: datetime
+    set_by_id: int | None
+    replaced_at: datetime | None
+    is_current: bool
+
+
 class ExternalAccountCustomPropertiesError(Enum):
     """Failure modes of the external custom-property write, each mapping to a distinct
     HTTP response in the view."""

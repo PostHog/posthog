@@ -879,6 +879,14 @@ CACHES["distinct_id_usage_report"] = {
     "OPTIONS": {**CACHES["default"]["OPTIONS"], "SERIALIZER": "django_redis.serializers.json.JSONSerializer"},
 }
 
+# A data deletion stats fetch holds a lease with an owner token. The worker must read the lease the console just
+# wrote, and a lagging replica would make it skip a valid fetch as superseded.
+CACHES["data_deletion_stats"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SERIALIZER": "django_redis.serializers.json.JSONSerializer"},
+}
+
 # AEO prompt suggestion jobs are polled right after the job is created. A lagging replica would report a new
 # job as unknown, and the client treats that as expired, so read from the writer.
 CACHES["aeo_prompt_suggestions"] = {
@@ -967,6 +975,7 @@ if TEST:
     CACHES["signup_throttle"] = CACHES["default"]
     CACHES["admin_console_results"] = CACHES["default"]
     CACHES["distinct_id_usage_report"] = CACHES["default"]
+    CACHES["data_deletion_stats"] = CACHES["default"]
     CACHES["current_alias_usage"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)

@@ -19,7 +19,12 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 from products.warehouse_sources.sources.sleekplan._config import SleekplanSourceConfig
-from products.warehouse_sources.sources.sleekplan.settings import ENDPOINTS, INCREMENTAL_FIELDS, MERGE_ONLY_ENDPOINTS
+from products.warehouse_sources.sources.sleekplan.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    MERGE_ONLY_ENDPOINTS,
+    PLAN_UPGRADE_REQUIRED_MESSAGE,
+)
 from products.warehouse_sources.sources.sleekplan.sleekplan import (
     SleekplanResumeConfig,
     sleekplan_source,
@@ -33,7 +38,8 @@ class SleekplanSource(ResumableSource[SleekplanSourceConfig, SleekplanResumeConf
 
     # `get_schemas` iterates a static endpoint catalog with no I/O -- safe for public docs.
     lists_tables_without_credentials = True
-    # Sleekplan has only ever published one API (`/v1`) and documents no version selector, so the
+    # Sleekplan's `/v1` and `/v2` namespaces run side by side (groups and documents exist only in
+    # `/v2`). Neither has a version selector, and `/v2` changes are additive only, so the
     # framework's unversioned default stands.
     api_docs_url = "https://sleekplan.com/docs/api"
 
@@ -45,6 +51,7 @@ class SleekplanSource(ResumableSource[SleekplanSourceConfig, SleekplanResumeConf
         return {
             "401 Client Error": "Your Sleekplan API key is invalid or has been revoked. Generate a new key under Settings > Developer and reconnect.",
             "403 Client Error": "Your Sleekplan API key does not have permission to read this data. A key inherits the permissions of the member who created it, so create the key from an account that can see this board.",
+            PLAN_UPGRADE_REQUIRED_MESSAGE: None,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -100,7 +107,7 @@ class SleekplanSource(ResumableSource[SleekplanSourceConfig, SleekplanResumeConf
             name=ExternalDataSourceType.SLEEKPLAN,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Sleekplan",
-            caption="""Enter your Sleekplan API key to sync feedback posts, comments, votes, changelog updates, end users, and survey responses into the PostHog Data warehouse.
+            caption="""Enter your Sleekplan API key to sync feedback posts, comments, votes, changelog updates, end users, groups, documents, and survey responses into the PostHog Data warehouse.
 
 Create a key in Sleekplan under **Settings > Developer**. A key inherits the permissions of the member who created it, so create it from an account that can see every board you want to sync.""",
             docsUrl="https://posthog.com/docs/cdp/sources/sleekplan",

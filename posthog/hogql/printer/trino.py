@@ -218,6 +218,10 @@ def _is_null_constant(expr: ast.Expr) -> bool:
     return isinstance(expr, ast.Constant) and expr.value is None
 
 
+def _splits_into_characters(function_name: str, separator: ast.Expr) -> bool:
+    return function_name.lower() == "splitbystring" and isinstance(separator, ast.Constant) and separator.value == ""
+
+
 def _escape_regex_class_brackets(pattern: str) -> str:
     """Keep RE2 bracket-expression meaning under Trino's Joni engine.
 
@@ -520,6 +524,7 @@ class TrinoPrinter(PostgresPrinter):
                 )
                 if isinstance(projection, ast.Alias):
                     projection.expr = cast_expression
+                    projection.hidden = False
                 else:
                     branch.select[index] = cast_expression
         return lowered
@@ -1293,11 +1298,12 @@ class TrinoPrinter(PostgresPrinter):
             return self._visit_binary_function(node, "regexp_like")
         if name in {"splitbychar", "splitbystring"}:
             if len(node.args) == 3:
-                separator, value, maximum = (self.visit(arg) for arg in node.args)
-                split = f"split({value}, {separator})"
+                split = self._visit_split(node)
+                maximum = self.visit(node.args[2])
                 return f"CASE WHEN {maximum} = 0 THEN {split} ELSE slice({split}, 1, {maximum}) END"
-            binary_args = self._visit_binary_args(node)
-            return f"split({binary_args.right}, {binary_args.left})"
+            if len(node.args) != 2:
+                self._invalid_function_arguments(node, f"{node.name} expects exactly 2 arguments in Trino mode.")
+            return self._visit_split(node)
         if name == "md5":
             rendered_value = self._visit_unary_arg(node)
             return f"to_hex(md5(to_utf8(CAST({rendered_value} AS VARCHAR))))"
@@ -2957,6 +2963,13 @@ class TrinoPrinter(PostgresPrinter):
         if len(node.args) != 1:
             self._invalid_function_arguments(node, f"{node.name} expects exactly 1 argument in Trino mode.")
         return self.visit(node.args[0])
+
+    def _visit_split(self, node: ast.Call) -> str:
+        separator, value = node.args[0], node.args[1]
+        if _splits_into_characters(node.name, separator):
+            return f"regexp_extract_all({self.visit(value)}, '(?s).')"
+        rendered_separator = self.visit(separator)
+        return f"split({self.visit(value)}, {rendered_separator})"
 
     def _visit_binary_args(self, node: ast.Call) -> _BinaryArguments:
         if len(node.args) != 2:

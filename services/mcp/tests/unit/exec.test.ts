@@ -11,6 +11,7 @@ import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
+import { CHART_DATA_PREAMBLE } from '@/lib/time-series-chart-data'
 import { OrganizationSetActiveSchema, ReadDataSchemaSchema } from '@/schema/tool-inputs'
 import { getToolsFromContext } from '@/tools'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
@@ -367,6 +368,33 @@ describe('exec tool', () => {
                 )
             }
         )
+
+        it.each([
+            ['call mock-tool', { appendTimeSeriesChartData: true }, true],
+            ['call mock-tool', undefined, false],
+            ['call --json mock-tool', { appendTimeSeriesChartData: true }, false],
+        ])('for %s with options %j, appends the time series block: %s', async (command, options, appended) => {
+            const handlerResult = {
+                results: [{ data: [5, 7], days: ['2026-11-10', '2026-11-11'], label: 'signups' }],
+                [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|signups\n2026-11-10|5\n2026-11-11|7',
+            }
+            const exec = createExec([makeMockTool({ handler: async () => handlerResult })], undefined, options)
+
+            const result = await exec.handler(mockContext, { command })
+
+            const block = JSON.stringify({
+                series: [
+                    {
+                        name: 'signups',
+                        data: [
+                            ['2026-11-10', 5],
+                            ['2026-11-11', 7],
+                        ],
+                    },
+                ],
+            })
+            expect((result as string).endsWith(`\n\n${CHART_DATA_PREAMBLE}\n${block}`)).toBe(appended)
+        })
 
         it('returns raw JSON when --json flag is passed in command', async () => {
             const exec = createExec()
@@ -2112,6 +2140,7 @@ describe('exec tool', () => {
             ['llma-tagger-create', 'llma-evaluation-create'],
             ['vision-scanners-suggest-tags', 'vision-scanners-update'],
             ['warehouse-tables-create', 'data-warehouse-source-setup'],
+            ['stamphog-review-runs-create', 'code-review-approvals-runs-create'],
         ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(
@@ -2188,9 +2217,14 @@ describe('exec tool', () => {
                 recovery:
                     'If the user already reconnected and approved all access, this tool is not available through the app yet.',
             },
+            {
+                apiToken: 'pha_test',
+                supportsStepUp: true,
+                recovery: 'Call the tool anyway: this client then asks the user to approve the missing scopes',
+            },
         ])(
-            'gives the scope recovery step for the connection credential ($apiToken, $oauthClientId)',
-            async ({ apiToken, oauthClientId, recovery }) => {
+            'gives the scope recovery step for the connection credential ($apiToken, $oauthClientId, $supportsStepUp)',
+            async ({ apiToken, oauthClientId, supportsStepUp, recovery }) => {
                 const context = { ...mockContext, api: { config: { apiToken } } } as unknown as Context
                 const scopeGated = [
                     {
@@ -2211,6 +2245,7 @@ describe('exec tool', () => {
                     scopeGated,
                     {
                         oauthClientId,
+                        supportsStepUp,
                     }
                 )
 

@@ -4,6 +4,8 @@ from typing import Any
 
 from posthog.test.base import BaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -20,7 +22,12 @@ from products.aeo.backend.engines import MAX_URLS_PER_CHECK, own_domains_key, to
 from products.aeo.backend.facade.api import list_domains_across_teams
 from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus, CompetitorCandidate
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt
-from products.aeo.backend.test.factories import create_brand, create_citation_check, create_own_brand
+from products.aeo.backend.test.factories import (
+    create_brand,
+    create_citation_check,
+    create_own_brand,
+    store_what_the_runner_stores,
+)
 
 
 class TestSyncBrandsFromRun(BaseTest):
@@ -247,6 +254,54 @@ class TestSyncBrandsFromRun(BaseTest):
             "names_brand": expect_names_brand,
         }
 
+    @parameterized.expand([("answered_checks", False), ("failed_checks", True)])
+    def test_recompute_sets_whether_each_prompt_names_an_own_brand(self, _name: str, failed: bool) -> None:
+        AEOBrand.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Example",
+            domain="example.com",
+            kind=BrandKind.OWN,
+            status=BrandStatus.CONFIRMED,
+            source=BrandSource.MANUAL,
+        )
+        checks = AEOCitationCheck.objects.for_team(self.team.id)
+        unfilled = self._check(str(uuid.uuid4()), [], failed=failed)
+        stale = self._check(
+            str(uuid.uuid4()), [], failed=failed, prompt_branded=True, own_domains_key=own_domains_key(["other.com"])
+        )
+        checks.filter(id=unfilled.id).update(prompt_text="Is Example good for funnels?")
+        checks.filter(id=stale.id).update(prompt_text="Best funnel tool?")
+
+        recompute_own_citations(self.team.id)
+
+        assert dict(checks.filter(id__in=[unfilled.id, stale.id]).values_list("id", "prompt_branded")) == {
+            unfilled.id: True,
+            stale.id: False,
+        }
+
+    def test_recompute_reads_only_unfilled_prompts_while_the_own_domains_stay_the_same(self) -> None:
+        AEOBrand.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Example",
+            domain="example.com",
+            kind=BrandKind.OWN,
+            status=BrandStatus.CONFIRMED,
+            source=BrandSource.MANUAL,
+        )
+        self._check(
+            str(uuid.uuid4()),
+            [],
+            prompt_branded=False,
+            names_brand=False,
+            own_domains_key=own_domains_key(["example.com"]),
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            recompute_own_citations(self.team.id)
+
+        branded_writes = [q["sql"] for q in queries.captured_queries if 'SET "prompt_branded"' in q["sql"]]
+        assert branded_writes and all('"prompt_branded" IS NULL' in sql for sql in branded_writes)
+
     @parameterized.expand(
         [
             ("subdomain", "https://blog.example.co.uk/post", "example.co.uk"),
@@ -293,6 +348,7 @@ class TestCompetitorCandidates(BaseTest):
         AEOCitationCheck.objects.for_team(self.team.id).filter(id=check.id).update(
             created_at=timezone.now() - dt.timedelta(days=days_ago)
         )
+        store_what_the_runner_stores(check.id)
 
     def test_ranks_suggested_brands_that_non_branded_answers_both_name_and_cite(self) -> None:
         lantern = self._brand("Lantern", "lantern.example.org")

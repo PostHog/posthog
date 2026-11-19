@@ -2,6 +2,8 @@
 
 Answers two questions for a project: **are AI answer engines citing our domain**, and **did that citation drive traffic and conversions**. This is a flagged proof of concept — the point is to learn whether the signal is real, not to ship a product.
 
+[ARCHITECTURE.md](ARCHITECTURE.md) explains when each value is computed and stored, and how reads stay fast. Read it before you add a metric.
+
 Everything is built from existing machinery:
 
 - **Prompt execution (Track A)** goes through the AI gateway (`AI_GATEWAY_URL`) using the providers' native web-search tools, so the citations are the models' real ones. Every call emits a `$ai_generation` event carrying cost, which lands in the gateway-key owner's project (not the checked team's) tagged with `team_id` for attribution. Citations are parsed from the **live response**, because the gateway's captured events intentionally drop web-search result payloads, so the cited URLs exist nowhere else.
@@ -84,7 +86,7 @@ curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
 - The same operations are PostHog MCP tools (`products/aeo/mcp/tools.yaml`), gated by the same flag: `aeo-prompts-list`, `aeo-prompts-get`, `aeo-prompts-update`, `aeo-prompts-archive`, `aeo-prompts-versions-list`, `aeo-prompts-import`, `aeo-prompts-topics-list`, `aeo-prompts-checks-list`, `aeo-prompts-stats-get`, `aeo-prompts-overview-get` and `aeo-prompts-citations-list`.
 - `external_visibility` (0-100) is the share of answers that mention the brand, as reported by the tool the set came from. It is kept in the prompt's evidence to benchmark against our own rates.
 - A prompt is branded when its text names the brand: a brand name from `brand.py` (the registrable name of one of the project's own domains) as a word, case ignored.
-  It is computed when read, never stored, so it follows a change of the own brands across the whole history, and without an own brand every prompt is non-branded.
+  Each check stores it as `prompt_branded` for the prompt as it ran, and the reconcile after an own-brand change rewrites it across the whole history. The prompt list computes it when read. Without an own brand every prompt is non-branded.
   `GET overview/` and `GET rankings/` take `?branded=all|branded|non_branded` (default `all`), which keeps the checks whose prompt, as it ran, names the brand or does not.
   Every count uses the same checks, the window before included. The overview also returns `branded_answers` and `non_branded_answers`, the answered checks on each side in the current window.
 
