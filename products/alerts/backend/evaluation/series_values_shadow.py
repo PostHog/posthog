@@ -13,6 +13,7 @@ from posthog.schema import TrendsQuery
 
 from posthog.caching.insight_result import InsightResult
 from posthog.dataclasses import frozen
+from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.event_usage import groups
 from posthog.hogql_queries.apply_dashboard_filters import dashboard_filter_from_dict
 from posthog.models.team import Team
@@ -129,7 +130,7 @@ def compare_series_values_shadow(
             runner = effective_trends_runner(alert.team, query, filters_override, alert.created_by)
             closed = closed_series_values(runner, run_inserts=True, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS)
             comparison = compare_closed_values(closed, live)
-    except CancelledError:
+    except (CancelledError, CHQueryErrorQueryWasCancelled):
         raise
     except Exception as err:
         logger.exception("alert_series_values_shadow_failed", team_id=alert.team_id, alert_id=str(alert.id))
