@@ -1418,7 +1418,7 @@ class LogsAlertCreateDestinationSerializer(serializers.Serializer):
     )
     webhook_url = serializers.URLField(
         required=False,
-        help_text="HTTPS endpoint to post to. Required for webhook and teams.",
+        help_text="HTTPS endpoint to post to. Required for webhook, teams and discord.",
     )
     pagerduty_routing_key = serializers.CharField(
         required=False,

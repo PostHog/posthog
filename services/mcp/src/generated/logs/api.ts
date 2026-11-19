@@ -3797,10 +3797,12 @@ export const logsAlertsDestinationsCreateBodyPagerdutyRegionDefault = `us`
 
 export const LogsAlertsDestinationsCreateBody = () => zod.object({
     type: zod
-        .enum(['slack', 'webhook', 'teams', 'pagerduty'])
-        .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `pagerduty` - pagerduty')
+        .enum(['slack', 'webhook', 'teams', 'discord', 'pagerduty'])
         .describe(
-            'Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `pagerduty` - pagerduty'
+            '\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `discord` - discord\n\* `pagerduty` - pagerduty'
+        )
+        .describe(
+            'Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `discord` - discord\n\* `pagerduty` - pagerduty'
         ),
     slack_workspace_id: zod
         .number()
@@ -3808,7 +3810,7 @@ export const LogsAlertsDestinationsCreateBody = () => zod.object({
         .describe('Integration ID for the Slack workspace. Required when type=slack.'),
     slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
     slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
-    webhook_url: zod.url().optional().describe('HTTPS endpoint to post to. Required for webhook and teams.'),
+    webhook_url: zod.url().optional().describe('HTTPS endpoint to post to. Required for webhook, teams and discord.'),
     pagerduty_routing_key: zod
         .string()
         .optional()

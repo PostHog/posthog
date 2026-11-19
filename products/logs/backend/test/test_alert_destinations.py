@@ -63,7 +63,7 @@ class TestDestinationValidation(SimpleTestCase):
         assert error.exception.field == "type"
         assert error.exception.message == (
             "Choose a supported destination type: Slack (slack), Webhook (webhook), Microsoft Teams (teams), "
-            "PagerDuty (pagerduty)."
+            "Discord (discord), PagerDuty (pagerduty)."
         )
 
 
@@ -72,6 +72,10 @@ SLACK_DATA = cast(
 )
 TEAMS_DATA = cast(AlertDestinationData, {"type": DestinationType.TEAMS, "webhook_url": "https://example.com/hook"})
 WEBHOOK_DATA = cast(AlertDestinationData, {"type": DestinationType.WEBHOOK, "webhook_url": "https://example.com/hook"})
+DISCORD_DATA = cast(
+    AlertDestinationData,
+    {"type": DestinationType.DISCORD, "webhook_url": "https://discord.com/api/webhooks/123/token"},
+)
 PAGERDUTY_DATA = cast(AlertDestinationData, {"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": "a" * 32})
 
 
@@ -94,7 +98,7 @@ class TestRenderedDestinationContent(SimpleTestCase):
         [
             (f"{kind}_{data['type']}", kind, data)
             for kind in EVENT_KINDS
-            for data in (SLACK_DATA, TEAMS_DATA, WEBHOOK_DATA, PAGERDUTY_DATA)
+            for data in (SLACK_DATA, TEAMS_DATA, WEBHOOK_DATA, DISCORD_DATA, PAGERDUTY_DATA)
             if destination_handles_event_kind(data["type"], EVENT_KIND_CONFIG[kind])
         ]
     )

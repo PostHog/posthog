@@ -119,6 +119,7 @@ export const SNOOZE_DURATIONS = [
 export const LOGS_ALERT_NOTIFICATION_TYPE_SLACK = 'slack' as const
 export const LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK = 'webhook' as const
 export const LOGS_ALERT_NOTIFICATION_TYPE_TEAMS = 'teams' as const
+export const LOGS_ALERT_NOTIFICATION_TYPE_DISCORD = 'discord' as const
 export const LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY = 'pagerduty' as const
 export function logsAlertEventKindsFor(type: LogsAlertNotificationType): LogsAlertEventKind[] {
     return type === LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
@@ -130,6 +131,7 @@ export type LogsAlertNotificationType =
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_SLACK
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
+    | typeof LOGS_ALERT_NOTIFICATION_TYPE_DISCORD
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
 
 // Filter used to list every HogFunction tied to a given alert, regardless of which
@@ -228,6 +230,10 @@ export function groupLogsAlertDestinations(
             type = LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
             key = `teams:${destinationWebhookUrl ?? hf.id}`
             label = destinationWebhookUrl ? `Microsoft Teams ${destinationWebhookUrl}` : 'Microsoft Teams'
+        } else if (templateId === 'template-discord') {
+            type = LOGS_ALERT_NOTIFICATION_TYPE_DISCORD
+            key = `discord:${destinationWebhookUrl ?? hf.id}`
+            label = 'Discord'
         } else if (templateId === 'template-webhook') {
             type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
             key = `webhook:${webhookUrl ?? hf.id}`

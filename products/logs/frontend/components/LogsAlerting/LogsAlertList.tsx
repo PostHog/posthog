@@ -26,7 +26,7 @@ import IconWebhook from 'public/services/webhook.svg'
 
 import { PlatformAlertStateTimeline } from 'products/alerts_platform/frontend/PlatformAlertStateTimeline'
 import {
-    LogsAlertDestinationTypeEnumApi,
+    AlertDestinationTypeEnumApi,
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
     LogsAlertConfigurationThresholdOperatorEnumApi,
@@ -37,10 +37,10 @@ import { LogsAlertStateIndicator } from './LogsAlertStateIndicator'
 import { SNOOZE_DURATIONS } from './logsAlertUtils'
 
 const DESTINATION_TAGS = [
-    { type: LogsAlertDestinationTypeEnumApi.Slack, label: 'Slack', icon: IconSlack },
-    { type: LogsAlertDestinationTypeEnumApi.Webhook, label: 'Webhook', icon: IconWebhook },
-    { type: LogsAlertDestinationTypeEnumApi.Teams, label: 'Teams', icon: IconMicrosoftTeams },
-    { type: LogsAlertDestinationTypeEnumApi.Pagerduty, label: 'PagerDuty', icon: IconPagerDuty },
+    { type: AlertDestinationTypeEnumApi.Slack, label: 'Slack', icon: IconSlack },
+    { type: AlertDestinationTypeEnumApi.Webhook, label: 'Webhook', icon: IconWebhook },
+    { type: AlertDestinationTypeEnumApi.Teams, label: 'Teams', icon: IconMicrosoftTeams },
+    { type: AlertDestinationTypeEnumApi.Pagerduty, label: 'PagerDuty', icon: IconPagerDuty },
 ] as const
 
 function formatThreshold(alert: LogsAlertConfigurationApi): string {
@@ -48,11 +48,7 @@ function formatThreshold(alert: LogsAlertConfigurationApi): string {
     return `${operator} ${alert.threshold_count} in ${alert.window_minutes}m`
 }
 
-export function LogsAlertDestinationTags({
-    types,
-}: {
-    types: readonly LogsAlertDestinationTypeEnumApi[]
-}): JSX.Element {
+export function LogsAlertDestinationTags({ types }: { types: readonly AlertDestinationTypeEnumApi[] }): JSX.Element {
     return (
         <div className="flex gap-1">
             {DESTINATION_TAGS.filter(({ type }) => types.includes(type)).map(({ type, label, icon }) => (

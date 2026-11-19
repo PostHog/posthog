@@ -509,15 +509,16 @@ export interface LogsAlertStateIntervalApi {
  * * `slack` - slack
  * * `webhook` - webhook
  * * `teams` - teams
+ * * `discord` - discord
  * * `pagerduty` - pagerduty
  */
-export type LogsAlertDestinationTypeEnumApi =
-    (typeof LogsAlertDestinationTypeEnumApi)[keyof typeof LogsAlertDestinationTypeEnumApi]
+export type AlertDestinationTypeEnumApi = (typeof AlertDestinationTypeEnumApi)[keyof typeof AlertDestinationTypeEnumApi]
 
-export const LogsAlertDestinationTypeEnumApi = {
+export const AlertDestinationTypeEnumApi = {
     Slack: 'slack',
     Webhook: 'webhook',
     Teams: 'teams',
+    Discord: 'discord',
     Pagerduty: 'pagerduty',
 } as const
 
@@ -715,7 +716,7 @@ export interface LogsAlertConfigurationApi {
     /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. For an alert the alerts platform evaluates, state changes come from the platform's check history instead. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-    readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
+    readonly destination_types: readonly AlertDestinationTypeEnumApi[]
     /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
     grouping?: LogsAlertGroupingApi
     /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
@@ -797,8 +798,9 @@ export interface LogsAlertDestinationConfigApi {
      * * `slack` - slack
      * * `webhook` - webhook
      * * `teams` - teams
+     * * `discord` - discord
      * * `pagerduty` - pagerduty */
-    type: LogsAlertDestinationTypeEnumApi
+    type: AlertDestinationTypeEnumApi
     /** Whether every HogFunction in the group is enabled, so the destination notifies for all alert event kinds. This is the stored setting: a destination PostHog stopped delivering to after repeated failures still reads as true. */
     enabled: boolean
     /** Whether any HogFunction in the group sends something other than the stock message, such as an edited body, headers, method or code. A customized destination sends exactly what its HogFunctions build. */
@@ -913,7 +915,7 @@ export interface LogsAlertConfigurationDetailApi {
     /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. For an alert the alerts platform evaluates, state changes come from the platform's check history instead. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-    readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
+    readonly destination_types: readonly AlertDestinationTypeEnumApi[]
     /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
     grouping?: LogsAlertGroupingApi
     /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
@@ -1033,7 +1035,7 @@ export interface PatchedLogsAlertConfigurationApi {
     /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. For an alert the alerts platform evaluates, state changes come from the platform's check history instead. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline?: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-    readonly destination_types?: readonly LogsAlertDestinationTypeEnumApi[]
+    readonly destination_types?: readonly AlertDestinationTypeEnumApi[]
     /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
     grouping?: LogsAlertGroupingApi
     /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
@@ -1063,15 +1065,16 @@ export interface LogsAlertCreateDestinationApi {
      * * `slack` - slack
      * * `webhook` - webhook
      * * `teams` - teams
+     * * `discord` - discord
      * * `pagerduty` - pagerduty */
-    type: LogsAlertDestinationTypeEnumApi
+    type: AlertDestinationTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Required when type=slack. */
     slack_channel_id?: string
     /** Human-readable channel name for display. */
     slack_channel_name?: string
-    /** HTTPS endpoint to post to. Required for webhook and teams. */
+    /** HTTPS endpoint to post to. Required for webhook, teams and discord. */
     webhook_url?: string
     /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. */
     pagerduty_routing_key?: string

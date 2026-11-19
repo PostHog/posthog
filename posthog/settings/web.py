@@ -759,8 +759,8 @@ SPECTACULAR_SETTINGS = {
             "DiagnosticSeverityEnum": ["error", "warning"],
             "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
             "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
-            "LogsAlertDestinationTypeEnum": ["slack", "webhook", "teams", "pagerduty"],
-            "WarehouseAlertDestinationTypeEnum": ["slack", "webhook", "teams", "discord", "pagerduty"],
+            # Logs and warehouse alerts offer the same destination types.
+            "AlertDestinationTypeEnum": ["slack", "webhook", "teams", "discord", "pagerduty"],
             "WarehouseAlertGroupByEnum": ["schema", "source"],
             "PagerDutySeverityEnum": ["critical", "error", "warning", "info"],
             "PagerDutyRegionEnum": ["us", "eu"],

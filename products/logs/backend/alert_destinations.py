@@ -22,6 +22,7 @@ LOGS_DESTINATION_TYPES = (
     DestinationType.SLACK,
     DestinationType.WEBHOOK,
     DestinationType.TEAMS,
+    DestinationType.DISCORD,
     DestinationType.PAGERDUTY,
 )
 
