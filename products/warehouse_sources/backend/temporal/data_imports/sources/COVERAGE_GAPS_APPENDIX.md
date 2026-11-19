@@ -13714,11 +13714,11 @@ Diffed against: <https://docs.zero.inc/llms.txt>
 - [x] `Lists (GET /api/lists)` — resolve listIds already returned on companies, contacts, and deals to named business segments (high) → `lists`
 - [x] `Quotes (GET /api/quotes)` — analyze deal quotes, line items, acceptance, total contract value, and recurring revenue (high) → `quotes` (line items stay a nested array column)
 - [x] `Sequence enrollments (GET /api/sequenceContactStatuses)` — measure outreach conversion, replies, bounces, unsubscribes, and progress for each contact and sequence (high) → `sequence_enrollments`
-- [ ] `Sequences (GET /api/sequences)` — describe outreach campaigns and compare their status, target lists, and enrollment results (medium)
+- [x] `Sequences (GET /api/sequences)` — describe outreach campaigns and compare their status, target lists, and enrollment results (medium) → `sequences`
 - [x] `Sequence steps (GET /api/sequenceSteps)` — identify which outreach steps precede replies, failures, or completed enrollments (medium) → `sequence_steps`
-- [ ] `Products (GET /api/products)` — describe quoted products and price variants for revenue analysis by SKU and billing interval (medium)
-- [ ] `Custom activities (GET /api/customActivities)` — analyze recorded business interactions linked to contacts, companies, deals, users, and sequences (medium)
-- [ ] `Custom activity types (GET /api/customActivityTypes)` — describe activity categories and their custom fields for consistent interaction reporting (medium)
+- [x] `Products (GET /api/products)` — describe quoted products and price variants for revenue analysis by SKU and billing interval (medium) → `products` (price variants stay a nested array column)
+- [x] `Custom activities (GET /api/customActivities)` — analyze recorded business interactions linked to contacts, companies, deals, users, and sequences (medium) → `custom_activities`
+- [x] `Custom activity types (GET /api/customActivityTypes)` — describe activity categories and their custom fields for consistent interaction reporting (medium) → `custom_activity_types`
 
 Note: Used the official documentation index and parsed OpenAPI operation blocks from the linked resource pages. Current references are under /developers/api/, while the source records older /features/api/ documentation paths. New collections support workspace filters; quote line items and product prices are nested arrays. Excluded views, column configuration, files, and sequence progress summaries whose counts overlap enrollment records.
 
