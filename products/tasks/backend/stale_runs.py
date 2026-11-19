@@ -269,7 +269,7 @@ def runs_to_sweep() -> list[RunToSweep]:
             run_id=run.run_id,
             workflow_id=run.workflow_id,
             profile=run.profile or NO_PROFILE,
-            rule=StaleRule.HEARTBEAT if StaleRule.HEARTBEAT in run.rules else StaleRule.NO_WRITES_24H,
+            rule=StaleRule.NO_WRITES_24H if StaleRule.NO_WRITES_24H in run.rules else StaleRule.HEARTBEAT,
             quiet_since=run.quiet_since,
             not_written_since=run.not_written_since,
         )
