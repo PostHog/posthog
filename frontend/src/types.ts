@@ -759,7 +759,7 @@ export interface PropertyUsageType {
     volume: number
 }
 
-export interface ProjectBasicType {
+export interface ProjectBasicType extends Partial<Pick<ProjectApi, 'logo_media_id'>> {
     [key: string]: any
     id: number
     organization_id: string
@@ -783,7 +783,8 @@ export interface TeamBasicType extends WithAccessControl {
     timezone: string
 }
 
-export interface ProjectType extends ProjectBasicType, Pick<ProjectApi, 'logo_media_id'> {
+export interface ProjectType extends ProjectBasicType {
+    logo_media_id: ProjectApi['logo_media_id']
     created_at: string
     is_pending_deletion: boolean
     deletion_scheduled_at: string | null

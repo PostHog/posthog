@@ -27,6 +27,7 @@ import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { readParamAliases } from './cast-helpers'
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
+import { EXECUTE_SQL_TOOL_NAME } from './posthogAiTools/executeSql'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
@@ -330,6 +331,17 @@ function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodS
     return z.object({
         command: z.string().describe(commandReference),
     })
+}
+
+function unwrapStringifiedObject(value: unknown): unknown {
+    if (typeof value !== 'string' || !value.trimStart().startsWith('{')) {
+        return value
+    }
+    try {
+        return JSON.parse(value)
+    } catch {
+        return value
+    }
 }
 
 function parseCommand(input: string): { verb: string; rest: string } {
@@ -2258,12 +2270,24 @@ export function createExecTool(
                     if (!jsonBody) {
                         input = {}
                     } else {
+                        let parsed: unknown
                         try {
-                            input = JSON.parse(jsonBody) as Record<string, unknown>
+                            parsed = unwrapStringifiedObject(JSON.parse(jsonBody))
                         } catch (err) {
                             const detail = err instanceof Error ? err.message : String(err)
                             throw new ExecCommandError(`Invalid JSON input: ${detail}`, 'invalid_json')
                         }
+                        if (typeof parsed === 'string' && tool.name === EXECUTE_SQL_TOOL_NAME) {
+                            parsed = { query: parsed }
+                        }
+                        if (typeof parsed !== 'object' || parsed === null) {
+                            const received = parsed === null ? 'null' : `a ${typeof parsed}`
+                            throw new ExecCommandError(
+                                `Invalid JSON input: expected a JSON object, got ${received}. Pass the parameters as an object, for example {"id": 1}.`,
+                                'invalid_json'
+                            )
+                        }
+                        input = parsed as Record<string, unknown>
                     }
 
                     // `output_format` is hidden from exec-mode schemas — `--json` owns output
