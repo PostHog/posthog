@@ -136,7 +136,13 @@ def get_batch_audience_person_ids(
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
         # Background traffic: the only caller is the internal batch-send resolver, so route to
         # the offline pool like the group branch does, away from interactive product queries.
-        response = execute_hogql_query(query=select_query, team=team, settings=settings, workload=Workload.OFFLINE)
+        response = execute_hogql_query(
+            query=select_query,
+            team=team,
+            settings=settings,
+            workload=Workload.OFFLINE,
+            bypass_warehouse_access_control=True,
+        )
 
     return [str(row[0]) for row in response.results] if response.results else []
 
@@ -167,6 +173,9 @@ def get_batch_audience_person_ids_snapshot(
             workload=Workload.OFFLINE,
             # The cohort limit context lets the explicit LIMIT above exceed the interactive row cap.
             limit_context=LimitContext.COHORT_CALCULATION,
+            # A run has no user, so the per-user warehouse table check would deny every warehouse table,
+            # the same reason cohort calculation skips it.
+            bypass_warehouse_access_control=True,
         )
 
     return [str(row[0]) for row in response.results] if response.results else []

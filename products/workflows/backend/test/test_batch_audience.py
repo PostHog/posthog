@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -16,6 +17,7 @@ from products.cohorts.backend.models.team_access import (
     RealtimeCohortLevel,
     RealtimeCohortTeamAccess,
 )
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.feature_flags.backend.person_sampling import bounded_memory_settings
 from products.feature_flags.backend.user_blast_radius import PERSON_BATCH_SIZE, get_user_blast_radius_persons
 from products.workflows.backend.services.batch_audience import (
@@ -77,6 +79,40 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         )
 
         assert result == [_uuid(i) for i in expected_indices]
+
+    @parameterized.expand(
+        [
+            (
+                "paged",
+                lambda team, filters: get_batch_audience_person_ids(team, filters),
+            ),
+            (
+                "snapshot",
+                lambda team, filters: get_batch_audience_person_ids_snapshot(
+                    team, filters, dedupe_key=None, limit=10, settings=bounded_memory_settings()
+                ),
+            ),
+        ]
+    )
+    def test_audience_can_filter_on_a_warehouse_view(self, _name, fetch_audience):
+        self._create_audience(["a@x.com", "b@x.com", "c@x.com"])
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="excluded_emails",
+            query={"kind": "HogQLQuery", "query": "SELECT 'b@x.com' AS email"},
+            columns={"email": "String"},
+        )
+        filters = {
+            "properties": [
+                *FILTERS["properties"],
+                {"type": "hogql", "key": "properties.email NOT IN (SELECT email FROM excluded_emails)"},
+            ]
+        }
+
+        with patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
+            result = fetch_audience(self.team, filters)
+
+        assert sorted(result) == [_uuid(1), _uuid(3)]
 
     def test_audience_without_dedupe_matches_legacy_query(self):
         self._create_audience(["a@x.com", "a@x.com", "b@x.com", None])
