@@ -471,6 +471,13 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
     )
 }
 
+// PROTOTYPE (branch prototype/sending-limits-ux): lets the sending limits prototype replace the
+// allowance card and the banners. Never merge.
+export const sendingLimitsPrototypeSlot: {
+    allowance: (() => JSX.Element | null) | null
+    banners: (() => JSX.Element | null) | null
+} = { allowance: null, banners: null }
+
 export function WorkflowsReputation(): JSX.Element {
     const {
         awsReputation,
@@ -487,20 +494,28 @@ export function WorkflowsReputation(): JSX.Element {
 
     return (
         <div className="space-y-4" data-attr="workflows-reputation">
-            {awsReputation?.sending_status === 'DISABLED' && (
-                <LemonBanner type="error" data-attr="workflows-reputation-disabled-banner">
-                    {awsReputation.findings.length > 0
-                        ? 'Email sending is paused for this project because of reputation problems. Fix the open findings below, then contact support to get sending re-enabled.'
-                        : 'Email sending is paused for this project. Contact support to get sending re-enabled.'}
-                </LemonBanner>
+            {sendingLimitsPrototypeSlot.banners ? (
+                sendingLimitsPrototypeSlot.banners()
+            ) : (
+                <>
+                    {awsReputation?.sending_status === 'DISABLED' && (
+                        <LemonBanner type="error" data-attr="workflows-reputation-disabled-banner">
+                            {awsReputation.findings.length > 0
+                                ? 'Email sending is paused for this project because of reputation problems. Fix the open findings below, then contact support to get sending re-enabled.'
+                                : 'Email sending is paused for this project. Contact support to get sending re-enabled.'}
+                        </LemonBanner>
+                    )}
+                    <LemonBanner type="info" data-attr="workflows-reputation-beta-banner">
+                        Sending health is shown for transparency: high bounce or spam complaint rates hurt email
+                        deliverability. We judge and enforce reputation per project.
+                    </LemonBanner>
+                </>
             )}
-            <LemonBanner type="info" data-attr="workflows-reputation-beta-banner">
-                Sending health is shown for transparency: high bounce or spam complaint rates hurt email deliverability.
-                We judge and enforce reputation per project.
-            </LemonBanner>
             {/* Rates cover a rolling 30 days that ends now. */}
             <EmailMetricsIncidentBanner dateFrom={dayjs().subtract(30, 'day')} />
-            {sendingAllowance?.enforced && <SendingAllowanceCard allowance={sendingAllowance} />}
+            {sendingLimitsPrototypeSlot.allowance
+                ? sendingLimitsPrototypeSlot.allowance()
+                : sendingAllowance?.enforced && <SendingAllowanceCard allowance={sendingAllowance} />}
             {teamReputation || awsReputation || ispSendingHealth.length > 0 || ispWithheldDomains.length > 0 ? (
                 <TeamRatesCard
                     reputation={teamReputation}
