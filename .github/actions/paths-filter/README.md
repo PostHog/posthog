@@ -114,7 +114,8 @@ The action reuses a result only when every one of these holds, and runs the suit
 - The files the scoped filters match, plus the file that defines the filters, are the same set, with the same change status and the same content, on the proven head and this one.
   The comparison uses each file's blob SHA from the API, so a formatting-only edit counts as a change.
   Before it reads any check run, the action drops the heads where up to five of those files, the ones this push changed first, have another blob. A push that changes an input therefore costs three API calls.
-- When the branch activity cannot be read, only the previous head is considered.
+  It then compares every file on each remaining head, and reads check runs only from a head whose files all match.
+- When the branch activity or the blobs on earlier heads cannot be read, only the previous head is considered.
   Each file also keeps the same Git mode on the proven head and this one, so a lost executable bit counts as a change.
 - Every check run the action reads comes from an App in `reuse-check-apps`.
 - No other pull request, open or merged, contains the proven head, because check runs on a shared commit can come from a pull request with a different base.

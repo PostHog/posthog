@@ -43141,7 +43141,14 @@ async function headsWithSameContent(input, api, heads, before, differingFromBefo
         return beforeMatches ? [before] : [];
     }
     const paths = [...new Set([...differingFromBefore, ...current.keys()])].slice(0, FINGERPRINT_PATHS);
-    const blobs = await api.blobs([input.pr.head.sha, ...others], paths);
+    let blobs;
+    try {
+        blobs = await api.blobs([input.pr.head.sha, ...others], paths);
+    }
+    catch (error) {
+        core.info(`reuse: earlier head contents unavailable (${error instanceof Error ? error.message : String(error)})`);
+        return beforeMatches ? [before] : [];
+    }
     const now = JSON.stringify(blobs.get(input.pr.head.sha));
     const matching = new Set(others.filter(sha => JSON.stringify(blobs.get(sha)) === now));
     return heads.filter(sha => (sha === before ? beforeMatches : matching.has(sha)));
@@ -43171,6 +43178,12 @@ async function proveRun(input, api, current, before) {
     const heads = await earlierHeads(input, api, before);
     const candidates = await headsWithSameContent(input, api, heads.shas, before, differingFromBefore, current);
     for (const sha of candidates) {
+        if (sha !== before) {
+            const differing = await differingFrom(input, api, current, sha);
+            if (!Array.isArray(differing) || differing.length > 0) {
+                continue;
+            }
+        }
         const [gates, proofs] = await Promise.all([
             checkRunsFrom(input, api, sha, config.checks),
             checkRunsFrom(input, api, sha, config.proofChecks)
@@ -43180,15 +43193,6 @@ async function proveRun(input, api, current, before) {
         const proof = allGatesPassed ? proofs.flat().find(run => run.conclusion === 'success') : undefined;
         if (failedGate < 0 && !proof) {
             continue;
-        }
-        if (sha !== before) {
-            const differing = await differingFrom(input, api, current, sha);
-            if (!Array.isArray(differing)) {
-                return { ...differing, earlierHeads: heads.listed };
-            }
-            if (differing.length > 0) {
-                continue;
-            }
         }
         if (failedGate >= 0) {
             const failed = gates[failedGate].find(isFailure);

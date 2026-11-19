@@ -361,14 +361,22 @@ describe('reuse of an earlier passing result', () => {
     expect(decision).toMatchObject({reuse: true, previousSha: EARLIER_HEAD})
   })
 
-  test('a push that changes an input reads no check runs from heads with other content', async () => {
+  test.each<[string, Partial<ReuseApi>]>([
+    [
+      'their sampled blobs differ',
+      {
+        blobs: async (shas, paths) =>
+          new Map(shas.map(sha => [sha, paths.map(() => (sha === CURRENT_HEAD ? 'v2' : 'v1'))]))
+      }
+    ],
+    ['an input outside the sampled blobs differs', {}]
+  ])('a push that changes an input reads no check runs from heads where %s', async (_, overrides) => {
     const headsRead: string[] = []
 
     const decision = await evaluate(
       input({files: files({...appFile, sha: 'app-v2'})}),
       api({
-        blobs: async (shas, paths) =>
-          new Map(shas.map(sha => [sha, paths.map(() => (sha === CURRENT_HEAD ? 'v2' : 'v1'))])),
+        ...overrides,
         checkRuns: async sha => {
           headsRead.push(sha)
           return [green]
@@ -380,17 +388,29 @@ describe('reuse of an earlier passing result', () => {
     expect(headsRead).toEqual([])
   })
 
-  test('the previous head is still reused when the branch activity cannot be listed', async () => {
-    const decision = await evaluate(
-      input(),
-      api({
+  test.each<[string, Partial<ReuseApi>, number | null]>([
+    [
+      'the branch activity cannot be listed',
+      {
         branchHeads: async () => {
           throw new Error('403')
         }
-      })
-    )
+      },
+      null
+    ],
+    [
+      'the contents of earlier heads cannot be read',
+      {
+        blobs: async () => {
+          throw new Error('502')
+        }
+      },
+      2
+    ]
+  ])('the previous head is still reused when %s', async (_, overrides, earlierHeads) => {
+    const decision = await evaluate(input(), api(overrides))
 
-    expect(decision).toMatchObject({reuse: true, previousSha: PREVIOUS_HEAD, earlierHeads: null})
+    expect(decision).toMatchObject({reuse: true, previousSha: PREVIOUS_HEAD, earlierHeads})
   })
 
   test('a draft reuses a gate that ran before any ready-for-review event', async () => {
